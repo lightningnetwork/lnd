@@ -126,8 +126,6 @@ type ForwardingSegment struct {
 	// Key shared by intermediate node with the source, used to peel a layer
 	// off the onion for the next hop.
 	sharedSymmetricKey [32]byte // TODO(roasbeef): or, 16?
-
-	mac [32]byte // TODO(roasbeef): or, 16?
 }
 
 // AnonymousHeader...
@@ -137,6 +135,8 @@ type AnonymousHeader struct {
 	// the node. It also contains a secret key shared with this node and the
 	// source, so it can peel off a layer of the onion for the next hop.
 	FS ForwardingSegment
+
+	mac [32]byte // TODO(roasbeef): or, 16?
 }
 
 // CommonHeader...

@@ -1,0 +1,45 @@
+
+========== Half Baked Idea to Allow Re-Routes via the Onion Route ==========
+ So, it seems that using onion routing break re-routing by intermediate nodes
+ (for w/e reason they deem neccessary). aj stumbled unto this realization in
+ one of his latest mailing lists posts (I plan to post to the ML myself soon,
+ but only after I've figured out all the quirks etc). 
+
+ I've thought of a way to allow intermdiate nodes to re-route, but it requires
+ communicating with the source backwards on the onion route. Using HORNET,
+ (during the set up phase) we can give each node in the hop the backwards
+ AHDR (this allows them to route backwards to the source with a message) from
+ their point of view. So basically, then have a partial onion (full onion is to destination).
+ This would allow each of them to communicate back to the source since positions
+ information isn't given away by the sphinx header, nor the data transmission header.
+ This would let the intermediate nodes give recommendations of the route in a
+ way. In the example: because a route is cheaper more capacity, non-responsive,
+ rebalance route, etc.
+
+ So, at first glance this looks to work. It avoids requiring the source to
+ have a syncrhnous connection to *each* hop (which also makes the onio stuff
+ pointless).
+ ==========================================================================
+
+ ==== Half Baked Thought About Control/Message separation along route =====
+ Hop to hop data transmission implementation (negotiating changes to the 
+ commitment txns, adding htlc, etc)
+ doesn't matter. Meaning, hop-to-hop the nodes can use w/e protos dictated
+ by w/e protocol their running. Could even do some version exchange on first
+ connect (yo I support v1, v2, vRusty (could have protocol bridges etc)).
+ So the main standardization point is then on the fronts on control
+ information within the onion routing: set up HTLC, re-route request, etc.
+ =========================================================================
+
+* One problem is that since R is the same, all the fancy stuff the schemes
+  do to ensure unlinkability amongst the route are moot. Perhaps there's a
+  way to give each intermedaite hop a new R' who's pre-image depends on the 
+  R'' before it in a privacy preserving manner.
+
+* Unsure, if using the onion for comms and control is a good idea. May just
+  make more sense to only use it so intermediate nodes don't learn the whole
+  path nor their possition in the path.
+
+* So, for now I'm just implementing sphinx. If we decide in the future that 
+  it's deseriable, then that's chill because I've already implemented the 
+  set up phase for HORNET.

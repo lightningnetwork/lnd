@@ -5,39 +5,6 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
-// ========== Half Baked Idea to Allow Re-Routes via the Onion Route ==========
-// So, it seems that using onion routing break re-routing by intermediate nodes
-// (for w/e reason they deem neccessary). aj stumbled unto this realization in
-// one of his latest mailing lists posts (I plan to post to the ML myself soon,
-// but only after I've figured out all the quirks etc). ASIDE:: looks like Rusty is
-// using zeroes as padding? HORNET uses random bytes in a way that still doesn't
-// give away node position.
-//
-// I've thought of a way to allow intermdiate nodes to re-route, but it requires
-// communicating with the source backwards on the onion route. Using HORNET,
-// (during the set up phase) we can give each node in the hop the backwards
-// AHDR (this allows them to route backwards to the source with a message) from
-// their point of view. So basically, then have a partial onion (full onion is to destination).
-// This would allow each of them to communicate back to the source since positions
-// information isn't given away by the sphinx header, nor the data transmission header.
-// This would let the intermediate nodes give recommendations of the route in a
-// way. In the example: because a route is cheaper more capacity, non-responsive,
-// rebalance route, etc.
-//
-// So, at first glance this looks to work. It avoids requiring the source to
-// have a syncrhnous connection to *each* hop (which also makes the onio stuff
-// pointless).
-// ==========================================================================
-
-// ==== Half Baked Thought About Control/Message separation along route =====
-// Hop to hop data transmission implementation (negotiating changes to the commitment txns, adding htlc, etc)
-// doesn't matter. Meaning, hop-to-hop the nodes can use w/e protos dictated
-// by w/e protocol their running. Could even do some version exchange on first
-// connect (yo I support v1, v2, vRusty (could have protocol bridges etc)).
-// So the main standardization point is then on the fronts on control
-// information within the onion routing: set up HTLC, re-route request, etc.
-// =========================================================================
-
 // TODO(roasbeef): Might need to change? due to the PRG* requirements? But
 // yeh, once I add the LN specific stuff FSLength will change. Also doesn't
 // 20 hops seem a bit excessive? 7?

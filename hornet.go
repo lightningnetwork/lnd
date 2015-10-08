@@ -43,28 +43,6 @@ const FSLength = 48
 //  * op (elem of) {MAC, PRGO, PRG!, PRP, ENC, DEC}
 //  * key gen for the above essentially
 
-// paper doesn't really specify the format, gotta read the Sphinx paper for it.
-// SphinxHeader...
-type SphinxHeader struct {
-	// pretty sure this MAC will extend to the chdr also
-}
-
-// SphinxPayload...
-type SphinxPayload struct {
-}
-
-// SphinxPacket...
-type SphinxPacket struct {
-}
-
-// GenerateSphinxHeader...
-// Will create sphinx headers for the forward and backwards path, gen the shared
-// sym keys via DH, and output the ephemeral key pair we used to gen the shared
-// key with the nodes long-term DH key.
-func GenerateSphinxHeader() (*SphinxHeader, *SphinxHeader, [][32]byte, []*btcec.PrivateKey) {
-	return nil, nil, nil, nil
-}
-
 // RoutingSegment...
 // NOTE: Length of routing segment in the paper is 8 bytes (enough for their
 // imaginary network, I guess). But, looking like they'll be (20 + 33 bytes)

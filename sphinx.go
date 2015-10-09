@@ -49,22 +49,22 @@ func GenerateSphinxHeader(dest LnAddr, identifier wire.ShaHash, paymentPath []No
 	hopSharedSecret[0] = sha256.Sum256(btcec.GenerateSharedSecret(sessionKey, paymentPath[0]))
 	hopBlindingFactors[0] = computeBlindingFactor(hopEphemeralPubKeys[0], hopSharedSecret[0][:])
 
-	// x * b_{0} mod n
+	// x * b_{0} mod n. Becomes x * b_{0} * b_{1} * ..... * b_{n} mod curve_order, etc.
 	cummulativeBlind := new(big.Int).Mul(sessionKey.X, new(big.Int).SetBytes(hopBlindingFactors[0][:]))
 	cummulativeBlind.Mod(cummulativeBlind, btcec.S256().N)
 
 	// Now recursively compute the ephemeral ECDH pub keys, the shared
 	// secret, and blinding factor for each hop.
 	for i := 1; i < numHops-1; i++ {
-		// a_{n} = a_{n-1} x c_{n-1}
-		// hopEphemeralPubKeys[i] = ScalarBaseMult(cummulativeBlind.Bytes())
-		hopEphemeralPubKeys[i] = blindGroupElement(hopEphemeralPubKeys[i-1], cummulativeBlind.Bytes())
+		// a_{n} = a_{n-1} x c_{n-1} -> (Y_prev_pub_key x prevBlindingFactor)
+		hopEphemeralPubKeys[i] = blindGroupElement(hopEphemeralPubKeys[i-1], hopBlindingFactors[i-1][:])
 
-		// s_{n} = sha256( y_{n} x c_{n-1} )
+		// s_{n} = sha256( y_{n} x c_{n-1} ) -> Y_their_pub_key x (x_our_priv * all prev blinding factors mod curve_order)
 		hopSharedSecret[i] = sha256.Sum256(blindGroupElement(paymentPath[i], cummulativeBlind.Bytes()).X.Bytes())
 
 		// b_{n} = sha256(a_{n} || s_{n})
 		hopBlindingFactors[i] = computeBlindingFactor(hopEphemeralPubKeys[i], hopSharedSecret[i][:])
+		// TODO(roasbeef): prob don't need to store all blinding factors, only the prev...
 
 		// c_{n} = c_{n-1} * b_{n} mod curve_order
 		cummulativeBlind.Mul(cummulativeBlind, new(big.Int).SetBytes(hopBlindingFactors[i][:]))

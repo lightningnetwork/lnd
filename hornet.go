@@ -100,6 +100,9 @@ type DataPacket struct {
 	Onion [FSLength * NumMaxHops]byte // TODO(roasbeef): or, is it NumMaxHops - 1?
 }
 
+type SphinxHeader struct {
+}
+
 // SessionSetupPacket...
 type SessionSetupPacket struct {
 	Chdr      CommonHeader

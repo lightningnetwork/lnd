@@ -12,25 +12,26 @@ import (
 )
 
 const (
-	// So, 256-bit EC curve, 128-bit keys symmetric encryption, 128-bit keys for
-	// HMAC, etc. Stored in bytes, here.
-	securityParameter = 16
+	// So, 256-bit EC curve pubkeys, 256-bit keys symmetric encryption,
+	// 256-bit keys for HMAC, etc. Represented in bytes.
+	securityParameter = 32
 
-	// Default message size in bytes. This is probably too big atm?
+	// Default message size in bytes. This is probably *much* too big atm?
 	messageSize = 1024
 
 	// Mix header over head. If we assume 5 hops (which seems sufficient for
 	// LN, for now atleast), 32 byte group element to be re-randomized each
-	// hop, and 16 byte symmetric key.
+	// hop, and 32 byte symmetric key.
 	// Overhead is: p + (2r + 2)s
 	//  * p = pub key size (in bytes, for DH each hop)
 	//  * r = max number of hops
 	//  * s = summetric key size (in bytes)
-	// It's: 32 + (2*5 + 2) * 16 = 224 bytes! But if we use secp256k1 instead of
+	// It's: 32 + (2*5 + 2) * 32 = 416 bytes! But if we use secp256k1 instead of
 	// Curve25519, then we've have an extra byte for the compressed keys.
-	mixHeaderOverhead = 225
+	mixHeaderOverhead = 417
 
-	// Basically an upper limit on the diameter on our node graph.
+	// The maximum path length. This should be set to an
+	// estiamate of the upper limit of the diameter of the node graph.
 	numMaxHops = 5
 
 	// Special destination to indicate we're at the end of the path.

@@ -133,7 +133,7 @@ func GenerateSphinxHeader(dest []byte, identifier [securityParameter]byte,
 	// Encrypt the header for the final hop with the shared secret the
 	// destination will eventually derive, then pad the message out to full
 	// size with the "random" filler bytes.
-	streamBytes := generateRandBytes(generateKey("rho", hopSharedSecrets[numHops-1]))
+	streamBytes := generateCipherStream(generateKey("rho", hopSharedSecrets[numHops-1]), numStreamBytes)
 	xor(mixHeader, mixHeader, streamBytes[:(2*(numMaxHops-numHops)+3)*securityParameter])
 	mixHeader = append(mixHeader, filler...)
 
@@ -159,7 +159,7 @@ func GenerateSphinxHeader(dest []byte, identifier [securityParameter]byte,
 		// Mix header itself.
 		b.Write(mixHeader[:(2*numMaxHops-1)*securityParameter])
 
-		streamBytes := generateRandBytes(generateKey("rho", hopSharedSecrets[i]))
+		streamBytes := generateCipherStream(generateKey("rho", hopSharedSecrets[i]), numStreamBytes)
 		xor(mixHeader, b.Bytes(), streamBytes[:(2*numMaxHops+1)*securityParameter])
 		headerMac = calcMac(generateKey("mu", hopSharedSecrets[i]), mixHeader)
 	}
@@ -194,7 +194,8 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 		tempBuf.Write(filler)
 		tempBuf.Write(padding)
 
-		streamBytes := generateRandBytes(generateKey("rho", sharedSecrets[i-1]))
+		streamBytes := generateCipherStream(generateKey("rho", sharedSecrets[i-1]),
+			numStreamBytes)
 
 		xor(filler, tempBuf.Bytes(), streamBytes[slice:])
 	}
@@ -322,25 +323,21 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityPara
 
 // generateRandBytes...
 // generates
-func generateRandBytes(key [securityParameter]byte) [numStreamBytes]byte {
-	var r [numStreamBytes]byte
-
+func generateCipherStream(key [securityParameter]byte, numBytes uint) []byte {
 	block, _ := aes.NewCipher(key[:])
 
 	// We use AES in CTR mode to generate a psuedo randmom stream of bytes
 	// by encrypting a plaintext of all zeroes.
-	randBytes := make([]byte, numStreamBytes)
-	plainText := bytes.Repeat([]byte{0}, numStreamBytes)
+	cipherStream := make([]byte, numBytes)
+	plainText := bytes.Repeat([]byte{0}, int(numBytes))
 
 	// Our IV is just zero....
 	iv := bytes.Repeat([]byte{0}, aes.BlockSize)
 
 	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(randBytes, plainText)
+	stream.XORKeyStream(cipherStream, plainText)
 
-	copy(r[:], randBytes)
-
-	return r
+	return cipherStream
 }
 
 // ComputeBlindingFactor for the next hop given the ephemeral pubKey and

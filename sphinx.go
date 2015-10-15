@@ -238,52 +238,6 @@ func CreateForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
 	return mixHeader, &onion, nil
 }
 
-// lionEncode...
-// block cipher with a block size equivalent to our message size
-// http://www.cl.cam.ac.uk/~rja14/Papers/bear-lion.pdf (section 6)
-func lionessEncode(key [securityParameter]byte, message [messageSize]byte) [messageSize]byte {
-	//var l [securityParameter]byte
-	//var r [messageSize + securityParameter]byte
-
-	sha := sha256.New()
-	var cipherText [messageSize]byte
-
-	// Round 1.
-	sha.Write(message[securityParameter:])
-	sha.Write(key[:])
-	sha.Write([]byte{1})
-	xor(cipherText[:], sha.Sum(nil)[:securityParameter], message[:securityParameter])
-	copy(cipherText[securityParameter:], message[securityParameter:])
-
-	// Round 2.
-	var k2 [securityParameter]byte
-	xor(k2[:], cipherText[:securityParameter], key[:])
-	block, _ := aes.NewCipher(k2[:])
-	stream := cipher.NewCTR(block, bytes.Repeat([]byte{0}, aes.BlockSize))
-	stream.XORKeyStream(cipherText[securityParameter:], cipherText[securityParameter:])
-
-	sha.Reset()
-
-	// Round 3.
-	sha.Write(cipherText[securityParameter:])
-	sha.Write(key[:])
-	sha.Write([]byte{3})
-	xor(cipherText[:], sha.Sum(nil)[:securityParameter], cipherText[:securityParameter])
-
-	// Round 4.
-	var k4 [securityParameter]byte
-	xor(k4[:], cipherText[:securityParameter], key[:])
-	block, _ = aes.NewCipher(k4[:])
-	stream = cipher.NewCTR(block, bytes.Repeat([]byte{0}, aes.BlockSize))
-	stream.XORKeyStream(cipherText[securityParameter:], cipherText[securityParameter:])
-
-	return cipherText
-}
-
-// lionDecode...
-func lionessDecode() {
-}
-
 // calcMac....
 func calcMac(key [securityParameter]byte, msg []byte) [securityParameter]byte {
 	hmac := hmac.New(sha256.New, key[:])

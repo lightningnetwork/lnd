@@ -217,15 +217,31 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 	return filler
 }
 
-// CreateForwardingMessage...
-func CreateForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
-	identifier [securityParameter]byte, message []byte) (*MixHeader, *[messageSize]byte, error) {
+// ForwardingMessage represents a forwarding message containing onion wrapped
+// hop-to-hop routing information along with an onion encrypted payload message
+// addressed to the final destination.
+// TODO(roasbeef): serialize/deserialize methods..
+type ForwardingMessage struct {
+	header *MixHeader
+	msg    [messageSize]byte
+}
+
+// NewForwardingMessage generates the a mix header containing the neccessary
+// onion routing information required to propagate the message through the
+// mixnet, eventually reaching the final node specified by 'identifier'. The
+// onion encrypted message payload is then to be delivered to the specified 'dest'
+// address.
+func NewForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
+	identifier [securityParameter]byte, message []byte) (*ForwardingMessage, error) {
 	routeLength := len(route)
 
-	// Compute the mix header, and shared secerts for each hop.
-	mixHeader, secrets, err := GenerateSphinxHeader([]byte{nullDest}, zeroNode, route)
+	// Compute the mix header, and shared secerts for each hop. We pass in
+	// the null destinatino and zero identifier in order for the final node
+	// in the route to be able to distinguish the payload as addressed to
+	// itself.
+	mixHeader, secrets, err := NewMixHeader([]byte{nullDest}, zeroNode, route)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Now for the body of the message. The next-node ID is set to all
@@ -247,10 +263,11 @@ func CreateForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
 		onion = lionessEncode(generateKey("pi", secrets[i]), onion)
 	}
 
-	return mixHeader, &onion, nil
+	return &ForwardingMessage{header: mixHeader, msg: onion}, nil
 }
 
-// calcMac....
+// calcMac calculates HMAC-SHA-256 over the message using the passed secret key as
+// input to the HMAC.
 func calcMac(key [securityParameter]byte, msg []byte) [securityParameter]byte {
 	hmac := hmac.New(sha256.New, key[:])
 	hmac.Write(msg)
@@ -262,7 +279,7 @@ func calcMac(key [securityParameter]byte, msg []byte) [securityParameter]byte {
 	return mac
 }
 
-// xor...
+// xor computes the byte wise XOR of a and b, storing the result in dst.
 func xor(dst, a, b []byte) int {
 	n := len(a)
 	if len(b) < n {

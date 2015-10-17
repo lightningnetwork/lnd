@@ -37,14 +37,18 @@ const (
 	// Special destination to indicate we're at the end of the path.
 	nullDestination = 0x00
 
-	// (2r + 3)k = (2*5 + 3) * 16 = 208
-	numStreamBytes = 208
+	// (2r + 3)k = (2*5 + 3) * 32 = 416
+	// The number of bytes produced by our CSPRG for the key stream
+	// implementing our stream cipher to encrypt/decrypt the mix header. The
+	// last 2 * securityParameter bytes are only used in order to generate/check
+	// the MAC over the header.
+	numStreamBytes = (2*numMaxHops + 3) * securityParameter
 
 	sharedSecretSize = 32
 
-	// node_id + mac + (2*5-1)*16
-	// 16 + 16 + 144
-	routingInfoSize = 176
+	// node_id + mac + (2*5-1)*32
+	// 32 + 32 + 288
+	routingInfoSize = 352
 )
 
 type LnEndpoint string
@@ -204,8 +208,6 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 }
 
 // CreateForwardingMessage...
-// TODO(roasbeef): Identifier should also been the same size as the security paramter.
-// Should probably go with k = 32 then.
 func CreateForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
 	identifier [securityParameter]byte, message []byte) (*MixHeader, *[messageSize]byte, error) {
 	routeLength := len(route)

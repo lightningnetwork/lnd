@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 )
 
-// lionEncode...
-// block cipher with a block size equivalent to our message size
-// http://www.cl.cam.ac.uk/~rja14/Papers/bear-lion.pdf (section 6)
+// lionEncode encrypts a message of fixed size using the LIONESS block cipher.
+// The LIONESS block cipher is unique due to its variable block size. Within our
+// application we set the block size equivalent to our fixed message size.
+// Details concerning the rationale, security model and internals of the
+// LIONESS block cipher can be found here: http://www.cl.cam.ac.uk/~rja14/Papers/bear-lion.pdf (section 6)
 func lionessEncode(key [securityParameter]byte, message [messageSize]byte) [messageSize]byte {
 	var cipherText [messageSize]byte
 	copy(cipherText[:], message[:])
@@ -42,7 +44,8 @@ func lionessEncode(key [securityParameter]byte, message [messageSize]byte) [mess
 	return cipherText
 }
 
-// lionDecode...
+// lionDecode performs the inverse operation of lionessEncode. Namely,
+// decrypting a previously generated cipher text, returning the original plaintext.
 func lionessDecode(key [securityParameter]byte, cipherText [messageSize]byte) [messageSize]byte {
 	var message [messageSize]byte
 	copy(message[:], cipherText[:])

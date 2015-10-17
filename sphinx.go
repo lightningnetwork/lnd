@@ -179,15 +179,16 @@ func GenerateSphinxHeader(dest []byte, identifier [securityParameter]byte,
 	return header, hopSharedSecrets, nil
 }
 
-// generateHeaderPadding...
-// At each step, we add 2*securityParameter padding of zeroes, concatenate it
-// to the previous filler, then decrypt it (XOR) with the secret key of the
-// current hop. When encrypting the mix header we essentially do the reverse of
-// this operation: we "encrypt" the padding, and drop 2*k number of zeroes. As
-// nodes process the mix header they add the padding (2*k) and then decrypt
-// eventually leaving only the original "filler" bytes produced by this function
-// at the last hop. Using this methodology, the size of the mix header stays
-// constant at each hop.
+// generateHeaderPadding derives the bytes for padding the mix header to ensure
+// it remains fixed sized throughout route transit. At each step, we add
+// 2*securityParameter padding of zeroes, concatenate it to the previous
+// filler, then decrypt it (XOR) with the secret key of the current hop. When
+// encrypting the mix header we essentially do the reverse of this operation:
+// we "encrypt" the padding, and drop 2*k number of zeroes. As nodes process
+// the mix header they add the padding (2*k) in order to check the MAC and
+// decrypt the next routing information eventually leaving only the original
+// "filler" bytes produced by this function at the last hop. Using this
+// methodology, the size of the mix header stays constant at each hop.
 func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) []byte {
 	var filler []byte
 	for i := 1; i < numHops; i++ {

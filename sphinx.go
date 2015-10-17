@@ -61,16 +61,25 @@ type SharedSecret [sharedSecretSize]byte
 var zeroNode [securityParameter]byte
 var nullDest byte
 
-// MixHeader...
+// MixHeader is the onion wrapped hop-to-hop routing information neccessary to
+// propagate a message through the mix-net without intermediate nodes having
+// knowledge of their position within the route, the source, the destination,
+// and finally the identities of the past/future nodes in the route. At each hop
+// the ephemeral key is used by the node to perform ECDH between itself and the
+// source node. This derived secret key is used to check the MAC of the entire mix
+// header, decrypt the next set of routing information, and re-randomize the
+// ephemeral key for the next node in the path. This per-hop re-randomization
+// allows us to only propgate a single group element through the onion route.
+// TODO(roasbeef): serialize/deserialize methods..
 type MixHeader struct {
-	DHKey       *btcec.PublicKey
-	RoutingInfo [routingInfoSize]byte
-	HeaderMAC   [securityParameter]byte
+	EphemeralKey *btcec.PublicKey
+	RoutingInfo  [routingInfoSize]byte
+	HeaderMAC    [securityParameter]byte
 }
 
 // GenerateSphinxHeader...
 // TODO(roasbeef): or pass in identifiers as payment path? have map from id -> pubkey
-func GenerateSphinxHeader(dest []byte, identifier [securityParameter]byte,
+func NewMixHeader(dest []byte, identifier [securityParameter]byte,
 	paymentPath []*btcec.PublicKey) (*MixHeader, [][sharedSecretSize]byte, error) {
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -171,9 +180,9 @@ func GenerateSphinxHeader(dest []byte, identifier [securityParameter]byte,
 	var r [routingInfoSize]byte
 	copy(r[:], mixHeader)
 	header := &MixHeader{
-		DHKey:       hopEphemeralPubKeys[0],
-		RoutingInfo: r,
-		HeaderMAC:   headerMac,
+		EphemeralKey: hopEphemeralPubKeys[0],
+		RoutingInfo:  r,
+		HeaderMAC:    headerMac,
 	}
 
 	return header, hopSharedSecrets, nil

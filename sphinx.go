@@ -47,16 +47,12 @@ const (
 	sharedSecretSize = 32
 
 	// node_id + mac + (2*5-1)*32
-	// 32 + 32 + 288
-	routingInfoSize = 352
+	// 32 + 32 + 288 = 352
+	routingInfoSize = (securityParameter * 2) + (2*numMaxHops-1)*securityParameter
 )
 
-type LnEndpoint string
-
 //type LnAddr btcutil.Address
-type LnAddr string
-
-type SharedSecret [sharedSecretSize]byte
+type LightningAddress []byte
 
 var zeroNode [securityParameter]byte
 var nullDest byte
@@ -79,7 +75,7 @@ type MixHeader struct {
 
 // GenerateSphinxHeader...
 // TODO(roasbeef): or pass in identifiers as payment path? have map from id -> pubkey
-func NewMixHeader(dest []byte, identifier [securityParameter]byte,
+func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	paymentPath []*btcec.PublicKey) (*MixHeader, [][sharedSecretSize]byte, error) {
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -222,8 +218,8 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 // addressed to the final destination.
 // TODO(roasbeef): serialize/deserialize methods..
 type ForwardingMessage struct {
-	header *MixHeader
-	msg    [messageSize]byte
+	Header *MixHeader
+	Msg    [messageSize]byte
 }
 
 // NewForwardingMessage generates the a mix header containing the neccessary
@@ -231,7 +227,7 @@ type ForwardingMessage struct {
 // mixnet, eventually reaching the final node specified by 'identifier'. The
 // onion encrypted message payload is then to be delivered to the specified 'dest'
 // address.
-func NewForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
+func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	identifier [securityParameter]byte, message []byte) (*ForwardingMessage, error) {
 	routeLength := len(route)
 
@@ -263,7 +259,7 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LnAddr,
 		onion = lionessEncode(generateKey("pi", secrets[i]), onion)
 	}
 
-	return &ForwardingMessage{header: mixHeader, msg: onion}, nil
+	return &ForwardingMessage{Header: mixHeader, Msg: onion}, nil
 }
 
 // calcMac calculates HMAC-SHA-256 over the message using the passed secret key as

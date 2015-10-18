@@ -55,6 +55,10 @@ type RoutingSegment struct {
 	// stuff perhaps?
 }
 
+// SphinxPayload...
+type SphinxPayload struct {
+}
+
 // ForwardingSegment....
 type ForwardingSegment struct {
 	// Here's hash(R), attempt to make an HTLC with the next hop. If

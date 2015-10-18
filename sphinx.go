@@ -6,9 +6,11 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/sha256"
+	"fmt"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil/base58"
 )
 
 const (
@@ -339,10 +341,143 @@ func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec
 	return &btcec.PublicKey{hopPubKey.Curve, newX, newY}
 }
 
-// SphinxPayload...
-type SphinxPayload struct {
+type ProcessCode int
+
+const (
+	ExitNode = iota
+	MoreHops
+	Failure
+)
+
+// processMsgAction....
+type processMsgAction struct {
+	action ProcessCode
+
+	nextHop [securityParameter]byte
+	fwdMsg  *ForwardingMessage
+
+	destAddr LightningAddress
+	destMsg  []byte
 }
 
-// SphinxPacket...
-type SphinxPacket struct {
+// SphinxNode...
+type SphinxNode struct {
+	identifier [securityParameter]byte
+	// TODO(roasbeef): swap out with btcutil.AddressLightningKey
+	name  []byte
+	lnKey *btcec.PrivateKey
+
+	seenSecrets map[[securityParameter]byte]struct{}
+}
+
+// NewSphinxNode...
+func NewSphinxNode(nodeID [securityParameter]byte, nodeAddr LightningAddress, nodeKey *btcec.PrivateKey) *SphinxNode {
+	return &SphinxNode{
+		identifier: nodeID,
+		name:       nodeAddr,
+		lnKey:      nodeKey,
+		// TODO(roasbeef): replace instead with bloom filter?
+		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
+		seenSecrets: make(map[[securityParameter]byte]struct{}),
+	}
+}
+
+// ProcessMixHeader...
+// TODO(roasbeef): proto msg enum?
+func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*processMsgAction, error) {
+	mixHeader := fwdMsg.Header
+	onionMsg := fwdMsg.Msg
+
+	dhKey := mixHeader.EphemeralKey
+	routeInfo := mixHeader.RoutingInfo
+	headerMac := mixHeader.HeaderMAC
+
+	// Ensure that the public key is on our curve.
+	if !s.lnKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
+		return nil, fmt.Errorf("pubkey isn't on secp256k1 curve")
+	}
+
+	// Compute our shared secret.
+	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(s.lnKey, dhKey))
+
+	// In order to prevent replay attack, if we've seen this particular
+	// shared secret before, cease processing and just drop this forwarding
+	// message.
+	if _, ok := s.seenSecrets[sharedSecret]; ok {
+		return nil, fmt.Errorf("shared secret previously seen")
+	}
+
+	// Using the derived share secret, ensure the integrity of the routing
+	// information by checking the attached MAC without leaking timing
+	// information.
+	calculatedMac := calcMac(generateKey("mu", sharedSecret), routeInfo[:])
+	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
+		return nil, fmt.Errorf("MAC mismatch, rejecting forwarding message")
+	}
+
+	// The MAC checks out, mark this current shared secret as processed in
+	// order to foil future replay attacks.
+	s.seenSecrets[sharedSecret] = struct{}{}
+
+	// Attach the padding zeroes in order to properly strip an encryption
+	// layer off the routing info revealing the routing information for the
+	// next hop.
+	var hopInfo [numStreamBytes]byte
+	streamBytes := generateCipherStream(generateKey("rho", sharedSecret), numStreamBytes)
+	headerWithPadding := append(routeInfo[:], bytes.Repeat([]byte{0}, 2*securityParameter)...)
+	xor(hopInfo[:], headerWithPadding, streamBytes)
+
+	// Are we the final hop? Or should the message be forwarded further?
+	switch hopInfo[0] {
+	case nullDest: // We're the exit node for a forwarding message.
+		onionCore := lionessDecode(generateKey("pi", sharedSecret), onionMsg)
+		// TODO(roasbeef): check ver and reject if not our net.
+		destAddr, _, err := base58.CheckDecode(string(onionCore[securityParameter : securityParameter*2]))
+		if err != nil {
+			return nil, err
+		}
+		msg := onionCore[securityParameter*2:]
+		return &processMsgAction{
+			action:   ExitNode,
+			destAddr: destAddr,
+			destMsg:  msg,
+		}, nil
+
+	default: // The message is destined for another mix-net node.
+		// TODO(roasbeef): prob extract to func
+
+		// Randomize the DH group element for the next hop using the
+		// deterministic blinding factor.
+		blindingFactor := computeBlindingFactor(dhKey, sharedSecret[:])
+		nextDHKey := blindGroupElement(dhKey, blindingFactor[:])
+
+		// Parse out the ID of the next node in the route.
+		var nextHop [securityParameter]byte
+		copy(nextHop[:], hopInfo[:securityParameter])
+
+		// MAC and MixHeader for th next hop.
+		var nextMac [securityParameter]byte
+		copy(nextMac[:], hopInfo[securityParameter:securityParameter*2])
+		var nextMixHeader [routingInfoSize]byte
+		copy(nextMixHeader[:], hopInfo[securityParameter*2:])
+
+		// Strip a single layer of encryption from the onion for the
+		// next hop to also process.
+		nextOnion := lionessDecode(generateKey("pi", sharedSecret), onionMsg)
+
+		nextFwdMsg := &ForwardingMessage{
+			Header: &MixHeader{
+				EphemeralKey: nextDHKey,
+				RoutingInfo:  nextMixHeader,
+				HeaderMAC:    nextMac,
+			},
+			Msg: nextOnion,
+		}
+
+		return &processMsgAction{
+			action:  MoreHops,
+			nextHop: nextHop,
+			fwdMsg:  nextFwdMsg,
+		}, nil
+	}
 }

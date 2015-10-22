@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/base58"
 )
 
 const (
@@ -448,10 +447,11 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 	case nullDest: // We're the exit node for a forwarding message.
 		onionCore := lionessDecode(generateKey("pi", sharedSecret), onionMsg)
 		// TODO(roasbeef): check ver and reject if not our net.
-		destAddr, _, _ := base58.CheckDecode(string(onionCore[securityParameter : securityParameter*2]))
-		/*if err != nil {
+		/*destAddr, _, _ := base58.CheckDecode(string(onionCore[securityParameter : securityParameter*2]))
+		if err != nil {
 			return nil, err
 		}*/
+		destAddr := onionCore[securityParameter : securityParameter*2]
 		msg := onionCore[securityParameter*2:]
 		return &processMsgAction{
 			action:   ExitNode,

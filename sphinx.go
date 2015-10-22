@@ -204,9 +204,10 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 // "filler" bytes produced by this function at the last hop. Using this
 // methodology, the size of the mix header stays constant at each hop.
 func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) []byte {
-	var filler []byte
+	fillerSize := (2*(numMaxHops-1) + 3) * securityParameter
+	filler := make([]byte, fillerSize)
+
 	for i := 1; i < numHops; i++ {
-		slice := (2*(numMaxHops-1) + 3) * securityParameter
 		padding := bytes.Repeat([]byte{0}, 2*securityParameter)
 
 		var tempBuf bytes.Buffer
@@ -216,7 +217,7 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 		streamBytes := generateCipherStream(generateKey("rho", sharedSecrets[i-1]),
 			numStreamBytes)
 
-		xor(filler, tempBuf.Bytes(), streamBytes[slice:])
+		xor(filler, tempBuf.Bytes(), streamBytes[fillerSize:])
 	}
 
 	return filler

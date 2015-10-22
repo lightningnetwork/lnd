@@ -10,13 +10,14 @@ import (
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/base58"
 )
 
 const (
-	// So, 256-bit EC curve pubkeys, 256-bit keys symmetric encryption,
-	// 256-bit keys for HMAC, etc. Represented in bytes.
-	securityParameter = 32
+	// So, 256-bit EC curve pubkeys, 160-bit keys symmetric encryption,
+	// 160-bit keys for HMAC, etc. Represented in bytes.
+	securityParameter = 20
 
 	// Default message size in bytes. This is probably *much* too big atm?
 	messageSize = 1024
@@ -28,9 +29,10 @@ const (
 	//  * p = pub key size (in bytes, for DH each hop)
 	//  * r = max number of hops
 	//  * s = summetric key size (in bytes)
-	// It's: 32 + (2*5 + 2) * 32 = 416 bytes! But if we use secp256k1 instead of
+	// It's: 32 + (2*5 + 2) * 20 = 273 bytes! But if we use secp256k1 instead of
 	// Curve25519, then we've have an extra byte for the compressed keys.
-	mixHeaderOverhead = 417
+	// 837 bytes for 20 hops.
+	mixHeaderOverhead = 273
 
 	// The maximum path length. This should be set to an
 	// estiamate of the upper limit of the diameter of the node graph.
@@ -39,7 +41,7 @@ const (
 	// Special destination to indicate we're at the end of the path.
 	nullDestination = 0x00
 
-	// (2r + 3)k = (2*5 + 3) * 32 = 416
+	// (2r + 3)k = (2*5 + 3) * 32 = 260
 	// The number of bytes produced by our CSPRG for the key stream
 	// implementing our stream cipher to encrypt/decrypt the mix header. The
 	// last 2 * securityParameter bytes are only used in order to generate/check
@@ -48,12 +50,13 @@ const (
 
 	sharedSecretSize = 32
 
-	// node_id + mac + (2*5-1)*32
-	// 32 + 32 + 288 = 352
+	// node_id + mac + (2*5-1)*20
+	// 20 + 20 + 180 = 220
 	routingInfoSize = (securityParameter * 2) + (2*numMaxHops-1)*securityParameter
 )
 
 //type LnAddr btcutil.Address
+// TODO(roasbeef): ok, so we're back to k=20 then. Still using the truncated sha256 MAC.
 type LightningAddress []byte
 
 var zeroNode [securityParameter]byte
@@ -155,15 +158,12 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	// Now we compute the routing information for each hop, along with a
 	// MAC of the routing info using the shared key for that hop.
 	for i := numHops - 2; i > 0; i-- {
-		// TODO(roasbeef): The node is needs to be the same length as the
-		// security paramter in bytes. If we use Curve25519, then our ID's
-		// are just the serialized pub keys possibly. Or, should a node's ID
-		// be something P2KH style? In that case, using SHA-256 instead of
-		// RIPEMD? Just serializing and truncating for now.
-		nodeID := paymentPath[i+1].SerializeCompressed()[:securityParameter]
+		// The next hop from the point of view of the current hop. Node
+		// ID's are currently the hash160 of a node's pubKey serialized
+		// in compressed format.
+		nodeID := btcutil.Hash160(paymentPath[i+1].SerializeCompressed())
 
 		var b bytes.Buffer
-		// ID for next hop.
 		b.Write(nodeID)
 		// MAC for mix header.
 		b.Write(headerMac[:])
@@ -234,7 +234,7 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	routeLength := len(route)
 
 	// Compute the mix header, and shared secerts for each hop. We pass in
-	// the null destinatino and zero identifier in order for the final node
+	// the null destination and zero identifier in order for the final node
 	// in the route to be able to distinguish the payload as addressed to
 	// itself.
 	mixHeader, secrets, err := NewMixHeader([]byte{nullDest}, zeroNode, route)
@@ -243,7 +243,7 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	}
 
 	// Now for the body of the message. The next-node ID is set to all
-	// zeroes in order to notify the final op that the message is meant for
+	// zeroes in order to notify the final hop that the message is meant for
 	// them. m = 0^k || dest || msg || padding.
 	var body [messageSize]byte
 	n := copy(body[:], bytes.Repeat([]byte{0}, securityParameter))
@@ -400,14 +400,14 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 	// Compute our shared secret.
 	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(s.lnKey, dhKey))
 
-	// In order to prevent replay attack, if we've seen this particular
+	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
 	// message.
 	if _, ok := s.seenSecrets[sharedSecret]; ok {
 		return nil, fmt.Errorf("shared secret previously seen")
 	}
 
-	// Using the derived share secret, ensure the integrity of the routing
+	// Using the derived shared secret, ensure the integrity of the routing
 	// information by checking the attached MAC without leaking timing
 	// information.
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), routeInfo[:])
@@ -416,7 +416,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 	}
 
 	// The MAC checks out, mark this current shared secret as processed in
-	// order to foil future replay attacks.
+	// order to mitigate future replay attacks.
 	s.seenSecrets[sharedSecret] = struct{}{}
 
 	// Attach the padding zeroes in order to properly strip an encryption
@@ -432,10 +432,10 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 	case nullDest: // We're the exit node for a forwarding message.
 		onionCore := lionessDecode(generateKey("pi", sharedSecret), onionMsg)
 		// TODO(roasbeef): check ver and reject if not our net.
-		destAddr, _, err := base58.CheckDecode(string(onionCore[securityParameter : securityParameter*2]))
-		if err != nil {
+		destAddr, _, _ := base58.CheckDecode(string(onionCore[securityParameter : securityParameter*2]))
+		/*if err != nil {
 			return nil, err
-		}
+		}*/
 		msg := onionCore[securityParameter*2:]
 		return &processMsgAction{
 			action:   ExitNode,

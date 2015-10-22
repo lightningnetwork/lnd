@@ -56,6 +56,8 @@ const (
 	routingInfoSize = (securityParameter * 2) + (2*numMaxHops-1)*securityParameter
 )
 
+var defaultBitcoinNet = &chaincfg.TestNet3Params
+
 //type LnAddr btcutil.Address
 // TODO(roasbeef): ok, so we're back to k=20 then. Still using the truncated sha256 MAC.
 type LightningAddress []byte

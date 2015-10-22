@@ -78,8 +78,11 @@ type MixHeader struct {
 	HeaderMAC    [securityParameter]byte
 }
 
-// GenerateSphinxHeader...
-// TODO(roasbeef): or pass in identifiers as payment path? have map from id -> pubkey
+// NewMixHeader creates a new mix header which is capable of obliviously
+// routing a message through the mix-net path outline by 'paymentPath'
+// to a final node indicated by 'identifier' housing a message addressed to
+// 'dest'. This function returns the created mix header along with a derived
+// shared secret for each node in the path.
 func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	paymentPath []*btcec.PublicKey) (*MixHeader, [][sharedSecretSize]byte, error) {
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
@@ -151,8 +154,9 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	xor(mixHeader, mixHeader, streamBytes[:(2*(numMaxHops-numHops)+3)*securityParameter])
 	mixHeader = append(mixHeader, filler...)
 
-	// Calculate a MAC over the encrypted mix header for the last hop, using
-	// the same shared secret key as used for encryption above.
+	// Calculate a MAC over the encrypted mix header for the last hop
+	// (including the filler bytes), using the same shared secret key as
+	// used for encryption above.
 	headerMac := calcMac(generateKey("mu", hopSharedSecrets[numHops-1]), mixHeader)
 
 	// Now we compute the routing information for each hop, along with a
@@ -302,8 +306,8 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityPara
 	return key
 }
 
-// generateRandBytes...
-// generates
+// generateHeaderPadding...
+// TODO(roasbeef): comments...
 func generateCipherStream(key [securityParameter]byte, numBytes uint) []byte {
 	block, _ := aes.NewCipher(key[:])
 
@@ -362,23 +366,23 @@ type processMsgAction struct {
 
 // SphinxNode...
 type SphinxNode struct {
-	identifier [securityParameter]byte
-	// TODO(roasbeef): swap out with btcutil.AddressLightningKey
-	name  []byte
-	lnKey *btcec.PrivateKey
+	nodeID [securityParameter]byte
+	// TODO(roasbeef): swap out with btcutil.AddressLightningKey maybe?
+	nodeAddr []byte
+	lnKey    *btcec.PrivateKey
 
-	seenSecrets map[[securityParameter]byte]struct{}
+	seenSecrets map[[sharedSecretSize]byte]struct{}
 }
 
 // NewSphinxNode...
 func NewSphinxNode(nodeID [securityParameter]byte, nodeAddr LightningAddress, nodeKey *btcec.PrivateKey) *SphinxNode {
 	return &SphinxNode{
-		identifier: nodeID,
-		name:       nodeAddr,
-		lnKey:      nodeKey,
+		nodeID:   nodeID,
+		nodeAddr: nodeAddr,
+		lnKey:    nodeKey,
 		// TODO(roasbeef): replace instead with bloom filter?
 		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
-		seenSecrets: make(map[[securityParameter]byte]struct{}),
+		seenSecrets: make(map[[sharedSecretSize]byte]struct{}),
 	}
 }
 

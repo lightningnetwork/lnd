@@ -10,6 +10,7 @@ import (
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/base58"
 )
@@ -295,6 +296,7 @@ func xor(dst, a, b []byte) int {
 
 // generateKey...
 // used to key rand padding generation, mac, and lionness
+// TODO(roasbeef): comment...
 func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityParameter]byte {
 	mac := hmac.New(sha256.New, []byte(keyType))
 	mac.Write(sharedKey[:])
@@ -368,14 +370,20 @@ type processMsgAction struct {
 type SphinxNode struct {
 	nodeID [securityParameter]byte
 	// TODO(roasbeef): swap out with btcutil.AddressLightningKey maybe?
-	nodeAddr []byte
+	nodeAddr *btcutil.AddressPubKeyHash
 	lnKey    *btcec.PrivateKey
 
 	seenSecrets map[[sharedSecretSize]byte]struct{}
 }
 
 // NewSphinxNode...
-func NewSphinxNode(nodeID [securityParameter]byte, nodeAddr LightningAddress, nodeKey *btcec.PrivateKey) *SphinxNode {
+func NewSphinxNode(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *SphinxNode {
+	var nodeID [securityParameter]byte
+	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
+
+	// Safe to ignore the error here, nodeID is 20 bytes.
+	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
+
 	return &SphinxNode{
 		nodeID:   nodeID,
 		nodeAddr: nodeAddr,

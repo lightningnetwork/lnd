@@ -314,7 +314,8 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityPara
 // generateHeaderPadding...
 // TODO(roasbeef): comments...
 func generateCipherStream(key [securityParameter]byte, numBytes uint) []byte {
-	block, _ := aes.NewCipher(key[:])
+	// Key must be 16, 24, or 32 bytes.
+	block, _ := aes.NewCipher(key[:16])
 
 	// We use AES in CTR mode to generate a psuedo randmom stream of bytes
 	// by encrypting a plaintext of all zeroes.

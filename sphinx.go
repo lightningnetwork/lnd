@@ -238,7 +238,7 @@ type ForwardingMessage struct {
 // onion encrypted message payload is then to be delivered to the specified 'dest'
 // address.
 func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
-	identifier [securityParameter]byte, message []byte) (*ForwardingMessage, error) {
+	message []byte) (*ForwardingMessage, error) {
 	routeLength := len(route)
 
 	// Compute the mix header, and shared secerts for each hop. We pass in

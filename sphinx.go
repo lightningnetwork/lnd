@@ -163,7 +163,7 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 
 	// Now we compute the routing information for each hop, along with a
 	// MAC of the routing info using the shared key for that hop.
-	for i := numHops - 2; i > 0; i-- {
+	for i := numHops - 2; i >= 0; i-- {
 		// The next hop from the point of view of the current hop. Node
 		// ID's are currently the hash160 of a node's pubKey serialized
 		// in compressed format.

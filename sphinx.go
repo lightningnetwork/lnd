@@ -112,7 +112,7 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 
 	// Now recursively compute the ephemeral ECDH pub keys, the shared
 	// secret, and blinding factor for each hop.
-	for i := 1; i < numHops-1; i++ {
+	for i := 1; i <= numHops-1; i++ {
 		// a_{n} = a_{n-1} x c_{n-1} -> (Y_prev_pub_key x prevBlindingFactor)
 		hopEphemeralPubKeys[i] = blindGroupElement(hopEphemeralPubKeys[i-1],
 			hopBlindingFactors[i-1][:])
@@ -472,7 +472,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 		var nextHop [securityParameter]byte
 		copy(nextHop[:], hopInfo[:securityParameter])
 
-		// MAC and MixHeader for th next hop.
+		// MAC and MixHeader for the next hop.
 		var nextMac [securityParameter]byte
 		copy(nextMac[:], hopInfo[securityParameter:securityParameter*2])
 		var nextMixHeader [routingInfoSize]byte

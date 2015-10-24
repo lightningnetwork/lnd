@@ -7,7 +7,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
-	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -110,11 +109,6 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	hopSharedSecrets[0] = sha256.Sum256(btcec.GenerateSharedSecret(sessionKey, paymentPath[0]))
 	hopBlindingFactors[0] = computeBlindingFactor(hopEphemeralPubKeys[0], hopSharedSecrets[0][:])
 
-	// x * b_{0} mod n. Becomes x * b_{0} * b_{1} * ..... * b_{n} mod curve_order, etc.
-	cummulativeBlind := new(big.Int).Mul(
-		sessionKey.X, new(big.Int).SetBytes(hopBlindingFactors[0][:]),
-	)
-	cummulativeBlind.Mod(cummulativeBlind, btcec.S256().N)
 
 	// Now recursively compute the ephemeral ECDH pub keys, the shared
 	// secret, and blinding factor for each hop.
@@ -124,19 +118,15 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 			hopBlindingFactors[i-1][:])
 
 		// s_{n} = sha256( y_{n} x c_{n-1} ) ->
-		// Y_their_pub_key x (x_our_priv * all prev blinding factors mod curve_order)
-		hopSharedSecrets[i] = sha256.Sum256(
-			blindGroupElement(paymentPath[i], cummulativeBlind.Bytes()).X.Bytes(),
-		)
+		// (Y_their_pub_key x x_our_priv) x all prev blinding factors
+		yToX := blindGroupElement(paymentPath[i], sessionKey.D.Bytes())
+		hopSharedSecrets[i] = sha256.Sum256(multiScalarMult(yToX, hopBlindingFactors[:i]).X.Bytes())
 
 		// TODO(roasbeef): prob don't need to store all blinding factors, only the prev...
 		// b_{n} = sha256(a_{n} || s_{n})
 		hopBlindingFactors[i] = computeBlindingFactor(hopEphemeralPubKeys[i],
 			hopSharedSecrets[i][:])
 
-		// c_{n} = c_{n-1} * b_{n} mod curve_order
-		cummulativeBlind.Mul(cummulativeBlind, new(big.Int).SetBytes(hopBlindingFactors[i][:]))
-		cummulativeBlind.Mod(cummulativeBlind, btcec.S256().N)
 	}
 
 	// Generate the padding, called "filler strings" in the paper.
@@ -348,6 +338,17 @@ func computeBlindingFactor(hopPubKey *btcec.PublicKey, hopSharedSecret []byte) [
 func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec.PublicKey {
 	newX, newY := hopPubKey.Curve.ScalarMult(hopPubKey.X, hopPubKey.Y, blindingFactor[:])
 	return &btcec.PublicKey{hopPubKey.Curve, newX, newY}
+}
+
+// multiScalarMult...
+func multiScalarMult(hopPubKey *btcec.PublicKey, blindingFactors [][sha256.Size]byte) *btcec.PublicKey {
+	finalPubKey := hopPubKey
+
+	for _, blindingFactor := range blindingFactors {
+		finalPubKey = blindGroupElement(finalPubKey, blindingFactor[:])
+	}
+
+	return finalPubKey
 }
 
 type ProcessCode int

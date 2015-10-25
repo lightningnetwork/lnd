@@ -255,6 +255,7 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	// encrypt the message with the shared secret for each hop in the path.
 	onion := lionessEncode(generateKey("pi", secrets[routeLength-1]), body)
 	for i := routeLength - 2; i > 0; i-- {
+	for i := routeLength - 2; i >= 0; i-- {
 		onion = lionessEncode(generateKey("pi", secrets[i]), onion)
 	}
 

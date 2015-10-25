@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -36,13 +38,12 @@ func TestSphinxCorrectness(t *testing.T) {
 		t.Fatalf("Unable to create forwarding message: %#v", err)
 	}
 
-	// TODO(roasbeef): assert proper nodeID of first hop
-
 	// Now simulate the message propagating through the mix net eventually
 	// reaching the final destination.
 	for i := 0; i < len(nodes); i++ {
 		hop := nodes[i]
 
+		fmt.Printf("Processing at hop: %v \n", i)
 		processAction, err := hop.ProcessForwardingMessage(fwdMsg)
 		if err != nil {
 			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
@@ -58,33 +59,37 @@ func TestSphinxCorrectness(t *testing.T) {
 
 			// The original destination address and message should
 			// now be fully decrypted.
-			if !bytes.Equal([]byte("roasbeef"), processAction.destAddr) {
-				t.Fatalf("Message parsed incorrectly at final destination!"+
-					"Should be %v, is instead %v",
-					[]byte("roasbeef"), processAction.destAddr)
+			if !bytes.Equal(dest, processAction.destAddr) {
+				t.Fatalf("Destination address parsed incorrectly at final destination!"+
+					" Should be %v, is instead %v",
+					hex.EncodeToString(dest),
+					hex.EncodeToString(processAction.destAddr))
 			}
 
-			if !bytes.HasPrefix([]byte("testing"), processAction.destMsg) {
-				t.Fatalf("Dest addr parsed incorrectly at final destination!"+
+			if !bytes.HasPrefix(processAction.destMsg, []byte("testing")) {
+				t.Fatalf("Final message parsed incorrectly at final destination!"+
 					"Should be %v, is instead %v",
 					[]byte("testing"), processAction.destMsg)
 			}
 
-		} else if processAction.action != MoreHops {
+		} else {
 			// If this isn't the last node in the path, then the returned
 			// action should indicate that there are more hops to go.
-			t.Fatalf("Processing error, node %v is not the final"+
-				" hop, yet thinks it is.", i)
-		}
+			if processAction.action != MoreHops {
+				t.Fatalf("Processing error, node %v is not the final"+
+					" hop, yet thinks it is.", i)
+			}
 
-		// The next hop should have been parsed as node[i+1].
-		parsedNextHop := processAction.fwdMsg.Header.RoutingInfo[:securityParameter]
-		if !bytes.Equal(parsedNextHop, nodes[i+1].nodeID[:]) {
-			t.Fatalf("Processing error, next hop parsed incorrectly."+
-				" next hop shoud be %v, was instead parsed as %v",
-				nodes[i+1].nodeID[:], parsedNextHop)
-		}
+			// The next hop should have been parsed as node[i+1].
+			parsedNextHop := processAction.nextHop[:]
+			if !bytes.Equal(parsedNextHop, nodes[i+1].nodeID[:]) {
+				t.Fatalf("Processing error, next hop parsed incorrectly."+
+					" next hop shoud be %v, was instead parsed as %v",
+					hex.EncodeToString(nodes[i+1].nodeID[:]),
+					hex.EncodeToString(parsedNextHop))
+			}
 
-		fwdMsg = processAction.fwdMsg
+			fwdMsg = processAction.fwdMsg
+		}
 	}
 }

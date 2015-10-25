@@ -109,7 +109,6 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 	hopSharedSecrets[0] = sha256.Sum256(btcec.GenerateSharedSecret(sessionKey, paymentPath[0]))
 	hopBlindingFactors[0] = computeBlindingFactor(hopEphemeralPubKeys[0], hopSharedSecrets[0][:])
 
-
 	// Now recursively compute the ephemeral ECDH pub keys, the shared
 	// secret, and blinding factor for each hop.
 	for i := 1; i <= numHops-1; i++ {
@@ -254,7 +253,6 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	// Now we construct the onion. Walking backwards from the last hop, we
 	// encrypt the message with the shared secret for each hop in the path.
 	onion := lionessEncode(generateKey("pi", secrets[routeLength-1]), body)
-	for i := routeLength - 2; i > 0; i-- {
 	for i := routeLength - 2; i >= 0; i-- {
 		onion = lionessEncode(generateKey("pi", secrets[i]), onion)
 	}

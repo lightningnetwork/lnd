@@ -83,6 +83,7 @@ type LightningWallet struct {
 
 	//lockedInputs  []*LockedPrevOut
 	//lockedOutputs []*LockedOutPoint
+	keyPool *multiSigKeyPool
 
 	started  int32
 	shutdown int32

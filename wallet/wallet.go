@@ -410,6 +410,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 }
 
 // AddCounterPartyFunds...
+// TODO(roasbeef): abstract out "Reservations" to own struct, with ref to wallet?
 func (l *LightningWallet) AddCounterPartyFundsForReservation(
 	reservationId uint64,
 	theirInputs []*wire.TxIn,

@@ -81,8 +81,12 @@ type LightningWallet struct {
 
 	msgChan chan interface{}
 
-	//lockedInputs  []*LockedPrevOut
-	//lockedOutputs []*LockedOutPoint
+	// TODO(roasbeef): zombie garbage collection routine to solve
+	// lost-object/starvation problem/attack.
+	limboMtx      sync.RWMutex
+	nextFundingID uint64 // TODO(roasbeef): monotonic or random?
+	fundingLimbo  map[uint64]*partialFundingState
+
 	keyPool *multiSigKeyPool
 
 	started  int32
@@ -91,6 +95,12 @@ type LightningWallet struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+}
+
+// NewLightningWallet...
+// TODO(roasbeef): fin...
+func NewLightningWallet() (*LightningWallet, error) {
+	return nil, nil
 }
 
 // Start...

@@ -499,6 +499,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Now that the transaction has been cannonically sorted, compute the
 	// normalized transation ID before we attach our signatures.
+	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive
 	pendingReservation.normalizedTxID = pendingReservation.fundingTx.TxSha()
 
 	// Now, sign all inputs that are ours, collecting the signatures in

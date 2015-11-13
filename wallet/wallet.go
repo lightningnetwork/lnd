@@ -47,45 +47,9 @@ const (
 	CLTV_RESERVE
 )
 
-// partialFundingState...
-type partialFundingState struct {
-	fundingType FundingType
-
-	fundingAmount btcutil.Amount
-	reserveAmount btcutil.Amount
-	minFeePerKb   btcutil.Amount
-
-	theirInputs []*wire.TxIn
-	ourInputs   []*wire.TxIn
-
-	theirChange []*wire.TxOut
-	ourChange   []*wire.TxOut
-
-	ourKey   *btcec.PrivateKey
-	theirKey *btcec.PublicKey
-
-	theirSigs [][]byte
-	ourSigs   [][]byte
-
-	normalizedTxID wire.ShaHash
-
-	fundingTx *wire.MsgTx
-	// TODO(roasbef): time locks, who pays fee etc.
-	// TODO(roasbeef): record Bob's ln-ID?
-}
-
-// newPartialFundingState...
-func newPartialFundingState(t FundingType, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount) *partialFundingState {
-	return &partialFundingState{
-		fundingType:   t,
-		fundingAmount: fundingAmt,
-		minFeePerKb:   minFeeRate,
-	}
-}
-
 // completedFundingState...
 type completedFundingState struct {
-	partialFundingState
+	finalizedReservation *ChannelReservation
 
 	regularTxID wire.ShaHash
 }
@@ -101,20 +65,7 @@ type initFundingReserveMsg struct {
 	// Insuffcient funds etc..
 	err chan error // Buffered
 
-	resp chan *FundingReservation // Buffered
-}
-
-// FundingResponse...
-type FundingReservation struct {
-	FundingInputs []*wire.TxIn
-	ChangeOutputs []*wire.TxOut
-
-	FundingAmount btcutil.Amount
-
-	// To be used in the 2-of-2 output.
-	OurKey *btcec.PrivateKey
-
-	ReservationID uint64
+	resp chan *ChannelReservation // Buffered
 }
 
 // FundingReserveCancelMsg...
@@ -135,13 +86,11 @@ type addCounterPartyFundsMsg struct {
 	theirChangeOutputs []*wire.TxOut
 	theirKey           *btcec.PublicKey
 
-	err  chan error                        // Buffered
-	resp chan *PartiallySignedFundingState // Buffered
+	err chan error // Buffered
 }
 
-type PartiallySignedFundingState struct {
-	ReservationID uint64
-
+// partiallySignedFundingState...
+type partiallySignedFundingState struct {
 	// In order of sorted inputs that are ours. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	OurSigs [][]byte
@@ -157,12 +106,11 @@ type addCounterPartySigsMsg struct {
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	theirSigs [][]byte
 
-	err  chan error                  // Buffered
-	resp chan *FinalizedFundingState // Buffered
+	err chan error // Buffered
 }
 
 // FundingCompleteResp...
-type FinalizedFundingState struct {
+type finalizedFundingState struct {
 	FundingTxId           wire.ShaHash
 	NormalizedFundingTXID wire.ShaHash
 
@@ -191,7 +139,7 @@ type LightningWallet struct {
 	// lost-object/starvation problem/attack.
 	limboMtx      sync.RWMutex
 	nextFundingID uint64 // TODO(roasbeef): monotonic or random?
-	fundingLimbo  map[uint64]*partialFundingState
+	fundingLimbo  map[uint64]*ChannelReservation
 
 	started  int32
 	shutdown int32
@@ -256,23 +204,10 @@ out:
 	l.wg.Done()
 }
 
-// nextMultiSigKey...
-// TODO(roasbeef): on shutdown, write state of pending keys, then read back?
-func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
-	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
-	if err != nil {
-		return nil, err
-	}
-
-	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
-
-	return pkAddr.PrivKey()
-}
-
 // RequestFundingReservation...
-func (l *LightningWallet) RequestFundingReservation(a btcutil.Amount, t FundingType) (*FundingReservation, error) {
+func (l *LightningWallet) RequestChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
 	errChan := make(chan error, 1)
-	respChan := make(chan *FundingReservation, 1)
+	respChan := make(chan *ChannelReservation, 1)
 
 	l.msgChan <- &initFundingReserveMsg{
 		fundingAmount: a,
@@ -287,11 +222,13 @@ func (l *LightningWallet) RequestFundingReservation(a btcutil.Amount, t FundingT
 // handleFundingReserveRequest...
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
 	// Create a limbo and record entry for this newly pending funding request.
-	partialState := newPartialFundingState(req.fundingType, req.fundingAmount, req.minFeeRate)
 	l.limboMtx.Lock()
+
 	id := l.nextFundingID
+	partialState := newChannelReservation(req.fundingType, req.fundingAmount, req.minFeeRate, l, id)
 	l.nextFundingID++
 	l.fundingLimbo[id] = partialState
+
 	l.limboMtx.Unlock()
 
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
@@ -299,7 +236,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	unspentOutputs, err := l.ListUnspent(6, maxConfs, nil)
 	if err != nil {
 		req.err <- err
-		req.resp <- nil
 		return
 	}
 
@@ -307,7 +243,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	coins, err := outputsToCoins(unspentOutputs)
 	if err != nil {
 		req.err <- err
-		req.resp <- nil
 		return
 	}
 
@@ -327,7 +262,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	partialState.ourInputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
+	partialState.OurInputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
 	for i, coin := range selectedCoins.Coins() {
 		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
 		l.LockOutpoint(*txout)
@@ -335,12 +270,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
 		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
-		partialState.ourInputs[i] = wire.NewTxIn(outPoint, nil)
+		partialState.OurInputs[i] = wire.NewTxIn(outPoint, nil)
 	}
 
 	// Create some possibly neccessary change outputs.
 	selectedTotalValue := coinset.NewCoinSet(coins).TotalValue()
-	partialState.ourChange = make([]*wire.TxOut, 0, len(selectedCoins.Coins()))
+	partialState.OurChange = make([]*wire.TxOut, 0, len(selectedCoins.Coins()))
 	if selectedTotalValue > req.fundingAmount {
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
@@ -348,11 +283,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum)
 		if err != nil {
 			req.err <- err
-			req.resp <- nil
 			return
 		}
 
-		partialState.ourChange = append(partialState.ourChange,
+		partialState.OurChange = append(partialState.OurChange,
 			wire.NewTxOut(int64(changeAmount), changeAddr.ScriptAddress()))
 	}
 
@@ -361,31 +295,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	multiSigKey, err := l.getNextMultiSigKey()
 	if err != nil {
 		req.err <- err
-		req.resp <- nil
 		return
 	}
+
+	partialState.OurKey = multiSigKey
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
 	// completed, or cancecled.
 	req.err <- nil
-	req.resp <- &FundingReservation{
-		FundingInputs: partialState.ourInputs,
-		ChangeOutputs: partialState.ourChange,
-		FundingAmount: partialState.fundingAmount,
-		OurKey:        multiSigKey,
-	}
-}
-
-// RequestFundingReserveCancellation...
-func (l *LightningWallet) CancelFundingReservation(reservationID uint64) {
-	doneChan := make(chan struct{}, 1)
-	l.msgChan <- &fundingReserveCancelMsg{
-		pendingFundingID: reservationID,
-		done:             doneChan,
-	}
-
-	<-doneChan
 }
 
 // handleFundingReserveCancel...
@@ -404,7 +322,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 
 	// Mark all previously locked outpoints as usuable for future funding
 	// requests.
-	for _, unusedInput := range pendingReservation.ourInputs {
+	for _, unusedInput := range pendingReservation.OurInputs {
 		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
@@ -419,27 +337,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.done <- struct{}{}
 }
 
-// AddCounterPartyFunds...
-// TODO(roasbeef): abstract out "Reservations" to own struct, with ref to wallet?
-func (l *LightningWallet) AddCounterPartyFundsForReservation(
-	reservationId uint64,
-	theirInputs []*wire.TxIn,
-	theirChangeOutputs []*wire.TxOut,
-	multiSigKey *btcec.PublicKey) (*FinalizedFundingState, error) {
-
-	errChan := make(chan error, 1)
-	respChan := make(chan *FinalizedFundingState, 1)
-
-	l.msgChan <- &addCounterPartyFundsMsg{
-		pendingFundingID:   reservationId,
-		theirInputs:        theirInputs,
-		theirChangeOutputs: theirChangeOutputs,
-		theirKey:           multiSigKey,
-	}
-
-	return <-respChan, <-errChan
-}
-
 // handleFundingCounterPartyFunds...
 func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFundsMsg) {
 	l.RLock()
@@ -452,60 +349,59 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Create a blank, fresh transaction. Soon to be a complete funding
 	// transaction which will allow opening a lightning channel.
-	pendingReservation.fundingTx = wire.NewMsgTx()
+	pendingReservation.FundingTx = wire.NewMsgTx()
 
 	// First, add all multi-party inputs to the transaction
 	// TODO(roasbeef); handle case that tx doesn't exist, fake input
 	// TODO(roasbeef): validate SPV proof from other side if in SPV mode.
-	for _, ourInput := range pendingReservation.ourInputs {
-		pendingReservation.fundingTx.AddTxIn(ourInput)
+	for _, ourInput := range pendingReservation.OurInputs {
+		pendingReservation.FundingTx.AddTxIn(ourInput)
 	}
-	pendingReservation.theirInputs = req.theirInputs
-	for _, theirInput := range pendingReservation.theirInputs {
-		pendingReservation.fundingTx.AddTxIn(theirInput)
+	pendingReservation.TheirInputs = req.theirInputs
+	for _, theirInput := range pendingReservation.TheirInputs {
+		pendingReservation.FundingTx.AddTxIn(theirInput)
 	}
 
 	// Next, add all multi-party outputs to the transaction. This includes
 	// change outputs for both side.
-	for _, ourChangeOutput := range pendingReservation.ourChange {
-		pendingReservation.fundingTx.AddTxOut(ourChangeOutput)
+	for _, ourChangeOutput := range pendingReservation.OurChange {
+		pendingReservation.FundingTx.AddTxOut(ourChangeOutput)
 	}
-	pendingReservation.theirChange = req.theirChangeOutputs
-	for _, theirChangeOutput := range pendingReservation.theirChange {
-		pendingReservation.fundingTx.AddTxOut(theirChangeOutput)
+	pendingReservation.TheirChange = req.theirChangeOutputs
+	for _, theirChangeOutput := range pendingReservation.TheirChange {
+		pendingReservation.FundingTx.AddTxOut(theirChangeOutput)
 	}
 
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel. TODO(roasbeef): Cannonical sorting of keys here?
 	keys := make([]*btcutil.AddressPubKey, 2)
-	ourKey := pendingReservation.ourKey.PubKey().SerializeCompressed()
+	ourKey := pendingReservation.OurKey.PubKey().SerializeCompressed()
 	keys[0], _ = btcutil.NewAddressPubKey(ourKey, ActiveNetParams)
-	pendingReservation.theirKey = req.theirKey
-	keys[1], _ = btcutil.NewAddressPubKey(pendingReservation.theirKey.SerializeCompressed(), ActiveNetParams)
+	pendingReservation.TheirKey = req.theirKey
+	keys[1], _ = btcutil.NewAddressPubKey(pendingReservation.TheirKey.SerializeCompressed(), ActiveNetParams)
 	multiSigScript, err := txscript.MultiSigScript(keys, 2)
 	if err != nil {
 		req.err <- err
-		req.resp <- nil
 		return
 	}
-	multiSigOut := wire.NewTxOut(int64(pendingReservation.fundingAmount),
+	multiSigOut := wire.NewTxOut(int64(pendingReservation.FundingAmount),
 		multiSigScript)
-	pendingReservation.fundingTx.AddTxOut(multiSigOut)
+	pendingReservation.FundingTx.AddTxOut(multiSigOut)
 
 	// Sort the transaction. Since both side agree to a cannonical
 	// ordering, by sorting we no longer need to send the entire
 	// transaction. Only signatures will be exchanged.
-	txsort.InPlaceSort(pendingReservation.fundingTx)
+	txsort.InPlaceSort(pendingReservation.FundingTx)
 
 	// Now that the transaction has been cannonically sorted, compute the
 	// normalized transation ID before we attach our signatures.
 	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive
-	pendingReservation.normalizedTxID = pendingReservation.fundingTx.TxSha()
+	pendingReservation.NormalizedTxID = pendingReservation.FundingTx.TxSha()
 
 	// Now, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
-	pendingReservation.ourSigs = make([][]byte, len(pendingReservation.ourInputs))
-	for i, txIn := range pendingReservation.fundingTx.TxIn {
+	pendingReservation.OurSigs = make([][]byte, len(pendingReservation.OurInputs))
+	for i, txIn := range pendingReservation.FundingTx.TxIn {
 		// Does the wallet know about the txin?
 		txDetail, _ := l.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
 		if txDetail == nil {
@@ -519,102 +415,83 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
 		if !ok {
 			req.err <- btcwallet.ErrUnsupportedTransactionType
-			req.resp <- nil
 			return
 		}
 
 		ai, err := l.Manager.Address(apkh)
 		if err != nil {
 			req.err <- fmt.Errorf("cannot get address info: %v", err)
-			req.resp <- nil
 			return
 		}
 		pka := ai.(waddrmgr.ManagedPubKeyAddress)
 		privkey, err := pka.PrivKey()
 		if err != nil {
 			req.err <- fmt.Errorf("cannot get private key: %v", err)
-			req.resp <- nil
 			return
 		}
 
-		sigscript, err := txscript.SignatureScript(pendingReservation.fundingTx, i,
+		sigscript, err := txscript.SignatureScript(pendingReservation.FundingTx, i,
 			prevOut.PkScript, txscript.SigHashAll, privkey,
 			ai.Compressed())
 		if err != nil {
 			req.err <- fmt.Errorf("cannot create sigscript: %s", err)
-			req.resp <- nil
 			return
 		}
 
-		pendingReservation.fundingTx.TxIn[i].SignatureScript = sigscript
-		pendingReservation.ourSigs[i] = sigscript
-	}
-
-	// Import the key we're using for the 2-of-2 multi-sig into the wallet,
-	// so we can sign to spend from the funding tx later.
-	// TODO(roasbeef): remove this after drawing pool key from HD.
-	wif, _ := btcutil.NewWIF(pendingReservation.ourKey, ActiveNetParams, true)
-	if _, err := l.ImportPrivateKey(wif, nil, false); err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
+		pendingReservation.FundingTx.TxIn[i].SignatureScript = sigscript
+		pendingReservation.OurSigs[i] = sigscript
 	}
 
 	req.err <- nil
-	req.resp <- &PartiallySignedFundingState{
-		OurSigs:        pendingReservation.ourSigs,
-		NormalizedTxID: pendingReservation.normalizedTxID,
-	}
-}
-
-// CompleteFundingReservation...
-func (l *LightningWallet) CompleteFundingReservation(reservationID uint64, theirSigs [][]byte) (*FinalizedFundingState, error) {
-	errChan := make(chan error, 1)
-	respChan := make(chan *FinalizedFundingState, 1)
-
-	l.msgChan <- &addCounterPartySigsMsg{
-		pendingFundingID: reservationID,
-		theirSigs:        theirSigs,
-		err:              errChan,
-		resp:             respChan,
-	}
-
-	return <-respChan, <-errChan
 }
 
 // handleFundingCounterPartySigs...
 func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigsMsg) {
-	l.RLock()
+	l.limboMtx.RLock()
 	pendingReservation, ok := l.fundingLimbo[msg.pendingFundingID]
-	l.RUnlock()
+	l.limboMtx.RUnlock()
 	if !ok {
 		msg.err <- fmt.Errorf("attempted to update non-existant funding state")
-		msg.resp <- nil
 		return
 	}
 
 	// Now we can complete the funding transaction by adding their
 	// signatures to their inputs.
 	i := 0
-	pendingReservation.theirSigs = msg.theirSigs
-	for _, txin := range pendingReservation.fundingTx.TxIn {
+	pendingReservation.TheirSigs = msg.theirSigs
+	for _, txin := range pendingReservation.FundingTx.TxIn {
 		if txin.SignatureScript == nil {
 			// TODO(roasbeef): use txscript.Engine to make sure each sig is
 			// valid, txn complete.
-			txin.SignatureScript = pendingReservation.theirSigs[i]
+			txin.SignatureScript = pendingReservation.TheirSigs[i]
 			i++
 		}
 	}
 
+	// TODO(roasbeef): write the funding transaction to disk
 	// Now that all signatures are in place and valid record the regular txid
-	finalTxID := pendingReservation.fundingTx.TxSha()
+	//completedReservation := &finalizedFundingState{
+	//	FundingTxId:           pendingReservation.fundingTx.TxSha(),
+	//	NormalizedFundingTXID: pendingReservation.normalizedTxID,
+	//	CompletedFundingTx:    btcutil.NewTx(pendingReservation.fundingTx),
+	//}
+
+	l.limboMtx.Lock()
+	delete(l.fundingLimbo, pendingReservation.reservationID)
+	l.limboMtx.Unlock()
 
 	msg.err <- nil
-	msg.resp <- &FinalizedFundingState{
-		FundingTxId:           finalTxID,
-		NormalizedFundingTXID: pendingReservation.normalizedTxID,
-		CompletedFundingTx:    btcutil.NewTx(pendingReservation.fundingTx),
+}
+
+// nextMultiSigKey...
+// TODO(roasbeef): on shutdown, write state of pending keys, then read back?
+func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
+	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	if err != nil {
+		return nil, err
 	}
 
-	// TODO(roasbeef): write the funding transaction to disk, delete from pending
+	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
+
+	return pkAddr.PrivKey()
 }

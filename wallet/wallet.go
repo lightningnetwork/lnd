@@ -193,8 +193,6 @@ type LightningWallet struct {
 	nextFundingID uint64 // TODO(roasbeef): monotonic or random?
 	fundingLimbo  map[uint64]*partialFundingState
 
-	keyPool *multiSigKeyPool
-
 	started  int32
 	shutdown int32
 
@@ -256,6 +254,19 @@ out:
 	}
 
 	l.wg.Done()
+}
+
+// nextMultiSigKey...
+// TODO(roasbeef): on shutdown, write state of pending keys, then read back?
+func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
+	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
+
+	return pkAddr.PrivKey()
 }
 
 // RequestFundingReservation...
@@ -347,7 +358,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// TODO(roasbeef): re-calculate fees here to minFeePerKB
 
-	multiSigKey, err := l.keyPool.getNextMultiSigKey()
+	multiSigKey, err := l.getNextMultiSigKey()
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -397,8 +408,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
-	// Return the unused multi-sig key back to the pool.
-	l.keyPool.releaseMultiSigKey(pendingReservation.ourKey)
+	// TODO(roasbeef): is it even worth it to keep track of unsed keys?
 
 	// TODO(roasbeef): Is it possible to mark the unused change also as
 	// available?

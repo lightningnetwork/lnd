@@ -18,9 +18,13 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+const (
+	msgBufferSize = 100
+)
+
 var (
 	// Namespace bucket keys.
-	lightningNamespaceKey = []byte("lightning")
+	lightningNamespaceKey = []byte("ln-wallet")
 
 	// Error types
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
@@ -125,20 +129,20 @@ type finalizedFundingState struct {
 type LightningWallet struct {
 	sync.RWMutex
 
-	db *walletdb.DB
+	db walletdb.DB
 
 	// A namespace within boltdb reserved for ln-based wallet meta-data.
 	// TODO(roasbeef): which possible other namespaces are relevant?
-	lnNamespace *walletdb.Namespace
+	lnNamespace walletdb.Namespace
 
-	btcwallet.Wallet
+	*btcwallet.Wallet
 
 	msgChan chan interface{}
 
 	// TODO(roasbeef): zombie garbage collection routine to solve
 	// lost-object/starvation problem/attack.
 	limboMtx      sync.RWMutex
-	nextFundingID uint64 // TODO(roasbeef): monotonic or random?
+	nextFundingID uint64
 	fundingLimbo  map[uint64]*ChannelReservation
 
 	started  int32
@@ -151,8 +155,47 @@ type LightningWallet struct {
 
 // NewLightningWallet...
 // TODO(roasbeef): fin...
-func NewLightningWallet() (*LightningWallet, error) {
-	return nil, nil
+func NewLightningWallet(db walletdb.DB, walletPass []byte) (*LightningWallet, error) {
+	lnNamespace, err := db.Namespace(lightningNamespaceKey)
+	if err != nil {
+		return nil, err
+	}
+
+	walletNamespace, err := db.Namespace([]byte("wallet"))
+	if err != nil {
+		return nil, err
+	}
+
+	txNamespace, err := db.Namespace([]byte("tx"))
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): create vs open wallet, use tadge's seed format read func.
+	cbs := &waddrmgr.OpenCallbacks{
+		ObtainSeed: func() ([]byte, error) {
+			return nil, nil
+		},
+		ObtainPrivatePass: func() ([]byte, error) {
+			return nil, nil
+		},
+	}
+
+	wallet, err := btcwallet.Open(walletPass, ActiveNetParams, db,
+		walletNamespace, txNamespace, cbs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LightningWallet{
+		db:            db,
+		Wallet:        wallet,
+		lnNamespace:   lnNamespace,
+		msgChan:       make(chan interface{}, msgBufferSize),
+		nextFundingID: 0,
+		fundingLimbo:  make(map[uint64]*ChannelReservation),
+		quit:          make(chan struct{}),
+	}, nil
 }
 
 // Start...
@@ -290,7 +333,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 			wire.NewTxOut(int64(changeAmount), changeAddr.ScriptAddress()))
 	}
 
-	// TODO(roasbeef): re-calculate fees here to minFeePerKB
+	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
 
 	multiSigKey, err := l.getNextMultiSigKey()
 	if err != nil {

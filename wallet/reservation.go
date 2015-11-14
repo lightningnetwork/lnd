@@ -1,6 +1,8 @@
 package wallet
 
 import (
+	"sync"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -14,27 +16,29 @@ type ChannelReservation struct {
 	ReserveAmount btcutil.Amount
 	MinFeePerKb   btcutil.Amount
 
-	TheirInputs []*wire.TxIn
-	OurInputs   []*wire.TxIn
+	sync.RWMutex // All fields below owned by the wallet.
 
-	TheirChange []*wire.TxOut
-	OurChange   []*wire.TxOut
+	theirInputs []*wire.TxIn
+	ourInputs   []*wire.TxIn
 
-	OurKey   *btcec.PrivateKey
-	TheirKey *btcec.PublicKey
+	theirChange []*wire.TxOut
+	ourChange   []*wire.TxOut
+
+	ourKey   *btcec.PrivateKey
+	theirKey *btcec.PublicKey
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	TheirSigs [][]byte
-	OurSigs   [][]byte
+	theirSigs [][]byte
+	ourSigs   [][]byte
 
-	NormalizedTxID wire.ShaHash
+	normalizedTxID wire.ShaHash
 
-	FundingTx *wire.MsgTx
+	fundingTx *wire.MsgTx
 	// TODO(roasbef): time locks, who pays fee etc.
 	// TODO(roasbeef): record Bob's ln-ID?
 
-	CompletedFundingTx *btcutil.Tx
+	completedFundingTx *btcutil.Tx
 
 	reservationID uint64
 	wallet        *LightningWallet
@@ -52,6 +56,13 @@ func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 	}
 }
 
+// OurFunds...
+func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
+	r.RLock()
+	defer r.Unlock()
+	return r.ourInputs, r.ourChange, r.ourKey.PubKey()
+}
+
 // AddCounterPartyFunds...
 func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutputs []*wire.TxOut, multiSigKey *btcec.PublicKey) error {
 	errChan := make(chan error, 1)
@@ -64,6 +75,20 @@ func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutpu
 	}
 
 	return <-errChan
+}
+
+// OurSigs...
+func (r *ChannelReservation) OurSigs() [][]byte {
+	r.RLock()
+	defer r.Unlock()
+	return r.ourSigs
+}
+
+// TheirFunds...
+func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
+	r.RLock()
+	defer r.Unlock()
+	return r.theirInputs, r.theirChange, r.theirKey
 }
 
 // CompleteFundingReservation...
@@ -79,7 +104,15 @@ func (r *ChannelReservation) CompleteReservation(reservationID uint64, theirSigs
 	return <-errChan
 }
 
+// FinalFundingTransaction...
+func (r *ChannelReservation) FinalFundingTx() *btcutil.Tx {
+	r.RLock()
+	defer r.Unlock()
+	return r.completedFundingTx
+}
+
 // RequestFundingReserveCancellation...
+// TODO(roasbeef): also return mutated state?
 func (r *ChannelReservation) Cancel(reservationID uint64) {
 	doneChan := make(chan struct{}, 1)
 	r.wallet.msgChan <- &fundingReserveCancelMsg{

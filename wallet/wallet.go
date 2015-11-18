@@ -3,6 +3,8 @@ package wallet
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -25,6 +27,8 @@ const (
 var (
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
+	waddrmgrNamespaceKey  = []byte("waddrmgr")
+	wtxmgrNamespaceKey    = []byte("wtxmgr")
 
 	// Error types
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
@@ -127,6 +131,8 @@ type finalizedFundingState struct {
 // channels, same with replies.
 // Embedded wallet backed by boltdb...
 type LightningWallet struct {
+	// TODO(roasbeef): add btcwallet/chain for notifications initially, then
+	// abstract out in order to accomodate zeroMQ/BitcoinCore
 	sync.RWMutex
 
 	db walletdb.DB
@@ -145,50 +151,62 @@ type LightningWallet struct {
 	nextFundingID uint64
 	fundingLimbo  map[uint64]*ChannelReservation
 
-	started  int32
+	started int32
+
 	shutdown int32
 
 	quit chan struct{}
 
 	wg sync.WaitGroup
+
+	// TODO(roasbeef): handle wallet lock/unlock
 }
 
 // NewLightningWallet...
 // TODO(roasbeef): fin...
-func NewLightningWallet(db walletdb.DB, walletPass []byte, create bool) (*LightningWallet, error) {
+func NewLightningWallet(privWalletPass, pubWalletPass []byte) (*LightningWallet, error) {
+	// Ensure the wallet exists or create it when the create flag is set.
+	netDir := networkDir(defaultDataDir, ActiveNetParams)
+	dbPath := filepath.Join(netDir, walletDbName)
+
+	var pubPass []byte
+	if pubWalletPass == nil {
+		pubPass = defaultPubPassphrase
+	} else {
+		pubPass = pubWalletPass
+	}
+
+	// Wallet has never been created, perform initial set up.
+	if !fileExists(dbPath) {
+		// Ensure the data directory for the network exists.
+		if err := checkCreateDir(netDir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return nil, err
+		}
+
+		// Attempt to create  a new wallet
+		// TODO(roasbeef): optionally accept userseed from constructor
+		if err := createWallet(privWalletPass, pubPass, nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return nil, err
+		}
+	}
+
+	// Wallet has been created and been initialized at this point, open it
+	// along with all the required DB namepsaces, and the DB itself.
+	wallet, db, err := openWallet(pubPass)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a special namespace for our unique payment channel related
+	// meta-data.
 	lnNamespace, err := db.Namespace(lightningNamespaceKey)
 	if err != nil {
 		return nil, err
 	}
 
-	walletNamespace, err := db.Namespace([]byte("wallet"))
-	if err != nil {
-		return nil, err
-	}
-
-	txNamespace, err := db.Namespace([]byte("tx"))
-	if err != nil {
-		return nil, err
-	}
-
-	if create {
-	}
-
-	// TODO(roasbeef): create vs open wallet, use tadge's seed format read func.
-	cbs := &waddrmgr.OpenCallbacks{
-		ObtainSeed: func() ([]byte, error) {
-			return nil, nil
-		},
-		ObtainPrivatePass: func() ([]byte, error) {
-			return nil, nil
-		},
-	}
-
-	wallet, err := btcwallet.Open(walletPass, ActiveNetParams, db,
-		walletNamespace, txNamespace, cbs)
-	if err != nil {
-		return nil, err
-	}
+	// TODO(roasbeef): logging
 
 	return &LightningWallet{
 		db:            db,

@@ -241,6 +241,7 @@ func (l *LightningWallet) Start() error {
 	l.wallet.Start(rpcc)
 
 	l.wg.Add(1)
+	// TODO(roasbeef): multiple request handlers?
 	go l.requestHandler()
 
 	return nil
@@ -318,6 +319,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
 	if err != nil {
 		req.err <- err
+		req.resp <- nil
 		return
 	}
 
@@ -325,6 +327,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	coins, err := outputsToCoins(unspentOutputs)
 	if err != nil {
 		req.err <- err
+		req.resp <- nil
 		return
 	}
 
@@ -340,6 +343,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		MinChangeAmount: 10000,
 	}
 	selectedCoins, err := selector.CoinSelect(req.fundingAmount, coins)
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
 
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
@@ -365,6 +373,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 		if err != nil {
 			req.err <- err
+			req.resp <- nil
 			return
 		}
 
@@ -377,6 +386,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	multiSigKey, err := l.getNextMultiSigKey()
 	if err != nil {
 		req.err <- err
+		req.resp <- nil
 		return
 	}
 
@@ -385,6 +395,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
 	// completed, or cancecled.
+	req.resp <- partialState
 	req.err <- nil
 }
 

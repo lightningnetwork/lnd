@@ -163,8 +163,8 @@ type LightningWallet struct {
 }
 
 // NewLightningWallet...
-// TODO(roasbeef): fin...
-func NewLightningWallet(privWalletPass, pubWalletPass []byte) (*LightningWallet, error) {
+// TODO(roasbeef): fin...add config
+func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir string) (*LightningWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(defaultDataDir, ActiveNetParams)
 	dbPath := filepath.Join(netDir, walletDbName)
@@ -178,6 +178,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass []byte) (*LightningWallet,
 
 	// Wallet has never been created, perform initial set up.
 	if !fileExists(dbPath) {
+		fmt.Println("wallet doesn't exist, creating")
 		// Ensure the data directory for the network exists.
 		if err := checkCreateDir(netDir); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -185,8 +186,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass []byte) (*LightningWallet,
 		}
 
 		// Attempt to create  a new wallet
-		// TODO(roasbeef): optionally accept userseed from constructor
-		if err := createWallet(privWalletPass, pubPass, nil); err != nil {
+		if err := createWallet(privWalletPass, pubPass, hdSeed, dbPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, err
 		}
@@ -194,7 +194,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass []byte) (*LightningWallet,
 
 	// Wallet has been created and been initialized at this point, open it
 	// along with all the required DB namepsaces, and the DB itself.
-	wallet, db, err := openWallet(pubPass)
+	wallet, db, err := openWallet(pubPass, netDir)
 	if err != nil {
 		return nil, err
 	}

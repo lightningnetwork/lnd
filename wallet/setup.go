@@ -107,9 +107,10 @@ func checkCreateDir(path string) error {
 // createWallet generates a new wallet. The new wallet will reside at the
 // provided path.
 // TODO(roasbeef): maybe pass in config after all for testing purposes?
-func createWallet(privPass []byte, pubPass []byte, userSeed []byte) error {
+func createWallet(privPass, pubPass, userSeed []byte,
+	dbPath string) error {
 	// TODO(roasbeef): replace with tadge's seed format?
-	var hdSeed []byte
+	hdSeed := userSeed
 	var seedErr error
 	if userSeed == nil {
 		hdSeed, seedErr = hdkeychain.GenerateSeed(hdkeychain.RecommendedSeedLen)
@@ -119,8 +120,6 @@ func createWallet(privPass []byte, pubPass []byte, userSeed []byte) error {
 	}
 
 	// Create the wallet.
-	netDir := networkDir(defaultDataDir, ActiveNetParams)
-	dbPath := filepath.Join(netDir, walletDbName)
 	fmt.Println("Creating the wallet...")
 
 	// Create the wallet database backed by bolt db.
@@ -209,10 +208,8 @@ func promptPrivPassPhrase() ([]byte, error) {
 // openWallet returns a wallet. The function handles opening an existing wallet
 // database, the address manager and the transaction store and uses the values
 // to open a wallet.Wallet
-func openWallet(pubPass []byte) (*wallet.Wallet, walletdb.DB, error) {
-	netdir := networkDir(defaultDataDir, ActiveNetParams)
-
-	db, err := openDb(netdir, walletDbName)
+func openWallet(pubPass []byte, dbDir string) (*wallet.Wallet, walletdb.DB, error) {
+	db, err := openDb(dbDir, walletDbName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Failed to open database: %v", err)
 	}

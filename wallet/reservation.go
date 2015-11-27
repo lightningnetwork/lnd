@@ -92,11 +92,11 @@ func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.P
 }
 
 // CompleteFundingReservation...
-func (r *ChannelReservation) CompleteReservation(reservationID uint64, theirSigs [][]byte) error {
+func (r *ChannelReservation) CompleteReservation(theirSigs [][]byte) error {
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addCounterPartySigsMsg{
-		pendingFundingID: reservationID,
+		pendingFundingID: r.reservationID,
 		theirSigs:        theirSigs,
 		err:              errChan,
 	}
@@ -113,10 +113,10 @@ func (r *ChannelReservation) FinalFundingTx() *btcutil.Tx {
 
 // RequestFundingReserveCancellation...
 // TODO(roasbeef): also return mutated state?
-func (r *ChannelReservation) Cancel(reservationID uint64) {
+func (r *ChannelReservation) Cancel() {
 	doneChan := make(chan struct{}, 1)
 	r.wallet.msgChan <- &fundingReserveCancelMsg{
-		pendingFundingID: reservationID,
+		pendingFundingID: r.reservationID,
 		done:             doneChan,
 	}
 

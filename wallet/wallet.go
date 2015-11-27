@@ -133,7 +133,8 @@ type finalizedFundingState struct {
 type LightningWallet struct {
 	// TODO(roasbeef): add btcwallet/chain for notifications initially, then
 	// abstract out in order to accomodate zeroMQ/BitcoinCore
-	sync.RWMutex
+
+	lmtx sync.RWMutex
 
 	db walletdb.DB
 
@@ -141,7 +142,7 @@ type LightningWallet struct {
 	// TODO(roasbeef): which possible other namespaces are relevant?
 	lnNamespace walletdb.Namespace
 
-	*btcwallet.Wallet
+	wallet      *btcwallet.Wallet
 
 	msgChan chan interface{}
 
@@ -210,7 +211,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 
 	return &LightningWallet{
 		db:            db,
-		Wallet:        wallet,
+		wallet:        wallet,
 		lnNamespace:   lnNamespace,
 		msgChan:       make(chan interface{}, msgBufferSize),
 		nextFundingID: 0,
@@ -301,7 +302,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
 	maxConfs := ^int32(0)
-	unspentOutputs, err := l.ListUnspent(6, maxConfs, nil)
+	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
 	if err != nil {
 		req.err <- err
 		return
@@ -333,7 +334,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	partialState.ourInputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
 	for i, coin := range selectedCoins.Coins() {
 		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
-		l.LockOutpoint(*txout)
+		l.wallet.LockOutpoint(*txout)
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
@@ -348,7 +349,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
 		changeAmount := selectedTotalValue - req.fundingAmount
-		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum)
+		changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 		if err != nil {
 			req.err <- err
 			return
@@ -395,7 +396,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// Mark all previously locked outpoints as usuable for future funding
 	// requests.
 	for _, unusedInput := range pendingReservation.ourInputs {
-		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
+		l.wallet.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
 	// TODO(roasbeef): is it even worth it to keep track of unsed keys?
@@ -411,9 +412,9 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 
 // handleFundingCounterPartyFunds...
 func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFundsMsg) {
-	l.RLock()
+	l.limboMtx.Lock()
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
-	l.RUnlock()
+	l.limboMtx.Unlock()
 	if !ok {
 		req.err <- fmt.Errorf("attempted to update non-existant funding state")
 		return
@@ -479,7 +480,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 	pendingReservation.ourSigs = make([][]byte, len(pendingReservation.ourInputs))
 	for i, txIn := range pendingReservation.fundingTx.TxIn {
 		// Does the wallet know about the txin?
-		txDetail, _ := l.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
+		txDetail, _ := l.wallet.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
 		if txDetail == nil {
 			continue
 		}
@@ -494,7 +495,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 			return
 		}
 
-		ai, err := l.Manager.Address(apkh)
+		ai, err := l.wallet.Manager.Address(apkh)
 		if err != nil {
 			req.err <- fmt.Errorf("cannot get address info: %v", err)
 			return
@@ -568,7 +569,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 // nextMultiSigKey...
 // TODO(roasbeef): on shutdown, write state of pending keys, then read back?
 func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
-	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	nextAddr, err := l.wallet.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {
 		return nil, err
 	}

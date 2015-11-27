@@ -283,7 +283,7 @@ out:
 }
 
 // RequestFundingReservation...
-func (l *LightningWallet) RequestChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
+func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
 

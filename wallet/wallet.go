@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/coinset"
 	"github.com/btcsuite/btcutil/txsort"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -143,6 +144,7 @@ type LightningWallet struct {
 	lnNamespace walletdb.Namespace
 
 	wallet      *btcwallet.Wallet
+	chainClient *chain.Client
 
 	msgChan chan interface{}
 
@@ -167,7 +169,7 @@ type LightningWallet struct {
 // TODO(roasbeef): fin...add config
 func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir string) (*LightningWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(defaultDataDir, ActiveNetParams)
+	netDir := networkDir(dataDir, ActiveNetParams)
 	dbPath := filepath.Join(netDir, walletDbName)
 
 	var pubPass []byte
@@ -226,6 +228,17 @@ func (l *LightningWallet) Start() error {
 	if atomic.AddInt32(&l.started, 1) != 1 {
 		return nil
 	}
+	// TODO(roasbeef): config...
+
+	rpcc, err := chain.NewClient(ActiveNetParams,
+		"host", "user", "pass", []byte("cert"), true)
+	if err != nil {
+		return err
+	}
+
+	// Start the goroutines in the underlying wallet.
+	l.chainClient = rpcc
+	l.wallet.Start(rpcc)
 
 	l.wg.Add(1)
 	go l.requestHandler()

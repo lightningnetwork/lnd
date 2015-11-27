@@ -337,6 +337,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// TODO(roasbeef): Should extend coinset with optimal coin selection
 	// heuristics for our use case.
 	// TODO(roasbeef): factor in fees..
+	// TODO(roasbeef): possibly integrate the fee prediction project? if
+	// results hold up...
 	// NOTE: this current selection assumes "priority" is still a thing.
 	selector := &coinset.MaxValueAgeCoinSelector{
 		MaxInputs:       10,
@@ -455,6 +457,9 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 	// First, add all multi-party inputs to the transaction
 	// TODO(roasbeef); handle case that tx doesn't exist, fake input
 	// TODO(roasbeef): validate SPV proof from other side if in SPV mode.
+	//  * actually, pure SPV would need fraud proofs right? must prove input
+	//    is unspent
+	//  * or, something like getutxo?
 	for _, ourInput := range pendingReservation.ourInputs {
 		pendingReservation.fundingTx.AddTxIn(ourInput)
 	}
@@ -474,7 +479,10 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 	}
 
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
-	// channel. TODO(roasbeef): Cannonical sorting of keys here?
+	// channel.
+	// TODO(roasbeef): Cannonical sorting of keys here?
+	//  * also, also this is currently bare-multi sig, keep this for network
+	//    transparency or switch to P2SH?
 	keys := make([]*btcutil.AddressPubKey, 2)
 	ourKey := pendingReservation.ourKey.PubKey().SerializeCompressed()
 	keys[0], _ = btcutil.NewAddressPubKey(ourKey, ActiveNetParams)
@@ -496,7 +504,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Now that the transaction has been cannonically sorted, compute the
 	// normalized transation ID before we attach our signatures.
-	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive
+	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive...
 	pendingReservation.normalizedTxID = pendingReservation.fundingTx.TxSha()
 
 	// Now, sign all inputs that are ours, collecting the signatures in
@@ -574,6 +582,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	}
 
 	// TODO(roasbeef): write the funding transaction to disk
+	//  * funding transaction bucket
+	//  * then accessed according to non-recursive normalized txid?
+	//  * also possibly add reverse mapping
 	// Now that all signatures are in place and valid record the regular txid
 	//completedReservation := &finalizedFundingState{
 	//	FundingTxId:           pendingReservation.fundingTx.TxSha(),

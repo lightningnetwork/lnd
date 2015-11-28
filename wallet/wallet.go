@@ -317,7 +317,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	defer partialState.Unlock()
 
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
-	maxConfs := ^int32(0)
+	maxConfs := int32(math.MaxInt32)
 	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
 	if err != nil {
 		req.err <- err

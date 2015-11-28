@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -154,6 +155,12 @@ func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta
 	return nil
 }
 
+func genBlockHash(n int) *wire.ShaHash {
+	sha := sha256.Sum256([]byte{byte(n)})
+	hash, _ := wire.NewShaHash(sha[:])
+	return hash
+}
+
 func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// Import the priv key (converting to WIF) above that controls all our
 	// available outputs.
@@ -163,7 +170,7 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 		return err
 	}
 	fmt.Println("wallet unlocked")
-	bs := &waddrmgr.BlockStamp{Height: 2}
+	bs := &waddrmgr.BlockStamp{Hash: *genBlockHash(1), Height: 1}
 	wif, err := btcutil.NewWIF(privKey, ActiveNetParams, true)
 	if err != nil {
 		return err
@@ -173,8 +180,11 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 		return nil
 	}
 	fmt.Println("priv key imported")
+	if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(1), *genBlockHash(1)}); err != nil {
+		return err
+	}
 
-	blk := wtxmgr.BlockMeta{wtxmgr.Block{wire.ShaHash{}, 2}, time.Now()}
+	blk := wtxmgr.BlockMeta{wtxmgr.Block{Hash: *genBlockHash(2), Height: 2}, time.Now()}
 
 	// Create a simple P2PKH pubkey script spendable by Alice. For simplicity
 	// all of Alice's spendable funds will reside in this output.
@@ -191,19 +201,32 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 
 	// Create numOutputs outputs spendable by our wallet each holding btcPerOutput
 	// in satoshis.
+	tx := wire.NewMsgTx()
+	prevOut := wire.NewOutPoint(genBlockHash(999), 1)
+	txIn := wire.NewTxIn(prevOut, []byte{txscript.OP_0, txscript.OP_0})
+	tx.AddTxIn(txIn)
 	for i := 0; i < numOutputs; i++ {
-		tx := wire.NewMsgTx()
-		prevOut := wire.NewOutPoint(&wire.ShaHash{}, ^uint32(0))
-		txIn := wire.NewTxIn(prevOut, []byte{txscript.OP_0, txscript.OP_0})
-		tx.AddTxIn(txIn)
 		tx.AddTxOut(wire.NewTxOut(satosihPerOutput, walletScriptCredit))
 
-		txCredit, err := wtxmgr.NewTxRecordFromMsgTx(tx, time.Now())
-		if err != nil {
-			return err
-		}
+	}
+	txCredit, err := wtxmgr.NewTxRecordFromMsgTx(tx, time.Now())
+	if err != nil {
+		return err
+	}
 
-		if err := addTestTx(w, txCredit, &blk); err != nil {
+	if err := addTestTx(w, txCredit, &blk); err != nil {
+		return err
+	}
+	if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(2), *genBlockHash(2)}); err != nil {
+		return err
+	}
+
+	// Make the wallet think it's been synced to block 10. This way the
+	// outputs we added above will have sufficient confirmations
+	// (hard coded to 6 atm).
+	for i := 3; i < 11; i++ {
+		sha := *genBlockHash(i)
+		if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(i), sha}); err != nil {
 			return err
 		}
 	}

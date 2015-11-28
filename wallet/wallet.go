@@ -253,6 +253,8 @@ func (l *LightningWallet) Stop() error {
 		return nil
 	}
 
+	l.wallet.Stop()
+
 	close(l.quit)
 	l.wg.Wait()
 	return nil

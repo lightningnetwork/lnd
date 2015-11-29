@@ -16,7 +16,7 @@ type ChannelReservation struct {
 	ReserveAmount btcutil.Amount
 	MinFeePerKb   btcutil.Amount
 
-	sync.RWMutex // All fields below owned by the wallet.
+	sync.RWMutex // All fields below owned by the lnwallet.
 
 	theirInputs []*wire.TxIn
 	ourInputs   []*wire.TxIn
@@ -59,7 +59,7 @@ func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 // OurFunds...
 func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
 	r.RLock()
-	defer r.Unlock()
+	defer r.RUnlock()
 	return r.ourInputs, r.ourChange, r.ourKey.PubKey()
 }
 
@@ -80,14 +80,15 @@ func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutpu
 // OurSigs...
 func (r *ChannelReservation) OurSigs() [][]byte {
 	r.RLock()
-	defer r.Unlock()
+	defer r.RUnlock()
 	return r.ourSigs
 }
 
 // TheirFunds...
+// TODO(roasbeef): return error if accessors not yet populated?
 func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
 	r.RLock()
-	defer r.Unlock()
+	defer r.RUnlock()
 	return r.theirInputs, r.theirChange, r.theirKey
 }
 
@@ -107,7 +108,7 @@ func (r *ChannelReservation) CompleteReservation(theirSigs [][]byte) error {
 // FinalFundingTransaction...
 func (r *ChannelReservation) FinalFundingTx() *btcutil.Tx {
 	r.RLock()
-	defer r.Unlock()
+	defer r.RUnlock()
 	return r.completedFundingTx
 }
 

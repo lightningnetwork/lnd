@@ -43,12 +43,14 @@ func newLnCoin(output *btcjson.ListUnspentResult) (coinset.Coin, error) {
 	}
 
 	return &lnCoin{
-		hash:     txid,
-		value:    btcutil.Amount(output.Amount),
+		hash: txid,
+		// btcjson.ListUnspentResult shows the amount in BTC,
+		// translate into Satoshi so coin selection can work properly.
+		value:    btcutil.Amount(output.Amount * 1e8),
 		index:    output.Vout,
 		pkScript: pkScript,
 		numConfs: output.Confirmations,
-		// TODO(roasbeef) outpout.Amount should be a int64 :/
+		// TODO(roasbeef): output.Amount should be a int64, damn json-RPC :/
 		valueAge: output.Confirmations * int64(output.Amount),
 	}, nil
 }

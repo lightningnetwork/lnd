@@ -3,6 +3,7 @@ package wallet
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -368,21 +369,22 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 
 	// Create some possibly neccessary change outputs.
-	selectedTotalValue := coinset.NewCoinSet(coins).TotalValue()
+	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()
 	partialState.ourChange = make([]*wire.TxOut, 0, len(selectedCoins.Coins()))
 	if selectedTotalValue > req.fundingAmount {
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
 		changeAmount := selectedTotalValue - req.fundingAmount
-		changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
+		addrs, err := l.wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
 		}
+		changeAddrScript := addrs[0].AddrHash()
 
 		partialState.ourChange = append(partialState.ourChange,
-			wire.NewTxOut(int64(changeAmount), changeAddr.ScriptAddress()))
+			wire.NewTxOut(int64(changeAmount), changeAddrScript))
 	}
 
 	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs

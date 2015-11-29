@@ -72,6 +72,7 @@ func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutpu
 		theirInputs:        theirInputs,
 		theirChangeOutputs: theirChangeOutputs,
 		theirKey:           multiSigKey,
+		err:                errChan,
 	}
 
 	return <-errChan

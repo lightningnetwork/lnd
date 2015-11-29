@@ -2,7 +2,6 @@ package wallet
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -165,21 +164,17 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// Import the priv key (converting to WIF) above that controls all our
 	// available outputs.
 	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
-	fmt.Println("unlocking wallet")
 	if err := w.wallet.Unlock(privPass, time.Duration(0)); err != nil {
 		return err
 	}
-	fmt.Println("wallet unlocked")
 	bs := &waddrmgr.BlockStamp{Hash: *genBlockHash(1), Height: 1}
 	wif, err := btcutil.NewWIF(privKey, ActiveNetParams, true)
 	if err != nil {
 		return err
 	}
-	fmt.Println("importing priv key")
 	if _, err := w.wallet.ImportPrivateKey(wif, bs, false); err != nil {
 		return nil
 	}
-	fmt.Println("priv key imported")
 	if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(1), *genBlockHash(1)}); err != nil {
 		return err
 	}
@@ -224,7 +219,7 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// Make the wallet think it's been synced to block 10. This way the
 	// outputs we added above will have sufficient confirmations
 	// (hard coded to 6 atm).
-	for i := 3; i < 11; i++ {
+	for i := 3; i < 10; i++ {
 		sha := *genBlockHash(i)
 		if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(i), sha}); err != nil {
 			return err
@@ -247,27 +242,113 @@ func createTestWallet() (string, *LightningWallet, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	fmt.Println("STARTING WALLET")
 	wallet.Start()
-	fmt.Println("WALLET STARTED")
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
-	fmt.Println("loading credits")
 	if err := loadTestCredits(wallet, 5, 4); err != nil {
 		return "", nil, err
 	}
-	fmt.Println("credits loaded")
 
 	return tempTestDir, wallet, nil
 }
 
 func TestBasicWalletReservationWorkFlow(t *testing.T) {
-	// all stages
-	// fields on struct properly set
-	// funding transaction on disk
+	// Create our test wallet, will have a total of 20 BTC available for
+	// funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet()
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+	defer lnwallet.Stop()
+
+	// The wallet should now have 20BTC available for spending.
+	balance, err := lnwallet.wallet.TxStore.Balance(0, 20)
+	if err != nil {
+		t.Fatalf("unable to query for balance: %v", err)
+	}
+	if balance != btcutil.Amount(20*1e8) {
+		t.Fatalf("wallet credits not properly loaded, should have 20BTC, "+
+			"instead have %v", balance)
+	}
+
+	bobNode, err := newBobNode()
+	if err != nil {
+		t.Fatalf("unable to create bob node: %v", err)
+	}
+
+	// Bob initiates a channel funded with 5 BTC for each side, so 10
+	// BTC total. He also generates 2 BTC in change.
+	fundingAmount := btcutil.Amount(5 * 1e8)
+	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != nil {
+		t.Fatalf("unable to initialize funding reservation: %v", err)
+	}
+
+	// The channel reservation should now be populated with a multi-sig key
+	// from our HD chain, a change output with 3 BTC, and 2 outputs selected
+	// of 4 BTC each.
+	ourInputs, ourChange, ourMultsigKey := chanReservation.OurFunds()
+	if len(ourInputs) != 2 {
+		t.Fatalf("outputs for funding tx not properly selected, have %v "+
+			"outputs should have 2", len(ourInputs))
+	}
+	if ourMultsigKey == nil {
+		t.Fatalf("alice's key for multi-sig not found")
+	}
+	if ourChange[0].Value != 3e8 {
+		t.Fatalf("coin selection failed, change output should be 3e8 "+
+			"satoshis, is instead %v", ourChange[0].Value)
+	}
+
+	// Bob sends over his output, change addr and multi-sig key.
+	if err := chanReservation.AddFunds(bobNode.availableOutputs,
+		bobNode.changeOutputs, bobNode.multiSigKey); err != nil {
+		t.Fatalf("unable to add bob's funds to the funding tx: %v", err)
+	}
+
+	// At this point, the reservation should have our signatures, and a
+	// partial funding transaction (missing bob's sigs).
+	if len(chanReservation.OurSigs()) != 2 {
+		t.Fatalf("only %v of our sigs present, should have 2",
+			len(chanReservation.OurSigs()))
+	}
+	// Additionally, the funding tx should have been populated.
+	if chanReservation.fundingTx == nil {
+		t.Fatalf("funding transaction never created!")
+	}
+	// Their funds should also be filled in.
+	theirInputs, theirChange, theirMultsigKey := chanReservation.TheirFunds()
+	if len(theirInputs) != 1 {
+		t.Fatalf("bob's outputs for funding tx not properly selected, have %v "+
+			"outputs should have 2", len(theirInputs))
+	}
+	if theirMultsigKey == nil {
+		t.Fatalf("alice's key for multi-sig not found")
+	}
+	if theirChange[0].Value != 2e8 {
+		t.Fatalf("bob should have one change output with value 2e8"+
+			"satoshis, is instead %v", theirChange[0].Value)
+	}
+
+	// Alice responds with her output, change addr, multi-sig key and signatures.
+	// Bob then responds with his signatures.
+	bobsSigs, err := bobNode.signFundingTx(chanReservation.fundingTx)
+	if err != nil {
+		t.Fatalf("unable to sign inputs for bob: %v", err)
+	}
+	if err := chanReservation.CompleteReservation(bobsSigs); err != nil {
+		t.Fatalf("unable to complete funding tx: %v", err)
+	}
+
+	// TODO(roasbeef):
+	// * verify funding tx commited to disk
+	// * all sigs valid for all inputs
+
+	// The funding tx should now be valid and complete.
 }
 
-func TestFundingTransactiontxFees(t *testing.T) {
+func TestFundingTransactionTxFees(t *testing.T) {
 }
 
 func TestFundingTransactionLockedOutputs(t *testing.T) {

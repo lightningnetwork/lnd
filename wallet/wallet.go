@@ -182,7 +182,6 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 
 	// Wallet has never been created, perform initial set up.
 	if !fileExists(dbPath) {
-		fmt.Println("wallet doesn't exist, creating")
 		// Ensure the data directory for the network exists.
 		if err := checkCreateDir(netDir); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -382,6 +381,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 			return
 		}
 		changeAddrScript := addrs[0].AddrHash()
+		// TODO(roasbeef): re-enable after test are connected to real node.
+		//changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 
 		partialState.ourChange = append(partialState.ourChange,
 			wire.NewTxOut(int64(changeAmount), changeAddrScript))
@@ -513,7 +514,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Now, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
-	pendingReservation.ourSigs = make([][]byte, len(pendingReservation.ourInputs))
+	pendingReservation.ourSigs = make([][]byte, 0, len(pendingReservation.ourInputs))
 	for i, txIn := range pendingReservation.fundingTx.TxIn {
 		// Does the wallet know about the txin?
 		txDetail, _ := l.wallet.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
@@ -552,7 +553,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 		}
 
 		pendingReservation.fundingTx.TxIn[i].SignatureScript = sigscript
-		pendingReservation.ourSigs[i] = sigscript
+		pendingReservation.ourSigs = append(pendingReservation.ourSigs, sigscript)
 	}
 
 	req.err <- nil
@@ -597,6 +598,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	//}
 
 	pendingReservation.completedFundingTx = btcutil.NewTx(pendingReservation.fundingTx)
+
+	// Add the complete funding transactions to the TxStore for our records.
+	//l.wallet.TxStore.InsertTx(
 
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, pendingReservation.reservationID)

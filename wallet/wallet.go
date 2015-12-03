@@ -145,8 +145,8 @@ type LightningWallet struct {
 	// TODO(roasbeef): which possible other namespaces are relevant?
 	lnNamespace walletdb.Namespace
 
-	wallet      *btcwallet.Wallet
-	chainClient *chain.Client
+	wallet *btcwallet.Wallet
+	rpc    *chain.Client
 
 	msgChan chan interface{}
 
@@ -238,7 +238,7 @@ func (l *LightningWallet) Start() error {
 	}
 
 	// Start the goroutines in the underlying wallet.
-	l.chainClient = rpcc
+	l.rpc = rpcc
 	l.wallet.Start(rpcc)
 
 	l.wg.Add(1)
@@ -576,14 +576,40 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Now we can complete the funding transaction by adding their
 	// signatures to their inputs.
-	i := 0
 	pendingReservation.theirSigs = msg.theirSigs
-	for _, txin := range pendingReservation.fundingTx.TxIn {
+	fundingTx := pendingReservation.fundingTx
+	for i, txin := range fundingTx.TxIn {
 		if txin.SignatureScript == nil {
-			// TODO(roasbeef): use txscript.Engine to make sure each sig is
-			// valid, txn complete.
 			txin.SignatureScript = pendingReservation.theirSigs[i]
-			i++
+
+			// Fetch the alleged previous output along with the
+			// pkscript referenced by this input.
+			prevOut := txin.PreviousOutPoint
+			output, err := l.rpc.GetTxOut(&prevOut.Hash, prevOut.Index, false)
+			if err != nil {
+				// TODO(roasbeef): do this at the start to avoid wasting out time?
+				//  8 or a set of nodes "we" run with exposed unauthenticated RPC?
+				msg.err <- err
+				return
+			}
+			pkscript, err := hex.DecodeString(output.ScriptPubKey.Hex)
+			if err != nil {
+				msg.err <- err
+				return
+			}
+
+			// Ensure that the signature is valid.
+			vm, err := txscript.NewEngine(pkscript,
+				fundingTx, i, txscript.StandardVerifyFlags, nil)
+			if err != nil {
+				// TODO(roasbeef): cancel at this stage if invalid sigs?
+				msg.err <- fmt.Errorf("cannot create script engine: %s", err)
+				return
+			}
+			if err = vm.Execute(); err != nil {
+				msg.err <- fmt.Errorf("cannot validate transaction: %s", err)
+				return
+			}
 		}
 	}
 

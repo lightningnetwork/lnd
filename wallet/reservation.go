@@ -124,3 +124,8 @@ func (r *ChannelReservation) Cancel() {
 
 	<-doneChan
 }
+
+// WaitForChannelOpen...
+func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
+	return nil
+}

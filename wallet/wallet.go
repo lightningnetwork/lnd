@@ -612,6 +612,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 // nextMultiSigKey...
 // TODO(roasbeef): on shutdown, write state of pending keys, then read back?
 func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
+	l.lmtx.Lock()
+	defer l.lmtx.Unlock()
+
 	nextAddr, err := l.wallet.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {
 		return nil, err

@@ -57,13 +57,6 @@ const (
 	CLTV_RESERVE
 )
 
-// completedFundingState...
-type completedFundingState struct {
-	finalizedReservation *ChannelReservation
-
-	regularTxID wire.ShaHash
-}
-
 // initFundingReserveReq...
 type initFundingReserveMsg struct {
 	fundingAmount btcutil.Amount
@@ -135,7 +128,6 @@ type finalizedFundingState struct {
 type LightningWallet struct {
 	// TODO(roasbeef): add btcwallet/chain for notifications initially, then
 	// abstract out in order to accomodate zeroMQ/BitcoinCore
-
 	lmtx sync.RWMutex
 
 	db walletdb.DB

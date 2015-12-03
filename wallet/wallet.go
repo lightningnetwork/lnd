@@ -1,6 +1,9 @@
 package wallet
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -32,12 +35,18 @@ var (
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
 	wtxmgrNamespaceKey    = []byte("wtxmgr")
 
+	openChannelBucket   = []byte("o-chans")
+	closedChannelBucket = []byte("c-chans")
+	fundingTxKey        = []byte("funding")
+
 	// Error types
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
 		"create funding transaction")
 
 	// Which bitcoin network are we using?
 	ActiveNetParams = &chaincfg.TestNet3Params
+
+	endian = binary.BigEndian
 )
 
 type FundingType uint16
@@ -578,27 +587,41 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		}
 	}
 
-	// TODO(roasbeef): write the funding transaction to disk
-	//  * funding transaction bucket
-	//  * then accessed according to non-recursive normalized txid?
-	//  * also possibly add reverse mapping
-	// Now that all signatures are in place and valid record the regular txid
-	//completedReservation := &finalizedFundingState{
-	//	FundingTxId:           pendingReservation.fundingTx.TxSha(),
-	//	NormalizedFundingTXID: pendingReservation.normalizedTxID,
-	//	CompletedFundingTx:    btcutil.NewTx(pendingReservation.fundingTx),
-	//}
-
+	// Now that all signatures are in place, and valid record the regular txid.
 	pendingReservation.completedFundingTx = btcutil.NewTx(pendingReservation.fundingTx)
-
-	// Add the complete funding transactions to the TxStore for our records.
-	//l.wallet.TxStore.InsertTx(
+	txID := pendingReservation.fundingTx.TxSha()
 
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, pendingReservation.reservationID)
 	l.limboMtx.Unlock()
 
-	msg.err <- nil
+	// Add the complete funding transaction to the DB, in it's open bucket
+	// which will be used for the lifetime of this channel.
+	writeErr := l.lnNamespace.Update(func(tx walletdb.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		rootBucket := tx.RootBucket()
+		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		// Create a new sub-bucket within the open channel bucket
+		// specifically for this channel.
+		// TODO(roasbeef): should def be indexed by LNID
+		chanBucket, err := openChanBucket.CreateBucketIfNotExists(txID.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): sync.Pool of buffers in the future.
+		var buf bytes.Buffer
+		fundingTx.Serialize(&buf)
+		return chanBucket.Put(fundingTxKey, buf.Bytes())
+	})
+
+	// TODO(roasbeef): broadcast now?
+	msg.err <- writeErr
 }
 
 // nextMultiSigKey...

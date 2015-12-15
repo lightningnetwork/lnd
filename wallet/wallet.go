@@ -212,10 +212,13 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	// TODO(roasbeef): logging
 
 	return &LightningWallet{
-		db:            db,
-		wallet:        wallet,
-		lnNamespace:   lnNamespace,
-		msgChan:       make(chan interface{}, msgBufferSize),
+		db:          db,
+		wallet:      wallet,
+		lnNamespace: lnNamespace,
+		msgChan:     make(chan interface{}, msgBufferSize),
+		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
+		// faster, locks or CAS? I'm guessing CAS because assembly:
+		//  * https://golang.org/src/sync/atomic/asm_amd64.s
 		nextFundingID: 0,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
@@ -632,6 +635,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	writeErr := l.lnNamespace.Update(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
+		// TODO(roasbeef): CHECKSUMS, REDUNDANCY, etc etc.
 		rootBucket := tx.RootBucket()
 		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
 		if err != nil {
@@ -640,7 +644,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 		// Create a new sub-bucket within the open channel bucket
 		// specifically for this channel.
-		// TODO(roasbeef): should def be indexed by LNID
+		// TODO(roasbeef): should def be indexed by LNID, cuz mal etc.
 		chanBucket, err := openChanBucket.CreateBucketIfNotExists(txID.Bytes())
 		if err != nil {
 			return err

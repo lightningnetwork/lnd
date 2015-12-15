@@ -3,7 +3,6 @@ package wallet
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -654,6 +653,13 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	})
 
 	// TODO(roasbeef): broadcast now?
+	//  * create goroutine, listens on blockconnected+blockdisconnected channels
+	//  * after six blocks, then will create an LightningChannel struct and
+	//    send over reservation.
+	//  * will need a multi-plexer to fan out, to listen on ListenConnectedBlocks
+	//    * should prob be a separate struct/modele
+	//  * use NotifySpent in order to catch non-cooperative spends of revoked
+	//    commitment txns. Hmm using p2sh or bare multi-sig?
 	msg.err <- writeErr
 }
 

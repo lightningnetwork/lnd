@@ -42,6 +42,8 @@ type ChannelReservation struct {
 
 	reservationID uint64
 	wallet        *LightningWallet
+
+	chanOpen chan *LightningChannel
 }
 
 // newChannelReservation...

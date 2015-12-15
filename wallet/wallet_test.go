@@ -70,8 +70,8 @@ func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		bobSigs[i] = sigScript
 
+		bobSigs = append(bobSigs, sigScript)
 	}
 
 	return bobSigs, nil
@@ -202,7 +202,6 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	tx.AddTxIn(txIn)
 	for i := 0; i < numOutputs; i++ {
 		tx.AddTxOut(wire.NewTxOut(satosihPerOutput, walletScriptCredit))
-
 	}
 	txCredit, err := wtxmgr.NewTxRecordFromMsgTx(tx, time.Now())
 	if err != nil {

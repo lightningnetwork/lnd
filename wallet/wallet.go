@@ -381,8 +381,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 			req.resp <- nil
 			return
 		}
-		changeAddrScript := addrs[0].AddrHash()
-		// TODO(roasbeef): re-enable after test are connected to real node.
+		changeAddrScript, err := txscript.PayToAddrScript(addrs[0].Address())
+		if err != nil {
+			req.err <- err
+			req.resp <- nil
+			return
+		}
+		// TODO(roasbeef): re-enable after tests are connected to real node.
+		//   * or the change to btcwallet is made to reverse the dependancy
+		//     between chain-client and wallet.
 		//changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 
 		partialState.ourChange = append(partialState.ourChange,

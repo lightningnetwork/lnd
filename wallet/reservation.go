@@ -131,3 +131,13 @@ func (r *ChannelReservation) Cancel() {
 func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
 	return nil
 }
+
+// * finish reset of tests
+// * comment out stuff that'll need a node.
+// * start on commitment side
+//   * implement rusty's shachain
+//   * set up logic to get notification from node when funding tx gets 6 deep.
+//     * prob spawn into ChainNotifier struct
+//   * create builder for initial funding transaction
+//     * fascade through the wallet, for signing and such.
+//   * channel should have active namespace to it's bucket, query at that point fo past commits etc

@@ -99,7 +99,7 @@ func newBobNode() (*bobNode, error) {
 	prevOut := wire.NewOutPoint(&wire.ShaHash{}, ^uint32(0))
 	// TODO(roasbeef): When the chain rpc is hooked in, assert bob's output
 	// actually exists and it unspent in the chain.
-	bobTxIn := wire.NewTxIn(prevOut, bobAddrScript)
+	bobTxIn := wire.NewTxIn(prevOut, nil)
 
 	// Using bobs priv key above, create a change address he can spend.
 	bobChangeOutput := wire.NewTxOut(2*1e8, bobAddrScript)

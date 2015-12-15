@@ -345,6 +345,35 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 	// * all sigs valid for all inputs
 
 	// The funding tx should now be valid and complete.
+	// Check each input and ensure all scripts are fully valid.
+	var zeroHash wire.ShaHash
+	fundingTx := chanReservation.fundingTx
+	for i, input := range chanReservation.fundingTx.TxIn {
+		var pkscript []byte
+		// Bob's txin
+		if bytes.Equal(input.PreviousOutPoint.Hash.Bytes(),
+			zeroHash.Bytes()) {
+			pkscript = bobNode.changeOutputs[0].PkScript
+		} else {
+			// Does the wallet know about the txin?
+			txDetail, _ := lnwallet.wallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
+			if txDetail == nil {
+				panic(fmt.Errorf("not found!"))
+			}
+			prevIndex := input.PreviousOutPoint.Index
+			pkscript = txDetail.TxRecord.MsgTx.TxOut[prevIndex].PkScript
+		}
+
+		vm, err := txscript.NewEngine(pkscript,
+			fundingTx, i, txscript.StandardVerifyFlags, nil)
+		if err != nil {
+			// TODO(roasbeef): cancel at this stage if invalid sigs?
+			t.Fatalf("cannot create script engine: %s", err)
+		}
+		if err = vm.Execute(); err != nil {
+			t.Fatalf("cannot validate transaction: %s", err)
+		}
+	}
 }
 
 func TestFundingTransactionTxFees(t *testing.T) {

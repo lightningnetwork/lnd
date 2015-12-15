@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"io/ioutil"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 )
 
@@ -340,9 +342,41 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 		t.Fatalf("unable to complete funding tx: %v", err)
 	}
 
-	// TODO(roasbeef):
-	// * verify funding tx commited to disk
-	// * all sigs valid for all inputs
+	// At this point, the channel can be considered "open" when the funding
+	// txn hits a "comfortable" depth.
+
+	// A bucket should have been created for this pending channel, and the
+	// state commited.
+	err = lnwallet.lnNamespace.View(func(tx walletdb.Tx) error {
+		// The open channel bucket should have been created.
+		rootBucket := tx.RootBucket()
+		openChanBucket := rootBucket.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			t.Fatalf("openChanBucket should be created, but isn't")
+		}
+
+		// The sub-bucket for this channel, keyed by the txid of the
+		// funding transaction
+		txid := chanReservation.fundingTx.TxSha()
+		bobChanBucket := openChanBucket.Bucket(txid[:])
+		if bobChanBucket == nil {
+			t.Fatalf("bucket for the alice-bob channe should exist, " +
+				"but doesn't")
+		}
+
+		var storedTx wire.MsgTx
+		b := bytes.NewReader(bobChanBucket.Get(fundingTxKey))
+		storedTx.Deserialize(b)
+
+		// The hash of the stored tx should be indentical to our funding tx.
+		storedTxId := storedTx.TxSha()
+		actualTxId := chanReservation.fundingTx.TxSha()
+		if !bytes.Equal(storedTxId.Bytes(), actualTxId.Bytes()) {
+			t.Fatalf("stored funding tx doesn't match actual")
+		}
+
+		return nil
+	})
 
 	// The funding tx should now be valid and complete.
 	// Check each input and ensure all scripts are fully valid.
@@ -356,9 +390,9 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 			pkscript = bobNode.changeOutputs[0].PkScript
 		} else {
 			// Does the wallet know about the txin?
-			txDetail, _ := lnwallet.wallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
-			if txDetail == nil {
-				panic(fmt.Errorf("not found!"))
+			txDetail, err := lnwallet.wallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
+			if txDetail == nil || err != nil {
+				t.Fatalf("txstore can't find tx detail, err: %v", err)
 			}
 			prevIndex := input.PreviousOutPoint.Index
 			pkscript = txDetail.TxRecord.MsgTx.TxOut[prevIndex].PkScript

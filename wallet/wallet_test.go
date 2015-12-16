@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/coinset"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -44,6 +45,17 @@ var (
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 )
+
+func assertProperBalance(t *testing.T, lw *LightningWallet, numConfirms, amount int32) {
+	balance, err := lw.wallet.TxStore.Balance(0, 20)
+	if err != nil {
+		t.Fatalf("unable to query for balance: %v", err)
+	}
+	if balance != btcutil.Amount(20*1e8) {
+		t.Fatalf("wallet credits not properly loaded, should have 20BTC, "+
+			"instead have %v", balance)
+	}
+}
 
 // bobNode represents the other party involved as a node within LN. Bob is our
 // only "default-route", we have a direct connection with him.
@@ -264,14 +276,7 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 	defer lnwallet.Stop()
 
 	// The wallet should now have 20BTC available for spending.
-	balance, err := lnwallet.wallet.TxStore.Balance(0, 20)
-	if err != nil {
-		t.Fatalf("unable to query for balance: %v", err)
-	}
-	if balance != btcutil.Amount(20*1e8) {
-		t.Fatalf("wallet credits not properly loaded, should have 20BTC, "+
-			"instead have %v", balance)
-	}
+	assertProperBalance(t, lnwallet, 1, 20)
 
 	bobNode, err := newBobNode()
 	if err != nil {
@@ -410,10 +415,71 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 	}
 }
 
-func TestFundingTransactionTxFees(t *testing.T) {
-}
+// TODO(roasbeef): why is wallet so slow to create+open?
+// * investigate
+// * re-use same lnwallet instance accross tests resetting each time?
 
 func TestFundingTransactionLockedOutputs(t *testing.T) {
+	// Create our test wallet, will have a total of 20 BTC available for
+	// funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet()
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+	defer lnwallet.Stop()
+
+	// The wallet should now have 20BTC available for spending.
+	assertProperBalance(t, lnwallet, 1, 20)
+
+	// Create two channels, both asking for 8 BTC each, totalling 16
+	// BTC.
+	// TODO(roasbeef): tests for concurrent funding.
+	fundingAmount := btcutil.Amount(8 * 1e8)
+	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != nil {
+		t.Fatalf("unable to initialize funding reservation 1: %v", err)
+	}
+	chanReservation2, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != nil {
+		t.Fatalf("unable to initialize funding reservation 2: %v", err)
+	}
+
+	// Neither should have any change, as all our output sizes are
+	// identical (4BTC).
+	ourInputs1, ourChange1, _ := chanReservation1.OurFunds()
+	if len(ourInputs1) != 2 {
+		t.Fatalf("outputs for funding tx not properly selected, has %v "+
+			"outputs should have 2", len(ourInputs1))
+	}
+	if len(ourChange1) != 0 {
+		t.Fatalf("funding transaction should have no change, instead has %v",
+			len(ourChange1))
+	}
+	ourInputs2, ourChange2, _ := chanReservation2.OurFunds()
+	if len(ourInputs2) != 2 {
+		t.Fatalf("outputs for funding tx not properly selected, have %v "+
+			"outputs should have 2", len(ourInputs2))
+	}
+	if len(ourChange2) != 0 {
+		t.Fatalf("funding transaction should have no change, instead has %v",
+			len(ourChange2))
+	}
+
+	// Now attempt to reserve funds for another channel, this time requesting
+	// 5 BTC. We only have 4BTC worth of outpoints that aren't locked, so
+	// this should fail.
+	amt := btcutil.Amount(8 * 1e8)
+	failedReservation, err := lnwallet.InitChannelReservation(amt, SIGHASH)
+	if err == nil {
+		t.Fatalf("not error returned, should fail on coin selection")
+	}
+	if err != coinset.ErrCoinsNoSelectionAvailable {
+		t.Fatalf("error not coinselect error: %v", err)
+	}
+	if failedReservation != nil {
+		t.Fatalf("reservation should be nil")
+	}
 }
 
 func TestFundingTransactionCancellationFreeOutputs(t *testing.T) {
@@ -423,4 +489,7 @@ func TestFundingReservationInsufficientFunds(t *testing.T) {
 }
 
 func TestFundingReservationInvalidCounterpartySigs(t *testing.T) {
+}
+
+func TestFundingTransactionTxFees(t *testing.T) {
 }

@@ -117,14 +117,14 @@ func (r *ChannelReservation) FinalFundingTx() *btcutil.Tx {
 
 // RequestFundingReserveCancellation...
 // TODO(roasbeef): also return mutated state?
-func (r *ChannelReservation) Cancel() {
-	doneChan := make(chan struct{}, 1)
+func (r *ChannelReservation) Cancel() error {
+	errChan := make(chan error, 1)
 	r.wallet.msgChan <- &fundingReserveCancelMsg{
 		pendingFundingID: r.reservationID,
-		done:             doneChan,
+		err:              errChan,
 	}
 
-	<-doneChan
+	return <-errChan
 }
 
 // WaitForChannelOpen...

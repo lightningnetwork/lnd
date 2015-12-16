@@ -87,8 +87,7 @@ type fundingReserveCancelMsg struct {
 	pendingFundingID uint64
 
 	// Buffered, used for optionally synchronization.
-	err  chan error    // Buffered
-	done chan struct{} // Buffered
+	err chan error // Buffered
 }
 
 // addCounterPartySigsMsg...
@@ -430,7 +429,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	if !ok {
 		// TODO(roasbeef): make new error, "unkown funding state" or something
 		req.err <- fmt.Errorf("attempted to cancel non-existant funding state")
-		req.done <- struct{}{}
 		return
 	}
 
@@ -452,7 +450,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	delete(l.fundingLimbo, req.pendingFundingID)
 
 	req.err <- nil
-	req.done <- struct{}{}
 }
 
 // handleFundingCounterPartyFunds...

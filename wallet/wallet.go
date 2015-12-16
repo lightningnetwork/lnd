@@ -51,10 +51,13 @@ var (
 type FundingType uint16
 
 const (
-	//Use SIGHASH_NOINPUT, assumes CSV
-	SIGHASH FundingType = iota
+	// Use SegWit, assumes CSV+CLTV
+	SEGWIT FundingType = iota
 
-	//Use CSV without reserve
+	// Use SIGHASH_NOINPUT, assumes CSV+CLTV
+	SIGHASH
+
+	// Use CSV without reserve
 	CSV
 
 	// Use CSV with reserve
@@ -419,6 +422,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 // handleFundingReserveCancel...
 func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMsg) {
 	// TODO(roasbeef): holding lock too long
+	// RLOCK?
 	l.limboMtx.Lock()
 	defer l.limboMtx.Unlock()
 

@@ -1,6 +1,10 @@
 package revocation
 
-import "github.com/btcsuite/btcd/wire"
+import (
+	"sync"
+
+	"github.com/btcsuite/btcd/wire"
+)
 
 // chainFragment...
 type chainFragment struct {
@@ -11,6 +15,8 @@ type chainFragment struct {
 // HyperShaChain...
 // * https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt
 type HyperShaChain struct {
+	sync.RWMutex
+
 	lastChainIndex uint64
 
 	chainFragments []chainFragment

@@ -1,1 +1,3 @@
 package wallet
+
+import "testing"

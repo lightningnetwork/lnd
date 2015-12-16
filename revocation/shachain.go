@@ -9,6 +9,7 @@ type chainFragment struct {
 }
 
 // HyperShaChain...
+// * https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt
 type HyperShaChain struct {
 	lastChainIndex uint64
 

@@ -435,6 +435,7 @@ func TestFundingTransactionLockedOutputs(t *testing.T) {
 	// Create two channels, both asking for 8 BTC each, totalling 16
 	// BTC.
 	// TODO(roasbeef): tests for concurrent funding.
+	//  * also func for below
 	fundingAmount := btcutil.Amount(8 * 1e8)
 	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
 	if err != nil {
@@ -482,10 +483,87 @@ func TestFundingTransactionLockedOutputs(t *testing.T) {
 	}
 }
 
-func TestFundingTransactionCancellationFreeOutputs(t *testing.T) {
+func TestFundingCancellationNotEnoughFunds(t *testing.T) {
+	// TODO(roasbeef): factor out, such copy pasta
+	// Create our test wallet, will have a total of 20 BTC available for
+	// funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet()
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+	defer lnwallet.Stop()
+
+	// The wallet should now have 20BTC available for spending.
+	assertProperBalance(t, lnwallet, 1, 20)
+
+	// Create a reservation for 12 BTC.
+	fundingAmount := btcutil.Amount(12 * 1e8)
+	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != nil {
+		t.Fatalf("unable to initialize funding reservation: %v", err)
+	}
+
+	// There should be three locked outpoints.
+	lockedOutPoints := lnwallet.wallet.LockedOutpoints()
+	if len(lockedOutPoints) != 3 {
+		t.Fatalf("two outpoints should now be locked, instead %v are",
+			lockedOutPoints)
+	}
+
+	// Attempt to create another channel with 12 BTC, this should fail.
+	failedReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != coinset.ErrCoinsNoSelectionAvailable {
+		t.Fatalf("coin selection succeded should have insufficient funds: %+v",
+			failedReservation)
+	}
+
+	// Now cancel that old reservation.
+	if err := chanReservation.Cancel(); err != nil {
+		t.Fatalf("unable to cancel reservation: %v", err)
+	}
+
+	// Those outpoints should no longer be locked.
+	lockedOutPoints = lnwallet.wallet.LockedOutpoints()
+	if len(lockedOutPoints) != 0 {
+		t.Fatalf("outpoints still locked")
+	}
+
+	// Reservation ID should now longer be tracked.
+	_, ok := lnwallet.fundingLimbo[chanReservation.reservationID]
+	if ok {
+		t.Fatalf("funding reservation still in map")
+	}
+
+	// TODO(roasbeef): create method like Balance that ignores locked
+	// outpoints, will let us fail early/fast instead of querying and
+	// attempting coin selection.
+
+	// Request to fund a new channel should now succeeed.
+	_, err = lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	if err != nil {
+		t.Fatalf("unable to initialize funding reservation: %v", err)
+	}
 }
 
-func TestFundingReservationInsufficientFunds(t *testing.T) {
+func TestCancelNonExistantReservation(t *testing.T) {
+	// Create our test wallet, will have a total of 20 BTC available for
+	// funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet()
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+	defer lnwallet.Stop()
+
+	// Create our own reservation, give it some ID.
+	res := newChannelReservation(SIGHASH, 1000, 5000, lnwallet, 22)
+
+	// Attempt to cancel this reservation. This should fail, we know
+	// nothing of it.
+	if err = res.Cancel(); err == nil {
+		t.Fatalf("cancelled non-existant reservation")
+	}
 }
 
 func TestFundingReservationInvalidCounterpartySigs(t *testing.T) {

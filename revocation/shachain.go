@@ -1,9 +1,6 @@
-package wallet
+package revocation
 
 import "github.com/btcsuite/btcd/wire"
-
-// TODO(roasbeef): port Rusty's hash-chain stuff
-//  * or just use HD chains based off of CodeShark's proposal?
 
 // chainFragment...
 type chainFragment struct {
@@ -21,6 +18,7 @@ type ShaChain struct {
 // NewShaChain...
 func NewShaChain(seed wire.ShaHash) *ShaChain {
 	// TODO(roasbeef): from/to or static size?
+	return nil
 }
 
 // NextHash...

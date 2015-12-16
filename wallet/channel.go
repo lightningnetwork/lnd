@@ -10,7 +10,7 @@ import (
 )
 
 type LightningChannel struct {
-	shachan *revocation.ShaChain
+	shachan *revocation.HyperShaChain
 	wallet  *LightningWallet
 
 	channelEvents *chainntnfs.ChainNotifier

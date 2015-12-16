@@ -8,23 +8,23 @@ type chainFragment struct {
 	hash  wire.ShaHash
 }
 
-// ShaChain...
-type ShaChain struct {
+// HyperShaChain...
+type HyperShaChain struct {
 	lastChainIndex uint64
 
 	chainFragments []chainFragment
 }
 
-// NewShaChain...
-func NewShaChain(seed wire.ShaHash) *ShaChain {
+// NewHyperShaChain...
+func NewHyperShaChain(seed wire.ShaHash) *HyperShaChain {
 	// TODO(roasbeef): from/to or static size?
 	return nil
 }
 
 // NextHash...
-func (s *ShaChain) NextHash() {
+func (s *HyperShaChain) NextHash() {
 }
 
 // GetHash...
-func (s *ShaChain) GetHash(index uint64) {
+func (s *HyperShaChain) GetHash(index uint64) {
 }

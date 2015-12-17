@@ -142,6 +142,17 @@ func (h *HyperShaChain) CurrentHash() (*wire.ShaHash, error) {
 	return &h.lastHash, nil
 }
 
+// LocatePreImage...
+// Alice just broadcasted an old commitment tx, we need the revocation hash to
+// claim the funds so we don't get cheated. However, we aren't storing all the
+// pre-images in memory. So which shachain index # did she broadcast?
+func (h *HyperShaChain) LocatePreImage(outputScript []byte) (uint64, *[32]byte) {
+	// TODO(roasbeef): parallel goroutine divide and conquer?
+	//  * need to know which side it is? also proper keys?
+	//  * guess and check till script template matches the p2sh hash
+	return 0, nil
+}
+
 // MarshallBinary...
 func (h *HyperShaChain) Encode(b bytes.Buffer) error {
 	return nil

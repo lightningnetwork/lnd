@@ -14,6 +14,14 @@ type LightningChannel struct {
 	wallet  *LightningWallet
 
 	channelEvents *chainntnfs.ChainNotifier
+// P2SHify...
+func P2SHify(scriptBytes []byte) ([]byte, error) {
+	bldr := txscript.NewScriptBuilder()
+	bldr.AddOp(txscript.OP_HASH160)
+	bldr.AddData(btcutil.Hash160(scriptBytes))
+	bldr.AddOp(txscript.OP_EQUAL)
+	return bldr.Script()
+}
 
 	sync.RWMutex
 

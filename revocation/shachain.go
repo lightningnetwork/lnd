@@ -34,8 +34,15 @@ type HyperShaChain struct {
 	lastHash wire.ShaHash
 }
 
-// NewHyperShaChain...
-func NewHyperShaChain(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
+// NewHyperShaChain
+//  * used to track their pre-images
+func NewHyperShaChain() *HyperShaChain {
+	return &HyperShaChain{lastChainIndex: 0, numValid: 0}
+}
+
+// NewHyperShaChainFromSeed...
+//  * used to derive your own pre-images
+func NewHyperShaChainFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
 	var shaSeed *[32]byte
 
 	// If no seed is specified, generate a new one.
@@ -74,6 +81,11 @@ func derive(from, to uint64, startingHash [32]byte) [32]byte {
 	return nextHash
 }
 
+// canDerive...
+func canDerive(from, to uint64) bool {
+	return ^from&to == 1
+}
+
 // getHash...
 // index should be commitment #
 func (h *HyperShaChain) GetHash(index uint64) (*[32]byte, error) {
@@ -93,15 +105,10 @@ func (h *HyperShaChain) GetHash(index uint64) (*[32]byte, error) {
 	return nil, fmt.Errorf("unable to derive hash # %v", index)
 }
 
-// canDerive...
-func canDerive(from, to uint64) bool {
-	return ^from&to == 1
-}
-
 // addHash
 func (h *HyperShaChain) AddNextHash(hash [32]byte) error {
-	nextIdx := h.lastChainIndex + 1
 	// Hashes for a remote chain must be added in order.
+	nextIdx := h.lastChainIndex + 1
 	if nextIdx != h.lastChainIndex+1 || nextIdx == 0 && h.numValid != 0 {
 		return fmt.Errorf("shachain values must be added in order, attempted"+
 			"to add index %v, chain is at %v", nextIdx, h.lastChainIndex)

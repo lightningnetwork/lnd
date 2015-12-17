@@ -7,6 +7,7 @@ package chainntnfs
 //   * direct p2p
 //   * random bitcoin API?
 //   * electrum?
+//   * SPV bloomfilter
 //   * other stuff maybe...
 type ChainNotifier interface {
 }

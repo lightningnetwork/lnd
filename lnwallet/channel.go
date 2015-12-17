@@ -6,9 +6,17 @@ import (
 	"li.lan/labs/plasma/chainntfs"
 	"li.lan/labs/plasma/revocation"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
+const (
+	// TODO(roasbeef): make not random value
+	MaxPendingPayments = 10
+)
 
 // P2SHify...
 func P2SHify(scriptBytes []byte) ([]byte, error) {
@@ -19,6 +27,64 @@ func P2SHify(scriptBytes []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
+// createCommitTx...
+func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
+	revokeHash [32]byte, csvTimeout int64, amtToUs,
+	amtToThem btcutil.Amount) (*wire.MsgTx, error) {
+
+	// First, we create the script paying to us. This script is spendable
+	// under two conditions: either the 'csvTimeout' has passed and we can
+	// redeem our funds, or they have the pre-image to 'revokeHash'.
+	scriptToUs := txscript.NewScriptBuilder()
+	scriptToUs.AddOp(txscript.OP_HASH160)
+	scriptToUs.AddData(revokeHash[:])
+	scriptToUs.AddOp(txscript.OP_EQUAL)
+	scriptToUs.AddOp(txscript.OP_IF)
+	scriptToUs.AddData(theirKey.SerializeCompressed())
+	scriptToUs.AddOp(txscript.OP_ELSE)
+	scriptToUs.AddInt64(csvTimeout)
+	scriptToUs.AddOp(txscript.OP_NOP3) // CSV
+	scriptToUs.AddOp(txscript.OP_DROP)
+	scriptToUs.AddData(ourKey.SerializeCompressed())
+	scriptToUs.AddOp(txscript.OP_ENDIF)
+	scriptToUs.AddOp(txscript.OP_CHECKSIG)
+
+	// TODO(roasbeef): store
+	ourRedeemScript, err := scriptToUs.Script()
+	if err != nil {
+		return nil, err
+	}
+	payToUsScriptHash, err := P2SHify(ourRedeemScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next, we create the script paying to them. This is just a regular
+	// P2PKH (wrapped in P2SH) with their key.
+	scriptToThem := txscript.NewScriptBuilder()
+	scriptToThem.AddOp(txscript.OP_DUP)
+	scriptToThem.AddOp(txscript.OP_HASH160)
+	scriptToThem.AddData(btcutil.Hash160(theirKey.SerializeCompressed()))
+	scriptToThem.AddOp(txscript.OP_EQUALVERIFY)
+	scriptToThem.AddOp(txscript.OP_CHECKSIG)
+
+	theirRedeemScript, err := scriptToThem.Script()
+	if err != nil {
+		return nil, err
+	}
+	payToThemScriptHash, err := P2SHify(theirRedeemScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): sort outputs?
+	commitTx := wire.NewMsgTx()
+	commitTx.AddTxIn(fundingOutput)
+	commitTx.AddTxOut(wire.NewTxOut(int64(amtToUs), payToUsScriptHash))
+	commitTx.AddTxOut(wire.NewTxOut(int64(amtToThem), payToThemScriptHash))
+
+	return commitTx, nil
+}
 
 type nodeId [32]byte
 

@@ -145,6 +145,41 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 
 type nodeId [32]byte
 
+// OpenChannelState...
+// TODO(roasbeef): script gen methods on this?
+type OpenChannelState struct {
+	// Hash? or Their current pubKey?
+	theirLNID [32]byte
+
+	fundingType FundingType
+
+	fundingAmount btcutil.Amount
+
+	ourCommitKey   *btcec.PrivateKey
+	theirCommitKey *btcec.PublicKey
+
+	capacity     btcutil.Amount
+	ourBalance   btcutil.Amount
+	theirBalance btcutil.Amount
+
+	theirCommitTx *wire.MsgTx
+	ourCommitTx   *wire.MsgTx
+
+	finalFundingTx *wire.MsgTx
+
+	ourMultiSigKey      *btcec.PrivateKey
+	fundingRedeemScript []byte
+
+	ourShaChain   *revocation.HyperShaChain
+	theirShaChain *revocation.HyperShaChain
+
+	// In blocks
+	htlcTimeout uint32
+	csvDelay    uint32
+}
+
+// LightningChannel...
+// TODO(roasbeef): future peer struct should embed this struct
 type LightningChannel struct {
 	wallet        *LightningWallet
 	channelEvents *chainntnfs.ChainNotifier
@@ -152,29 +187,12 @@ type LightningChannel struct {
 	// TODO(roasbeef): Stores all previous R values + timeouts for each
 	// commitment update, plus some other meta-data...Or just use OP_RETURN
 	// to help out?
+	// currently going for: nSequence/nLockTime overloading
 	channelNamespace walletdb.Namespace
 
-	Id [32]byte
-
-	capacity        btcutil.Amount
-	ourTotalFunds   btcutil.Amount
-	theirTotalFunds btcutil.Amount
-
-	// TODO(roasbeef): another shachain for R values for HTLC's?
-	// solve above?
-	ourShaChain   *revocation.HyperShaChain
-	theirShaChain *revocation.HyperShaChain
-
-	ourFundingKey   *btcec.PrivateKey
-	theirFundingKey *btcec.PublicKey
-
-	ourCommitKey   *btcec.PublicKey
-	theirCommitKey *btcec.PublicKey
-
-	fundingTx    *wire.MsgTx
-	commitmentTx *wire.MsgTx
-
-	sync.RWMutex
+	// stateMtx protects concurrent access to the state struct.
+	stateMtx     sync.RWMutex
+	channelState OpenChannelState
 
 	// TODO(roasbeef): create and embed 'Service' interface w/ below?
 	started  int32
@@ -185,31 +203,14 @@ type LightningChannel struct {
 }
 
 // newLightningChannel...
-// TODO(roasbeef): bring back and embedd CompleteReservation struct? kinda large
-// atm.....
 func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifier,
-	dbNamespace walletdb.Namespace, theirNodeID nodeId, ourFunds,
-	theirFunds btcutil.Amount, ourChain, theirChain *revocation.HyperShaChain,
-	ourFundingKey *btcec.PrivateKey, theirFundingKey *btcec.PublicKey,
-	commitKey, theirCommitKey *btcec.PublicKey, fundingTx,
-	commitTx *wire.MsgTx) (*LightningChannel, error) {
+	dbNamespace walletdb.Namespace, state OpenChannelState) (*LightningChannel, error) {
 
 	return &LightningChannel{
 		wallet:           wallet,
 		channelEvents:    events,
 		channelNamespace: dbNamespace,
-		Id:               theirNodeID,
-		capacity:         ourFunds + theirFunds,
-		ourTotalFunds:    ourFunds,
-		theirTotalFunds:  theirFunds,
-		ourShaChain:      ourChain,
-		theirShaChain:    theirChain,
-		ourFundingKey:    ourFundingKey,
-		theirFundingKey:  theirFundingKey,
-		ourCommitKey:     commitKey,
-		theirCommitKey:   theirCommitKey,
-		fundingTx:        fundingTx,
-		commitmentTx:     commitTx,
+		channelState:     state,
 	}, nil
 }
 

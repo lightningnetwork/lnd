@@ -27,6 +27,63 @@ func P2SHify(scriptBytes []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
+//TODO(j): Creates a CLTV-only funding Tx (reserve is *REQUIRED*)
+//This works for only CLTV soft-fork (no CSV/segwit soft-fork in yet)
+//
+//Commit funds to Funding Tx, will timeout after the fundingTimeLock and refund
+//back using CLTV. As there is no way to enforce HTLCs, we rely upon a reserve
+//and have each party's HTLCs in-transit be less than their Commitment reserve.
+//In the event that someone incorrectly broadcasts an old Commitment TX, then
+//the counterparty claims the full reserve. It may be possible for either party
+//to claim the HTLC(!!! But it's okay because the "honest" party is made whole
+//via the reserve). If it's two-funder there are two outputs and the
+//Commitments spends from both outputs in the Funding Tx. Two-funder requires
+//the ourKey/theirKey sig positions to be swapped (should be in 1 funding tx).
+//
+//Quick note before I forget: The revocation hash is used in CLTV-only for
+//single-funder (without an initial payment) *as part of an additional output
+//in the Commitment Tx for the reserve*. This is to establish a unidirectional
+//channel UNITL the recipient has sufficient funds. When the recipient has
+//sufficient funds, the revocation is exchanged and allows the recipient to
+//claim the full reserve as penalty if the incorrect Commitment is broadcast
+//(otherwise it's timelocked refunded back to the sender). From then on, there
+//is no additional output in Commitment Txes. [side caveat, first payment must
+//be above minimum UTXO output size in single-funder] For now, let's keep it
+//simple and assume dual funder (with both funding above reserve)
+func createCLTVFundingTx(fundingTimeLock int64, ourKey *btcec.PublicKey, theirKey *btcec.PublicKey) (*wire.MsgTx, error) {
+	script := txscript.NewScriptBuilder()
+	//See how many entries there are
+	//2: it's a 2-of-2 multisig
+	//anything else: assume it's a CLTV-timeout 1-sig only
+	script.AddOp(txscript.OP_DEPTH)
+	script.AddInt64(2)
+	script.AddOp(txscript.OP_EQUAL)
+
+	//If this is a 2-of-2 multisig, read the first sig
+	script.AddOp(txscript.OP_IF)
+	//Sig2 (not P2PKH, the pubkey is in the redeemScript)
+	script.AddData(ourKey.SerializeCompressed())
+	script.AddOp(txscript.OP_CHECKSIGVERIFY) //gotta be verify!
+
+	//If this is timed out
+	script.AddOp(txscript.OP_ELSE)
+	script.AddInt64(fundingTimeLock)
+	script.AddOp(txscript.OP_NOP2) //CLTV
+	//Sig (not P2PKH, the pubkey is in the redeemScript)
+	script.AddOp(txscript.OP_CHECKSIG)
+	script.AddOp(txscript.OP_DROP)
+	script.AddOp(txscript.OP_ENDIF)
+
+	//Read the other sig if it's 2-of-2, only one if it's timed out
+	script.AddData(theirKey.SerializeCompressed())
+	script.AddOp(txscript.OP_CHECKSIG)
+
+	fundingTx := wire.NewMsgTx()
+	//TODO(j) Add the inputs/outputs
+
+	return fundingTx, nil
+}
+
 // createCommitTx...
 func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	revokeHash [32]byte, csvTimeout int64, amtToUs,

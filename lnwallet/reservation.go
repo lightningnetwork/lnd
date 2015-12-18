@@ -1,8 +1,11 @@
 package wallet
 
 import (
+	"fmt"
 	"sync"
 
+	"bytes"
+	"encoding/binary"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -12,15 +15,26 @@ import (
 type ChannelReservation struct {
 	FundingType FundingType
 
-	FundingAmount btcutil.Amount
-	ReserveAmount btcutil.Amount
-	MinFeePerKb   btcutil.Amount
+	//All of these are *our* values/requirements
+	//Their requirements can be the same or lower
+	FundingAmount         btcutil.Amount //The amount we want to fund with
+	ReserveAmount         btcutil.Amount //Our reserve. assume symmetric reserve amounts
+	MinFeePerKb           btcutil.Amount
+	MinTotalFundingAmount btcutil.Amount //Our minimum value for the entire channel
+
+	//for CLTV it is nLockTime, for CSV it's nSequence, for segwit it's not needed
+	FundingLockTime uint32
 
 	sync.RWMutex // All fields below owned by the lnwallet.
+
+	//Current state of the channel, progesses through until complete
+	//Makes sure we can't go backwards and only accept messages once
+	channelState uint8
 
 	theirInputs []*wire.TxIn
 	ourInputs   []*wire.TxIn
 
+	//NOTE(j): FundRequest assumes there is only one change (see ChangePkScript)
 	theirChange []*wire.TxOut
 	ourChange   []*wire.TxOut
 
@@ -43,7 +57,192 @@ type ChannelReservation struct {
 	reservationID uint64
 	wallet        *LightningWallet
 
+	//For CSV/CLTV revocation
+	ourRevocation       []byte
+	theirRevocation     []byte
+	theirRevocationHash []byte
+
+	//Final delivery address (P2PKH for now)
+	ourDeliveryAddress   []byte
+	theirDeliveryAddress []byte
+
 	chanOpen chan *LightningChannel
+}
+
+//FundRequest serialize
+//(reading from ChannelReservation directly to reduce the amount of copies)
+//We can move this stuff to another file too if it's too big...
+func (r *ChannelReservation) SerializeFundRequest() ([]byte, error) {
+	var err error
+
+	//Buffer to dump in the serialized data
+	b := new(bytes.Buffer)
+
+	//Fund Request
+	err = b.WriteByte(0x30)
+	if err != nil {
+		return nil, err
+	}
+
+	//ChannelType (1)
+	//Default to current type
+	err = b.WriteByte(uint8(0))
+	if err != nil {
+		return nil, err
+	}
+
+	//RequesterFundingAmount - The amount we are going to fund (8)
+	//check for positive values
+	err = binary.Write(b, binary.BigEndian, r.FundingAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	//RequesterChannelMinCapacity (8)
+	//The amount needed to accept and sign the channel commit later
+	err = binary.Write(b, binary.BigEndian, r.MinTotalFundingAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	//RevocationHash (20)
+	//Our revocation hash being contributed (for CLTV/CSV)
+	_, err = b.Write(btcutil.Hash160(r.ourRevocation))
+	if err != nil {
+		return nil, err
+	}
+
+	//CommitPubkey (33)
+	//Our public key being used for the commitment
+	ourPubKey := r.ourKey.PubKey().SerializeCompressed()
+	if len(ourPubKey) != 33 { //validation, can remove later? (NO UNCOMPRESSED KEYS!)
+		return nil, fmt.Errorf("Serialize FundReq: our Pubkey length incorrect")
+	}
+	_, err = b.Write(ourPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	//DeliveryPkHash (20)
+	//For now it's a P2PKH, but we will add an extra byte later for the
+	//option for P2SH
+	//This is the address to send funds to when complete or refunded
+	_, err = b.Write(r.ourDeliveryAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	//ReserveAmount (8)
+	//Our own reserve amount
+	err = binary.Write(b, binary.BigEndian, r.ReserveAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	//Minimum transaction fee per kb (8)
+	err = binary.Write(b, binary.BigEndian, r.MinFeePerKb)
+	if err != nil {
+		return nil, err
+	}
+
+	//LockTime (4)
+	err = binary.Write(b, binary.BigEndian, r.FundingLockTime)
+	if err != nil {
+		return nil, err
+	}
+
+	//Fee payer (default to split currently) (1)
+	err = binary.Write(b, binary.BigEndian, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	//ChangePkScript
+	//Length (1)
+	changeScriptLength := len(r.ourChange[0].PkScript)
+	if changeScriptLength > 255 {
+		return nil, fmt.Errorf("Your changeScriptLength is too long!")
+	}
+	err = binary.Write(b, binary.BigEndian, uint8(changeScriptLength))
+	if err != nil {
+		return nil, err
+	}
+	//For now it's a P2PKH, but we will add an extra byte later for the
+	//option for P2SH
+	//This is the address to send change to (only allow one)
+	//ChangePkScript (length of script)
+	_, err = b.Write(r.ourChange[0].PkScript)
+	if err != nil {
+		return nil, err
+	}
+
+	//Append the unsigned(!!) txins
+	//First one byte for the amount of txins (1)
+	if len(r.ourInputs) > 127 {
+		return nil, fmt.Errorf("Too many txins")
+	}
+	err = b.WriteByte(uint8(len(r.ourInputs)))
+	if err != nil {
+		return nil, err
+	}
+	//Append the actual Txins (NumOfTxins * 36)
+	//Do not include the sequence number to eliminate funny business
+	for _, in := range r.ourInputs {
+		//Hash
+		_, err = b.Write(in.PreviousOutPoint.Hash.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		//Index
+		err = binary.Write(b, binary.BigEndian, in.PreviousOutPoint.Index)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return b.Bytes(), err
+}
+
+func (r *ChannelReservation) DeserializeFundRequest(wireMsg []byte) error {
+	//Make sure we're not overwriting stuff...
+	//Update the channelState to 1 before progressing if you want to re-do it.
+	//Assumes only one thread is writing at a time
+	if r.channelState > 1 {
+		return fmt.Errorf("FundRequest: Channel State Mismatch")
+	}
+
+	var err error
+
+	b := bytes.NewBuffer(wireMsg)
+	msgid, _ := b.ReadByte()
+	if msgid != 0x30 {
+		return fmt.Errorf("Cannot deserialize: not a funding request")
+	}
+
+	if err != nil {
+		return err
+	}
+	//Update the channel state as complete
+	r.channelState = 2
+
+	return nil
+}
+
+//Validation on the data being supplied from the fund request
+func (r *ChannelReservation) ValidateFundRequest(wireMsg []byte) error {
+	return nil
+}
+
+//Serialize CSV Revocation
+//After the Commitment Transaction has been created, send a message to revoke this tx
+func (r *ChannelReservation) SerializeCSVRefundRevocation() ([]byte, error) {
+	return nil, nil
+}
+
+//Deserialize CSV Revocation
+//Validate the revocation, after this step, the channel is fully set up
+func (r *ChannelReservation) DeserializeCSVRefundRevocation() error {
+	return nil
 }
 
 // newChannelReservation...

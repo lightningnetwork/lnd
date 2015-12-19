@@ -265,19 +265,8 @@ func createTestWallet() (string, *LightningWallet, error) {
 	return tempTestDir, wallet, nil
 }
 
-func TestBasicWalletReservationWorkFlow(t *testing.T) {
+func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T) {
 	// Create our test wallet, will have a total of 20 BTC available for
-	// funding via 5 outputs with 4BTC each.
-	testDir, lnwallet, err := createTestWallet()
-	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
-	}
-	defer os.RemoveAll(testDir)
-	defer lnwallet.Stop()
-
-	// The wallet should now have 20BTC available for spending.
-	assertProperBalance(t, lnwallet, 1, 20)
-
 	bobNode, err := newBobNode()
 	if err != nil {
 		t.Fatalf("unable to create bob node: %v", err)
@@ -395,6 +384,7 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 
 	// The funding tx should now be valid and complete.
 	// Check each input and ensure all scripts are fully valid.
+	// TODO(roasbeef): remove this loop after nodetest hooked up.
 	var zeroHash wire.ShaHash
 	fundingTx := chanReservation.partialState.fundingTx
 	for i, input := range fundingTx.TxIn {
@@ -425,23 +415,7 @@ func TestBasicWalletReservationWorkFlow(t *testing.T) {
 	}
 }
 
-// TODO(roasbeef): why is wallet so slow to create+open?
-// * investigate
-// * re-use same lnwallet instance accross tests resetting each time?
-
-func TestFundingTransactionLockedOutputs(t *testing.T) {
-	// Create our test wallet, will have a total of 20 BTC available for
-	// funding via 5 outputs with 4BTC each.
-	testDir, lnwallet, err := createTestWallet()
-	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
-	}
-	defer os.RemoveAll(testDir)
-	defer lnwallet.Stop()
-
-	// The wallet should now have 20BTC available for spending.
-	assertProperBalance(t, lnwallet, 1, 20)
-
+func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T) {
 	// Create two channels, both asking for 8 BTC each, totalling 16
 	// BTC.
 	// TODO(roasbeef): tests for concurrent funding.
@@ -493,20 +467,7 @@ func TestFundingTransactionLockedOutputs(t *testing.T) {
 	}
 }
 
-func TestFundingCancellationNotEnoughFunds(t *testing.T) {
-	// TODO(roasbeef): factor out, such copy pasta
-	// Create our test wallet, will have a total of 20 BTC available for
-	// funding via 5 outputs with 4BTC each.
-	testDir, lnwallet, err := createTestWallet()
-	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
-	}
-	defer os.RemoveAll(testDir)
-	defer lnwallet.Stop()
-
-	// The wallet should now have 20BTC available for spending.
-	assertProperBalance(t, lnwallet, 1, 20)
-
+func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing.T) {
 	// Create a reservation for 12 BTC.
 	fundingAmount := btcutil.Amount(12 * 1e8)
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
@@ -556,16 +517,7 @@ func TestFundingCancellationNotEnoughFunds(t *testing.T) {
 	}
 }
 
-func TestCancelNonExistantReservation(t *testing.T) {
-	// Create our test wallet, will have a total of 20 BTC available for
-	// funding via 5 outputs with 4BTC each.
-	testDir, lnwallet, err := createTestWallet()
-	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
-	}
-	defer os.RemoveAll(testDir)
-	defer lnwallet.Stop()
-
+func testCancelNonExistantReservation(lnwallet *LightningWallet, t *testing.T) {
 	// Create our own reservation, give it some ID.
 	res := newChannelReservation(SIGHASH, 1000, 5000, lnwallet, 22)
 
@@ -574,10 +526,64 @@ func TestCancelNonExistantReservation(t *testing.T) {
 	if err := res.Cancel(); err == nil {
 		t.Fatalf("cancelled non-existant reservation")
 	}
+
+	// Outputs shouuld be available now
+	// Reservation should be missing from limbo.
 }
 
-func TestFundingReservationInvalidCounterpartySigs(t *testing.T) {
+func testFundingReservationInvalidCounterpartySigs(lnwallet *LightningWallet, t *testing.T) {
 }
 
-func TestFundingTransactionTxFees(t *testing.T) {
+func testFundingTransactionTxFees(lnwallet *LightningWallet, t *testing.T) {
+}
+
+var walletTests = []func(w *LightningWallet, test *testing.T){
+	testBasicWalletReservationWorkFlow,
+	testFundingTransactionLockedOutputs,
+	testFundingCancellationNotEnoughFunds,
+	testFundingReservationInvalidCounterpartySigs,
+	testFundingTransactionLockedOutputs,
+}
+
+type testLnWallet struct {
+	lnwallet    *LightningWallet
+	cleanUpFunc func()
+}
+
+func clearWalletState(w *LightningWallet) error {
+	w.nextFundingID = 0
+	w.fundingLimbo = make(map[uint64]*ChannelReservation)
+	w.wallet.ResetLockedOutpoints()
+	return w.lnNamespace.Update(func(tx walletdb.Tx) error {
+		rootBucket := tx.RootBucket()
+		return rootBucket.DeleteBucket(openChannelBucket)
+	})
+}
+
+// TODO(roasbeef): why is wallet so slow to create+open?
+// * investigate
+// * re-use same lnwallet instance accross tests resetting each time?
+func TestLightningWallet(t *testing.T) {
+	// funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet()
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer os.RemoveAll(testDir)
+	defer lnwallet.Stop()
+
+	// The wallet should now have 20BTC available for spending.
+	assertProperBalance(t, lnwallet, 1, 20)
+
+	// TODO(roasbeef): initialize nodetest state here once done.
+
+	// Execute every test, clearing possibly mutated wallet state after
+	// each step.
+	for _, walletTest := range walletTests {
+		walletTest(lnwallet, t)
+
+		if err := clearWalletState(lnwallet); err != nil && err != walletdb.ErrBucketNotFound {
+			t.Fatalf("unable to clear wallet state: %v", err)
+		}
+	}
 }

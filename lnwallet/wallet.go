@@ -500,7 +500,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 	//  * also, also this is currently bare-multi sig, keep this for network
 	//    transparency or switch to P2SH?
 	keys := make([]*btcutil.AddressPubKey, 2)
-	ourKey := pendingReservation.ourKey.PubKey().SerializeCompressed()
+	ourKey := pendingReservation.partialState.multiSigKey.PubKey().SerializeCompressed()
 	keys[0], _ = btcutil.NewAddressPubKey(ourKey, ActiveNetParams)
 	pendingReservation.theirMultiSigKey = req.theirKey
 	keys[1], _ = btcutil.NewAddressPubKey(pendingReservation.theirMultiSigKey.SerializeCompressed(), ActiveNetParams)
@@ -509,7 +509,7 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 		req.err <- err
 		return
 	}
-	multiSigOut := wire.NewTxOut(int64(pendingReservation.FundingAmount),
+	multiSigOut := wire.NewTxOut(int64(pendingReservation.partialState.capacity),
 		multiSigScript)
 	pendingReservation.partialState.fundingTx.AddTxOut(multiSigOut)
 

@@ -45,7 +45,22 @@ type ChannelReservation struct {
 	chanOpen chan *LightningChannel
 }
 
-//FundRequest serialize
+// newChannelReservation...
+func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
+	minFeeRate btcutil.Amount, wallet *LightningWallet, id uint64) *ChannelReservation {
+	return &ChannelReservation{
+		fundingAmount: fundingAmt,
+		// TODO(roasbeef): assumes balanced symmetric channels.
+		partialState: &OpenChannelState{
+			capacity:    fundingAmt * 2,
+			fundingType: t,
+		},
+		wallet:        wallet,
+		reservationID: id,
+	}
+}
+
+/*//FundRequest serialize
 //(reading from ChannelReservation directly to reduce the amount of copies)
 //We can move this stuff to another file too if it's too big...
 func (r *ChannelReservation) SerializeFundRequest() ([]byte, error) {
@@ -219,22 +234,7 @@ func (r *ChannelReservation) SerializeCSVRefundRevocation() ([]byte, error) {
 //Validate the revocation, after this step, the channel is fully set up
 func (r *ChannelReservation) DeserializeCSVRefundRevocation() error {
 	return nil
-}
-
-// newChannelReservation...
-func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
-	minFeeRate btcutil.Amount, wallet *LightningWallet, id uint64) *ChannelReservation {
-	return &ChannelReservation{
-		fundingAmount: fundingAmt,
-		// TODO(roasbeef): assumes balanced symmetric channels.
-		partialState: &OpenChannelState{
-			capacity:    fundingAmt * 2,
-			fundingType: t,
-		},
-		wallet:        wallet,
-		reservationID: id,
-	}
-}
+}*/
 
 // OurFunds...
 func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut) {

@@ -1,11 +1,8 @@
 package wallet
 
 import (
-	"fmt"
 	"sync"
 
-	"bytes"
-	"encoding/binary"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -13,19 +10,11 @@ import (
 
 // ChannelReservation...
 type ChannelReservation struct {
-	FundingType FundingType
-
-	//All of these are *our* values/requirements
-	//Their requirements can be the same or lower
-	FundingAmount         btcutil.Amount //The amount we want to fund with
-	ReserveAmount         btcutil.Amount //Our reserve. assume symmetric reserve amounts
-	MinFeePerKb           btcutil.Amount
-	MinTotalFundingAmount btcutil.Amount //Our minimum value for the entire channel
+	sync.RWMutex // All fields below owned by the lnwallet.
 
 	//for CLTV it is nLockTime, for CSV it's nSequence, for segwit it's not needed
-	FundingLockTime uint32
-
-	sync.RWMutex // All fields below owned by the lnwallet.
+	fundingLockTime uint32
+	fundingAmount   btcutil.Amount
 
 	//Current state of the channel, progesses through until complete
 	//Makes sure we can't go backwards and only accept messages once
@@ -34,37 +23,24 @@ type ChannelReservation struct {
 	theirInputs []*wire.TxIn
 	ourInputs   []*wire.TxIn
 
-	//NOTE(j): FundRequest assumes there is only one change (see ChangePkScript)
+	// NOTE(j): FundRequest assumes there is only one change (see ChangePkScript)
 	theirChange []*wire.TxOut
 	ourChange   []*wire.TxOut
 
-	ourKey   *btcec.PrivateKey
-	theirKey *btcec.PublicKey
+	theirMultiSigKey *btcec.PublicKey
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	theirSigs [][]byte
-	ourSigs   [][]byte
+	ourFundingSigs   [][]byte
+	theirFundingSigs [][]byte
 
-	normalizedTxID wire.ShaHash
+	ourCommitmentSig   []byte
+	theirCommitmentSig []byte
 
-	fundingTx *wire.MsgTx
-	// TODO(roasbef): time locks, who pays fee etc.
-	// TODO(roasbeef): record Bob's ln-ID?
-
-	completedFundingTx *btcutil.Tx
+	partialState *OpenChannelState
 
 	reservationID uint64
 	wallet        *LightningWallet
-
-	//For CSV/CLTV revocation
-	ourRevocation       []byte
-	theirRevocation     []byte
-	theirRevocationHash []byte
-
-	//Final delivery address (P2PKH for now)
-	ourDeliveryAddress   []byte
-	theirDeliveryAddress []byte
 
 	chanOpen chan *LightningChannel
 }
@@ -249,22 +225,32 @@ func (r *ChannelReservation) DeserializeCSVRefundRevocation() error {
 func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 	minFeeRate btcutil.Amount, wallet *LightningWallet, id uint64) *ChannelReservation {
 	return &ChannelReservation{
-		FundingType:   t,
-		FundingAmount: fundingAmt,
-		MinFeePerKb:   minFeeRate,
+		fundingAmount: fundingAmt,
+		// TODO(roasbeef): assumes balanced symmetric channels.
+		partialState: &OpenChannelState{
+			capacity:    fundingAmt * 2,
+			fundingType: t,
+		},
 		wallet:        wallet,
 		reservationID: id,
 	}
 }
 
 // OurFunds...
-func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
+func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut) {
 	r.RLock()
 	defer r.RUnlock()
-	return r.ourInputs, r.ourChange, r.ourKey.PubKey()
+	return r.ourInputs, r.ourChange
 }
 
-// AddCounterPartyFunds...
+func (r *ChannelReservation) OurKeys() (*btcec.PrivateKey, *btcec.PrivateKey) {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.multiSigKey, r.partialState.ourCommitKey
+}
+
+// AddFunds...
+// TODO(roasbeef): add commitment txns, etc.
 func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutputs []*wire.TxOut, multiSigKey *btcec.PublicKey) error {
 	errChan := make(chan error, 1)
 
@@ -279,22 +265,36 @@ func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutpu
 	return <-errChan
 }
 
-// OurSigs...
-func (r *ChannelReservation) OurSigs() [][]byte {
+// OurFundingSigs...
+func (r *ChannelReservation) OurFundingSigs() [][]byte {
 	r.RLock()
 	defer r.RUnlock()
-	return r.ourSigs
+	return r.ourFundingSigs
+}
+
+// OurCommitmentSig
+func (r *ChannelReservation) OurCommitmentSig() []byte {
+	r.RLock()
+	defer r.RUnlock()
+	return r.ourCommitmentSig
 }
 
 // TheirFunds...
 // TODO(roasbeef): return error if accessors not yet populated?
-func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut, *btcec.PublicKey) {
+func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut) {
 	r.RLock()
 	defer r.RUnlock()
-	return r.theirInputs, r.theirChange, r.theirKey
+	return r.theirInputs, r.theirChange
+}
+
+func (r *ChannelReservation) TheirKeys() (*btcec.PublicKey, *btcec.PublicKey) {
+	r.RLock()
+	defer r.RUnlock()
+	return r.theirMultiSigKey, r.partialState.theirCommitKey
 }
 
 // CompleteFundingReservation...
+// TODO(roasbeef): add commit sig also
 func (r *ChannelReservation) CompleteReservation(theirSigs [][]byte) error {
 	errChan := make(chan error, 1)
 
@@ -308,10 +308,10 @@ func (r *ChannelReservation) CompleteReservation(theirSigs [][]byte) error {
 }
 
 // FinalFundingTransaction...
-func (r *ChannelReservation) FinalFundingTx() *btcutil.Tx {
+func (r *ChannelReservation) FundingTx() *wire.MsgTx {
 	r.RLock()
 	defer r.RUnlock()
-	return r.completedFundingTx
+	return r.partialState.fundingTx
 }
 
 // RequestFundingReserveCancellation...

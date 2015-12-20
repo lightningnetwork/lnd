@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"li.lan/labs/plasma/revocation"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -402,14 +404,47 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
 
-	multiSigKey, err := l.getNextMultiSigKey()
+	// TODO(roasbeef): use wallet.CurrentAddress() here instead? Solves the
+	// problem of 'wasted' unused addrtesses.
+	// Grab two fresh keys from out HD chain, one will be used for the
+	// multi-sig funding transaction, and the other for the commitment
+	// transaction.
+	multiSigKey, err := l.getNextRawKey()
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-
+	commitKey, err := l.getNextRawKey()
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
 	reservation.partialState.multiSigKey = multiSigKey
+	reservation.partialState.ourCommitKey = commitKey
+
+	// Generate a fresh address to be used in the case of a cooperative
+	// channel close.
+	// TODO(roasbeef): same here
+	//deliveryAddress, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
+	addrs, err := l.wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	if err != nil {
+		// TODO(roasbeef): make into func sendErorr()
+		req.err <- err
+		req.resp <- nil
+		return
+	}
+	reservation.partialState.ourDeliveryAddress = addrs[0].Address()
+
+	// Create a new shaChain for verifiable transaction revocations.
+	shaChain, err := revocation.NewHyperShaChainFromSeed(nil, 0)
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
+	reservation.partialState.ourShaChain = shaChain
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -669,7 +704,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 // nextMultiSigKey...
 // TODO(roasbeef): on shutdown, write state of pending keys, then read back?
-func (l *LightningWallet) getNextMultiSigKey() (*btcec.PrivateKey, error) {
+func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	l.lmtx.Lock()
 	defer l.lmtx.Unlock()
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -34,7 +35,8 @@ type peer struct {
 	started    int32
 	connected  int32
 	disconnect int32 // only to be used atomically
-	// conn       *ETcpConn or w/e it is in strux
+	// *ETcpConn or w/e it is in strux
+	conn net.Conn
 
 	// TODO(rosabeef): one for now, may need more granularity
 	sync.RWMutex

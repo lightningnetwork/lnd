@@ -496,21 +496,19 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
-	// TODO(roasbeef): Cannonical sorting of keys here?
-	//  * also, also this is currently bare-multi sig, keep this for network
-	//    transparency or switch to P2SH?
-	keys := make([]*btcutil.AddressPubKey, 2)
+	// TODO(roasbeef): track multi-sig and change outputs indexes
 	ourKey := pendingReservation.partialState.multiSigKey.PubKey().SerializeCompressed()
-	keys[0], _ = btcutil.NewAddressPubKey(ourKey, ActiveNetParams)
 	pendingReservation.theirMultiSigKey = req.theirKey
-	keys[1], _ = btcutil.NewAddressPubKey(pendingReservation.theirMultiSigKey.SerializeCompressed(), ActiveNetParams)
-	multiSigScript, err := txscript.MultiSigScript(keys, 2)
+	theirKey := pendingReservation.theirMultiSigKey.SerializeCompressed()
+
+	channelCapacity := int64(pendingReservation.partialState.capacity)
+	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey, theirKey,
+		channelCapacity)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	multiSigOut := wire.NewTxOut(int64(pendingReservation.partialState.capacity),
-		multiSigScript)
+	pendingReservation.partialState.fundingRedeemScript = redeemScript
 	pendingReservation.partialState.fundingTx.AddTxOut(multiSigOut)
 
 	// Sort the transaction. Since both side agree to a cannonical

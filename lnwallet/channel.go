@@ -154,15 +154,6 @@ func (lc *LightningChannel) VerifyCommitmentUpdate() error {
 	return nil
 }
 
-// P2SHify...
-func P2SHify(scriptBytes []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
-	bldr.AddOp(txscript.OP_HASH160)
-	bldr.AddData(btcutil.Hash160(scriptBytes))
-	bldr.AddOp(txscript.OP_EQUAL)
-	return bldr.Script()
-}
-
 // createCommitTx...
 func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	revokeHash [32]byte, csvTimeout int64, amtToUs,
@@ -190,7 +181,7 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	if err != nil {
 		return nil, err
 	}
-	payToUsScriptHash, err := P2SHify(ourRedeemScript)
+	payToUsScriptHash, err := scriptHashPkScript(ourRedeemScript)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +199,7 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	if err != nil {
 		return nil, err
 	}
-	payToThemScriptHash, err := P2SHify(theirRedeemScript)
+	payToThemScriptHash, err := scriptHashPkScript(theirRedeemScript)
 	if err != nil {
 		return nil, err
 	}

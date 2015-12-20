@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"sync"
+	"time"
 
 	"li.lan/labs/plasma/chainntfs"
 	"li.lan/labs/plasma/revocation"
@@ -60,7 +61,11 @@ type OpenChannelState struct {
 	htlcTimeout uint32
 	csvDelay    uint32
 
-	numUpdates uint64
+	numUpdates            uint64
+	totalSatoshisSent     uint64
+	totalSatoshisReceived uint64
+	// TODO(roasbeef): track fees?
+	creationTime time.Time
 }
 
 func (o *OpenChannelState) Encode(b bytes.Buffer) error {

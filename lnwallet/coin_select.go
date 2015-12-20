@@ -1,4 +1,4 @@
-package wallet
+package lnwallet
 
 import (
 	"encoding/hex"

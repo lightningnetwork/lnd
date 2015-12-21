@@ -302,13 +302,14 @@ func (r *ChannelReservation) TheirKeys() (*btcec.PublicKey, *btcec.PublicKey) {
 
 // CompleteFundingReservation...
 // TODO(roasbeef): add commit sig also
-func (r *ChannelReservation) CompleteReservation(theirSigs [][]byte) error {
+func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte, commitmentSig []byte) error {
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addCounterPartySigsMsg{
-		pendingFundingID: r.reservationID,
-		theirSigs:        theirSigs,
-		err:              errChan,
+		pendingFundingID:   r.reservationID,
+		theirFundingSigs:   fundingSigs,
+		theirCommitmentSig: commitmentSig,
+		err:                errChan,
 	}
 
 	return <-errChan

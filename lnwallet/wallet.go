@@ -124,7 +124,11 @@ type addCounterPartySigsMsg struct {
 
 	// Should be order of sorted inputs that are theirs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	theirSigs [][]byte
+	theirFundingSigs [][]byte
+
+	// This should be 1/2 of the signatures needed to succesfully spend our
+	// version of the commitment transaction.
+	theirCommitmentSig []byte
 
 	err chan error // Buffered
 }
@@ -676,7 +680,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Now we can complete the funding transaction by adding their
 	// signatures to their inputs.
-	pendingReservation.theirFundingSigs = msg.theirSigs
+	pendingReservation.theirFundingSigs = msg.theirFundingSigs
 	fundingTx := pendingReservation.partialState.fundingTx
 	for i, txin := range fundingTx.TxIn {
 		if txin.SignatureScript == nil {
@@ -712,6 +716,12 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			}*/
 		}
 	}
+
+	// At this point, wen calso record and verify their isgnature for our
+	// commitment transaction.
+	pendingReservation.partialState.theirCommitSig = msg.theirCommitmentSig
+	// TODO(roasbeef): verify
+	//commitSig := msg.theirCommitmentSig
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()

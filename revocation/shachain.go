@@ -44,7 +44,7 @@ func NewHyperShaChain() *HyperShaChain {
 // NewHyperShaChainFromSeed...
 //  * used to derive your own pre-images
 func NewHyperShaChainFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
-	var shaSeed *[32]byte
+	var shaSeed [32]byte
 
 	// If no seed is specified, generate a new one.
 	if seed == nil {
@@ -52,13 +52,15 @@ func NewHyperShaChainFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, 
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		shaSeed = *seed
 	}
 
 	// The last possible value in the chain is our starting index.
 	start := uint64(maxIndex)
 	stop := deriveTo
 
-	curHash := derive(start, stop, *shaSeed)
+	curHash := derive(start, stop, shaSeed)
 
 	// TODO(roasbeef): from/to or static size?
 	return &HyperShaChain{lastChainIndex: deriveTo, lastHash: curHash}, nil

@@ -53,6 +53,10 @@ type OpenChannelState struct {
 
 	ourShaChain   *revocation.HyperShaChain
 	theirShaChain *revocation.HyperShaChain
+	// Current revocation for their commitment transaction. However, since
+	// this is the hash, and not the pre-image, we can't yet verify that
+	// it's actually in the chain.
+	theirCurrentRevocation [wire.HashSize]byte
 
 	// Final delivery address
 	ourDeliveryAddress   btcutil.Address

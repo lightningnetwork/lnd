@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/txsort"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
@@ -156,19 +157,24 @@ func (lc *LightningChannel) VerifyCommitmentUpdate() error {
 
 // createCommitTx...
 func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
-	revokeHash [32]byte, csvTimeout int64, amtToUs,
-	amtToThem btcutil.Amount) (*wire.MsgTx, error) {
+	revokeHash [wire.HashSize]byte, csvTimeout int64, channelAmt btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script paying to us. This script is spendable
 	// under two conditions: either the 'csvTimeout' has passed and we can
 	// redeem our funds, or they have the pre-image to 'revokeHash'.
 	scriptToUs := txscript.NewScriptBuilder()
+
+	// If the pre-image for the revocation hash is presented, then allow a
+	// spend provided the proper signature.
 	scriptToUs.AddOp(txscript.OP_HASH160)
 	scriptToUs.AddData(revokeHash[:])
 	scriptToUs.AddOp(txscript.OP_EQUAL)
 	scriptToUs.AddOp(txscript.OP_IF)
 	scriptToUs.AddData(theirKey.SerializeCompressed())
 	scriptToUs.AddOp(txscript.OP_ELSE)
+
+	// Otherwise, we can re-claim our funds after a CSV delay of
+	// 'csvTimeout' timeout blocks, and a valid signature.
 	scriptToUs.AddInt64(csvTimeout)
 	scriptToUs.AddOp(txscript.OP_NOP3) // CSV
 	scriptToUs.AddOp(txscript.OP_DROP)
@@ -187,7 +193,7 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	}
 
 	// Next, we create the script paying to them. This is just a regular
-	// P2PKH (wrapped in P2SH) with their key.
+	// P2PKH-ike output. However, we instead use P2SH.
 	scriptToThem := txscript.NewScriptBuilder()
 	scriptToThem.AddOp(txscript.OP_DUP)
 	scriptToThem.AddOp(txscript.OP_HASH160)
@@ -204,11 +210,12 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 		return nil, err
 	}
 
-	// TODO(roasbeef): sort outputs?
+	// Now that both output scripts have been created, we can finally create
+	// the transaction itself.
 	commitTx := wire.NewMsgTx()
 	commitTx.AddTxIn(fundingOutput)
-	commitTx.AddTxOut(wire.NewTxOut(int64(amtToUs), payToUsScriptHash))
-	commitTx.AddTxOut(wire.NewTxOut(int64(amtToThem), payToThemScriptHash))
+	commitTx.AddTxOut(wire.NewTxOut(int64(channelAmt), payToUsScriptHash))
+	commitTx.AddTxOut(wire.NewTxOut(int64(channelAmt), payToThemScriptHash))
 
 	// Sort the transaction according to the agreed upon cannonical
 	// ordering. This lets us skip sending the entire transaction over,

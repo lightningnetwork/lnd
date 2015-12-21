@@ -249,16 +249,23 @@ func (r *ChannelReservation) OurKeys() (*btcec.PrivateKey, *btcec.PrivateKey) {
 	return r.partialState.multiSigKey, r.partialState.ourCommitKey
 }
 
-// AddFunds...
-// TODO(roasbeef): add commitment txns, etc.
-func (r *ChannelReservation) AddFunds(theirInputs []*wire.TxIn, theirChangeOutputs []*wire.TxOut, multiSigKey *btcec.PublicKey) error {
+// AddContribution...
+func (r *ChannelReservation) AddContribution(theirInputs []*wire.TxIn,
+	theirChangeOutputs []*wire.TxOut, commitKey, multiSigKey *btcec.PublicKey,
+	deliveryAddress btcutil.Address, initialRevocation [wire.HashSize]byte,
+	acceptedDelayPeriod int64) error {
+
 	errChan := make(chan error, 1)
 
-	r.wallet.msgChan <- &addCounterPartyFundsMsg{
+	r.wallet.msgChan <- &addContributionMsg{
 		pendingFundingID:   r.reservationID,
 		theirInputs:        theirInputs,
 		theirChangeOutputs: theirChangeOutputs,
-		theirKey:           multiSigKey,
+		theirMultiSigKey:   multiSigKey,
+		theirCommitKey:     commitKey,
+		deliveryAddress:    deliveryAddress,
+		revocationHash:     initialRevocation,
+		csvDelay:           acceptedDelayPeriod,
 		err:                errChan,
 	}
 

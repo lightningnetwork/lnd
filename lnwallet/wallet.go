@@ -92,14 +92,19 @@ type fundingReserveCancelMsg struct {
 	err chan error // Buffered
 }
 
-// addCounterPartySigsMsg...
-type addCounterPartyFundsMsg struct {
+// addContributionMsg...
+type addContributionMsg struct {
 	pendingFundingID uint64
 
 	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
 	theirInputs        []*wire.TxIn
 	theirChangeOutputs []*wire.TxOut
-	theirKey           *btcec.PublicKey
+	theirMultiSigKey   *btcec.PublicKey
+	theirCommitKey     *btcec.PublicKey
+
+	deliveryAddress btcutil.Address
+	revocationHash  [wire.HashSize]byte
+	csvDelay        int64
 
 	err chan error // Buffered
 }
@@ -278,8 +283,8 @@ out:
 				l.handleFundingReserveRequest(msg)
 			case *fundingReserveCancelMsg:
 				l.handleFundingCancelRequest(msg)
-			case *addCounterPartyFundsMsg:
-				l.handleFundingCounterPartyFunds(msg)
+			case *addContributionMsg:
+				l.handleContributionMsg(msg)
 			case *addCounterPartySigsMsg:
 				l.handleFundingCounterPartySigs(msg)
 			}
@@ -488,7 +493,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 }
 
 // handleFundingCounterPartyFunds...
-func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFundsMsg) {
+func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	l.limboMtx.Lock()
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.Unlock()
@@ -531,14 +536,13 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
-	// TODO(roasbeef): track multi-sig and change outputs indexes
-	ourKey := pendingReservation.partialState.multiSigKey.PubKey().SerializeCompressed()
-	pendingReservation.theirMultiSigKey = req.theirKey
-	theirKey := pendingReservation.theirMultiSigKey.SerializeCompressed()
+	ourKey := pendingReservation.partialState.multiSigKey
+	pendingReservation.theirMultiSigKey = req.theirMultiSigKey
+	theirKey := pendingReservation.theirMultiSigKey
 
 	channelCapacity := int64(pendingReservation.partialState.capacity)
-	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey, theirKey,
-		channelCapacity)
+	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey.PubKey().SerializeCompressed(),
+		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
 		return
@@ -599,6 +603,59 @@ func (l *LightningWallet) handleFundingCounterPartyFunds(req *addCounterPartyFun
 		pendingReservation.partialState.fundingTx.TxIn[i].SignatureScript = sigscript
 		pendingReservation.ourFundingSigs = append(pendingReservation.ourFundingSigs, sigscript)
 	}
+
+	// Initialize an empty sha-chain for them, tracking the current pending
+	// revocation hash (we don't yet know the pre-image so we can't add it
+	// to the chain).
+	pendingReservation.partialState.theirShaChain = revocation.NewHyperShaChain()
+	pendingReservation.partialState.theirCurrentRevocation = req.revocationHash
+
+	// Grab the hash of the current pre-image in our chain, this is needed
+	// for out commitment tx.
+	// TODO(roasbeef): grab partial state above to avoid long attr chain
+	ourCurrentRevokeHash := pendingReservation.partialState.ourShaChain.CurrentRevocationHash()
+	pendingReservation.ourRevokeHash = ourCurrentRevokeHash
+
+	// Create the txIn to our commitment transaction. In the process, we
+	// need to locate the index of the multi-sig output on the funding tx
+	// since the outputs are cannonically sorted.
+	fundingNTxid := pendingReservation.partialState.fundingTx.TxSha() // NOTE: assumes testnet-L
+	_, multiSigIndex := findScriptOutputIndex(pendingReservation.partialState.fundingTx,
+		multiSigOut.PkScript)
+	fundingTxIn := wire.NewTxIn(wire.NewOutPoint(&fundingNTxid, multiSigIndex), nil)
+
+	// With the funding tx complete, create both commitment transactions.
+	initialBalance := pendingReservation.fundingAmount
+	pendingReservation.fundingLockTime = req.csvDelay
+	ourCommitKey := pendingReservation.partialState.ourCommitKey.PubKey()
+	theirCommitKey := req.theirCommitKey
+	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
+		ourCurrentRevokeHash, req.csvDelay, initialBalance)
+	if err != nil {
+		req.err <- err
+		return
+	}
+	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
+		req.revocationHash, req.csvDelay, initialBalance)
+	if err != nil {
+		req.err <- err
+		return
+	}
+
+	pendingReservation.partialState.theirCommitKey = theirCommitKey
+	pendingReservation.partialState.theirCommitTx = theirCommitTx
+	pendingReservation.partialState.ourCommitTx = ourCommitTx
+
+	// Generate a signature for their version of the initial commitment
+	// transaction.
+	fundingTx := pendingReservation.partialState.fundingTx
+	sigTheirCommit, err := txscript.RawTxInSignature(fundingTx, 0, multiSigOut.PkScript,
+		txscript.SigHashAll, ourKey)
+	if err != nil {
+		req.err <- err
+		return
+	}
+	pendingReservation.partialState.theirCommitSig = sigTheirCommit
 
 	req.err <- nil
 }

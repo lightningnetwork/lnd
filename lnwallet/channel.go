@@ -43,20 +43,21 @@ type OpenChannelState struct {
 	ourBalance   btcutil.Amount
 	theirBalance btcutil.Amount
 
-	theirCommitTx *wire.MsgTx
-	ourCommitTx   *wire.MsgTx
+	theirCommitTx  *wire.MsgTx
+	ourCommitTx    *wire.MsgTx
+	theirCommitSig []byte
 
 	fundingTx *wire.MsgTx
 
 	multiSigKey         *btcec.PrivateKey
 	fundingRedeemScript []byte
 
-	ourShaChain   *revocation.HyperShaChain
-	theirShaChain *revocation.HyperShaChain
 	// Current revocation for their commitment transaction. However, since
 	// this is the hash, and not the pre-image, we can't yet verify that
 	// it's actually in the chain.
 	theirCurrentRevocation [wire.HashSize]byte
+	theirShaChain          *revocation.HyperShaChain
+	ourShaChain            *revocation.HyperShaChain
 
 	// Final delivery address
 	ourDeliveryAddress   btcutil.Address

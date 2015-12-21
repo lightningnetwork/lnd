@@ -34,8 +34,7 @@ type ChannelReservation struct {
 	ourFundingSigs   [][]byte
 	theirFundingSigs [][]byte
 
-	ourCommitmentSig   []byte
-	theirCommitmentSig []byte
+	ourCommitmentSig []byte
 
 	partialState *OpenChannelState
 

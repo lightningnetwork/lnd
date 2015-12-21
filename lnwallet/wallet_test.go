@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -60,8 +61,13 @@ func assertProperBalance(t *testing.T, lw *LightningWallet, numConfirms, amount 
 // bobNode represents the other party involved as a node within LN. Bob is our
 // only "default-route", we have a direct connection with him.
 type bobNode struct {
-	privKey     *btcec.PrivateKey
-	multiSigKey *btcec.PublicKey
+	privKey *btcec.PrivateKey
+
+	// For simplicity, used for both the commit tx and the multi-sig output.
+	channelKey      *btcec.PublicKey
+	deliveryAddress btcutil.Address
+	revocation      [wire.HashSize]byte
+	delay           int64
 
 	availableOutputs []*wire.TxIn
 	changeOutputs    []*wire.TxOut
@@ -118,9 +124,18 @@ func newBobNode() (*bobNode, error) {
 	// Using bobs priv key above, create a change address he can spend.
 	bobChangeOutput := wire.NewTxOut(2*1e8, bobAddrScript)
 
+	// Bob's initial revocation hash is just his private key with the first
+	// byte changed...
+	var revocation [wire.HashSize]byte
+	copy(revocation[:], bobsPrivKey)
+	revocation[0] = 0xff
+
 	return &bobNode{
 		privKey:          privKey,
-		multiSigKey:      pubKey,
+		channelKey:       pubKey,
+		deliveryAddress:  bobAddr,
+		revocation:       revocation,
+		delay:            5,
 		availableOutputs: []*wire.TxIn{bobTxIn},
 		changeOutputs:    []*wire.TxOut{bobChangeOutput},
 	}, nil
@@ -293,17 +308,19 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 		t.Fatalf("alice's key for multi-sig not found")
 	}
 	if ourCommitKey == nil {
-		// TODO(roasbeef): gen commit
-		//	t.Fatalf("alice's key for commit not found")
+		t.Fatalf("alice's key for commit not found")
 	}
 	if ourChange[0].Value != 3e8 {
 		t.Fatalf("coin selection failed, change output should be 3e8 "+
 			"satoshis, is instead %v", ourChange[0].Value)
 	}
 
-	// Bob sends over his output, change addr and multi-sig key.
-	if err := chanReservation.AddFunds(bobNode.availableOutputs,
-		bobNode.changeOutputs, bobNode.multiSigKey); err != nil {
+	// Bob sends over his output, change addr, pub keys, initial revocation,
+	// final delivery address, and his accepted csv delay for the commitmen
+	// t transactions.
+	if err := chanReservation.AddContribution(bobNode.availableOutputs,
+		bobNode.changeOutputs, bobNode.channelKey, bobNode.channelKey,
+		bobNode.deliveryAddress, bobNode.revocation, bobNode.delay); err != nil {
 		t.Fatalf("unable to add bob's funds to the funding tx: %v", err)
 	}
 
@@ -328,8 +345,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 		t.Fatalf("bob's key for multi-sig not found")
 	}
 	if theirCommitKey == nil {
-		// TODO(roasbeef): gen commit
-		//	t.Fatalf("alice's key for commit not found")
+		t.Fatalf("bob's key for commit tx not found")
 	}
 	if theirChange[0].Value != 2e8 {
 		t.Fatalf("bob should have one change output with value 2e8"+
@@ -342,7 +358,8 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if err != nil {
 		t.Fatalf("unable to sign inputs for bob: %v", err)
 	}
-	if err := chanReservation.CompleteReservation(bobsSigs); err != nil {
+	var fakeCommitSig []byte
+	if err := chanReservation.CompleteReservation(bobsSigs, fakeCommitSig); err != nil {
 		t.Fatalf("unable to complete funding tx: %v", err)
 	}
 

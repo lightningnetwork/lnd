@@ -72,11 +72,11 @@ func derive(from, to uint64, startingHash [32]byte) [32]byte {
 
 	numBranches := from ^ to
 	toDerive := uint64(math.Log2(float64(numBranches))) // uh.....
-	for i := toDerive - 1; i >= 0; i-- {
-		if (numBranches>>i)&1 == 1 {
+	for i := int(toDerive - 1); i >= 0; i-- {
+		if (numBranches>>uint(i))&1 == 1 {
 			// Flip the ith bit, then hash the current state to
 			// advance down the tree.
-			nextHash[i/8] ^= (1 << (i % 8))
+			nextHash[i/8] ^= (1 << (uint(i) % 8))
 			nextHash = sha256.Sum256(nextHash[:])
 		}
 	}

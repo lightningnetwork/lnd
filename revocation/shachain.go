@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/fastsha256"
 )
 
 const (
@@ -135,11 +136,19 @@ func (h *HyperShaChain) AddNextHash(hash [32]byte) error {
 	return nil
 }
 
-// CurrentHash...
-func (h *HyperShaChain) CurrentHash() (*wire.ShaHash, error) {
-	h.Lock()
-	defer h.Unlock()
-	return &h.lastHash, nil
+// CurrentPreImage...
+func (h *HyperShaChain) CurrentPreImage() *wire.ShaHash {
+	h.RLock()
+	defer h.RUnlock()
+	return &h.lastHash
+}
+
+// CurrentRevocationHash...
+// TODO(roasbeef): *wire.ShaHash vs [wire.HashSize]byte ?
+func (h *HyperShaChain) CurrentRevocationHash() [wire.HashSize]byte {
+	h.RLock()
+	defer h.RUnlock()
+	return fastsha256.Sum256(h.lastHash[:])
 }
 
 // LocatePreImage...

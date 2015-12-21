@@ -210,6 +210,10 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	commitTx.AddTxOut(wire.NewTxOut(int64(amtToUs), payToUsScriptHash))
 	commitTx.AddTxOut(wire.NewTxOut(int64(amtToThem), payToThemScriptHash))
 
+	// Sort the transaction according to the agreed upon cannonical
+	// ordering. This lets us skip sending the entire transaction over,
+	// instead we'll just send signatures.
+	txsort.InPlaceSort(commitTx)
 	return commitTx, nil
 }
 

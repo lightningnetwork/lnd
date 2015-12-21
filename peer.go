@@ -63,8 +63,8 @@ type peer struct {
 	// sendQueue chan  lnwire.Message
 	// TODO(roasbeef+j): something like?
 	// type Message {
-	//   Decode(uint32) error
-	//   Encode(uint32) error
+	//   Decode(b bytes.Buffer) error
+	//   Encode(b bytes.Buffer) error
 	//   Command() string
 	//}
 

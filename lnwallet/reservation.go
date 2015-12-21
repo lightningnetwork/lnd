@@ -13,7 +13,7 @@ type ChannelReservation struct {
 	sync.RWMutex // All fields below owned by the lnwallet.
 
 	//for CLTV it is nLockTime, for CSV it's nSequence, for segwit it's not needed
-	fundingLockTime uint32
+	fundingLockTime int64
 	fundingAmount   btcutil.Amount
 
 	//Current state of the channel, progesses through until complete
@@ -34,6 +34,7 @@ type ChannelReservation struct {
 	ourFundingSigs   [][]byte
 	theirFundingSigs [][]byte
 
+	ourRevokeHash    [wire.HashSize]byte
 	ourCommitmentSig []byte
 
 	partialState *OpenChannelState

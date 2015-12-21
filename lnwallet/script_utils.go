@@ -83,3 +83,19 @@ func spendMultiSig(redeemScript, sigA, sigB []byte) ([]byte, error) {
 	// that's all, get bytes
 	return bldr.Script()
 }
+
+// findScriptOutputIndex...
+// only finds first matchin, assumes unique pkScripts
+func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
+	found := false
+	index := uint32(0)
+	for i, txOut := range tx.TxOut {
+		if bytes.Equal(txOut.PkScript, script) {
+			found = true
+			index = uint32(i)
+			break
+		}
+	}
+
+	return found, index
+}

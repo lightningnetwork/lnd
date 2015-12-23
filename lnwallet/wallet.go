@@ -31,15 +31,6 @@ const (
 )
 
 var (
-	// Namespace bucket keys.
-	lightningNamespaceKey = []byte("ln-wallet")
-	waddrmgrNamespaceKey  = []byte("waddrmgr")
-	wtxmgrNamespaceKey    = []byte("wtxmgr")
-
-	openChannelBucket   = []byte("o-chans")
-	closedChannelBucket = []byte("c-chans")
-	fundingTxKey        = []byte("funding")
-
 	// Error types
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
 		"create funding transaction")
@@ -97,14 +88,7 @@ type addContributionMsg struct {
 	pendingFundingID uint64
 
 	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
-	theirInputs        []*wire.TxIn
-	theirChangeOutputs []*wire.TxOut
-	theirMultiSigKey   *btcec.PublicKey
-	theirCommitKey     *btcec.PublicKey
-
-	deliveryAddress btcutil.Address
-	revocationHash  [wire.HashSize]byte
-	csvDelay        int64
+	contribution *ChannelContribution
 
 	err chan error // Buffered
 }
@@ -301,7 +285,7 @@ out:
 	l.wg.Done()
 }
 
-// RequestFundingReservation...
+// InitChannelReservation...
 func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -332,7 +316,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.Lock()
 	defer reservation.Unlock()
 
+	ourContribution := reservation.ourContribution
+
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
+	// TODO(roasbeef): make 6 a config paramter?
 	maxConfs := int32(math.MaxInt32)
 	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
 	if err != nil {
@@ -372,7 +359,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	reservation.ourInputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
+	ourContribution.Inputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
 	for i, coin := range selectedCoins.Coins() {
 		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
 		l.wallet.LockOutpoint(*txout)
@@ -380,13 +367,13 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
 		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
-		reservation.ourInputs[i] = wire.NewTxIn(outPoint, nil)
+		ourContribution.Inputs[i] = wire.NewTxIn(outPoint, nil)
 	}
 
 	// Create some possibly neccessary change outputs.
 	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()
-	reservation.ourChange = make([]*wire.TxOut, 0, len(selectedCoins.Coins()))
 	if selectedTotalValue > req.fundingAmount {
+		ourContribution.ChangeOutputs = make([]*wire.TxOut, 1)
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
 		changeAmount := selectedTotalValue - req.fundingAmount
@@ -407,8 +394,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		//     between chain-client and wallet.
 		//changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 
-		reservation.ourChange = append(reservation.ourChange,
-			wire.NewTxOut(int64(changeAmount), changeAddrScript))
+		ourContribution.ChangeOutputs[0] = wire.NewTxOut(int64(changeAmount),
+			changeAddrScript)
 	}
 
 	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
@@ -431,7 +418,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 	reservation.partialState.multiSigKey = multiSigKey
+	ourContribution.MultiSigKey = multiSigKey.PubKey()
 	reservation.partialState.ourCommitKey = commitKey
+	ourContribution.CommitKey = commitKey.PubKey()
 
 	// Generate a fresh address to be used in the case of a cooperative
 	// channel close.
@@ -445,6 +434,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 	reservation.partialState.ourDeliveryAddress = addrs[0].Address()
+	ourContribution.DeliveryAddress = addrs[0].Address()
 
 	// Create a new shaChain for verifiable transaction revocations.
 	shaChain, err := revocation.NewHyperShaChainFromSeed(nil, 0)
@@ -454,6 +444,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 	reservation.partialState.ourShaChain = shaChain
+	ourContribution.RevocationHash = shaChain.CurrentRevocationHash()
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -482,7 +473,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 
 	// Mark all previously locked outpoints as usuable for future funding
 	// requests.
-	for _, unusedInput := range pendingReservation.ourInputs {
+	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
 		l.wallet.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
@@ -513,6 +504,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Create a blank, fresh transaction. Soon to be a complete funding
 	// transaction which will allow opening a lightning channel.
 	pendingReservation.partialState.fundingTx = wire.NewMsgTx()
+	fundingTx := pendingReservation.partialState.fundingTx
+
+	pendingReservation.theirContribution = req.contribution
+	theirContribution := req.contribution
+	ourContribution := pendingReservation.ourContribution
 
 	// First, add all multi-party inputs to the transaction
 	// TODO(roasbeef); handle case that tx doesn't exist, fake input
@@ -520,29 +516,26 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	//  * actually, pure SPV would need fraud proofs right? must prove input
 	//    is unspent
 	//  * or, something like getutxo?
-	for _, ourInput := range pendingReservation.ourInputs {
-		pendingReservation.partialState.fundingTx.AddTxIn(ourInput)
+	for _, ourInput := range ourContribution.Inputs {
+		fundingTx.AddTxIn(ourInput)
 	}
-	pendingReservation.theirInputs = req.theirInputs
-	for _, theirInput := range pendingReservation.theirInputs {
-		pendingReservation.partialState.fundingTx.AddTxIn(theirInput)
+	for _, theirInput := range theirContribution.Inputs {
+		fundingTx.AddTxIn(theirInput)
 	}
 
 	// Next, add all multi-party outputs to the transaction. This includes
 	// change outputs for both side.
-	for _, ourChangeOutput := range pendingReservation.ourChange {
-		pendingReservation.partialState.fundingTx.AddTxOut(ourChangeOutput)
+	for _, ourChangeOutput := range ourContribution.ChangeOutputs {
+		fundingTx.AddTxOut(ourChangeOutput)
 	}
-	pendingReservation.theirChange = req.theirChangeOutputs
-	for _, theirChangeOutput := range pendingReservation.theirChange {
-		pendingReservation.partialState.fundingTx.AddTxOut(theirChangeOutput)
+	for _, theirChangeOutput := range theirContribution.ChangeOutputs {
+		fundingTx.AddTxOut(theirChangeOutput)
 	}
 
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	ourKey := pendingReservation.partialState.multiSigKey
-	pendingReservation.theirMultiSigKey = req.theirMultiSigKey
-	theirKey := pendingReservation.theirMultiSigKey
+	theirKey := theirContribution.MultiSigKey
 
 	channelCapacity := int64(pendingReservation.partialState.capacity)
 	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey.PubKey().SerializeCompressed(),
@@ -552,7 +545,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 	pendingReservation.partialState.fundingRedeemScript = redeemScript
-	pendingReservation.partialState.fundingTx.AddTxOut(multiSigOut)
+	fundingTx.AddTxOut(multiSigOut)
 
 	// Sort the transaction. Since both side agree to a cannonical
 	// ordering, by sorting we no longer need to send the entire
@@ -566,8 +559,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Now, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
-	pendingReservation.ourFundingSigs = make([][]byte, 0, len(pendingReservation.ourInputs))
-	for i, txIn := range pendingReservation.partialState.fundingTx.TxIn {
+	pendingReservation.ourFundingSigs = make([][]byte, 0, len(ourContribution.Inputs))
+	for i, txIn := range fundingTx.TxIn {
 		// Does the wallet know about the txin?
 		txDetail, _ := l.wallet.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
 		if txDetail == nil {
@@ -612,13 +605,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// revocation hash (we don't yet know the pre-image so we can't add it
 	// to the chain).
 	pendingReservation.partialState.theirShaChain = revocation.NewHyperShaChain()
-	pendingReservation.partialState.theirCurrentRevocation = req.revocationHash
+	pendingReservation.partialState.theirCurrentRevocation = theirContribution.RevocationHash
 
 	// Grab the hash of the current pre-image in our chain, this is needed
 	// for out commitment tx.
 	// TODO(roasbeef): grab partial state above to avoid long attr chain
 	ourCurrentRevokeHash := pendingReservation.partialState.ourShaChain.CurrentRevocationHash()
-	pendingReservation.ourRevokeHash = ourCurrentRevokeHash
+	ourContribution.RevocationHash = ourCurrentRevokeHash
 
 	// Create the txIn to our commitment transaction. In the process, we
 	// need to locate the index of the multi-sig output on the funding tx
@@ -629,18 +622,18 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	fundingTxIn := wire.NewTxIn(wire.NewOutPoint(&fundingNTxid, multiSigIndex), nil)
 
 	// With the funding tx complete, create both commitment transactions.
-	initialBalance := pendingReservation.fundingAmount
-	pendingReservation.fundingLockTime = req.csvDelay
-	ourCommitKey := pendingReservation.partialState.ourCommitKey.PubKey()
-	theirCommitKey := req.theirCommitKey
+	initialBalance := ourContribution.FundingAmount
+	pendingReservation.fundingLockTime = theirContribution.CsvDelay
+	ourCommitKey := ourContribution.CommitKey
+	theirCommitKey := theirContribution.CommitKey
 	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		ourCurrentRevokeHash, req.csvDelay, initialBalance)
+		ourCurrentRevokeHash, theirContribution.CsvDelay, initialBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		req.revocationHash, req.csvDelay, initialBalance)
+		theirContribution.RevocationHash, theirContribution.CsvDelay, initialBalance)
 	if err != nil {
 		req.err <- err
 		return
@@ -652,14 +645,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	fundingTx := pendingReservation.partialState.fundingTx
-	sigTheirCommit, err := txscript.RawTxInSignature(fundingTx, 0, multiSigOut.PkScript,
+	sigTheirCommit, err := txscript.RawTxInSignature(theirCommitTx, 0, multiSigOut.PkScript,
 		txscript.SigHashAll, ourKey)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	pendingReservation.partialState.theirCommitSig = sigTheirCommit
+	pendingReservation.ourCommitmentSig = sigTheirCommit
 
 	req.err <- nil
 }
@@ -720,6 +713,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// At this point, wen calso record and verify their isgnature for our
 	// commitment transaction.
 	pendingReservation.partialState.theirCommitSig = msg.theirCommitmentSig
+
 	// TODO(roasbeef): verify
 	//commitSig := msg.theirCommitmentSig
 

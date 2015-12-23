@@ -8,56 +8,176 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+// ChannelContribution...
+type ChannelContribution struct {
+	// Amount of funds contributed to the funding transaction.
+	FundingAmount btcutil.Amount
+
+	// Inputs to the funding transaction.
+	Inputs []*wire.TxIn
+
+	// Outputs to be used in the case that the total value of the fund
+	// ing inputs is greather than the total potential channel capacity.
+	ChangeOutputs []*wire.TxOut
+
+	// The key to be used for the funding transaction's P2SH multi-sig
+	// 2-of-2 output.
+	MultiSigKey *btcec.PublicKey
+
+	// The key to be used for this party's version of the commitment
+	// transaction.
+	CommitKey *btcec.PublicKey
+
+	// Address to be used for delivery of cleared channel funds in the scenario
+	// of a cooperative channel closure.
+	DeliveryAddress btcutil.Address
+
+	// Hash to be used as the revocation for the initial version of this
+	// party's commitment transaction.
+	RevocationHash [wire.HashSize]byte
+
+	// The delay (in blocks) to be used for the pay-to-self output in this
+	// party's version of the commitment transaction.
+	CsvDelay int64
+}
+
 // ChannelReservation...
 type ChannelReservation struct {
-	sync.RWMutex // All fields below owned by the lnwallet.
+	fundingType FundingType
 
-	//for CLTV it is nLockTime, for CSV it's nSequence, for segwit it's not needed
+	// This mutex MUST be held when either reading or modifying any of the
+	// fields below.
+	sync.RWMutex
+
+	// For CLTV it is nLockTime, for CSV it's nSequence, for segwit it's
+	// not needed
 	fundingLockTime int64
-	fundingAmount   btcutil.Amount
-
-	//Current state of the channel, progesses through until complete
-	//Makes sure we can't go backwards and only accept messages once
-	channelState uint8
-
-	theirInputs []*wire.TxIn
-	ourInputs   []*wire.TxIn
-
-	// NOTE(j): FundRequest assumes there is only one change (see ChangePkScript)
-	theirChange []*wire.TxOut
-	ourChange   []*wire.TxOut
-
-	theirMultiSigKey *btcec.PublicKey
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	ourFundingSigs   [][]byte
 	theirFundingSigs [][]byte
 
-	ourRevokeHash    [wire.HashSize]byte
+	// Our signature for their version of the commitment transaction.
 	ourCommitmentSig []byte
+
+	ourContribution   *ChannelContribution
+	theirContribution *ChannelContribution
 
 	partialState *OpenChannelState
 
+	// The ID of this reservation, used to uniquely track the reservation
+	// throughout its lifetime.
 	reservationID uint64
-	wallet        *LightningWallet
 
+	// A channel which will be sent on once the channel is considered
+	// 'open'. A channel is open once the funding transaction has reached
+	// a sufficient number of confirmations.
 	chanOpen chan *LightningChannel
+
+	wallet *LightningWallet
 }
 
 // newChannelReservation...
 func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 	minFeeRate btcutil.Amount, wallet *LightningWallet, id uint64) *ChannelReservation {
+	// TODO(roasbeef): CSV here, or on delay?
 	return &ChannelReservation{
-		fundingAmount: fundingAmt,
-		// TODO(roasbeef): assumes balanced symmetric channels.
-		partialState: &OpenChannelState{
-			capacity:    fundingAmt * 2,
-			fundingType: t,
+		fundingType: t,
+		ourContribution: &ChannelContribution{
+			FundingAmount: fundingAmt,
 		},
-		wallet:        wallet,
+		theirContribution: &ChannelContribution{
+			FundingAmount: fundingAmt,
+		},
+		partialState: &OpenChannelState{
+			// TODO(roasbeef): assumes balanced symmetric channels.
+			capacity:    fundingAmt * 2,
+			minFeePerKb: minFeeRate,
+		},
 		reservationID: id,
+		wallet:        wallet,
 	}
+}
+
+// OurContribution...
+// NOTE: This SHOULD NOT be modified.
+func (r *ChannelReservation) OurContribution() *ChannelContribution {
+	r.RLock()
+	defer r.RUnlock()
+	return r.ourContribution
+}
+
+// ProcessContribution...
+func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContribution) error {
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &addContributionMsg{
+		pendingFundingID: r.reservationID,
+		contribution:     theirContribution,
+		err:              errChan,
+	}
+
+	return <-errChan
+}
+
+func (r *ChannelReservation) TheirContribution() *ChannelContribution {
+	r.RLock()
+	defer r.RUnlock()
+	return r.theirContribution
+}
+
+// OurSignatures...
+func (r *ChannelReservation) OurSignatures() ([][]byte, []byte) {
+	r.RLock()
+	defer r.RUnlock()
+	return r.ourFundingSigs, r.ourCommitmentSig
+}
+
+// CompleteFundingReservation...
+// TODO(roasbeef): add commit sig also
+func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte, commitmentSig []byte) error {
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &addCounterPartySigsMsg{
+		pendingFundingID:   r.reservationID,
+		theirFundingSigs:   fundingSigs,
+		theirCommitmentSig: commitmentSig,
+		err:                errChan,
+	}
+
+	return <-errChan
+}
+
+// OurSignatures...
+func (r *ChannelReservation) TheirSignatures() ([][]byte, []byte) {
+	r.RLock()
+	defer r.RUnlock()
+	return r.theirFundingSigs, r.partialState.theirCommitSig
+}
+
+// FinalFundingTransaction...
+func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.fundingTx
+}
+
+// RequestFundingReserveCancellation...
+// TODO(roasbeef): also return mutated state?
+func (r *ChannelReservation) Cancel() error {
+	errChan := make(chan error, 1)
+	r.wallet.msgChan <- &fundingReserveCancelMsg{
+		pendingFundingID: r.reservationID,
+		err:              errChan,
+	}
+
+	return <-errChan
+}
+
+// WaitForChannelOpen...
+func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
+	return nil
 }
 
 /*//FundRequest serialize
@@ -235,109 +355,6 @@ func (r *ChannelReservation) SerializeCSVRefundRevocation() ([]byte, error) {
 func (r *ChannelReservation) DeserializeCSVRefundRevocation() error {
 	return nil
 }*/
-
-// OurFunds...
-func (r *ChannelReservation) OurFunds() ([]*wire.TxIn, []*wire.TxOut) {
-	r.RLock()
-	defer r.RUnlock()
-	return r.ourInputs, r.ourChange
-}
-
-func (r *ChannelReservation) OurKeys() (*btcec.PrivateKey, *btcec.PrivateKey) {
-	r.RLock()
-	defer r.RUnlock()
-	return r.partialState.multiSigKey, r.partialState.ourCommitKey
-}
-
-// AddContribution...
-func (r *ChannelReservation) AddContribution(theirInputs []*wire.TxIn,
-	theirChangeOutputs []*wire.TxOut, commitKey, multiSigKey *btcec.PublicKey,
-	deliveryAddress btcutil.Address, initialRevocation [wire.HashSize]byte,
-	acceptedDelayPeriod int64) error {
-
-	errChan := make(chan error, 1)
-
-	r.wallet.msgChan <- &addContributionMsg{
-		pendingFundingID:   r.reservationID,
-		theirInputs:        theirInputs,
-		theirChangeOutputs: theirChangeOutputs,
-		theirMultiSigKey:   multiSigKey,
-		theirCommitKey:     commitKey,
-		deliveryAddress:    deliveryAddress,
-		revocationHash:     initialRevocation,
-		csvDelay:           acceptedDelayPeriod,
-		err:                errChan,
-	}
-
-	return <-errChan
-}
-
-// OurFundingSigs...
-func (r *ChannelReservation) OurFundingSigs() [][]byte {
-	r.RLock()
-	defer r.RUnlock()
-	return r.ourFundingSigs
-}
-
-// OurCommitmentSig
-func (r *ChannelReservation) OurCommitmentSig() []byte {
-	r.RLock()
-	defer r.RUnlock()
-	return r.ourCommitmentSig
-}
-
-// TheirFunds...
-// TODO(roasbeef): return error if accessors not yet populated?
-func (r *ChannelReservation) TheirFunds() ([]*wire.TxIn, []*wire.TxOut) {
-	r.RLock()
-	defer r.RUnlock()
-	return r.theirInputs, r.theirChange
-}
-
-func (r *ChannelReservation) TheirKeys() (*btcec.PublicKey, *btcec.PublicKey) {
-	r.RLock()
-	defer r.RUnlock()
-	return r.theirMultiSigKey, r.partialState.theirCommitKey
-}
-
-// CompleteFundingReservation...
-// TODO(roasbeef): add commit sig also
-func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte, commitmentSig []byte) error {
-	errChan := make(chan error, 1)
-
-	r.wallet.msgChan <- &addCounterPartySigsMsg{
-		pendingFundingID:   r.reservationID,
-		theirFundingSigs:   fundingSigs,
-		theirCommitmentSig: commitmentSig,
-		err:                errChan,
-	}
-
-	return <-errChan
-}
-
-// FinalFundingTransaction...
-func (r *ChannelReservation) FundingTx() *wire.MsgTx {
-	r.RLock()
-	defer r.RUnlock()
-	return r.partialState.fundingTx
-}
-
-// RequestFundingReserveCancellation...
-// TODO(roasbeef): also return mutated state?
-func (r *ChannelReservation) Cancel() error {
-	errChan := make(chan error, 1)
-	r.wallet.msgChan <- &fundingReserveCancelMsg{
-		pendingFundingID: r.reservationID,
-		err:              errChan,
-	}
-
-	return <-errChan
-}
-
-// WaitForChannelOpen...
-func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
-	return nil
-}
 
 // * finish reset of tests
 // * comment out stuff that'll need a node.

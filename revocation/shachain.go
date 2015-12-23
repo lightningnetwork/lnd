@@ -72,6 +72,12 @@ func derive(from, to uint64, startingHash [32]byte) [32]byte {
 
 	numBranches := from ^ to
 	toDerive := uint64(math.Log2(float64(numBranches))) // uh.....
+	// math? floats? nahhh! :) bit-flipp-y way to do it:
+	for toDerive = 0; numBranches>>toDerive > 0; toDerive++ {
+	}
+	// ^^^this rounds up instead of down, may be off by 1?
+	toDerive-- // needed?
+
 	for i := int(toDerive - 1); i >= 0; i-- {
 		if (numBranches>>uint(i))&1 == 1 {
 			// Flip the ith bit, then hash the current state to

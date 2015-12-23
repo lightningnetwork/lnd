@@ -263,12 +263,12 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 //simple and assume dual funder (with both funding above reserve)
 func createCLTVFundingTx(fundingTimeLock int64, ourKey *btcec.PublicKey, theirKey *btcec.PublicKey) (*wire.MsgTx, error) {
 	script := txscript.NewScriptBuilder()
-	//See how many entries there are
-	//2: it's a 2-of-2 multisig
-	//anything else: assume it's a CLTV-timeout 1-sig only
-	script.AddOp(txscript.OP_DEPTH)
-	script.AddInt64(2)
-	script.AddOp(txscript.OP_EQUAL)
+	//In the scriptSig on the top of the stack, there will be either a 0 or
+	//1 pushed.
+	//So the scriptSig will be either:
+	//<BobSig> <AliceSig> <1>
+	//<BobSig> <RevocationHash> <0>
+	//(Alice and Bob can be swapped depending on who's funding)
 
 	//If this is a 2-of-2 multisig, read the first sig
 	script.AddOp(txscript.OP_IF)

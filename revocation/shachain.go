@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"math"
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
@@ -71,11 +70,11 @@ func derive(from, to uint64, startingHash [32]byte) [32]byte {
 	nextHash := startingHash
 
 	numBranches := from ^ to
-	toDerive := uint64(math.Log2(float64(numBranches))) // uh.....
-	// math? floats? nahhh! :) bit-flipp-y way to do it:
-	for toDerive = 0; numBranches>>toDerive > 0; toDerive++ {
+
+	// The number of branches we need to derive is log2(numBranches)
+	toDerive := 0
+	for ; numBranches>>uint(toDerive) > 0; toDerive++ {
 	}
-	// ^^^this rounds up instead of down, may be off by 1?
 	toDerive-- // needed?
 
 	for i := int(toDerive - 1); i >= 0; i-- {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"li.lan/labs/plasma/revocation"
+	"li.lan/labs/plasma/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -437,7 +437,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	ourContribution.DeliveryAddress = addrs[0].Address()
 
 	// Create a new shaChain for verifiable transaction revocations.
-	shaChain, err := revocation.NewHyperShaChainFromSeed(nil, 0)
+	shaChain, err := shachain.NewFromSeed(nil, 0)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -604,8 +604,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the pre-image so we can't add it
 	// to the chain).
-	pendingReservation.partialState.theirShaChain = revocation.NewHyperShaChain()
-	pendingReservation.partialState.theirCurrentRevocation = theirContribution.RevocationHash
+	pendingReservation.partialState.TheirShaChain = shachain.New()
+	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationHash
 
 	// Grab the hash of the current pre-image in our chain, this is needed
 	// for out commitment tx.

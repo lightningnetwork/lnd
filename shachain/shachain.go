@@ -1,4 +1,4 @@
-package revocation
+package shachain
 
 import (
 	"bytes"
@@ -36,13 +36,13 @@ type HyperShaChain struct {
 
 // NewHyperShaChain
 //  * used to track their pre-images
-func NewHyperShaChain() *HyperShaChain {
+func New() *HyperShaChain {
 	return &HyperShaChain{lastChainIndex: 0, numValid: 0}
 }
 
 // NewHyperShaChainFromSeed...
 //  * used to derive your own pre-images
-func NewHyperShaChainFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
+func NewFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
 	var shaSeed [32]byte
 
 	// If no seed is specified, generate a new one.

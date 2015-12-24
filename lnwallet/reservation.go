@@ -92,8 +92,8 @@ func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 		},
 		partialState: &OpenChannelState{
 			// TODO(roasbeef): assumes balanced symmetric channels.
-			capacity:    fundingAmt * 2,
-			minFeePerKb: minFeeRate,
+			Capacity:    fundingAmt * 2,
+			MinFeePerKb: minFeeRate,
 		},
 		reservationID: id,
 		wallet:        wallet,
@@ -153,14 +153,14 @@ func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte, commitmen
 func (r *ChannelReservation) TheirSignatures() ([][]byte, []byte) {
 	r.RLock()
 	defer r.RUnlock()
-	return r.theirFundingSigs, r.partialState.theirCommitSig
+	return r.theirFundingSigs, r.partialState.TheirCommitSig
 }
 
 // FinalFundingTransaction...
 func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 	r.RLock()
 	defer r.RUnlock()
-	return r.partialState.fundingTx
+	return r.partialState.FundingTx
 }
 
 // RequestFundingReserveCancellation...

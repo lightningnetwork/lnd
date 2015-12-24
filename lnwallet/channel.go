@@ -1,12 +1,9 @@
 package lnwallet
 
 import (
-	"bytes"
 	"sync"
-	"time"
 
 	"li.lan/labs/plasma/chainntfs"
-	"li.lan/labs/plasma/revocation"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -20,80 +17,6 @@ const (
 	// TODO(roasbeef): make not random value
 	MaxPendingPayments = 10
 )
-
-type nodeId [32]byte
-
-// OpenChannelState...
-// TODO(roasbeef): script gen methods on this?
-type OpenChannelState struct {
-	// Hash? or Their current pubKey?
-	// TODO(roasbeef): switch to Tadge's LNId
-	theirLNID nodeId
-
-	minFeePerKb btcutil.Amount
-	// Our reserve. Assume symmetric reserve amounts. Only needed if the
-	// funding type is CLTV.
-	reserveAmount btcutil.Amount
-
-	// Keys for both sides to be used for the commitment transactions.
-	ourCommitKey   *btcec.PrivateKey // TODO(roasbeef): again unencrypted
-	theirCommitKey *btcec.PublicKey
-
-	// Tracking total channel capacity, and the amount of funds allocated
-	// to each side.
-	capacity     btcutil.Amount
-	ourBalance   btcutil.Amount
-	theirBalance btcutil.Amount
-
-	// Commitment transactions for both sides (they're asymmetric). Also
-	// their signature which lets us spend our version of the commitment
-	// transaction.
-	theirCommitTx  *wire.MsgTx
-	ourCommitTx    *wire.MsgTx
-	theirCommitSig []byte
-
-	// The final funding transaction. Kept wallet-related records.
-	fundingTx *wire.MsgTx
-
-	// TODO(roasbeef): instead store a btcutil.Address here? Otherwise key
-	// is stored unencrypted! Use manager.Encrypt() when storing.
-	multiSigKey *btcec.PrivateKey
-	// TODO(roasbeef): encrypt also, or store in waddrmanager?
-	fundingRedeemScript []byte
-
-	// Current revocation for their commitment transaction. However, since
-	// this is the hash, and not the pre-image, we can't yet verify that
-	// it's actually in the chain.
-	theirCurrentRevocation [wire.HashSize]byte
-	theirShaChain          *revocation.HyperShaChain
-	ourShaChain            *revocation.HyperShaChain
-
-	// Final delivery address
-	ourDeliveryAddress   btcutil.Address
-	theirDeliveryAddress btcutil.Address
-
-	// In blocks
-	htlcTimeout uint32
-	csvDelay    uint32
-
-	// TODO(roasbeef): track fees, other stats?
-	numUpdates            uint64
-	totalSatoshisSent     uint64
-	totalSatoshisReceived uint64
-	creationTime          time.Time
-}
-
-func (o *OpenChannelState) Encode(b bytes.Buffer) error {
-	return nil
-}
-
-func (o *OpenChannelState) Decode(b bytes.Buffer) error {
-	return nil
-}
-
-func newOpenChannelState(ID [32]byte) *OpenChannelState {
-	return &OpenChannelState{theirLNID: ID}
-}
 
 // LightningChannel...
 // TODO(roasbeef): future peer struct should embed this struct

@@ -360,7 +360,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 		t.Fatalf("commitment sig not found")
 	}
 	// Additionally, the funding tx should have been populated.
-	if chanReservation.partialState.fundingTx == nil {
+	if chanReservation.partialState.FundingTx == nil {
 		t.Fatalf("funding transaction never created!")
 	}
 	// Their funds should also be filled in.
@@ -388,7 +388,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 
 	// Alice responds with her output, change addr, multi-sig key and signatures.
 	// Bob then responds with his signatures.
-	bobsSigs, err := bobNode.signFundingTx(chanReservation.partialState.fundingTx)
+	bobsSigs, err := bobNode.signFundingTx(chanReservation.partialState.FundingTx)
 	if err != nil {
 		t.Fatalf("unable to sign inputs for bob: %v", err)
 	}
@@ -414,7 +414,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 
 		// The sub-bucket for this channel, keyed by the txid of the
 		// funding transaction
-		txid := chanReservation.partialState.fundingTx.TxSha()
+		txid := chanReservation.partialState.FundingTx.TxSha()
 		bobChanBucket := openChanBucket.Bucket(txid[:])
 		if bobChanBucket == nil {
 			t.Fatalf("bucket for the alice-bob channe should exist, " +
@@ -427,7 +427,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 
 		// The hash of the stored tx should be indentical to our funding tx.
 		storedTxId := storedTx.TxSha()
-		actualTxId := chanReservation.partialState.fundingTx.TxSha()
+		actualTxId := chanReservation.partialState.FundingTx.TxSha()
 		if !bytes.Equal(storedTxId.Bytes(), actualTxId.Bytes()) {
 			t.Fatalf("stored funding tx doesn't match actual")
 		}

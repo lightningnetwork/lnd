@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
@@ -170,11 +171,11 @@ func (h *HyperShaChain) LocatePreImage(outputScript []byte) (uint64, *[32]byte) 
 }
 
 // MarshallBinary...
-func (h *HyperShaChain) Encode(b bytes.Buffer) error {
+func (h *HyperShaChain) Encode(b io.Writer) error {
 	return nil
 }
 
 // UnmarshallBinary...
-func (h *HyperShaChain) Decode(b bytes.Buffer) error {
+func (h *HyperShaChain) Decode(b io.Reader) error {
 	return nil
 }

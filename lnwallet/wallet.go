@@ -2,7 +2,6 @@ package lnwallet
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -37,8 +36,6 @@ var (
 
 	// Which bitcoin network are we using?
 	ActiveNetParams = &chaincfg.TestNet3Params
-
-	endian = binary.BigEndian
 )
 
 type FundingType uint16
@@ -286,6 +283,13 @@ out:
 }
 
 // InitChannelReservation...
+// fields set after completion:
+//  * ourInputs
+//  * ourChange
+//  * ourMultisigKey
+//  * ourCommitKey
+//  * ourDeliveryAddress
+//  * ourShaChain
 func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -544,7 +548,10 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		req.err <- err
 		return
 	}
-	pendingReservation.partialState.fundingRedeemScript = redeemScript
+
+	// TODO(roasbeef): do Manager.ImportScript(..) here, gives us a
+	// ManagedScriptAddress to play around with if we need it.
+	pendingReservation.partialState.FundingRedeemScript = redeemScript
 	fundingTx.AddTxOut(multiSigOut)
 
 	// Sort the transaction. Since both side agree to a cannonical
@@ -726,6 +733,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
+	// TODO(roasbeef): serialize OpenChannelState state to disk instead now
 	writeErr := l.lnNamespace.Update(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
@@ -758,6 +766,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	//  * will need a multi-plexer to fan out, to listen on ListenConnectedBlocks
 	//    * should prob be a separate struct/modele
 	//  * use NotifySpent in order to catch non-cooperative spends of revoked
+	//    * NotifySpent(outpoints []*wire.OutPoint)
 	//    commitment txns. Hmm using p2sh or bare multi-sig?
 	msg.err <- writeErr
 }

@@ -1,7 +1,9 @@
 package lnwallet
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"time"
 
@@ -20,23 +22,115 @@ var (
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
 	wtxmgrNamespaceKey    = []byte("wtxmgr")
 
-	openChannelBucket   = []byte("o-chans")
-	closedChannelBucket = []byte("c-chans")
-	fundingTxKey        = []byte("funding")
+	openChannelBucket   = []byte("o")
+	closedChannelBucket = []byte("c")
+	activeChanKey       = []byte("a")
 
 	endian = binary.BigEndian
 )
 
 // ChannelDB...
+// TODO(roasbeef): CHECKSUMS, REDUNDANCY, etc etc.
 type ChannelDB struct {
 	// TODO(roasbeef): caching, etc?
-	wallet *LightningWallet
+	addrmgr *waddrmgr.Manager
 
 	namespace walletdb.Namespace
 }
 
-func NewChannelDB(wallet *LightningWallet, n walletdb.Namespace) *ChannelDB {
-	return &ChannelDB{wallet, n}
+// PutOpenChannel...
+func (c *ChannelDB) PutOpenChannel(channel *OpenChannelState) error {
+	return c.namespace.Update(func(tx walletdb.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		rootBucket := tx.RootBucket()
+		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		return dbPutOpenChannel(openChanBucket, channel, c.addrmgr)
+	})
+}
+
+// GetOpenChannel...
+// TODO(roasbeef): assumes only 1 active channel per-node
+func (c *ChannelDB) FetchOpenChannel(nodeID [32]byte) (*OpenChannelState, error) {
+	var channel *OpenChannelState
+	var err error
+
+	dbErr := c.namespace.View(func(tx walletdb.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		rootBucket := tx.RootBucket()
+		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		channel, err = dbGetOpenChannel(openChanBucket, nodeID, c.addrmgr)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return channel, dbErr
+}
+
+// dbPutChannel...
+func dbPutOpenChannel(activeChanBucket walletdb.Bucket, channel *OpenChannelState,
+	addrmgr *waddrmgr.Manager) error {
+
+	// Generate a serialized version of the open channel. The addrmgr is
+	// required in order to encrypt densitive data.
+	var b bytes.Buffer
+	if err := channel.Encode(&b, addrmgr); err != nil {
+		return err
+	}
+
+	// Grab the bucket dedicated to storing data related to this particular
+	// node.
+	nodeBucket, err := activeChanBucket.CreateBucketIfNotExists(channel.TheirLNID[:])
+	if err != nil {
+		return err
+	}
+
+	return nodeBucket.Put(activeChanKey, b.Bytes())
+}
+
+// dbPutChannel...
+func dbGetOpenChannel(bucket walletdb.Bucket, nodeID [32]byte,
+	addrmgr *waddrmgr.Manager) (*OpenChannelState, error) {
+	// Grab the bucket dedicated to storing data related to this particular
+	// node.
+	nodeBucket, err := bucket.CreateBucketIfNotExists(nodeID[:])
+	if err != nil {
+		return nil, err
+	}
+
+	serializedChannel := nodeBucket.Get(activeChanKey)
+	if serializedChannel == nil {
+		// TODO(roasbeef): make proper in error.go
+		return nil, fmt.Errorf("node has no open channels")
+	}
+
+	// Decode the serialized channel state, using the addrmgr to decrypt
+	// sensitive information.
+	channel := &OpenChannelState{}
+	reader := bytes.NewReader(serializedChannel)
+	if err := channel.Decode(reader, addrmgr); err != nil {
+		return nil, err
+	}
+
+	return channel, nil
+}
+
+// NewChannelDB...
+// TODO(roasbeef): re-visit this dependancy...
+func NewChannelDB(addrmgr *waddrmgr.Manager, namespace walletdb.Namespace) *ChannelDB {
+	// TODO(roasbeef): create buckets if not created?
+	return &ChannelDB{addrmgr, namespace}
 }
 
 // OpenChannelState...
@@ -321,8 +415,4 @@ func (o *OpenChannelState) Decode(b io.Reader, addrManager *waddrmgr.Manager) er
 	o.CreationTime = time.Unix(unix, 0)
 
 	return nil
-}
-
-func newOpenChannelState(ID [32]byte) *OpenChannelState {
-	return &OpenChannelState{TheirLNID: ID}
 }

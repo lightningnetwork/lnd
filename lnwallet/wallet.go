@@ -645,6 +645,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 
+	pendingReservation.partialState.CsvDelay = theirContribution.CsvDelay
+	pendingReservation.partialState.TheirDeliveryAddress = theirContribution.DeliveryAddress
+	pendingReservation.partialState.ChanID = fundingNTxid
 	pendingReservation.partialState.TheirCommitKey = theirCommitKey
 	pendingReservation.partialState.TheirCommitTx = theirCommitTx
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
@@ -657,7 +660,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		req.err <- err
 		return
 	}
-	pendingReservation.partialState.TheirCommitSig = sigTheirCommit
 	pendingReservation.ourCommitmentSig = sigTheirCommit
 
 	req.err <- nil

@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/txsort"
-	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 const (
@@ -28,7 +27,7 @@ type LightningChannel struct {
 	// commitment update, plus some other meta-data...Or just use OP_RETURN
 	// to help out?
 	// currently going for: nSequence/nLockTime overloading
-	channelNamespace walletdb.Namespace
+	channelDB *ChannelDB
 
 	// stateMtx protects concurrent access to the state struct.
 	stateMtx     sync.RWMutex
@@ -44,13 +43,13 @@ type LightningChannel struct {
 
 // newLightningChannel...
 func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifier,
-	dbNamespace walletdb.Namespace, state OpenChannelState) (*LightningChannel, error) {
+	chanDB *ChannelDB, state OpenChannelState) (*LightningChannel, error) {
 
 	return &LightningChannel{
-		wallet:           wallet,
-		channelEvents:    events,
-		channelNamespace: dbNamespace,
-		channelState:     state,
+		wallet:        wallet,
+		channelEvents: events,
+		channelDB:     chanDB,
+		channelState:  state,
 	}, nil
 }
 

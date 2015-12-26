@@ -57,21 +57,21 @@ func (c *ChannelDB) PutOpenChannel(channel *OpenChannelState) error {
 // TODO(roasbeef): assumes only 1 active channel per-node
 func (c *ChannelDB) FetchOpenChannel(nodeID [32]byte) (*OpenChannelState, error) {
 	var channel *OpenChannelState
-	var err error
 
 	dbErr := c.namespace.View(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		rootBucket := tx.RootBucket()
-		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
-		if err != nil {
-			return err
+		openChanBucket := rootBucket.Bucket(openChannelBucket)
+		if openChannelBucket == nil {
+			return fmt.Errorf("open channel bucket does not exist")
 		}
 
-		channel, err = dbGetOpenChannel(openChanBucket, nodeID, c.addrmgr)
+		oChannel, err := dbGetOpenChannel(openChanBucket, nodeID, c.addrmgr)
 		if err != nil {
 			return err
 		}
+		channel = oChannel
 		return nil
 	})
 
@@ -102,11 +102,12 @@ func dbPutOpenChannel(activeChanBucket walletdb.Bucket, channel *OpenChannelStat
 // dbPutChannel...
 func dbGetOpenChannel(bucket walletdb.Bucket, nodeID [32]byte,
 	addrmgr *waddrmgr.Manager) (*OpenChannelState, error) {
+
 	// Grab the bucket dedicated to storing data related to this particular
 	// node.
-	nodeBucket, err := bucket.CreateBucketIfNotExists(nodeID[:])
-	if err != nil {
-		return nil, err
+	nodeBucket := bucket.Bucket(nodeID[:])
+	if nodeBucket == nil {
+		return nil, fmt.Errorf("channel bucket for node does not exist")
 	}
 
 	serializedChannel := nodeBucket.Get(activeChanKey)

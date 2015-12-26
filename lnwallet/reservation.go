@@ -38,7 +38,7 @@ type ChannelContribution struct {
 
 	// The delay (in blocks) to be used for the pay-to-self output in this
 	// party's version of the commitment transaction.
-	CsvDelay int64
+	CsvDelay uint32
 }
 
 // ChannelReservation...
@@ -51,7 +51,7 @@ type ChannelReservation struct {
 
 	// For CLTV it is nLockTime, for CSV it's nSequence, for segwit it's
 	// not needed
-	fundingLockTime int64
+	fundingLockTime uint32
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
@@ -92,8 +92,10 @@ func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 		},
 		partialState: &OpenChannelState{
 			// TODO(roasbeef): assumes balanced symmetric channels.
-			Capacity:    fundingAmt * 2,
-			MinFeePerKb: minFeeRate,
+			Capacity:     fundingAmt * 2,
+			OurBalance:   fundingAmt,
+			TheirBalance: fundingAmt,
+			MinFeePerKb:  minFeeRate,
 		},
 		reservationID: id,
 		wallet:        wallet,

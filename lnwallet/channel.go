@@ -94,7 +94,7 @@ func (lc *LightningChannel) VerifyCommitmentUpdate() error {
 
 // createCommitTx...
 func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
-	revokeHash [wire.HashSize]byte, csvTimeout int64, channelAmt btcutil.Amount) (*wire.MsgTx, error) {
+	revokeHash [wire.HashSize]byte, csvTimeout uint32, channelAmt btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script paying to us. This script is spendable
 	// under two conditions: either the 'csvTimeout' has passed and we can
@@ -112,7 +112,7 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 
 	// Otherwise, we can re-claim our funds after a CSV delay of
 	// 'csvTimeout' timeout blocks, and a valid signature.
-	scriptToUs.AddInt64(csvTimeout)
+	scriptToUs.AddInt64(int64(csvTimeout))
 	scriptToUs.AddOp(txscript.OP_NOP3) // CSV
 	scriptToUs.AddOp(txscript.OP_DROP)
 	scriptToUs.AddData(ourKey.SerializeCompressed())

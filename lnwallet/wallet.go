@@ -133,11 +133,11 @@ type LightningWallet struct {
 	// abstract out in order to accomodate zeroMQ/BitcoinCore
 	lmtx sync.RWMutex
 
-	db walletdb.DB
+	DB walletdb.DB
 
-	// A namespace within boltdb reserved for ln-based wallet meta-data.
-	// TODO(roasbeef): which possible other namespaces are relevant?
-	lnNamespace walletdb.Namespace
+	// A wrapper around a namespace within boltdb reserved for ln-based
+	// wallet meta-data.
+	channelDB *ChannelDB
 
 	wallet *btcwallet.Wallet
 	rpc    *chain.Client
@@ -198,7 +198,8 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	}
 
 	// Create a special namespace for our unique payment channel related
-	// meta-data.
+	// meta-data. Subsequently initializing the channeldb around the
+	// created namespace.
 	lnNamespace, err := db.Namespace(lightningNamespaceKey)
 	if err != nil {
 		return nil, err
@@ -207,10 +208,10 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	// TODO(roasbeef): logging
 
 	return &LightningWallet{
-		db:          db,
-		wallet:      wallet,
-		lnNamespace: lnNamespace,
-		msgChan:     make(chan interface{}, msgBufferSize),
+		DB:        db,
+		wallet:    wallet,
+		channelDB: NewChannelDB(wallet.Manager, lnNamespace),
+		msgChan:   make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:
 		//  * https://golang.org/src/sync/atomic/asm_amd64.s
@@ -738,31 +739,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	// TODO(roasbeef): serialize OpenChannelState state to disk instead now
-	writeErr := l.lnNamespace.Update(func(tx walletdb.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
-		// channels.
-		// TODO(roasbeef): CHECKSUMS, REDUNDANCY, etc etc.
-		rootBucket := tx.RootBucket()
-		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
-		if err != nil {
-			return err
-		}
-
-		// Create a new sub-bucket within the open channel bucket
-		// specifically for this channel.
-		// TODO(roasbeef): should def be indexed by LNID, cuz mal etc.
-		txID := fundingTx.TxSha()
-		chanBucket, err := openChanBucket.CreateBucketIfNotExists(txID.Bytes())
-		if err != nil {
-			return err
-		}
-
-		// TODO(roasbeef): sync.Pool of buffers in the future.
-		var buf bytes.Buffer
-		fundingTx.Serialize(&buf)
-		return chanBucket.Put(fundingTxKey, buf.Bytes())
-	})
+	err := l.channelDB.PutOpenChannel(pendingReservation.partialState)
 
 	// TODO(roasbeef): broadcast now?
 	//  * create goroutine, listens on blockconnected+blockdisconnected channels
@@ -773,7 +750,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	//  * use NotifySpent in order to catch non-cooperative spends of revoked
 	//    * NotifySpent(outpoints []*wire.OutPoint)
 	//    commitment txns. Hmm using p2sh or bare multi-sig?
-	msg.err <- writeErr
+	//  * record partialState.CreationTime once tx is 'open'
+	msg.err <- err
 }
 
 // nextMultiSigKey...

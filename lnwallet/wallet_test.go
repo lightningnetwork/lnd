@@ -308,7 +308,6 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	// Bob initiates a channel funded with 5 BTC for each side, so 10
 	// BTC total. He also generates 2 BTC in change.
 	fundingAmount := btcutil.Amount(5 * 1e8)
-	fmt.Println("init res")
 	// TODO(roasbeef): include csv delay?
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
 		SIGHASH, bobNode.id)
@@ -340,18 +339,17 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if bytes.Equal(ourContribution.RevocationHash[:], zeroHash) {
 		t.Fatalf("alice's revocation hash not found")
 	}
+	// TODO(roasbeef):
 	//if ourContribution.CsvDelay == 0 {
-	//t.Fatalf("csv delay not set")
+	//	t.Fatalf("csv delay not set")
 	//}
 
 	// Bob sends over his output, change addr, pub keys, initial revocation,
 	// final delivery address, and his accepted csv delay for the commitmen
 	// t transactions.
-	fmt.Println("init reset")
 	if err := chanReservation.ProcessContribution(bobNode.Contribution()); err != nil {
 		t.Fatalf("unable to add bob's funds to the funding tx: %v", err)
 	}
-	fmt.Println("fin reset")
 
 	// At this point, the reservation should have our signatures, and a
 	// partial funding transaction (missing bob's sigs).
@@ -397,54 +395,29 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if err != nil {
 		t.Fatalf("unable to sign inputs for bob: %v", err)
 	}
-	var fakeCommitSig []byte
-	fmt.Println("complete res")
+	fakeCommitSig := bytes.Repeat([]byte{1}, 64)
 	if err := chanReservation.CompleteReservation(bobsSigs, fakeCommitSig); err != nil {
 		t.Fatalf("unable to complete funding tx: %v", err)
 	}
-	fmt.Println("fin complete res")
 
 	// At this point, the channel can be considered "open" when the funding
 	// txn hits a "comfortable" depth.
 
-	// A bucket should have been created for this pending channel, and the
-	// state commited.
-	err = lnwallet.lnNamespace.View(func(tx walletdb.Tx) error {
-		// The open channel bucket should have been created.
-		rootBucket := tx.RootBucket()
-		openChanBucket := rootBucket.Bucket(openChannelBucket)
-		if openChanBucket == nil {
-			t.Fatalf("openChanBucket should be created, but isn't")
-		}
+	fundingTx := chanReservation.FinalFundingTx()
 
-		// The sub-bucket for this channel, keyed by the txid of the
-		// funding transaction
-		txid := chanReservation.partialState.FundingTx.TxSha()
-		bobChanBucket := openChanBucket.Bucket(txid[:])
-		if bobChanBucket == nil {
-			t.Fatalf("bucket for the alice-bob channe should exist, " +
-				"but doesn't")
-		}
-
-		var storedTx wire.MsgTx
-		b := bytes.NewReader(bobChanBucket.Get(fundingTxKey))
-		storedTx.Deserialize(b)
-
-		// The hash of the stored tx should be indentical to our funding tx.
-		storedTxId := storedTx.TxSha()
-		actualTxId := chanReservation.partialState.FundingTx.TxSha()
-		if !bytes.Equal(storedTxId.Bytes(), actualTxId.Bytes()) {
-			t.Fatalf("stored funding tx doesn't match actual")
-		}
-
-		return nil
-	})
+	// The resulting active channel state should have been persisted to the DB>
+	channel, err := lnwallet.channelDB.FetchOpenChannel(bobNode.id)
+	if err != nil {
+		t.Fatalf("unable to retrieve channel from DB: %v", err)
+	}
+	if channel.FundingTx.TxSha() != fundingTx.TxSha() {
+		t.Fatalf("channel state not properly saved")
+	}
 
 	// The funding tx should now be valid and complete.
 	// Check each input and ensure all scripts are fully valid.
 	// TODO(roasbeef): remove this loop after nodetest hooked up.
 	var zeroHash wire.ShaHash
-	fundingTx := chanReservation.FinalFundingTx()
 	for i, input := range fundingTx.TxIn {
 		var pkscript []byte
 		// Bob's txin
@@ -618,7 +591,7 @@ func clearWalletState(w *LightningWallet) error {
 	w.nextFundingID = 0
 	w.fundingLimbo = make(map[uint64]*ChannelReservation)
 	w.wallet.ResetLockedOutpoints()
-	return w.lnNamespace.Update(func(tx walletdb.Tx) error {
+	return w.channelDB.namespace.Update(func(tx walletdb.Tx) error {
 		rootBucket := tx.RootBucket()
 		return rootBucket.DeleteBucket(openChannelBucket)
 	})

@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -63,6 +62,8 @@ type initFundingReserveMsg struct {
 	fundingAmount btcutil.Amount
 	fundingType   FundingType
 	minFeeRate    btcutil.Amount
+
+	nodeID [32]byte
 
 	// TODO(roasbeef): optional reserve for CLTV, etc.
 
@@ -290,13 +291,14 @@ out:
 //  * ourCommitKey
 //  * ourDeliveryAddress
 //  * ourShaChain
-func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType) (*ChannelReservation, error) {
+func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType, theirID [32]byte) (*ChannelReservation, error) {
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
 
 	l.msgChan <- &initFundingReserveMsg{
 		fundingAmount: a,
 		fundingType:   t,
+		nodeID:        theirID,
 		err:           errChan,
 		resp:          respChan,
 	}
@@ -320,6 +322,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.Lock()
 	defer reservation.Unlock()
 
+	reservation.partialState.TheirLNID = req.nodeID
 	ourContribution := reservation.ourContribution
 
 	// Find all unlocked unspent outputs with greater than 6 confirmations.

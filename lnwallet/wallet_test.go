@@ -3,7 +3,6 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -39,7 +38,7 @@ var (
 	}
 
 	// Use a hard-coded HD seed.
-	testHdSeed = []byte{
+	testHdSeed = [32]byte{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
 		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
@@ -68,7 +67,8 @@ type bobNode struct {
 	channelKey      *btcec.PublicKey
 	deliveryAddress btcutil.Address
 	revocation      [wire.HashSize]byte
-	delay           int64
+	delay           uint32
+	id              [wire.HashSize]byte
 
 	availableOutputs []*wire.TxIn
 	changeOutputs    []*wire.TxOut
@@ -143,7 +143,12 @@ func newBobNode() (*bobNode, error) {
 	copy(revocation[:], bobsPrivKey)
 	revocation[0] = 0xff
 
+	// His ID is just as creative...
+	var id [wire.HashSize]byte
+	id[0] = 0xff
+
 	return &bobNode{
+		id:               id,
 		privKey:          privKey,
 		channelKey:       pubKey,
 		deliveryAddress:  bobAddr,
@@ -279,7 +284,7 @@ func createTestWallet() (string, *LightningWallet, error) {
 		return "", nil, nil
 	}
 
-	wallet, err := NewLightningWallet(privPass, nil, testHdSeed, tempTestDir)
+	wallet, err := NewLightningWallet(privPass, nil, testHdSeed[:], tempTestDir)
 	if err != nil {
 		return "", nil, err
 	}
@@ -305,8 +310,8 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	fundingAmount := btcutil.Amount(5 * 1e8)
 	fmt.Println("init res")
 	// TODO(roasbeef): include csv delay?
-	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
-	fmt.Println("fail init res")
+	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -474,11 +479,13 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 	// TODO(roasbeef): tests for concurrent funding.
 	//  * also func for below
 	fundingAmount := btcutil.Amount(8 * 1e8)
-	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, testHdSeed)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
-	chanReservation2, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	chanReservation2, err := lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, testHdSeed)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 2: %v", err)
 	}
@@ -508,7 +515,8 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 	// 5 BTC. We only have 4BTC worth of outpoints that aren't locked, so
 	// this should fail.
 	amt := btcutil.Amount(8 * 1e8)
-	failedReservation, err := lnwallet.InitChannelReservation(amt, SIGHASH)
+	failedReservation, err := lnwallet.InitChannelReservation(amt,
+		SIGHASH, testHdSeed)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -523,7 +531,8 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing.T) {
 	// Create a reservation for 12 BTC.
 	fundingAmount := btcutil.Amount(12 * 1e8)
-	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, testHdSeed)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -536,7 +545,8 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	}
 
 	// Attempt to create another channel with 12 BTC, this should fail.
-	failedReservation, err := lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	failedReservation, err := lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, testHdSeed)
 	if err != coinset.ErrCoinsNoSelectionAvailable {
 		t.Fatalf("coin selection succeded should have insufficient funds: %+v",
 			failedReservation)
@@ -564,7 +574,8 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	// attempting coin selection.
 
 	// Request to fund a new channel should now succeeed.
-	_, err = lnwallet.InitChannelReservation(fundingAmount, SIGHASH)
+	_, err = lnwallet.InitChannelReservation(fundingAmount,
+		SIGHASH, testHdSeed)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}

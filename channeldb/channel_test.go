@@ -1,7 +1,8 @@
-package lnwallet
+package channeldb
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -69,10 +71,11 @@ var (
 func createDbNamespace(dbPath string) (walletdb.DB, walletdb.Namespace, error) {
 	db, err := walletdb.Create("bdb", dbPath)
 	if err != nil {
+		fmt.Println("fuk")
 		return nil, nil, err
 	}
 
-	namespace, err := db.Namespace(waddrmgrNamespaceKey)
+	namespace, err := db.Namespace([]byte("waddr"))
 	if err != nil {
 		db.Close()
 		return nil, nil, err
@@ -115,11 +118,11 @@ func createTestManager(t *testing.T) (tearDownFunc func(), mgr *waddrmgr.Manager
 	return tearDownFunc, mgr
 }
 
-func TestOpenChannelStateEncodeDecode(t *testing.T) {
+func TestOpenChannelEncodeDecode(t *testing.T) {
 	teardown, manager := createTestManager(t)
 	defer teardown()
 
-	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
+	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	addr, err := btcutil.NewAddressPubKey(pubKey.SerializeCompressed(), ActiveNetParams)
 	if err != nil {
 		t.Fatalf("unable to create delivery address")
@@ -130,7 +133,7 @@ func TestOpenChannelStateEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to create redeemScript")
 	}
 
-	state := OpenChannelState{
+	state := OpenChannel{
 		TheirLNID:              id,
 		ChanID:                 id,
 		MinFeePerKb:            btcutil.Amount(5000),
@@ -161,7 +164,7 @@ func TestOpenChannelStateEncodeDecode(t *testing.T) {
 	}
 
 	reader := bytes.NewReader(b.Bytes())
-	newState := &OpenChannelState{}
+	newState := &OpenChannel{}
 	if err := newState.Decode(reader, manager); err != nil {
 		t.Fatalf("unable to decode channel state: %v", err)
 	}
@@ -274,5 +277,5 @@ func TestOpenChannelStateEncodeDecode(t *testing.T) {
 	}
 }
 
-func TestOpenChannelStateEncodeDecodeCorruption(t *testing.T) {
+func TestOpenChannelEncodeDecodeCorruption(t *testing.T) {
 }

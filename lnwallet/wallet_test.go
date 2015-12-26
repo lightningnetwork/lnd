@@ -591,10 +591,7 @@ func clearWalletState(w *LightningWallet) error {
 	w.nextFundingID = 0
 	w.fundingLimbo = make(map[uint64]*ChannelReservation)
 	w.wallet.ResetLockedOutpoints()
-	return w.channelDB.namespace.Update(func(tx walletdb.Tx) error {
-		rootBucket := tx.RootBucket()
-		return rootBucket.DeleteBucket(openChannelBucket)
-	})
+	return w.channelDB.Wipe()
 }
 
 // TODO(roasbeef): why is wallet so slow to create+open?

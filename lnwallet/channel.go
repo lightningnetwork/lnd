@@ -27,11 +27,11 @@ type LightningChannel struct {
 	// commitment update, plus some other meta-data...Or just use OP_RETURN
 	// to help out?
 	// currently going for: nSequence/nLockTime overloading
-	channelDB *ChannelDB
+	channelDB *channeldb.DB
 
 	// stateMtx protects concurrent access to the state struct.
 	stateMtx     sync.RWMutex
-	channelState OpenChannelState
+	channelState channeldb.OpenChannel
 
 	// TODO(roasbeef): create and embed 'Service' interface w/ below?
 	started  int32
@@ -44,6 +44,7 @@ type LightningChannel struct {
 // newLightningChannel...
 func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifier,
 	chanDB *ChannelDB, state OpenChannelState) (*LightningChannel, error) {
+	chanDB *channeldb.DB, state channeldb.OpenChannel) (*LightningChannel, error) {
 
 	return &LightningChannel{
 		wallet:        wallet,

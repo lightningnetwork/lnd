@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"li.lan/labs/plasma/channeldb"
 	"li.lan/labs/plasma/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -34,7 +36,14 @@ var (
 		"create funding transaction")
 
 	// Which bitcoin network are we using?
+	// TODO(roasbeef): config
 	ActiveNetParams = &chaincfg.TestNet3Params
+	// Namespace bucket keys.
+	lightningNamespaceKey = []byte("ln-wallet")
+	waddrmgrNamespaceKey  = []byte("waddrmgr")
+	wtxmgrNamespaceKey    = []byte("wtxmgr")
+
+	endian = binary.BigEndian
 )
 
 type FundingType uint16
@@ -137,7 +146,7 @@ type LightningWallet struct {
 
 	// A wrapper around a namespace within boltdb reserved for ln-based
 	// wallet meta-data.
-	channelDB *ChannelDB
+	channelDB *channeldb.DB
 
 	wallet *btcwallet.Wallet
 	rpc    *chain.Client
@@ -210,7 +219,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	return &LightningWallet{
 		DB:        db,
 		wallet:    wallet,
-		channelDB: NewChannelDB(wallet.Manager, lnNamespace),
+		channelDB: channeldb.New(wallet.Manager, lnNamespace),
 		msgChan:   make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:

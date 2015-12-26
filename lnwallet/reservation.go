@@ -3,6 +3,8 @@ package lnwallet
 import (
 	"sync"
 
+	"li.lan/labs/plasma/channeldb"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -64,7 +66,7 @@ type ChannelReservation struct {
 	ourContribution   *ChannelContribution
 	theirContribution *ChannelContribution
 
-	partialState *OpenChannelState
+	partialState *channeldb.OpenChannel
 
 	// The ID of this reservation, used to uniquely track the reservation
 	// throughout its lifetime.
@@ -90,7 +92,7 @@ func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
 		theirContribution: &ChannelContribution{
 			FundingAmount: fundingAmt,
 		},
-		partialState: &OpenChannelState{
+		partialState: &channeldb.OpenChannel{
 			// TODO(roasbeef): assumes balanced symmetric channels.
 			Capacity:     fundingAmt * 2,
 			OurBalance:   fundingAmt,

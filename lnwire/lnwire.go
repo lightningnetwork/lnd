@@ -145,7 +145,7 @@ func writeElement(w *bytes.Buffer, element interface{}) error {
 	return nil
 }
 
-func readElement(r io.Reader, element interface{}) error {
+func readElement(r *bytes.Buffer, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case *uint8:
@@ -244,7 +244,7 @@ func readElement(r io.Reader, element interface{}) error {
 	return nil
 }
 
-func (c *CreateChannel) DeserializeFundingRequest(r io.Reader) error {
+func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 	var err error
 
 	//Message Type

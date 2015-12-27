@@ -21,7 +21,7 @@ var (
 	ourPubKeyBytes, _ = hex.DecodeString("02f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee")
 	ourPubKey, _      = btcec.ParsePubKey(ourPubKeyBytes, btcec.S256())
 
-	//Our Delivery PkScript
+	// Delivery PkScript
 	//Privkey: f2c00ead9cbcfec63098dc0a5f152c0165aff40a2ab92feb4e24869a284c32a7
 	//PKhash: n2fkWVphUzw3zSigzPsv9GuDyg9mohzKpz
 	ourDeliveryPkScript, _ = hex.DecodeString("76a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac")
@@ -40,16 +40,16 @@ var (
 	//funding request
 	createChannel = CreateChannel{
 		ChannelType:           uint8(0),
-		OurFundingAmount:      btcutil.Amount(100000000),
-		OurReserveAmount:      btcutil.Amount(131072),
-		OurMinFeePerKb:        btcutil.Amount(20000),
+		FundingAmount:         btcutil.Amount(100000000),
+		ReserveAmount:         btcutil.Amount(131072),
+		MinFeePerKb:           btcutil.Amount(20000),
 		MinTotalFundingAmount: btcutil.Amount(150000000),
 		LockTime:              uint32(4320), //30 block-days
 		FeePayer:              uint8(0),
-		OurRevocationHash:     ourRevocationHash,
-		OurPubkey:             ourPubKey,
-		OurDeliveryPkScript:   ourDeliveryPkScript,
-		OurInputs:             ourInputs,
+		RevocationHash:        ourRevocationHash,
+		Pubkey:                ourPubKey,
+		DeliveryPkScript:      ourDeliveryPkScript,
+		Inputs:                ourInputs,
 	}
 )
 

@@ -19,14 +19,10 @@ type MicroSatoshi int32
 type CreateChannel struct {
 	ChannelType uint8
 
-	OurFundingAmount   btcutil.Amount
-	TheirFundingAmount btcutil.Amount
-	OurReserveAmount   btcutil.Amount
-	TheirReserveAmount btcutil.Amount
-	OurMinFeePerKb     btcutil.Amount
-	TheirMinFeePerKb   btcutil.Amount
+	FundingAmount btcutil.Amount
+	ReserveAmount btcutil.Amount
+	MinFeePerKb   btcutil.Amount
 
-	//Either party can change.
 	//Should double-check the total funding later
 	MinTotalFundingAmount btcutil.Amount
 
@@ -39,15 +35,11 @@ type CreateChannel struct {
 	//2: channel responder
 	FeePayer uint8
 
-	OurRevocationHash     [20]byte
-	TheirRevocationHash   [20]byte
-	OurPubkey             *btcec.PublicKey
-	TheirPubkey           *btcec.PublicKey
-	OurDeliveryPkScript   PkScript //*MUST* be either P2PKH or P2SH
-	TheirDeliveryPkScript PkScript //*MUST* be either P2PKH or P2SH
+	RevocationHash   [20]byte
+	Pubkey           *btcec.PublicKey
+	DeliveryPkScript PkScript //*MUST* be either P2PKH or P2SH
 
-	OurInputs   []*wire.TxIn
-	TheirInputs []*wire.TxIn
+	Inputs []*wire.TxIn
 }
 
 //Writes the big endian representation of element
@@ -263,13 +255,13 @@ func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 		return err
 	}
 
-	//Their Funding Amount
-	err = readElement(r, c.TheirFundingAmount)
+	// Funding Amount
+	err = readElement(r, c.FundingAmount)
 	if err != nil {
 		return err
 	}
 
-	//Their Channel Minimum Capacity
+	// Channel Minimum Capacity
 	var theirMinimumFunding btcutil.Amount
 	err = readElement(r, theirMinimumFunding)
 	if err != nil {
@@ -281,26 +273,26 @@ func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 		c.MinTotalFundingAmount = theirMinimumFunding
 	}
 
-	//Their Revocation Hash
-	err = readElement(r, c.TheirRevocationHash)
+	// Revocation Hash
+	err = readElement(r, c.RevocationHash)
 	if err != nil {
 		return err
 	}
 
-	//Their Commitment Pubkey
-	err = readElement(r, c.TheirPubkey)
+	// Commitment Pubkey
+	err = readElement(r, c.Pubkey)
 	if err != nil {
 		return err
 	}
 
-	//Their Reserve Amount
-	err = readElement(r, c.TheirReserveAmount)
+	// Reserve Amount
+	err = readElement(r, c.ReserveAmount)
 	if err != nil {
 		return err
 	}
 
 	//Minimum Transaction Fee Per Kb
-	err = readElement(r, c.TheirMinFeePerKb)
+	err = readElement(r, c.MinFeePerKb)
 	if err != nil {
 		return err
 	}
@@ -317,14 +309,14 @@ func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 		return err
 	}
 
-	//Their Delivery PkScript
-	err = readElement(r, c.TheirDeliveryPkScript)
+	// Delivery PkScript
+	err = readElement(r, c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
 	//Create the TxIns
-	err = readElement(r, c.TheirInputs)
+	err = readElement(r, c.Inputs)
 	if err != nil {
 		return err
 	}
@@ -350,38 +342,38 @@ func (c *CreateChannel) SerializeFundingRequest(w *bytes.Buffer) error {
 		return err
 	}
 
-	//Our Funding Amont
-	err = writeElement(w, c.OurFundingAmount)
+	//Funding Amont
+	err = writeElement(w, c.FundingAmount)
 	if err != nil {
 		return err
 	}
 
-	//Our Channel Minimum Capacity
+	// Channel Minimum Capacity
 	err = writeElement(w, c.MinTotalFundingAmount)
 	if err != nil {
 		return err
 	}
 
-	//Our Revocation Hash
-	err = writeElement(w, c.OurRevocationHash)
+	// Revocation Hash
+	err = writeElement(w, c.RevocationHash)
 	if err != nil {
 		return err
 	}
 
-	//Our Commitment Pubkey
-	err = writeElement(w, c.OurPubkey)
+	// Commitment Pubkey
+	err = writeElement(w, c.Pubkey)
 	if err != nil {
 		return err
 	}
 
-	//Our Reserve Amount
-	err = writeElement(w, c.OurReserveAmount)
+	// Reserve Amount
+	err = writeElement(w, c.ReserveAmount)
 	if err != nil {
 		return err
 	}
 
 	//Minimum Transaction Fee Per KB
-	err = writeElement(w, c.OurMinFeePerKb)
+	err = writeElement(w, c.MinFeePerKb)
 	if err != nil {
 		return err
 	}
@@ -398,9 +390,9 @@ func (c *CreateChannel) SerializeFundingRequest(w *bytes.Buffer) error {
 		return err
 	}
 
-	//Our Delivery PkScript
+	// Delivery PkScript
 	//First byte length then pkscript
-	err = writeElement(w, c.OurDeliveryPkScript)
+	err = writeElement(w, c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
@@ -408,7 +400,7 @@ func (c *CreateChannel) SerializeFundingRequest(w *bytes.Buffer) error {
 	//Append the actual Txins
 	//First byte is number of inputs
 	//For each input, it's 32bytes txin & 4bytes index
-	err = writeElement(w, c.OurInputs)
+	err = writeElement(w, c.Inputs)
 	if err != nil {
 		return err
 	}

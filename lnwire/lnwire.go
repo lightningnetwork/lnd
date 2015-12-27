@@ -1,13 +1,13 @@
 package lnwire
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"io"
+	"io/ioutil"
 )
 
 //Actual pkScript, not redeemScript
@@ -42,11 +42,35 @@ type CreateChannel struct {
 	Inputs []*wire.TxIn
 }
 
+func (c *CreateChannel) String() string {
+
+	var inputs string
+	for i, in := range c.Inputs {
+		inputs += fmt.Sprintf("\n     Slice\t%d\n", i)
+		inputs += fmt.Sprintf("\tHash\t%s\n", in.PreviousOutPoint.Hash)
+		inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
+	}
+	return fmt.Sprintf("\n--- Begin CreateChannel ---\n") +
+		fmt.Sprintf("ChannelType:\t\t%x\n", c.ChannelType) +
+		fmt.Sprintf("FundingAmount:\t\t%s\n", c.FundingAmount.String()) +
+		fmt.Sprintf("ReserveAmount:\t\t%s\n", c.ReserveAmount.String()) +
+		fmt.Sprintf("MinFeePerKb:\t\t%s\n", c.MinFeePerKb.String()) +
+		fmt.Sprintf("MinTotalFundingAmount\t%s\n", c.MinTotalFundingAmount.String()) +
+		fmt.Sprintf("LockTime\t\t%d\n", c.LockTime) +
+		fmt.Sprintf("FeePayer\t\t%x\n", c.FeePayer) +
+		fmt.Sprintf("RevocationHash\t\t%x\n", c.RevocationHash) +
+		fmt.Sprintf("Pubkey\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
+		fmt.Sprintf("DeliveryPkScript\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("Inputs:") +
+		inputs +
+		fmt.Sprintf("--- End CreateChannel ---\n")
+}
+
 //Writes the big endian representation of element
 //Unified function to call when writing different types
 //Pre-allocate a byte-array of the correct size for cargo-cult security
 //More copies but whatever...
-func writeElement(w *bytes.Buffer, element interface{}) error {
+func writeElement(w io.Writer, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case uint8:
@@ -64,9 +88,7 @@ func writeElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 	case btcutil.Amount:
-		var b [8]byte
-		binary.BigEndian.PutUint64(b[:], uint64(e))
-		_, err = w.Write(b[:])
+		err = binary.Write(w, binary.BigEndian, int64(e))
 		if err != nil {
 			return err
 		}
@@ -137,14 +159,16 @@ func writeElement(w *bytes.Buffer, element interface{}) error {
 	return nil
 }
 
-func readElement(r *bytes.Buffer, element interface{}) error {
+func readElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case *uint8:
-		err = binary.Read(r, binary.BigEndian, *e)
+		var b [1]uint8
+		_, err = r.Read(b[:])
 		if err != nil {
 			return err
 		}
+		*e = b[0]
 	case *uint32:
 		var b [4]byte
 		_, err = io.ReadFull(r, b[:])
@@ -158,14 +182,15 @@ func readElement(r *bytes.Buffer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		*e = btcutil.Amount(binary.BigEndian.Uint64(b[:]))
-	case *btcec.PublicKey:
+		*e = btcutil.Amount(int64(binary.BigEndian.Uint64(b[:])))
+	case **btcec.PublicKey:
 		var b [33]byte
 		_, err = io.ReadFull(r, b[:])
 		if err != nil {
 			return err
 		}
-		e, err = btcec.ParsePubKey(b[:], btcec.S256())
+		x, err := btcec.ParsePubKey(b[:], btcec.S256())
+		*e = &*x
 		if err != nil {
 			return err
 		}
@@ -176,35 +201,36 @@ func readElement(r *bytes.Buffer, element interface{}) error {
 		}
 	case *PkScript:
 		//Get the script length first
-		var scriptLength uint8
-		err = binary.Read(r, binary.BigEndian, scriptLength)
+		var scriptLength [1]uint8
+		_, err = r.Read(scriptLength[:])
 		if err != nil {
 			return err
 		}
-		if scriptLength > 25 {
+
+		if scriptLength[0] > 25 {
 			return fmt.Errorf("PkScript too long!")
 		}
 
 		//Read the script length
-		l := io.LimitReader(r, int64(scriptLength))
+		l := io.LimitReader(r, int64(scriptLength[0]))
+		*e, _ = ioutil.ReadAll(l)
 		if err != nil {
 			return err
 		}
-		l.Read(*e)
-	case []*wire.TxIn:
+	case *[]*wire.TxIn:
 		//Read the size (1-byte number of txins)
-		var numScripts uint8
-		err = binary.Read(r, binary.BigEndian, numScripts)
+		var numScripts [1]uint8
+		_, err = r.Read(numScripts[:])
 		if err != nil {
 			return err
 		}
-		if numScripts > 127 {
+		if numScripts[0] > 127 {
 			return fmt.Errorf("Too many txins")
 		}
 
 		//Append the actual TxIns
 		var txins []*wire.TxIn
-		for i := uint8(0); i < numScripts; i++ {
+		for i := uint8(0); i < numScripts[0]; i++ {
 			//Hash
 			var h [32]byte
 			_, err = io.ReadFull(r, h[:])
@@ -227,7 +253,7 @@ func readElement(r *bytes.Buffer, element interface{}) error {
 			//Create TxIn
 			txins = append(txins, wire.NewTxIn(outPoint, nil))
 		}
-		e = txins
+		*e = *&txins
 
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
@@ -236,12 +262,12 @@ func readElement(r *bytes.Buffer, element interface{}) error {
 	return nil
 }
 
-func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
+func (c *CreateChannel) DeserializeFundingRequest(r io.Reader) error {
 	var err error
 
-	//Message Type
+	//Message Type (0/1)
 	var messageType uint8
-	err = readElement(r, messageType)
+	err = readElement(r, &messageType)
 	if err != nil {
 		return err
 	}
@@ -249,74 +275,68 @@ func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 		return fmt.Errorf("Message type does not match FundingRequest")
 	}
 
-	//Channel Type
-	err = readElement(r, c.ChannelType)
+	//Channel Type (1/1)
+	err = readElement(r, &c.ChannelType)
 	if err != nil {
 		return err
 	}
 
-	// Funding Amount
-	err = readElement(r, c.FundingAmount)
+	// Funding Amount (2/8)
+	err = readElement(r, &c.FundingAmount)
 	if err != nil {
 		return err
 	}
 
-	// Channel Minimum Capacity
-	var theirMinimumFunding btcutil.Amount
-	err = readElement(r, theirMinimumFunding)
-	if err != nil {
-		return err
-	}
-	//Replace with their minimum if it's greater than ours
-	//We still need to locally validate that info
-	if theirMinimumFunding > c.MinTotalFundingAmount {
-		c.MinTotalFundingAmount = theirMinimumFunding
-	}
-
-	// Revocation Hash
-	err = readElement(r, c.RevocationHash)
+	// Channel Minimum Capacity (10/8)
+	err = readElement(r, &c.MinTotalFundingAmount)
 	if err != nil {
 		return err
 	}
 
-	// Commitment Pubkey
-	err = readElement(r, c.Pubkey)
+	// Revocation Hash (18/20)
+	err = readElement(r, &c.RevocationHash)
 	if err != nil {
 		return err
 	}
 
-	// Reserve Amount
-	err = readElement(r, c.ReserveAmount)
+	// Commitment Pubkey (38/32)
+	err = readElement(r, &c.Pubkey)
 	if err != nil {
 		return err
 	}
 
-	//Minimum Transaction Fee Per Kb
-	err = readElement(r, c.MinFeePerKb)
+	// Reserve Amount (70/8)
+	err = readElement(r, &c.ReserveAmount)
 	if err != nil {
 		return err
 	}
 
-	//LockTime
-	err = readElement(r, c.LockTime)
+	//Minimum Transaction Fee Per Kb (78/8)
+	err = readElement(r, &c.MinFeePerKb)
 	if err != nil {
 		return err
 	}
 
-	//FeePayer
-	err = readElement(r, c.FeePayer)
+	//LockTime (86/4)
+	err = readElement(r, &c.LockTime)
+	if err != nil {
+		return err
+	}
+
+	//FeePayer (90/1)
+	err = readElement(r, &c.FeePayer)
 	if err != nil {
 		return err
 	}
 
 	// Delivery PkScript
-	err = readElement(r, c.DeliveryPkScript)
+	err = readElement(r, &c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
 	//Create the TxIns
-	err = readElement(r, c.Inputs)
+	err = readElement(r, &c.Inputs)
 	if err != nil {
 		return err
 	}
@@ -326,7 +346,7 @@ func (c *CreateChannel) DeserializeFundingRequest(r *bytes.Buffer) error {
 
 //Serializes the fundingRequest from the CreateChannel struct
 //Writes the data to w
-func (c *CreateChannel) SerializeFundingRequest(w *bytes.Buffer) error {
+func (c *CreateChannel) SerializeFundingRequest(w io.Writer) error {
 	var err error
 
 	//Fund request byte

@@ -124,13 +124,6 @@ type addCounterPartySigsMsg struct {
 	err chan error // Buffered
 }
 
-// FundingCompleteResp...
-type finalizedFundingState struct {
-	FundingTxId           wire.ShaHash
-	NormalizedFundingTXID wire.ShaHash
-
-	CompletedFundingTx *btcutil.Tx
-}
 
 // LightningWallet....
 // responsible for internal global (from the point of view of a user/node)

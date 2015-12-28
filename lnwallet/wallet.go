@@ -740,12 +740,63 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		}
 	}
 
-	// At this point, wen calso record and verify their isgnature for our
+	// At this point, we can also record and verify their signature for our
 	// commitment transaction.
-	pendingReservation.partialState.TheirCommitSig = msg.theirCommitmentSig
+	pendingReservation.theirCommitmentSig = msg.theirCommitmentSig
+	commitTx := pendingReservation.partialState.OurCommitTx
+	theirKey := pendingReservation.theirContribution.MultiSigKey
+	ourKey := pendingReservation.partialState.MultiSigKey
 
-	// TODO(roasbeef): verify
-	//commitSig := msg.theirCommitmentSig
+	// Re-generate both the redeemScript and p2sh output. We sign the
+	// redeemScript script, but include the p2sh output as the subscript
+	// for verification.
+	redeemScript := pendingReservation.partialState.FundingRedeemScript
+	p2sh, err := scriptHashPkScript(redeemScript)
+	if err != nil {
+		msg.err <- err
+		return
+	}
+
+	// First, we sign our copy of the commitment transaction ourselves.
+	ourCommitSig, err := txscript.RawTxInSignature(commitTx, 0, redeemScript,
+		txscript.SigHashAll, ourKey)
+	if err != nil {
+		msg.err <- err
+		return
+	}
+
+	// Next, create the spending scriptSig, and then verify that the script
+	// is complete, allowing us to spend from the funding transaction.
+	//
+	// When initially generating the redeemScript, we sorted the serialized
+	// public keys in descending order. So we do a quick comparison in order
+	// ensure the signatures appear on the Script Virual Machine stack in
+	// the correct order.
+	var scriptSig []byte
+	theirCommitSig := msg.theirCommitmentSig
+	if bytes.Compare(ourKey.PubKey().SerializeCompressed(), theirKey.SerializeCompressed()) == -1 {
+		scriptSig, err = spendMultiSig(redeemScript, theirCommitSig, ourCommitSig)
+	} else {
+		scriptSig, err = spendMultiSig(redeemScript, ourCommitSig, theirCommitSig)
+	}
+	if err != nil {
+		msg.err <- err
+		return
+	}
+
+	// Finally, create an instance of a Script VM, and ensure that the
+	// Script executes succesfully.
+	commitTx.TxIn[0].SignatureScript = scriptSig
+	vm, err := txscript.NewEngine(p2sh, commitTx, 0,
+		txscript.StandardVerifyFlags, nil)
+	if err != nil {
+		msg.err <- err
+		return
+	}
+	if err := vm.Execute(); err != nil {
+		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
+		return
+	}
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
@@ -757,7 +808,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	err := l.channelDB.PutOpenChannel(pendingReservation.partialState)
+	err = l.ChannelDB.PutOpenChannel(pendingReservation.partialState)
 
 	// TODO(roasbeef): broadcast now?
 	//  * create goroutine, listens on blockconnected+blockdisconnected channels

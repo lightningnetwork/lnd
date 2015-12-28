@@ -61,12 +61,11 @@ type OpenChannel struct {
 	OurBalance   btcutil.Amount
 	TheirBalance btcutil.Amount
 
-	// Commitment transactions for both sides (they're asymmetric). Also
-	// their signature which lets us spend our version of the commitment
-	// transaction.
-	TheirCommitTx  *wire.MsgTx
-	OurCommitTx    *wire.MsgTx // TODO(roasbeef): store hash instead?
-	TheirCommitSig []byte      // TODO(roasbeef): fixed length?, same w/ redeem
+	// Commitment transactions for both sides (they're asymmetric). Our
+	// commitment transaction includes a valid sigScript, and is ready for
+	// broadcast.
+	TheirCommitTx *wire.MsgTx
+	OurCommitTx   *wire.MsgTx // TODO(roasbeef): store hash instead?
 
 	// The final funding transaction. Kept wallet-related records.
 	FundingTx *wire.MsgTx
@@ -82,6 +81,7 @@ type OpenChannel struct {
 	OurShaChain            *shachain.HyperShaChain
 
 	// Final delivery address
+	// TODO(roasbeef): should just be output scripts
 	OurDeliveryAddress   btcutil.Address
 	TheirDeliveryAddress btcutil.Address
 
@@ -227,9 +227,6 @@ func (o *OpenChannel) Encode(b io.Writer, addrManager *waddrmgr.Manager) error {
 	if err := o.OurCommitTx.Serialize(b); err != nil {
 		return err
 	}
-	if _, err := b.Write(o.TheirCommitSig[:]); err != nil {
-		return err
-	}
 
 	if err := o.FundingTx.Serialize(b); err != nil {
 		return err
@@ -334,15 +331,6 @@ func (o *OpenChannel) Decode(b io.Reader, addrManager *waddrmgr.Manager) error {
 	}
 	o.OurCommitTx = wire.NewMsgTx()
 	if err := o.OurCommitTx.Deserialize(b); err != nil {
-		return err
-	}
-
-	var sig [64]byte
-	if _, err := b.Read(sig[:]); err != nil {
-		return err
-	}
-	o.TheirCommitSig = sig[:]
-	if err != nil {
 		return err
 	}
 

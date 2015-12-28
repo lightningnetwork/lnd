@@ -19,7 +19,6 @@ import (
 )
 
 var (
-	sig = bytes.Repeat([]byte{1}, 64)
 	key = [wire.HashSize]byte{
 		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x68, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
@@ -144,7 +143,6 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		TheirBalance:           btcutil.Amount(7000),
 		TheirCommitTx:          testTx,
 		OurCommitTx:            testTx,
-		TheirCommitSig:         sig,
 		FundingTx:              testTx,
 		MultiSigKey:            privKey,
 		FundingRedeemScript:    script,
@@ -222,10 +220,6 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	}
 	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
 		t.Fatalf("ourCommitTx doesn't match")
-	}
-
-	if !bytes.Equal(state.TheirCommitSig, newState.TheirCommitSig) {
-		t.Fatalf("theirCommitSig doesn't match")
 	}
 
 	b1.Reset()

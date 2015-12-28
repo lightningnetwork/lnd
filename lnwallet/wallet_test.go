@@ -47,12 +47,15 @@ var (
 	zeroHash = bytes.Repeat([]byte{0}, 32)
 )
 
+// assertProperBalance asserts than the total value of the unspent outputs
+// within the wallet are *exactly* amount. If unable to retrieve the current
+// balance, or the assertion fails, the test will halt with a fatal error.
 func assertProperBalance(t *testing.T, lw *LightningWallet, numConfirms, amount int32) {
 	balance, err := lw.wallet.TxStore.Balance(0, 20)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
-	if balance != btcutil.Amount(20*1e8) {
+	if balance != btcutil.Amount(amount*1e8) {
 		t.Fatalf("wallet credits not properly loaded, should have 20BTC, "+
 			"instead have %v", balance)
 	}

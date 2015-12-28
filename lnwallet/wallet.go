@@ -676,7 +676,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	sigTheirCommit, err := txscript.RawTxInSignature(theirCommitTx, 0, multiSigOut.PkScript,
+	sigTheirCommit, err := txscript.RawTxInSignature(theirCommitTx, 0, redeemScript,
 		txscript.SigHashAll, ourKey)
 	if err != nil {
 		req.err <- err

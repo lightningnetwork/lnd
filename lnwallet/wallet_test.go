@@ -77,6 +77,8 @@ type bobNode struct {
 	changeOutputs    []*wire.TxOut
 }
 
+// Contribution returns bobNode's contribution necessary to open a payment
+// channel with Alice.
 func (b *bobNode) Contribution() *ChannelContribution {
 	return &ChannelContribution{
 		Inputs:          b.availableOutputs,
@@ -91,6 +93,7 @@ func (b *bobNode) Contribution() *ChannelContribution {
 
 // signFundingTx generates signatures for all the inputs in the funding tx
 // belonging to Bob.
+// NOTE: This generates the full sig-script.
 func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
 	bobSigs := make([][]byte, 0, len(b.availableOutputs))
 	bobPkScript := b.changeOutputs[0].PkScript
@@ -169,7 +172,7 @@ func newBobNode() (*bobNode, error) {
 	}, nil
 }
 
-// addTestTx adds a output spendable by our test wallet, marked as included in
+// addTestTx adds an output spendable by our test wallet, marked as included in
 // 'block'.
 func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta) error {
 	err := w.wallet.TxStore.InsertTx(rec, block)
@@ -211,6 +214,8 @@ func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta
 	return nil
 }
 
+// genBlockHash deterministically generates a dummy block header hash for use
+// within our tests below.
 func genBlockHash(n int) *wire.ShaHash {
 	sha := sha256.Sum256([]byte{byte(n)})
 	hash, _ := wire.NewShaHash(sha[:])
@@ -298,7 +303,8 @@ func createTestWallet() (string, *LightningWallet, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	wallet.Start()
+	// TODO(roasbeef): check error once nodetest is finished.
+	_ = wallet.Start()
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
 	if err := loadTestCredits(wallet, 5, 4); err != nil {
@@ -318,16 +324,16 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	// Bob initiates a channel funded with 5 BTC for each side, so 10
 	// BTC total. He also generates 2 BTC in change.
 	fundingAmount := btcutil.Amount(5 * 1e8)
-	// TODO(roasbeef): include csv delay?
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, bobNode.id)
+		SIGHASH, bobNode.id, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 
 	// The channel reservation should now be populated with a multi-sig key
 	// from our HD chain, a change output with 3 BTC, and 2 outputs selected
-	// of 4 BTC each.
+	// of 4 BTC each. Additionally, the rest of the items needed to fufill a
+	// funding contribution should also have been filled in.
 	ourContribution := chanReservation.OurContribution()
 	if len(ourContribution.Inputs) != 2 {
 		t.Fatalf("outputs for funding tx not properly selected, have %v "+
@@ -349,10 +355,9 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if bytes.Equal(ourContribution.RevocationHash[:], zeroHash) {
 		t.Fatalf("alice's revocation hash not found")
 	}
-	// TODO(roasbeef):
-	//if ourContribution.CsvDelay == 0 {
-	//	t.Fatalf("csv delay not set")
-	//}
+	if ourContribution.CsvDelay == 0 {
+		t.Fatalf("csv delay not set")
+	}
 
 	// Bob sends over his output, change addr, pub keys, initial revocation,
 	// final delivery address, and his accepted csv delay for the commitmen
@@ -468,12 +473,12 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 	//  * also func for below
 	fundingAmount := btcutil.Amount(8 * 1e8)
 	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
 	chanReservation2, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 2: %v", err)
 	}
@@ -504,7 +509,7 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 	// this should fail.
 	amt := btcutil.Amount(8 * 1e8)
 	failedReservation, err := lnwallet.InitChannelReservation(amt,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -520,7 +525,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	// Create a reservation for 12 BTC.
 	fundingAmount := btcutil.Amount(12 * 1e8)
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -534,7 +539,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 
 	// Attempt to create another channel with 12 BTC, this should fail.
 	failedReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err != coinset.ErrCoinsNoSelectionAvailable {
 		t.Fatalf("coin selection succeded should have insufficient funds: %+v",
 			failedReservation)
@@ -563,7 +568,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 
 	// Request to fund a new channel should now succeeed.
 	_, err = lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed)
+		SIGHASH, testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}

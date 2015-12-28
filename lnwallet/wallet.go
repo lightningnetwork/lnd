@@ -1,7 +1,7 @@
 package lnwallet
 
 import (
-	"encoding/binary"
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -27,6 +27,8 @@ import (
 )
 
 const (
+	// The size of the buffered queue of request to the wallet from the
+	// outside word.
 	msgBufferSize = 100
 )
 
@@ -42,10 +44,16 @@ var (
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
 	wtxmgrNamespaceKey    = []byte("wtxmgr")
-
-	endian = binary.BigEndian
 )
 
+// FundingType represents the type of the funding transaction. The type of
+// funding transaction available depends entirely on the level of upgrades to
+// Script on the current network. Across the network it's possible for asymmetric
+// funding types to exist across hop. However, for direct links, the funding type
+// supported by both parties must be identical. The most 'powerful' funding type
+// is SEGWIT. This funding type also assumes that both CSV+CLTV are available on
+// the network.
+// NOTE: Ultimately, this will most likely be deprecated...
 type FundingType uint16
 
 const (
@@ -66,108 +74,172 @@ const (
 	CLTV_RESERVE
 )
 
-// initFundingReserveReq...
+// initFundingReserveReq is the first message sent to initiate the workflow
+// required to open a payment channel with a remote peer. The initial required
+// paramters are configurable accross channels. These paramters are to be chosen
+// depending on the fee climate within the network, and time value of funds to
+// be locked up within the channel. Upon success a ChannelReservation will be
+// created in order to track the lifetime of this pending channel. Outputs
+// selected will be 'locked', making them unavailable, for any other pending
+// reservations. Therefore, all channels in reservation limbo will be periodically
+// after a timeout period in order to avoid "exhaustion" attacks.
+// NOTE: The workflow currently assumes fully balanced symmetric channels.
+// Meaning both parties must encumber the same amount of funds.
+// TODO(roasbeef): zombie reservation sweeper goroutine.
 type initFundingReserveMsg struct {
-	fundingAmount btcutil.Amount
-	fundingType   FundingType
-	minFeeRate    btcutil.Amount
+	// The type of the funding transaction. See above for further details.
+	fundingType FundingType
 
+	// The amount of funds requested for this channel.
+	fundingAmount btcutil.Amount
+
+	// The minimum accepted satoshis/KB fee for the funding transaction. In
+	// order to ensure timely confirmation, it is recomened that this fee
+	// should be generous, paying some multiple of the accepted base fee
+	// rate of the network.
+	// TODO(roasbeef): integrate fee estimation project...
+	minFeeRate btcutil.Amount
+
+	// The ID of the remote node we would like to open a channel with.
 	nodeID [32]byte
 
-	// TODO(roasbeef): optional reserve for CLTV, etc.
+	// The delay on the "pay-to-self" output(s) of the commitment transaction.
+	csvDelay uint32
 
-	// Insuffcient funds etc..
-	err chan error // Buffered
+	// A channel in which all errors will be sent accross. Will be nil if
+	// this initial set is succesful.
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	err chan error
 
-	resp chan *ChannelReservation // Buffered
+	// A ChannelReservation with our contributions filled in will be sent
+	// accross this channel in the case of a succesfully reservation
+	// initiation. In the case of an error, this will read a nil pointer.
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	resp chan *ChannelReservation
 }
 
-// FundingReserveCancelMsg...
+// fundingReserveCancelMsg is a message reserved for cancelling an existing
+// channel reservation identified by its reservation ID. Cancelling a reservation
+// frees its locked outputs up, for inclusion within further reservations.
 type fundingReserveCancelMsg struct {
 	pendingFundingID uint64
 
-	// Buffered, used for optionally synchronization.
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error // Buffered
 }
 
-// addContributionMsg...
+// addContributionMsg represents a message executing the second phase of the
+// channel reservation workflow. This message carries the counterparty's
+// "contribution" to the payment channel. In the case that this message is
+// processed without generating any errors, then channel reservation will then
+// be able to construct the funding tx, both commitment transactions, and
+// finally generate signatures for all our inputs to the funding transaction,
+// and for the remote node's version of the commitment transaction.
 type addContributionMsg struct {
 	pendingFundingID uint64
 
 	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
 	contribution *ChannelContribution
 
-	err chan error // Buffered
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	err chan error
 }
 
-// partiallySignedFundingState...
-type partiallySignedFundingState struct {
-	// In order of sorted inputs that are ours. Sorting is done in accordance
-	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	OurSigs [][]byte
-
-	NormalizedTxID wire.ShaHash
-}
-
-// addCounterPartySigsMsg...
+// addCounterPartySigsMsg represents the final message required to complete,
+// and 'open' a payment channel. This message carries the counterparty's
+// signatures for each of their inputs to the funding transaction, and also a
+// signature allowing us to spend our version of the commitment transaction.
+// If we're able to verify all the signatures are valid, the funding transaction
+// will be broadcast to the network. After the funding transaction gains a
+// configurable number of confirmations, the channel is officially considered
+// 'open'.
 type addCounterPartySigsMsg struct {
 	pendingFundingID uint64
 
-	// Should be order of sorted inputs that are theirs. Sorting is done in accordance
-	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
+	// Should be order of sorted inputs that are theirs. Sorting is done
+	// in accordance to BIP-69:
+	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	theirFundingSigs [][]byte
 
 	// This should be 1/2 of the signatures needed to succesfully spend our
 	// version of the commitment transaction.
 	theirCommitmentSig []byte
 
-	err chan error // Buffered
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	err chan error
 }
 
-
-// LightningWallet....
-// responsible for internal global (from the point of view of a user/node)
-// channel state. Requests to modify this state come in via messages over
-// channels, same with replies.
-// Embedded wallet backed by boltdb...
+// LightningWallet is a domain specific, yet general Bitcoin wallet capable of
+// executing workflow required to interact with the Lightning Network. It is
+// domain specific in the sense that it understands all the fancy scripts used
+// within the Lightning Network, channel lifetimes, etc. However, it embedds a
+// general purpose Bitcoin wallet within it. Therefore, it is also able to serve
+// as a regular Bitcoin wallet which uses HD keys. The wallet is highly concurrent
+// internally. All communication, and requests towards the wallet are
+// dispatched as messages over channels, ensuring thread safety across all
+// operations. Interaction has been designed independant of any peer-to-peer
+// communication protocol, allowing the wallet to be self-contained and embeddable
+// within future projects interacting with the Lightning Network.
+// NOTE: At the moment the wallet requires a btcd full node, as it's dependant
+// on btcd's websockets notifications as even triggers during the lifetime of
+// a channel. However, once the chainntnfs package is complete, the wallet
+// will be compatible with multiple RPC/notification services such as Electrum,
+// Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node
+// at all, as SPV support is integrated inot btcwallet.
 type LightningWallet struct {
-	// TODO(roasbeef): add btcwallet/chain for notifications initially, then
-	// abstract out in order to accomodate zeroMQ/BitcoinCore
-	lmtx sync.RWMutex
+	// This mutex is to be held when generating external keys to be used
+	// as multi-sig, and commitment keys within the channel.
+	keyGenMtx sync.RWMutex
 
-	DB walletdb.DB
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
 	// double spend inputs accross each other.
 	coinSelectMtx sync.RWMutex
 
 	// A wrapper around a namespace within boltdb reserved for ln-based
-	// wallet meta-data.
-	channelDB *channeldb.DB
+	// wallet meta-data. See the 'channeldb' package for further
+	// information.
+	ChannelDB *channeldb.DB
+	db        walletdb.DB
 
+	// The core wallet, all non Lightning Network specific interaction is
+	// proxied to the internal wallet.
+	// TODO(roasbeef): Why isn't this just embedded again?
 	wallet *btcwallet.Wallet
-	rpc    *chain.Client
 
+	// An active RPC connection to a full-node. In the case of a btcd node,
+	// websockets are used for notifications. If using Bitcoin Core,
+	// notifications are either generated via long-polling or the usage of
+	// ZeroMQ.
+	rpc *chain.Client
+
+	// All messages to the wallet are to be sent accross this channel.
 	msgChan chan interface{}
 
+	// Incomplete payment channels are stored in the map below. An intent
+	// to create a payment channel is tracked as a "reservation" within
+	// limbo. Once the final signatures have been exchanged, a reservation
+	// is removed from limbo. Each reservation is tracked by a unique
+	// monotonically integer. All requests concerning the channel MUST
+	// carry a valid, active funding ID.
+	fundingLimbo  map[uint64]*ChannelReservation
+	nextFundingID uint64
+	limboMtx      sync.RWMutex
 	// TODO(roasbeef): zombie garbage collection routine to solve
 	// lost-object/starvation problem/attack.
-	limboMtx      sync.RWMutex
-	nextFundingID uint64
-	fundingLimbo  map[uint64]*ChannelReservation
 
-	started int32
-
+	started  int32
 	shutdown int32
-
-	quit chan struct{}
+	quit     chan struct{}
 
 	wg sync.WaitGroup
 
 	// TODO(roasbeef): handle wallet lock/unlock
 }
 
-// NewLightningWallet...
+// NewLightningWallet creates/opens and initializes a LightningWallet instance.
+// If the wallet has never been created (according to the passed dataDir), first-time
+// setup is executed.
 // TODO(roasbeef): fin...add config
 func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir string) (*LightningWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
@@ -214,9 +286,9 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	// TODO(roasbeef): logging
 
 	return &LightningWallet{
-		DB:        db,
+		db:        db,
 		wallet:    wallet,
-		channelDB: channeldb.New(wallet.Manager, lnNamespace),
+		ChannelDB: channeldb.New(wallet.Manager, lnNamespace),
 		msgChan:   make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:
@@ -227,7 +299,8 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	}, nil
 }
 
-// Start...
+// Start establishes a connection to the RPC source, and spins up all
+// goroutines required to handle incoming messages.
 func (l *LightningWallet) Start() error {
 	// Already started?
 	if atomic.AddInt32(&l.started, 1) != 1 {
@@ -252,7 +325,7 @@ func (l *LightningWallet) Start() error {
 	return nil
 }
 
-// Stop...
+// Stop gracefully shutsdown the wallet, and all active goroutines.
 func (l *LightningWallet) Stop() error {
 	if atomic.AddInt32(&l.shutdown, 1) != 1 {
 		return nil
@@ -266,7 +339,8 @@ func (l *LightningWallet) Stop() error {
 	return nil
 }
 
-// requestHandler....
+// requestHandler is the primary goroutine(s) resposible for handling, and
+// dispatching relies to all messages.
 func (l *LightningWallet) requestHandler() {
 out:
 	for {
@@ -291,21 +365,33 @@ out:
 	l.wg.Done()
 }
 
-// InitChannelReservation...
-// fields set after completion:
-//  * ourInputs
-//  * ourChange
-//  * ourMultisigKey
-//  * ourCommitKey
-//  * ourDeliveryAddress
-//  * ourShaChain
-func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType, theirID [32]byte) (*ChannelReservation, error) {
+// InitChannelReservation kicks off the 3-step workflow required to succesfully
+// open a payment channel with a remote node. As part of the funding
+// reservation, the inputs selected for the funding transaction are 'locked'.
+// This ensures that multiple channel reservations aren't double spending the
+// same inputs in the funding transaction. If reservation initialization is
+// succesful, a ChannelReservation containing our completed contribution is
+// returned. Our contribution contains all the items neccessary to allow the
+// counter party to build the funding transaction, and both versions of the
+// commitment transaction. Otherwise, an error occured a nil pointer along with
+// an error are returned.
+//
+// Once a ChannelReservation has been obtained, two
+// additional steps must be processed before a payment channel can be considered
+// 'open'. The second step validates, and processes the counterparty's channel
+// contribution. The third, and final step verifies all signatures for the inputs
+// of the funding transaction, and that the signature we records for our version
+// of the commitment transaction is valid.
+func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType,
+	theirID [32]byte, csvDelay uint32) (*ChannelReservation, error) {
+
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
 
 	l.msgChan <- &initFundingReserveMsg{
 		fundingAmount: a,
 		fundingType:   t,
+		csvDelay:      csvDelay,
 		nodeID:        theirID,
 		err:           errChan,
 		resp:          respChan,
@@ -314,7 +400,8 @@ func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType
 	return <-respChan, <-errChan
 }
 
-// handleFundingReserveRequest...
+// handleFundingReserveRequest processes a message intending to create, and
+// validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
 	// Create a limbo and record entry for this newly pending funding request.
 	l.limboMtx.Lock()
@@ -332,6 +419,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	reservation.partialState.TheirLNID = req.nodeID
 	ourContribution := reservation.ourContribution
+	ourContribution.CsvDelay = req.csvDelay
+
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double spends
 	// accross funding transactions.
@@ -462,7 +551,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.partialState.OurDeliveryAddress = addrs[0].Address()
 	ourContribution.DeliveryAddress = addrs[0].Address()
 
-	// Create a new shaChain for verifiable transaction revocations.
+	// Create a new shaChain for verifiable transaction revocations. This
+	// will be used to generate revocation hashes for our past/current
+	// commitment transactions once we start to make payments within the
+	// channel.
 	shaChain, err := shachain.NewFromSeed(nil, 0)
 	if err != nil {
 		req.err <- err
@@ -479,7 +571,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	req.err <- nil
 }
 
-// handleFundingReserveCancel...
+// handleFundingReserveCancel cancels an existing channel reservation. As part
+// of the cancellation, outputs previously selected as inputs for the funding
+// transaction via coin selection are freed allowing future reservations to
+// include them.
 func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMsg) {
 	// TODO(roasbeef): holding lock too long
 	// RLOCK?
@@ -513,7 +608,11 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.err <- nil
 }
 
-// handleFundingCounterPartyFunds...
+// handleFundingCounterPartyFunds processes the second workflow step for the
+// lifetime of a channel reservation. Upon completion, the reservation will
+// carry a completed funding transaction (minus the counterparty's input
+// signatures), both versions of the commitment transaction, and our signature
+// for their version of the commitment transaction.
 func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	l.limboMtx.Lock()
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
@@ -532,6 +631,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.FundingTx = wire.NewMsgTx()
 	fundingTx := pendingReservation.partialState.FundingTx
 
+	// Some temporary variables to cut down on the resolution verbosity.
 	pendingReservation.theirContribution = req.contribution
 	theirContribution := req.contribution
 	ourContribution := pendingReservation.ourContribution
@@ -558,11 +658,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		fundingTx.AddTxOut(theirChangeOutput)
 	}
 
-	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
-	// channel.
 	ourKey := pendingReservation.partialState.MultiSigKey
 	theirKey := theirContribution.MultiSigKey
 
+	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
+	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
 	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey.PubKey().SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
@@ -586,7 +686,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive...
 	// pendingReservation.normalizedTxID = pendingReservation.fundingTx.TxSha()
 
-	// Now, sign all inputs that are ours, collecting the signatures in
+	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
 	pendingReservation.ourFundingSigs = make([][]byte, 0, len(ourContribution.Inputs))
 	for i, txIn := range fundingTx.TxIn {
@@ -637,7 +737,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationHash
 
 	// Grab the hash of the current pre-image in our chain, this is needed
-	// for out commitment tx.
+	// for our commitment tx.
 	// TODO(roasbeef): grab partial state above to avoid long attr chain
 	ourCurrentRevokeHash := pendingReservation.partialState.OurShaChain.CurrentRevocationHash()
 	ourContribution.RevocationHash = ourCurrentRevokeHash
@@ -667,6 +767,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 
+	// Record newly available information witin the open channel state.
 	pendingReservation.partialState.CsvDelay = theirContribution.CsvDelay
 	pendingReservation.partialState.TheirDeliveryAddress = theirContribution.DeliveryAddress
 	pendingReservation.partialState.ChanID = fundingNTxid
@@ -687,7 +788,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	req.err <- nil
 }
 
-// handleFundingCounterPartySigs...
+// handleFundingCounterPartySigs is the final step in the channel reservation
+// workflow. During this setp, we validate *all* the received signatures for
+// inputs to the funding transaction. If any of these are invalid, we bail,
+// and forcibly cancel this funding request. Additionally, we ensure that the
+// signature we received from the counterparty for our version of the commitment
+// transaction allows us to spend from the funding output with the addition of
+// our signature.
 func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigsMsg) {
 	l.limboMtx.RLock()
 	pendingReservation, ok := l.fundingLimbo[msg.pendingFundingID]
@@ -709,6 +816,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		if txin.SignatureScript == nil {
 			txin.SignatureScript = pendingReservation.theirFundingSigs[i]
 
+			// TODO(roasbeef): uncomment after nodetest is finished.
 			/*// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
@@ -823,11 +931,13 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	msg.err <- err
 }
 
-// nextMultiSigKey...
+// getNextRawKey retrieves the next key within our HD key-chain for use within
+// as a multi-sig key within the funding transaction, or within the commitment
+// transaction's outputs.
 // TODO(roasbeef): on shutdown, write state of pending keys, then read back?
 func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
-	l.lmtx.Lock()
-	defer l.lmtx.Unlock()
+	l.keyGenMtx.Lock()
+	defer l.keyGenMtx.Unlock()
 
 	nextAddr, err := l.wallet.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {

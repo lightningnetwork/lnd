@@ -136,6 +136,10 @@ type LightningWallet struct {
 	lmtx sync.RWMutex
 
 	DB walletdb.DB
+	// This mutex MUST be held when performing coin selection in order to
+	// avoid inadvertently creating multiple funding transaction which
+	// double spend inputs accross each other.
+	coinSelectMtx sync.RWMutex
 
 	// A wrapper around a namespace within boltdb reserved for ln-based
 	// wallet meta-data.
@@ -327,12 +331,19 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	reservation.partialState.TheirLNID = req.nodeID
 	ourContribution := reservation.ourContribution
+	// We hold the coin select mutex while querying for outputs, and
+	// performing coin selection in order to avoid inadvertent double spends
+	// accross funding transactions.
+	// NOTE: we don't use defer her so we can properly release the lock
+	// when we encounter an error condition.
+	l.coinSelectMtx.Lock()
 
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
-	// TODO(roasbeef): make 6 a config paramter?
 	maxConfs := int32(math.MaxInt32)
+	// TODO(roasbeef): make 6 a config paramter?
 	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
 	if err != nil {
+		l.coinSelectMtx.Unlock()
 		req.err <- err
 		req.resp <- nil
 		return
@@ -341,6 +352,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Convert the outputs to coins for coin selection below.
 	coins, err := outputsToCoins(unspentOutputs)
 	if err != nil {
+		l.coinSelectMtx.Unlock()
 		req.err <- err
 		req.resp <- nil
 		return
@@ -361,6 +373,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 	selectedCoins, err := selector.CoinSelect(req.fundingAmount, coins)
 	if err != nil {
+		l.coinSelectMtx.Unlock()
 		req.err <- err
 		req.resp <- nil
 		return
@@ -379,6 +392,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
 		ourContribution.Inputs[i] = wire.NewTxIn(outPoint, nil)
 	}
+
+	l.coinSelectMtx.Unlock()
 
 	// Create some possibly neccessary change outputs.
 	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()

@@ -113,6 +113,13 @@ func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
 	return bobSigs, nil
 }
 
+// signFundingTx generates a raw signature required for generating a spend from
+// the funding transaction.
+func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte) ([]byte, error) {
+	return txscript.RawTxInSignature(commitTx, 0, fundingScript,
+		txscript.SigHashAll, b.privKey)
+}
+
 // newBobNode generates a test "ln node" to interact with Alice (us). For the
 // funding transaction, bob has a single output totaling 7BTC. For our basic
 // test, he'll fund the channel with 5BTC, leaving 2BTC to the change output.
@@ -398,8 +405,13 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if err != nil {
 		t.Fatalf("unable to sign inputs for bob: %v", err)
 	}
-	fakeCommitSig := bytes.Repeat([]byte{1}, 64)
-	if err := chanReservation.CompleteReservation(bobsSigs, fakeCommitSig); err != nil {
+	commitSig, err := bobNode.signCommitTx(
+		chanReservation.partialState.OurCommitTx,
+		chanReservation.partialState.FundingRedeemScript)
+	if err != nil {
+		t.Fatalf("bob is unable to sign alice's commit tx: %v", err)
+	}
+	if err := chanReservation.CompleteReservation(bobsSigs, commitSig); err != nil {
 		t.Fatalf("unable to complete funding tx: %v", err)
 	}
 
@@ -408,8 +420,8 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 
 	fundingTx := chanReservation.FinalFundingTx()
 
-	// The resulting active channel state should have been persisted to the DB>
-	channel, err := lnwallet.channelDB.FetchOpenChannel(bobNode.id)
+	// The resulting active channel state should have been persisted to the DB.
+	channel, err := lnwallet.ChannelDB.FetchOpenChannel(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
 	}
@@ -566,9 +578,6 @@ func testCancelNonExistantReservation(lnwallet *LightningWallet, t *testing.T) {
 	if err := res.Cancel(); err == nil {
 		t.Fatalf("cancelled non-existant reservation")
 	}
-
-	// Outputs shouuld be available now
-	// Reservation should be missing from limbo.
 }
 
 func testFundingReservationInvalidCounterpartySigs(lnwallet *LightningWallet, t *testing.T) {
@@ -594,7 +603,7 @@ func clearWalletState(w *LightningWallet) error {
 	w.nextFundingID = 0
 	w.fundingLimbo = make(map[uint64]*ChannelReservation)
 	w.wallet.ResetLockedOutpoints()
-	return w.channelDB.Wipe()
+	return w.ChannelDB.Wipe()
 }
 
 // TODO(roasbeef): why is wallet so slow to create+open?

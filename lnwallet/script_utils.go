@@ -9,11 +9,12 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-// scriptHashPkScript...
-func scriptHashPkScript(scriptBytes []byte) ([]byte, error) {
+// scriptHashPkScript generates a pay-to-script-hash public key script paying
+// to the hash160 of the passed redeem script.
+func scriptHashPkScript(redeemScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 	bldr.AddOp(txscript.OP_HASH160)
-	bldr.AddData(btcutil.Hash160(scriptBytes))
+	bldr.AddData(btcutil.Hash160(redeemScript))
 	bldr.AddOp(txscript.OP_EQUAL)
 	return bldr.Script()
 }
@@ -25,31 +26,31 @@ func genFundingPkScript(aPub, bPub []byte) ([]byte, error) {
 		return nil, fmt.Errorf("Pubkey size error. Compressed pubkeys only")
 	}
 
-	if bytes.Compare(aPub, bPub) == -1 { // swap to sort pubkeys if needed
+	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
+	// order. The signatures within the scriptSig must also adhere to the
+	// order, ensuring that the signatures for each public key appears
+	// in the proper order on the stack.
+	if bytes.Compare(aPub, bPub) == -1 {
 		aPub, bPub = bPub, aPub
 	}
 
 	bldr := txscript.NewScriptBuilder()
-	// Require 2 signatures, so from both of the pubkeys
 	bldr.AddOp(txscript.OP_2)
-	// add both pubkeys (sorted)
-	bldr.AddData(aPub)
+	bldr.AddData(aPub) // Add both pubkeys (sorted).
 	bldr.AddData(bPub)
-	// 2 keys total.  In case that wasn't obvious.
 	bldr.AddOp(txscript.OP_2)
-	// Good ol OP_CHECKMULTISIG.  Don't forget the zero!
 	bldr.AddOp(txscript.OP_CHECKMULTISIG)
-	// get byte slice
 	return bldr.Script()
 }
 
-// fundMultiSigOut creates a TxOut for the funding transaction.
-// Give it the two pubkeys and it'll give you the p2sh'd txout.
-// You don't have to remember the p2sh preimage, as long as you remember the
-// pubkeys involved.
+// fundMultiSigOut create the redeemScript for the funding transaction, and
+// also a TxOut paying to the p2sh of the multi-sig redeemScript. Give it the
+// two pubkeys and it'll give you the p2sh'd txout. You don't have to remember
+// the p2sh preimage, as long as you remember the pubkeys involved.
 func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) {
 	if amt < 0 {
-		return nil, nil, fmt.Errorf("Can't create FundTx script with negative coins")
+		return nil, nil, fmt.Errorf("can't create FundTx script with " +
+			"negative coins")
 	}
 
 	// p2shify
@@ -65,7 +66,8 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 	return redeemScript, wire.NewTxOut(amt, pkScript), nil
 }
 
-// the scriptsig to put on a P2SH input
+// spendMultiSig generates the scriptSig required to redeem the 2-of-2 p2sh
+// multi-sig output.
 func spendMultiSig(redeemScript, sigA, sigB []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
@@ -84,8 +86,10 @@ func spendMultiSig(redeemScript, sigA, sigB []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
-// findScriptOutputIndex...
-// only finds first matchin, assumes unique pkScripts
+// findScriptOutputIndex finds the index of the public key script output
+// matching 'script'. Additionally, a boolean is returned indicating if
+// a matching output was found at all.
+// NOTE: The search stops after the first matching script is found.
 func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	found := false
 	index := uint32(0)

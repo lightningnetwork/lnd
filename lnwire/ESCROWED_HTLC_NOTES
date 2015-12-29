@@ -118,6 +118,6 @@ instead:
 	OP_BOOLOR
 	//Stack: <BobSig> <OP_1>
 	OP_VERIFY
-The tradeoff is that if the escrow fucks up, then payment can be forced.
+The tradeoff is that if the escrow screws up, then payment can be forced.
 Whereas the original script doesn't have that problem if the receiver does not
 misbehave.

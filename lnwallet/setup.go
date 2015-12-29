@@ -30,31 +30,11 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
-)
-
-var (
-	// TODO(roasbeef): lnwallet config file
-	lnwalletHomeDir    = btcutil.AppDataDir("lnwallet", false)
-	defaultDataDir     = lnwalletHomeDir
-	defaultLogFilename = "lnwallet.log"
-
-	defaultLogDirname = "logs"
-
-	// defaultPubPassphrase is the default public wallet passphrase which is
-	// used when the user indicates they do not want additional protection
-	// provided by having all public data in the wallet encrypted by a
-	// passphrase only known to them.
-	defaultPubPassphrase = []byte("public")
-
-	defaultLogDir = filepath.Join(lnwalletHomeDir, defaultLogDirname)
-
-	walletDbName = "lnwallet.db"
 )
 
 // filesExists reports whether the named file or directory exists.

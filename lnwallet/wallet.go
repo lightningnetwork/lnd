@@ -228,6 +228,8 @@ type LightningWallet struct {
 	// TODO(roasbeef): zombie garbage collection routine to solve
 	// lost-object/starvation problem/attack.
 
+	cfg *Config
+
 	started  int32
 	shutdown int32
 	quit     chan struct{}
@@ -241,16 +243,16 @@ type LightningWallet struct {
 // If the wallet has never been created (according to the passed dataDir), first-time
 // setup is executed.
 // TODO(roasbeef): fin...add config
-func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir string) (*LightningWallet, error) {
+func NewLightningWallet(config *Config) (*LightningWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(dataDir, ActiveNetParams)
+	netDir := networkDir(config.DataDir, ActiveNetParams)
 	dbPath := filepath.Join(netDir, walletDbName)
 
 	var pubPass []byte
-	if pubWalletPass == nil {
+	if config.PublicPass == nil {
 		pubPass = defaultPubPassphrase
 	} else {
-		pubPass = pubWalletPass
+		pubPass = config.PublicPass
 	}
 
 	// Wallet has never been created, perform initial set up.
@@ -262,7 +264,8 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 		}
 
 		// Attempt to create  a new wallet
-		if err := createWallet(privWalletPass, pubPass, hdSeed, dbPath); err != nil {
+		if err := createWallet(config.PrivatePass, pubPass,
+			config.HdSeed, dbPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, err
 		}
@@ -294,6 +297,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 		// faster, locks or CAS? I'm guessing CAS because assembly:
 		//  * https://golang.org/src/sync/atomic/asm_amd64.s
 		nextFundingID: 0,
+		cfg:           config,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
 	}, nil
@@ -309,7 +313,7 @@ func (l *LightningWallet) Startup() error {
 	// TODO(roasbeef): config...
 
 	rpcc, err := chain.NewClient(ActiveNetParams,
-		"host", "user", "pass", []byte("cert"), true)
+		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, true)
 	if err != nil {
 		return err
 	}

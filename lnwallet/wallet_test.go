@@ -299,7 +299,9 @@ func createTestWallet() (string, *LightningWallet, error) {
 		return "", nil, nil
 	}
 
-	wallet, err := NewLightningWallet(privPass, nil, testHdSeed[:], tempTestDir)
+	config := &Config{PrivatePass: privPass, HdSeed: testHdSeed[:],
+		DataDir: tempTestDir}
+	wallet, err := NewLightningWallet(config)
 	if err != nil {
 		return "", nil, err
 	}

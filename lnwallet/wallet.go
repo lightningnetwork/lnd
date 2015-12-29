@@ -189,7 +189,7 @@ type addCounterPartySigsMsg struct {
 type LightningWallet struct {
 	// This mutex is to be held when generating external keys to be used
 	// as multi-sig, and commitment keys within the channel.
-	keyGenMtx sync.RWMutex
+	KeyGenMtx sync.RWMutex
 
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
@@ -940,8 +940,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 // transaction's outputs.
 // TODO(roasbeef): on shutdown, write state of pending keys, then read back?
 func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
-	l.keyGenMtx.Lock()
-	defer l.keyGenMtx.Unlock()
+	l.KeyGenMtx.Lock()
+	defer l.KeyGenMtx.Unlock()
 
 	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {

@@ -105,16 +105,19 @@ Recipient+Sender agree to cancel the payment immediately (otherwise it will
 wait until the timeout).
 
 Also: THE ABOVE SCRIPT IS NOT THE MOST EFFICIENT SCRIPT POSSIBLE FOR THIS USE
-CASE!!! This is to illustrate a similar conceptual use as current 2-of-3
-multisig. Realistically, you want to do <EscrowPreimageR> *OR*
-<SenderPreimageR> since the recipient will always redeem if they can. So the
-hash code block would be instead:
+CASE! This is to illustrate a similar conceptual use as current 2-of-3
+multisig. You want to do <EscrowPreimageR> *OR* <SenderPreimageR> since the
+recipient will always redeem if they can. So the hash code block would be
+instead:
 	OP_HASH160 <EscrowHash> OP_EQUAL
 	//Stack: <BobSig> <0> <RecipientPreimageR> <OP_1>
-	OP_SWAP 
+	OP_SWAP
 	//Stack: <BobSig> <OP_1> <0>
 	OP_HASH160 <SenderHash> OP_EQUAL
 	//Stack: <BobSig> <OP_1> <OP_0>
 	OP_BOOLOR
 	//Stack: <BobSig> <OP_1>
 	OP_VERIFY
+The tradeoff is that if the escrow fucks up, then payment can be forced.
+Whereas the original script doesn't have that problem if the receiver does not
+misbehave.

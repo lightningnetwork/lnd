@@ -61,7 +61,8 @@ type ChannelReservation struct {
 	theirFundingSigs [][]byte
 
 	// Our signature for their version of the commitment transaction.
-	ourCommitmentSig []byte
+	ourCommitmentSig   []byte
+	theirCommitmentSig []byte
 
 	ourContribution   *ChannelContribution
 	theirContribution *ChannelContribution
@@ -157,7 +158,7 @@ func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte, commitmen
 func (r *ChannelReservation) TheirSignatures() ([][]byte, []byte) {
 	r.RLock()
 	defer r.RUnlock()
-	return r.theirFundingSigs, r.partialState.TheirCommitSig
+	return r.theirFundingSigs, r.theirCommitmentSig
 }
 
 // FinalFundingTransaction...

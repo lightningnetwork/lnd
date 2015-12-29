@@ -31,6 +31,7 @@ type FundingRequest struct {
 	RevocationHash   [20]byte
 	Pubkey           *btcec.PublicKey
 	DeliveryPkScript PkScript //*MUST* be either P2PKH or P2SH
+	//FIXME: Need a ChangePkScript PkScript for dual-funder CLTV?
 
 	Inputs []*wire.TxIn
 }
@@ -137,21 +138,21 @@ func (c *FundingRequest) Validate() error {
 	}
 
 	//PkScript is either P2SH or P2PKH
-	//P2PKH
 	if len(c.DeliveryPkScript) == 25 {
+		//P2PKH
 		//Begins with OP_DUP OP_HASH160 PUSHDATA(20)
-		if !(bytes.Equal(c.DeliveryPkScript[0:3], []byte{118, 169, 20}) &&
+		if !bytes.Equal(c.DeliveryPkScript[0:3], []byte{118, 169, 20}) &&
 			//Ends with OP_EQUALVERIFY OP_CHECKSIG
-			bytes.Equal(c.DeliveryPkScript[23:25], []byte{136, 172})) {
+			!bytes.Equal(c.DeliveryPkScript[23:25], []byte{136, 172}) {
 			//If it's not correct, return error
 			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
 		}
-		//P2SH
 	} else if len(c.DeliveryPkScript) == 23 {
+		//P2SH
 		//Begins with OP_HASH160 PUSHDATA(20)
-		if !(bytes.Equal(c.DeliveryPkScript[0:2], []byte{169, 20}) &&
+		if !bytes.Equal(c.DeliveryPkScript[0:2], []byte{169, 20}) &&
 			//Ends with OP_EQUAL
-			bytes.Equal(c.DeliveryPkScript[22:23], []byte{135})) {
+			!bytes.Equal(c.DeliveryPkScript[22:23], []byte{135}) {
 			//If it's not correct, return error
 			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
 		}

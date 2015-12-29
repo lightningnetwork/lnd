@@ -9,7 +9,6 @@ import (
 )
 
 //4-byte network + 4-byte message id + payload-length 4-byte
-//Maybe add checksum or something?
 const MessageHeaderSize = 12
 
 const MaxMessagePayload = 1024 * 1024 * 32 // 32MB
@@ -48,7 +47,6 @@ type messageHeader struct {
 	magic   wire.BitcoinNet
 	command uint32
 	length  uint32
-	//Do we need a checksum here?
 }
 
 func readMessageHeader(r io.Reader) (int, *messageHeader, error) {
@@ -122,7 +120,6 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	hdr.magic = btcnet
 	hdr.command = cmd
 	hdr.length = uint32(lenp)
-	//Checksum goes here if needed... and also add to writeElements
 
 	// Encode the header for the message.  This is done to a buffer
 	// rather than directly to the writer since writeElements doesn't
@@ -188,8 +185,6 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	if err != nil {
 		return totalBytes, nil, nil, err
 	}
-
-	//If we want to use checksums, test it here
 
 	//Unmarshal message
 	pr := bytes.NewBuffer(payload)

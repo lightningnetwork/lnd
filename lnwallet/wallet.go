@@ -205,7 +205,7 @@ type LightningWallet struct {
 	// The core wallet, all non Lightning Network specific interaction is
 	// proxied to the internal wallet.
 	// TODO(roasbeef): Why isn't this just embedded again?
-	wallet *btcwallet.Wallet
+	*btcwallet.Wallet
 
 	// An active RPC connection to a full-node. In the case of a btcd node,
 	// websockets are used for notifications. If using Bitcoin Core,
@@ -287,7 +287,7 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 
 	return &LightningWallet{
 		db:        db,
-		wallet:    wallet,
+		Wallet:    wallet,
 		ChannelDB: channeldb.New(wallet.Manager, lnNamespace),
 		msgChan:   make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
@@ -299,9 +299,9 @@ func NewLightningWallet(privWalletPass, pubWalletPass, hdSeed []byte, dataDir st
 	}, nil
 }
 
-// Start establishes a connection to the RPC source, and spins up all
+// Startup establishes a connection to the RPC source, and spins up all
 // goroutines required to handle incoming messages.
-func (l *LightningWallet) Start() error {
+func (l *LightningWallet) Startup() error {
 	// Already started?
 	if atomic.AddInt32(&l.started, 1) != 1 {
 		return nil
@@ -316,7 +316,7 @@ func (l *LightningWallet) Start() error {
 
 	// Start the goroutines in the underlying wallet.
 	l.rpc = rpcc
-	l.wallet.Start(rpcc)
+	l.Start(rpcc)
 
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?
@@ -325,13 +325,13 @@ func (l *LightningWallet) Start() error {
 	return nil
 }
 
-// Stop gracefully shutsdown the wallet, and all active goroutines.
-func (l *LightningWallet) Stop() error {
+// Shutdown gracefully stops the wallet, and all active goroutines.
+func (l *LightningWallet) Shutdown() error {
 	if atomic.AddInt32(&l.shutdown, 1) != 1 {
 		return nil
 	}
 
-	l.wallet.Stop()
+	l.Stop()
 	l.rpc.Shutdown()
 
 	close(l.quit)
@@ -431,7 +431,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
 	maxConfs := int32(math.MaxInt32)
 	// TODO(roasbeef): make 6 a config paramter?
-	unspentOutputs, err := l.wallet.ListUnspent(6, maxConfs, nil)
+	unspentOutputs, err := l.ListUnspent(6, maxConfs, nil)
 	if err != nil {
 		l.coinSelectMtx.Unlock()
 		req.err <- err
@@ -475,7 +475,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	ourContribution.Inputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
 	for i, coin := range selectedCoins.Coins() {
 		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
-		l.wallet.LockOutpoint(*txout)
+		l.LockOutpoint(*txout)
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
@@ -492,7 +492,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
 		changeAmount := selectedTotalValue - req.fundingAmount
-		addrs, err := l.wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+		addrs, err := l.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
@@ -541,7 +541,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// channel close.
 	// TODO(roasbeef): same here
 	//deliveryAddress, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
-	addrs, err := l.wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	addrs, err := l.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {
 		// TODO(roasbeef): make into func sendErorr()
 		req.err <- err
@@ -595,7 +595,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// Mark all previously locked outpoints as usuable for future funding
 	// requests.
 	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
-		l.wallet.UnlockOutpoint(unusedInput.PreviousOutPoint)
+		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
 	// TODO(roasbeef): is it even worth it to keep track of unsed keys?
@@ -691,7 +691,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.ourFundingSigs = make([][]byte, 0, len(ourContribution.Inputs))
 	for i, txIn := range fundingTx.TxIn {
 		// Does the wallet know about the txin?
-		txDetail, _ := l.wallet.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
+		txDetail, _ := l.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
 		if txDetail == nil {
 			continue
 		}
@@ -706,7 +706,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			return
 		}
 
-		ai, err := l.wallet.Manager.Address(apkh)
+		ai, err := l.Manager.Address(apkh)
 		if err != nil {
 			req.err <- fmt.Errorf("cannot get address info: %v", err)
 			return
@@ -939,7 +939,7 @@ func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	l.keyGenMtx.Lock()
 	defer l.keyGenMtx.Unlock()
 
-	nextAddr, err := l.wallet.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
 	if err != nil {
 		return nil, err
 	}

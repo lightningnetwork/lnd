@@ -51,7 +51,7 @@ var (
 // within the wallet are *exactly* amount. If unable to retrieve the current
 // balance, or the assertion fails, the test will halt with a fatal error.
 func assertProperBalance(t *testing.T, lw *LightningWallet, numConfirms, amount int32) {
-	balance, err := lw.wallet.TxStore.Balance(0, 20)
+	balance, err := lw.TxStore.Balance(0, 20)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -175,7 +175,7 @@ func newBobNode() (*bobNode, error) {
 // addTestTx adds an output spendable by our test wallet, marked as included in
 // 'block'.
 func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta) error {
-	err := w.wallet.TxStore.InsertTx(rec, block)
+	err := w.TxStore.InsertTx(rec, block)
 	if err != nil {
 		return err
 	}
@@ -190,14 +190,14 @@ func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta
 			continue
 		}
 		for _, addr := range addrs {
-			ma, err := w.wallet.Manager.Address(addr)
+			ma, err := w.Manager.Address(addr)
 			if err == nil {
-				err = w.wallet.TxStore.AddCredit(rec, block, uint32(i),
+				err = w.TxStore.AddCredit(rec, block, uint32(i),
 					ma.Internal())
 				if err != nil {
 					return err
 				}
-				err = w.wallet.Manager.MarkUsed(addr)
+				err = w.Manager.MarkUsed(addr)
 				if err != nil {
 					return err
 				}
@@ -226,7 +226,7 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// Import the priv key (converting to WIF) above that controls all our
 	// available outputs.
 	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
-	if err := w.wallet.Unlock(privPass, time.Duration(0)); err != nil {
+	if err := w.Unlock(privPass, time.Duration(0)); err != nil {
 		return err
 	}
 	bs := &waddrmgr.BlockStamp{Hash: *genBlockHash(1), Height: 1}
@@ -234,10 +234,10 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.wallet.ImportPrivateKey(wif, bs, false); err != nil {
+	if _, err := w.ImportPrivateKey(wif, bs, false); err != nil {
 		return nil
 	}
-	if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(1), *genBlockHash(1)}); err != nil {
+	if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(1), *genBlockHash(1)}); err != nil {
 		return err
 	}
 
@@ -273,7 +273,7 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	if err := addTestTx(w, txCredit, &blk); err != nil {
 		return err
 	}
-	if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(2), *genBlockHash(2)}); err != nil {
+	if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(2), *genBlockHash(2)}); err != nil {
 		return err
 	}
 
@@ -282,7 +282,7 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// (hard coded to 6 atm).
 	for i := 3; i < 10; i++ {
 		sha := *genBlockHash(i)
-		if err := w.wallet.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(i), sha}); err != nil {
+		if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(i), sha}); err != nil {
 			return err
 		}
 	}
@@ -304,7 +304,7 @@ func createTestWallet() (string, *LightningWallet, error) {
 		return "", nil, err
 	}
 	// TODO(roasbeef): check error once nodetest is finished.
-	_ = wallet.Start()
+	_ = wallet.Startup()
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
 	if err := loadTestCredits(wallet, 5, 4); err != nil {
@@ -446,7 +446,7 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 			pkscript = bobNode.changeOutputs[0].PkScript
 		} else {
 			// Does the wallet know about the txin?
-			txDetail, err := lnwallet.wallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
+			txDetail, err := lnwallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
 			if txDetail == nil || err != nil {
 				t.Fatalf("txstore can't find tx detail, err: %v", err)
 			}
@@ -531,7 +531,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	}
 
 	// There should be three locked outpoints.
-	lockedOutPoints := lnwallet.wallet.LockedOutpoints()
+	lockedOutPoints := lnwallet.LockedOutpoints()
 	if len(lockedOutPoints) != 3 {
 		t.Fatalf("two outpoints should now be locked, instead %v are",
 			lockedOutPoints)
@@ -551,7 +551,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	}
 
 	// Those outpoints should no longer be locked.
-	lockedOutPoints = lnwallet.wallet.LockedOutpoints()
+	lockedOutPoints = lnwallet.LockedOutpoints()
 	if len(lockedOutPoints) != 0 {
 		t.Fatalf("outpoints still locked")
 	}
@@ -607,7 +607,7 @@ type testLnWallet struct {
 func clearWalletState(w *LightningWallet) error {
 	w.nextFundingID = 0
 	w.fundingLimbo = make(map[uint64]*ChannelReservation)
-	w.wallet.ResetLockedOutpoints()
+	w.ResetLockedOutpoints()
 	return w.ChannelDB.Wipe()
 }
 
@@ -621,7 +621,7 @@ func TestLightningWallet(t *testing.T) {
 		t.Fatalf("unable to create test ln wallet: %v", err)
 	}
 	defer os.RemoveAll(testDir)
-	defer lnwallet.Stop()
+	defer lnwallet.Shutdown()
 
 	// The wallet should now have 20BTC available for spending.
 	assertProperBalance(t, lnwallet, 1, 20)

@@ -83,92 +83,92 @@ func init() {
 var _ context.Context
 var _ grpc.ClientConn
 
-// Client API for LightningServer service
+// Client API for Lightning service
 
-type LightningServerClient interface {
+type LightningClient interface {
 	SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error)
 	NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error)
 }
 
-type lightningServerClient struct {
+type lightningClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewLightningServerClient(cc *grpc.ClientConn) LightningServerClient {
-	return &lightningServerClient{cc}
+func NewLightningClient(cc *grpc.ClientConn) LightningClient {
+	return &lightningClient{cc}
 }
 
-func (c *lightningServerClient) SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error) {
+func (c *lightningClient) SendMany(ctx context.Context, in *SendManyRequest, opts ...grpc.CallOption) (*SendManyResponse, error) {
 	out := new(SendManyResponse)
-	err := grpc.Invoke(ctx, "/lnrpc.LightningServer/SendMany", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/SendMany", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *lightningServerClient) NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error) {
+func (c *lightningClient) NewAddress(ctx context.Context, in *NewAddressRequest, opts ...grpc.CallOption) (*NewAddressResponse, error) {
 	out := new(NewAddressResponse)
-	err := grpc.Invoke(ctx, "/lnrpc.LightningServer/NewAddress", in, out, c.cc, opts...)
+	err := grpc.Invoke(ctx, "/lnrpc.Lightning/NewAddress", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// Server API for LightningServer service
+// Server API for Lightning service
 
-type LightningServerServer interface {
+type LightningServer interface {
 	SendMany(context.Context, *SendManyRequest) (*SendManyResponse, error)
 	NewAddress(context.Context, *NewAddressRequest) (*NewAddressResponse, error)
 }
 
-func RegisterLightningServerServer(s *grpc.Server, srv LightningServerServer) {
-	s.RegisterService(&_LightningServer_serviceDesc, srv)
+func RegisterLightningServer(s *grpc.Server, srv LightningServer) {
+	s.RegisterService(&_Lightning_serviceDesc, srv)
 }
 
-func _LightningServer_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+func _Lightning_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(SendManyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(LightningServerServer).SendMany(ctx, in)
+	out, err := srv.(LightningServer).SendMany(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func _LightningServer_NewAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+func _Lightning_NewAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(NewAddressRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(LightningServerServer).NewAddress(ctx, in)
+	out, err := srv.(LightningServer).NewAddress(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-var _LightningServer_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "lnrpc.LightningServer",
-	HandlerType: (*LightningServerServer)(nil),
+var _Lightning_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "lnrpc.Lightning",
+	HandlerType: (*LightningServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "SendMany",
-			Handler:    _LightningServer_SendMany_Handler,
+			Handler:    _Lightning_SendMany_Handler,
 		},
 		{
 			MethodName: "NewAddress",
-			Handler:    _LightningServer_NewAddress_Handler,
+			Handler:    _Lightning_NewAddress_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{},
 }
 
 var fileDescriptor0 = []byte{
-	// 246 bytes of a gzipped FileDescriptorProto
+	// 241 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0xe2, 0x2c, 0x2a, 0x48, 0xd6,
 	0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0xcd, 0xc9, 0x03, 0x72, 0x94, 0xda, 0x18, 0xb9, 0xf8,
 	0x83, 0x53, 0xf3, 0x52, 0x7c, 0x13, 0xf3, 0x2a, 0x83, 0x52, 0x0b, 0x4b, 0x53, 0x8b, 0x4b, 0x84,
@@ -179,10 +179,10 @@ var fileDescriptor0 = []byte{
 	0x2a, 0xc1, 0x04, 0xe4, 0x32, 0x5b, 0x31, 0x59, 0x30, 0x2a, 0x29, 0x70, 0x09, 0x20, 0x4c, 0x2e,
 	0x2e, 0xc8, 0xcf, 0x2b, 0x4e, 0x15, 0xe2, 0xe1, 0x62, 0x29, 0xa9, 0xc8, 0x4c, 0x81, 0x68, 0x52,
 	0x12, 0xe6, 0x12, 0xf4, 0x4b, 0x2d, 0x07, 0x99, 0x9c, 0x5a, 0x5c, 0x0c, 0xb5, 0x5d, 0x49, 0x95,
-	0x4b, 0x08, 0x59, 0x10, 0xaa, 0x91, 0x9f, 0x8b, 0x3d, 0x11, 0x22, 0x04, 0xd1, 0x6b, 0x34, 0x11,
-	0xe8, 0x4d, 0x9f, 0xcc, 0xf4, 0x8c, 0x92, 0xbc, 0xcc, 0xbc, 0xf4, 0xe0, 0xd4, 0xa2, 0xb2, 0xd4,
-	0x22, 0x21, 0x6b, 0x2e, 0x0e, 0x98, 0x8d, 0x42, 0x62, 0xd8, 0x3d, 0x27, 0x25, 0x8e, 0x21, 0x0e,
-	0xb5, 0xc1, 0x91, 0x8b, 0x0b, 0x61, 0xaf, 0x90, 0x04, 0x54, 0x19, 0x86, 0xfb, 0xa4, 0x24, 0xb1,
-	0xc8, 0x40, 0x8c, 0x48, 0x62, 0x03, 0x47, 0x84, 0x31, 0x20, 0x00, 0x00, 0xff, 0xff, 0x21, 0x47,
-	0x49, 0x2f, 0x95, 0x01, 0x00, 0x00,
+	0x4b, 0x08, 0x59, 0x10, 0xaa, 0x91, 0x9f, 0x8b, 0x3d, 0x11, 0x22, 0x04, 0xd1, 0x6b, 0xd4, 0xcd,
+	0xc8, 0xc5, 0xe9, 0x93, 0x99, 0x9e, 0x51, 0x92, 0x97, 0x99, 0x97, 0x2e, 0x64, 0xcd, 0xc5, 0x01,
+	0xb3, 0x4b, 0x48, 0x0c, 0xbb, 0xb7, 0xa4, 0xc4, 0x31, 0xc4, 0xa1, 0x66, 0x3b, 0x72, 0x71, 0x21,
+	0x6c, 0x14, 0x92, 0x80, 0x2a, 0xc3, 0x70, 0x99, 0x94, 0x24, 0x16, 0x19, 0x88, 0x11, 0x49, 0x6c,
+	0xe0, 0x28, 0x30, 0x06, 0x04, 0x00, 0x00, 0xff, 0xff, 0x80, 0x74, 0x7a, 0x62, 0x8f, 0x01, 0x00,
+	0x00,
 }

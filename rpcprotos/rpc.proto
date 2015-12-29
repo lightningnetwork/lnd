@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package lnrpc;
 
-service LightningServer {
+service Lightning {
     rpc SendMany(SendManyRequest) returns (SendManyResponse); 
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 }

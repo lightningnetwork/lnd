@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"li.lan/labs/plasma/chainntfs"
+	"li.lan/labs/plasma/channeldb"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -15,6 +16,9 @@ import (
 const (
 	// TODO(roasbeef): make not random value
 	MaxPendingPayments = 10
+
+	SequenceLockTimeSeconds = uint32(1 << 22)
+	SequenceLockTimeMask    = uint32(0x0000ffff)
 )
 
 // LightningChannel...
@@ -43,7 +47,6 @@ type LightningChannel struct {
 
 // newLightningChannel...
 func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifier,
-	chanDB *ChannelDB, state OpenChannelState) (*LightningChannel, error) {
 	chanDB *channeldb.DB, state channeldb.OpenChannel) (*LightningChannel, error) {
 
 	return &LightningChannel{
@@ -151,6 +154,9 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	// the transaction itself.
 	commitTx := wire.NewMsgTx()
 	commitTx.AddTxIn(fundingOutput)
+	// TODO(roasbeef): we default to blocks, make configurable as part of
+	// channel reservation.
+	commitTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	commitTx.AddTxOut(wire.NewTxOut(int64(channelAmt), payToUsScriptHash))
 	commitTx.AddTxOut(wire.NewTxOut(int64(channelAmt), payToThemScriptHash))
 
@@ -159,6 +165,25 @@ func createCommitTx(fundingOutput *wire.TxIn, ourKey, theirKey *btcec.PublicKey,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(commitTx)
 	return commitTx, nil
+}
+
+// lockTimeToSequence converts the passed relative locktime to a sequence
+// number in accordance to BIP-68.
+// See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+//  * (Compatibility)
+func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
+	if !isSeconds {
+		// The locktime is to be expressed in confirmations. Apply the
+		// mask to restrict the number of confirmations to 65,535 or
+		// 1.25 years.
+		return SequenceLockTimeMask & locktime
+	}
+
+	// Set the 22nd bit which indicates the lock time is in seconds, then
+	// shift the locktime over by 9 since the time granularity is in
+	// 512-second intervals (2^9). This results in a max lock-time of
+	// 33,554,431 seconds, or 1.06 years.
+	return SequenceLockTimeSeconds | (locktime >> 9)
 }
 
 //TODO(j): Creates a CLTV-only funding Tx (reserve is *REQUIRED*)

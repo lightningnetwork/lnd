@@ -101,5 +101,20 @@ Immediately refundable payments (2-of-3 can immediately cancel a payment) are
 also possible but requires another payment in the opposite direction with the
 R-value hashed twice (the R value becomes the H), but that's kind of annoying to
 write... it's easier to just assume immediate refund can only occur if both
-buyer+seller agree to cancel the payment immediately (otherwise it will wait
-until the timeout).
+Recipient+Sender agree to cancel the payment immediately (otherwise it will
+wait until the timeout).
+
+Also: THE ABOVE SCRIPT IS NOT THE MOST EFFICIENT SCRIPT POSSIBLE FOR THIS USE
+CASE!!! This is to illustrate a similar conceptual use as current 2-of-3
+multisig. Realistically, you want to do <EscrowPreimageR> *OR*
+<SenderPreimageR> since the recipient will always redeem if they can. So the
+hash code block would be instead:
+	OP_HASH160 <EscrowHash> OP_EQUAL
+	//Stack: <BobSig> <0> <RecipientPreimageR> <OP_1>
+	OP_SWAP 
+	//Stack: <BobSig> <OP_1> <0>
+	OP_HASH160 <SenderHash> OP_EQUAL
+	//Stack: <BobSig> <OP_1> <OP_0>
+	OP_BOOLOR
+	//Stack: <BobSig> <OP_1>
+	OP_VERIFY

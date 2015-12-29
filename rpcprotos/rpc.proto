@@ -8,7 +8,7 @@ service LightningServer {
 }
 
 message SendManyRequest {
-    map<string, uint64> AddrToAmount = 1;
+    map<string, int64> AddrToAmount = 1;
 }
 message SendManyResponse {
     string txid = 1;

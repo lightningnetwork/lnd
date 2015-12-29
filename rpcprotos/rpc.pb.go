@@ -17,6 +17,8 @@ It has these top-level messages:
 package lnrpc
 
 import proto "github.com/golang/protobuf/proto"
+import fmt "fmt"
+import math "math"
 
 import (
 	context "golang.org/x/net/context"
@@ -24,21 +26,20 @@ import (
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
-var _ context.Context
-var _ grpc.ClientConn
-
-// Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
+var _ = fmt.Errorf
+var _ = math.Inf
 
 type SendManyRequest struct {
-	AddrToAmount map[string]uint64 `protobuf:"bytes,1,rep" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 }
 
-func (m *SendManyRequest) Reset()         { *m = SendManyRequest{} }
-func (m *SendManyRequest) String() string { return proto.CompactTextString(m) }
-func (*SendManyRequest) ProtoMessage()    {}
+func (m *SendManyRequest) Reset()                    { *m = SendManyRequest{} }
+func (m *SendManyRequest) String() string            { return proto.CompactTextString(m) }
+func (*SendManyRequest) ProtoMessage()               {}
+func (*SendManyRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
-func (m *SendManyRequest) GetAddrToAmount() map[string]uint64 {
+func (m *SendManyRequest) GetAddrToAmount() map[string]int64 {
 	if m != nil {
 		return m.AddrToAmount
 	}
@@ -49,27 +50,38 @@ type SendManyResponse struct {
 	Txid string `protobuf:"bytes,1,opt,name=txid" json:"txid,omitempty"`
 }
 
-func (m *SendManyResponse) Reset()         { *m = SendManyResponse{} }
-func (m *SendManyResponse) String() string { return proto.CompactTextString(m) }
-func (*SendManyResponse) ProtoMessage()    {}
+func (m *SendManyResponse) Reset()                    { *m = SendManyResponse{} }
+func (m *SendManyResponse) String() string            { return proto.CompactTextString(m) }
+func (*SendManyResponse) ProtoMessage()               {}
+func (*SendManyResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
 type NewAddressRequest struct {
 }
 
-func (m *NewAddressRequest) Reset()         { *m = NewAddressRequest{} }
-func (m *NewAddressRequest) String() string { return proto.CompactTextString(m) }
-func (*NewAddressRequest) ProtoMessage()    {}
+func (m *NewAddressRequest) Reset()                    { *m = NewAddressRequest{} }
+func (m *NewAddressRequest) String() string            { return proto.CompactTextString(m) }
+func (*NewAddressRequest) ProtoMessage()               {}
+func (*NewAddressRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
 
 type NewAddressResponse struct {
 	Address string `protobuf:"bytes,1,opt,name=address" json:"address,omitempty"`
 }
 
-func (m *NewAddressResponse) Reset()         { *m = NewAddressResponse{} }
-func (m *NewAddressResponse) String() string { return proto.CompactTextString(m) }
-func (*NewAddressResponse) ProtoMessage()    {}
+func (m *NewAddressResponse) Reset()                    { *m = NewAddressResponse{} }
+func (m *NewAddressResponse) String() string            { return proto.CompactTextString(m) }
+func (*NewAddressResponse) ProtoMessage()               {}
+func (*NewAddressResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
 
 func init() {
+	proto.RegisterType((*SendManyRequest)(nil), "lnrpc.SendManyRequest")
+	proto.RegisterType((*SendManyResponse)(nil), "lnrpc.SendManyResponse")
+	proto.RegisterType((*NewAddressRequest)(nil), "lnrpc.NewAddressRequest")
+	proto.RegisterType((*NewAddressResponse)(nil), "lnrpc.NewAddressResponse")
 }
+
+// Reference imports to suppress errors if they are not otherwise used.
+var _ context.Context
+var _ grpc.ClientConn
 
 // Client API for LightningServer service
 
@@ -115,9 +127,9 @@ func RegisterLightningServerServer(s *grpc.Server, srv LightningServerServer) {
 	s.RegisterService(&_LightningServer_serviceDesc, srv)
 }
 
-func _LightningServer_SendMany_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _LightningServer_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(SendManyRequest)
-	if err := codec.Unmarshal(buf, in); err != nil {
+	if err := dec(in); err != nil {
 		return nil, err
 	}
 	out, err := srv.(LightningServerServer).SendMany(ctx, in)
@@ -127,9 +139,9 @@ func _LightningServer_SendMany_Handler(srv interface{}, ctx context.Context, cod
 	return out, nil
 }
 
-func _LightningServer_NewAddress_Handler(srv interface{}, ctx context.Context, codec grpc.Codec, buf []byte) (interface{}, error) {
+func _LightningServer_NewAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
 	in := new(NewAddressRequest)
-	if err := codec.Unmarshal(buf, in); err != nil {
+	if err := dec(in); err != nil {
 		return nil, err
 	}
 	out, err := srv.(LightningServerServer).NewAddress(ctx, in)
@@ -153,4 +165,24 @@ var _LightningServer_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{},
+}
+
+var fileDescriptor0 = []byte{
+	// 246 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0xe2, 0x2c, 0x2a, 0x48, 0xd6,
+	0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0xcd, 0xc9, 0x03, 0x72, 0x94, 0xda, 0x18, 0xb9, 0xf8,
+	0x83, 0x53, 0xf3, 0x52, 0x7c, 0x13, 0xf3, 0x2a, 0x83, 0x52, 0x0b, 0x4b, 0x53, 0x8b, 0x4b, 0x84,
+	0xec, 0xb8, 0x78, 0x1c, 0x53, 0x52, 0x8a, 0x42, 0xf2, 0x1d, 0x73, 0xf3, 0x4b, 0xf3, 0x4a, 0x24,
+	0x18, 0x15, 0x98, 0x35, 0xb8, 0x8d, 0x34, 0xf4, 0xc0, 0x3a, 0xf4, 0xd0, 0x54, 0xeb, 0x21, 0x2b,
+	0x75, 0xcd, 0x2b, 0x29, 0xaa, 0x94, 0x32, 0xe6, 0x12, 0xc4, 0x10, 0x14, 0xe2, 0xe6, 0x62, 0xce,
+	0x4e, 0xad, 0x04, 0x9a, 0xc5, 0xa8, 0xc1, 0x29, 0xc4, 0xcb, 0xc5, 0x5a, 0x96, 0x98, 0x53, 0x9a,
+	0x2a, 0xc1, 0x04, 0xe4, 0x32, 0x5b, 0x31, 0x59, 0x30, 0x2a, 0x29, 0x70, 0x09, 0x20, 0x4c, 0x2e,
+	0x2e, 0xc8, 0xcf, 0x2b, 0x4e, 0x15, 0xe2, 0xe1, 0x62, 0x29, 0xa9, 0xc8, 0x4c, 0x81, 0x68, 0x52,
+	0x12, 0xe6, 0x12, 0xf4, 0x4b, 0x2d, 0x07, 0x99, 0x9c, 0x5a, 0x5c, 0x0c, 0xb5, 0x5d, 0x49, 0x95,
+	0x4b, 0x08, 0x59, 0x10, 0xaa, 0x91, 0x9f, 0x8b, 0x3d, 0x11, 0x22, 0x04, 0xd1, 0x6b, 0x34, 0x11,
+	0xe8, 0x4d, 0x9f, 0xcc, 0xf4, 0x8c, 0x92, 0xbc, 0xcc, 0xbc, 0xf4, 0xe0, 0xd4, 0xa2, 0xb2, 0xd4,
+	0x22, 0x21, 0x6b, 0x2e, 0x0e, 0x98, 0x8d, 0x42, 0x62, 0xd8, 0x3d, 0x27, 0x25, 0x8e, 0x21, 0x0e,
+	0xb5, 0xc1, 0x91, 0x8b, 0x0b, 0x61, 0xaf, 0x90, 0x04, 0x54, 0x19, 0x86, 0xfb, 0xa4, 0x24, 0xb1,
+	0xc8, 0x40, 0x8c, 0x48, 0x62, 0x03, 0x47, 0x84, 0x31, 0x20, 0x00, 0x00, 0xff, 0xff, 0x21, 0x47,
+	0x49, 0x2f, 0x95, 0x01, 0x00, 0x00,
 }

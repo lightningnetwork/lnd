@@ -6,8 +6,8 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"golang.org/x/net/context"
+	"li.lan/labs/plasma/lnrpc"
 	"li.lan/labs/plasma/lnwallet"
-	"li.lan/labs/plasma/rpcprotos"
 )
 
 var (

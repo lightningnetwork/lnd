@@ -7,7 +7,7 @@ import (
 
 	"github.com/codegangsta/cli"
 	"golang.org/x/net/context"
-	"li.lan/labs/plasma/rpcprotos"
+	"li.lan/labs/plasma/lnrpc"
 )
 
 func printRespJson(resp interface{}) {
@@ -19,6 +19,12 @@ func printRespJson(resp interface{}) {
 	var out bytes.Buffer
 	json.Indent(&out, b, "", "\t")
 	out.WriteTo(os.Stdout)
+}
+
+var ShellCommand = cli.Command{
+	Name:   "shell",
+	Usage:  "enter interactive shell",
+	Action: shell,
 }
 
 var NewAddressCommand = cli.Command{

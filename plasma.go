@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 
+	"li.lan/labs/plasma/lnrpc"
 	"li.lan/labs/plasma/lnwallet"
-	"li.lan/labs/plasma/rpcprotos"
 )
 
 //lightning == terrestrial plasma

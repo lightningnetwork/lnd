@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/codegangsta/cli"
-	"li.lan/labs/plasma/rpcprotos"
+	"li.lan/labs/plasma/lnrpc"
 
 	"google.golang.org/grpc"
 )
@@ -52,6 +52,7 @@ func main() {
 	app.Commands = []cli.Command{
 		NewAddressCommand,
 		SendManyCommand,
+		ShellCommand,
 	}
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

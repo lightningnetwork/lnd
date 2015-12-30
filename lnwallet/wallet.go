@@ -320,6 +320,10 @@ func (l *LightningWallet) Startup() error {
 
 	// Start the goroutines in the underlying wallet.
 	l.rpc = rpcc
+	if err := l.rpc.Start(); err != nil {
+		return err
+	}
+
 	l.Start(rpcc)
 
 	l.wg.Add(1)

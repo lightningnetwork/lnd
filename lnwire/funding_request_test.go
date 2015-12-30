@@ -33,6 +33,11 @@ var (
 	//PKhash: n2fkWVphUzw3zSigzPsv9GuDyg9mohzKpz
 	deliveryPkScript, _ = hex.DecodeString("76a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac")
 
+	// Change PkScript
+	//Privkey: 5b18f5049efd9d3aff1fb9a06506c0b809fb71562b6ecd02f6c5b3ab298f3b0f
+	//PKhash: miky84cHvLuk6jcT6GsSbgHR8d7eZCu9Qc
+	changePkScript, _ = hex.DecodeString("76a914238ee44bb5c8c1314dd03974a17ec6c406fdcb8388ac")
+
 	//echo -n | openssl sha256
 	//This stuff gets reversed!!!
 	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -58,10 +63,11 @@ var (
 		RevocationHash:        revocationHash,
 		Pubkey:                pubKey,
 		DeliveryPkScript:      deliveryPkScript,
+		ChangePkScript:        changePkScript,
 		Inputs:                inputs,
 	}
-	serializedString  = "000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
-	serializedMessage = "0709110b00000014000000be000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
+	serializedString  = "000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac1976a914238ee44bb5c8c1314dd03974a17ec6c406fdcb8388ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
+	serializedMessage = "0709110b000000c8000000d8000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac1976a914238ee44bb5c8c1314dd03974a17ec6c406fdcb8388ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
 )
 
 func TestFundingRequestEncodeDecode(t *testing.T) {
@@ -71,19 +77,20 @@ func TestFundingRequestEncodeDecode(t *testing.T) {
 	if err != nil {
 		t.Error("Serialization error")
 		t.Error(err.Error())
-	}
-	t.Logf("Encoded Funding Request: %x\n", b.Bytes())
-	//Check if we serialized correctly
-	if serializedString != hex.EncodeToString(b.Bytes()) {
-		t.Error("Serialization does not match expected")
-	}
+	} else {
+		t.Logf("Encoded Funding Request: %x\n", b.Bytes())
+		//Check if we serialized correctly
+		if serializedString != hex.EncodeToString(b.Bytes()) {
+			t.Error("Serialization does not match expected")
+		}
 
-	//So I can do: hexdump -C /dev/shm/fundingRequest.raw
-	if WRITE_FILE {
-		err = ioutil.WriteFile(FILENAME, b.Bytes(), 0644)
-		if err != nil {
-			t.Error("File write error")
-			t.Error(err.Error())
+		//So I can do: hexdump -C /dev/shm/fundingRequest.raw
+		if WRITE_FILE {
+			err = ioutil.WriteFile(FILENAME, b.Bytes(), 0644)
+			if err != nil {
+				t.Error("File write error")
+				t.Error(err.Error())
+			}
 		}
 	}
 
@@ -97,13 +104,13 @@ func TestFundingRequestEncodeDecode(t *testing.T) {
 	if err != nil {
 		t.Error("Decoding Error")
 		t.Error(err.Error())
+	} else {
+		if !reflect.DeepEqual(newFunding, fundingRequest) {
+			t.Error("Decoding does not match!")
+		}
+		//Show the struct
+		t.Log(newFunding.String())
 	}
-
-	if !reflect.DeepEqual(newFunding, fundingRequest) {
-		t.Error("Decoding does not match!")
-	}
-	//Show the struct
-	t.Log(newFunding.String())
 
 	//Test message using Message interface
 	//Serialize/Encode
@@ -119,9 +126,10 @@ func TestFundingRequestEncodeDecode(t *testing.T) {
 	_, msg, _, err := ReadMessage(c, uint32(1), wire.TestNet3)
 	if err != nil {
 		t.Errorf(err.Error())
+	} else {
+		if !reflect.DeepEqual(msg, fundingRequest) {
+			t.Error("Message decoding does not match!")
+		}
+		t.Logf(msg.String())
 	}
-	if !reflect.DeepEqual(msg, fundingRequest) {
-		t.Error("Message decoding does not match!")
-	}
-	t.Logf(msg.String())
 }

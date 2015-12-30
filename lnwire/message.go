@@ -14,7 +14,10 @@ const MessageHeaderSize = 12
 const MaxMessagePayload = 1024 * 1024 * 32 // 32MB
 
 const (
-	CmdFundingRequest = uint32(20)
+	CmdFundingRequest      = uint32(200)
+	CmdFundingResponse     = uint32(210)
+	CmdFundingSignAccept   = uint32(220)
+	CmdFundingSignComplete = uint32(230)
 )
 
 //Every message has these functions:
@@ -33,8 +36,14 @@ func makeEmptyMessage(command uint32) (Message, error) {
 	switch command {
 	case CmdFundingRequest:
 		msg = &FundingRequest{}
+	case CmdFundingResponse:
+		msg = &FundingResponse{}
+	case CmdFundingSignAccept:
+		msg = &FundingSignAccept{}
+	case CmdFundingSignComplete:
+		msg = &FundingSignComplete{}
 	default:
-		return nil, fmt.Errorf("unhandled command [%x]", command)
+		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}
 
 	return msg, nil
@@ -194,7 +203,7 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	}
 
 	//Validate the data
-	msg.Validate()
+	err = msg.Validate()
 	if err != nil {
 		return totalBytes, nil, nil, err
 	}

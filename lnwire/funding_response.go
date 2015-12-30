@@ -8,15 +8,14 @@ import (
 	"io"
 )
 
-type FundingRequest struct {
+type FundingResponse struct {
 	ChannelType uint8
+
+	ReservationID uint64
 
 	FundingAmount btcutil.Amount
 	ReserveAmount btcutil.Amount
-	MinFeePerKb   btcutil.Amount
-
-	//Should double-check the total funding later
-	MinTotalFundingAmount btcutil.Amount
+	MinFeePerKb   btcutil.Amount //Lock-in min fee
 
 	//CLTV/CSV lock-time to use
 	LockTime uint32
@@ -29,33 +28,36 @@ type FundingRequest struct {
 
 	RevocationHash   [20]byte
 	Pubkey           *btcec.PublicKey
-	DeliveryPkScript PkScript //*MUST* be either P2PKH or P2SH
-	ChangePkScript   PkScript //*MUST* be either P2PKH or P2SH
+	CommitSig        *btcec.Signature //Requester's Commitment
+	DeliveryPkScript PkScript         //*MUST* be either P2PKH or P2SH
+	ChangePkScript   PkScript         //*MUST* be either P2PKH or P2SH
 
 	Inputs []*wire.TxIn
 }
 
-func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
-	//Channel Type (0/1)
-	//Funding Amount (1/8)
-	//Channel Minimum Capacity (9/8)
-	//Revocation Hash (17/20)
-	//Commitment Pubkey (37/32)
+func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
+	//ReservationID (0/8)
+	//Channel Type (8/1)
+	//Funding Amount (9/8)
+	//Revocation Hash (29/20)
+	//Commitment Pubkey (61/32)
 	//Reserve Amount (69/8)
 	//Minimum Transaction Fee Per Kb (77/8)
-	//LockTime (85/4)
-	//FeePayer (89/1)
+	//LockTime (81/4)
+	//FeePayer (82/1)
 	//DeliveryPkScript (final delivery)
 	//	First byte length then pkscript
 	//ChangePkScript (change for extra from inputs)
 	//	First byte length then pkscript
+	//CommitSig
+	//	First byte length then sig
 	//Inputs: Create the TxIns
 	//	First byte is number of inputs
 	//	For each input, it's 32bytes txin & 4bytes index
 	err := readElements(r, false,
+		&c.ReservationID,
 		&c.ChannelType,
 		&c.FundingAmount,
-		&c.MinTotalFundingAmount,
 		&c.RevocationHash,
 		&c.Pubkey,
 		&c.ReserveAmount,
@@ -64,6 +66,7 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.FeePayer,
 		&c.DeliveryPkScript,
 		&c.ChangePkScript,
+		&c.CommitSig,
 		&c.Inputs)
 	if err != nil {
 		return err
@@ -72,30 +75,31 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new FundingRequest
-func NewFundingRequest() *FundingRequest {
-	return &FundingRequest{}
+//Creates a new FundingResponse
+func NewFundingResponse() *FundingResponse {
+	return &FundingResponse{}
 }
 
-//Serializes the item from the FundingRequest struct
+//Serializes the item from the FundingResponse struct
 //Writes the data to w
-func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
-	//Channel Type
-	//Funding Amont
-	//Channel Minimum Capacity
-	//Revocation Hash
-	//Commitment Pubkey
-	//Reserve Amount
-	//Minimum Transaction Fee Per KB
-	//LockTime
-	//FeePayer
-	//DeliveryPkScript
-	//ChangePkScript
-	//Inputs: Append the actual Txins
+func (c *FundingResponse) Encode(w io.Writer, pver uint32) error {
+	//ReservationID (8)
+	//Channel Type (1)
+	//Funding Amount (8)
+	//Revocation Hash (20)
+	//Commitment Pubkey (32)
+	//Reserve Amount (8)
+	//Minimum Transaction Fee Per Kb (8)
+	//LockTime (4)
+	//FeePayer (1)
+	//DeliveryPkScript (final delivery)
+	//ChangePkScript (change for extra from inputs)
+	//CommitSig
+	//Inputs
 	err := writeElements(w, false,
+		c.ReservationID,
 		c.ChannelType,
 		c.FundingAmount,
-		c.MinTotalFundingAmount,
 		c.RevocationHash,
 		c.Pubkey,
 		c.ReserveAmount,
@@ -104,6 +108,7 @@ func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.FeePayer,
 		c.DeliveryPkScript,
 		c.ChangePkScript,
+		c.CommitSig,
 		c.Inputs)
 	if err != nil {
 		return err
@@ -112,17 +117,17 @@ func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
-func (c *FundingRequest) Command() uint32 {
-	return CmdFundingRequest
+func (c *FundingResponse) Command() uint32 {
+	return CmdFundingResponse
 }
 
-func (c *FundingRequest) MaxPayloadLength(uint32) uint32 {
-	//90 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
-	return 4715
+func (c *FundingResponse) MaxPayloadLength(uint32) uint32 {
+	//82 (base size) + 26 (pkscript) + 26 (pkscript) + 74sig + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
+	return 4781
 }
 
 //Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
-func (c *FundingRequest) Validate() error {
+func (c *FundingResponse) Validate() error {
 	var err error
 
 	//No negative values
@@ -137,17 +142,14 @@ func (c *FundingRequest) Validate() error {
 	if c.MinFeePerKb < 0 {
 		return fmt.Errorf("MinFeePerKb cannot be negative")
 	}
-	if c.MinTotalFundingAmount < 0 {
-		return fmt.Errorf("MinTotalFundingAmount cannot be negative")
-	}
 
-	//DeliveryPkScript is either P2SH or P2PKH
+	//Delivery PkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
-	//ChangePkScript is either P2SH or P2PKH
+	//Change PkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.ChangePkScript)
 	if err != nil {
 		return err
@@ -157,25 +159,27 @@ func (c *FundingRequest) Validate() error {
 	return nil
 }
 
-func (c *FundingRequest) String() string {
+func (c *FundingResponse) String() string {
 	var inputs string
 	for i, in := range c.Inputs {
 		inputs += fmt.Sprintf("\n     Slice\t%d\n", i)
 		inputs += fmt.Sprintf("\tHash\t%s\n", in.PreviousOutPoint.Hash)
 		inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
 	}
-	return fmt.Sprintf("\n--- Begin FundingRequest ---\n") +
+	return fmt.Sprintf("\n--- Begin FundingResponse ---\n") +
 		fmt.Sprintf("ChannelType:\t\t%x\n", c.ChannelType) +
+		fmt.Sprintf("ReservationID:\t\t%d\n", c.ReservationID) +
 		fmt.Sprintf("FundingAmount:\t\t%s\n", c.FundingAmount.String()) +
 		fmt.Sprintf("ReserveAmount:\t\t%s\n", c.ReserveAmount.String()) +
 		fmt.Sprintf("MinFeePerKb:\t\t%s\n", c.MinFeePerKb.String()) +
-		fmt.Sprintf("MinTotalFundingAmount\t%s\n", c.MinTotalFundingAmount.String()) +
 		fmt.Sprintf("LockTime\t\t%d\n", c.LockTime) +
 		fmt.Sprintf("FeePayer\t\t%x\n", c.FeePayer) +
 		fmt.Sprintf("RevocationHash\t\t%x\n", c.RevocationHash) +
 		fmt.Sprintf("Pubkey\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
+		fmt.Sprintf("CommitSig\t\t%x\n", c.CommitSig.Serialize()) +
 		fmt.Sprintf("DeliveryPkScript\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("ChangePkScript\t%x\n", c.ChangePkScript) +
 		fmt.Sprintf("Inputs:") +
 		inputs +
-		fmt.Sprintf("--- End FundingRequest ---\n")
+		fmt.Sprintf("--- End FundingResponse ---\n")
 }

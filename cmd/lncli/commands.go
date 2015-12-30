@@ -1,13 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
+	"os"
 
 	"github.com/codegangsta/cli"
 	"golang.org/x/net/context"
 	"li.lan/labs/plasma/rpcprotos"
 )
+
+func printRespJson(resp interface{}) {
+	b, err := json.Marshal(resp)
+	if err != nil {
+		fatal(err)
+	}
+
+	var out bytes.Buffer
+	json.Indent(&out, b, "", "\t")
+	out.WriteTo(os.Stdout)
+}
 
 var NewAddressCommand = cli.Command{
 	Name:   "newaddress",
@@ -24,7 +36,7 @@ func newAddress(ctx *cli.Context) {
 		fatal(err)
 	}
 
-	fmt.Println(json.Marshal(addr))
+	printRespJson(addr)
 }
 
 var SendManyCommand = cli.Command{
@@ -37,14 +49,10 @@ var SendManyCommand = cli.Command{
 func sendMany(ctx *cli.Context) {
 	var amountToAddr map[string]int64
 
-	fmt.Println(ctx.Args())
-
 	jsonMap := ctx.Args().Get(0)
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		fatal(err)
 	}
-
-	fmt.Println("map: %v", amountToAddr)
 
 	ctxb := context.Background()
 	client := getClient(ctx)
@@ -54,5 +62,5 @@ func sendMany(ctx *cli.Context) {
 		fatal(err)
 	}
 
-	fmt.Println(json.Marshal(txid))
+	printRespJson(txid)
 }

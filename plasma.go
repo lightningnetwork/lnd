@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -29,12 +30,14 @@ func main() {
 	lnwallet, err := lnwallet.NewLightningWallet(config)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
-		return
+		os.Exit(1)
 	}
 	if err := lnwallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
-		return
+		os.Exit(1)
 	}
+
+	fmt.Println("wallet open")
 
 	// Initialize, and register our implementation of the gRPC server.
 	var opts []grpc.ServerOption
@@ -47,7 +50,7 @@ func main() {
 	if err != nil {
 		grpclog.Fatalf("failed to listen: %v", err)
 		fmt.Printf("failed to listen: %v", err)
-		return
+		os.Exit(1)
 	}
 	grpcServer.Serve(lis)
 }

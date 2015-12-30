@@ -4,13 +4,14 @@ future implementation!
 There are multiple R-value hashes supported in HTLCs in the wire protocol. This
 is to support conditional multiparty payments, e.g. 2-of-3 "escrow", which is
 one of the biggest use cases of bitcoin scripting today. An example use case is
-a 3rd party "escrow" verifies whether a seller should be paid. This design is
-such that the "escrow" is not a normal escrow which holds custody, but
+a 3rd party escrow verifies whether a seller should be paid. This design is
+such that the escrow is not a traditional custodial escrow, but instead
 determines who should get the money in the event of non-cooperation.
 
-In this implementation, we are including *future protocol support* but not
+In this implementation, we are including *wire protocol support* but not
 writing code yet for 2-of-3, it is to be implemented later. Arbitrary N-of-M
-can be supported, but let's keep this simple for now!
+can be supported with M values higher than 3 and lower than max script size,
+but let's keep this simple for now!
 
 How it works: Require 2-of-3 R-value preimages (from 3 hashes) in order for the
 HTLC to be fulfilled. For each hop in the payment, it requires this 2-of-3
@@ -25,25 +26,25 @@ that the escrow produces (or for that matters any of the 3-parties in the
 2-of-3). It's some secret which is revealed to authorize payment. So if the
 Escrow wants the payment to go through, they disclose the secret (R-value) to
 the recipient. If the recipient is unable to produce 2-of-3, after the agreed
-timeout, the sender will be refunded. Sender and receiver can agree to authorize
-payment in most cases where there is cooperation, escrow is only contacted if
-there is non-cooperation.
+timeout, the sender will be refunded. Sender and receiver can agree to
+authorize payment in most cases where there is cooperation, escrow is only
+contacted if there is non-cooperation.
 
-Supported in the wire protocol for the unit8:
-1: 1-of-1
-2: 1-of-2
-3: 2-of-2
-4: 1-of-3
-5: 2-of-3
-6: 3-of-3
+Supported in the wire protocol for the unit8 (two 4-bit N-of-M):
+17 (00010001): 1-of-1
+34 (00100010): 2-of-2
+35 (00100011): 2-of-3 [with Recipient being 1 of the two N parties]
+51 (00110011): 3-of-3
 
-I think the only ones that really matter are 1-of-1, 2-of-3, and maybe 2-of-2
-and 3-of-3 (in that order of declining importance).
+I think the only ones that really matter are 1-of-1, 2-of-3, and 2-of-2. 1-of-2
+and 1-of-3 doesn't make sense if the recipient must consent to receiving funds
+anyway (pushing funds w/o consent is tricky due to pay-to-contract-hash) so
+that's basically a 1-of-1.
 
-Assume the order in the stack is Sender, Recipient, Escrow.
+Assume the order in the stack is Sender, Escrow, Recipient.
 
-For PAID 2-of-3 Recipient+Escrow, the HTLC stack is:
-	<BobSig> <0> <RecipientPreimageR> <EscrowPreimageR> <0>
+For PAID 2-of-3 Escrow+Recipient, the HTLC stack is:
+	<BobSig> <0> <EscrowPreimageR> <RecipientPreimageR> <0>
 
 If it's REFUND because 2-of-3 has not been redeemed in time:
 	<AliceSig> <1>
@@ -53,31 +54,31 @@ supplied data as part of the sigScript/redeemScript stack):
 -------------------------------------------------------------------------------
 //Paid
 OP_IF
-	//Optional... <CSVDelay> OP_CSV
+	<CSVDelay> OP_DROP OP_CSV
 
+	//Stack: <BobSig> <0> <EscrowPreimageR> <RecipientPreimageR>
+	//Recipient must agree to receive funds.
+	OP_HASH160 <RecipientHash> OP_EQUALVERIFY
+
+	//Stack: <BobSig> <0> <EscrowPreimageR>
+	//Either the Sender or Escrow must consent for payment
 	OP_HASH160 <EscrowHash> OP_EQUAL
-	//Stack: <BobSig> <0> <RecipientPreimageR> <OP_1>
+	//Stack: <BobSig> <0> <OP_1>
 	OP_SWAP 
-	//Stack: <BobSig> <0> <OP_1> <RecipientPreimageR>
-	OP_HASH160 <RecipientHash> OP_EQUAL
-	//Stack: <BobSig> <0> <OP_1> <OP_1>
-	OP_ADD
-	//Stack: <BobSig> <0> <OP_2>
-	OP_SWAP
-	//Stack: <BobSig> <OP_2> <0>
+	//Stack: <BobSig> <OP_1> <0>
 	OP_HASH160 <SenderHash> OP_EQUAL
-	//Stack: <BobSig> <OP_2> <OP_0>
-	OP_ADD
-	//Stack: <BobSig> <OP_2>
-	<2> OP_EQUALVERIFY
+	//Stack: <BobSig> <OP_1> <OP_0>
+	OP_BOOLOR
+	//Stack: <BobSig> <OP_1>
+	OP_VERIFY
 	
 	<BobPubKey> 
 	//Stack: <BobSig> <BobPubKey>
 //Refund
 OP_ELSE
-	//Optional... <CSVDelay> OP_CSV
+	<CSVDelay> OP_DROP OP_CSV
 
-	<HTLCTimeout> OP_CLTV
+	<HTLCTimeout> OP_DROP OP_CLTV
 	<AlicePubKey>
 	//Stack: <AliceSig> <AlicePubKey>
 OP_ENDIF
@@ -87,37 +88,34 @@ OP_CHECKSIG
 Note: It is possible that Alice and Bob may not be Sender, Recipient, nor
 Escrow!
 
-If we have all 3 R-values, we only include 2 and include a dummy zero on the
-third.
-
 The result? We can do 2-of-3 escrow payments which refund to the sender after a
-timeout! The Buyer and Seller can agree to redeem and they only need to go to
-the Escrow if there's a dispute. Each node along the path gets paid or refunded
-atomically, the same as a single-HTLC payment on Lightning.
+timeout! The Sender and Recipient can agree to redeem and they only need to go
+to the Escrow if there's a dispute. All nodes along the path gets paid or
+refunded atomically, the same as a single-HTLC payment on Lightning.
+
+Possible Resolution States:
+* Recipient paid: Recipient and Sender provide R-values
+* Recipient paid: Recipient and Escrow provide R-values
+* Sender refunded via timeout: Sender is refunded if Recipient cannot convince
+  Escrow or Sender to disclose their R-value before HTLC timeout
+* Payment immediately cancelled and Sender gets refunded: Payment sent in the
+  opposite direction enforced by same R-values (if there is sender & receiver
+  consent & cooperation to cancel payment)
+
+Sender+Escrow isn't going to want to push funds w/o cooperation of Recipient.
+However, it's possible to construct a script that way.
 
 Ta-da! "Smart Contract(TM)" maymay.
 
-Immediately refundable payments (2-of-3 can immediately cancel a payment) are
-also possible but requires another payment in the opposite direction with the
-R-value hashed twice (the R value becomes the H), but that's kind of annoying to
-write... it's easier to just assume immediate refund can only occur if both
-Recipient+Sender agree to cancel the payment immediately (otherwise it will
-wait until the timeout).
+Escrow-enforced immediately refundable payments (2-of-3 can immediately cancel
+a payment) are also possible but requires another payment in the opposite
+direction with the R-value hashed twice (the H becomes the R-value) and funds
+encumbered in the opposite direction, but that's kind of annoying to write...
+it's easier if immediate refund can only occur when both Recipient+Sender agree
+to cancel the payment immediately (otherwise it will wait until the timeout).
 
-Also: THE ABOVE SCRIPT IS NOT THE MOST EFFICIENT SCRIPT POSSIBLE FOR THIS USE
-CASE! This is to illustrate a similar conceptual use as current 2-of-3
-multisig. You want to do <EscrowPreimageR> *OR* <SenderPreimageR> since the
-recipient will always redeem if they can. So the hash code block would be
-instead:
-	OP_HASH160 <EscrowHash> OP_EQUAL
-	//Stack: <BobSig> <0> <RecipientPreimageR> <OP_1>
-	OP_SWAP
-	//Stack: <BobSig> <OP_1> <0>
-	OP_HASH160 <SenderHash> OP_EQUAL
-	//Stack: <BobSig> <OP_1> <OP_0>
-	OP_BOOLOR
-	//Stack: <BobSig> <OP_1>
-	OP_VERIFY
-The tradeoff is that if the escrow screws up, then payment can be forced.
-Whereas the original script doesn't have that problem if the receiver does not
-misbehave.
+Escrow is only contacted if the recipient needs to redeem and the sender is
+uncooperative so this is still true to the "lazy escrow service" in Bitcoin
+multisig.
+
+(2-of-2 is also needed for payment cancellation.)

@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	serverAddr = flag.String("rpcserver", "127.0.0.1:10000", "The server address in the format of host:port")
+	serverAddr = flag.String("rpcserver", "localhost:10000", "The server address in the format of host:port")
 )
 
 func fatal(err error) {

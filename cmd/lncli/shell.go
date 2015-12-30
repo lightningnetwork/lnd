@@ -9,6 +9,7 @@ import (
 
 	"github.com/codegangsta/cli"
 	"google.golang.org/grpc"
+	"li.lan/labs/plasma/lnrpc"
 )
 
 func shell(z *cli.Context) {
@@ -111,18 +112,22 @@ func Shellparse(cmdslice []string) error {
 func RpcConnect(args []string) error {
 	//	client := getClient(ctx)
 	opts := []grpc.DialOption{grpc.WithInsecure()}
-	conn, err := grpc.Dial("127.0.0.1:10000", opts...)
+	conn, err := grpc.Dial("localhost:10000", opts...)
 	if err != nil {
-		return (err)
+		return err
 	}
 	state, err := conn.State()
 	if err != nil {
-		return (err)
+		return err
 	}
 	fmt.Printf("connection state: %s\n", state.String())
+
+	lnClient := lnrpc.NewLightningClient(conn)
+	//	lnClient.NewAddress(nil, nil, nil) // crashes
+
 	err = conn.Close()
 	if err != nil {
-		return (err)
+		return err
 	}
 
 	return nil

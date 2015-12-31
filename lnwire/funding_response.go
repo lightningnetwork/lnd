@@ -58,7 +58,7 @@ func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
 	//Inputs: Create the TxIns
 	//	First byte is number of inputs
 	//	For each input, it's 32bytes txin & 4bytes index
-	err := readElements(r, false,
+	err := readElements(r,
 		&c.ReservationID,
 		&c.ChannelType,
 		&c.ResponderFundingAmount,
@@ -101,7 +101,7 @@ func (c *FundingResponse) Encode(w io.Writer, pver uint32) error {
 	//ChangePkScript (change for extra from inputs)
 	//CommitSig
 	//Inputs
-	err := writeElements(w, false,
+	err := writeElements(w,
 		c.ReservationID,
 		c.ChannelType,
 		c.ResponderFundingAmount,
@@ -180,11 +180,16 @@ func (c *FundingResponse) String() string {
 	for i, in := range c.Inputs {
 		inputs += fmt.Sprintf("\n     Slice\t%d\n", i)
 		if &in != nil {
-
 			inputs += fmt.Sprintf("\tHash\t%s\n", in.PreviousOutPoint.Hash)
 			inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
 		}
 	}
+
+	var serializedPubkey []byte
+	if &c.Pubkey != nil && c.Pubkey.X != nil {
+		serializedPubkey = c.Pubkey.SerializeCompressed()
+	}
+
 	return fmt.Sprintf("\n--- Begin FundingResponse ---\n") +
 		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
 		fmt.Sprintf("ReservationID:\t\t\t%d\n", c.ReservationID) +
@@ -195,7 +200,7 @@ func (c *FundingResponse) String() string {
 		fmt.Sprintf("LockTime\t\t\t%d\n", c.LockTime) +
 		fmt.Sprintf("FeePayer\t\t\t%x\n", c.FeePayer) +
 		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
-		fmt.Sprintf("Pubkey\t\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
+		fmt.Sprintf("Pubkey\t\t\t\t%x\n", serializedPubkey) +
 		fmt.Sprintf("CommitSig\t\t\t%x\n", c.CommitSig.Serialize()) +
 		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("ChangePkScript\t\t%x\n", c.ChangePkScript) +

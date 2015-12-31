@@ -64,7 +64,7 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 	//Inputs: Create the TxIns
 	//	First byte is number of inputs
 	//	For each input, it's 32bytes txin & 4bytes index
-	err := readElements(r, false,
+	err := readElements(r,
 		&c.ChannelType,
 		&c.RequesterFundingAmount,
 		&c.MinTotalFundingAmount,
@@ -106,7 +106,7 @@ func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
 	//DeliveryPkScript
 	//ChangePkScript
 	//Inputs: Append the actual Txins
-	err := writeElements(w, false,
+	err := writeElements(w,
 		c.ChannelType,
 		c.RequesterFundingAmount,
 		c.MinTotalFundingAmount,
@@ -204,6 +204,12 @@ func (c *FundingRequest) String() string {
 			inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
 		}
 	}
+
+	var serializedPubkey []byte
+	if &c.Pubkey != nil && c.Pubkey.X != nil {
+		serializedPubkey = c.Pubkey.SerializeCompressed()
+	}
+
 	return fmt.Sprintf("\n--- Begin FundingRequest ---\n") +
 		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
 		fmt.Sprintf("RequesterFundingAmount:\t\t%s\n", c.RequesterFundingAmount.String()) +
@@ -215,7 +221,7 @@ func (c *FundingRequest) String() string {
 		fmt.Sprintf("LockTime\t\t\t%d\n", c.LockTime) +
 		fmt.Sprintf("FeePayer\t\t\t%x\n", c.FeePayer) +
 		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
-		fmt.Sprintf("Pubkey\t\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
+		fmt.Sprintf("Pubkey\t\t\t\t%x\n", serializedPubkey) +
 		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("Inputs:") +
 		inputs +

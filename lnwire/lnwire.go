@@ -21,7 +21,7 @@ type MicroSatoshi int32
 //Unified function to call when writing different types
 //Pre-allocate a byte-array of the correct size for cargo-cult security
 //More copies but whatever...
-func writeElement(w io.Writer, includeSig bool, element interface{}) error {
+func writeElement(w io.Writer, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case uint8:
@@ -72,13 +72,13 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 			return fmt.Errorf("Too many signatures!")
 		}
 		//Write the size
-		err = writeElement(w, false, uint8(numSigs))
+		err = writeElement(w, uint8(numSigs))
 		if err != nil {
 			return err
 		}
 		//Write the data
 		for i := 0; i < numSigs; i++ {
-			err = writeElement(w, false, &(*e)[i])
+			err = writeElement(w, &(*e)[i])
 			if err != nil {
 				return err
 			}
@@ -91,7 +91,7 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 			return fmt.Errorf("Signature too long!")
 		}
 		//Write the size
-		err = writeElement(w, false, uint8(sigLength))
+		err = writeElement(w, uint8(sigLength))
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 			return fmt.Errorf("PkScript too long!")
 		}
 		//Write the size (1-byte)
-		err = writeElement(w, false, uint8(scriptLength))
+		err = writeElement(w, uint8(scriptLength))
 		if err != nil {
 			return err
 		}
@@ -144,7 +144,7 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 		if len(e) > 127 {
 			return fmt.Errorf("Too many txins")
 		}
-		err = writeElement(w, false, uint8(len(e)))
+		err = writeElement(w, uint8(len(e)))
 		if err != nil {
 			return err
 		}
@@ -165,16 +165,6 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 			if err != nil {
 				return err
 			}
-			//Signature(optional)
-			if includeSig {
-				var sig [33]byte
-				copy(sig[:], in.SignatureScript)
-				_, err = w.Write(sig[:])
-				if err != nil {
-					return err
-				}
-
-			}
 		}
 		return nil
 	default:
@@ -184,9 +174,9 @@ func writeElement(w io.Writer, includeSig bool, element interface{}) error {
 	return nil
 }
 
-func writeElements(w io.Writer, includeSig bool, elements ...interface{}) error {
+func writeElements(w io.Writer, elements ...interface{}) error {
 	for _, element := range elements {
-		err := writeElement(w, includeSig, element)
+		err := writeElement(w, element)
 		if err != nil {
 			return err
 		}
@@ -194,7 +184,7 @@ func writeElements(w io.Writer, includeSig bool, elements ...interface{}) error 
 	return nil
 }
 
-func readElement(r io.Reader, includeSig bool, element interface{}) error {
+func readElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
 	case *uint8:
@@ -251,7 +241,7 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 		return nil
 	case **[]btcec.Signature:
 		var numSigs uint8
-		err = readElement(r, false, &numSigs)
+		err = readElement(r, &numSigs)
 		if err != nil {
 			return err
 		}
@@ -263,14 +253,17 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 		var sigs []btcec.Signature
 		for i := uint8(0); i < numSigs; i++ {
 			sig := new(btcec.Signature)
-			readElement(r, false, &sig)
+			err = readElement(r, &sig)
+			if err != nil {
+				return err
+			}
 			sigs = append(sigs, *sig)
 		}
 		*e = &sigs
 		return nil
 	case **btcec.Signature:
 		var sigLength uint8
-		err = readElement(r, false, &sigLength)
+		err = readElement(r, &sigLength)
 		if err != nil {
 			return err
 		}
@@ -311,7 +304,7 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 	case *PkScript:
 		//Get the script length first
 		var scriptLength uint8
-		err = readElement(r, false, &scriptLength)
+		err = readElement(r, &scriptLength)
 		if err != nil {
 			return err
 		}
@@ -333,7 +326,7 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 	case *[]*wire.TxIn:
 		//Read the size (1-byte number of txins)
 		var numScripts uint8
-		err = readElement(r, false, &numScripts)
+		err = readElement(r, &numScripts)
 		if err != nil {
 			return err
 		}
@@ -362,19 +355,7 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 			}
 			index := binary.BigEndian.Uint32(idxBytes[:])
 			outPoint := wire.NewOutPoint(shaHash, index)
-			//Signature(optional)
-			if includeSig {
-				var sig [33]byte
-				_, err = io.ReadFull(r, sig[:])
-				if err != nil {
-					return err
-				}
-				//Create TxIn
-				txins = append(txins, wire.NewTxIn(outPoint, sig[:]))
-			} else { //no signature
-				//Create TxIn
-				txins = append(txins, wire.NewTxIn(outPoint, nil))
-			}
+			txins = append(txins, wire.NewTxIn(outPoint, nil))
 
 		}
 		*e = *&txins
@@ -386,9 +367,9 @@ func readElement(r io.Reader, includeSig bool, element interface{}) error {
 	return nil
 }
 
-func readElements(r io.Reader, includeSig bool, elements ...interface{}) error {
+func readElements(r io.Reader, elements ...interface{}) error {
 	for _, element := range elements {
-		err := readElement(r, includeSig, element)
+		err := readElement(r, element)
 		if err != nil {
 			return err
 		}
@@ -398,6 +379,9 @@ func readElements(r io.Reader, includeSig bool, elements ...interface{}) error {
 
 //Validates whether a PkScript byte array is P2SH or P2PKH
 func ValidatePkScript(pkScript PkScript) error {
+	if &pkScript == nil {
+		return fmt.Errorf("PkScript should not be empty!")
+	}
 	if len(pkScript) == 25 {
 		//P2PKH
 		//Begins with OP_DUP OP_HASH160 PUSHDATA(20)

@@ -21,7 +21,7 @@ func (c *FundingSignAccept) Decode(r io.Reader, pver uint32) error {
 	//	First byte is number of FundingTxSigs
 	//	Sorted list of the requester's input signatures
 	//	(originally provided in the Funding Request)
-	err := readElements(r, false,
+	err := readElements(r,
 		&c.ReservationID,
 		&c.CommitSig,
 		&c.FundingTXSigs)
@@ -43,7 +43,7 @@ func (c *FundingSignAccept) Encode(w io.Writer, pver uint32) error {
 	//ReservationID (8)
 	//CommitSig
 	//FundingTxSigs
-	err := writeElements(w, false,
+	err := writeElements(w,
 		c.ReservationID,
 		c.CommitSig,
 		c.FundingTXSigs)
@@ -73,13 +73,19 @@ func (c *FundingSignAccept) String() string {
 	var sigs string
 	for i, in := range *c.FundingTXSigs {
 		sigs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		if &in != nil {
+		if &in != nil && in.R != nil {
 			sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
 		}
 	}
+
+	var serializedSig []byte
+	if &c.CommitSig != nil && c.CommitSig.R != nil {
+		serializedSig = c.CommitSig.Serialize()
+	}
+
 	return fmt.Sprintf("\n--- Begin FundingSignAccept ---\n") +
 		fmt.Sprintf("ReservationID:\t\t%d\n", c.ReservationID) +
-		fmt.Sprintf("CommitSig\t\t%x\n", c.CommitSig.Serialize()) +
+		fmt.Sprintf("CommitSig\t\t%x\n", serializedSig) +
 		fmt.Sprintf("FundingTxSigs:") +
 		sigs +
 		fmt.Sprintf("--- End FundingSignAccept ---\n")

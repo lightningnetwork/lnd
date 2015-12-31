@@ -21,7 +21,7 @@ func (c *FundingSignComplete) Decode(r io.Reader, pver uint32) error {
 	//	First byte is number of FundingTxSigs
 	//	Sorted list of the requester's input signatures
 	//	(originally provided in the Funding Request)
-	err := readElements(r, false,
+	err := readElements(r,
 		&c.ReservationID,
 		&c.TxID,
 		&c.FundingTXSigs)
@@ -43,7 +43,7 @@ func (c *FundingSignComplete) Encode(w io.Writer, pver uint32) error {
 	//ReservationID (8)
 	//CommitSig
 	//FundingTxSigs
-	err := writeElements(w, false,
+	err := writeElements(w,
 		c.ReservationID,
 		c.TxID,
 		c.FundingTXSigs)
@@ -73,10 +73,11 @@ func (c *FundingSignComplete) String() string {
 	var sigs string
 	for i, in := range *c.FundingTXSigs {
 		sigs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		if &in != nil {
+		if &in != nil && in.R != nil {
 			sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
 		}
 	}
+
 	return fmt.Sprintf("\n--- Begin FundingSignComplete ---\n") +
 		fmt.Sprintf("ReservationID:\t\t%d\n", c.ReservationID) +
 		fmt.Sprintf("TxID\t\t%s\n", c.TxID.String()) +

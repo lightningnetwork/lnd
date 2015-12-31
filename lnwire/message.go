@@ -68,7 +68,7 @@ func readMessageHeader(r io.Reader) (int, *messageHeader, error) {
 
 	hdr := messageHeader{}
 
-	err = readElements(hr, false,
+	err = readElements(hr,
 		&hdr.magic,
 		&hdr.command,
 		&hdr.length)
@@ -134,7 +134,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	// rather than directly to the writer since writeElements doesn't
 	// return the number of bytes written.
 	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
-	writeElements(hw, false, hdr.magic, hdr.command, hdr.length)
+	writeElements(hw, hdr.magic, hdr.command, hdr.length)
 
 	//Write header
 	n, err := w.Write(hw.Bytes())

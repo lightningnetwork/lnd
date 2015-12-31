@@ -299,6 +299,10 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 		if err != nil {
 			return nil, err
 		}
+		err = db.Close()
+		if err != nil {
+			return nil, err
+		}
 		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 

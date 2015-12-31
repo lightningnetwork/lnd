@@ -9,6 +9,8 @@ import (
 )
 
 type FundingRequest struct {
+	ReservationID uint64
+
 	ChannelType uint8
 
 	RequesterFundingAmount btcutil.Amount
@@ -23,6 +25,9 @@ type FundingRequest struct {
 	//THIS VALUE GOES INTO THE RESPONDER'S FUNDING AMOUNT
 	//total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change" + Fees(?)
 	//RequesterFundingAmount = "Available Balance" + RequesterReserveAmount
+	//Payment SHOULD NOT be acknowledged until the minimum confirmation has elapsed
+	//(Due to double-spend risks the recipient will not want to acknolwedge confirmation until later)
+	//This is to make a payment as part of opening the channel
 	PaymentAmount btcutil.Amount
 
 	//Minimum number of confirmations to validate transaction
@@ -49,6 +54,7 @@ type FundingRequest struct {
 }
 
 func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
+	//Reservation ID (8)
 	//Channel Type (1)
 	//Funding Amount (8)
 	//Channel Minimum Capacity (8)
@@ -68,6 +74,7 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 	//	First byte is number of inputs
 	//	For each input, it's 32bytes txin & 4bytes index
 	err := readElements(r,
+		&c.ReservationID,
 		&c.ChannelType,
 		&c.RequesterFundingAmount,
 		&c.MinTotalFundingAmount,
@@ -110,6 +117,7 @@ func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
 	//ChangePkScript
 	//Inputs: Append the actual Txins
 	err := writeElements(w,
+		c.ReservationID,
 		c.ChannelType,
 		c.RequesterFundingAmount,
 		c.MinTotalFundingAmount,
@@ -136,8 +144,8 @@ func (c *FundingRequest) Command() uint32 {
 }
 
 func (c *FundingRequest) MaxPayloadLength(uint32) uint32 {
-	//102 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
-	return 4727
+	//110 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
+	return 4735
 }
 
 //Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
@@ -210,6 +218,7 @@ func (c *FundingRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin FundingRequest ---\n") +
+		fmt.Sprintf("ReservationID:\t\t\t%d\n", c.ReservationID) +
 		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
 		fmt.Sprintf("RequesterFundingAmount:\t\t%s\n", c.RequesterFundingAmount.String()) +
 		fmt.Sprintf("RequesterReserveAmount:\t\t%s\n", c.RequesterReserveAmount.String()) +

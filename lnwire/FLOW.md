@@ -5,13 +5,11 @@ This is two-party funder for a single Funding Transaction (more efficient and
 makes the channel creation atomic, but doesn't work for
 CSV-no-malleability-fix).
 
-
 Funding Request
 ---------------
 Someone wants to open a channel. The requester provides any inputs and relevant
 information on how much they want to fund and the parameters, these paramters
 are a proposal.
-
 
 Funding Response
 ----------------
@@ -21,14 +19,12 @@ negotation has finished. If the requester doesn't agree with the new conditions,
 they stop. The response also contains the first Commitment pubkey provided by the
 responder, which refunds the initial balance back to both parties.
 
-
 Funding SignAccept
 ------------
 The requester now has sufficient information to get a refund if the transaction
 is ever broadcast. The requester signs the Funding Transaction and this message
 gives the signature to the responder. The requester also provides the signature
 for the initial Commitment Transaction.
-
 
 Funding SignComplete
 ---------------
@@ -49,13 +45,13 @@ Requires the cooperation of both parites for this type. In the event of
 non-cooperation, either party may broadcast the most recent Commitment
 Transaction.
 
-Close Channel
+Close Request 
 -------------
 One party unilaterally sends their sig and fee amount to the other party. No
 further channel updates are possible. In the future, we might include HTLCs in
 the outputs, but for now, we're assuming *all* HTLCs are cleared out.
 
-Close Channel Complete
+Close Complete
 ----------------------
 Returns the Txid and sig as a courtesy. The counterparty might not send this if
 they're being non-cooperative.

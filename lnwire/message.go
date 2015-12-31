@@ -14,10 +14,17 @@ const MessageHeaderSize = 12
 const MaxMessagePayload = 1024 * 1024 * 32 // 32MB
 
 const (
+	//Funding channel open
 	CmdFundingRequest      = uint32(200)
 	CmdFundingResponse     = uint32(210)
 	CmdFundingSignAccept   = uint32(220)
 	CmdFundingSignComplete = uint32(230)
+
+	//Close channel
+	CmdCloseRequest  = uint32(300)
+	CmdCloseComplete = uint32(310)
+
+	//HTLC payment
 )
 
 //Every message has these functions:
@@ -53,7 +60,7 @@ type messageHeader struct {
 	//NOTE(j): We don't need to worry about the magic overlapping with
 	//bitcoin since this is inside encrypted comms anyway, but maybe we
 	//should use the XOR (^wire.TestNet3) just in case???
-	magic   wire.BitcoinNet
+	magic   wire.BitcoinNet //which Blockchain Technology(TM) to use
 	command uint32
 	length  uint32
 }

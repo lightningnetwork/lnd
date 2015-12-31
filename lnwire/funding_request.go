@@ -11,9 +11,19 @@ import (
 type FundingRequest struct {
 	ChannelType uint8
 
-	FundingAmount btcutil.Amount
-	ReserveAmount btcutil.Amount
-	MinFeePerKb   btcutil.Amount
+	RequesterFundingAmount btcutil.Amount
+	RequesterReserveAmount btcutil.Amount
+	MinFeePerKb            btcutil.Amount
+
+	//The funding requester can request payment
+	//This wallet only allows positive values,
+	//which is a payment to the responder
+	//(This can be used to fund the Reserve)
+	//If the responder disagrees, then the funding request fails
+	PaymentAmount btcutil.Amount
+
+	//Minimum number of confirmations to validate transaction
+	MinDepth uint32
 
 	//Should double-check the total funding later
 	MinTotalFundingAmount btcutil.Amount
@@ -36,15 +46,17 @@ type FundingRequest struct {
 }
 
 func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
-	//Channel Type (0/1)
-	//Funding Amount (1/8)
-	//Channel Minimum Capacity (9/8)
-	//Revocation Hash (17/20)
-	//Commitment Pubkey (37/32)
-	//Reserve Amount (69/8)
-	//Minimum Transaction Fee Per Kb (77/8)
-	//LockTime (85/4)
-	//FeePayer (89/1)
+	//Channel Type (1)
+	//Funding Amount (8)
+	//Channel Minimum Capacity (8)
+	//Revocation Hash (20)
+	//Commitment Pubkey (32)
+	//Reserve Amount (8)
+	//Minimum Transaction Fee Per Kb (8)
+	//PaymentAmount (8)
+	//MinDepth (4)
+	//LockTime (4)
+	//FeePayer (1)
 	//DeliveryPkScript (final delivery)
 	//	First byte length then pkscript
 	//ChangePkScript (change for extra from inputs)
@@ -54,12 +66,14 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 	//	For each input, it's 32bytes txin & 4bytes index
 	err := readElements(r, false,
 		&c.ChannelType,
-		&c.FundingAmount,
+		&c.RequesterFundingAmount,
 		&c.MinTotalFundingAmount,
 		&c.RevocationHash,
 		&c.Pubkey,
-		&c.ReserveAmount,
+		&c.RequesterReserveAmount,
 		&c.MinFeePerKb,
+		&c.PaymentAmount,
+		&c.MinDepth,
 		&c.LockTime,
 		&c.FeePayer,
 		&c.DeliveryPkScript,
@@ -94,12 +108,14 @@ func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
 	//Inputs: Append the actual Txins
 	err := writeElements(w, false,
 		c.ChannelType,
-		c.FundingAmount,
+		c.RequesterFundingAmount,
 		c.MinTotalFundingAmount,
 		c.RevocationHash,
 		c.Pubkey,
-		c.ReserveAmount,
+		c.RequesterReserveAmount,
 		c.MinFeePerKb,
+		c.PaymentAmount,
+		c.MinDepth,
 		c.LockTime,
 		c.FeePayer,
 		c.DeliveryPkScript,
@@ -117,8 +133,8 @@ func (c *FundingRequest) Command() uint32 {
 }
 
 func (c *FundingRequest) MaxPayloadLength(uint32) uint32 {
-	//90 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
-	return 4715
+	//102 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
+	return 4727
 }
 
 //Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
@@ -126,12 +142,12 @@ func (c *FundingRequest) Validate() error {
 	var err error
 
 	//No negative values
-	if c.FundingAmount < 0 {
-		return fmt.Errorf("FundingAmount cannot be negative")
+	if c.RequesterFundingAmount < 0 {
+		return fmt.Errorf("RequesterFundingAmount cannot be negative")
 	}
 
-	if c.ReserveAmount < 0 {
-		return fmt.Errorf("ReserveAmount cannot be negative")
+	if c.RequesterReserveAmount < 0 {
+		return fmt.Errorf("RequesterReserveAmount cannot be negative")
 	}
 
 	if c.MinFeePerKb < 0 {
@@ -139,6 +155,28 @@ func (c *FundingRequest) Validate() error {
 	}
 	if c.MinTotalFundingAmount < 0 {
 		return fmt.Errorf("MinTotalFundingAmount cannot be negative")
+	}
+
+	//Validation of what makes sense...
+	if c.MinTotalFundingAmount < c.RequesterFundingAmount {
+		return fmt.Errorf("Requester's minimum too low.")
+	}
+	if c.RequesterFundingAmount < c.RequesterReserveAmount {
+		return fmt.Errorf("Reserve must be below Funding Amount")
+	}
+
+	//This wallet only allows payment from the requester to responder
+	if c.PaymentAmount < 0 {
+		return fmt.Errorf("This wallet requieres payment to be greater than zero.")
+	}
+	//The payment must be below our own contribution (less reserve kept for ourselves
+	if c.PaymentAmount > c.RequesterFundingAmount-c.RequesterReserveAmount {
+		return fmt.Errorf("Payment too large")
+	}
+
+	//Make sure there's not more than 127 inputs
+	if len(c.Inputs) > 127 {
+		return fmt.Errorf("Too many inputs")
 	}
 
 	//DeliveryPkScript is either P2SH or P2PKH
@@ -161,20 +199,24 @@ func (c *FundingRequest) String() string {
 	var inputs string
 	for i, in := range c.Inputs {
 		inputs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		inputs += fmt.Sprintf("\tHash\t%s\n", in.PreviousOutPoint.Hash)
-		inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
+		if &in != nil {
+			inputs += fmt.Sprintf("\tHash\t%s\n", in.PreviousOutPoint.Hash)
+			inputs += fmt.Sprintf("\tIndex\t%d\n", in.PreviousOutPoint.Index)
+		}
 	}
 	return fmt.Sprintf("\n--- Begin FundingRequest ---\n") +
-		fmt.Sprintf("ChannelType:\t\t%x\n", c.ChannelType) +
-		fmt.Sprintf("FundingAmount:\t\t%s\n", c.FundingAmount.String()) +
-		fmt.Sprintf("ReserveAmount:\t\t%s\n", c.ReserveAmount.String()) +
-		fmt.Sprintf("MinFeePerKb:\t\t%s\n", c.MinFeePerKb.String()) +
-		fmt.Sprintf("MinTotalFundingAmount\t%s\n", c.MinTotalFundingAmount.String()) +
-		fmt.Sprintf("LockTime\t\t%d\n", c.LockTime) +
-		fmt.Sprintf("FeePayer\t\t%x\n", c.FeePayer) +
-		fmt.Sprintf("RevocationHash\t\t%x\n", c.RevocationHash) +
-		fmt.Sprintf("Pubkey\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
-		fmt.Sprintf("DeliveryPkScript\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
+		fmt.Sprintf("RequesterFundingAmount:\t\t%s\n", c.RequesterFundingAmount.String()) +
+		fmt.Sprintf("RequesterReserveAmount:\t\t%s\n", c.RequesterReserveAmount.String()) +
+		fmt.Sprintf("MinFeePerKb:\t\t\t%s\n", c.MinFeePerKb.String()) +
+		fmt.Sprintf("PaymentAmount:\t\t\t%s\n", c.PaymentAmount.String()) +
+		fmt.Sprintf("MinDepth:\t\t\t%d\n", c.MinDepth) +
+		fmt.Sprintf("MinTotalFundingAmount\t\t%s\n", c.MinTotalFundingAmount.String()) +
+		fmt.Sprintf("LockTime\t\t\t%d\n", c.LockTime) +
+		fmt.Sprintf("FeePayer\t\t\t%x\n", c.FeePayer) +
+		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
+		fmt.Sprintf("Pubkey\t\t\t\t%x\n", c.Pubkey.SerializeCompressed()) +
+		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("Inputs:") +
 		inputs +
 		fmt.Sprintf("--- End FundingRequest ---\n")

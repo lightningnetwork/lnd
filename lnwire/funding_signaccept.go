@@ -73,7 +73,9 @@ func (c *FundingSignAccept) String() string {
 	var sigs string
 	for i, in := range *c.FundingTXSigs {
 		sigs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
+		if &in != nil {
+			sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
+		}
 	}
 	return fmt.Sprintf("\n--- Begin FundingSignAccept ---\n") +
 		fmt.Sprintf("ReservationID:\t\t%d\n", c.ReservationID) +

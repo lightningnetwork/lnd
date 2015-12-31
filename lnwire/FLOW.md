@@ -39,3 +39,24 @@ Funding Transaction. This is provided as a courtesy, it cannot be relied upon
 with non-cooperative channel counterparties and the Funding Transaction can be
 braodcast without this message being received by the requester. After the
 necessary number of confirmations, Lightning Network transactions can proceed.
+
+
+Cooperative Channel Close
+=========================
+
+This is when either party want to close out a channel with the current balance.
+Requires the cooperation of both parites for this type. In the event of
+non-cooperation, either party may broadcast the most recent Commitment
+Transaction.
+
+Close Channel
+-------------
+One party unilaterally sends their sig to the other party. No further channel
+updates are possible. In the future, we might include HTLCs in the outputs, but
+for now, we're assuming *all* HTLCs are cleared out.
+
+Close Channel Complete
+----------------------
+Returns the Txid as a courtesy. The counterparty may not send this if they're
+being non-cooperative.
+

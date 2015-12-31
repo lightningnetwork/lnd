@@ -78,7 +78,7 @@ type OpenChannel struct {
 	// Current revocation for their commitment transaction. However, since
 	// this is the hash, and not the pre-image, we can't yet verify that
 	// it's actually in the chain.
-	TheirCurrentRevocation [wire.HashSize]byte
+	TheirCurrentRevocation [20]byte
 	TheirShaChain          *shachain.HyperShaChain
 	OurShaChain            *shachain.HyperShaChain
 

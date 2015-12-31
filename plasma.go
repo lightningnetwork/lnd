@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -36,7 +37,7 @@ func main() {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		os.Exit(1)
 	}
-
+	lnwallet.Unlock(cf.PrivatePass, time.Duration(0))
 	fmt.Println("wallet open")
 
 	// Initialize, and register our implementation of the gRPC server.

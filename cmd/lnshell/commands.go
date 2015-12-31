@@ -57,7 +57,14 @@ func LnConnect(args []string) error {
 // LnListen listens on the default port for incoming connections
 func LnListen(args []string) error {
 
-	fmt.Printf("will start TCP port listener\n")
+	req := new(lnrpc.TCPListenRequest)
+	req.Hostport = "0.0.0.0:2448"
+	_, err := z.TCPListen(stub, req)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("started TCP port listener\n")
 	return nil
 }
 

@@ -21,6 +21,8 @@ var (
 	closedChannelBucket = []byte("c")
 	activeChanKey       = []byte("a")
 
+	identityKey = []byte("idkey")
+
 	// TODO(roasbeef): replace w/ tesnet-L also revisit dependancy...
 	ActiveNetParams = &chaincfg.TestNet3Params
 )
@@ -93,6 +95,35 @@ type OpenChannel struct {
 	TotalSatoshisSent     uint64
 	TotalSatoshisReceived uint64
 	CreationTime          time.Time
+}
+
+// These don't really belong here but not sure which other file to put them yet.
+// PutIdKey saves the private key used for
+func (c *DB) PutIdKey(priv *btcec.PrivateKey) error {
+	return c.namespace.Update(func(tx walletdb.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		rootBucket := tx.RootBucket()
+		return rootBucket.Put(identityKey, priv.Serialize())
+	})
+}
+
+// GetIdKey returns the IdKey
+func (c *DB) GetIdKey() (*btcec.PrivateKey, error) {
+	var privbytes []byte
+	err := c.namespace.View(func(tx walletdb.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		rootBucket := tx.RootBucket()
+		privbytes = rootBucket.Get(identityKey)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), privbytes)
+	return priv, nil
 }
 
 // PutOpenChannel...

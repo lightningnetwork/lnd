@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"log"
+	"net"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"golang.org/x/net/context"
+	"li.lan/labs/plasma/lndc"
 	"li.lan/labs/plasma/lnrpc"
 	"li.lan/labs/plasma/lnwallet"
 )
@@ -70,6 +73,17 @@ func (r *rpcServer) LNConnect(ctx context.Context,
 // TCPListen
 func (r *rpcServer) TCPListen(ctx context.Context,
 	in *lnrpc.TCPListenRequest) (*lnrpc.TCPListenResponse, error) {
+	// LnListen listens on the default port for incoming connections
+	//ignore args and launch listener goroutine
+
+	priv, err := r.lnwallet.ChannelDB.GetIdKey()
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("got a private key. %x\n", priv.Serialize())
+
+	//	go TCPListener()
 
 	resp := new(lnrpc.TCPListenResponse)
 	return resp, nil
@@ -81,4 +95,45 @@ func (r *rpcServer) LNChat(ctx context.Context,
 	log.Printf("requested to chat, message: %s\n", in.Msg)
 	resp := new(lnrpc.LnChatResponse)
 	return resp, nil
+}
+
+func TCPListener() {
+	listener, err := net.Listen("tcp", ":"+"2448")
+	if err != nil {
+		fmt.Printf("TCP listen error: %s\n", err.Error())
+		return
+	}
+
+	fmt.Printf("Listening on %s\n", listener.Addr().String())
+	for {
+		con, err := listener.Accept() // this blocks
+		if err != nil {
+			log.Printf("Listener error: %s\n", err.Error())
+			continue
+		}
+		newConn, err := InitIncomingConn(con)
+		if err != nil {
+			fmt.Printf("InitConn error: %s\n", err.Error())
+			continue
+		}
+		idslice := lndc.H160(newConn.RemotePub.SerializeCompressed())
+		var newId [16]byte
+		copy(newId[:], idslice[:16])
+		//		CnMap[newId] = newConn
+		fmt.Printf("added %x to map\n", newId)
+		//		go LNDCReceiver(newConn, newId)
+	}
+}
+
+func InitIncomingConn(con net.Conn) (*lndc.LNDConn, error) {
+	LNcon := new(lndc.LNDConn)
+	LNcon.Cn = con
+	err := LNcon.Setup(nil)
+	if err != nil {
+		return LNcon, err
+	}
+	fmt.Printf("Got connection from %s authed with pubkey %x",
+		LNcon.Cn.RemoteAddr().String(), LNcon.RemotePub.SerializeCompressed())
+	return LNcon, nil
+
 }

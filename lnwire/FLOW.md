@@ -51,12 +51,12 @@ Transaction.
 
 Close Channel
 -------------
-One party unilaterally sends their sig to the other party. No further channel
-updates are possible. In the future, we might include HTLCs in the outputs, but
-for now, we're assuming *all* HTLCs are cleared out.
+One party unilaterally sends their sig and fee amount to the other party. No
+further channel updates are possible. In the future, we might include HTLCs in
+the outputs, but for now, we're assuming *all* HTLCs are cleared out.
 
 Close Channel Complete
 ----------------------
-Returns the Txid as a courtesy. The counterparty may not send this if they're
-being non-cooperative.
+Returns the Txid and sig as a courtesy. The counterparty might not send this if
+they're being non-cooperative.
 

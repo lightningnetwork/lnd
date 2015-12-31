@@ -21,8 +21,8 @@ type FundingRequest struct {
 	//(This can be used to fund the Reserve)
 	//If the responder disagrees, then the funding request fails
 	//THIS VALUE GOES INTO THE RESPONDER'S FUNDING AMOUNT
-	//total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change"
-	//RequesterFundingAmount = "Available Balance" - RequesterReserveAmount
+	//total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change" + Fees(?)
+	//RequesterFundingAmount = "Available Balance" + RequesterReserveAmount
 	PaymentAmount btcutil.Amount
 
 	//Minimum number of confirmations to validate transaction

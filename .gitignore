@@ -31,5 +31,6 @@ cmd/cmd
 **.hex
 
 cmd/lncli/lncli
+cmd/lnshell/lnshell
 
 test_wal/*

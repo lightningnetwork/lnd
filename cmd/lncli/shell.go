@@ -6,14 +6,24 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/codegangsta/cli"
 	"google.golang.org/grpc"
-	"li.lan/labs/plasma/lnrpc"
 )
 
 func shell(z *cli.Context) {
 	fmt.Printf("LN shell v0.0FTW\n")
+	//	opts := []grpc.DialOption{grpc.WithInsecure()}
+	//	conn, err := grpc.Dial("localhost:10000", opts...)
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	state, err := conn.State()
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//	fmt.Printf("connection state: %s\n", state.String())
 	for {
 		reader := bufio.NewReaderSize(os.Stdin, 4000)
 		fmt.Printf("->")
@@ -47,7 +57,6 @@ func Shellparse(cmdslice []string) error {
 	//		Help()
 	//		return nil
 	//	}
-
 	//	if cmd == "pbx" {
 	//		err = PbxConnect(args)
 	//		if err != nil {
@@ -121,15 +130,20 @@ func RpcConnect(args []string) error {
 		return err
 	}
 	fmt.Printf("connection state: %s\n", state.String())
-
-	lnClient := lnrpc.NewLightningClient(conn)
+	time.Sleep(time.Second * 2)
+	//	lnClient := lnrpc.NewLightningClient(conn)
 	//	lnClient.NewAddress(nil, nil, nil) // crashes
+
+	state, err = conn.State()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("connection state: %s\n", state.String())
 
 	err = conn.Close()
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 

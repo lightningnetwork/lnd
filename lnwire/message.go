@@ -49,6 +49,10 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &FundingSignAccept{}
 	case CmdFundingSignComplete:
 		msg = &FundingSignComplete{}
+	case CmdCloseRequest:
+		msg = &CloseRequest{}
+	case CmdCloseComplete:
+		msg = &CloseComplete{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

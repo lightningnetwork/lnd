@@ -85,7 +85,7 @@ func SerializeTest(t *testing.T, message Message, expectedString string, filenam
 	if err != nil {
 		t.Errorf(err.Error())
 	} else {
-		t.Logf("Encoded Funding Request: %x\n", b.Bytes())
+		t.Logf("Encoded Bytes: %x\n", b.Bytes())
 		//Check if we serialized correctly
 		if expectedString != hex.EncodeToString(b.Bytes()) {
 			t.Error("Serialization does not match expected")

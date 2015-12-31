@@ -76,13 +76,21 @@ func (r *rpcServer) TCPListen(ctx context.Context,
 	// LnListen listens on the default port for incoming connections
 	//ignore args and launch listener goroutine
 
-	priv, err := r.lnwallet.ChannelDB.GetIdKey()
+	adr, err := r.lnwallet.ChannelDB.GetIdAdr()
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Printf("got a private key. %x\n", priv.Serialize())
-
+	fmt.Printf("got ID address: %s\n", adr.String())
+	adr2, err := r.lnwallet.Manager.Address(adr)
+	if err != nil {
+		return nil, err
+	}
+	priv, err := adr2.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("got privkey %x\n", priv.Serialize())
 	//	go TCPListener()
 
 	resp := new(lnrpc.TCPListenResponse)

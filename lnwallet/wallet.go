@@ -285,7 +285,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 		if err != nil {
 			return nil, err
 		}
-		priv, err := adrs[0].(waddrmgr.ManagedPubKeyAddress).PrivKey()
+		idPubkeyHash := adrs[0].Address().ScriptAddress()
 		if err != nil {
 			return nil, err
 		}
@@ -294,11 +294,11 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 			return nil, err
 		}
 		cdb := channeldb.New(wallet.Manager, lnNamespace)
-		err = cdb.PutIdKey(priv)
+		err = cdb.PutIdKey(idPubkeyHash)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("stored private identity key in channeldb\n")
+		fmt.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
 	// Wallet has been created and been initialized at this point, open it

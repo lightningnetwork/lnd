@@ -99,31 +99,30 @@ type OpenChannel struct {
 
 // These don't really belong here but not sure which other file to put them yet.
 // PutIdKey saves the private key used for
-func (c *DB) PutIdKey(priv *btcec.PrivateKey) error {
+func (c *DB) PutIdKey(pkh []byte) error {
 	return c.namespace.Update(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		rootBucket := tx.RootBucket()
-		return rootBucket.Put(identityKey, priv.Serialize())
+		return rootBucket.Put(identityKey, pkh)
 	})
 }
 
 // GetIdKey returns the IdKey
-func (c *DB) GetIdKey() (*btcec.PrivateKey, error) {
-	var privbytes []byte
+func (c *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
+	var pkh []byte
 	err := c.namespace.View(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		rootBucket := tx.RootBucket()
-		privbytes = rootBucket.Get(identityKey)
+		pkh = rootBucket.Get(identityKey)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), privbytes)
-	return priv, nil
+	fmt.Printf("identity key has length %d\n", len(pkh))
+	return btcutil.NewAddressPubKeyHash(pkh, ActiveNetParams)
 }
 
 // PutOpenChannel...

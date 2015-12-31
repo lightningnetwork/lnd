@@ -27,6 +27,9 @@ func getClient(ctx *cli.Context) lnrpc.LightningClient {
 
 func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 	// TODO(roasbeef): macaroon based auth
+	// * http://www.grpc.io/docs/guides/auth.html
+	// * http://research.google.com/pubs/pub41892.html
+	// * https://github.com/go-macaroon/macaroon
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 
 	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)

@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,9 +135,15 @@ func openDb(directory string, dbname string) (walletdb.DB, error) {
 	if err := checkCreateDir(directory); err != nil {
 		return nil, err
 	}
-
+	log.Printf("checkCreateDir(directory) returned\n")
+	log.Printf("freezes here?\n")
 	// Open the database using the boltdb backend.
-	return walletdb.Open("bdb", dbPath)
+	wdb, err := walletdb.Open("bdb", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("walletdb.Open() returned\n")
+	return wdb, nil
 }
 
 // promptSeed is used to prompt for the wallet seed which maybe required during
@@ -194,16 +201,17 @@ func openWallet(pubPass []byte, dbDir string) (*wallet.Wallet, walletdb.DB, erro
 	if err != nil {
 		return nil, nil, fmt.Errorf("Failed to open database: %v", err)
 	}
-
+	log.Printf("openDb returned\n")
 	addrMgrNS, err := db.Namespace(waddrmgrNamespaceKey)
 	if err != nil {
 		return nil, nil, err
 	}
+	log.Printf("db.Namespace(waddrmgrNamespaceKey) returned\n")
 	txMgrNS, err := db.Namespace(wtxmgrNamespaceKey)
 	if err != nil {
 		return nil, nil, err
 	}
-
+	log.Printf("db.Namespace(wtxmgrNamespaceKey) returned\n")
 	// TODO(roasbeef): pass these in as funcs instead, priv pass already
 	// loaded into memory, use tadge's format to read HD seed.
 	cbs := &waddrmgr.OpenCallbacks{
@@ -212,5 +220,6 @@ func openWallet(pubPass []byte, dbDir string) (*wallet.Wallet, walletdb.DB, erro
 	}
 	w, err := wallet.Open(pubPass, ActiveNetParams, db, addrMgrNS, txMgrNS,
 		cbs)
+	log.Printf("wallet.Open returned\n")
 	return w, db, err
 }

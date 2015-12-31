@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -269,18 +270,18 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, err
 		}
-
+		log.Printf("createWallet returned\n")
 		// open wallet to initialize and create id key
 		wallet, db, err := openWallet(pubPass, netDir)
 		if err != nil {
 			return nil, err
 		}
-
+		log.Printf("openWallet returned\n")
 		err = wallet.Manager.Unlock(config.PrivatePass)
 		if err != nil {
 			return nil, err
 		}
-
+		log.Printf("Unlock returned\n")
 		adrs, err := wallet.Manager.NextInternalAddresses(0, 1)
 		if err != nil {
 			return nil, err
@@ -298,7 +299,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("stored identity key pubkey hash in channeldb\n")
+		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
 	// Wallet has been created and been initialized at this point, open it

@@ -4,9 +4,18 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+)
+
+var (
+	// TODO(roasbeef): remove these and use the one's defined in txscript
+	// within testnet-L.
+	SequenceLockTimeSeconds      = uint32(1 << 22)
+	SequenceLockTimeMask         = uint32(0x0000ffff)
+	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
 )
 
 // scriptHashPkScript generates a pay-to-script-hash public key script paying
@@ -102,4 +111,125 @@ func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	}
 
 	return found, index
+}
+
+// senderHTLCScript...
+func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
+	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Was the pre-image to the payment hash presented?
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddData(paymentHash)
+	builder.AddOp(txscript.OP_EQUAL)
+
+	// How about the pre-image for our commitment revocation hash?
+	builder.AddOp(txscript.OP_SWAP)
+	builder.AddData(revokeHash)
+	builder.AddOp(txscript.OP_EQUAL)
+	builder.AddOp(txscript.OP_SWAP)
+	builder.AddOp(txscript.OP_ADD)
+
+	// If either is present, then the receiver can claim immediately.
+	builder.AddOp(txscript.OP_IF)
+	builder.AddData(receiverKey.SerializeCompressed())
+
+	// Otherwise, we (the sender) need to wait for an absolute HTLC
+	// timeout, then afterwards a relative timeout before we claim re-claim
+	// the unsettled funds.
+	builder.AddOp(txscript.OP_ELSE)
+	builder.AddInt64(int64(absoluteTimeout))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddInt64(int64(relativeTimeout))
+	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_2DROP)
+	builder.AddData(senderKey.SerializeCompressed())
+	builder.AddOp(txscript.OP_ENDIF)
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
+// receiverHTLCScript...
+func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
+	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Was the pre-image to the payment hash presented?
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddData(paymentHash)
+	builder.AddOp(txscript.OP_EQUAL)
+	builder.AddOp(txscript.OP_IF)
+
+	// If so, let the receiver redeem after a relative timeout.
+	builder.AddInt64(int64(relativeTimeout))
+	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_2DROP)
+	builder.AddData(receiverKey.SerializeCompressed())
+
+	// Otherwise, if the sender has the revocation pre-image to the
+	// receiver's commitment transactions, then let them claim the
+	// funds immediately.
+	builder.AddOp(txscript.OP_ELSE)
+	builder.AddData(revokeHash)
+	builder.AddOp(txscript.OP_EQUAL)
+
+	// If not, then the sender needs to wait for the HTLC timeout.
+	builder.AddOp(txscript.OP_NOTIF)
+	builder.AddInt64(int64(absoluteTimeout))
+	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddOp(txscript.OP_ENDIF)
+
+	builder.AddData(senderKey.SerializeCompressed())
+
+	builder.AddOp(txscript.OP_ENDIF)
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
+// commitScriptToSelf...
+func commitScriptToSelf(csvTimeout uint32, selfKey, theirKey *btcec.PublicKey, revokeHash []byte) ([]byte, error) {
+	// This script is spendable under two conditions: either the 'csvTimeout'
+	// has passed and we can redeem our funds, or they have the pre-image
+	// to 'revokeHash'.
+	builder := txscript.NewScriptBuilder()
+
+	// If the pre-image for the revocation hash is presented, then allow a
+	// spend provided the proper signature.
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(revokeHash)
+	builder.AddOp(txscript.OP_EQUAL)
+	builder.AddOp(txscript.OP_IF)
+	builder.AddData(theirKey.SerializeCompressed())
+	builder.AddOp(txscript.OP_ELSE)
+
+	// Otherwise, we can re-claim our funds after a CSV delay of
+	// 'csvTimeout' timeout blocks, and a valid signature.
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddData(selfKey.SerializeCompressed())
+	builder.AddOp(txscript.OP_ENDIF)
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
+// commitScriptUnencumbered...
+func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+	// This script goes to the "other" party, and it spendable immediately.
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
+	builder.AddOp(txscript.OP_EQUALVERIFY)
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
 }

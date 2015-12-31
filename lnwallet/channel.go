@@ -16,11 +16,6 @@ import (
 const (
 	// TODO(roasbeef): make not random value
 	MaxPendingPayments = 10
-
-	// TODO(roasbeef): remove these and use the one's defined in txscript
-	// within testnet-L.
-	SequenceLockTimeSeconds = uint32(1 << 22)
-	SequenceLockTimeMask    = uint32(0x0000ffff)
 )
 
 // LightningChannel...

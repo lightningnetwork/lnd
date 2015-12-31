@@ -67,7 +67,7 @@ var (
 	sigStr2, _          = txscript.RawTxInSignature(tx, 0, *emptybytes, txscript.SigHashAll, sig2privKey)
 	commitSig2, _       = btcec.ParseSignature(sigStr2, btcec.S256())
 	//Slice of Funding TX Sigs
-	fundingTXSigs = append(*new([]btcec.Signature), *commitSig1, *commitSig2)
+	ptrFundingTXSigs = append(*new([]*btcec.Signature), commitSig1, commitSig2)
 
 	//TxID
 	txid = new(wire.ShaHash)

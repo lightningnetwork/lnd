@@ -11,7 +11,7 @@ type FundingSignComplete struct {
 	ReservationID uint64
 
 	TxID          *wire.ShaHash
-	FundingTXSigs *[]btcec.Signature
+	FundingTXSigs []*btcec.Signature
 }
 
 func (c *FundingSignComplete) Decode(r io.Reader, pver uint32) error {
@@ -71,9 +71,9 @@ func (c *FundingSignComplete) Validate() error {
 
 func (c *FundingSignComplete) String() string {
 	var sigs string
-	for i, in := range *c.FundingTXSigs {
+	for i, in := range c.FundingTXSigs {
 		sigs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		if &in != nil && in.R != nil {
+		if in != nil {
 			sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
 		}
 	}

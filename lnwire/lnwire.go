@@ -66,8 +66,8 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 		return nil
-	case *[]btcec.Signature:
-		numSigs := len(*e)
+	case []*btcec.Signature:
+		numSigs := len(e)
 		if numSigs > 127 {
 			return fmt.Errorf("Too many signatures!")
 		}
@@ -78,7 +78,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		//Write the data
 		for i := 0; i < numSigs; i++ {
-			err = writeElement(w, &(*e)[i])
+			err = writeElement(w, e[i])
 			if err != nil {
 				return err
 			}
@@ -151,22 +151,29 @@ func writeElement(w io.Writer, element interface{}) error {
 		//Append the actual TxIns (Size: NumOfTxins * 36)
 		//Do not include the sequence number to eliminate funny business
 		for _, in := range e {
-			//Hash
-			var h [32]byte
-			copy(h[:], in.PreviousOutPoint.Hash.Bytes())
-			_, err = w.Write(h[:])
-			if err != nil {
-				return err
-			}
-			//Index
-			var idx [4]byte
-			binary.BigEndian.PutUint32(idx[:], in.PreviousOutPoint.Index)
-			_, err = w.Write(idx[:])
+			err = writeElement(w, in)
 			if err != nil {
 				return err
 			}
 		}
 		return nil
+	case *wire.TxIn:
+		//Hash
+		var h [32]byte
+		copy(h[:], e.PreviousOutPoint.Hash.Bytes())
+		_, err = w.Write(h[:])
+		if err != nil {
+			return err
+		}
+		//Index
+		var idx [4]byte
+		binary.BigEndian.PutUint32(idx[:], e.PreviousOutPoint.Index)
+		_, err = w.Write(idx[:])
+		if err != nil {
+			return err
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("Unknown type in writeElement: %T", e)
 	}
@@ -239,7 +246,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = &*x
 		return nil
-	case **[]btcec.Signature:
+	case *[]*btcec.Signature:
 		var numSigs uint8
 		err = readElement(r, &numSigs)
 		if err != nil {
@@ -250,16 +257,16 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		//Read that number of signatures
-		var sigs []btcec.Signature
+		var sigs []*btcec.Signature
 		for i := uint8(0); i < numSigs; i++ {
 			sig := new(btcec.Signature)
 			err = readElement(r, &sig)
 			if err != nil {
 				return err
 			}
-			sigs = append(sigs, *sig)
+			sigs = append(sigs, sig)
 		}
-		*e = &sigs
+		*e = *&sigs
 		return nil
 	case **btcec.Signature:
 		var sigLength uint8
@@ -337,28 +344,35 @@ func readElement(r io.Reader, element interface{}) error {
 		//Append the actual TxIns
 		var txins []*wire.TxIn
 		for i := uint8(0); i < numScripts; i++ {
-			//Hash
-			var h [32]byte
-			_, err = io.ReadFull(r, h[:])
+			outpoint := new(wire.OutPoint)
+			txin := wire.NewTxIn(outpoint, nil)
+			err = readElement(r, &txin)
 			if err != nil {
 				return err
 			}
-			shaHash, err := wire.NewShaHash(h[:])
-			if err != nil {
-				return err
-			}
-			//Index
-			var idxBytes [4]byte
-			_, err = io.ReadFull(r, idxBytes[:])
-			if err != nil {
-				return err
-			}
-			index := binary.BigEndian.Uint32(idxBytes[:])
-			outPoint := wire.NewOutPoint(shaHash, index)
-			txins = append(txins, wire.NewTxIn(outPoint, nil))
-
+			txins = append(txins, txin)
 		}
 		*e = *&txins
+		return nil
+	case **wire.TxIn:
+		//Hash
+		var h [32]byte
+		_, err = io.ReadFull(r, h[:])
+		if err != nil {
+			return err
+		}
+		hash, err := wire.NewShaHash(h[:])
+		(*e).PreviousOutPoint.Hash = *hash
+		if err != nil {
+			return err
+		}
+		//Index
+		var idxBytes [4]byte
+		_, err = io.ReadFull(r, idxBytes[:])
+		if err != nil {
+			return err
+		}
+		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)

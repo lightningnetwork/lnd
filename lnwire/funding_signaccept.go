@@ -10,7 +10,7 @@ type FundingSignAccept struct {
 	ReservationID uint64
 
 	CommitSig     *btcec.Signature //Requester's Commitment
-	FundingTXSigs *[]btcec.Signature
+	FundingTXSigs []*btcec.Signature
 }
 
 func (c *FundingSignAccept) Decode(r io.Reader, pver uint32) error {
@@ -71,9 +71,9 @@ func (c *FundingSignAccept) Validate() error {
 
 func (c *FundingSignAccept) String() string {
 	var sigs string
-	for i, in := range *c.FundingTXSigs {
+	for i, in := range c.FundingTXSigs {
 		sigs += fmt.Sprintf("\n     Slice\t%d\n", i)
-		if &in != nil && in.R != nil {
+		if in != nil {
 			sigs += fmt.Sprintf("\tSig\t%x\n", in.Serialize())
 		}
 	}

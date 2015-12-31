@@ -601,7 +601,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		return
 	}
 	reservation.partialState.OurShaChain = shaChain
-	ourContribution.RevocationHash = shaChain.CurrentRevocationHash()
+	copy(ourContribution.RevocationHash[:], shaChain.CurrentRevocationHash())
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -720,11 +720,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// transaction. Only signatures will be exchanged.
 	txsort.InPlaceSort(pendingReservation.partialState.FundingTx)
 
-	// Now that the transaction has been cannonically sorted, compute the
-	// normalized transation ID before we attach our signatures.
-	// TODO(roasbeef): this isn't the normalized txid, this isn't recursive...
-	// pendingReservation.normalizedTxID = pendingReservation.fundingTx.TxSha()
-
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
 	pendingReservation.ourFundingSigs = make([][]byte, 0, len(ourContribution.Inputs))
@@ -778,8 +773,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Grab the hash of the current pre-image in our chain, this is needed
 	// for our commitment tx.
 	// TODO(roasbeef): grab partial state above to avoid long attr chain
-	ourCurrentRevokeHash := pendingReservation.partialState.OurShaChain.CurrentRevocationHash()
-	ourContribution.RevocationHash = ourCurrentRevokeHash
+	ourCurrentRevokeHash := pendingReservation.ourContribution.RevocationHash
 
 	// Create the txIn to our commitment transaction. In the process, we
 	// need to locate the index of the multi-sig output on the funding tx
@@ -795,6 +789,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	theirCommitKey := theirContribution.CommitKey
 	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		ourCurrentRevokeHash, theirContribution.CsvDelay, initialBalance)
+		ourCurrentRevokeHash[:], theirContribution.CsvDelay,
 	if err != nil {
 		req.err <- err
 		return

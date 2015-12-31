@@ -788,18 +788,25 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	ourCommitKey := ourContribution.CommitKey
 	theirCommitKey := theirContribution.CommitKey
 	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		ourCurrentRevokeHash, theirContribution.CsvDelay, initialBalance)
 		ourCurrentRevokeHash[:], theirContribution.CsvDelay,
+		initialBalance, initialBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		theirContribution.RevocationHash, theirContribution.CsvDelay, initialBalance)
+		theirContribution.RevocationHash[:], theirContribution.CsvDelay,
+		initialBalance, initialBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
+
+	// Sort both transactions according to the agreed upon cannonical
+	// ordering. This lets us skip sending the entire transaction over,
+	// instead we'll just send signatures.
+	txsort.InPlaceSort(ourCommitTx)
+	txsort.InPlaceSort(theirCommitTx)
 
 	// Record newly available information witin the open channel state.
 	pendingReservation.partialState.CsvDelay = theirContribution.CsvDelay

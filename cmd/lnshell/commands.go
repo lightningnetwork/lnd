@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"li.lan/labs/plasma/lnrpc"
 )
 
 // connects via grpc to the ln node.  default (hardcoded?) local:10K
@@ -38,7 +39,18 @@ func RpcConnect(args []string) error {
 }
 
 func LnConnect(args []string) error {
-	fmt.Printf("lnconnect, %d args\n", len(args))
+	//	var err error
+	if len(args) == 0 {
+		return fmt.Errorf("need: lnc pubkeyhash@hostname or pkh (via pbx)")
+	}
+
+	req := new(lnrpc.LNConnectRequest)
+	req.IdAtHost = args[0]
+	resp, err := z.LNConnect(stub, req)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("connected.  remote lnid is %x\n", resp.LnID)
 	return nil
 }
 
@@ -59,5 +71,13 @@ func LnChat(args []string) error {
 	//	msg := append([]byte{lnwire.MSGID_TEXTCHAT}, []byte(chat)...)
 
 	fmt.Printf("will send text message: %s\n", chat)
+	req := new(lnrpc.LnChatRequest)
+	req.DestID = []byte("testID")
+	req.Msg = chat
+	_, err := z.LNChat(stub, req)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("got response but there's nothing in it\n")
 	return nil
 }

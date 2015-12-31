@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"log"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -54,4 +55,30 @@ func (r *rpcServer) NewAddress(ctx context.Context, in *lnrpc.NewAddressRequest)
 	}
 
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
+}
+
+// LNConnect
+func (r *rpcServer) LNConnect(ctx context.Context,
+	in *lnrpc.LNConnectRequest) (*lnrpc.LnConnectResponse, error) {
+
+	resp := new(lnrpc.LnConnectResponse)
+	resp.LnID = []byte("ya")
+
+	return resp, nil
+}
+
+// TCPListen
+func (r *rpcServer) TCPListen(ctx context.Context,
+	in *lnrpc.TCPListenRequest) (*lnrpc.TCPListenResponse, error) {
+
+	resp := new(lnrpc.TCPListenResponse)
+	return resp, nil
+}
+
+// LNChat
+func (r *rpcServer) LNChat(ctx context.Context,
+	in *lnrpc.LnChatRequest) (*lnrpc.LnChatResponse, error) {
+	log.Printf("requested to chat, message: %s\n", in.Msg)
+	resp := new(lnrpc.LnChatResponse)
+	return resp, nil
 }

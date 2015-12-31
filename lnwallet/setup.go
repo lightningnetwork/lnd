@@ -121,7 +121,15 @@ func createWallet(privPass, pubPass, userSeed []byte,
 		return err
 	}
 
-	manager.Close()
+	err = manager.Close()
+	if err != nil {
+		return err
+	}
+	err = db.Close()
+	if err != nil {
+		return err
+	}
+
 	fmt.Println("The lnwallet has been created successfully.")
 	return nil
 }

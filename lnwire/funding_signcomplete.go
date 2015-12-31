@@ -15,8 +15,8 @@ type FundingSignComplete struct {
 }
 
 func (c *FundingSignComplete) Decode(r io.Reader, pver uint32) error {
-	//ReservationID (0/8)
-	//TxID
+	//ReservationID (8)
+	//TxID (32)
 	//FundingTXSigs
 	//	First byte is number of FundingTxSigs
 	//	Sorted list of the requester's input signatures
@@ -40,9 +40,6 @@ func NewFundingSignComplete() *FundingSignComplete {
 //Serializes the item from the FundingSignComplete struct
 //Writes the data to w
 func (c *FundingSignComplete) Encode(w io.Writer, pver uint32) error {
-	//ReservationID (8)
-	//CommitSig
-	//FundingTxSigs
 	err := writeElements(w,
 		c.ReservationID,
 		c.TxID,

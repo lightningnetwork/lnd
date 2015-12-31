@@ -14,8 +14,8 @@ type FundingSignAccept struct {
 }
 
 func (c *FundingSignAccept) Decode(r io.Reader, pver uint32) error {
-	//ReservationID (0/8)
-	//CommitSig
+	//ReservationID (8)
+	//CommitSig (73)
 	//	First byte length then sig
 	//FundingTXSigs
 	//	First byte is number of FundingTxSigs
@@ -40,7 +40,7 @@ func NewFundingSignAccept() *FundingSignAccept {
 //Serializes the item from the FundingSignAccept struct
 //Writes the data to w
 func (c *FundingSignAccept) Encode(w io.Writer, pver uint32) error {
-	//ReservationID (8)
+	//ReservationID
 	//CommitSig
 	//FundingTxSigs
 	err := writeElements(w,

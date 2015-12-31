@@ -362,10 +362,10 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		hash, err := wire.NewShaHash(h[:])
-		(*e).PreviousOutPoint.Hash = *hash
 		if err != nil {
 			return err
 		}
+		(*e).PreviousOutPoint.Hash = *hash
 		//Index
 		var idxBytes [4]byte
 		_, err = io.ReadFull(r, idxBytes[:])

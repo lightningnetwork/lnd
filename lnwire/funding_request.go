@@ -20,6 +20,9 @@ type FundingRequest struct {
 	//which is a payment to the responder
 	//(This can be used to fund the Reserve)
 	//If the responder disagrees, then the funding request fails
+	//THIS VALUE GOES INTO THE RESPONDER'S FUNDING AMOUNT
+	//total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change"
+	//RequesterFundingAmount = "Available Balance" - RequesterReserveAmount
 	PaymentAmount btcutil.Amount
 
 	//Minimum number of confirmations to validate transaction
@@ -168,10 +171,6 @@ func (c *FundingRequest) Validate() error {
 	//This wallet only allows payment from the requester to responder
 	if c.PaymentAmount < 0 {
 		return fmt.Errorf("This wallet requieres payment to be greater than zero.")
-	}
-	//The payment must be below our own contribution (less reserve kept for ourselves
-	if c.PaymentAmount > c.RequesterFundingAmount-c.RequesterReserveAmount {
-		return fmt.Errorf("Payment too large")
 	}
 
 	//Make sure there's not more than 127 inputs

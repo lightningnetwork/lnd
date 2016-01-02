@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"golang.org/x/net/context"
@@ -19,15 +20,20 @@ var (
 )
 
 // rpcServer...
-type rpcServer struct {
-	lnwallet *lnwallet.LightningWallet
+type rpcServer struct { // doesn't count as globals I think
+	lnwallet *lnwallet.LightningWallet // interface to the bitcoin network
+	CnMap    map[[16]byte]net.Conn     //interface to the lightning network
+	OmniChan chan []byte               // channel for all incoming messages from LN nodes.
+	// can split the OmniChan up if that is helpful.  So far 1 seems OK.
 }
 
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
 // newRpcServer...
 func newRpcServer(wallet *lnwallet.LightningWallet) *rpcServer {
-	return &rpcServer{wallet}
+	return &rpcServer{wallet,
+		make(map[[16]byte]net.Conn), // initialize with empty CnMap
+		make(chan []byte)}           // init OmniChan (size 1 ok...?)
 }
 
 // SendMany...
@@ -70,19 +76,13 @@ func (r *rpcServer) LNConnect(ctx context.Context,
 	return resp, nil
 }
 
-// TCPListen
-func (r *rpcServer) TCPListen(ctx context.Context,
-	in *lnrpc.TCPListenRequest) (*lnrpc.TCPListenResponse, error) {
-	// LnListen listens on the default port for incoming connections
-	//ignore args and launch listener goroutine
-
-	adr, err := r.lnwallet.ChannelDB.GetIdAdr()
+func getPriv(l *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
+	adr, err := l.ChannelDB.GetIdAdr()
 	if err != nil {
 		return nil, err
 	}
-
 	fmt.Printf("got ID address: %s\n", adr.String())
-	adr2, err := r.lnwallet.Manager.Address(adr)
+	adr2, err := l.Manager.Address(adr)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,20 @@ func (r *rpcServer) TCPListen(ctx context.Context,
 		return nil, err
 	}
 	fmt.Printf("got privkey %x\n", priv.Serialize())
-	//	go TCPListener()
+	return priv, nil
+}
+
+// TCPListen
+func (r *rpcServer) TCPListen(ctx context.Context,
+	in *lnrpc.TCPListenRequest) (*lnrpc.TCPListenResponse, error) {
+	// LnListen listens on the default port for incoming connections
+	//ignore args and launch listener goroutine
+	priv, err := getPriv(r.lnwallet)
+	if err != nil {
+		return nil, err
+	}
+
+	go TCPListener(priv, r)
 
 	resp := new(lnrpc.TCPListenResponse)
 	return resp, nil
@@ -105,7 +118,7 @@ func (r *rpcServer) LNChat(ctx context.Context,
 	return resp, nil
 }
 
-func TCPListener() {
+func TCPListener(priv *btcec.PrivateKey, r *rpcServer) {
 	listener, err := net.Listen("tcp", ":"+"2448")
 	if err != nil {
 		fmt.Printf("TCP listen error: %s\n", err.Error())
@@ -119,7 +132,7 @@ func TCPListener() {
 			log.Printf("Listener error: %s\n", err.Error())
 			continue
 		}
-		newConn, err := InitIncomingConn(con)
+		newConn, err := InitIncomingConn(priv, con)
 		if err != nil {
 			fmt.Printf("InitConn error: %s\n", err.Error())
 			continue
@@ -127,16 +140,17 @@ func TCPListener() {
 		idslice := lndc.H160(newConn.RemotePub.SerializeCompressed())
 		var newId [16]byte
 		copy(newId[:], idslice[:16])
-		//		CnMap[newId] = newConn
+		r.CnMap[newId] = newConn
 		fmt.Printf("added %x to map\n", newId)
-		//		go LNDCReceiver(newConn, newId)
+
+		go LNDCReceiver(newConn, newId, r)
 	}
 }
 
-func InitIncomingConn(con net.Conn) (*lndc.LNDConn, error) {
+func InitIncomingConn(priv *btcec.PrivateKey, con net.Conn) (*lndc.LNDConn, error) {
 	LNcon := new(lndc.LNDConn)
 	LNcon.Cn = con
-	err := LNcon.Setup(nil)
+	err := LNcon.Setup(priv)
 	if err != nil {
 		return LNcon, err
 	}

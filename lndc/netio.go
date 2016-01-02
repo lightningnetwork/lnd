@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/codahale/chacha20poly1305"
 	"golang.org/x/crypto/ripemd160"
-	"li.lan/labs/strux/lnwire"
+	"li.lan/labs/plasma/lnwire"
 )
 
 /* good ol' OP_HASH160, which is just ripemd160(sha256(input)) */
@@ -61,6 +61,9 @@ Seesion is open!  Done!  Well not quite.  Session is confidential but not
 yet authenticated.  From here on, can use the Send() and Recv() functions with
 chacha20poly1305.
 ==========
+
+Nodes authenticate by doing a DH with their persistent identity keys, and then
+exchanging hash based proofs that they got the same shared IDDH secret.
 The DH proof is h160(remote eph pubkey, IDDH secret)
 A initiates auth.
 
@@ -83,7 +86,7 @@ session counterparty authenticated.
 
 A possible weakness of the DH proof is if B re-uses eph keys.  That potentially
 makes *A*'s proof weaker though.  A gets to choose the proof B creates.  As
-long as your software makes new eph keys each time, you should be
+long as your software makes new eph keys each time, you should be OK.
 */
 
 // Open creates and auths an lndc connections,

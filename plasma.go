@@ -43,6 +43,8 @@ func main() {
 	// Initialize, and register our implementation of the gRPC server.
 	var opts []grpc.ServerOption
 	rpcServer := newRpcServer(lnwallet)
+	// start message handler for incoming LN messages
+	go OmniHandler(rpcServer)
 	grpcServer := grpc.NewServer(opts...)
 	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
 

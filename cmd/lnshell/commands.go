@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -70,18 +71,29 @@ func LnListen(args []string) error {
 
 // For testing.  Syntax: lnhi hello world
 func LnChat(args []string) error {
+	var err error
+	if len(args) < 2 {
+		return fmt.Errorf("too short, need: lnhi 32hexcharLNID message.\n")
+	}
+	req := new(lnrpc.LnChatRequest)
+	req.DestID, err = hex.DecodeString(args[0])
+	if err != nil {
+		return err
+	}
+	if len(req.DestID) != 16 {
+		return fmt.Errorf("requested destination %x is %d bytes, expenct 16\n",
+			req.DestID, len(req.DestID))
+	}
 
 	var chat string
-	for _, s := range args {
+	for _, s := range args[1:] {
 		chat += s + " "
 	}
-	//	msg := append([]byte{lnwire.MSGID_TEXTCHAT}, []byte(chat)...)
 
-	fmt.Printf("will send text message: %s\n", chat)
-	req := new(lnrpc.LnChatRequest)
-	req.DestID = []byte("testID")
+	fmt.Printf("will send to %x text message: %s\n", req.DestID, chat)
+
 	req.Msg = chat
-	_, err := z.LNChat(stub, req)
+	_, err = z.LNChat(stub, req)
 	if err != nil {
 		return err
 	}

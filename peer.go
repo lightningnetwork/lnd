@@ -69,7 +69,7 @@ type peer struct {
 	//}
 
 	// TODO(roasbeef): akward import, just rename to Wallet?
-	wallet *lnwallet.LightningWallet
+	wallet *lnwallet.LightningWallet // (tadge: what is this for?)
 
 	// Only will be set if the channel is in the 'pending' state.
 	reservation *lnwallet.ChannelReservation

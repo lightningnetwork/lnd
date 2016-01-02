@@ -49,6 +49,7 @@ func OmniHandler(r *rpcServer) {
 			fmt.Printf("msg from %x: %s\n", from, msg[1:])
 			continue
 		}
+		// Based on MSGID, hand it off to functions
 		fmt.Printf("Unknown message id byte %x", msgid)
 		continue
 	}

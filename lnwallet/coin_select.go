@@ -9,8 +9,8 @@ import (
 	"github.com/btcsuite/btcutil/coinset"
 )
 
-// lnCoin...
-// to adhere to the coinset.Coin interface
+// lnCoin represents a single unspet output. Its purpose is to convert a regular
+// output to a struct adhering to the coinset.Coin interface
 type lnCoin struct {
 	hash     *wire.ShaHash
 	index    uint32
@@ -30,7 +30,8 @@ func (l *lnCoin) ValueAge() int64       { return l.valueAge }
 // Ensure lnCoin adheres to the coinset.Coin interface.
 var _ coinset.Coin = (*lnCoin)(nil)
 
-// newLnCoin...
+// newLnCoin creates a new "coin" from the passed output. Coins are required
+// in order to perform coin selection upon.
 func newLnCoin(output *btcjson.ListUnspentResult) (coinset.Coin, error) {
 	txid, err := wire.NewShaHashFromStr(output.TxID)
 	if err != nil {
@@ -55,7 +56,8 @@ func newLnCoin(output *btcjson.ListUnspentResult) (coinset.Coin, error) {
 	}, nil
 }
 
-// outputsToCoins...
+// outputsToCoins converts a slice of transaction outputs to a coin-selectable
+// slice of "Coins"s.
 func outputsToCoins(outputs []*btcjson.ListUnspentResult) ([]coinset.Coin, error) {
 	coins := make([]coinset.Coin, len(outputs))
 	for i, output := range outputs {

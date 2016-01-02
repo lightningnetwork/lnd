@@ -113,7 +113,8 @@ func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	return found, index
 }
 
-// senderHTLCScript...
+// senderHTLCScript constructs the public key script for an outgoing HTLC
+// output payment for the sender's commitment transaction.
 func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
 
@@ -138,7 +139,10 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 
 	// Otherwise, we (the sender) need to wait for an absolute HTLC
 	// timeout, then afterwards a relative timeout before we claim re-claim
-	// the unsettled funds.
+	// the unsettled funds. This delay gives the other party a chance to
+	// present the pre-image to the revocation hash in the event that the
+	// sender (at this time) broadcasts this commitment transaction after
+	// it has been revoked.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddInt64(int64(absoluteTimeout))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
@@ -152,7 +156,8 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	return builder.Script()
 }
 
-// receiverHTLCScript...
+// senderHTLCScript constructs the public key script for an incoming HTLC
+// output payment for the receiver's commitment transaction.
 func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
 
@@ -165,7 +170,10 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddOp(txscript.OP_EQUAL)
 	builder.AddOp(txscript.OP_IF)
 
-	// If so, let the receiver redeem after a relative timeout.
+	// If so, let the receiver redeem after a relative timeout. This added
+	// delay gives the sender (at this time) an opportunity to re-claim the
+	// pending HTLC in the event that the receiver (at this time) broadcasts
+	// this old commitment transaction after it has been revoked.
 	builder.AddInt64(int64(relativeTimeout))
 	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
 	builder.AddOp(txscript.OP_2DROP)
@@ -178,7 +186,10 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddData(revokeHash)
 	builder.AddOp(txscript.OP_EQUAL)
 
-	// If not, then the sender needs to wait for the HTLC timeout.
+	// If not, then the sender needs to wait for the HTLC timeout. This
+	// clause may be executed if the receiver fails to present the r-value
+	// in time. This prevents the pending funds from being locked up
+	// indefinately.
 	builder.AddOp(txscript.OP_NOTIF)
 	builder.AddInt64(int64(absoluteTimeout))
 	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
@@ -193,7 +204,10 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	return builder.Script()
 }
 
-// commitScriptToSelf...
+// commitScriptToSelf constructs the public key script for the output on the
+// commitment transaction paying to the "owner" of said commitment transaction.
+// If the other party learns of the pre-image to the revocation hash, then they
+// can claim all the settled funds in the channel, plus the unsettled funds.
 func commitScriptToSelf(csvTimeout uint32, selfKey, theirKey *btcec.PublicKey, revokeHash []byte) ([]byte, error) {
 	// This script is spendable under two conditions: either the 'csvTimeout'
 	// has passed and we can redeem our funds, or they have the pre-image
@@ -221,7 +235,9 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, theirKey *btcec.PublicKey, r
 	return builder.Script()
 }
 
-// commitScriptUnencumbered...
+// commitScriptUnencumbered constructs the public key script on the commitment
+// transaction paying to the "other" party. This output is spendable
+// immediately, requiring no contestation period.
 func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and it spendable immediately.
 	builder := txscript.NewScriptBuilder()

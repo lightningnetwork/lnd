@@ -136,11 +136,11 @@ func (lc *LightningChannel) AddHTLC(timeout uint32, value btcutil.Amount,
 	// Re-calculate the amount of cleared funds for each side.
 	var amountToUs, amountToThem btcutil.Amount
 	if payToUs {
-		amountToUs = lc.channelState.OurBalance + value
+		amountToUs = lc.channelState.OurBalance
 		amountToThem = lc.channelState.TheirBalance - value
 	} else {
 		amountToUs = lc.channelState.OurBalance - value
-		amountToThem = lc.channelState.TheirBalance + value
+		amountToThem = lc.channelState.TheirBalance
 	}
 
 	// Re-create copies of the current commitment transactions to be updated.

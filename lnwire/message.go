@@ -57,6 +57,9 @@ const (
 	//Commitments
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
+
+	//Error
+	CmdErrorGeneric = uint32(4000)
 )
 
 //Every message has these functions:
@@ -103,6 +106,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CommitSignature{}
 	case CmdCommitRevocation:
 		msg = &CommitRevocation{}
+	case CmdErrorGeneric:
+		msg = &ErrorGeneric{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

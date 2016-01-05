@@ -18,12 +18,6 @@ type HTLCSettleAccept struct {
 func (c *HTLCSettleAccept) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
 	//StagingID(8)
-	//Expiry(4)
-	//Amount(4)
-	//NextHop(20)
-	//ContractType(1)
-	//RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	//Blob(2+blobsize)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.StagingID,

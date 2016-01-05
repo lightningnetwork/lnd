@@ -202,6 +202,21 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 		return nil
+	case string:
+		strlen := len(e)
+		if strlen > 65535 {
+			return fmt.Errorf("String too long!")
+		}
+		//Write the size (2-bytes)
+		err = writeElement(w, uint16(strlen))
+		if err != nil {
+			return err
+		}
+		//Write the data
+		_, err = w.Write([]byte(e))
+		if err != nil {
+			return err
+		}
 	case []*wire.TxIn:
 		//Append the unsigned(!!!) txins
 		//Write the size (1-byte)
@@ -451,6 +466,24 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		if len(*e) != int(scriptLength) {
 			return fmt.Errorf("EOF: Signature length mismatch.")
+		}
+		return nil
+	case *string:
+		//Get the string length first
+		var strlen uint16
+		err = readElement(r, &strlen)
+		if err != nil {
+			return err
+		}
+		//Read the string for the length
+		l := io.LimitReader(r, int64(strlen))
+		b, err := ioutil.ReadAll(l)
+		if len(b) != int(strlen) {
+			return fmt.Errorf("EOF: String length mismatch.")
+		}
+		*e = string(b)
+		if err != nil {
+			return err
 		}
 		return nil
 	case *[]*wire.TxIn:

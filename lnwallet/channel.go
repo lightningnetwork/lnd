@@ -46,6 +46,7 @@ type LightningChannel struct {
 	theirPendingCommitTx *wire.MsgTx
 
 	fundingTxIn *wire.TxIn
+	fundingP2SH []byte
 
 	// TODO(roasbeef): create and embed 'Service' interface w/ below?
 	started  int32
@@ -73,6 +74,7 @@ func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifi
 	}
 	_, multiSigIndex := findScriptOutputIndex(state.FundingTx, fundingPkScript)
 	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxId, multiSigIndex), nil)
+	lc.fundingP2SH = fundingPkScript
 
 	return lc, nil
 }

@@ -24,8 +24,17 @@ var (
 	revocationHashBytes, _ = hex.DecodeString("4132b6b48371f7b022a16eacb9b2b0ebee134d41")
 	revocationHash         [20]byte
 
+	//preimage: "hello world"
+	redemptionHashBytes, _ = hex.DecodeString("5b315ebabb0d8c0d94281caa2dfee69a1a00436e")
+	redemptionHash         [20]byte
+
+	//preimage: "next hop"
+	nextHopBytes, _ = hex.DecodeString("94a9ded5a30fc5944cb1e2cbcd980f30616a1440")
+	nextHop         [20]byte
+
 	privKeyBytes, _ = hex.DecodeString("9fa1d55217f57019a3c37f49465896b15836f54cb8ef6963870a52926420a2dd")
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes)
+	address         = pubKey
 
 	// Delivery PkScript
 	//Privkey: f2c00ead9cbcfec63098dc0a5f152c0165aff40a2ab92feb4e24869a284c32a7

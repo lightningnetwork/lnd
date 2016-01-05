@@ -39,7 +39,24 @@ const (
 	CmdCloseRequest  = uint32(300)
 	CmdCloseComplete = uint32(310)
 
+	//TODO Renumber to 1100
 	//HTLC payment
+	CmdHTLCAddRequest = uint32(1000)
+	CmdHTLCAddAccept  = uint32(1010)
+	CmdHTLCAddReject  = uint32(1020)
+
+	//TODO Renumber to 1200
+	//HTLC settlement
+	CmdHTLCSettleRequest = uint32(1100)
+	CmdHTLCSettleAccept  = uint32(1110)
+
+	//HTLC timeout
+	CmdHTLCTimeoutRequest = uint32(1300)
+	CmdHTLCTimeoutAccept  = uint32(1310)
+
+	//Commitments
+	CmdCommitSignature  = uint32(2000)
+	CmdCommitRevocation = uint32(2010)
 )
 
 //Every message has these functions:
@@ -68,6 +85,24 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CloseRequest{}
 	case CmdCloseComplete:
 		msg = &CloseComplete{}
+	case CmdHTLCAddRequest:
+		msg = &HTLCAddRequest{}
+	case CmdHTLCAddAccept:
+		msg = &HTLCAddAccept{}
+	case CmdHTLCAddReject:
+		msg = &HTLCAddReject{}
+	case CmdHTLCSettleRequest:
+		msg = &HTLCSettleRequest{}
+	case CmdHTLCSettleAccept:
+		msg = &HTLCSettleAccept{}
+	case CmdHTLCTimeoutRequest:
+		msg = &HTLCTimeoutRequest{}
+	case CmdHTLCTimeoutAccept:
+		msg = &HTLCTimeoutAccept{}
+	case CmdCommitSignature:
+		msg = &CommitSignature{}
+	case CmdCommitRevocation:
+		msg = &CommitRevocation{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

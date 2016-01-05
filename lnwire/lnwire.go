@@ -11,11 +11,25 @@ import (
 	"io/ioutil"
 )
 
+var MAX_SLICE_LENGTH = 65535
+
 //Actual pkScript, not redeemScript
 type PkScript []byte
 
-//Subsatoshi amount
-type MicroSatoshi int32
+//Subsatoshi amount (Micro-Satoshi, 1/1000th)
+//Should be a signed int to account for negative fees
+//
+//"In any science-fiction movie, anywhere in the galaxy, currency is referred
+//to as 'credits.'"
+//	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
+//	glossary. Andrews McMeel. p. 172.
+//
+//https://en.wikipedia.org/wiki/List_of_fictional_currencies
+//https://en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
+//http://tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
+type CreditsAmount int32 //Credits (XCB, accountants should use XCB :^)
+//US Display format: 1 BTC = 100,000,000'000 XCB
+//Or in BTC = 1.00000000'000
 
 //Writes the big endian representation of element
 //Unified function to call when writing different types
@@ -28,6 +42,20 @@ func writeElement(w io.Writer, element interface{}) error {
 		var b [1]byte
 		b[0] = byte(e)
 		_, err = w.Write(b[:])
+		if err != nil {
+			return err
+		}
+		return nil
+	case uint16:
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], uint16(e))
+		_, err = w.Write(b[:])
+		if err != nil {
+			return err
+		}
+		return nil
+	case CreditsAmount:
+		err = binary.Write(w, binary.BigEndian, int32(e))
 		if err != nil {
 			return err
 		}
@@ -107,6 +135,26 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 		return nil
+	case []*[20]byte:
+		//Get size of slice and dump in slice
+		sliceSize := len(e)
+		err = writeElement(w, uint16(sliceSize))
+		if err != nil {
+			return err
+		}
+		//Write in each sequentially
+		for _, element := range e {
+			err = writeElement(w, &element)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	case **[20]byte:
+		_, err = w.Write((*e)[:])
+		if err != nil {
+			return err
+		}
 	case [20]byte:
 		_, err = w.Write(e[:])
 		if err != nil {
@@ -117,6 +165,22 @@ func writeElement(w io.Writer, element interface{}) error {
 		var b [4]byte
 		binary.BigEndian.PutUint32(b[:], uint32(e))
 		_, err := w.Write(b[:])
+		if err != nil {
+			return err
+		}
+		return nil
+	case []byte:
+		sliceLength := len(e)
+		if sliceLength > MAX_SLICE_LENGTH {
+			return fmt.Errorf("Slice length too long!")
+		}
+		//Write the size
+		err = writeElement(w, uint16(sliceLength))
+		if err != nil {
+			return err
+		}
+		//Write the data
+		_, err = w.Write(e)
 		if err != nil {
 			return err
 		}
@@ -201,6 +265,22 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = b[0]
+		return nil
+	case *uint16:
+		var b [2]byte
+		_, err = io.ReadFull(r, b[:])
+		if err != nil {
+			return err
+		}
+		*e = binary.BigEndian.Uint16(b[:])
+		return nil
+	case *CreditsAmount:
+		var b [4]byte
+		_, err = io.ReadFull(r, b[:])
+		if err != nil {
+			return err
+		}
+		*e = CreditsAmount(int32(binary.BigEndian.Uint32(b[:])))
 		return nil
 	case *uint32:
 		var b [4]byte
@@ -294,6 +374,25 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = &*btcecSig
 		return nil
+	case *[]*[20]byte:
+		//How many to read
+		var sliceSize uint16
+		err = readElement(r, &sliceSize)
+		if err != nil {
+			return err
+		}
+		var data []*[20]byte
+		//Append the actual
+		for i := uint16(0); i < sliceSize; i++ {
+			var element [20]byte
+			err = readElement(r, &element)
+			if err != nil {
+				return err
+			}
+			data = append(data, &element)
+		}
+		*e = data
+		return nil
 	case *[20]byte:
 		_, err = io.ReadFull(r, e[:])
 		if err != nil {
@@ -307,6 +406,30 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
+		return nil
+	case *[]byte:
+		//Get the blob length first
+		var blobLength uint16
+		err = readElement(r, &blobLength)
+		if err != nil {
+			return err
+		}
+
+		//Shouldn't need to do this, since it's uint16, but we
+		//might have a different value for MAX_SLICE_LENGTH...
+		if int(blobLength) > MAX_SLICE_LENGTH {
+			return fmt.Errorf("Slice length too long!")
+		}
+
+		//Read the slice length
+		l := io.LimitReader(r, int64(blobLength))
+		*e, err = ioutil.ReadAll(l)
+		if err != nil {
+			return err
+		}
+		if len(*e) != int(blobLength) {
+			return fmt.Errorf("EOF: Slice length mismatch.")
+		}
 		return nil
 	case *PkScript:
 		//Get the script length first
@@ -323,11 +446,11 @@ func readElement(r io.Reader, element interface{}) error {
 		//Read the script length
 		l := io.LimitReader(r, int64(scriptLength))
 		*e, err = ioutil.ReadAll(l)
-		if len(*e) != int(scriptLength) {
-			return fmt.Errorf("EOF: Signature length mismatch.")
-		}
 		if err != nil {
 			return err
+		}
+		if len(*e) != int(scriptLength) {
+			return fmt.Errorf("EOF: Signature length mismatch.")
 		}
 		return nil
 	case *[]*wire.TxIn:

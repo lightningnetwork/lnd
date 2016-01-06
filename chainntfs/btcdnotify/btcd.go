@@ -7,17 +7,15 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"li.lan/labs/plasma/chainntfs"
-	"li.lan/labs/plasma/lnwallet"
 )
 
 // BtcdNotifier...
 type BtcdNotifier struct {
 	// TODO(roasbeef): refactor to use the new NotificationServer
-	wallet *lnwallet.LightningWallet
+	conn ChainConnection
 
 	notificationRegistry chan interface{}
 
@@ -28,9 +26,6 @@ type BtcdNotifier struct {
 	connectedBlocks    <-chan wtxmgr.BlockMeta
 	disconnectedBlocks <-chan wtxmgr.BlockMeta
 	relevantTxs        <-chan chain.RelevantTx
-	managerLocked      <-chan bool
-	confirmedBalance   <-chan btcutil.Amount
-	unconfirmedBalance <-chan btcutil.Amount
 
 	rpcConnected chan struct{}
 
@@ -43,8 +38,9 @@ type BtcdNotifier struct {
 var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 
 // NewBtcdNotifier...
-func NewBtcdNotifier() (*BtcdNotifier, error) {
+func NewBtcdNotifier(c ChainConnection) (*BtcdNotifier, error) {
 	return &BtcdNotifier{
+		conn:                 c,
 		notificationRegistry: make(chan interface{}),
 
 		spendNotifications: make(map[wire.OutPoint]*spendNotification),
@@ -54,9 +50,6 @@ func NewBtcdNotifier() (*BtcdNotifier, error) {
 		connectedBlocks:    make(chan wtxmgr.BlockMeta),
 		disconnectedBlocks: make(chan wtxmgr.BlockMeta),
 		relevantTxs:        make(chan chain.RelevantTx),
-		managerLocked:      make(chan bool),
-		confirmedBalance:   make(chan btcutil.Amount),
-		unconfirmedBalance: make(chan btcutil.Amount),
 
 		rpcConnected: make(chan struct{}, 1),
 
@@ -186,27 +179,15 @@ out:
 func (b *BtcdNotifier) initAllNotifications() error {
 	var err error
 
-	b.connectedBlocks, err = b.wallet.ListenConnectedBlocks()
+	b.connectedBlocks, err = b.conn.ListenConnectedBlocks()
 	if err != nil {
 		return err
 	}
-	b.disconnectedBlocks, err = b.wallet.ListenDisconnectedBlocks()
+	b.disconnectedBlocks, err = b.conn.ListenDisconnectedBlocks()
 	if err != nil {
 		return err
 	}
-	b.relevantTxs, err = b.wallet.ListenRelevantTxs()
-	if err != nil {
-		return err
-	}
-	b.managerLocked, err = b.wallet.ListenLockStatus()
-	if err != nil {
-		return err
-	}
-	b.confirmedBalance, err = b.wallet.ListenConfirmedBalance()
-	if err != nil {
-		return err
-	}
-	b.unconfirmedBalance, err = b.wallet.ListenUnconfirmedBalance()
+	b.relevantTxs, err = b.conn.ListenRelevantTxs()
 	if err != nil {
 		return err
 	}

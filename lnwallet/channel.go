@@ -74,6 +74,9 @@ func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifi
 		unfufilledPayments: make(map[PaymentHash]*PaymentRequest),
 	}
 
+	// Populate the totem.
+	lc.updateTotem <- struct{}{}
+
 	fundingTxId := state.FundingTx.TxSha()
 	fundingPkScript, err := scriptHashPkScript(state.FundingRedeemScript)
 	if err != nil {
@@ -436,7 +439,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 		lnChannel:         lc,
 	}
 
-	// TODO(roasbeef): such copy pasta, make into func
+	// TODO(roasbeef): such copy pasta, make into func...
 	// Get next revocation hash, updating the number of updates in the
 	// channel as a result.
 	chanUpdate.currentUpdateNum = lc.channelState.NumUpdates

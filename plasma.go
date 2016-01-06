@@ -28,17 +28,20 @@ func main() {
 	// TODO(roasbeef): accept config via cli flags, move to real config file
 	// afterwards
 	config := &lnwallet.Config{PrivatePass: []byte("hello"), DataDir: "test_wal"}
-	lnwallet, err := lnwallet.NewLightningWallet(config)
+	lnwallet, db, err := lnwallet.NewLightningWallet(config)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		os.Exit(1)
 	}
+
 	if err := lnwallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		os.Exit(1)
 	}
-	lnwallet.Unlock(cf.PrivatePass, time.Duration(0))
+
+	lnwallet.Unlock(config.PrivatePass, time.Duration(0))
 	fmt.Println("wallet open")
+	defer db.Close()
 
 	// Initialize, and register our implementation of the gRPC server.
 	var opts []grpc.ServerOption

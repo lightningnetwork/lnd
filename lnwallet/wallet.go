@@ -244,7 +244,7 @@ type LightningWallet struct {
 // If the wallet has never been created (according to the passed dataDir), first-time
 // setup is executed.
 // TODO(roasbeef): fin...add config
-func NewLightningWallet(config *Config) (*LightningWallet, error) {
+func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(config.DataDir, ActiveNetParams)
 	dbPath := filepath.Join(netDir, walletDbName)
@@ -257,60 +257,30 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 	}
 
 	// Wallet has never been created, perform initial set up.
+	var createID bool
 	if !fileExists(dbPath) {
 		// Ensure the data directory for the network exists.
 		if err := checkCreateDir(netDir); err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Attempt to create  a new wallet
 		if err := createWallet(config.PrivatePass, pubPass,
 			config.HdSeed, dbPath); err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			return nil, err
+			return nil, nil, err
 		}
-		log.Printf("createWallet returned\n")
-		// open wallet to initialize and create id key
-		wallet, db, err := openWallet(pubPass, netDir)
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("openWallet returned\n")
-		err = wallet.Manager.Unlock(config.PrivatePass)
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("Unlock returned\n")
-		adrs, err := wallet.Manager.NextInternalAddresses(0, 1)
-		if err != nil {
-			return nil, err
-		}
-		idPubkeyHash := adrs[0].Address().ScriptAddress()
-		if err != nil {
-			return nil, err
-		}
-		lnNamespace, err := db.Namespace(lightningNamespaceKey)
-		if err != nil {
-			return nil, err
-		}
-		cdb := channeldb.New(wallet.Manager, lnNamespace)
-		err = cdb.PutIdKey(idPubkeyHash)
-		if err != nil {
-			return nil, err
-		}
-		err = db.Close()
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("stored identity key pubkey hash in channeldb\n")
+
+		createID = true
+
 	}
 
 	// Wallet has been created and been initialized at this point, open it
 	// along with all the required DB namepsaces, and the DB itself.
 	wallet, db, err := openWallet(pubPass, netDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create a special namespace for our unique payment channel related
@@ -318,7 +288,28 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 	// created namespace.
 	lnNamespace, err := db.Namespace(lightningNamespaceKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	cdb := channeldb.New(wallet.Manager, lnNamespace)
+
+	if err := wallet.Manager.Unlock(config.PrivatePass); err != nil {
+		return nil, nil, err
+	}
+
+	// If we just created the wallet, then reserve, and store a key for
+	// our ID within the Lightning Network.
+	if createID {
+		adrs, err := wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		idPubkeyHash := adrs[0].Address().ScriptAddress()
+		if err := cdb.PutIdKey(idPubkeyHash); err != nil {
+			return nil, nil, err
+		}
+		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
 	// TODO(roasbeef): logging
@@ -326,7 +317,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 	return &LightningWallet{
 		db:        db,
 		Wallet:    wallet,
-		ChannelDB: channeldb.New(wallet.Manager, lnNamespace),
+		ChannelDB: cdb,
 		msgChan:   make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:
@@ -335,7 +326,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, error) {
 		cfg:           config,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
-	}, nil
+	}, db, nil
 }
 
 // Startup establishes a connection to the RPC source, and spins up all

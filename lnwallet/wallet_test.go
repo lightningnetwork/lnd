@@ -69,7 +69,7 @@ type bobNode struct {
 	// For simplicity, used for both the commit tx and the multi-sig output.
 	channelKey      *btcec.PublicKey
 	deliveryAddress btcutil.Address
-	revocation      [wire.HashSize]byte
+	revocation      [20]byte
 	delay           uint32
 	id              [wire.HashSize]byte
 
@@ -152,7 +152,7 @@ func newBobNode() (*bobNode, error) {
 
 	// Bob's initial revocation hash is just his private key with the first
 	// byte changed...
-	var revocation [wire.HashSize]byte
+	var revocation [20]byte
 	copy(revocation[:], bobsPrivKey)
 	revocation[0] = 0xff
 
@@ -301,12 +301,14 @@ func createTestWallet() (string, *LightningWallet, error) {
 
 	config := &Config{PrivatePass: privPass, HdSeed: testHdSeed[:],
 		DataDir: tempTestDir}
-	wallet, err := NewLightningWallet(config)
+	wallet, _, err := NewLightningWallet(config)
 	if err != nil {
 		return "", nil, err
 	}
 	// TODO(roasbeef): check error once nodetest is finished.
-	_ = wallet.Startup()
+	if err := wallet.Startup(); err != nil {
+		return "", nil, err
+	}
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
 	if err := loadTestCredits(wallet, 5, 4); err != nil {

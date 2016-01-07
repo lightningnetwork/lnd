@@ -266,7 +266,7 @@ func (r *ChannelReservation) Cancel() error {
 // NOTE: If this method is called before .CompleteReservation(), it will block
 // indefinitely.
 func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
-	return nil
+	return <-r.chanOpen
 }
 
 // * finish reset of tests

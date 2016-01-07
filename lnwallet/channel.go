@@ -29,7 +29,7 @@ type PaymentHash [20]byte
 // TODO(roasbeef): future peer struct should embed this struct
 type LightningChannel struct {
 	lnwallet      *LightningWallet
-	channelEvents *chainntnfs.ChainNotifier
+	channelEvents chainntnfs.ChainNotifier
 
 	// TODO(roasbeef): Stores all previous R values + timeouts for each
 	// commitment update, plus some other meta-data...Or just use OP_RETURN
@@ -39,7 +39,7 @@ type LightningChannel struct {
 
 	// stateMtx protects concurrent access to the state struct.
 	stateMtx     sync.RWMutex
-	channelState channeldb.OpenChannel
+	channelState *channeldb.OpenChannel
 
 	updateTotem chan struct{}
 
@@ -61,8 +61,8 @@ type LightningChannel struct {
 }
 
 // newLightningChannel...
-func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifier,
-	chanDB *channeldb.DB, state channeldb.OpenChannel) (*LightningChannel, error) {
+func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
+	chanDB *channeldb.DB, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	lc := &LightningChannel{
 		lnwallet:           wallet,
@@ -73,6 +73,9 @@ func newLightningChannel(wallet *LightningWallet, events *chainntnfs.ChainNotifi
 		pendingPayments:    make(map[PaymentHash]*PaymentDescriptor),
 		unfufilledPayments: make(map[PaymentHash]*PaymentRequest),
 	}
+
+	// TODO(roasbeef): do a NotifySpent for the funding input, and
+	// NotifyReceived for all commitment outputs.
 
 	// Populate the totem.
 	lc.updateTotem <- struct{}{}
@@ -318,7 +321,7 @@ func (lc *LightningChannel) AddHTLC(timeout uint32, value btcutil.Amount,
 
 	// Re-create copies of the current commitment transactions to be updated.
 	ourNewCommitTx, theirNewCommitTx, err := createNewCommitmentTxns(
-		lc.fundingTxIn, &lc.channelState, chanUpdate, amountToUs, amountToThem,
+		lc.fundingTxIn, lc.channelState, chanUpdate, amountToUs, amountToThem,
 	)
 	if err != nil {
 		return nil, err
@@ -463,7 +466,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 	// Create new commitment transactions that reflect the settlement of
 	// this pending HTLC.
 	ourNewCommitTx, theirNewCommitTx, err := createNewCommitmentTxns(
-		lc.fundingTxIn, &lc.channelState, chanUpdate, amountToUs, amountToThem,
+		lc.fundingTxIn, lc.channelState, chanUpdate, amountToUs, amountToThem,
 	)
 	if err != nil {
 		return nil, err

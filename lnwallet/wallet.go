@@ -323,6 +323,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		return nil, nil, err
 	}
 
+	// TODO(roasbeef): logging
 	return &LightningWallet{
 		db:            db,
 		chainNotifier: chainNotifier,
@@ -967,17 +968,34 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// which will be used for the lifetime of this channel.
 	err = l.ChannelDB.PutOpenChannel(pendingReservation.partialState)
 
-	// TODO(roasbeef): broadcast now?
-	//  * create goroutine, listens on blockconnected+blockdisconnected channels
-	//  * after six blocks, then will create an LightningChannel struct and
-	//    send over reservation.
-	//  * will need a multi-plexer to fan out, to listen on ListenConnectedBlocks
-	//    * should prob be a separate struct/modele
-	//  * use NotifySpent in order to catch non-cooperative spends of revoked
-	//    * NotifySpent(outpoints []*wire.OutPoint)
-	//    commitment txns. Hmm using p2sh or bare multi-sig?
-	//  * record partialState.CreationTime once tx is 'open'
+	// Create a goroutine to watch the chain so we can open the channel once
+	// the funding tx has enough confirmations.
+	// TODO(roasbeef): add number of confs to the confi
+	go l.openChannelAfterConfirmations(pendingReservation, 3)
+
 	msg.err <- err
+}
+
+// openChannelAfterConfirmations creates, and opens a payment channel after
+// the funding transaction created within the passed channel reservation
+// obtains the specified number of confirmations.
+func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation, numConfs uint32) {
+	// Register with the ChainNotifier for a notification once the funding
+	// transaction reaches `numConfs` confirmations.
+	trigger := &chainntnfs.NotificationTrigger{
+		TriggerChan: make(chan struct{}, 1),
+	}
+	txid := res.partialState.FundingTx.TxSha()
+	l.chainNotifier.RegisterConfirmationsNotification(&txid, numConfs, trigger)
+
+	// Wait until the specified number of confirmations has been reached.
+	<-trigger.TriggerChan
+
+	// Finally, create and officially open the payment channel!
+	// TODO(roasbeef): CreationTime once tx is 'open'
+	channel, _ := newLightningChannel(l, l.chainNotifier, l.ChannelDB,
+		res.partialState)
+	res.chanOpen <- channel
 }
 
 // getNextRawKey retrieves the next key within our HD key-chain for use within

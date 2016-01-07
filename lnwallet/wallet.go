@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"li.lan/labs/plasma/chainntfs"
+	"li.lan/labs/plasma/chainntfs/btcdnotify"
 	"li.lan/labs/plasma/channeldb"
 	"li.lan/labs/plasma/shachain"
 
@@ -203,6 +206,11 @@ type LightningWallet struct {
 	ChannelDB *channeldb.DB
 	db        walletdb.DB
 
+	// Used by in order to obtain notifications about funding transaction
+	// reaching a specified confirmation depth, and to catch
+	// counterparty's broadcasting revoked commitment states.
+	chainNotifier chainntnfs.ChainNotifier
+
 	// The core wallet, all non Lightning Network specific interaction is
 	// proxied to the internal wallet.
 	// TODO(roasbeef): Why isn't this just embedded again?
@@ -273,7 +281,6 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		}
 
 		createID = true
-
 	}
 
 	// Wallet has been created and been initialized at this point, open it
@@ -290,7 +297,6 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-
 	cdb := channeldb.New(wallet.Manager, lnNamespace)
 
 	if err := wallet.Manager.Unlock(config.PrivatePass); err != nil {
@@ -312,13 +318,17 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
-	// TODO(roasbeef): logging
+	chainNotifier, err := btcdnotify.NewBtcdNotifier(wallet)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return &LightningWallet{
-		db:        db,
-		Wallet:    wallet,
-		ChannelDB: cdb,
-		msgChan:   make(chan interface{}, msgBufferSize),
+		db:            db,
+		chainNotifier: chainNotifier,
+		Wallet:        wallet,
+		ChannelDB:     cdb,
+		msgChan:       make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:
 		//  * https://golang.org/src/sync/atomic/asm_amd64.s
@@ -525,32 +535,27 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		ourContribution.ChangeOutputs = make([]*wire.TxOut, 1)
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
-		changeAmount := selectedTotalValue - req.fundingAmount
-		addrs, err := l.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
 		}
-		changeAddrScript, err := txscript.PayToAddrScript(addrs[0].Address())
-		if err != nil {
-			req.err <- err
-			req.resp <- nil
-			return
-		}
-		// TODO(roasbeef): re-enable after tests are connected to real node.
-		//   * or the change to btcwallet is made to reverse the dependancy
-		//     between chain-client and wallet.
-		//changeAddr, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
 
+		changeAddrScript, err := txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			req.err <- err
+			req.resp <- nil
+			return
+		}
+
+		changeAmount := selectedTotalValue - req.fundingAmount
 		ourContribution.ChangeOutputs[0] = wire.NewTxOut(int64(changeAmount),
 			changeAddrScript)
 	}
 
 	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
 
-	// TODO(roasbeef): use wallet.CurrentAddress() here instead? Solves the
-	// problem of 'wasted' unused addrtesses.
 	// Grab two fresh keys from out HD chain, one will be used for the
 	// multi-sig funding transaction, and the other for the commitment
 	// transaction.
@@ -573,17 +578,14 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// Generate a fresh address to be used in the case of a cooperative
 	// channel close.
-	// TODO(roasbeef): same here
-	//deliveryAddress, err := l.wallet.NewChangeAddress(waddrmgr.DefaultAccountNum)
-	addrs, err := l.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	deliveryAddress, err := l.NewAddress(waddrmgr.DefaultAccountNum)
 	if err != nil {
-		// TODO(roasbeef): make into func sendErorr()
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	reservation.partialState.OurDeliveryAddress = addrs[0].Address()
-	ourContribution.DeliveryAddress = addrs[0].Address()
+	reservation.partialState.OurDeliveryAddress = deliveryAddress
+	ourContribution.DeliveryAddress = deliveryAddress
 
 	// Create a new shaChain for verifiable transaction revocations. This
 	// will be used to generate revocation hashes for our past/current
@@ -705,8 +707,20 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 
-	// TODO(roasbeef): do Manager.ImportScript(..) here, gives us a
-	// ManagedScriptAddress to play around with if we need it.
+	// Register intent for notifications related to the funding output.
+	// This'll allow us to properly track the number of confirmations the
+	// funding tx has once it has been broadcasted.
+	lastBlock := l.Manager.SyncedTo()
+	scriptAddr, err := l.Manager.ImportScript(redeemScript, &lastBlock)
+	if err != nil {
+		req.err <- err
+		return
+	}
+	if err := l.rpc.NotifyReceived([]btcutil.Address{scriptAddr.Address()}); err != nil {
+		req.err <- err
+		return
+	}
+
 	pendingReservation.partialState.FundingRedeemScript = redeemScript
 	fundingTx.AddTxOut(multiSigOut)
 
@@ -850,17 +864,14 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	fundingTx := pendingReservation.partialState.FundingTx
 	for i, txin := range fundingTx.TxIn {
 		if txin.SignatureScript == nil {
-			txin.SignatureScript = pendingReservation.theirFundingSigs[i]
-
-			// TODO(roasbeef): uncomment after nodetest is finished.
-			/*// Fetch the alleged previous output along with the
+			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
 			output, err := l.rpc.GetTxOut(&prevOut.Hash, prevOut.Index, false)
-			if err != nil {
+			if output == nil {
 				// TODO(roasbeef): do this at the start to avoid wasting out time?
 				//  8 or a set of nodes "we" run with exposed unauthenticated RPC?
-				msg.err <- err
+				msg.err <- fmt.Errorf("input to funding tx does not exist: %v", err)
 				return
 			}
 			pkscript, err := hex.DecodeString(output.ScriptPubKey.Hex)
@@ -880,7 +891,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			if err = vm.Execute(); err != nil {
 				msg.err <- fmt.Errorf("cannot validate transaction: %s", err)
 				return
-			}*/
+			}
+
+			txin.SignatureScript = pendingReservation.theirFundingSigs[i]
 		}
 	}
 

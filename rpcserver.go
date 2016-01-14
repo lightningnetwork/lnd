@@ -38,6 +38,11 @@ func newRpcServer(wallet *lnwallet.LightningWallet) *rpcServer {
 		make(chan []byte)}           // init OmniChan (size 1 ok...?)
 }
 
+// Stop...
+func (r *rpcServer) Stop() error {
+	return nil
+}
+
 // getPriv gets the identity private key out of the wallet DB
 func getPriv(l *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
 	adr, err := l.ChannelDB.GetIdAdr()

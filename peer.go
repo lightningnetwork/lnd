@@ -1,11 +1,15 @@
 package main
 
 import (
+	"container/list"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"li.lan/labs/plasma/lnwallet"
+	"li.lan/labs/plasma/lnwire"
 )
 
 // channelState...
@@ -22,15 +26,18 @@ const (
 
 const (
 	numAllowedRetransmits = 5
+	pingInterval          = 1 * time.Minute
 )
+
+// outgoinMsg...
+type outgoinMsg struct {
+	msg      lnwire.Message
+	sentChan chan struct{}
+}
 
 // peer...
 // TODO(roasbeef): make this a package now??
 // inspired by btcd/peer.go
-//  * three goroutines
-//  * inHandler
-//  * ourHandler
-//  * queueHandler (maybe?), we don't have any trickling issues so idk
 type peer struct {
 	started    int32
 	connected  int32
@@ -58,15 +65,9 @@ type peer struct {
 	satoshisReceived uint64
 	// TODO(roasbeef): pings??
 
-	sendQueueDone chan struct{}
-	// outgoingQueue chan lnwire.Message
-	// sendQueue chan  lnwire.Message
-	// TODO(roasbeef+j): something like?
-	// type Message {
-	//   Decode(b bytes.Buffer) error
-	//   Encode(b bytes.Buffer) error
-	//   Command() string
-	//}
+	sendQueueSync chan struct{}
+	outgoingQueue chan outgoinMsg
+	sendQueue     chan outgoinMsg
 
 	// TODO(roasbeef): akward import, just rename to Wallet?
 	wallet *lnwallet.LightningWallet // (tadge: what is this for?)
@@ -78,4 +79,137 @@ type peer struct {
 
 	queueQuit chan struct{}
 	quit      chan struct{}
+	wg        sync.WaitGroup
+}
+
+// readNextMessage...
+func (p *peer) readNextMessage() (lnwire.Message, []byte, error) {
+	// TODO(roasbeef): use our own net magic?
+	_, nextMsg, rawPayload, err := lnwire.ReadMessage(p.conn, 0, wire.TestNet)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return nextMsg, rawPayload, nil
+}
+
+// inHandler..
+func (p *peer) inHandler() {
+	// TODO(roasbeef): set timeout for initial channel request or version
+	// exchange.
+
+out:
+	for atomic.LoadInt32(&p.disconnect) == 0 {
+		nextMsg, _, err := p.readNextMessage()
+		if err != nil {
+			// TODO(roasbeef): log error
+			break out
+		}
+
+		// TODO(roasbeef): state-machine to track version exchange
+		switch msg := nextMsg.(type) {
+		// TODO(roasbeef): cases
+		}
+	}
+
+	p.wg.Done()
+}
+
+// writeMessage...
+func (p *peer) writeMessage(msg lnwire.Message) error {
+	// Simply exit if we're shutting down.
+	if atomic.LoadInt32(&p.disconnect) != 0 {
+		return nil
+	}
+
+	_, err := lnwire.WriteMessage(p.conn, msg, 0,
+		wire.TestNet)
+
+	return err
+}
+
+// outHandler..
+func (p *peer) outHandler() {
+	// pingTicker is used to periodically send pings to the remote peer.
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+
+out:
+	for {
+		select {
+		case outMsg := <-p.sendQueue:
+			switch m := outMsg.msg.(type) {
+			// TODO(roasbeef): handle special write cases
+			}
+
+			if err := p.writeMessage(outMsg.msg); err != nil {
+				// TODO(roasbeef): disconnect
+			}
+
+			// Synchronize with the outHandler.
+			p.sendQueueSync <- struct{}{}
+		case <-pingTicker.C:
+			// TODO(roasbeef): ping em
+		case <-p.quit:
+			break out
+
+		}
+	}
+
+	// Wait for the queueHandler to finish so we can empty out all pending
+	// messages avoiding a possible deadlock somewhere.
+	<-p.queueQuit
+
+	// Drain any lingering messages that we're meant to be sent. But since
+	// we're shutting down, just ignore them.
+fin:
+	for {
+		select {
+		case msg := <-p.sendQueue:
+			if msg.sentChan != nil {
+				msg.sentChan <- struct{}{}
+			}
+		default:
+			break fin
+		}
+	}
+	p.wg.Done()
+}
+
+// queueHandler..
+func (p *peer) queueHandler() {
+	waitOnSync := false
+	pendingMsgs := list.New()
+out:
+	for {
+		select {
+		case msg := <-p.outgoingQueue:
+			if !waitOnSync {
+				p.sendQueue <- msg
+			} else {
+				pendingMsgs.PushBack(msg)
+			}
+			waitOnSync = true
+		case <-p.sendQueueSync:
+			// If there aren't any more remaining messages in the
+			// queue, then we're no longer waiting to synchronize
+			// with the outHandler.
+			next := pendingMsgs.Front()
+			if next == nil {
+				waitOnSync = false
+				continue
+			}
+
+			// Notify the outHandler about the next item to
+			// asynchronously send.
+			val := pendingMsgs.Remove(next)
+			p.sendQueue <- val.(outgoinMsg)
+			// TODO(roasbeef): other sync stuffs
+		case <-p.quit:
+			break out
+		}
+	}
+
+	close(p.queueQuit)
+	p.wg.Done()
 }

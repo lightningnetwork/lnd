@@ -75,8 +75,9 @@ Commitment States
 Commitments:
 1. HTLCs, can be modified. Any add/settlement/timeout/etc. gets added to
    staging.
-2. Signed, only one signed state at a time can exist per party. Takes HTLCs
-   staging and locks it in, can now be broadcast on-chain by the counterparty.
+2. Signed, more than one signed state at a time may exist per party. Takes
+   HTLCs staging and locks it in, can now be broadcast on-chain by the
+   counterparty.
 3. Completed and Revoked, other party sends their revocation accepting this
    Commitment. Sending a revocation means you *ACCEPT* the Commitment. There
    should never be a case where a Commitment Signature happens and the client
@@ -207,8 +208,10 @@ TIMEOUT\_SIGNING\_AND\_REVOKING
 TIMEOUT\_COMPLETE
 
 
-Example
--------
+Example (this section to be removed)
+------------------------------------
+
+A bit redundant, but this was written first... will merge with "Add" example
 
 Adding a single HTLC process:
 1. Requester flags as pre-staged, and sends an "add requeset"

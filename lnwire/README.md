@@ -56,13 +56,15 @@ Close Complete
 Returns the Txid and sig as a courtesy. The counterparty might not send this if
 they're being non-cooperative.
 
+
 Commitments and HTLCs 
 =====================
 
 This is designed to be non-blocking where there can be multiple Commitments per
 person and the Commitments do not need to match. A HTLC is only believed to be
 added when it's in both parties' most recent Commitment (same with
-timeout/settle).
+timeout/settle) and all prior Commitments not reflecting the change are revoked
+by the counterparty.
 
 As a result, there can easily be hundreds of state updates/payments per second
 per channel.

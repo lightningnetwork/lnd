@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	params = &chaincfg.TestNet3Params
+	params = &chaincfg.TestNetLParams
 )
 
 type SPVCon struct {
@@ -147,7 +147,7 @@ func (s *SPVCon) SendFilter(f *bloom.Filter) {
 	return
 }
 
-func (s *SPVCon) GrabHeaders() error {
+func (s *SPVCon) AskForHeaders() error {
 	var hdr wire.BlockHeader
 	ghdr := wire.NewMsgGetHeaders()
 	ghdr.ProtocolVersion = s.localVersion
@@ -188,66 +188,86 @@ func (s *SPVCon) GrabHeaders() error {
 	s.outMsgQueue <- ghdr
 
 	return nil
-	// =============================================================
+}
 
-	// ask for headers.  probably will get 2000.
-	log.Printf("getheader version %d \n", ghdr.ProtocolVersion)
-
-	n, m, _, err := wire.ReadMessageN(s.con, VERSION, NETVERSION)
-	if err != nil {
-		return err
-	}
-	log.Printf("4got %d byte response\n command: %s\n", n, m.Command())
-	hdrresponse, ok := m.(*wire.MsgHeaders)
-	if !ok {
-		log.Printf("got non-header message.")
-		return nil
-		// this can acutally happen and we should deal with / ignore it
-		// also pings, they don't like it when you don't respond to pings.
-		// invs and the rest we can ignore for now until filters are up.
-	}
-
+func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
+	var err error
 	_, err = s.headerFile.Seek(-80, os.SEEK_END)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var last wire.BlockHeader
 	err = last.Deserialize(s.headerFile)
 	if err != nil {
-		return err
+		return false, err
 	}
 	prevHash := last.BlockSha()
 
-	gotNum := int64(len(hdrresponse.Headers))
+	gotNum := int64(len(m.Headers))
 	if gotNum > 0 {
 		fmt.Printf("got %d headers. Range:\n%s - %s\n",
-			gotNum, hdrresponse.Headers[0].BlockSha().String(),
-			hdrresponse.Headers[len(hdrresponse.Headers)-1].BlockSha().String())
+			gotNum, m.Headers[0].BlockSha().String(),
+			m.Headers[len(m.Headers)-1].BlockSha().String())
+	} else {
+		log.Printf("got 0 headers, we're probably synced up")
+		return false, nil
 	}
-	_, err = s.headerFile.Seek(0, os.SEEK_END)
-	if err != nil {
-		return err
-	}
-	for i, resphdr := range hdrresponse.Headers {
-		// check first header returned to make sure it fits on the end
-		// of our header file
-		if i == 0 && !resphdr.PrevBlock.IsEqual(&prevHash) {
-			return fmt.Errorf("header doesn't fit. points to %s, expect %s",
-				resphdr.PrevBlock.String(), prevHash.String())
-		}
 
+	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
+	if err != nil {
+		return false, err
+	}
+
+	// check first header returned to make sure it fits on the end
+	// of our header file
+	if !m.Headers[0].PrevBlock.IsEqual(&prevHash) {
+		// delete 100 headers if this happens!  Dumb reorg.
+		log.Printf("possible reorg; header msg doesn't fit. points to %s, expect %s",
+			m.Headers[0].PrevBlock.String(), prevHash.String())
+		if endPos < 8080 {
+			// jeez I give up, back to genesis
+			s.headerFile.Truncate(80)
+		} else {
+			err = s.headerFile.Truncate(endPos - 8000)
+			if err != nil {
+				return false, fmt.Errorf("couldn't truncate header file")
+			}
+		}
+		return false, fmt.Errorf("Truncated header file to try again")
+	}
+
+	tip := endPos / 80
+	tip-- // move back header length so it can read last header
+	for _, resphdr := range m.Headers {
+		// write to end of file
 		err = resphdr.Serialize(s.headerFile)
 		if err != nil {
-			return err
+			return false, err
+		}
+
+		// advance chain tip
+		tip++
+		// check last header
+		worked := CheckHeader(s.headerFile, tip, params)
+		if !worked {
+			if endPos < 8080 {
+				// jeez I give up, back to genesis
+				s.headerFile.Truncate(80)
+			} else {
+				err = s.headerFile.Truncate(endPos - 8000)
+				if err != nil {
+					return false, fmt.Errorf("couldn't truncate header file")
+				}
+			}
+			// probably should disconnect from spv node at this point,
+			// since they're giving us invalid headers.
+			return false, fmt.Errorf(
+				"Header %d - %s doesn't fit, dropping 100 headers.",
+				resphdr.BlockSha().String(), tip)
 		}
 	}
-
-	endPos, _ := s.headerFile.Seek(0, os.SEEK_END)
-	tip := endPos / 80
-
-	go CheckRange(s.headerFile, tip-gotNum, tip-1, params)
-
-	return nil
+	log.Printf("Headers to height %d OK.", tip)
+	return true, nil
 }
 
 func sendMBReq(cn net.Conn, blkhash wire.ShaHash) error {

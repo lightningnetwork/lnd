@@ -110,7 +110,7 @@ func CheckHeader(r io.ReadSeeker, height int64, p *chaincfg.Params) bool {
 		log.Printf(err.Error())
 		return false
 	}
-	log.Printf("start epoch at height %d ", height-(height%epochLength))
+	//	log.Printf("start epoch at height %d ", height-(height%epochLength))
 
 	// seek to n-1 header
 	_, err = r.Seek(80*(height-1), os.SEEK_SET)

@@ -29,6 +29,7 @@ type MyAdr struct { // an address I have the private key for
 	KeyIdx uint32 // index for private key needed to sign / spend
 }
 
+// add addresses into the TxStore
 func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	var ma MyAdr
 	ma.Address = a
@@ -37,6 +38,7 @@ func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	return
 }
 
+// ... or I'm gonna fade away
 func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	if len(t.Adrs) == 0 {
 		return nil, fmt.Errorf("no addresses to filter for")

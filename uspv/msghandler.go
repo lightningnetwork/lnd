@@ -7,27 +7,27 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
-func (e3c *SPVCon) incomingMessageHandler() {
+func (s *SPVCon) incomingMessageHandler() {
 	for {
-		n, xm, _, err := wire.ReadMessageN(e3c.con, e3c.localVersion, e3c.netType)
+		n, xm, _, err := wire.ReadMessageN(s.con, s.localVersion, s.netType)
 		if err != nil {
 			log.Printf("ReadMessageN error.  Disconnecting: %s\n", err.Error())
 			return
 		}
-		e3c.RBytes += uint64(n)
+		s.RBytes += uint64(n)
 		//		log.Printf("Got %d byte %s message\n", n, xm.Command())
 		switch m := xm.(type) {
 		case *wire.MsgVersion:
 			log.Printf("Got version message.  Agent %s, version %d, at height %d\n",
 				m.UserAgent, m.ProtocolVersion, m.LastBlock)
-			e3c.remoteVersion = uint32(m.ProtocolVersion) // weird cast! bug?
+			s.remoteVersion = uint32(m.ProtocolVersion) // weird cast! bug?
 		case *wire.MsgVerAck:
 			log.Printf("Got verack.  Whatever.\n")
 		case *wire.MsgAddr:
 			log.Printf("got %d addresses.\n", len(m.AddrList))
 		case *wire.MsgPing:
 			log.Printf("Got a ping message.  We should pong back or they will kick us off.")
-			e3c.PongBack(m.Nonce)
+			s.PongBack(m.Nonce)
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
 		case *wire.MsgMerkleBlock:
@@ -43,6 +43,16 @@ func (e3c *SPVCon) incomingMessageHandler() {
 			fmt.Printf(" = got %d txs from block %s\n",
 				len(txids), m.Header.BlockSha().String())
 			//			nextReq <- true
+
+		case *wire.MsgHeaders:
+			moar, err := s.IngestHeaders(m)
+			if err != nil {
+				log.Printf("Header error: %s\n", err.Error())
+				return
+			}
+			if moar {
+				s.AskForHeaders()
+			}
 		case *wire.MsgTx:
 
 			log.Printf("Got tx %s\n", m.TxSha().String())
@@ -55,14 +65,14 @@ func (e3c *SPVCon) incomingMessageHandler() {
 
 // this one seems kindof pointless?  could get ridf of it and let
 // functions call WriteMessageN themselves...
-func (e3c *SPVCon) outgoingMessageHandler() {
+func (s *SPVCon) outgoingMessageHandler() {
 	for {
-		msg := <-e3c.outMsgQueue
-		n, err := wire.WriteMessageN(e3c.con, msg, e3c.localVersion, e3c.netType)
+		msg := <-s.outMsgQueue
+		n, err := wire.WriteMessageN(s.con, msg, s.localVersion, s.netType)
 		if err != nil {
 			log.Printf("Write message error: %s", err.Error())
 		}
-		e3c.WBytes += uint64(n)
+		s.WBytes += uint64(n)
 	}
 	return
 }

@@ -25,7 +25,8 @@ import (
 //
 //More info on the design is in lnwire/README.md
 
-//NOTE: WORK IN PROGRESS
+//NOTE: WORK IN PROGRESS (current working code in wallet is blocking -- it is
+//implemented, but this version will be merged and replacing it soon)
 //TODO: Will make channel-friendly & add in mutex stuff
 
 //DUMMY FunCTIONS FOR UPDATING LATER
@@ -45,11 +46,11 @@ const (
 	MAX_UPDATED_HTLCS_PER_COMMITMENT = 1000
 )
 
-//Currently, the mutex locks for across the entire channel, it's possible to
-//update it to be more granular and to have each PaymentDescriptor have its own
-//locks (and lock both simultaneously). However, this is complicated and will
-//be updated in the future. Right now, since there is a per-channel
-//global-lock, this should work fine...
+//Currently, the mutex locks across the entire channel, it's possible to update
+//it to be more granular and to have each PaymentDescriptor have its own locks
+//(and lock both simultaneously for minimal parts). However, this is
+//complicated and will be updated in the future. Right now, since there is a
+//per-channel global-lock, this should work fine and be fairly performant.
 //
 //Before calling another function which does a lock, make sure to l.Unlock()
 //first, e.g. if a packet received triggers a packet to be sent.

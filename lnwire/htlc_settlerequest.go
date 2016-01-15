@@ -12,7 +12,7 @@ type HTLCSettleRequest struct {
 	ChannelID uint64
 
 	//ID of this request
-	StagingID uint64
+	HTLCKey HTLCKey
 
 	//Redemption Proofs (R-Values)
 	RedemptionProofs []*[20]byte
@@ -20,7 +20,7 @@ type HTLCSettleRequest struct {
 
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
-	//StagingID(8)
+	//HTLCKey(8)
 	//Expiry(4)
 	//Amount(4)
 	//NextHop(20)
@@ -29,7 +29,7 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	//Blob(2+blobsize)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.StagingID,
+		&c.HTLCKey,
 		&c.RedemptionProofs,
 	)
 	if err != nil {
@@ -49,7 +49,7 @@ func NewHTLCSettleRequest() *HTLCSettleRequest {
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.StagingID,
+		c.HTLCKey,
 		c.RedemptionProofs,
 	)
 	if err != nil {
@@ -83,7 +83,7 @@ func (c *HTLCSettleRequest) String() string {
 
 	return fmt.Sprintf("\n--- Begin HTLCSettleRequest ---\n") +
 		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
-		fmt.Sprintf("StagingID:\t%d\n", c.StagingID) +
+		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionProofs +
 		fmt.Sprintf("--- End HTLCSettleRequest ---\n")

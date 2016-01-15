@@ -7,7 +7,7 @@ import (
 var (
 	htlcTimeoutAccept = &HTLCTimeoutAccept{
 		ChannelID: uint64(12345678),
-		StagingID: uint64(12345),
+		HTLCKey: HTLCKey(12345),
 	}
 	htlcTimeoutAcceptSerializedString  = "0000000000bc614e0000000000003039"
 	htlcTimeoutAcceptSerializedMessage = "0709110b0000051e000000100000000000bc614e0000000000003039"

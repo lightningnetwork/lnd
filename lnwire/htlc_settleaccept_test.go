@@ -7,7 +7,7 @@ import (
 var (
 	htlcSettleAccept = &HTLCSettleAccept{
 		ChannelID: uint64(12345678),
-		StagingID: uint64(12345),
+		HTLCKey: HTLCKey(12345),
 	}
 	htlcSettleAcceptSerializedString  = "0000000000bc614e0000000000003039"
 	htlcSettleAcceptSerializedMessage = "0709110b00000456000000100000000000bc614e0000000000003039"

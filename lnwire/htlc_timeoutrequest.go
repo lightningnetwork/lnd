@@ -12,15 +12,15 @@ type HTLCTimeoutRequest struct {
 	ChannelID uint64
 
 	//ID of this request
-	StagingID uint64
+	HTLCKey HTLCKey
 }
 
 func (c *HTLCTimeoutRequest) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
-	//StagingID(8)
+	//HTLCKey(8)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.StagingID,
+		&c.HTLCKey,
 	)
 	if err != nil {
 		return err
@@ -39,7 +39,7 @@ func NewHTLCTimeoutRequest() *HTLCTimeoutRequest {
 func (c *HTLCTimeoutRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.StagingID,
+		c.HTLCKey,
 	)
 	if err != nil {
 		return err
@@ -66,6 +66,6 @@ func (c *HTLCTimeoutRequest) Validate() error {
 func (c *HTLCTimeoutRequest) String() string {
 	return fmt.Sprintf("\n--- Begin HTLCTimeoutRequest ---\n") +
 		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
-		fmt.Sprintf("StagingID:\t%d\n", c.StagingID) +
+		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("--- End HTLCTimeoutRequest ---\n")
 }

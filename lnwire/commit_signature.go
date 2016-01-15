@@ -21,12 +21,8 @@ type CommitSignature struct {
 	//each part of the Commitment.
 	CommitmentHeight uint64
 
-	//The last staging included by both parties
-	//Basically, the state is updated to this point on both parties'
-	//staging
-	//Staging inclusion is in order.
-	CommitterLastStaging uint64
-	ReceiverLastStaging  uint64
+	//List of HTLC Keys which are updated from all parties
+	UpdatedHTLCKeys []uint64
 
 	//Hash of the revocation to use
 	RevocationHash [20]byte
@@ -41,16 +37,14 @@ type CommitSignature struct {
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
 	//CommitmentHeight(8)
-	//CommiterLastStaging(8)
-	//ReceiverLastStaging(8)
+	//c.UpdatedHTLCKeys(8*1000max)
 	//RevocationHash(20)
 	//Fee(8)
 	//RequesterCommitSig(73max+2)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.CommitmentHeight,
-		&c.CommitterLastStaging,
-		&c.ReceiverLastStaging,
+		&c.UpdatedHTLCKeys,
 		&c.RevocationHash,
 		&c.Fee,
 		&c.CommitSig,
@@ -73,8 +67,7 @@ func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
 		c.CommitmentHeight,
-		c.CommitterLastStaging,
-		c.ReceiverLastStaging,
+		c.UpdatedHTLCKeys,
 		c.RevocationHash,
 		c.Fee,
 		c.CommitSig,
@@ -91,7 +84,7 @@ func (c *CommitSignature) Command() uint32 {
 }
 
 func (c *CommitSignature) MaxPayloadLength(uint32) uint32 {
-	return 135
+	return 8192
 }
 
 //Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
@@ -108,21 +101,23 @@ func (c *CommitSignature) Validate() error {
 func (c *CommitSignature) String() string {
 	//c.ChannelID,
 	//c.CommitmentHeight,
-	//c.CommitterLastStaging,
-	//c.ReceiverLastStaging,
 	//c.RevocationHash,
+	//c.UpdatedHTLCKeys,
 	//c.Fee,
 	//c.CommitSig,
 	var serializedSig []byte
 	if &c.CommitSig != nil && c.CommitSig.R != nil {
 		serializedSig = c.CommitSig.Serialize()
 	}
+	var items string
+	for i := 0; i < len(c.UpdatedHTLCKeys); i++ {
+		items += fmt.Sprintf("%d ", c.UpdatedHTLCKeys[i])
+	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
 		fmt.Sprintf("CommitmentHeight:\t%d\n", c.CommitmentHeight) +
-		fmt.Sprintf("CommitterLastStaging:\t%d\n", c.CommitterLastStaging) +
-		fmt.Sprintf("ReceiverLastStaging:\t%d\n", c.ReceiverLastStaging) +
+		fmt.Sprintf("UpdatedHTLCKeys:\t%s\n", items) +
 		fmt.Sprintf("RevocationHash:\t\t%x\n", c.RevocationHash) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +

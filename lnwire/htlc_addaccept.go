@@ -7,18 +7,15 @@ import (
 
 type HTLCAddAccept struct {
 	ChannelID uint64
-	StagingID uint64
+	HTLCKey HTLCKey
 }
 
 func (c *HTLCAddAccept) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
-	//CommitmentHeight(8)
-	//NextResponderCommitmentRevocationHash(20)
-	//ResponderRevocationPreimage(20)
-	//ResponderCommitSig(2+73max)
+	//HTLCKey(8)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.StagingID,
+		&c.HTLCKey,
 	)
 	if err != nil {
 		return err
@@ -37,7 +34,7 @@ func NewHTLCAddAccept() *HTLCAddAccept {
 func (c *HTLCAddAccept) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.StagingID,
+		c.HTLCKey,
 	)
 
 	if err != nil {
@@ -65,6 +62,6 @@ func (c *HTLCAddAccept) Validate() error {
 func (c *HTLCAddAccept) String() string {
 	return fmt.Sprintf("\n--- Begin HTLCAddAccept ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("StagingID:\t\t%d\n", c.StagingID) +
+		fmt.Sprintf("HTLCKey:\t\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("--- End HTLCAddAccept ---\n")
 }

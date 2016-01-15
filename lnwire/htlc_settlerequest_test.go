@@ -12,7 +12,7 @@ var (
 
 	htlcSettleRequest = &HTLCSettleRequest{
 		ChannelID:        uint64(12345678),
-		StagingID:        uint64(12345),
+		HTLCKey:          HTLCKey(12345),
 		RedemptionProofs: redemptionProofs,
 	}
 	htlcSettleRequestSerializedString  = "0000000000bc614e000000000000303900015b315ebabb0d8c0d94281caa2dfee69a1a00436e"

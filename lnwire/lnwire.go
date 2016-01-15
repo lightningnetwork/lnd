@@ -16,6 +16,9 @@ var MAX_SLICE_LENGTH = 65535
 //Actual pkScript, not redeemScript
 type PkScript []byte
 
+type HTLCKey uint64
+type CommitHeight uint64
+
 //Subsatoshi amount (Micro-Satoshi, 1/1000th)
 //Should be a signed int to account for negative fees
 //
@@ -76,6 +79,11 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 		return nil
+	case HTLCKey:
+		err = writeElement(w, uint64(e))
+		if err != nil {
+			return err
+		}
 	case btcutil.Amount:
 		err = binary.Write(w, binary.BigEndian, int64(e))
 		if err != nil {
@@ -92,6 +100,24 @@ func writeElement(w io.Writer, element interface{}) error {
 		_, err = w.Write(b[:])
 		if err != nil {
 			return err
+		}
+		return nil
+	case []uint64:
+		numItems := len(e)
+		if numItems > 65535 {
+			return fmt.Errorf("Too many []uint64s")
+		}
+		//Write the size
+		err = writeElement(w, uint16(numItems))
+		if err != nil {
+			return err
+		}
+		//Write the data
+		for i := 0; i < numItems; i++ {
+			err = writeElement(w, e[i])
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	case []*btcec.Signature:
@@ -313,6 +339,14 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = binary.BigEndian.Uint64(b[:])
 		return nil
+	case *HTLCKey:
+		var b [8]byte
+		_, err = io.ReadFull(r, b[:])
+		if err != nil {
+			return err
+		}
+		*e = HTLCKey(binary.BigEndian.Uint64(b[:]))
+		return nil
 	case *btcutil.Amount:
 		var b [8]byte
 		_, err = io.ReadFull(r, b[:])
@@ -340,6 +374,28 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = &*x
+		return nil
+	case *[]uint64:
+		var numItems uint16
+		err = readElement(r, &numItems)
+		if err != nil {
+			return err
+		}
+		//if numItems > 65535 {
+		//	return fmt.Errorf("Too many items in []uint64")
+		//}
+
+		//Read the number of items
+		var items []uint64
+		for i := uint16(0); i < numItems; i++ {
+			var item uint64
+			err = readElement(r, &item)
+			if err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
+		*e = *&items
 		return nil
 	case *[]*btcec.Signature:
 		var numSigs uint8

@@ -7,7 +7,7 @@ import (
 
 type HTLCAddReject struct {
 	ChannelID uint64
-	StagingID uint64
+	HTLCKey HTLCKey
 }
 
 func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {
@@ -18,7 +18,7 @@ func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {
 	//ResponderCommitSig(2+73max)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.StagingID,
+		&c.HTLCKey,
 	)
 	if err != nil {
 		return err
@@ -37,7 +37,7 @@ func NewHTLCAddReject() *HTLCAddReject {
 func (c *HTLCAddReject) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.StagingID,
+		c.HTLCKey,
 	)
 
 	if err != nil {
@@ -65,6 +65,6 @@ func (c *HTLCAddReject) Validate() error {
 func (c *HTLCAddReject) String() string {
 	return fmt.Sprintf("\n--- Begin HTLCAddReject ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("StagingID:\t\t%d\n", c.StagingID) +
+		fmt.Sprintf("HTLCKey:\t\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("--- End HTLCAddReject ---\n")
 }

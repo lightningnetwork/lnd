@@ -12,7 +12,7 @@ type HTLCAddRequest struct {
 	ChannelID uint64
 
 	//ID of this request
-	StagingID uint64
+	HTLCKey HTLCKey
 
 	//When the HTLC expires
 	Expiry uint32
@@ -21,8 +21,9 @@ type HTLCAddRequest struct {
 	//Difference between hop and first item in blob is the fee to complete
 	Amount CreditsAmount
 
-	//Hash160 address of the next hop.
-	NextHop [20]byte
+	//RefundContext is for payment cancellation
+	//TODO (j): not currently in use, add later
+	RefundContext HTLCKey
 
 	//Contract Type
 	//first 4 bits is n, second for is m, in n-of-m "multisig"
@@ -38,19 +39,17 @@ type HTLCAddRequest struct {
 
 func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 	//ChannelID(8)
-	//StagingID(8)
+	//HTLCKey(8)
 	//Expiry(4)
 	//Amount(4)
-	//NextHop(20)
 	//ContractType(1)
 	//RedemptionHashes (numOfHashes * 20 + numOfHashes)
 	//Blob(2+blobsize)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.StagingID,
+		&c.HTLCKey,
 		&c.Expiry,
 		&c.Amount,
-		&c.NextHop,
 		&c.ContractType,
 		&c.RedemptionHashes,
 		&c.Blob,
@@ -72,10 +71,9 @@ func NewHTLCAddRequest() *HTLCAddRequest {
 func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.StagingID,
+		c.HTLCKey,
 		c.Expiry,
 		c.Amount,
-		c.NextHop,
 		c.ContractType,
 		c.RedemptionHashes,
 		c.Blob,
@@ -117,10 +115,9 @@ func (c *HTLCAddRequest) String() string {
 
 	return fmt.Sprintf("\n--- Begin HTLCAddRequest ---\n") +
 		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
-		fmt.Sprintf("StagingID:\t%d\n", c.StagingID) +
+		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
 		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
-		fmt.Sprintf("NextHop\t\t%x\n", c.NextHop) +
 		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionHashes +

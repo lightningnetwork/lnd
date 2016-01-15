@@ -228,6 +228,7 @@ func (l *LNChannel) CreateHTLC(h *PaymentDescriptor) error {
 		//Validate the data
 		err = l.validateHTLC(h, false)
 		if err != nil {
+			l.Unlock()
 			return err
 		}
 		//Update state as pre-commit
@@ -239,7 +240,7 @@ func (l *LNChannel) CreateHTLC(h *PaymentDescriptor) error {
 	} else {
 		//Future version may be able to do this..
 		l.Unlock()
-		fmt.Errorf("Cannot pull money")
+		return fmt.Errorf("Cannot pull money")
 	}
 
 	return nil

@@ -31,17 +31,25 @@ func (s *SPVCon) incomingMessageHandler() {
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
 		case *wire.MsgMerkleBlock:
-			log.Printf("Got merkle block message. Will verify.\n")
-			fmt.Printf("%d flag bytes, %d txs, %d hashes",
-				len(m.Flags), m.Transactions, len(m.Hashes))
+
+			//			log.Printf("Got merkle block message. Will verify.\n")
+			//			fmt.Printf("%d flag bytes, %d txs, %d hashes",
+			//				len(m.Flags), m.Transactions, len(m.Hashes))
 			txids, err := checkMBlock(m)
 			if err != nil {
 				log.Printf("Merkle block error: %s\n", err.Error())
 				return
 				//				continue
 			}
-			fmt.Printf(" = got %d txs from block %s\n",
-				len(txids), m.Header.BlockSha().String())
+			fmt.Printf(" got %d txs ", len(txids))
+			//			fmt.Printf(" = got %d txs from block %s\n",
+			//				len(txids), m.Header.BlockSha().String())
+			for _, txid := range txids {
+				err := s.TS.AddTxid(txid)
+				if err != nil {
+					log.Printf("Txid store error: %s\n", err.Error())
+				}
+			}
 			//			nextReq <- true
 
 		case *wire.MsgHeaders:
@@ -54,8 +62,11 @@ func (s *SPVCon) incomingMessageHandler() {
 				s.AskForHeaders()
 			}
 		case *wire.MsgTx:
-
-			log.Printf("Got tx %s\n", m.TxSha().String())
+			err := s.TS.IngestTx(m)
+			if err != nil {
+				log.Printf("Incoming Tx error: %s\n", err.Error())
+			}
+			//			log.Printf("Got tx %s\n", m.TxSha().String())
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}

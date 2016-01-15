@@ -11,7 +11,7 @@ import (
 )
 
 type TxStore struct {
-	KnownTxids []wire.ShaHash
+	KnownTxids []*wire.ShaHash
 	Utxos      []Utxo  // stacks on stacks
 	Sum        int64   // racks on racks
 	Adrs       []MyAdr // endeavouring to acquire capital
@@ -19,9 +19,10 @@ type TxStore struct {
 
 type Utxo struct { // cash money.
 	// combo of outpoint and txout which has all the info needed to spend
-	Op     wire.OutPoint
-	Txo    wire.TxOut
-	KeyIdx uint32 // index for private key needed to sign / spend
+	Op       wire.OutPoint
+	Txo      wire.TxOut
+	AtHeight uint32 // block height where this tx was confirmed, 0 for unconf
+	KeyIdx   uint32 // index for private key needed to sign / spend
 }
 
 type MyAdr struct { // an address I have the private key for
@@ -38,6 +39,15 @@ func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	return
 }
 
+// add txid of interest
+func (t *TxStore) AddTxid(txid *wire.ShaHash) error {
+	if txid == nil {
+		return fmt.Errorf("tried to add nil txid")
+	}
+	t.KnownTxids = append(t.KnownTxids, txid)
+	return nil
+}
+
 // ... or I'm gonna fade away
 func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	if len(t.Adrs) == 0 {
@@ -52,6 +62,18 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 
 // Ingest a tx into wallet, dealing with both gains and losses
 func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
+	var match bool
+	inTxid := tx.TxSha()
+	for _, ktxid := range t.KnownTxids {
+		if inTxid.IsEqual(ktxid) {
+			match = true
+			break // found tx match,
+		}
+	}
+	if !match {
+		return fmt.Errorf("we don't care about tx %s", inTxid.String())
+	}
+
 	err := t.AbsorbTx(tx)
 	if err != nil {
 		return err
@@ -60,6 +82,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	if err != nil {
 		return err
 	}
+	//	fmt.Printf("ingested tx %s total amt %d\n", inTxid.String(), t.Sum)
 	return nil
 }
 
@@ -87,7 +110,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx) error {
 				newop.Index = uint32(i)
 				newu.Op = newop
 
-				t.Utxos = append(t.Utxos)
+				t.Utxos = append(t.Utxos, newu)
 				break
 			}
 		}

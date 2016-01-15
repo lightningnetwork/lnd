@@ -41,9 +41,11 @@ type SPVCon struct {
 
 	WBytes uint64 // total bytes written
 	RBytes uint64 // total bytes read
+
+	TS *TxStore
 }
 
-func (s *SPVCon) Open(remoteNode string, hfn string) error {
+func (s *SPVCon) Open(remoteNode string, hfn string, inTs *TxStore) error {
 	// open header file
 	err := s.openHeaderFile(headerFileName)
 	if err != nil {
@@ -58,6 +60,8 @@ func (s *SPVCon) Open(remoteNode string, hfn string) error {
 
 	s.localVersion = VERSION
 	s.netType = NETVERSION
+
+	s.TS = inTs
 
 	myMsgVer, err := wire.NewMsgVersionFromConn(s.con, 0, 0)
 	if err != nil {
@@ -268,6 +272,32 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	}
 	log.Printf("Headers to height %d OK.", tip)
 	return true, nil
+}
+
+func (s *SPVCon) AskForMerkBlocks(current, last uint32) error {
+	var hdr wire.BlockHeader
+	_, err := s.headerFile.Seek(int64(current*80), os.SEEK_SET)
+	if err != nil {
+		return err
+	}
+	for current < last {
+		err = hdr.Deserialize(s.headerFile)
+		if err != nil {
+			return err
+		}
+		current++
+
+		bHash := hdr.BlockSha()
+		iv1 := wire.NewInvVect(wire.InvTypeFilteredBlock, &bHash)
+		gdataMsg := wire.NewMsgGetData()
+		err = gdataMsg.AddInvVect(iv1)
+		if err != nil {
+			return err
+		}
+		s.outMsgQueue <- gdataMsg
+	}
+
+	return nil
 }
 
 func sendMBReq(cn net.Conn, blkhash wire.ShaHash) error {

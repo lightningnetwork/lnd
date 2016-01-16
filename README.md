@@ -6,6 +6,8 @@ It currently is being designed for testnet-L, a test network where all* txids ar
 
 Lnd is not yet functional, but we hope to have a proof of concept on testnet-L soon.  The projection is it will be operational before necessary the necessary malleabilty soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
 
+Don't try to port it to mainnet or an altcoin and use it!  No really.  Lightning transactions will be fast, but for now, you have to wait.
+
 ## chainntfs
 
 A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds. 

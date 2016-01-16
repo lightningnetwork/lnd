@@ -16,7 +16,7 @@ import (
 )
 
 // Conn...
-type Conn struct {
+type LNDConn struct {
 	longTermPriv *btcec.PrivateKey
 
 	remotePub  *btcec.PublicKey
@@ -49,12 +49,12 @@ type Conn struct {
 }
 
 // NewConn...
-func NewConn(connPrivKey *btcec.PrivateKey, conn net.Conn) *Conn {
-	return &Conn{longTermPriv: connPrivKey, conn: conn}
+func NewConn(connPrivKey *btcec.PrivateKey, conn net.Conn) *LNDConn {
+	return &LNDConn{longTermPriv: connPrivKey, conn: conn}
 }
 
 // Dial...
-func (c *Conn) Dial(address string, remoteId []byte) error {
+func (c *LNDConn) Dial(address string, remoteId []byte) error {
 	var err error
 	if c.conn != nil {
 		return fmt.Errorf("connection already established")
@@ -144,7 +144,7 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 }
 
 // authPubKey...
-func (c *Conn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
+func (c *LNDConn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
 	if c.authed {
 		return fmt.Errorf("%s already authed", c.remotePub)
 	}
@@ -192,7 +192,7 @@ func (c *Conn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
 }
 
 // authPKH...
-func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
+func (c *LNDConn) authPKH(theirPKH, localEphPubBytes []byte) error {
 	if c.authed {
 		return fmt.Errorf("%s already authed", c.remotePub)
 	}
@@ -251,7 +251,7 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 // Read can be made to time out and return a Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetReadDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) Read(b []byte) (n int, err error) {
+func (c *LNDConn) Read(b []byte) (n int, err error) {
 	// In order to reconcile the differences between the record abstraction
 	// of our AEAD connection, and the stream abstraction of TCP, we maintain
 	// an intermediate read buffer. If this buffer becomes depleated, then
@@ -292,7 +292,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 // Write can be made to time out and return a Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetWriteDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) Write(b []byte) (n int, err error) {
+func (c *LNDConn) Write(b []byte) (n int, err error) {
 	if b == nil {
 		return 0, fmt.Errorf("write to %x nil", c.remoteLNId)
 	}
@@ -320,7 +320,7 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 // Close closes the connection.
 // Any blocked Read or Write operations will be unblocked and return errors.
 // Part of the net.Conn interface.
-func (c *Conn) Close() error {
+func (c *LNDConn) Close() error {
 	c.myNonceInt = 0
 	c.remoteNonceInt = 0
 	c.remotePub = nil
@@ -331,13 +331,13 @@ func (c *Conn) Close() error {
 // LocalAddr returns the local network address.
 // Part of the net.Conn interface.
 // If PBX reports address of pbx host.
-func (c *Conn) LocalAddr() net.Addr {
+func (c *LNDConn) LocalAddr() net.Addr {
 	return c.conn.LocalAddr()
 }
 
 // RemoteAddr returns the remote network address.
 // Part of the net.Conn interface.
-func (c *Conn) RemoteAddr() net.Addr {
+func (c *LNDConn) RemoteAddr() net.Addr {
 	return c.conn.RemoteAddr()
 }
 
@@ -345,14 +345,14 @@ func (c *Conn) RemoteAddr() net.Addr {
 // with the connection. It is equivalent to calling both
 // SetReadDeadline and SetWriteDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) SetDeadline(t time.Time) error {
+func (c *LNDConn) SetDeadline(t time.Time) error {
 	return c.conn.SetDeadline(t)
 }
 
 // SetReadDeadline sets the deadline for future Read calls.
 // A zero value for t means Read will not time out.
 // Part of the net.Conn interface.
-func (c *Conn) SetReadDeadline(t time.Time) error {
+func (c *LNDConn) SetReadDeadline(t time.Time) error {
 	return c.conn.SetReadDeadline(t)
 }
 
@@ -361,8 +361,8 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
 // Part of the net.Conn interface.
-func (c *Conn) SetWriteDeadline(t time.Time) error {
+func (c *LNDConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-var _ net.Conn = (*Conn)(nil)
+var _ net.Conn = (*LNDConn)(nil)

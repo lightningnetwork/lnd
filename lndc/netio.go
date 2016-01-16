@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/btcsuite/fastsha256"
+	"golang.org/x/crypto/ripemd160"
 )
 
 // New & improved tcp open session.
@@ -82,6 +85,13 @@ import (
 //	*b = append(lndc.RemoteLNId[:], *b...)
 //	*b = append([]byte{lnwire.MSGID_FWDMSG}, *b...)
 //}
+
+func H160(input []byte) []byte {
+	rp := ripemd160.New()
+	shaout := fastsha256.Sum256(input)
+	_, _ = rp.Write(shaout[:])
+	return rp.Sum(nil)
+}
 
 // readClear and writeClear don't encrypt but directly read and write to the
 // underlying data link, only adding or subtracting a 2 byte length header.

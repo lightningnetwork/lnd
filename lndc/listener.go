@@ -65,7 +65,7 @@ func (l *Listener) Accept() (c net.Conn, err error) {
 }
 
 // createCipherConn....
-func (l *Listener) createCipherConn(lnConn *Conn) (*btcec.PrivateKey, error) {
+func (l *Listener) createCipherConn(lnConn *LNDConn) (*btcec.PrivateKey, error) {
 	var err error
 	var theirEphPubBytes []byte
 
@@ -114,7 +114,7 @@ func (l *Listener) createCipherConn(lnConn *Conn) (*btcec.PrivateKey, error) {
 }
 
 // AuthListen...
-func (l *Listener) authenticateConnection(lnConn *Conn, localEphPubBytes []byte) error {
+func (l *Listener) authenticateConnection(lnConn *LNDConn, localEphPubBytes []byte) error {
 	var err error
 
 	// TODO(roasbeef): should be using read/write clear here?

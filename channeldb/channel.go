@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"li.lan/labs/plasma/shachain"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (

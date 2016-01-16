@@ -4,12 +4,13 @@ import (
 	"fmt"
 	//"github.com/btcsuite/btcd/btcec"
 	//"atomic"
+	"sync"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"li.lan/labs/plasma/channeldb"
-	"li.lan/labs/plasma/lnwire"
-	"li.lan/labs/plasma/shachain"
-	"sync"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 //This is a state machine which allows for simultaneous high-volume

@@ -12,10 +12,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"li.lan/labs/plasma/chainntfs"
-	"li.lan/labs/plasma/chainntfs/btcdnotify"
-	"li.lan/labs/plasma/channeldb"
-	"li.lan/labs/plasma/shachain"
+	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"

@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"sync"
 
-	"li.lan/labs/plasma/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"

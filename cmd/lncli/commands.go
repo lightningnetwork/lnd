@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/codegangsta/cli"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"golang.org/x/net/context"
-	"li.lan/labs/plasma/lnrpc"
 )
 
 func printRespJson(resp interface{}) {

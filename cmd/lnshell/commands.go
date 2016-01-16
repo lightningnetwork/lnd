@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
-	"li.lan/labs/plasma/lnrpc"
 )
 
 // connects via grpc to the ln node.  default (hardcoded?) local:10K

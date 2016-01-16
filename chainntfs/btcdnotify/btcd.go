@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-	"li.lan/labs/plasma/chainntfs"
+	"github.com/lightningnetwork/lnd/chainntfs"
 )
 
 // BtcdNotifier...

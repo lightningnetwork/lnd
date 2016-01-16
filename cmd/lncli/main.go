@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/codegangsta/cli"
-	"li.lan/labs/plasma/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 
 	"google.golang.org/grpc"
 )
@@ -49,7 +49,7 @@ func main() {
 		cli.StringFlag{
 			Name:  "rpcserver",
 			Value: "localhost:10000",
-			Usage: "host:port of plasma daemon",
+			Usage: "host:port of ln daemon",
 		},
 	}
 	app.Commands = []cli.Command{

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"li.lan/labs/plasma/chainntfs"
-	"li.lan/labs/plasma/channeldb"
+	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"

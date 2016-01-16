@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"li.lan/labs/plasma/lnrpc"
 )
 
 var z lnrpc.LightningClient

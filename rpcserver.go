@@ -7,7 +7,7 @@ import (
 	"net"
 	"strings"
 
-	"li.lan/labs/testnet-L/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"

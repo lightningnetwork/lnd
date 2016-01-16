@@ -9,12 +9,11 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/lndc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/net/context"
-	"li.lan/labs/plasma/lndc"
-	"li.lan/labs/plasma/lnrpc"
-	"li.lan/labs/plasma/lnwallet"
-	"li.lan/labs/plasma/lnwire"
-	"li.lan/labs/strux"
 )
 
 var (
@@ -27,6 +26,16 @@ type rpcServer struct { // doesn't count as globals I think
 	CnMap    map[[16]byte]net.Conn     //interface to the lightning network
 	OmniChan chan []byte               // channel for all incoming messages from LN nodes.
 	// can split the OmniChan up if that is helpful.  So far 1 seems OK.
+}
+
+type LNAdr struct {
+	LNId   [16]byte // redundant because adr contains it
+	Adr    btcutil.Address
+	PubKey *btcec.PublicKey
+
+	Name        string
+	Host        string
+	Endorsement []byte
 }
 
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
@@ -101,7 +110,7 @@ func (r *rpcServer) LNConnect(ctx context.Context,
 	if len(in.IdAtHost) == 0 {
 		return nil, fmt.Errorf("need: lnc pubkeyhash@hostname")
 	}
-	var newNode strux.LNAdr
+	var newNode LNAdr
 
 	err = newNode.ParseFromString(in.IdAtHost)
 	if err != nil {

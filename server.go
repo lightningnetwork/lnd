@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"li.lan/labs/plasma/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/walletdb"

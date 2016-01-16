@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"li.lan/labs/plasma/lnwire"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // it listens for incoming messages on the lndc and hands it over

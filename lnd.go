@@ -14,8 +14,6 @@ import (
 	"li.lan/labs/plasma/lnwallet"
 )
 
-//lightning == terrestrial plasma
-
 var (
 	rpcport = flag.Int("port", 10000, "The port for the rpc server")
 )

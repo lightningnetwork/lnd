@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
+
+	"li.lan/labs/testnet-L/chaincfg"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
@@ -36,6 +39,56 @@ type LNAdr struct {
 	Name        string
 	Host        string
 	Endorsement []byte
+}
+
+func (l *LNAdr) ParseFromString(s string) error {
+	var err error
+	if len(s) == 0 {
+		return fmt.Errorf("LNid ParseFromString: null string")
+	}
+	if l == nil { // make a LNId if it doesn't exist
+		return fmt.Errorf("null id, initialize first")
+	}
+
+	ss := strings.Split(s, "@")
+	ident := ss[0]
+	if len(ss) > 1 { // redundant? no
+		l.Host = ss[1]
+	}
+	if len(ident) > 65 && len(ident) < 69 { // could be pubkey
+		pubkeyBytes, err := hex.DecodeString(ident)
+		if err != nil {
+			return err
+		}
+		l.PubKey, err = btcec.ParsePubKey(pubkeyBytes, btcec.S256())
+		if err != nil {
+			return err
+		}
+
+		// got pubey, populate address from pubkey
+		l.Adr, err = btcutil.NewAddressPubKeyHash(btcutil.Hash160(
+			l.PubKey.SerializeCompressed()), &chaincfg.TestNet3Params)
+		if err != nil {
+			return err
+		}
+	} else if len(ident) > 33 && len(ident) < 37 { // could be pkh
+		l.Adr, err = btcutil.DecodeAddress(
+			ident, &chaincfg.TestNet3Params)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("invalid address %s", ident)
+	}
+
+	// check for nonstandard port
+	//	if strings.Count(lid.Host, ":") == 1 {
+	//	}
+	//don't for now... stdlib should do this.  ipv6 and stuff...
+
+	//	populate LNId from address
+	copy(l.LNId[:], l.Adr.ScriptAddress())
+	return nil
 }
 
 var _ lnrpc.LightningServer = (*rpcServer)(nil)

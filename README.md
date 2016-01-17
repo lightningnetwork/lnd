@@ -43,7 +43,7 @@ An application specific, yet general Bitcoin wallet which understands all the fa
 Library of messages for Lightning Network node to node communcations.  Messages for opening and closing channels, as well as updating and revoking channel states are described here.
 
 ### shachain
-An implementation of Rusty Russel's [64-dimensional shachain](https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt).
+An implementation of Rusty Russell's [64-dimensional shachain](https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt).
 
 ### uspv
 Wallet library to connect to bitcoin nodes and build a local SPV and wallet transaction state.

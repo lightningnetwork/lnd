@@ -17,62 +17,62 @@ type FundingRequest struct {
 	RequesterReserveAmount btcutil.Amount
 	MinFeePerKb            btcutil.Amount
 
-	//The funding requester can request payment
-	//This wallet only allows positive values,
-	//which is a payment to the responder
-	//(This can be used to fund the Reserve)
-	//If the responder disagrees, then the funding request fails
-	//THIS VALUE GOES INTO THE RESPONDER'S FUNDING AMOUNT
-	//total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change" + Fees(?)
-	//RequesterFundingAmount = "Available Balance" + RequesterReserveAmount
-	//Payment SHOULD NOT be acknowledged until the minimum confirmation has elapsed
-	//(Due to double-spend risks the recipient will not want to acknolwedge confirmation until later)
-	//This is to make a payment as part of opening the channel
+	// The funding requester can request payment
+	// This wallet only allows positive values,
+	// which is a payment to the responder
+	// (This can be used to fund the Reserve)
+	// If the responder disagrees, then the funding request fails
+	// THIS VALUE GOES INTO THE RESPONDER'S FUNDING AMOUNT
+	// total requester input value = RequesterFundingAmount + PaymentAmount + "Total Change" + Fees(?)
+	// RequesterFundingAmount = "Available Balance" + RequesterReserveAmount
+	// Payment SHOULD NOT be acknowledged until the minimum confirmation has elapsed
+	// (Due to double-spend risks the recipient will not want to acknolwedge confirmation until later)
+	// This is to make a payment as part of opening the channel
 	PaymentAmount btcutil.Amount
 
-	//Minimum number of confirmations to validate transaction
+	// Minimum number of confirmations to validate transaction
 	MinDepth uint32
 
-	//Should double-check the total funding later
+	// Should double-check the total funding later
 	MinTotalFundingAmount btcutil.Amount
 
-	//CLTV/CSV lock-time to use
+	// CLTV/CSV lock-time to use
 	LockTime uint32
 
-	//Who pays the fees
-	//0: (default) channel initiator
-	//1: split
-	//2: channel responder
+	// Who pays the fees
+	// 0: (default) channel initiator
+	// 1: split
+	// 2: channel responder
 	FeePayer uint8
 
 	RevocationHash   [20]byte
 	Pubkey           *btcec.PublicKey
-	DeliveryPkScript PkScript //*MUST* be either P2PKH or P2SH
-	ChangePkScript   PkScript //*MUST* be either P2PKH or P2SH
+	DeliveryPkScript PkScript // *MUST* be either P2PKH or P2SH
+	ChangePkScript   PkScript // *MUST* be either P2PKH or P2SH
 
 	Inputs []*wire.TxIn
 }
 
 func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
-	//Reservation ID (8)
-	//Channel Type (1)
-	//Funding Amount (8)
-	//Channel Minimum Capacity (8)
-	//Revocation Hash (20)
-	//Commitment Pubkey (32)
-	//Reserve Amount (8)
-	//Minimum Transaction Fee Per Kb (8)
-	//PaymentAmount (8)
-	//MinDepth (4)
-	//LockTime (4)
-	//FeePayer (1)
-	//DeliveryPkScript (final delivery)
-	//	First byte length then pkscript
-	//ChangePkScript (change for extra from inputs)
-	//	First byte length then pkscript
-	//Inputs: Create the TxIns
-	//	First byte is number of inputs
-	//	For each input, it's 32bytes txin & 4bytes index
+	// Reservation ID (8)
+	// Channel Type (1)
+	// Funding Amount (8)
+	// Channel Minimum Capacity (8)
+	// Revocation Hash (20)
+	// Commitment Pubkey (32)
+	// Reserve Amount (8)
+	// Minimum Transaction Fee Per Kb (8)
+	// PaymentAmount (8)
+	// MinDepth (4)
+	// LockTime (4)
+	// FeePayer (1)
+	// DeliveryPkScript (final delivery)
+	// 	First byte length then pkscript
+	// ChangePkScript (change for extra from inputs)
+	// 	First byte length then pkscript
+	// Inputs: Create the TxIns
+	// 	First byte is number of inputs
+	// 	For each input, it's 32bytes txin & 4bytes index
 	err := readElements(r,
 		&c.ReservationID,
 		&c.ChannelType,
@@ -96,26 +96,26 @@ func (c *FundingRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new FundingRequest
+// Creates a new FundingRequest
 func NewFundingRequest() *FundingRequest {
 	return &FundingRequest{}
 }
 
-//Serializes the item from the FundingRequest struct
-//Writes the data to w
+// Serializes the item from the FundingRequest struct
+// Writes the data to w
 func (c *FundingRequest) Encode(w io.Writer, pver uint32) error {
-	//Channel Type
-	//Funding Amont
-	//Channel Minimum Capacity
-	//Revocation Hash
-	//Commitment Pubkey
-	//Reserve Amount
-	//Minimum Transaction Fee Per KB
-	//LockTime
-	//FeePayer
-	//DeliveryPkScript
-	//ChangePkScript
-	//Inputs: Append the actual Txins
+	// Channel Type
+	// Funding Amont
+	// Channel Minimum Capacity
+	// Revocation Hash
+	// Commitment Pubkey
+	// Reserve Amount
+	// Minimum Transaction Fee Per KB
+	// LockTime
+	// FeePayer
+	// DeliveryPkScript
+	// ChangePkScript
+	// Inputs: Append the actual Txins
 	err := writeElements(w,
 		c.ReservationID,
 		c.ChannelType,
@@ -144,15 +144,15 @@ func (c *FundingRequest) Command() uint32 {
 }
 
 func (c *FundingRequest) MaxPayloadLength(uint32) uint32 {
-	//110 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
+	// 110 (base size) + 26 (pkscript) + 26 (pkscript) + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
 	return 4735
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingRequest) Validate() error {
 	var err error
 
-	//No negative values
+	// No negative values
 	if c.RequesterFundingAmount < 0 {
 		return fmt.Errorf("RequesterFundingAmount cannot be negative")
 	}
@@ -168,7 +168,7 @@ func (c *FundingRequest) Validate() error {
 		return fmt.Errorf("MinTotalFundingAmount cannot be negative")
 	}
 
-	//Validation of what makes sense...
+	// Validation of what makes sense...
 	if c.MinTotalFundingAmount < c.RequesterFundingAmount {
 		return fmt.Errorf("Requester's minimum too low.")
 	}
@@ -176,29 +176,29 @@ func (c *FundingRequest) Validate() error {
 		return fmt.Errorf("Reserve must be below Funding Amount")
 	}
 
-	//This wallet only allows payment from the requester to responder
+	// This wallet only allows payment from the requester to responder
 	if c.PaymentAmount < 0 {
 		return fmt.Errorf("This wallet requieres payment to be greater than zero.")
 	}
 
-	//Make sure there's not more than 127 inputs
+	// Make sure there's not more than 127 inputs
 	if len(c.Inputs) > 127 {
 		return fmt.Errorf("Too many inputs")
 	}
 
-	//DeliveryPkScript is either P2SH or P2PKH
+	// DeliveryPkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
-	//ChangePkScript is either P2SH or P2PKH
+	// ChangePkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.ChangePkScript)
 	if err != nil {
 		return err
 	}
 
-	//We're good!
+	// We're good!
 	return nil
 }
 

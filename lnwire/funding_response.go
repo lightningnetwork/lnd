@@ -13,51 +13,51 @@ type FundingResponse struct {
 
 	ReservationID uint64
 
-	ResponderFundingAmount btcutil.Amount //Responder's funding amount
-	ResponderReserveAmount btcutil.Amount //Responder's reserve amount
-	MinFeePerKb            btcutil.Amount //Lock-in min fee
+	ResponderFundingAmount btcutil.Amount // Responder's funding amount
+	ResponderReserveAmount btcutil.Amount // Responder's reserve amount
+	MinFeePerKb            btcutil.Amount // Lock-in min fee
 
-	//Minimum depth
+	// Minimum depth
 	MinDepth uint32
 
-	//CLTV/CSV lock-time to use
+	// CLTV/CSV lock-time to use
 	LockTime uint32
 
-	//Who pays the fees
-	//0: (default) channel initiator
-	//1: split
-	//2: channel responder
+	// Who pays the fees
+	// 0: (default) channel initiator
+	// 1: split
+	// 2: channel responder
 	FeePayer uint8
 
 	RevocationHash   [20]byte
 	Pubkey           *btcec.PublicKey
-	CommitSig        *btcec.Signature //Requester's Commitment
-	DeliveryPkScript PkScript         //*MUST* be either P2PKH or P2SH
-	ChangePkScript   PkScript         //*MUST* be either P2PKH or P2SH
+	CommitSig        *btcec.Signature // Requester's Commitment
+	DeliveryPkScript PkScript         // *MUST* be either P2PKH or P2SH
+	ChangePkScript   PkScript         // *MUST* be either P2PKH or P2SH
 
 	Inputs []*wire.TxIn
 }
 
 func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
-	//ReservationID (8)
-	//Channel Type (1)
-	//Funding Amount (8)
-	//Revocation Hash (20)
-	//Commitment Pubkey (32)
-	//Reserve Amount (8)
-	//Minimum Transaction Fee Per Kb (8)
-	//MinDepth (4)
-	//LockTime (4)
-	//FeePayer (1)
-	//DeliveryPkScript (final delivery)
-	//	First byte length then pkscript
-	//ChangePkScript (change for extra from inputs)
-	//	First byte length then pkscript
-	//CommitSig
-	//	First byte length then sig
-	//Inputs: Create the TxIns
-	//	First byte is number of inputs
-	//	For each input, it's 32bytes txin & 4bytes index
+	// ReservationID (8)
+	// Channel Type (1)
+	// Funding Amount (8)
+	// Revocation Hash (20)
+	// Commitment Pubkey (32)
+	// Reserve Amount (8)
+	// Minimum Transaction Fee Per Kb (8)
+	// MinDepth (4)
+	// LockTime (4)
+	// FeePayer (1)
+	// DeliveryPkScript (final delivery)
+	// 	First byte length then pkscript
+	// ChangePkScript (change for extra from inputs)
+	// 	First byte length then pkscript
+	// CommitSig
+	// 	First byte length then sig
+	// Inputs: Create the TxIns
+	// 	First byte is number of inputs
+	// 	For each input, it's 32bytes txin & 4bytes index
 	err := readElements(r,
 		&c.ReservationID,
 		&c.ChannelType,
@@ -80,27 +80,27 @@ func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new FundingResponse
+// Creates a new FundingResponse
 func NewFundingResponse() *FundingResponse {
 	return &FundingResponse{}
 }
 
-//Serializes the item from the FundingResponse struct
-//Writes the data to w
+// Serializes the item from the FundingResponse struct
+// Writes the data to w
 func (c *FundingResponse) Encode(w io.Writer, pver uint32) error {
-	//ReservationID (8)
-	//Channel Type (1)
-	//Funding Amount (8)
-	//Revocation Hash (20)
-	//Commitment Pubkey (32)
-	//Reserve Amount (8)
-	//Minimum Transaction Fee Per Kb (8)
-	//LockTime (4)
-	//FeePayer (1)
-	//DeliveryPkScript (final delivery)
-	//ChangePkScript (change for extra from inputs)
-	//CommitSig
-	//Inputs
+	// ReservationID (8)
+	// Channel Type (1)
+	// Funding Amount (8)
+	// Revocation Hash (20)
+	// Commitment Pubkey (32)
+	// Reserve Amount (8)
+	// Minimum Transaction Fee Per Kb (8)
+	// LockTime (4)
+	// FeePayer (1)
+	// DeliveryPkScript (final delivery)
+	// ChangePkScript (change for extra from inputs)
+	// CommitSig
+	// Inputs
 	err := writeElements(w,
 		c.ReservationID,
 		c.ChannelType,
@@ -128,15 +128,15 @@ func (c *FundingResponse) Command() uint32 {
 }
 
 func (c *FundingResponse) MaxPayloadLength(uint32) uint32 {
-	//86 (base size) + 26 (pkscript) + 26 (pkscript) + 74sig + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
+	// 86 (base size) + 26 (pkscript) + 26 (pkscript) + 74sig + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
 	return 4785
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingResponse) Validate() error {
 	var err error
 
-	//No negative values
+	// No negative values
 	if c.ResponderFundingAmount < 0 {
 		return fmt.Errorf("ResponderFundingAmount cannot be negative")
 	}
@@ -149,29 +149,29 @@ func (c *FundingResponse) Validate() error {
 		return fmt.Errorf("MinFeePerKb cannot be negative")
 	}
 
-	//Validation of what makes sense...
+	// Validation of what makes sense...
 	if c.ResponderFundingAmount < c.ResponderReserveAmount {
 		return fmt.Errorf("Reserve must be below Funding Amount")
 	}
 
-	//Make sure there's not more than 127 inputs
+	// Make sure there's not more than 127 inputs
 	if len(c.Inputs) > 127 {
 		return fmt.Errorf("Too many inputs")
 	}
 
-	//Delivery PkScript is either P2SH or P2PKH
+	// Delivery PkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.DeliveryPkScript)
 	if err != nil {
 		return err
 	}
 
-	//Change PkScript is either P2SH or P2PKH
+	// Change PkScript is either P2SH or P2PKH
 	err = ValidatePkScript(c.ChangePkScript)
 	if err != nil {
 		return err
 	}
 
-	//We're good!
+	// We're good!
 	return nil
 }
 

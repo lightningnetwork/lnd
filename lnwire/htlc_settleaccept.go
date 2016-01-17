@@ -5,19 +5,19 @@ import (
 	"io"
 )
 
-//Multiple Clearing Requests are possible by putting this inside an array of
-//clearing requests
+// Multiple Clearing Requests are possible by putting this inside an array of
+// clearing requests
 type HTLCSettleAccept struct {
-	//We can use a different data type for this if necessary...
+	// We can use a different data type for this if necessary...
 	ChannelID uint64
 
-	//ID of this request
+	// ID of this request
 	HTLCKey HTLCKey
 }
 
 func (c *HTLCSettleAccept) Decode(r io.Reader, pver uint32) error {
-	//ChannelID(8)
-	//HTLCKey(8)
+	// ChannelID(8)
+	// HTLCKey(8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.HTLCKey,
@@ -29,13 +29,13 @@ func (c *HTLCSettleAccept) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new HTLCSettleAccept
+// Creates a new HTLCSettleAccept
 func NewHTLCSettleAccept() *HTLCSettleAccept {
 	return &HTLCSettleAccept{}
 }
 
-//Serializes the item from the HTLCSettleAccept struct
-//Writes the data to w
+// Serializes the item from the HTLCSettleAccept struct
+// Writes the data to w
 func (c *HTLCSettleAccept) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
@@ -53,13 +53,13 @@ func (c *HTLCSettleAccept) Command() uint32 {
 }
 
 func (c *HTLCSettleAccept) MaxPayloadLength(uint32) uint32 {
-	//16
+	// 16
 	return 16
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCSettleAccept) Validate() error {
-	//We're good!
+	// We're good!
 	return nil
 }
 

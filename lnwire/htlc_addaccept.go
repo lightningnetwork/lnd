@@ -11,8 +11,8 @@ type HTLCAddAccept struct {
 }
 
 func (c *HTLCAddAccept) Decode(r io.Reader, pver uint32) error {
-	//ChannelID(8)
-	//HTLCKey(8)
+	// ChannelID(8)
+	// HTLCKey(8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.HTLCKey,
@@ -24,13 +24,13 @@ func (c *HTLCAddAccept) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new HTLCAddAccept
+// Creates a new HTLCAddAccept
 func NewHTLCAddAccept() *HTLCAddAccept {
 	return &HTLCAddAccept{}
 }
 
-//Serializes the item from the HTLCAddAccept struct
-//Writes the data to w
+// Serializes the item from the HTLCAddAccept struct
+// Writes the data to w
 func (c *HTLCAddAccept) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
@@ -49,13 +49,13 @@ func (c *HTLCAddAccept) Command() uint32 {
 }
 
 func (c *HTLCAddAccept) MaxPayloadLength(uint32) uint32 {
-	//16 base size
+	// 16 base size
 	return 16
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCAddAccept) Validate() error {
-	//We're good!
+	// We're good!
 	return nil
 }
 

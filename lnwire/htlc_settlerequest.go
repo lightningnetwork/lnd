@@ -5,28 +5,28 @@ import (
 	"io"
 )
 
-//Multiple Clearing Requests are possible by putting this inside an array of
-//clearing requests
+// Multiple Clearing Requests are possible by putting this inside an array of
+// clearing requests
 type HTLCSettleRequest struct {
-	//We can use a different data type for this if necessary...
+	// We can use a different data type for this if necessary...
 	ChannelID uint64
 
-	//ID of this request
+	// ID of this request
 	HTLCKey HTLCKey
 
-	//Redemption Proofs (R-Values)
+	// Redemption Proofs (R-Values)
 	RedemptionProofs []*[20]byte
 }
 
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
-	//ChannelID(8)
-	//HTLCKey(8)
-	//Expiry(4)
-	//Amount(4)
-	//NextHop(20)
-	//ContractType(1)
-	//RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	//Blob(2+blobsize)
+	// ChannelID(8)
+	// HTLCKey(8)
+	// Expiry(4)
+	// Amount(4)
+	// NextHop(20)
+	// ContractType(1)
+	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
+	// Blob(2+blobsize)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.HTLCKey,
@@ -39,13 +39,13 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new HTLCSettleRequest
+// Creates a new HTLCSettleRequest
 func NewHTLCSettleRequest() *HTLCSettleRequest {
 	return &HTLCSettleRequest{}
 }
 
-//Serializes the item from the HTLCSettleRequest struct
-//Writes the data to w
+// Serializes the item from the HTLCSettleRequest struct
+// Writes the data to w
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
@@ -64,13 +64,13 @@ func (c *HTLCSettleRequest) Command() uint32 {
 }
 
 func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
-	//21*15+16
+	// 21*15+16
 	return 331
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCSettleRequest) Validate() error {
-	//We're good!
+	// We're good!
 	return nil
 }
 

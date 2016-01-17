@@ -13,31 +13,31 @@ import (
 
 var MAX_SLICE_LENGTH = 65535
 
-//Actual pkScript, not redeemScript
+// Actual pkScript, not redeemScript
 type PkScript []byte
 
 type HTLCKey uint64
 type CommitHeight uint64
 
-//Subsatoshi amount (Micro-Satoshi, 1/1000th)
-//Should be a signed int to account for negative fees
-//
-//"In any science-fiction movie, anywhere in the galaxy, currency is referred
-//to as 'credits.'"
-//	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
-//	glossary. Andrews McMeel. p. 172.
-//
-//https://en.wikipedia.org/wiki/List_of_fictional_currencies
-//https://en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
-//http://tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
-type CreditsAmount int32 //Credits (XCB, accountants should use XCB :^)
-//US Display format: 1 BTC = 100,000,000'000 XCB
-//Or in BTC = 1.00000000'000
+// Subsatoshi amount (Micro-Satoshi, 1/1000th)
+// Should be a signed int to account for negative fees
+// 
+// "In any science-fiction movie, anywhere in the galaxy, currency is referred
+// to as 'credits.'"
+// 	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
+// 	glossary. Andrews McMeel. p. 172.
+// 
+// https:// en.wikipedia.org/wiki/List_of_fictional_currencies
+// https:// en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
+// http:// tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
+type CreditsAmount int32 // Credits (XCB, accountants should use XCB :^)
+// US Display format: 1 BTC = 100,000,000'000 XCB
+// Or in BTC = 1.00000000'000
 
-//Writes the big endian representation of element
-//Unified function to call when writing different types
-//Pre-allocate a byte-array of the correct size for cargo-cult security
-//More copies but whatever...
+// Writes the big endian representation of element
+// Unified function to call when writing different types
+// Pre-allocate a byte-array of the correct size for cargo-cult security
+// More copies but whatever...
 func writeElement(w io.Writer, element interface{}) error {
 	var err error
 	switch e := element.(type) {
@@ -107,12 +107,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if numItems > 65535 {
 			return fmt.Errorf("Too many []uint64s")
 		}
-		//Write the size
+		// Write the size
 		err = writeElement(w, uint16(numItems))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		for i := 0; i < numItems; i++ {
 			err = writeElement(w, e[i])
 			if err != nil {
@@ -125,12 +125,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if numSigs > 127 {
 			return fmt.Errorf("Too many signatures!")
 		}
-		//Write the size
+		// Write the size
 		err = writeElement(w, uint8(numSigs))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		for i := 0; i < numSigs; i++ {
 			err = writeElement(w, e[i])
 			if err != nil {
@@ -144,12 +144,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if sigLength > 73 {
 			return fmt.Errorf("Signature too long!")
 		}
-		//Write the size
+		// Write the size
 		err = writeElement(w, uint8(sigLength))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		_, err = w.Write(sig)
 		if err != nil {
 			return err
@@ -162,13 +162,13 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		return nil
 	case []*[20]byte:
-		//Get size of slice and dump in slice
+		// Get size of slice and dump in slice
 		sliceSize := len(e)
 		err = writeElement(w, uint16(sliceSize))
 		if err != nil {
 			return err
 		}
-		//Write in each sequentially
+		// Write in each sequentially
 		for _, element := range e {
 			err = writeElement(w, &element)
 			if err != nil {
@@ -200,12 +200,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if sliceLength > MAX_SLICE_LENGTH {
 			return fmt.Errorf("Slice length too long!")
 		}
-		//Write the size
+		// Write the size
 		err = writeElement(w, uint16(sliceLength))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		_, err = w.Write(e)
 		if err != nil {
 			return err
@@ -213,16 +213,16 @@ func writeElement(w io.Writer, element interface{}) error {
 		return nil
 	case PkScript:
 		scriptLength := len(e)
-		//Make sure it's P2PKH or P2SH size or less
+		// Make sure it's P2PKH or P2SH size or less
 		if scriptLength > 25 {
 			return fmt.Errorf("PkScript too long!")
 		}
-		//Write the size (1-byte)
+		// Write the size (1-byte)
 		err = writeElement(w, uint8(scriptLength))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		_, err = w.Write(e)
 		if err != nil {
 			return err
@@ -233,19 +233,19 @@ func writeElement(w io.Writer, element interface{}) error {
 		if strlen > 65535 {
 			return fmt.Errorf("String too long!")
 		}
-		//Write the size (2-bytes)
+		// Write the size (2-bytes)
 		err = writeElement(w, uint16(strlen))
 		if err != nil {
 			return err
 		}
-		//Write the data
+		// Write the data
 		_, err = w.Write([]byte(e))
 		if err != nil {
 			return err
 		}
 	case []*wire.TxIn:
-		//Append the unsigned(!!!) txins
-		//Write the size (1-byte)
+		// Append the unsigned(!!!) txins
+		// Write the size (1-byte)
 		if len(e) > 127 {
 			return fmt.Errorf("Too many txins")
 		}
@@ -253,8 +253,8 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		//Append the actual TxIns (Size: NumOfTxins * 36)
-		//Do not include the sequence number to eliminate funny business
+		// Append the actual TxIns (Size: NumOfTxins * 36)
+		// Do not include the sequence number to eliminate funny business
 		for _, in := range e {
 			err = writeElement(w, in)
 			if err != nil {
@@ -263,14 +263,14 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		return nil
 	case *wire.TxIn:
-		//Hash
+		// Hash
 		var h [32]byte
 		copy(h[:], e.PreviousOutPoint.Hash.Bytes())
 		_, err = w.Write(h[:])
 		if err != nil {
 			return err
 		}
-		//Index
+		// Index
 		var idx [4]byte
 		binary.BigEndian.PutUint32(idx[:], e.PreviousOutPoint.Index)
 		_, err = w.Write(idx[:])
@@ -381,11 +381,11 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		//if numItems > 65535 {
-		//	return fmt.Errorf("Too many items in []uint64")
-		//}
+		// if numItems > 65535 {
+		// 	return fmt.Errorf("Too many items in []uint64")
+		// }
 
-		//Read the number of items
+		// Read the number of items
 		var items []uint64
 		for i := uint16(0); i < numItems; i++ {
 			var item uint64
@@ -407,7 +407,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return fmt.Errorf("Too many signatures!")
 		}
 
-		//Read that number of signatures
+		// Read that number of signatures
 		var sigs []*btcec.Signature
 		for i := uint8(0); i < numSigs; i++ {
 			sig := new(btcec.Signature)
@@ -430,7 +430,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return fmt.Errorf("Signature too long!")
 		}
 
-		//Read the sig length
+		// Read the sig length
 		l := io.LimitReader(r, int64(sigLength))
 		sig, err := ioutil.ReadAll(l)
 		if err != nil {
@@ -446,14 +446,14 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = &*btcecSig
 		return nil
 	case *[]*[20]byte:
-		//How many to read
+		// How many to read
 		var sliceSize uint16
 		err = readElement(r, &sliceSize)
 		if err != nil {
 			return err
 		}
 		var data []*[20]byte
-		//Append the actual
+		// Append the actual
 		for i := uint16(0); i < sliceSize; i++ {
 			var element [20]byte
 			err = readElement(r, &element)
@@ -479,20 +479,20 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
 		return nil
 	case *[]byte:
-		//Get the blob length first
+		// Get the blob length first
 		var blobLength uint16
 		err = readElement(r, &blobLength)
 		if err != nil {
 			return err
 		}
 
-		//Shouldn't need to do this, since it's uint16, but we
-		//might have a different value for MAX_SLICE_LENGTH...
+		// Shouldn't need to do this, since it's uint16, but we
+		// might have a different value for MAX_SLICE_LENGTH...
 		if int(blobLength) > MAX_SLICE_LENGTH {
 			return fmt.Errorf("Slice length too long!")
 		}
 
-		//Read the slice length
+		// Read the slice length
 		l := io.LimitReader(r, int64(blobLength))
 		*e, err = ioutil.ReadAll(l)
 		if err != nil {
@@ -503,7 +503,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		return nil
 	case *PkScript:
-		//Get the script length first
+		// Get the script length first
 		var scriptLength uint8
 		err = readElement(r, &scriptLength)
 		if err != nil {
@@ -514,7 +514,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return fmt.Errorf("PkScript too long!")
 		}
 
-		//Read the script length
+		// Read the script length
 		l := io.LimitReader(r, int64(scriptLength))
 		*e, err = ioutil.ReadAll(l)
 		if err != nil {
@@ -525,13 +525,13 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		return nil
 	case *string:
-		//Get the string length first
+		// Get the string length first
 		var strlen uint16
 		err = readElement(r, &strlen)
 		if err != nil {
 			return err
 		}
-		//Read the string for the length
+		// Read the string for the length
 		l := io.LimitReader(r, int64(strlen))
 		b, err := ioutil.ReadAll(l)
 		if len(b) != int(strlen) {
@@ -543,7 +543,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		return nil
 	case *[]*wire.TxIn:
-		//Read the size (1-byte number of txins)
+		// Read the size (1-byte number of txins)
 		var numScripts uint8
 		err = readElement(r, &numScripts)
 		if err != nil {
@@ -553,7 +553,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return fmt.Errorf("Too many txins")
 		}
 
-		//Append the actual TxIns
+		// Append the actual TxIns
 		var txins []*wire.TxIn
 		for i := uint8(0); i < numScripts; i++ {
 			outpoint := new(wire.OutPoint)
@@ -567,7 +567,7 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = *&txins
 		return nil
 	case **wire.TxIn:
-		//Hash
+		// Hash
 		var h [32]byte
 		_, err = io.ReadFull(r, h[:])
 		if err != nil {
@@ -578,7 +578,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		(*e).PreviousOutPoint.Hash = *hash
-		//Index
+		// Index
 		var idxBytes [4]byte
 		_, err = io.ReadFull(r, idxBytes[:])
 		if err != nil {
@@ -603,31 +603,31 @@ func readElements(r io.Reader, elements ...interface{}) error {
 	return nil
 }
 
-//Validates whether a PkScript byte array is P2SH or P2PKH
+// Validates whether a PkScript byte array is P2SH or P2PKH
 func ValidatePkScript(pkScript PkScript) error {
 	if &pkScript == nil {
 		return fmt.Errorf("PkScript should not be empty!")
 	}
 	if len(pkScript) == 25 {
-		//P2PKH
-		//Begins with OP_DUP OP_HASH160 PUSHDATA(20)
+		// P2PKH
+		// Begins with OP_DUP OP_HASH160 PUSHDATA(20)
 		if !bytes.Equal(pkScript[0:3], []byte{118, 169, 20}) ||
-			//Ends with OP_EQUALVERIFY OP_CHECKSIG
+			// Ends with OP_EQUALVERIFY OP_CHECKSIG
 			!bytes.Equal(pkScript[23:25], []byte{136, 172}) {
-			//If it's not correct, return error
+			// If it's not correct, return error
 			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
 		}
 	} else if len(pkScript) == 23 {
-		//P2SH
-		//Begins with OP_HASH160 PUSHDATA(20)
+		// P2SH
+		// Begins with OP_HASH160 PUSHDATA(20)
 		if !bytes.Equal(pkScript[0:2], []byte{169, 20}) ||
-			//Ends with OP_EQUAL
+			// Ends with OP_EQUAL
 			!bytes.Equal(pkScript[22:23], []byte{135}) {
-			//If it's not correct, return error
+			// If it's not correct, return error
 			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
 		}
 	} else {
-		//Length not 23 or 25
+		// Length not 23 or 25
 		return fmt.Errorf("PkScript only allows P2SH or P2PKH")
 	}
 

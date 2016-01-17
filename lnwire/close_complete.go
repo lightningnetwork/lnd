@@ -11,15 +11,15 @@ import (
 type CloseComplete struct {
 	ReservationID uint64
 
-	ResponderCloseSig *btcec.Signature //Requester's Commitment
-	CloseShaHash      *wire.ShaHash    //TxID of the Close Tx
+	ResponderCloseSig *btcec.Signature // Requester's Commitment
+	CloseShaHash      *wire.ShaHash    // TxID of the Close Tx
 }
 
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
-	//ReservationID (8)
-	//ResponderCloseSig (73)
-	//	First byte length then sig
-	//CloseShaHash (32)
+	// ReservationID (8)
+	// ResponderCloseSig (73)
+	// 	First byte length then sig
+	// CloseShaHash (32)
 	err := readElements(r,
 		&c.ReservationID,
 		&c.ResponderCloseSig,
@@ -31,17 +31,17 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new CloseComplete
+// Creates a new CloseComplete
 func NewCloseComplete() *CloseComplete {
 	return &CloseComplete{}
 }
 
-//Serializes the item from the CloseComplete struct
-//Writes the data to w
+// Serializes the item from the CloseComplete struct
+// Writes the data to w
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
-	//ReservationID
-	//ResponderCloseSig
-	//CloseShaHash
+	// ReservationID
+	// ResponderCloseSig
+	// CloseShaHash
 	err := writeElements(w,
 		c.ReservationID,
 		c.ResponderCloseSig,
@@ -58,13 +58,13 @@ func (c *CloseComplete) Command() uint32 {
 }
 
 func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
-	//8 + 73 + 32
+	// 8 + 73 + 32
 	return 113
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CloseComplete) Validate() error {
-	//We're good!
+	// We're good!
 	return nil
 }
 

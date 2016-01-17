@@ -11,15 +11,15 @@ import (
 type CloseRequest struct {
 	ReservationID uint64
 
-	RequesterCloseSig *btcec.Signature //Requester's Commitment
+	RequesterCloseSig *btcec.Signature // Requester's Commitment
 	Fee               btcutil.Amount
 }
 
 func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
-	//ReservationID (8)
-	//RequesterCloseSig (73)
-	//	First byte length then sig
-	//Fee (8)
+	// ReservationID (8)
+	// RequesterCloseSig (73)
+	// 	First byte length then sig
+	// Fee (8)
 	err := readElements(r,
 		&c.ReservationID,
 		&c.RequesterCloseSig,
@@ -31,17 +31,17 @@ func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new CloseRequest
+// Creates a new CloseRequest
 func NewCloseRequest() *CloseRequest {
 	return &CloseRequest{}
 }
 
-//Serializes the item from the CloseRequest struct
-//Writes the data to w
+// Serializes the item from the CloseRequest struct
+// Writes the data to w
 func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
-	//ReservationID
-	//RequesterCloseSig
-	//Fee
+	// ReservationID
+	// RequesterCloseSig
+	// Fee
 	err := writeElements(w,
 		c.ReservationID,
 		c.RequesterCloseSig,
@@ -58,17 +58,17 @@ func (c *CloseRequest) Command() uint32 {
 }
 
 func (c *CloseRequest) MaxPayloadLength(uint32) uint32 {
-	//8 + 73 + 8
+	// 8 + 73 + 8
 	return 89
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CloseRequest) Validate() error {
-	//Fee must be greater than 0
+	// Fee must be greater than 0
 	if c.Fee < 0 {
 		return fmt.Errorf("Fee must be greater than zero.")
 	}
-	//We're good!
+	// We're good!
 	return nil
 }
 

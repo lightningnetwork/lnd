@@ -6,13 +6,13 @@ import (
 )
 
 var (
-	//Need to to do this here
+	// Need to to do this here
 	_ = copy(revocationHash[:], revocationHashBytes)
 
 	commitSignature = &CommitSignature{
 		ChannelID:        uint64(12345678),
 		CommitmentHeight: uint64(12345),
-		//CommitterLastStaging: uint64(12345678),
+		// CommitterLastStaging: uint64(12345678),
 		UpdatedHTLCKeys: []uint64{1, 2, 3, 4, 5},
 		RevocationHash:  revocationHash,
 		Fee:             btcutil.Amount(10000),
@@ -23,19 +23,19 @@ var (
 )
 
 func TestCommitSignatureEncodeDecode(t *testing.T) {
-	//All of these types being passed are of the message interface type
-	//Test serialization, runs: message.Encode(b, 0)
-	//Returns bytes
-	//Compares the expected serialized string from the original
+	// All of these types being passed are of the message interface type
+	// Test serialization, runs: message.Encode(b, 0)
+	// Returns bytes
+	// Compares the expected serialized string from the original
 	s := SerializeTest(t, commitSignature, commitSignatureSerializedString, filename)
 
-	//Test deserialization, runs: message.Decode(s, 0)
-	//Makes sure the deserialized struct is the same as the original
+	// Test deserialization, runs: message.Decode(s, 0)
+	// Makes sure the deserialized struct is the same as the original
 	newMessage := NewCommitSignature()
 	DeserializeTest(t, s, newMessage, commitSignature)
 
-	//Test message using Message interface
-	//Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	//Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
+	// Test message using Message interface
+	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
+	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
 	MessageSerializeDeserializeTest(t, commitSignature, commitSignatureSerializedMessage)
 }

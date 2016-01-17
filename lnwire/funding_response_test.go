@@ -6,10 +6,10 @@ import (
 )
 
 var (
-	//Need to do this here
+	// Need to do this here
 	_ = copy(revocationHash[:], revocationHashBytes)
 
-	//funding response
+	// funding response
 	fundingResponse = &FundingResponse{
 		ChannelType:            uint8(1),
 		ReservationID:          uint64(12345678),
@@ -17,7 +17,7 @@ var (
 		ResponderReserveAmount: btcutil.Amount(131072),
 		MinFeePerKb:            btcutil.Amount(20000),
 		MinDepth:               uint32(6),
-		LockTime:               uint32(4320), //30 block-days
+		LockTime:               uint32(4320), // 30 block-days
 		FeePayer:               uint8(1),
 		RevocationHash:         revocationHash,
 		Pubkey:                 pubKey,
@@ -31,19 +31,19 @@ var (
 )
 
 func TestFundingResponseEncodeDecode(t *testing.T) {
-	//All of these types being passed are of the message interface type
-	//Test serialization, runs: message.Encode(b, 0)
-	//Returns bytes
-	//Compares the expected serialized string from the original
+	// All of these types being passed are of the message interface type
+	// Test serialization, runs: message.Encode(b, 0)
+	// Returns bytes
+	// Compares the expected serialized string from the original
 	s := SerializeTest(t, fundingResponse, fundingResponseSerializedString, filename)
 
-	//Test deserialization, runs: message.Decode(s, 0)
-	//Makes sure the deserialized struct is the same as the original
+	// Test deserialization, runs: message.Decode(s, 0)
+	// Makes sure the deserialized struct is the same as the original
 	newMessage := NewFundingResponse()
 	DeserializeTest(t, s, newMessage, fundingResponse)
 
-	//Test message using Message interface
-	//Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	//Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
+	// Test message using Message interface
+	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
+	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
 	MessageSerializeDeserializeTest(t, fundingResponse, fundingResponseSerializedMessage)
 }

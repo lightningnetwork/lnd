@@ -5,19 +5,19 @@ import (
 	"io"
 )
 
-//Multiple Clearing Requests are possible by putting this inside an array of
-//clearing requests
+// Multiple Clearing Requests are possible by putting this inside an array of
+// clearing requests
 type HTLCTimeoutRequest struct {
-	//We can use a different data type for this if necessary...
+	// We can use a different data type for this if necessary...
 	ChannelID uint64
 
-	//ID of this request
+	// ID of this request
 	HTLCKey HTLCKey
 }
 
 func (c *HTLCTimeoutRequest) Decode(r io.Reader, pver uint32) error {
-	//ChannelID(8)
-	//HTLCKey(8)
+	// ChannelID(8)
+	// HTLCKey(8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.HTLCKey,
@@ -29,13 +29,13 @@ func (c *HTLCTimeoutRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-//Creates a new HTLCTimeoutRequest
+// Creates a new HTLCTimeoutRequest
 func NewHTLCTimeoutRequest() *HTLCTimeoutRequest {
 	return &HTLCTimeoutRequest{}
 }
 
-//Serializes the item from the HTLCTimeoutRequest struct
-//Writes the data to w
+// Serializes the item from the HTLCTimeoutRequest struct
+// Writes the data to w
 func (c *HTLCTimeoutRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
@@ -53,13 +53,13 @@ func (c *HTLCTimeoutRequest) Command() uint32 {
 }
 
 func (c *HTLCTimeoutRequest) MaxPayloadLength(uint32) uint32 {
-	//16
+	// 16
 	return 16
 }
 
-//Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCTimeoutRequest) Validate() error {
-	//We're good!
+	// We're good!
 	return nil
 }
 

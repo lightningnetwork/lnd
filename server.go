@@ -1,37 +1,74 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 // server...
 type server struct {
-	listeners []net.Listener
-	peers     map[int32]*peer
-
 	started  int32 // atomic
 	shutdown int32 // atomic
 
-	bitcoinNet *chaincfg.Params
+	longTermPriv *btcec.PrivateKey
+	bitcoinNet   *chaincfg.Params
+
+	listeners []net.Listener
+	peers     map[int32]*peer
 
 	rpcServer *rpcServer
 	lnwallet  *lnwallet.LightningWallet
-
-	db walletdb.DB
+	db        walletdb.DB
 
 	newPeers  chan *peer
 	donePeers chan *peer
+	queries   chan interface{}
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+}
+
+// newServer...
+func newServer(listenAddrs []string, bitcoinNet *chaincfg.Params,
+	wallet *lnwallet.LightningWallet) (*server, error) {
+	privKey, err := getIdentityPrivKey(wallet)
+	if err != nil {
+		return nil, err
+	}
+
+	listeners := make([]net.Listener, len(listenAddrs))
+	for i, addr := range listenAddrs {
+		listeners[i], err = lndc.NewListener(privKey, addr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	s := &server{
+		longTermPriv: privKey,
+		listeners:    listeners,
+		peers:        make(map[int32]*peer),
+		newPeers:     make(chan *peer, 100),
+		donePeers:    make(chan *peer, 100),
+		lnwallet:     wallet,
+		queries:      make(chan interface{}),
+		quit:         make(chan struct{}),
+	}
+
+	s.rpcServer = newRpcServer(s)
+
+	return s, nil
 }
 
 // addPeer...

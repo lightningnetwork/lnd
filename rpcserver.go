@@ -24,11 +24,15 @@ var (
 )
 
 // rpcServer...
-type rpcServer struct { // doesn't count as globals I think
-	lnwallet *lnwallet.LightningWallet // interface to the bitcoin network
-	CnMap    map[[16]byte]net.Conn     //interface to the lightning network
-	OmniChan chan []byte               // channel for all incoming messages from LN nodes.
-	// can split the OmniChan up if that is helpful.  So far 1 seems OK.
+type rpcServer struct {
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
+
+	server *server
+
+	wg sync.WaitGroup
+
+	quit chan struct{}
 }
 
 type LNAdr struct {
@@ -94,10 +98,8 @@ func (l *LNAdr) ParseFromString(s string) error {
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
 // newRpcServer...
-func newRpcServer(wallet *lnwallet.LightningWallet) *rpcServer {
-	return &rpcServer{wallet,
-		make(map[[16]byte]net.Conn), // initialize with empty CnMap
-		make(chan []byte)}           // init OmniChan (size 1 ok...?)
+func newRpcServer(s *server) *rpcServer {
+	return &rpcServer{server: s, quit: make(chan struct{}, 1)}
 }
 
 // Stop...

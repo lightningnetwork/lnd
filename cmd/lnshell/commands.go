@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -40,37 +39,22 @@ func RpcConnect(args []string) error {
 }
 
 func LnConnect(args []string) error {
-	//	var err error
 	if len(args) == 0 {
 		return fmt.Errorf("need: lnc pubkeyhash@hostname or pkh (via pbx)")
 	}
 
-	req := new(lnrpc.LNConnectRequest)
-	req.IdAtHost = args[0]
-	resp, err := z.LNConnect(stub, req)
+	req := &lnrpc.ConnectPeerRequest{args[0]}
+	resp, err := z.ConnectPeer(stub, req)
 	if err != nil {
 		return err
 	}
+
 	fmt.Printf("connected.  remote lnid is %x\n", resp.LnID)
 	return nil
 }
 
-// LnListen listens on the default port for incoming connections
-func LnListen(args []string) error {
-
-	req := new(lnrpc.TCPListenRequest)
-	req.Hostport = "0.0.0.0:2448"
-	_, err := z.TCPListen(stub, req)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("started TCP port listener\n")
-	return nil
-}
-
 // For testing.  Syntax: lnhi hello world
-func LnChat(args []string) error {
+/*func LnChat(args []string) error {
 	var err error
 	if len(args) < 2 {
 		return fmt.Errorf("too short, need: lnhi 32hexcharLNID message.\n")
@@ -99,4 +83,4 @@ func LnChat(args []string) error {
 	}
 	fmt.Printf("got response but there's nothing in it\n")
 	return nil
-}
+}*/

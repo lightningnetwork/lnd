@@ -64,24 +64,17 @@ func Shellparse(cmdslice []string) error {
 		return fmt.Errorf("User exit")
 	}
 
-	if cmd == "lnhi" {
+	/*if cmd == "lnhi" {
 		err = LnChat(args)
 		if err != nil {
 			fmt.Printf("LN chat error: %s\n", err)
 		}
 		return nil
-	}
+	}*/
 	if cmd == "lnc" {
 		err = LnConnect(args)
 		if err != nil {
 			fmt.Printf("LN connect error: %s\n", err)
-		}
-		return nil
-	}
-	if cmd == "lnl" {
-		err = LnListen(args)
-		if err != nil {
-			fmt.Printf("LN listen error: %s\n", err)
 		}
 		return nil
 	}

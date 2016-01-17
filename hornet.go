@@ -5,9 +5,7 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
-// TODO(roasbeef): Might need to change? due to the PRG* requirements? But
-// yeh, once I add the LN specific stuff FSLength will change. Also doesn't
-// 20 hops seem a bit excessive? 7?
+// TODO(roasbeef): Might need to change? due to the PRG* requirements?
 const NumMaxHops = 20
 const FSLength = 48
 

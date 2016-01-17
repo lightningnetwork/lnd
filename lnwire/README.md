@@ -1,33 +1,32 @@
-Funding (segwit+CSV)
-====================
+# Funding (segwit+CSV)
 
 This is two-party funder for a single Funding Transaction (more efficient and
 makes the channel creation atomic, but doesn't work for
 CSV-no-malleability-fix).
 
-Funding Request
----------------
+### Funding Request
+
 Someone wants to open a channel. The requester provides any inputs and relevant
 information on how much they want to fund and the parameters, these paramters
 are a proposal.
 
-Funding Response
-----------------
+### Funding Response
+
 If the responder accepts the request, they also provide any inputs, and returns
 with parameters as well. These parameters are now considered "Committed" and the
 negotation has finished. If the requester doesn't agree with the new conditions,
 they stop. The response also contains the first Commitment pubkey provided by the
 responder, which refunds the initial balance back to both parties.
 
-Funding SignAccept
-------------
+### Funding SignAccept
+
 The requester now has sufficient information to get a refund if the transaction
 is ever broadcast. The requester signs the Funding Transaction and this message
 gives the signature to the responder. The requester also provides the signature
 for the initial Commitment Transaction.
 
-Funding SignComplete
----------------
+### Funding SignComplete
+
 The responder has sufficient information to broadcast the Funding Transaction
 (with the ability to receive a refund), the responder broadcasts on the
 blockchain and returns the txid to the requester, with the signature of the
@@ -37,28 +36,26 @@ braodcast without this message being received by the requester. After the
 necessary number of confirmations, Lightning Network transactions can proceed.
 
 
-Cooperative Channel Close
-=========================
+# Cooperative Channel Close
 
 This is when either party want to close out a channel with the current balance.
 Requires the cooperation of both parites for this type. In the event of
 non-cooperation, either party may broadcast the most recent Commitment
 Transaction.
 
-Close Request 
--------------
+### Close Request 
+
 One party unilaterally sends their sig and fee amount to the other party. No
 further channel updates are possible. In the future, we might include HTLCs in
 the outputs, but for now, we're assuming *all* HTLCs are cleared out.
 
-Close Complete
-----------------------
+### Close Complete
+
 Returns the Txid and sig as a courtesy. The counterparty might not send this if
 they're being non-cooperative.
 
 
-Commitments and HTLCs 
-=====================
+# Commitments and HTLCs 
 
 This is designed to be non-blocking where there can be multiple Commitments per
 person and the Commitments do not need to match. A HTLC is only believed to be
@@ -69,10 +66,10 @@ by the counterparty.
 As a result, there can easily be hundreds of state updates/payments per second
 per channel.
 
-Commitment States
------------------
+### Commitment States
 
 Commitments:
+
 1. HTLCs, can be modified. Any add/settlement/timeout/etc. gets added to
    staging.
 2. Signed, more than one signed state at a time may exist per party. Takes
@@ -101,10 +98,10 @@ Messages:
 CommitSignature: Signature to establish COMMIT\_SIGNED state
 CommitRevocation: Revoke prior states
 
-ADD HTLCs
----------
+### ADD HTLCs
 
 Requester Add HTLC states (Adding HTLCs):
+
 1. Pre-staged, don't know if the other person wants it
 2. Staged, both parties agree to add this HTLC. If a staging request packet is
    received, then BOTH PARTIES will have it in their next Commitment. Nothing
@@ -152,10 +149,10 @@ HTLCAddRequest: Request to add to staging
 HTLCAddAccept: Add to staging (both parties have added when recv)
 HTLCAddReject: Deny add to staging (both parties don't have in staging)
 
-HTLC Settle (payment success)
------------------------------
+### HTLC Settle (payment success)
 
 Requester Settle HTLC states (Fulfill HTLCs):
+
 1. Pre-staged, don't know if the other person will agree to settle
 2. Staged, both parties agree to settle this HTLC
 3. Signed and sent Commitment Tx to the counterparty, there is now the
@@ -184,10 +181,10 @@ HTLCSettleAccept: Add to staging the removal from Commitment.
 (There is no HTLCSettleReject as the counterparty should immediately close out
 or at worst ignore if it's getting garbage requests)
 
-Timeout (falure/refund)
------------------------
+### Timeout (falure/refund)
 
 Requester Timeout HTLC States:
+
 1. Pre-staged
 2. Staged, both parties agree to time out the HTLC and refund the money
 3. Signe dnad sent commitment to the counterparty, there is now the possibility
@@ -208,12 +205,12 @@ TIMEOUT\_SIGNING\_AND\_REVOKING
 TIMEOUT\_COMPLETE
 
 
-Example (this section to be removed)
-------------------------------------
+### Example (this section to be removed)
 
 A bit redundant, but this was written first... will merge with "Add" example
 
 Adding a single HTLC process:
+
 1. Requester flags as pre-staged, and sends an "add requeset"
 2. Responder decides whether to add. If they don't, they invalidate it. If they
    do, they send a message accepting the staging request. It is now marked as

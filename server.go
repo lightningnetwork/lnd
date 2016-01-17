@@ -110,7 +110,7 @@ out:
 
 // connectPeerMsg...
 type connectPeerMsg struct {
-	addr  *lnAddr
+	addr  *lndc.LNAdr
 	reply chan error
 }
 
@@ -143,10 +143,10 @@ out:
 					// either need a compressed pubkey, or a
 					// 20-byte pkh.
 					var remoteId []byte
-					if addr.pubKey == nil {
-						remoteId = addr.bitcoinAddr.ScriptAddress()
+					if addr.PubKey == nil {
+						remoteId = addr.Base58Addr.ScriptAddress()
 					} else {
-						remoteId = addr.pubKey.SerializeCompressed()
+						remoteId = addr.PubKey.SerializeCompressed()
 					}
 
 					// Attempt to connect to the remote
@@ -154,7 +154,7 @@ out:
 					// connection, or the crypto negotation
 					// breaks down, then return an error to the
 					// caller.
-					ipAddr := addr.netAddr.String()
+					ipAddr := addr.NetAddr.String()
 					conn := lndc.NewConn(s.longTermPriv, nil)
 					if err := conn.Dial(ipAddr, remoteId); err != nil {
 						msg.reply <- err
@@ -178,7 +178,7 @@ out:
 }
 
 // ConnectToPeer...
-func (s *server) ConnectToPeer(addr *lnAddr) error {
+func (s *server) ConnectToPeer(addr *lndc.LNAdr) error {
 	reply := make(chan error, 1)
 
 	s.queries <- &connectPeerMsg{addr, reply}

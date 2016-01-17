@@ -2,18 +2,13 @@ package main
 
 import (
 	"container/list"
-	"encoding/hex"
-	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lndc"
 	"li.lan/labs/plasma/lnwallet"
 	"li.lan/labs/plasma/lnwire"
 )
@@ -41,86 +36,6 @@ const (
 	outgoingQueueLen = 50
 )
 
-// lnAddr...
-type lnAddr struct {
-	lnId   [16]byte // redundant because adr contains it
-	pubKey *btcec.PublicKey
-
-	bitcoinAddr btcutil.Address
-	netAddr     *net.TCPAddr
-
-	name        string
-	endorsement []byte
-}
-
-// String...
-func (l *lnAddr) String() string {
-	var encodedId []byte
-	if l.pubKey == nil {
-		encodedId = l.bitcoinAddr.ScriptAddress()
-	} else {
-		encodedId = l.pubKey.SerializeCompressed()
-	}
-
-	return fmt.Sprintf("%v@%v", encodedId, l.netAddr)
-}
-
-// newLnAddr...
-func newLnAddr(encodedAddr string) (*lnAddr, error) {
-	// The format of an lnaddr is "<pubkey or pkh>@host"
-	idHost := strings.Split(encodedAddr, "@")
-	if len(idHost) != 2 {
-		return nil, fmt.Errorf("invalid format for lnaddr string: %v", encodedAddr)
-	}
-
-	// Attempt to resolve the IP address, this handles parsing IPv6 zones,
-	// and such.
-	fmt.Println("host: ", idHost[1])
-	ipAddr, err := net.ResolveTCPAddr("tcp", idHost[1])
-	if err != nil {
-		return nil, err
-	}
-
-	addr := &lnAddr{netAddr: ipAddr}
-
-	idLen := len(idHost[0])
-	switch {
-	// Is the ID a hex-encoded compressed public key?
-	case idLen > 65 && idLen < 69:
-		pubkeyBytes, err := hex.DecodeString(idHost[0])
-		if err != nil {
-			return nil, err
-		}
-
-		addr.pubKey, err = btcec.ParsePubKey(pubkeyBytes, btcec.S256())
-		if err != nil {
-			return nil, err
-		}
-
-		// got pubey, populate address from pubkey
-		pkh := btcutil.Hash160(addr.pubKey.SerializeCompressed())
-		addr.bitcoinAddr, err = btcutil.NewAddressPubKeyHash(pkh,
-			&chaincfg.TestNet3Params)
-		if err != nil {
-			return nil, err
-		}
-	// Is the ID a string encoded bitcoin address?
-	case idLen > 33 && idLen < 37:
-		addr.bitcoinAddr, err = btcutil.DecodeAddress(idHost[0],
-			&chaincfg.TestNet3Params)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("invalid address %s", idHost[0])
-	}
-
-	// Finally, populate the lnid from the address.
-	copy(addr.lnId[:], addr.bitcoinAddr.ScriptAddress())
-
-	return addr, nil
-}
-
 // outgoinMsg...
 type outgoinMsg struct {
 	msg      lnwire.Message
@@ -137,7 +52,7 @@ type peer struct {
 
 	conn net.Conn
 
-	lightningAddr   lnAddr
+	lightningAddr   lndc.LNAdr
 	inbound         bool
 	protocolVersion uint32
 	peerId          int32

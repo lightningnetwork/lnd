@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"golang.org/x/net/context"
 )
@@ -92,7 +93,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("need: lnc pubkeyhash@hostname")
 	}
 
-	peerAddr, err := newLnAddr(in.IdAtHost)
+	peerAddr, err := lndc.LnAddrFromString(in.IdAtHost)
 	if err != nil {
 		return nil, err
 	}

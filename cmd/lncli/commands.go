@@ -70,3 +70,24 @@ func sendMany(ctx *cli.Context) {
 
 	printRespJson(txid)
 }
+
+var ConnectCommand = cli.Command{
+	Name:   "connect",
+	Usage:  "connect to a remote lnd peer: <lnid>@host",
+	Action: connectPeer,
+}
+
+func connectPeer(ctx *cli.Context) {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	targetAddress := ctx.Args().Get(0)
+	req := &lnrpc.ConnectPeerRequest{targetAddress}
+
+	lnid, err := client.ConnectPeer(ctxb, req)
+	if err != nil {
+		fatal(err)
+	}
+
+	printRespJson(lnid)
+}

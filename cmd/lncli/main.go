@@ -55,11 +55,11 @@ func main() {
 	app.Commands = []cli.Command{
 		NewAddressCommand,
 		SendManyCommand,
+		ConnectCommand,
 		ShellCommand,
 	}
+
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
 	}
-
-	// ctx := context.Background()
 }

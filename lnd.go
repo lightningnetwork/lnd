@@ -21,6 +21,14 @@ var (
 func main() {
 	flag.Parse()
 
+	go func() {
+		listenAddr := net.JoinHostPort("", "5009")
+		profileRedirect := http.RedirectHandler("/debug/pprof",
+			http.StatusSeeOther)
+		http.Handle("/", profileRedirect)
+		fmt.Println(http.ListenAndServe(listenAddr, nil))
+	}()
+
 	// Create, and start the lnwallet, which handles the core payment channel
 	// logic, and exposes control via proxy state machines.
 	// TODO(roasbeef): accept config via cli flags, move to real config file

@@ -16,18 +16,16 @@ import (
 )
 
 // Conn...
-type Conn struct {
-	longTermPriv *btcec.PrivateKey
-
-	remotePub  *btcec.PublicKey
-	remoteLNId [16]byte
+type LNDConn struct {
+	RemotePub  *btcec.PublicKey
+	RemoteLNId [16]byte
 
 	myNonceInt     uint64
 	remoteNonceInt uint64
 
 	// If Authed == false, the remotePub is the EPHEMERAL key.
 	// once authed == true, remotePub is who you're actually talking to.
-	authed bool
+	Authed bool
 
 	// chachaStream saves some time as you don't have to init it with
 	// the session key every time.  Make SessionKey redundant; remove later.
@@ -37,26 +35,27 @@ type Conn struct {
 	// encapsulated PBX connection.
 	// If going ViaPbx, Cn isn't used channels are used for Read() and
 	// Write(), which are filled by the PBXhandler.
-	viaPbx      bool
-	pbxIncoming chan []byte
-	pbxOutgoing chan []byte
+	ViaPbx      bool
+	PbxIncoming chan []byte
+	PbxOutgoing chan []byte
 
 	version uint8
 
 	readBuf bytes.Buffer
 
-	conn net.Conn
+	Conn net.Conn
 }
 
 // NewConn...
-func NewConn(connPrivKey *btcec.PrivateKey, conn net.Conn) *Conn {
-	return &Conn{longTermPriv: connPrivKey, conn: conn}
+func NewConn(conn net.Conn) *LNDConn {
+	return &LNDConn{Conn: conn}
 }
 
 // Dial...
-func (c *Conn) Dial(address string, remoteId []byte) error {
+func (c *LNDConn) Dial(
+	myId *btcec.PrivateKey, address string, remoteId []byte) error {
 	var err error
-	if c.conn != nil {
+	if c.Conn != nil {
 		return fmt.Errorf("connection already established")
 	}
 
@@ -68,7 +67,7 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 	}
 
 	// First, open the TCP connection itself.
-	c.conn, err = net.Dial("tcp", address)
+	c.Conn, err = net.Dial("tcp", address)
 	if err != nil {
 		return err
 	}
@@ -76,10 +75,10 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 	// Calc remote LNId; need this for creating pbx connections just because
 	// LNid is in the struct does not mean it's authed!
 	if len(remoteId) == 20 {
-		copy(c.remoteLNId[:], remoteId[:16])
+		copy(c.RemoteLNId[:], remoteId[:16])
 	} else {
 		theirAdr := btcutil.Hash160(remoteId)
-		copy(c.remoteLNId[:], theirAdr[:16])
+		copy(c.RemoteLNId[:], theirAdr[:16])
 	}
 
 	// Make up an ephemeral keypair for this session.
@@ -90,12 +89,12 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 	ourEphemeralPub := ourEphemeralPriv.PubKey()
 
 	// Sned 1. Send my ephemeral pubkey. Can add version bits.
-	if _, err = writeClear(c.conn, ourEphemeralPub.SerializeCompressed()); err != nil {
+	if _, err = writeClear(c.Conn, ourEphemeralPub.SerializeCompressed()); err != nil {
 		return err
 	}
 
 	// Read, then deserialize their ephemeral public key.
-	theirEphPubBytes, err := readClear(c.conn)
+	theirEphPubBytes, err := readClear(c.Conn)
 	if err != nil {
 		return err
 	}
@@ -124,17 +123,17 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 	c.myNonceInt = 1 << 63
 	c.remoteNonceInt = 0
 
-	c.remotePub = theirEphPub
-	c.authed = false
+	c.RemotePub = theirEphPub
+	c.Authed = false
 
 	// Session is now open and confidential but not yet authenticated...
 	// So auth!
 	if len(remoteId) == 20 {
 		// Only know pubkey hash (20 bytes).
-		err = c.authPKH(remoteId, ourEphemeralPub.SerializeCompressed())
+		err = c.authPKH(myId, remoteId, ourEphemeralPub.SerializeCompressed())
 	} else {
 		// Must be 33 byte pubkey.
-		err = c.authPubKey(remoteId, ourEphemeralPub.SerializeCompressed())
+		err = c.authPubKey(myId, remoteId, ourEphemeralPub.SerializeCompressed())
 	}
 	if err != nil {
 		return err
@@ -144,9 +143,10 @@ func (c *Conn) Dial(address string, remoteId []byte) error {
 }
 
 // authPubKey...
-func (c *Conn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
-	if c.authed {
-		return fmt.Errorf("%s already authed", c.remotePub)
+func (c *LNDConn) authPubKey(
+	myId *btcec.PrivateKey, remotePubBytes, localEphPubBytes []byte) error {
+	if c.Authed {
+		return fmt.Errorf("%s already authed", c.RemotePub)
 	}
 
 	// Since we already know their public key, we can immediately generate
@@ -156,22 +156,22 @@ func (c *Conn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
 		return err
 	}
 	theirPKH := btcutil.Hash160(remotePubBytes)
-	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(c.longTermPriv, theirPub))
-	myDHproof := btcutil.Hash160(append(c.remotePub.SerializeCompressed(), idDH[:]...))
+	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myId, theirPub))
+	myDHproof := btcutil.Hash160(append(c.RemotePub.SerializeCompressed(), idDH[:]...))
 
 	// Send over the 73 byte authentication message: my pubkey, their
 	// pubkey hash, DH proof.
 	var authMsg [73]byte
-	copy(authMsg[:33], c.longTermPriv.PubKey().SerializeCompressed())
+	copy(authMsg[:33], myId.PubKey().SerializeCompressed())
 	copy(authMsg[33:], theirPKH)
 	copy(authMsg[53:], myDHproof)
-	if _, err = c.conn.Write(authMsg[:]); err != nil {
+	if _, err = c.Conn.Write(authMsg[:]); err != nil {
 		return nil
 	}
 
 	// Await, their response. They should send only the 20-byte DH proof.
 	resp := make([]byte, 20)
-	_, err = c.conn.Read(resp)
+	_, err = c.Conn.Read(resp)
 	if err != nil {
 		return err
 	}
@@ -183,18 +183,19 @@ func (c *Conn) authPubKey(remotePubBytes, localEphPubBytes []byte) error {
 	}
 
 	// Proof checks out, auth complete.
-	c.remotePub = theirPub
+	c.RemotePub = theirPub
 	theirAdr := btcutil.Hash160(theirPub.SerializeCompressed())
-	copy(c.remoteLNId[:], theirAdr[:16])
-	c.authed = true
+	copy(c.RemoteLNId[:], theirAdr[:16])
+	c.Authed = true
 
 	return nil
 }
 
 // authPKH...
-func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
-	if c.authed {
-		return fmt.Errorf("%s already authed", c.remotePub)
+func (c *LNDConn) authPKH(
+	myId *btcec.PrivateKey, theirPKH, localEphPubBytes []byte) error {
+	if c.Authed {
+		return fmt.Errorf("%s already authed", c.RemotePub)
 	}
 	if len(theirPKH) != 20 {
 		return fmt.Errorf("remote PKH must be 20 bytes, got %d",
@@ -203,9 +204,9 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 
 	// Send 53 bytes: our pubkey, and the remote's pubkey hash.
 	var greetingMsg [53]byte
-	copy(greetingMsg[:33], c.longTermPriv.PubKey().SerializeCompressed())
+	copy(greetingMsg[:33], myId.PubKey().SerializeCompressed())
 	copy(greetingMsg[:33], theirPKH)
-	if _, err := c.conn.Write(greetingMsg[:]); err != nil {
+	if _, err := c.Conn.Write(greetingMsg[:]); err != nil {
 		return err
 	}
 
@@ -214,7 +215,7 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 	//  * NOTE(roasbeef): read timeout should be set on the underlying
 	//    net.Conn.
 	resp := make([]byte, 53)
-	if _, err := c.conn.Read(resp); err != nil {
+	if _, err := c.Conn.Read(resp); err != nil {
 		return err
 	}
 
@@ -223,7 +224,7 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 	if err != nil {
 		return err
 	}
-	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(c.longTermPriv, theirPub))
+	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myId, theirPub))
 	fmt.Printf("made idDH %x\n", idDH)
 	theirDHproof := btcutil.Hash160(append(localEphPubBytes, idDH[:]...))
 
@@ -233,16 +234,16 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 	}
 
 	// If their DH proof checks out, then send our own.
-	myDHproof := btcutil.Hash160(append(c.remotePub.SerializeCompressed(), idDH[:]...))
-	if _, err = c.conn.Write(myDHproof); err != nil {
+	myDHproof := btcutil.Hash160(append(c.RemotePub.SerializeCompressed(), idDH[:]...))
+	if _, err = c.Conn.Write(myDHproof); err != nil {
 		return err
 	}
 
 	// Proof sent, auth complete.
-	c.remotePub = theirPub
+	c.RemotePub = theirPub
 	theirAdr := btcutil.Hash160(theirPub.SerializeCompressed())
-	copy(c.remoteLNId[:], theirAdr[:16])
-	c.authed = true
+	copy(c.RemoteLNId[:], theirAdr[:16])
+	c.Authed = true
 
 	return nil
 }
@@ -251,7 +252,7 @@ func (c *Conn) authPKH(theirPKH, localEphPubBytes []byte) error {
 // Read can be made to time out and return a Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetReadDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) Read(b []byte) (n int, err error) {
+func (c *LNDConn) Read(b []byte) (n int, err error) {
 	// In order to reconcile the differences between the record abstraction
 	// of our AEAD connection, and the stream abstraction of TCP, we maintain
 	// an intermediate read buffer. If this buffer becomes depleated, then
@@ -259,7 +260,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	// read directly from the buffer.
 	if c.readBuf.Len() == 0 {
 		// The buffer is empty, so read the next cipher text.
-		ctext, err := readClear(c.conn)
+		ctext, err := readClear(c.Conn)
 		if err != nil {
 			return 0, err
 		}
@@ -270,7 +271,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 		binary.BigEndian.PutUint64(nonceBuf[:], c.remoteNonceInt)
 
 		fmt.Printf("decrypt %d byte from %x nonce %d\n",
-			len(ctext), c.remoteLNId, c.remoteNonceInt)
+			len(ctext), c.RemoteLNId, c.remoteNonceInt)
 
 		c.remoteNonceInt++ // increment remote nonce, no matter what...
 
@@ -292,12 +293,12 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 // Write can be made to time out and return a Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetWriteDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) Write(b []byte) (n int, err error) {
+func (c *LNDConn) Write(b []byte) (n int, err error) {
 	if b == nil {
-		return 0, fmt.Errorf("write to %x nil", c.remoteLNId)
+		return 0, fmt.Errorf("write to %x nil", c.RemoteLNId)
 	}
 	fmt.Printf("Encrypt %d byte plaintext to %x nonce %d\n",
-		len(b), c.remoteLNId, c.myNonceInt)
+		len(b), c.RemoteLNId, c.myNonceInt)
 
 	// first encrypt message with shared key
 	var nonceBuf [8]byte
@@ -310,50 +311,50 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	}
 	if len(ctext) > 65530 {
 		return 0, fmt.Errorf("Write to %x too long, %d bytes",
-			c.remoteLNId, len(ctext))
+			c.RemoteLNId, len(ctext))
 	}
 
 	// use writeClear to prepend length / destination header
-	return writeClear(c.conn, ctext)
+	return writeClear(c.Conn, ctext)
 }
 
 // Close closes the connection.
 // Any blocked Read or Write operations will be unblocked and return errors.
 // Part of the net.Conn interface.
-func (c *Conn) Close() error {
+func (c *LNDConn) Close() error {
 	c.myNonceInt = 0
 	c.remoteNonceInt = 0
-	c.remotePub = nil
+	c.RemotePub = nil
 
-	return c.conn.Close()
+	return c.Conn.Close()
 }
 
 // LocalAddr returns the local network address.
 // Part of the net.Conn interface.
 // If PBX reports address of pbx host.
-func (c *Conn) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+func (c *LNDConn) LocalAddr() net.Addr {
+	return c.Conn.LocalAddr()
 }
 
 // RemoteAddr returns the remote network address.
 // Part of the net.Conn interface.
-func (c *Conn) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
+func (c *LNDConn) RemoteAddr() net.Addr {
+	return c.Conn.RemoteAddr()
 }
 
 // SetDeadline sets the read and write deadlines associated
 // with the connection. It is equivalent to calling both
 // SetReadDeadline and SetWriteDeadline.
 // Part of the net.Conn interface.
-func (c *Conn) SetDeadline(t time.Time) error {
-	return c.conn.SetDeadline(t)
+func (c *LNDConn) SetDeadline(t time.Time) error {
+	return c.Conn.SetDeadline(t)
 }
 
 // SetReadDeadline sets the deadline for future Read calls.
 // A zero value for t means Read will not time out.
 // Part of the net.Conn interface.
-func (c *Conn) SetReadDeadline(t time.Time) error {
-	return c.conn.SetReadDeadline(t)
+func (c *LNDConn) SetReadDeadline(t time.Time) error {
+	return c.Conn.SetReadDeadline(t)
 }
 
 // SetWriteDeadline sets the deadline for future Write calls.
@@ -361,8 +362,8 @@ func (c *Conn) SetReadDeadline(t time.Time) error {
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
 // Part of the net.Conn interface.
-func (c *Conn) SetWriteDeadline(t time.Time) error {
-	return c.conn.SetWriteDeadline(t)
+func (c *LNDConn) SetWriteDeadline(t time.Time) error {
+	return c.Conn.SetWriteDeadline(t)
 }
 
-var _ net.Conn = (*Conn)(nil)
+var _ net.Conn = (*LNDConn)(nil)

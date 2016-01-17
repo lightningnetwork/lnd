@@ -155,8 +155,9 @@ out:
 					// breaks down, then return an error to the
 					// caller.
 					ipAddr := addr.NetAddr.String()
-					conn := lndc.NewConn(s.longTermPriv, nil)
-					if err := conn.Dial(ipAddr, remoteId); err != nil {
+					conn := lndc.NewConn(nil)
+					if err := conn.Dial(
+						s.longTermPriv, ipAddr, remoteId); err != nil {
 						msg.reply <- err
 					}
 

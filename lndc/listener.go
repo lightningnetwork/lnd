@@ -43,7 +43,7 @@ func (l *Listener) Accept() (c net.Conn, err error) {
 		return nil, nil
 	}
 
-	lndc := NewConn(l.longTermPriv, conn)
+	lndc := NewConn(conn)
 
 	// Exchange an ephemeral public key with the remote connection in order
 	// to establish a confidential connection before we attempt to
@@ -56,7 +56,7 @@ func (l *Listener) Accept() (c net.Conn, err error) {
 	// Now that we've established an encrypted connection, authenticate the
 	// identity of the remote host.
 	ephemeralPub := ephemeralKey.PubKey().SerializeCompressed()
-	if err := l.authenticateConnection(lndc, ephemeralPub); err != nil {
+	if err := l.authenticateConnection(l.longTermPriv, lndc, ephemeralPub); err != nil {
 		lndc.Close()
 		return nil, err
 	}
@@ -65,12 +65,12 @@ func (l *Listener) Accept() (c net.Conn, err error) {
 }
 
 // createCipherConn....
-func (l *Listener) createCipherConn(lnConn *Conn) (*btcec.PrivateKey, error) {
+func (l *Listener) createCipherConn(lnConn *LNDConn) (*btcec.PrivateKey, error) {
 	var err error
 	var theirEphPubBytes []byte
 
 	// First, read and deserialize their ephemeral public key.
-	theirEphPubBytes, err = readClear(lnConn.conn)
+	theirEphPubBytes, err = readClear(lnConn.Conn)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (l *Listener) createCipherConn(lnConn *Conn) (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := writeClear(lnConn.conn, myEph.PubKey().SerializeCompressed()); err != nil {
+	if _, err := writeClear(lnConn.Conn, myEph.PubKey().SerializeCompressed()); err != nil {
 		return nil, err
 	}
 
@@ -107,19 +107,20 @@ func (l *Listener) createCipherConn(lnConn *Conn) (*btcec.PrivateKey, error) {
 	lnConn.remoteNonceInt = 1 << 63
 	lnConn.myNonceInt = 0
 
-	lnConn.remotePub = theirEphPub
-	lnConn.authed = false
+	lnConn.RemotePub = theirEphPub
+	lnConn.Authed = false
 
 	return myEph, nil
 }
 
 // AuthListen...
-func (l *Listener) authenticateConnection(lnConn *Conn, localEphPubBytes []byte) error {
+func (l *Listener) authenticateConnection(
+	myId *btcec.PrivateKey, lnConn *LNDConn, localEphPubBytes []byte) error {
 	var err error
 
 	// TODO(roasbeef): should be using read/write clear here?
 	slice := make([]byte, 73)
-	n, err := lnConn.conn.Read(slice)
+	n, err := lnConn.Conn.Read(slice)
 	if err != nil {
 		fmt.Printf("Read error: %s\n", err.Error())
 		return err
@@ -144,11 +145,11 @@ func (l *Listener) authenticateConnection(lnConn *Conn, localEphPubBytes []byte)
 		return err
 	}
 	idDH := fastsha256.Sum256(
-		btcec.GenerateSharedSecret(lnConn.longTermPriv, theirPub),
+		btcec.GenerateSharedSecret(l.longTermPriv, theirPub),
 	)
 
 	myDHproof := btcutil.Hash160(
-		append(lnConn.remotePub.SerializeCompressed(), idDH[:]...),
+		append(lnConn.RemotePub.SerializeCompressed(), idDH[:]...),
 	)
 	theirDHproof := btcutil.Hash160(append(localEphPubBytes, idDH[:]...))
 
@@ -162,19 +163,19 @@ func (l *Listener) authenticateConnection(lnConn *Conn, localEphPubBytes []byte)
 		}
 
 		// Their DH proof checks out, so send ours now.
-		if _, err = lnConn.conn.Write(myDHproof); err != nil {
+		if _, err = lnConn.Conn.Write(myDHproof); err != nil {
 			return err
 		}
 	} else {
 		// Otherwise, they don't yet know our public key. So we'll send
 		// it over to them, so we can both compute the DH proof.
 		msg := append(l.longTermPriv.PubKey().SerializeCompressed(), myDHproof...)
-		if _, err = lnConn.conn.Write(msg); err != nil {
+		if _, err = lnConn.Conn.Write(msg); err != nil {
 			return err
 		}
 
 		resp := make([]byte, 20)
-		if _, err := lnConn.conn.Read(resp); err != nil {
+		if _, err := lnConn.Conn.Read(resp); err != nil {
 			return err
 		}
 
@@ -185,9 +186,9 @@ func (l *Listener) authenticateConnection(lnConn *Conn, localEphPubBytes []byte)
 	}
 
 	theirAdr := btcutil.Hash160(theirPub.SerializeCompressed())
-	copy(lnConn.remoteLNId[:], theirAdr[:16])
-	lnConn.remotePub = theirPub
-	lnConn.authed = true
+	copy(lnConn.RemoteLNId[:], theirAdr[:16])
+	lnConn.RemotePub = theirPub
+	lnConn.Authed = true
 
 	return nil
 }

@@ -4,19 +4,19 @@ This repo is preliminary work on a lightning network peer-to-peer node and walle
 
 It currently is being designed for testnet-L, a test network where all txids are normalized.  The plan is to eventually use the agreed longer-term solution (segwit?), but we want to not be concerned with updates to segwit, so we're running with this.  Normalized txids fixes malleability but isn't something that will/can be integrated to the existing bitcoin network cleanly (so it's a good way to ensure testing-only before segwit is finalized, which solves the problem too).
 
-This version of Lnd is not yet fully-operational, but a proof of concept on testnet-L will likely exist soon.  The projection is it will be operational before necessary the necessary malleabilty soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
+This version of Lnd is not yet fully-operational, but a proof of concept on testnet-L will likely exist soon.  The projection is it will be operational before the necessary malleability soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
 
 Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lightning transactions will be fast, but for now, please wait just a little bit.
 
 ### chainntfs
 
-A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds. 
+A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds.
 
-At the moment, it only has a single concrete implementation: using btcd's websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more. 
+At the moment, it only has a single concrete implementation: using btcd's websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more.
 
-### channeldb 
+### channeldb
 
-lnd's primary datastore. It uses a generic interface defined in [walletdb](https://godoc.org/github.com/btcsuite/btcwallet/walletdb) allowing for usage of any sotrage backend which adheres to the interface. The current concrete implementation used is driven by [bolt](https://github.com/boltdb/bolt). `channeldb` is responsible for storing state such as meta-data concerning the current open channels, closed channels, past routes we used, fee schedules within the network, and information about remote peers (ID, uptime, reputation, etc). 
+lnd's primary datastore. It uses a generic interface defined in [walletdb](https://godoc.org/github.com/btcsuite/btcwallet/walletdb) allowing for usage of any storage backend which adheres to the interface. The current concrete implementation used is driven by [bolt](https://github.com/boltdb/bolt). `channeldb` is responsible for storing state such as meta-data concerning the current open channels, closed channels, past routes we used, fee schedules within the network, and information about remote peers (ID, uptime, reputation, etc).
 
 ### cmd / lncli
 A command line to query and control a running lnd.  Similar to bitcoin-cli
@@ -30,7 +30,7 @@ Library to send and receive a tree structure of hashes which can be sequentially
 This is useful for the hashed secrets in LN payment channels.
 
 ### lndc
-Library for authenticated encrypted communication between LN nodes.  It uses chacha20_poly1305 for the symmetric cipher, and the secp256k1 curve used in bitcoin for public keys.  No signing is used, only two ECDH calculations: first with ephemeral keypairs and second with persistent identifying public keys.
+Library for authenticated encrypted communication between LN nodes.  It uses chacha20_poly1305 for the symmetric cipher, and the secp256k1 curve used in bitcoin for public keys.  No signing is used, only two ECDH calculations: first with ephemeral key pairs and second with persistent identifying public keys.
 
 ### lnstate
 In-progress update which improves current implementation of channel state machine to allow for higher throughput.
@@ -40,7 +40,7 @@ In-progress update which improves current implementation of channel state machin
 An application specific, yet general Bitcoin wallet which understands all the fancy script, and transaction formats needed to transact on the Lightning Network. The interface, and interaction with the core wallet logic has been designed independent of any peer-to-peer communication. The goal is to make lnwallet self-contained, and easily embeddable within future projects interacting with the Lightning Network. The current state machine for channel updates is blocking, only allowing one pending update at a time. This will soon be replaced in favor of the highly concurrent, non-blocking state machine within `lnstate`.
 
 ### lnwire
-Library of messages for Lightning Network node to node communcations.  Messages for opening and closing channels, as well as updating and revoking channel states are described here.
+Library of messages for Lightning Network node to node communications.  Messages for opening and closing channels, as well as updating and revoking channel states are described here.
 
 ### shachain
 An implementation of Rusty Russel's [64-dimensional shachain](https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt).

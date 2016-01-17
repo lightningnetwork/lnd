@@ -32,6 +32,10 @@ This is useful for the hashed secrets in LN payment channels.
 ### lndc
 Library for authenticated encrypted communication between LN nodes.  It uses chacha20_poly1305 for the symmetric cipher, and the secp256k1 curve used in bitcoin for public keys.  No signing is used, only two ECDH calculations: first with ephemeral key pairs and second with persistent identifying public keys.
 
+### lnrpc 
+
+lnd's RPC interface. Currently [gRPC](http://www.grpc.io/), a high-performance RPC framework is used. gRPC provides features such as a stub-based client interface in several languages, streaming RPCs, payload agnostic request/response handling, and more. In addition to gRPC, lnd will also offer a basic REST-based http RPC interface. For now, connections are not encrypted, or authenticated. For authentication, [macaroons](http://research.google.com/pubs/pub41892.html) will likely be integrated due to their simplicity, flexibility, and expressiveness.
+
 ### lnstate
 In-progress update which improves current implementation of channel state machine to allow for higher throughput.
 

@@ -6,39 +6,27 @@ service Lightning {
     rpc SendMany(SendManyRequest) returns (SendManyResponse);
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 
-    rpc TCPListen(TCPListenRequest) returns (TCPListenResponse);
-    rpc LNConnect(LNConnectRequest) returns (LnConnectResponse);
-    rpc LNChat(LnChatRequest) returns (LnChatResponse);
+    rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
 }
 
 message SendManyRequest {
     map<string, int64> AddrToAmount = 1;
 }
+
 message SendManyResponse {
     string txid = 1;
 }
 
-
 message NewAddressRequest {}
+
 message NewAddressResponse {
     string address = 1;
 }
 
-message TCPListenRequest {
-	string hostport = 1;
-}
-message TCPListenResponse{}
-
-message LNConnectRequest {
+message ConnectPeerRequest {
 	string idAtHost = 1;
 }
-message LnConnectResponse {
+
+message ConnectPeerResponse {
 	bytes lnID = 1;
 }
-
-message LnChatRequest {
-	bytes destID = 1;
-	string msg = 2;
-}
-
-message LnChatResponse{}

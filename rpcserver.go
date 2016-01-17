@@ -105,20 +105,6 @@ func (r *rpcServer) Stop() error {
 	return nil
 }
 
-// getPriv gets the identity private key out of the wallet DB
-func getPriv(l *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
-	adr, err := l.ChannelDB.GetIdAdr()
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("got ID address: %s\n", adr.String())
-	adr2, err := l.Manager.Address(adr)
-	if err != nil {
-		return nil, err
-	}
-	priv, err := adr2.(waddrmgr.ManagedPubKeyAddress).PrivKey()
-	if err != nil {
-		return nil, err
 	}
 	fmt.Printf("got privkey %x\n", priv.Serialize()) // may want to remove this :)
 	return priv, nil

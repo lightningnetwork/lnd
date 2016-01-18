@@ -18,12 +18,12 @@ const (
 	headerFileName = "headers.bin"
 	// Except hash-160s, those aren't backwards.  But anything that's 32 bytes is.
 	// because, cmon, 32?  Gotta reverse that.  But 20?  20 is OK.
-	NETVERSION = wire.TestNetL
+	NETVERSION = wire.TestNet3
 	VERSION    = 70011
 )
 
 var (
-	params = &chaincfg.TestNetLParams
+	params = &chaincfg.TestNet3Params
 )
 
 type SPVCon struct {

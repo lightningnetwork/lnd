@@ -234,10 +234,12 @@ func (l *LNChannel) CreateHTLC(h *PaymentDescriptor) error {
 		}
 		//Update state as pre-commit
 		h.State = ADD_PRESTAGE
-		l.addHTLC(h)
+		if _, err := l.addHTLC(h); err != nil {
+			return err
+		}
 		//Send a ADDHTLC LNWire
 		l.Unlock()
-		net() //TODO
+		// net() //TODO
 	} else {
 		//Future version may be able to do this..
 		l.Unlock()
@@ -274,7 +276,7 @@ func (l *LNChannel) recvHTLCAddRequest(p *lnwire.HTLCAddRequest) error {
 	//Populate the entries
 	htlc.RHashes = p.RedemptionHashes
 	htlc.Timeout = p.Expiry
-	htlc.CreditsAmount = p.CreditsAmount
+	htlc.CreditsAmount = p.Amount
 	htlc.Blob = p.Blob
 	htlc.State = ADD_STAGED //mark as staged by both parties
 	htlc.PayToUs = true     //assume this is paid to us, may change in the future
@@ -291,25 +293,28 @@ func (l *LNChannel) recvHTLCAddRequest(p *lnwire.HTLCAddRequest) error {
 
 		//However, we do need to send a AddReject packet
 		l.Unlock()
-		sendAddReject(p.HTLCKey)
+		l.sendAddReject(p.HTLCKey)
 
 		return err
 	}
 
 	//Validation passed, so we continue
-	addHTLC(h)
+	if _, err := l.addHTLC(htlc); err != nil {
+		return err
+	}
 
 	//Send add accept packet, and we're done
 	l.Unlock()
-	sendAddAccept(p.HTLCKey)
+	l.sendAddAccept(p.HTLCKey)
+	return nil
 }
 
 func (l *LNChannel) sendAddReject(htlckey lnwire.HTLCKey) error {
 	l.Lock()
 	defer l.Unlock()
-	msg = new(lnwire.HTLCAddReject)
+	msg := new(lnwire.HTLCAddReject)
 	msg.ChannelID = l.channelID
-	msg.HTLCKey = h.HTLCKey
+	msg.HTLCKey = htlckey
 	net(msg)
 
 	return nil
@@ -318,14 +323,14 @@ func (l *LNChannel) sendAddReject(htlckey lnwire.HTLCKey) error {
 func (l *LNChannel) recvAddReject(htlckey lnwire.HTLCKey) error {
 	l.Lock()
 	defer l.Unlock()
-	htlc = l.HTLCs[htlckey]
+	htlc := l.HTLCs[htlckey]
 	if htlc == nil {
 		return fmt.Errorf("Counterparty rejected non-existent HTLC")
 	}
-	if (*htlc).State != ADD_PRESTAGE {
+	if htlc.State != ADD_PRESTAGE {
 		return fmt.Errorf("Counterparty atttempted to reject invalid state")
 	}
-	(*htlc).State = ADD_REJECTED
+	htlc.State = ADD_REJECTED
 	disk()
 
 	return nil
@@ -333,10 +338,11 @@ func (l *LNChannel) recvAddReject(htlckey lnwire.HTLCKey) error {
 
 //Notifies the other party that it is now staged on our end
 func (l *LNChannel) sendAddAccept(htlckey lnwire.HTLCKey) error {
-	h = l.HTLCs[htlckey]
-	msg = new(lnwire.HTLCAddAccept)
+	htlc := l.HTLCs[htlckey]
+	msg := new(lnwire.HTLCAddAccept)
 	msg.ChannelID = l.channelID
-	msg.HTLCKey = h.HTLCKey
+	msg.HTLCKey = htlckey
+	htlc.State = ADD_STAGED
 
 	disk()
 	net(msg)
@@ -345,8 +351,8 @@ func (l *LNChannel) sendAddAccept(htlckey lnwire.HTLCKey) error {
 }
 
 //The other party has accepted the staging request, so we are staging now
-func (l *LNChannel) recvAddAccept(p *HTLCAddAccept) error {
-	htlc = l.HTLCs[p.HTLCKey]
+func (l *LNChannel) recvAddAccept(p *lnwire.HTLCAddAccept) error {
+	htlc := l.HTLCs[p.HTLCKey]
 	//Make sure it's in the list
 	if htlc == nil {
 		return fmt.Errorf("Counterparty accepted non-existent HTLC")
@@ -354,17 +360,20 @@ func (l *LNChannel) recvAddAccept(p *HTLCAddAccept) error {
 
 	//Update pre-stage to staged
 	//Everything else it won't do anything
-	if (*htlc).State == ADD_PRESTAGE {
+	if htlc.State == ADD_PRESTAGE {
 		//Update to staged
-		(*htlc).State = ADD_STAGED
+		htlc.State = ADD_STAGED
 		disk()
 	}
+	return nil
 }
 
 func (l *LNChannel) timeoutHTLC(htlcKey lnwire.HTLCKey) error {
+	return nil
 }
 
 func (l *LNChannel) settleHTLC(htlcKey lnwire.HTLCKey) error {
+	return nil
 }
 
 //receive AddAcceptHTLC: Find the HTLC and call createHTLC
@@ -375,6 +384,7 @@ func (l *LNChannel) addAccept(h *PaymentDescriptor) error {
 		//Write to disk
 		disk()
 	}
+	return nil
 }
 
 //Timeout, Settle
@@ -384,6 +394,7 @@ func (l *LNChannel) addAccept(h *PaymentDescriptor) error {
 func (l *LNChannel) createCommitment() error {
 	//Take all staging marked as SIGNING_AND_REVOKING *and* we have not signed
 	//	Mark each as weSigned
+	return nil
 }
 
 //They revoke prior
@@ -393,6 +404,7 @@ func (l *LNChannel) receiveRevocation() error {
 	//Revoke the prior Commitment
 	//Update HTLCs with theyRevoked
 	//Check each HTLC for being complete and mark as complete if so
+	return nil
 }
 
 //Receive a commitment & send out a revocation
@@ -404,12 +416,14 @@ func (l *LNChannel) receiveCommitment() error {
 	//Send revocation
 	//Mark as theySignedAndWeRevoked
 	//Check each HTLC for being complete and mark as complete if so
+	return nil
 }
 
 //Mark the HTLC as revoked if it is fully signed and revoked by both parties
 func (l *LNChannel) addCompleteHTLC(h *PaymentDescriptor) error {
 	//Check/validate values
 	//Mark as ADD_COMPLETE
+	return nil
 }
 
 //Validate whether we want to add the HTLC
@@ -418,4 +432,5 @@ func (l *LNChannel) validateHTLC(h *PaymentDescriptor, toUs bool) error {
 	//Make sure there is available funds
 	//Make sure there is sufficient reserve for fees
 	//Make sure the money is going in the right direction
+	return nil
 }

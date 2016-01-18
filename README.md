@@ -17,8 +17,6 @@ Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lig
 go get -u -v github.com/lightningnetwork/lnd/...
 ```
 
-Feel free to disregard any errors/warnings related to the lnstate and uspv packages.
-
 ## Packages and Utilities
 
 ### chainntfs

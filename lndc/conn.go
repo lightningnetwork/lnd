@@ -55,8 +55,17 @@ func NewConn(conn net.Conn) *LNDConn {
 func (c *LNDConn) Dial(
 	myId *btcec.PrivateKey, address string, remoteId []byte) error {
 	var err error
-	if c.Conn != nil {
-		return fmt.Errorf("connection already established")
+
+	if !c.ViaPbx {
+		if c.Conn != nil {
+			return fmt.Errorf("connection already established")
+		}
+
+		// First, open the TCP connection itself.
+		c.Conn, err = net.Dial("tcp", address)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Before dialing out to the remote host, verify that `remoteId` is either
@@ -64,12 +73,6 @@ func (c *LNDConn) Dial(
 	if len(remoteId) != 33 && len(remoteId) != 20 {
 		return fmt.Errorf("must supply either remote pubkey or " +
 			"pubkey hash")
-	}
-
-	// First, open the TCP connection itself.
-	c.Conn, err = net.Dial("tcp", address)
-	if err != nil {
-		return err
 	}
 
 	// Calc remote LNId; need this for creating pbx connections just because

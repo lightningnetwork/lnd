@@ -32,8 +32,8 @@ type rpcServer struct {
 
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
-// newRpcServer...
-func newRpcServer(s *server) *rpcServer {
+// newRPCServer...
+func newRPCServer(s *server) *rpcServer {
 	return &rpcServer{server: s, quit: make(chan struct{}, 1)}
 }
 

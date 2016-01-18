@@ -2,11 +2,13 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"io"
 )
 
+// FundingSignComplete ...
 type FundingSignComplete struct {
 	ReservationID uint64
 
@@ -14,6 +16,7 @@ type FundingSignComplete struct {
 	FundingTXSigs []*btcec.Signature
 }
 
+// Decode ...
 func (c *FundingSignComplete) Decode(r io.Reader, pver uint32) error {
 	// ReservationID (8)
 	// TxID (32)
@@ -32,12 +35,12 @@ func (c *FundingSignComplete) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new FundingSignComplete
+// NewFundingSignComplete creates a new FundingSignComplete
 func NewFundingSignComplete() *FundingSignComplete {
 	return &FundingSignComplete{}
 }
 
-// Serializes the item from the FundingSignComplete struct
+// Encode serializes the item from the FundingSignComplete struct
 // Writes the data to w
 func (c *FundingSignComplete) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -51,16 +54,18 @@ func (c *FundingSignComplete) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *FundingSignComplete) Command() uint32 {
 	return CmdFundingSignComplete
 }
 
+// MaxPayloadLength ...
 func (c *FundingSignComplete) MaxPayloadLength(uint32) uint32 {
 	// 8 (base size) + 32 + (73maxSigSize*127maxInputs)
 	return 9311
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingSignComplete) Validate() error {
 	// We're good!
 	return nil

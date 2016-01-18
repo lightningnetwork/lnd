@@ -2,12 +2,13 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-
-	"io"
 )
 
+// CloseComplete ...
 type CloseComplete struct {
 	ReservationID uint64
 
@@ -15,6 +16,7 @@ type CloseComplete struct {
 	CloseShaHash      *wire.ShaHash    // TxID of the Close Tx
 }
 
+// Decode ...
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 	// ReservationID (8)
 	// ResponderCloseSig (73)
@@ -31,12 +33,12 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new CloseComplete
+// NewCloseComplete creates a new CloseComplete
 func NewCloseComplete() *CloseComplete {
 	return &CloseComplete{}
 }
 
-// Serializes the item from the CloseComplete struct
+// Encode serializes the item from the CloseComplete struct
 // Writes the data to w
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
 	// ReservationID
@@ -53,16 +55,18 @@ func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *CloseComplete) Command() uint32 {
 	return CmdCloseComplete
 }
 
+// MaxPayloadLength ...
 func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
 	// 8 + 73 + 32
 	return 113
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CloseComplete) Validate() error {
 	// We're good!
 	return nil

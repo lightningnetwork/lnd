@@ -17,6 +17,8 @@ import (
 
 const (
 	// TODO(roasbeef): make not random value
+
+	// MaxPendingPayments ...
 	MaxPendingPayments = 10
 )
 
@@ -25,7 +27,7 @@ const (
 // payments requested by the wallet/daemon.
 type PaymentHash [20]byte
 
-// LightningChannel...
+// LightningChannel ...
 // TODO(roasbeef): future peer struct should embed this struct
 type LightningChannel struct {
 	lnwallet      *LightningWallet
@@ -60,7 +62,7 @@ type LightningChannel struct {
 	wg   sync.WaitGroup
 }
 
-// newLightningChannel...
+// newLightningChannel ...
 func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
 	chanDB *channeldb.DB, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
@@ -80,19 +82,19 @@ func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 	// Populate the totem.
 	lc.updateTotem <- struct{}{}
 
-	fundingTxId := state.FundingTx.TxSha()
+	fundingTxID := state.FundingTx.TxSha()
 	fundingPkScript, err := scriptHashPkScript(state.FundingRedeemScript)
 	if err != nil {
 		return nil, err
 	}
 	_, multiSigIndex := findScriptOutputIndex(state.FundingTx, fundingPkScript)
-	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxId, multiSigIndex), nil)
+	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxID, multiSigIndex), nil)
 	lc.fundingP2SH = fundingPkScript
 
 	return lc, nil
 }
 
-// PaymentDescriptor...
+// PaymentDescriptor ...
 type PaymentDescriptor struct {
 	RHash   [20]byte
 	Timeout uint32
@@ -104,7 +106,7 @@ type PaymentDescriptor struct {
 	PayToUs bool
 }
 
-// ChannelUpdate...
+// ChannelUpdate ...
 type ChannelUpdate struct {
 	pendingDesc *PaymentDescriptor
 	deletion    bool
@@ -124,7 +126,7 @@ type ChannelUpdate struct {
 	lnChannel *LightningChannel
 }
 
-// RevocationHash...
+// RevocationHash ...
 func (c *ChannelUpdate) RevocationHash() ([]byte, error) {
 	c.lnChannel.stateMtx.RLock()
 	defer c.lnChannel.stateMtx.RUnlock()
@@ -138,7 +140,7 @@ func (c *ChannelUpdate) RevocationHash() ([]byte, error) {
 	return btcutil.Hash160(nextPreimage[:]), nil
 }
 
-// SignCounterPartyCommitment...
+// SignCounterPartyCommitment ...
 func (c *ChannelUpdate) SignCounterPartyCommitment() ([]byte, error) {
 	c.lnChannel.stateMtx.RLock()
 	defer c.lnChannel.stateMtx.RUnlock()
@@ -160,7 +162,7 @@ func (c *ChannelUpdate) SignCounterPartyCommitment() ([]byte, error) {
 	return sig, nil
 }
 
-// PreviousRevocationPreImage...
+// PreviousRevocationPreImage ...
 func (c *ChannelUpdate) PreviousRevocationPreImage() ([]byte, error) {
 	c.lnChannel.stateMtx.RLock()
 	defer c.lnChannel.stateMtx.RUnlock()
@@ -176,7 +178,7 @@ func (c *ChannelUpdate) PreviousRevocationPreImage() ([]byte, error) {
 	return revokePreImage[:], nil
 }
 
-// VerifyNewCommitmentSigs...
+// VerifyNewCommitmentSigs ...
 func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	c.lnChannel.stateMtx.RLock()
 	defer c.lnChannel.stateMtx.RUnlock()
@@ -216,7 +218,7 @@ func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	return vm.Execute()
 }
 
-// Commit...
+// Commit ...
 func (c *ChannelUpdate) Commit(pastRevokePreimage []byte) error {
 	c.lnChannel.stateMtx.Lock()
 	defer c.lnChannel.stateMtx.Unlock()
@@ -263,7 +265,7 @@ func (c *ChannelUpdate) Commit(pastRevokePreimage []byte) error {
 	return nil
 }
 
-// AddHTLC...
+// AddHTLC ...
 // 1. request R_Hash from receiver (only if single hop, would be out of band)
 // 2. propose HTLC
 //    * timeout
@@ -417,7 +419,7 @@ func (lc *LightningChannel) addHTLC(ourCommitTx, theirCommitTx *wire.MsgTx,
 	return nil
 }
 
-// SettleHTLC...
+// SettleHTLC ...
 // R-VALUE, NEW REVOKE HASH
 // accept, sig
 func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) (*ChannelUpdate, error) {
@@ -442,7 +444,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 		lnChannel:         lc,
 	}
 
-	// TODO(roasbeef): such copy pasta, make into func...
+	// TODO(roasbeef): such copy pasta, make into func ...
 	// Get next revocation hash, updating the number of updates in the
 	// channel as a result.
 	chanUpdate.currentUpdateNum = lc.channelState.NumUpdates
@@ -490,7 +492,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 
 	// TODO(roasbeef): locktimes/sequence set
 
-	// TODO(roasbeef): write checkpoint here...
+	// TODO(roasbeef): write checkpoint here ...
 
 	chanUpdate.ourPendingCommitTx = ourNewCommitTx
 	chanUpdate.theirPendingCommitTx = theirNewCommitTx
@@ -498,7 +500,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 	return chanUpdate, nil
 }
 
-// createNewCommitmentTxns....
+// createNewCommitmentTxns ....
 // NOTE: This MUST be called with stateMtx held.
 func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChannel,
 	chanUpdate *ChannelUpdate, amountToUs, amountToThem btcutil.Amount) (*wire.MsgTx, *wire.MsgTx, error) {
@@ -522,37 +524,37 @@ func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChanne
 	return ourNewCommitTx, theirNewCommitTx, nil
 }
 
-// CancelHTLC...
+// CancelHTLC ...
 func (lc *LightningChannel) CancelHTLC() error {
 	return nil
 }
 
-// OurBalance...
+// OurBalance ...
 func (lc *LightningChannel) OurBalance() btcutil.Amount {
 	lc.stateMtx.RLock()
 	defer lc.stateMtx.RUnlock()
 	return lc.channelState.OurBalance
 }
 
-// TheirBalance...
+// TheirBalance ...
 func (lc *LightningChannel) TheirBalance() btcutil.Amount {
 	lc.stateMtx.RLock()
 	defer lc.stateMtx.RUnlock()
 	return lc.channelState.TheirBalance
 }
 
-// ForceClose...
+// ForceClose ...
 func (lc *LightningChannel) ForceClose() error {
 	return nil
 }
 
-// RequestPayment...
+// RequestPayment ...
 func (lc *LightningChannel) RequestPayment(amount btcutil.Amount) error {
 	// Validate amount
 	return nil
 }
 
-// PaymentRequest...
+// PaymentRequest ...
 // TODO(roasbeef): serialization (bip 70, QR code, etc)
 //  * routing handled by upper layer
 type PaymentRequest struct {
@@ -560,8 +562,8 @@ type PaymentRequest struct {
 	Value           btcutil.Amount
 }
 
-// createCommitTx...
-// TODO(roasbeef): fix inconsistency of 32 vs 20 byte revocation hashes everywhere...
+// createCommitTx ...
+// TODO(roasbeef): fix inconsistency of 32 vs 20 byte revocation hashes everywhere ...
 func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
 	revokeHash []byte, csvTimeout uint32, amountToSelf,
 	amountToThem btcutil.Amount) (*wire.MsgTx, error) {

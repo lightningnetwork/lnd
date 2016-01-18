@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// HTLCSettleRequest ...
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type HTLCSettleRequest struct {
@@ -18,6 +19,7 @@ type HTLCSettleRequest struct {
 	RedemptionProofs []*[20]byte
 }
 
+// Decode ...
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// HTLCKey(8)
@@ -39,12 +41,12 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new HTLCSettleRequest
+// NewHTLCSettleRequest creates a new HTLCSettleRequest
 func NewHTLCSettleRequest() *HTLCSettleRequest {
 	return &HTLCSettleRequest{}
 }
 
-// Serializes the item from the HTLCSettleRequest struct
+// Encode serializes the item from the HTLCSettleRequest struct
 // Writes the data to w
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -59,16 +61,18 @@ func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *HTLCSettleRequest) Command() uint32 {
 	return CmdHTLCSettleRequest
 }
 
+// MaxPayloadLength ...
 func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
 	// 21*15+16
 	return 331
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCSettleRequest) Validate() error {
 	// We're good!
 	return nil

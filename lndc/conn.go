@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 )
 
-// Conn...
+// LNDConn ...
 type LNDConn struct {
 	RemotePub  *btcec.PublicKey
 	RemoteLNId [16]byte
@@ -46,14 +46,14 @@ type LNDConn struct {
 	Conn net.Conn
 }
 
-// NewConn...
+// NewConn ...
 func NewConn(conn net.Conn) *LNDConn {
 	return &LNDConn{Conn: conn}
 }
 
-// Dial...
+// Dial ...
 func (c *LNDConn) Dial(
-	myId *btcec.PrivateKey, address string, remoteId []byte) error {
+	myID *btcec.PrivateKey, address string, remoteID []byte) error {
 	var err error
 
 	if !c.ViaPbx {
@@ -68,19 +68,19 @@ func (c *LNDConn) Dial(
 		}
 	}
 
-	// Before dialing out to the remote host, verify that `remoteId` is either
+	// Before dialing out to the remote host, verify that `remoteID` is either
 	// a pubkey or a pubkey hash.
-	if len(remoteId) != 33 && len(remoteId) != 20 {
+	if len(remoteID) != 33 && len(remoteID) != 20 {
 		return fmt.Errorf("must supply either remote pubkey or " +
 			"pubkey hash")
 	}
 
 	// Calc remote LNId; need this for creating pbx connections just because
 	// LNid is in the struct does not mean it's authed!
-	if len(remoteId) == 20 {
-		copy(c.RemoteLNId[:], remoteId[:16])
+	if len(remoteID) == 20 {
+		copy(c.RemoteLNId[:], remoteID[:16])
 	} else {
-		theirAdr := btcutil.Hash160(remoteId)
+		theirAdr := btcutil.Hash160(remoteID)
 		copy(c.RemoteLNId[:], theirAdr[:16])
 	}
 
@@ -131,12 +131,12 @@ func (c *LNDConn) Dial(
 
 	// Session is now open and confidential but not yet authenticated...
 	// So auth!
-	if len(remoteId) == 20 {
+	if len(remoteID) == 20 {
 		// Only know pubkey hash (20 bytes).
-		err = c.authPKH(myId, remoteId, ourEphemeralPub.SerializeCompressed())
+		err = c.authPKH(myID, remoteID, ourEphemeralPub.SerializeCompressed())
 	} else {
 		// Must be 33 byte pubkey.
-		err = c.authPubKey(myId, remoteId, ourEphemeralPub.SerializeCompressed())
+		err = c.authPubKey(myID, remoteID, ourEphemeralPub.SerializeCompressed())
 	}
 	if err != nil {
 		return err
@@ -147,7 +147,7 @@ func (c *LNDConn) Dial(
 
 // authPubKey...
 func (c *LNDConn) authPubKey(
-	myId *btcec.PrivateKey, remotePubBytes, localEphPubBytes []byte) error {
+	myID *btcec.PrivateKey, remotePubBytes, localEphPubBytes []byte) error {
 	if c.Authed {
 		return fmt.Errorf("%s already authed", c.RemotePub)
 	}
@@ -159,13 +159,13 @@ func (c *LNDConn) authPubKey(
 		return err
 	}
 	theirPKH := btcutil.Hash160(remotePubBytes)
-	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myId, theirPub))
+	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myID, theirPub))
 	myDHproof := btcutil.Hash160(append(c.RemotePub.SerializeCompressed(), idDH[:]...))
 
 	// Send over the 73 byte authentication message: my pubkey, their
 	// pubkey hash, DH proof.
 	var authMsg [73]byte
-	copy(authMsg[:33], myId.PubKey().SerializeCompressed())
+	copy(authMsg[:33], myID.PubKey().SerializeCompressed())
 	copy(authMsg[33:], theirPKH)
 	copy(authMsg[53:], myDHproof)
 	if _, err = c.Conn.Write(authMsg[:]); err != nil {
@@ -196,7 +196,7 @@ func (c *LNDConn) authPubKey(
 
 // authPKH...
 func (c *LNDConn) authPKH(
-	myId *btcec.PrivateKey, theirPKH, localEphPubBytes []byte) error {
+	myID *btcec.PrivateKey, theirPKH, localEphPubBytes []byte) error {
 	if c.Authed {
 		return fmt.Errorf("%s already authed", c.RemotePub)
 	}
@@ -207,7 +207,7 @@ func (c *LNDConn) authPKH(
 
 	// Send 53 bytes: our pubkey, and the remote's pubkey hash.
 	var greetingMsg [53]byte
-	copy(greetingMsg[:33], myId.PubKey().SerializeCompressed())
+	copy(greetingMsg[:33], myID.PubKey().SerializeCompressed())
 	copy(greetingMsg[:33], theirPKH)
 	if _, err := c.Conn.Write(greetingMsg[:]); err != nil {
 		return err
@@ -227,7 +227,7 @@ func (c *LNDConn) authPKH(
 	if err != nil {
 		return err
 	}
-	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myId, theirPub))
+	idDH := fastsha256.Sum256(btcec.GenerateSharedSecret(myID, theirPub))
 	fmt.Printf("made idDH %x\n", idDH)
 	theirDHproof := btcutil.Hash160(append(localEphPubBytes, idDH[:]...))
 

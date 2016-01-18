@@ -3,12 +3,13 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"io/ioutil"
 	"reflect"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 )
 
 // Common variables and functions for the message tests
@@ -16,8 +17,8 @@ import (
 var (
 	// For debugging, writes to /dev/shm/
 	// Maybe in the future do it if you do "go test -v"
-	WRITE_FILE = true
-	filename   = "/dev/shm/serialized.raw"
+	WriteFile = true
+	filename  = "/dev/shm/serialized.raw"
 
 	// preimage: 9a2cbd088763db88dd8ba79e5726daa6aba4aa7e
 	// echo -n | openssl sha256 | openssl ripemd160 | openssl sha256 | openssl ripemd160
@@ -101,7 +102,7 @@ func SerializeTest(t *testing.T, message Message, expectedString string, filenam
 		}
 
 		// So I can do: hexdump -C /dev/shm/fundingRequest.raw
-		if WRITE_FILE {
+		if WriteFile {
 			err = ioutil.WriteFile(filename, b.Bytes(), 0644)
 			if err != nil {
 				t.Error(err.Error())

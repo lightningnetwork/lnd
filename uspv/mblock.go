@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
+// MakeMerkleParent ...
 func MakeMerkleParent(left *wire.ShaHash, right *wire.ShaHash) *wire.ShaHash {
 	// this can screw things up; CVE-2012-2459
 	if left != nil && right != nil && left.IsEqual(right) {

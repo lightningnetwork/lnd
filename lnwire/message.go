@@ -1,3 +1,4 @@
+// Package lnwire ...
 // Code derived from https:// github.com/btcsuite/btcd/blob/master/wire/message.go
 package lnwire
 
@@ -11,58 +12,67 @@ import (
 
 //  message type identifyer bytes
 const (
-	MSGID_FUNDREQUEST  = 0x30
-	MSGID_FUNDRESPONSE = 0x31
+	MsgIDFundRequest  = 0x30
+	MsgIDFundResponse = 0x31
 
-	MSGID_CLOSEREQUEST  = 0x40
-	MSGID_CLOSERESPONSE = 0x41
+	MsgIDCloseRequest  = 0x40
+	MsgIDCloseResponse = 0x41
 
-	MSGID_TEXTCHAT = 0x70
+	MsgIDTextChat = 0x70
 
-	MSGID_FWDMSG     = 0x20
-	MSGID_FWDAUTHREQ = 0x21
+	MsgIDFwdMsg     = 0x20
+	MsgIDFwdAuthReq = 0x21
 )
 
 // 4-byte network + 4-byte message id + payload-length 4-byte
 const MessageHeaderSize = 12
 
-const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
+// 32MB
+const MaxMessagePayload = 1024 * 1024 * 32
 
+// constants ...
 const (
 	// Funding channel open
+
 	CmdFundingRequest      = uint32(200)
 	CmdFundingResponse     = uint32(210)
 	CmdFundingSignAccept   = uint32(220)
 	CmdFundingSignComplete = uint32(230)
 
 	// Close channel
+
 	CmdCloseRequest  = uint32(300)
 	CmdCloseComplete = uint32(310)
 
 	// TODO Renumber to 1100
 	// HTLC payment
+
 	CmdHTLCAddRequest = uint32(1000)
 	CmdHTLCAddAccept  = uint32(1010)
 	CmdHTLCAddReject  = uint32(1020)
 
 	// TODO Renumber to 1200
 	// HTLC settlement
+
 	CmdHTLCSettleRequest = uint32(1100)
 	CmdHTLCSettleAccept  = uint32(1110)
 
 	// HTLC timeout
+
 	CmdHTLCTimeoutRequest = uint32(1300)
 	CmdHTLCTimeoutAccept  = uint32(1310)
 
 	// Commitments
+
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
 
 	// Error
+
 	CmdErrorGeneric = uint32(4000)
 )
 
-// Every message has these functions:
+// A Message has these functions:
 type Message interface {
 	Decode(io.Reader, uint32) error // (io, protocol version)
 	Encode(io.Writer, uint32) error // (io, protocol version)
@@ -165,6 +175,7 @@ func discardInput(r io.Reader, n uint32) {
 	}
 }
 
+// WriteMessage ...
 func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet) (int, error) {
 	totalBytes := 0
 
@@ -219,6 +230,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	return totalBytes, nil
 }
 
+// ReadMessage ...
 func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message, []byte, error) {
 	totalBytes := 0
 	n, hdr, err := readMessageHeader(r)
@@ -229,7 +241,7 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 
 	// Enforce maximum message payload
 	if hdr.length > MaxMessagePayload {
-		return totalBytes, nil, nil, fmt.Errorf("message payload is too large - header indicates %d bytes, but max message payload is %d bytes.", hdr.length, MaxMessagePayload)
+		return totalBytes, nil, nil, fmt.Errorf("message payload is too large - header indicates %d bytes, but max message payload is %d bytes", hdr.length, MaxMessagePayload)
 	}
 
 	// Check for messages in the wrong bitcoin network
@@ -250,7 +262,7 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	mpl := msg.MaxPayloadLength(pver)
 	if hdr.length > mpl {
 		discardInput(r, hdr.length)
-		return totalBytes, nil, nil, fmt.Errorf("payload exceeds max length. indicates %v bytes, but max of message type %v is %v.", hdr.length, command, mpl)
+		return totalBytes, nil, nil, fmt.Errorf("payload exceeds max length. indicates %v bytes, but max of message type %v is %v", hdr.length, command, mpl)
 	}
 
 	// Read payload

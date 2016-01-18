@@ -4,29 +4,35 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"io/ioutil"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"io"
-	"io/ioutil"
 )
 
-var MAX_SLICE_LENGTH = 65535
+// MaxSliceLength ...
+var MaxSliceLength = 65535
 
-// Actual pkScript, not redeemScript
+// PkScript is the actual PkScript, not redeemScript
 type PkScript []byte
 
+// HTLCKey ...
 type HTLCKey uint64
+
+// CommitHeight ...
 type CommitHeight uint64
 
+// CreditsAmount ...
 // Subsatoshi amount (Micro-Satoshi, 1/1000th)
 // Should be a signed int to account for negative fees
-// 
+//
 // "In any science-fiction movie, anywhere in the galaxy, currency is referred
 // to as 'credits.'"
 // 	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
 // 	glossary. Andrews McMeel. p. 172.
-// 
+//
 // https:// en.wikipedia.org/wiki/List_of_fictional_currencies
 // https:// en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
 // http:// tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
@@ -197,7 +203,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		return nil
 	case []byte:
 		sliceLength := len(e)
-		if sliceLength > MAX_SLICE_LENGTH {
+		if sliceLength > MaxSliceLength {
 			return fmt.Errorf("Slice length too long!")
 		}
 		// Write the size
@@ -437,7 +443,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		if len(sig) != int(sigLength) {
-			return fmt.Errorf("EOF: Signature length mismatch.")
+			return fmt.Errorf("EOF: Signature length mismatch")
 		}
 		btcecSig, err := btcec.ParseSignature(sig, btcec.S256())
 		if err != nil {
@@ -487,8 +493,8 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		// Shouldn't need to do this, since it's uint16, but we
-		// might have a different value for MAX_SLICE_LENGTH...
-		if int(blobLength) > MAX_SLICE_LENGTH {
+		// might have a different value for MaxSliceLength...
+		if int(blobLength) > MaxSliceLength {
 			return fmt.Errorf("Slice length too long!")
 		}
 
@@ -499,7 +505,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		if len(*e) != int(blobLength) {
-			return fmt.Errorf("EOF: Slice length mismatch.")
+			return fmt.Errorf("EOF: Slice length mismatch")
 		}
 		return nil
 	case *PkScript:
@@ -521,7 +527,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		if len(*e) != int(scriptLength) {
-			return fmt.Errorf("EOF: Signature length mismatch.")
+			return fmt.Errorf("EOF: Signature length mismatch")
 		}
 		return nil
 	case *string:
@@ -535,7 +541,7 @@ func readElement(r io.Reader, element interface{}) error {
 		l := io.LimitReader(r, int64(strlen))
 		b, err := ioutil.ReadAll(l)
 		if len(b) != int(strlen) {
-			return fmt.Errorf("EOF: String length mismatch.")
+			return fmt.Errorf("EOF: String length mismatch")
 		}
 		*e = string(b)
 		if err != nil {
@@ -603,7 +609,7 @@ func readElements(r io.Reader, elements ...interface{}) error {
 	return nil
 }
 
-// Validates whether a PkScript byte array is P2SH or P2PKH
+// ValidatePkScript validates whether a PkScript byte array is P2SH or P2PKH
 func ValidatePkScript(pkScript PkScript) error {
 	if &pkScript == nil {
 		return fmt.Errorf("PkScript should not be empty!")

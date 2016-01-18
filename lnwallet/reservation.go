@@ -154,7 +154,7 @@ func (r *ChannelReservation) OurContribution() *ChannelContribution {
 	return r.ourContribution
 }
 
-// ProcesContribution verifies the counterparty's contribution to the pending
+// ProcessContribution verifies the counterparty's contribution to the pending
 // payment channel. As a result of this incoming message, lnwallet is able to
 // build the funding transaction, and both commitment transactions. Once this
 // message has been processed, all signatures to inputs to the funding
@@ -197,7 +197,7 @@ func (r *ChannelReservation) OurSignatures() ([][]byte, []byte) {
 	return r.ourFundingSigs, r.ourCommitmentSig
 }
 
-// CompleteFundingReservation finalizes the pending channel reservation,
+// CompleteReservation finalizes the pending channel reservation,
 // transitioning from a pending payment channel, to an open payment
 // channel. All passed signatures to the counterparty's inputs to the funding
 // transaction will be fully verified. Signatures are expected to be passed in
@@ -224,7 +224,7 @@ func (r *ChannelReservation) CompleteReservation(fundingSigs [][]byte,
 	return <-errChan
 }
 
-// OurSignatures returns the counterparty's signatures to all inputs to the
+// TheirSignatures returns the counterparty's signatures to all inputs to the
 // funding transaction belonging to them, as well as their signature for the
 // wallet's version of the commitment transaction. This methods is provided for
 // additional verification, such as needed by tests.

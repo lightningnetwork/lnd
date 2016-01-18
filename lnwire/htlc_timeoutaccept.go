@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// HTLCTimeoutAccept ...
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type HTLCTimeoutAccept struct {
@@ -15,6 +16,7 @@ type HTLCTimeoutAccept struct {
 	HTLCKey HTLCKey
 }
 
+// Decode ...
 func (c *HTLCTimeoutAccept) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// HTLCKey(8)
@@ -29,12 +31,12 @@ func (c *HTLCTimeoutAccept) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new HTLCTimeoutAccept
+// NewHTLCTimeoutAccept creates a new HTLCTimeoutAccept
 func NewHTLCTimeoutAccept() *HTLCTimeoutAccept {
 	return &HTLCTimeoutAccept{}
 }
 
-// Serializes the item from the HTLCTimeoutAccept struct
+// Encode serializes the item from the HTLCTimeoutAccept struct
 // Writes the data to w
 func (c *HTLCTimeoutAccept) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -48,16 +50,18 @@ func (c *HTLCTimeoutAccept) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *HTLCTimeoutAccept) Command() uint32 {
 	return CmdHTLCTimeoutAccept
 }
 
+// MaxPayloadLength ...
 func (c *HTLCTimeoutAccept) MaxPayloadLength(uint32) uint32 {
 	// 16
 	return 16
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCTimeoutAccept) Validate() error {
 	// We're good!
 	return nil

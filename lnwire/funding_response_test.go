@@ -1,8 +1,9 @@
 package lnwire
 
 import (
-	"github.com/btcsuite/btcutil"
 	"testing"
+
+	"github.com/btcsuite/btcutil"
 )
 
 var (

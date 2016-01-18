@@ -2,12 +2,13 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
-
-	"io"
 )
 
+// CloseRequest ...
 type CloseRequest struct {
 	ReservationID uint64
 
@@ -15,6 +16,7 @@ type CloseRequest struct {
 	Fee               btcutil.Amount
 }
 
+// Decode ...
 func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 	// ReservationID (8)
 	// RequesterCloseSig (73)
@@ -31,12 +33,12 @@ func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new CloseRequest
+// NewCloseRequest creates a new CloseRequest
 func NewCloseRequest() *CloseRequest {
 	return &CloseRequest{}
 }
 
-// Serializes the item from the CloseRequest struct
+// Encode serializes the item from the CloseRequest struct
 // Writes the data to w
 func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 	// ReservationID
@@ -53,16 +55,18 @@ func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *CloseRequest) Command() uint32 {
 	return CmdCloseRequest
 }
 
+// MaxPayloadLength ...
 func (c *CloseRequest) MaxPayloadLength(uint32) uint32 {
 	// 8 + 73 + 8
 	return 89
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CloseRequest) Validate() error {
 	// Fee must be greater than 0
 	if c.Fee < 0 {

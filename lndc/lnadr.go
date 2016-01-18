@@ -11,9 +11,9 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-// lnAddr...
+// LNAdr ...
 type LNAdr struct {
-	lnId   [16]byte // redundant because adr contains it
+	lnID   [16]byte // redundant because adr contains it
 	PubKey *btcec.PublicKey
 
 	Base58Addr btcutil.Address // Base58 encoded address (1XXX...)
@@ -25,17 +25,17 @@ type LNAdr struct {
 
 // String...
 func (l *LNAdr) String() string {
-	var encodedId []byte
+	var encodedID []byte
 	if l.PubKey == nil {
-		encodedId = l.Base58Addr.ScriptAddress()
+		encodedID = l.Base58Addr.ScriptAddress()
 	} else {
-		encodedId = l.PubKey.SerializeCompressed()
+		encodedID = l.PubKey.SerializeCompressed()
 	}
 
-	return fmt.Sprintf("%v@%v", encodedId, l.NetAddr)
+	return fmt.Sprintf("%v@%v", encodedID, l.NetAddr)
 }
 
-// newLnAddr...
+// LnAddrFromString ...
 func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 	// The format of an lnaddr is "<pubkey or pkh>@host"
 	idHost := strings.Split(encodedAddr, "@")
@@ -86,7 +86,7 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 	}
 
 	// Finally, populate the lnid from the address.
-	copy(addr.lnId[:], addr.Base58Addr.ScriptAddress())
+	copy(addr.lnID[:], addr.Base58Addr.ScriptAddress())
 
 	return addr, nil
 }

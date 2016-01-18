@@ -34,28 +34,36 @@ as state, must store at most h+1 hashes and the index of each hash (h*(h+1)) bit
 to compute a previous index, compute at most h hashes.
 */
 
+// Node ...
 // You can calculate h from i but I can't figure out how without taking
 // O(i) ops.  Feels like there should be a clever O(h) way.  1 byte, whatever.
-type ElkremNode struct {
+type Node struct {
 	i   uint64        // index (ith node)
 	h   uint8         // height of this node
 	sha *wire.ShaHash // hash
 }
-type ElkremSender struct {
+
+// Sender ...
+type Sender struct {
 	current    uint64        // last sent hash index
 	treeHeight uint8         // height of tree (size is 2**height -1 )
 	maxIndex   uint64        // top of the tree
 	root       *wire.ShaHash // root hash of the tree
 }
-type ElkremReceiver struct {
-	current    uint64       // last received index (actually don't need it?)
-	treeHeight uint8        // height of tree (size is 2**height -1 )
-	s          []ElkremNode // store of received hashes, max size = height
+
+// Receiver ...
+type Receiver struct {
+	current    uint64 // last received index (actually don't need it?)
+	treeHeight uint8  // height of tree (size is 2**height -1 )
+	s          []Node // store of received hashes, max size = height
 }
 
+// LeftSha ...
 func LeftSha(in wire.ShaHash) wire.ShaHash {
 	return wire.DoubleSha256SH(in.Bytes()) // left is sha(sha(in))
 }
+
+// RightSha ...
 func RightSha(in wire.ShaHash) wire.ShaHash {
 	return wire.DoubleSha256SH(append(in.Bytes(), 0x01)) // sha(sha(in, 1))
 }
@@ -82,9 +90,9 @@ func descend(w, i uint64, h uint8, sha wire.ShaHash) (wire.ShaHash, error) {
 	return sha, nil
 }
 
-// Creates an Elkrem Sender from a root hash and tree height
-func NewElkremSender(th uint8, r wire.ShaHash) ElkremSender {
-	var e ElkremSender
+// NewSender creates an Elkrem Sender from a root hash and tree height
+func NewSender(th uint8, r wire.ShaHash) Sender {
+	var e Sender
 	e.root = &r
 	e.treeHeight = th
 	// set max index based on tree height
@@ -95,29 +103,31 @@ func NewElkremSender(th uint8, r wire.ShaHash) ElkremSender {
 	return e
 }
 
-// Creates an Elkrem Receiver from a tree height
-func NewElkremReceiver(th uint8) ElkremReceiver {
-	var e ElkremReceiver
+// NewReceiver creates an Elkrem Receiver from a tree height
+func NewReceiver(th uint8) Receiver {
+	var e Receiver
 	e.treeHeight = th
 	return e
 }
 
-// Next() increments the index to the next hash and outputs it
-func (e *ElkremSender) Next() (*wire.ShaHash, error) {
+// Next increments the index to the next hash and outputs it
+func (e *Sender) Next() (*wire.ShaHash, error) {
 	// increment index
 	e.current++
 	return e.AtIndex(e.current)
 }
 
+// AtIndex ...
 // w is the wanted index, i is the root index
-func (e *ElkremSender) AtIndex(w uint64) (*wire.ShaHash, error) {
+func (e *Sender) AtIndex(w uint64) (*wire.ShaHash, error) {
 	out, err := descend(w, e.maxIndex, e.treeHeight, *e.root)
 	return &out, err
 }
 
-func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
+// AddNext ...
+func (e *Receiver) AddNext(sha *wire.ShaHash) error {
 	// note: careful about atomicity / disk writes here
-	var n ElkremNode
+	var n Node
 	n.sha = sha
 	t := len(e.s) - 1                    // top of stack
 	if t > 0 && e.s[t-1].h == e.s[t].h { // top 2 elements are equal height
@@ -140,8 +150,10 @@ func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
 	e.s = append(e.s, n) // append new node to stack
 	return nil
 }
-func (e *ElkremReceiver) AtIndex(w uint64) (*wire.ShaHash, error) {
-	var out ElkremNode      // node we will eventually return
+
+// AtIndex ...
+func (e *Receiver) AtIndex(w uint64) (*wire.ShaHash, error) {
+	var out Node            // node we will eventually return
 	for _, n := range e.s { // go through stack
 		if w <= n.i { // found one bigger than or equal to what we want
 			out = n

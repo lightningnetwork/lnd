@@ -18,14 +18,18 @@ const (
 	headerFileName = "headers.bin"
 	// Except hash-160s, those aren't backwards.  But anything that's 32 bytes is.
 	// because, cmon, 32?  Gotta reverse that.  But 20?  20 is OK.
+
+	// NETVERSION ...
 	NETVERSION = wire.TestNet3
-	VERSION    = 70011
+	// VERSION ...
+	VERSION = 70011
 )
 
 var (
 	params = &chaincfg.TestNet3Params
 )
 
+// SPVCon ...
 type SPVCon struct {
 	con        net.Conn // the (probably tcp) connection to the node
 	headerFile *os.File // file for SPV headers
@@ -45,6 +49,7 @@ type SPVCon struct {
 	TS *TxStore
 }
 
+// Open ...
 func (s *SPVCon) Open(remoteNode string, hfn string, inTs *TxStore) error {
 	// open header file
 	err := s.openHeaderFile(headerFileName)
@@ -139,6 +144,7 @@ func (s *SPVCon) openHeaderFile(hfn string) error {
 	return nil
 }
 
+// PongBack ...
 func (s *SPVCon) PongBack(nonce uint64) {
 	mpong := wire.NewMsgPong(nonce)
 
@@ -146,11 +152,13 @@ func (s *SPVCon) PongBack(nonce uint64) {
 	return
 }
 
+// SendFilter ...
 func (s *SPVCon) SendFilter(f *bloom.Filter) {
 	s.outMsgQueue <- f.MsgFilterLoad()
 	return
 }
 
+// AskForHeaders ...
 func (s *SPVCon) AskForHeaders() error {
 	var hdr wire.BlockHeader
 	ghdr := wire.NewMsgGetHeaders()
@@ -194,6 +202,7 @@ func (s *SPVCon) AskForHeaders() error {
 	return nil
 }
 
+// IngestHeaders ...
 func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	var err error
 	_, err = s.headerFile.Seek(-80, os.SEEK_END)
@@ -274,6 +283,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	return true, nil
 }
 
+// AskForMerkBlocks ...
 func (s *SPVCon) AskForMerkBlocks(current, last uint32) error {
 	var hdr wire.BlockHeader
 	_, err := s.headerFile.Seek(int64(current*80), os.SEEK_SET)

@@ -22,7 +22,7 @@ type chainBranch struct {
 	hash  [32]byte
 }
 
-// HyperShaChain...
+// HyperShaChain ...
 // * https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt
 type HyperShaChain struct {
 	sync.RWMutex
@@ -35,13 +35,13 @@ type HyperShaChain struct {
 	lastHash wire.ShaHash
 }
 
-// NewHyperShaChain
+// New ...
 //  * used to track their pre-images
 func New() *HyperShaChain {
 	return &HyperShaChain{lastChainIndex: 0, numValid: 0}
 }
 
-// NewHyperShaChainFromSeed...
+// NewFromSeed ...
 //  * used to derive your own pre-images
 func NewFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
 	var shaSeed [32]byte
@@ -95,7 +95,7 @@ func canDerive(from, to uint64) bool {
 	return ^from&to == 1
 }
 
-// getHash...
+// GetHash ...
 // index should be commitment #
 func (h *HyperShaChain) GetHash(index uint64) (*[32]byte, error) {
 	for i := uint64(0); i < h.numValid; i++ {
@@ -114,7 +114,7 @@ func (h *HyperShaChain) GetHash(index uint64) (*[32]byte, error) {
 	return nil, fmt.Errorf("unable to derive hash # %v", index)
 }
 
-// addHash
+// AddNextHash ...
 func (h *HyperShaChain) AddNextHash(hash [32]byte) error {
 	// Hashes for a remote chain must be added in order.
 	nextIdx := h.lastChainIndex + 1
@@ -144,14 +144,14 @@ func (h *HyperShaChain) AddNextHash(hash [32]byte) error {
 	return nil
 }
 
-// CurrentPreImage...
+// CurrentPreImage ...
 func (h *HyperShaChain) CurrentPreImage() *wire.ShaHash {
 	h.RLock()
 	defer h.RUnlock()
 	return &h.lastHash
 }
 
-// CurrentRevocationHash...
+// CurrentRevocationHash ...
 // TODO(roasbeef): *wire.ShaHash vs [wire.HashSize]byte ?
 func (h *HyperShaChain) CurrentRevocationHash() []byte {
 	h.RLock()
@@ -159,7 +159,7 @@ func (h *HyperShaChain) CurrentRevocationHash() []byte {
 	return btcutil.Hash160(h.lastHash[:])
 }
 
-// LocatePreImage...
+// LocatePreImage ...
 // Alice just broadcasted an old commitment tx, we need the revocation hash to
 // claim the funds so we don't get cheated. However, we aren't storing all the
 // pre-images in memory. So which shachain index # did she broadcast?
@@ -170,12 +170,14 @@ func (h *HyperShaChain) LocatePreImage(outputScript []byte) (uint64, *[32]byte) 
 	return 0, nil
 }
 
-// MarshallBinary...
+// Encode ...
+// (MarshallBinary ...)
 func (h *HyperShaChain) Encode(b io.Writer) error {
 	return nil
 }
 
-// UnmarshallBinary...
+// Decode ...
+// UnmarshallBinary ...
 func (h *HyperShaChain) Decode(b io.Reader) error {
 	return nil
 }

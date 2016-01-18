@@ -22,9 +22,11 @@ func printRespJson(resp interface{}) {
 }
 
 var ShellCommand = cli.Command{
-	Name:   "shell",
-	Usage:  "enter interactive shell",
-	Action: shell,
+	Name:  "shell",
+	Usage: "enter interactive shell",
+	Action: func(c *cli.Context) {
+		println("not implemented yet")
+	},
 }
 
 var NewAddressCommand = cli.Command{

@@ -8,6 +8,19 @@ This version of Lnd is not yet fully-operational, but a proof of concept on test
 
 Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lightning transactions will be fast, but for now, please wait just a little bit.
 
+## Installation
+
+* If necessary, install Go according to the installation instructions here: http://golang.org/doc/install. It is recommended to add `$GOPATH/bin` to your `PATH` at this point.
+* Run the following command to obtain and install lnd, lncli, lnshell and all dependencies:
+
+```
+go get -u -v github.com/lightningnetwork/lnd/...
+```
+
+Feel free to disregard any errors/warnings related to the lnstate and uspv packages.
+
+## Packages and Utilities
+
 ### chainntfs
 
 A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds.
@@ -32,7 +45,7 @@ This is useful for the hashed secrets in LN payment channels.
 ### lndc
 Library for authenticated encrypted communication between LN nodes.  It uses chacha20_poly1305 for the symmetric cipher, and the secp256k1 curve used in bitcoin for public keys.  No signing is used, only two ECDH calculations: first with ephemeral key pairs and second with persistent identifying public keys.
 
-### lnrpc 
+### lnrpc
 
 lnd's RPC interface. Currently [gRPC](http://www.grpc.io/), a high-performance RPC framework is used. gRPC provides features such as a stub-based client interface in several languages, streaming RPCs, payload agnostic request/response handling, and more. In addition to gRPC, lnd will also offer a basic REST-based http RPC interface. For now, connections are not encrypted, or authenticated. For authentication, [macaroons](http://research.google.com/pubs/pub41892.html) will likely be integrated due to their simplicity, flexibility, and expressiveness.
 

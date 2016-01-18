@@ -9,8 +9,8 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lndc"
-	"li.lan/labs/plasma/lnwallet"
-	"li.lan/labs/plasma/lnwire"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (

@@ -14,7 +14,7 @@ Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lig
 * Run the following command to obtain and install lnd, lncli, lnshell and all dependencies:
 
 ```
-go get -u -v github.com/LightningNetwork/lnd/...
+go get -u -v github.com/lightningnetwork/lnd/...
 ```
 
 Feel free to disregard any errors/warnings related to the lnstate and uspv packages.

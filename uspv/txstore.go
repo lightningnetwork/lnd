@@ -51,6 +51,7 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash, height uint32) error {
 	if txid == nil {
 		return fmt.Errorf("tried to add nil txid")
 	}
+	log.Printf("added %s at height %d\n", txid.String(), height)
 	t.OKTxids[*txid] = height
 	return nil
 }

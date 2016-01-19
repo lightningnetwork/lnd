@@ -38,8 +38,11 @@ type SPVCon struct {
 	WBytes uint64 // total bytes written
 	RBytes uint64 // total bytes read
 
-	TS    *TxStore
-	param *chaincfg.Params
+	TS    *TxStore         // transaction store to write to
+	param *chaincfg.Params // network parameters (testnet3, testnetL)
+
+	// mBlockQueue is for keeping track of what height we've requested.
+	mBlockQueue chan RootAndHeight
 }
 
 func OpenSPV(remoteNode string, hfn string,
@@ -114,7 +117,7 @@ func OpenSPV(remoteNode string, hfn string,
 	go s.incomingMessageHandler()
 	s.outMsgQueue = make(chan wire.Message)
 	go s.outgoingMessageHandler()
-
+	s.mBlockQueue = make(chan RootAndHeight, 10) // queue of 10 requests? more?
 	return s, nil
 }
 
@@ -319,27 +322,52 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	return true, nil
 }
 
+// RootAndHeight is needed instead of just height in case a fullnode
+// responds abnormally (?) by sending out of order merkleblocks.
+// we cache a merkleroot:height pair in the queue so we don't have to
+// look them up from the disk.
+type RootAndHeight struct {
+	root   wire.ShaHash
+	height uint32
+}
+
+// NewRootAndHeight saves like 2 lines.
+func NewRootAndHeight(r wire.ShaHash, h uint32) (rah RootAndHeight) {
+	rah.root = r
+	rah.height = h
+	return
+}
+
+// AskForMerkBlocks requests blocks from current to last
+// right now this asks for 1 block per getData message.
+// Maybe it's faster to ask for many in a each message?
 func (s *SPVCon) AskForMerkBlocks(current, last uint32) error {
 	var hdr wire.BlockHeader
 	_, err := s.headerFile.Seek(int64(current*80), os.SEEK_SET)
 	if err != nil {
 		return err
 	}
+	// loop through all heights where we want merkleblocks.
 	for current < last {
+		// load header from file
 		err = hdr.Deserialize(s.headerFile)
 		if err != nil {
 			return err
 		}
-		current++
 
 		bHash := hdr.BlockSha()
+		// create inventory we're asking for
 		iv1 := wire.NewInvVect(wire.InvTypeFilteredBlock, &bHash)
 		gdataMsg := wire.NewMsgGetData()
+		// add inventory
 		err = gdataMsg.AddInvVect(iv1)
 		if err != nil {
 			return err
 		}
+		rah := NewRootAndHeight(hdr.MerkleRoot, current)
 		s.outMsgQueue <- gdataMsg
+		s.mBlockQueue <- rah // push height and mroot of requested block on queue
+		current++
 	}
 
 	return nil

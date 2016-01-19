@@ -43,22 +43,26 @@ func (s *SPVCon) incomingMessageHandler() {
 			fmt.Printf(" got %d txs ", len(txids))
 			//			fmt.Printf(" = got %d txs from block %s\n",
 			//				len(txids), m.Header.BlockSha().String())
-			var height uint32
-			if len(txids) > 0 {
-				// make sure block is in our store before adding txs
-				height, err = s.HeightFromHeader(m.Header)
-				if err != nil {
-					log.Printf("Merkle block height error: %s\n", err.Error())
-					continue
-				}
+			//			var height uint32
+			// if len(txids) > 0 {
+			// make sure block is in our store before adding txs
+			//	height, err = s.HeightFromHeader(m.Header)
+			//	height = 20000
+			// if err != nil {
+			//log.Printf("Merkle block height error: %s\n", err.Error())
+			//	continue
+			//	}
+			//	}
+			rah := <-s.mBlockQueue // pop height off mblock queue
+			if !rah.root.IsEqual(&m.Header.MerkleRoot) {
+				log.Printf("out of order error")
 			}
 			for _, txid := range txids {
-				err := s.TS.AddTxid(txid, height)
+				err := s.TS.AddTxid(txid, rah.height)
 				if err != nil {
 					log.Printf("Txid store error: %s\n", err.Error())
 				}
 			}
-			//			nextReq <- true
 
 		case *wire.MsgHeaders:
 			moar, err := s.IngestHeaders(m)

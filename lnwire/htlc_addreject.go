@@ -5,11 +5,13 @@ import (
 	"io"
 )
 
+// HTLCAddReject ...
 type HTLCAddReject struct {
 	ChannelID uint64
-	HTLCKey HTLCKey
+	HTLCKey   HTLCKey
 }
 
+// Decode ...
 func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// CommitmentHeight(8)
@@ -27,12 +29,12 @@ func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new HTLCAddReject
+// NewHTLCAddReject creates a new HTLCAddReject
 func NewHTLCAddReject() *HTLCAddReject {
 	return &HTLCAddReject{}
 }
 
-// Serializes the item from the HTLCAddReject struct
+// Encode serializes the item from the HTLCAddReject struct
 // Writes the data to w
 func (c *HTLCAddReject) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -47,16 +49,18 @@ func (c *HTLCAddReject) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *HTLCAddReject) Command() uint32 {
 	return CmdHTLCAddReject
 }
 
+// MaxPayloadLength ...
 func (c *HTLCAddReject) MaxPayloadLength(uint32) uint32 {
 	// 16 base size
 	return 16
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCAddReject) Validate() error {
 	// We're good!
 	return nil

@@ -53,6 +53,7 @@ func shellPrompt() error {
 	}
 }
 
+// Shellparse ...
 func Shellparse(cmdslice []string) error {
 	var err error
 	var args []string

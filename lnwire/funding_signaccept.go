@@ -2,10 +2,12 @@ package lnwire
 
 import (
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
 	"io"
+
+	"github.com/btcsuite/btcd/btcec"
 )
 
+// FundingSignAccept ...
 type FundingSignAccept struct {
 	ReservationID uint64
 
@@ -13,6 +15,7 @@ type FundingSignAccept struct {
 	FundingTXSigs []*btcec.Signature
 }
 
+// Decode ...
 func (c *FundingSignAccept) Decode(r io.Reader, pver uint32) error {
 	// ReservationID (8)
 	// CommitSig (73)
@@ -32,12 +35,12 @@ func (c *FundingSignAccept) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new FundingSignAccept
+// NewFundingSignAccept creates a new FundingSignAccept
 func NewFundingSignAccept() *FundingSignAccept {
 	return &FundingSignAccept{}
 }
 
-// Serializes the item from the FundingSignAccept struct
+// Encode serializes the item from the FundingSignAccept struct
 // Writes the data to w
 func (c *FundingSignAccept) Encode(w io.Writer, pver uint32) error {
 	// ReservationID
@@ -54,16 +57,18 @@ func (c *FundingSignAccept) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *FundingSignAccept) Command() uint32 {
 	return CmdFundingSignAccept
 }
 
+// MaxPayloadLength ...
 func (c *FundingSignAccept) MaxPayloadLength(uint32) uint32 {
 	// 8 (base size) + 73 + (73maxSigSize*127maxInputs)
 	return 9352
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingSignAccept) Validate() error {
 	// We're good!
 	return nil

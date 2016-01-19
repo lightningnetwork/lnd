@@ -55,7 +55,7 @@ type peer struct {
 	lightningAddr   lndc.LNAdr
 	inbound         bool
 	protocolVersion uint32
-	peerId          int32
+	peerID          int32
 
 	// For purposes of detecting retransmits, etc.
 	lastNMessages map[lnwire.Message]struct{}
@@ -88,7 +88,7 @@ type peer struct {
 func newPeer(conn net.Conn, server *server) *peer {
 	return &peer{
 		conn:   conn,
-		peerId: atomic.AddInt32(&numNodes, 1),
+		peerID: atomic.AddInt32(&numNodes, 1),
 
 		lastNMessages: make(map[lnwire.Message]struct{}),
 

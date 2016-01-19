@@ -90,6 +90,7 @@ func calcDiffAdjust(start, end wire.BlockHeader, p *chaincfg.Params) uint32 {
 	return blockchain.BigToCompact(newTarget)
 }
 
+// CheckHeader ...
 func CheckHeader(r io.ReadSeeker, height int64, p *chaincfg.Params) bool {
 	var err error
 	var cur, prev, epochStart wire.BlockHeader
@@ -179,11 +180,11 @@ func CheckHeader(r io.ReadSeeker, height int64, p *chaincfg.Params) bool {
 	return true // it must have worked if there's no errors and got to the end.
 }
 
-/* checkrange verifies a range of headers.  it checks their proof of work,
-difficulty adjustments, and that they all link in to each other properly.
-This is the only blockchain technology in the whole code base.
-Returns false if anything bad happens.  Returns true if the range checks
-out with no errors. */
+// CheckRange verifies a range of headers.  It checks their proof of work,
+// difficulty adjustments, and that they all link in to each other properly.
+// This is the only blockchain technology in the whole code base.
+// Returns false if anything bad happens.  Returns true if the range checks
+// out with no errors.
 func CheckRange(r io.ReadSeeker, first, last int64, p *chaincfg.Params) bool {
 	for i := first; i <= last; i++ {
 		if !CheckHeader(r, i, p) {

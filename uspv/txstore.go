@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil/bloom"
 )
 
+// TxStore ...
 type TxStore struct {
 	KnownTxids []*wire.ShaHash
 	Utxos      []Utxo  // stacks on stacks
@@ -17,6 +18,7 @@ type TxStore struct {
 	Adrs       []MyAdr // endeavouring to acquire capital
 }
 
+// Utxo ...
 type Utxo struct { // cash money.
 	// combo of outpoint and txout which has all the info needed to spend
 	Op       wire.OutPoint
@@ -25,12 +27,13 @@ type Utxo struct { // cash money.
 	KeyIdx   uint32 // index for private key needed to sign / spend
 }
 
+// MyAdr ...
 type MyAdr struct { // an address I have the private key for
 	btcutil.Address
 	KeyIdx uint32 // index for private key needed to sign / spend
 }
 
-// add addresses into the TxStore
+// AddAdr adds addresses into the TxStore
 func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	var ma MyAdr
 	ma.Address = a
@@ -39,7 +42,7 @@ func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	return
 }
 
-// add txid of interest
+// AddTxid adds txid of interest
 func (t *TxStore) AddTxid(txid *wire.ShaHash) error {
 	if txid == nil {
 		return fmt.Errorf("tried to add nil txid")
@@ -48,7 +51,7 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash) error {
 	return nil
 }
 
-// ... or I'm gonna fade away
+// GimmeFilter ... or I'm gonna fade away
 func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	if len(t.Adrs) == 0 {
 		return nil, fmt.Errorf("no addresses to filter for")
@@ -60,7 +63,7 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	return f, nil
 }
 
-// Ingest a tx into wallet, dealing with both gains and losses
+// IngestTx ingests a tx into wallet, dealing with both gains and losses
 func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	var match bool
 	inTxid := tx.TxSha()
@@ -86,7 +89,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	return nil
 }
 
-// Absorb money into wallet from a tx
+// AbsorbTx absorbs money into wallet from a tx
 func (t *TxStore) AbsorbTx(tx *wire.MsgTx) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")
@@ -120,7 +123,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx) error {
 	return nil
 }
 
-// Expell money from wallet due to a tx
+// ExpellTx expells money from wallet due to a tx
 func (t *TxStore) ExpellTx(tx *wire.MsgTx) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")

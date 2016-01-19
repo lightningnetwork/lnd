@@ -2,12 +2,14 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"io"
 )
 
+// FundingResponse ...
 type FundingResponse struct {
 	ChannelType uint8
 
@@ -38,6 +40,7 @@ type FundingResponse struct {
 	Inputs []*wire.TxIn
 }
 
+// Decode ...
 func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
 	// ReservationID (8)
 	// Channel Type (1)
@@ -80,12 +83,12 @@ func (c *FundingResponse) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new FundingResponse
+// NewFundingResponse creates a new FundingResponse
 func NewFundingResponse() *FundingResponse {
 	return &FundingResponse{}
 }
 
-// Serializes the item from the FundingResponse struct
+// Encode serializes the item from the FundingResponse struct
 // Writes the data to w
 func (c *FundingResponse) Encode(w io.Writer, pver uint32) error {
 	// ReservationID (8)
@@ -123,16 +126,18 @@ func (c *FundingResponse) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *FundingResponse) Command() uint32 {
 	return CmdFundingResponse
 }
 
+// MaxPayloadLength ...
 func (c *FundingResponse) MaxPayloadLength(uint32) uint32 {
 	// 86 (base size) + 26 (pkscript) + 26 (pkscript) + 74sig + 1 (numTxes) + 127*36(127 inputs * sha256+idx)
 	return 4785
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingResponse) Validate() error {
 	var err error
 

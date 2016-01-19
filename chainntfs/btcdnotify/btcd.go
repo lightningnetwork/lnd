@@ -12,7 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntfs"
 )
 
-// BtcdNotifier...
+// BtcdNotifier ...
 type BtcdNotifier struct {
 	// TODO(roasbeef): refactor to use the new NotificationServer
 	conn ChainConnection
@@ -37,7 +37,7 @@ type BtcdNotifier struct {
 
 var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 
-// NewBtcdNotifier...
+// NewBtcdNotifier ...
 func NewBtcdNotifier(c ChainConnection) (*BtcdNotifier, error) {
 	return &BtcdNotifier{
 		conn:                 c,
@@ -57,7 +57,7 @@ func NewBtcdNotifier(c ChainConnection) (*BtcdNotifier, error) {
 	}, nil
 }
 
-// Start...
+// Start ...
 func (b *BtcdNotifier) Start() error {
 	// Already started?
 	if atomic.AddInt32(&b.started, 1) != 1 {
@@ -71,7 +71,7 @@ func (b *BtcdNotifier) Start() error {
 	return nil
 }
 
-// Stop...
+// Stop ...
 func (b *BtcdNotifier) Stop() error {
 	// Already shutting down?
 	if atomic.AddInt32(&b.stopped, 1) != 1 {
@@ -84,7 +84,7 @@ func (b *BtcdNotifier) Stop() error {
 	return nil
 }
 
-// notificationDispatcher...
+// notificationDispatcher ...
 func (b *BtcdNotifier) notificationDispatcher() {
 out:
 	for {
@@ -175,7 +175,7 @@ out:
 	}
 }
 
-// initAllNotifications...
+// initAllNotifications ...
 func (b *BtcdNotifier) initAllNotifications() error {
 	var err error
 
@@ -195,14 +195,14 @@ func (b *BtcdNotifier) initAllNotifications() error {
 	return nil
 }
 
-// spendNotification....
+// spendNotification ....
 type spendNotification struct {
 	outpoint *wire.OutPoint
 
 	trigger *chainntnfs.NotificationTrigger
 }
 
-// confirmationNotification...
+// confirmationNotification ...
 // TODO(roasbeef): re-org funny business
 type confirmationsNotification struct {
 	txid *wire.ShaHash
@@ -213,7 +213,7 @@ type confirmationsNotification struct {
 	trigger *chainntnfs.NotificationTrigger
 }
 
-// RegisterSpendNotification...
+// RegisterSpendNotification ...
 // NOTE: eventChan MUST be buffered
 func (b *BtcdNotifier) RegisterSpendNotification(outpoint *wire.OutPoint,
 	trigger *chainntnfs.NotificationTrigger) error {
@@ -230,7 +230,7 @@ func (b *BtcdNotifier) RegisterSpendNotification(outpoint *wire.OutPoint,
 	return nil
 }
 
-// RegisterConfirmationsNotification...
+// RegisterConfirmationsNotification ...
 func (b *BtcdNotifier) RegisterConfirmationsNotification(txid *wire.ShaHash,
 	numConfs uint32, trigger *chainntnfs.NotificationTrigger) error {
 

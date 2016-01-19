@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// HTLCAddRequest ...
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type HTLCAddRequest struct {
@@ -37,6 +38,7 @@ type HTLCAddRequest struct {
 	Blob []byte
 }
 
+// Decode ...
 func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// HTLCKey(8)
@@ -61,12 +63,12 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new HTLCAddRequest
+// NewHTLCAddRequest creates a new HTLCAddRequest
 func NewHTLCAddRequest() *HTLCAddRequest {
 	return &HTLCAddRequest{}
 }
 
-// Serializes the item from the HTLCAddRequest struct
+// Encode serializes the item from the HTLCAddRequest struct
 // Writes the data to w
 func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -85,17 +87,19 @@ func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *HTLCAddRequest) Command() uint32 {
 	return CmdHTLCAddRequest
 }
 
+// MaxPayloadLength ...
 func (c *HTLCAddRequest) MaxPayloadLength(uint32) uint32 {
 	// base size ~110, but blob can be variable.
 	// shouldn't be bigger than 8K though...
 	return 8192
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *HTLCAddRequest) Validate() error {
 	if c.Amount < 0 {
 		// While fees can be negative, it's too confusing to allow

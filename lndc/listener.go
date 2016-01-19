@@ -11,7 +11,7 @@ import (
 	"github.com/codahale/chacha20poly1305"
 )
 
-// Listener...
+// Listener ...
 type Listener struct {
 	longTermPriv *btcec.PrivateKey
 
@@ -20,7 +20,7 @@ type Listener struct {
 
 var _ net.Listener = (*Listener)(nil)
 
-// NewListener...
+// NewListener ...
 func NewListener(localPriv *btcec.PrivateKey, listenAddr string) (*Listener, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
@@ -115,7 +115,7 @@ func (l *Listener) createCipherConn(lnConn *LNDConn) (*btcec.PrivateKey, error) 
 
 // AuthListen...
 func (l *Listener) authenticateConnection(
-	myId *btcec.PrivateKey, lnConn *LNDConn, localEphPubBytes []byte) error {
+	myID *btcec.PrivateKey, lnConn *LNDConn, localEphPubBytes []byte) error {
 	var err error
 
 	// TODO(roasbeef): should be using read/write clear here?

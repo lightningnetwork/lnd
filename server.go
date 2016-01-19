@@ -66,7 +66,7 @@ func newServer(listenAddrs []string, bitcoinNet *chaincfg.Params,
 		quit:         make(chan struct{}),
 	}
 
-	s.rpcServer = newRpcServer(s)
+	s.rpcServer = newRPCServer(s)
 
 	return s, nil
 }
@@ -83,7 +83,7 @@ func (s *server) addPeer(p *peer) {
 		return
 	}
 
-	s.peers[p.peerId] = p
+	s.peers[p.peerID] = p
 }
 
 // removePeer...
@@ -142,11 +142,11 @@ out:
 					// For the lndc crypto handshake, we
 					// either need a compressed pubkey, or a
 					// 20-byte pkh.
-					var remoteId []byte
+					var remoteID []byte
 					if addr.PubKey == nil {
-						remoteId = addr.Base58Addr.ScriptAddress()
+						remoteID = addr.Base58Addr.ScriptAddress()
 					} else {
-						remoteId = addr.PubKey.SerializeCompressed()
+						remoteID = addr.PubKey.SerializeCompressed()
 					}
 
 					// Attempt to connect to the remote
@@ -157,7 +157,7 @@ out:
 					ipAddr := addr.NetAddr.String()
 					conn := lndc.NewConn(nil)
 					if err := conn.Dial(
-						s.longTermPriv, ipAddr, remoteId); err != nil {
+						s.longTermPriv, ipAddr, remoteID); err != nil {
 						msg.reply <- err
 					}
 
@@ -251,7 +251,7 @@ func (s *server) Stop() error {
 
 // getIdentityPrivKey gets the identity private key out of the wallet DB.
 func getIdentityPrivKey(l *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
-	adr, err := l.ChannelDB.GetIdAdr()
+	adr, err := l.ChannelDB.GetIDAdr()
 	if err != nil {
 		return nil, err
 	}

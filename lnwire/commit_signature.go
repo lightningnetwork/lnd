@@ -2,11 +2,13 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
-	"io"
 )
 
+// CommitSignature ...
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type CommitSignature struct {
@@ -34,6 +36,7 @@ type CommitSignature struct {
 	CommitSig *btcec.Signature // Requester's Commitment
 }
 
+// Decode ...
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// CommitmentHeight(8)
@@ -56,12 +59,12 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new CommitSignature
+// NewCommitSignature creates a new CommitSignature
 func NewCommitSignature() *CommitSignature {
 	return &CommitSignature{}
 }
 
-// Serializes the item from the CommitSignature struct
+// Encode serializes the item from the CommitSignature struct
 // Writes the data to w
 func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -79,15 +82,17 @@ func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *CommitSignature) Command() uint32 {
 	return CmdCommitSignature
 }
 
+// MaxPayloadLength ...
 func (c *CommitSignature) MaxPayloadLength(uint32) uint32 {
 	return 8192
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CommitSignature) Validate() error {
 	if c.Fee < 0 {
 		// While fees can be negative, it's too confusing to allow

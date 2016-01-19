@@ -41,10 +41,11 @@ func (l *LNChannel) sendErrorPkt() {
 
 //Will copy in code from channel.go...
 
+// These constants are ...
 const (
-	MAX_STAGED_HTLCS                 = 1000
-	MAX_UNREVOKED_COMMITMENTS        = 16
-	MAX_UPDATED_HTLCS_PER_COMMITMENT = 1000
+	MaxStagedHTLCs               = 1000
+	MaxUnrevokedCommitments      = 16
+	MaxUpdatedHTLCsPerCommitment = 1000
 )
 
 //Currently, the mutex locks across the entire channel, it's possible to update
@@ -69,24 +70,27 @@ const (
 //signed/revoked, this means that the code is reliant upon this as knowing when
 //to force close out channels, etc.
 const (
-	//HTLC Add
-	ADD_PRESTAGE             = 1000
-	ADD_STAGED               = 1100
-	ADD_SIGNING_AND_REVOKING = 1200
-	ADD_COMPLETE             = 1300 //Most HTLCs should be this
-	ADD_REJECTED             = 1999 //Staging request rejected
+	// HTLC Add
+
+	AddPrestage           = 1000
+	AddStaged             = 1100
+	AddSigningAndRevoking = 1200
+	AddComplete           = 1300 //Most HTLCs should be this
+	AddRejected           = 1999 //Staging request rejected
 
 	//HTLC Timeout
-	TIMEOUT_PRESTAGE             = 2000
-	TIMEOUT_STAGED               = 2100
-	TIMEOUT_SIGNING_AND_REVOKING = 2200
-	TIMEOUT_COMPLETE             = 2300
+
+	TimeoutPrestage           = 2000
+	TimeoutStaged             = 2100
+	TimeoutSigningAndRevoking = 2200
+	TimeoutComplete           = 2300
 
 	//HTLC Settle
-	SETTLE_PRESTAGE             = 3000
-	SETTLE_STAGED               = 3100
-	SETTLE_SIGNING_AND_REVOKING = 3200
-	SETTLE_COMPLETE             = 3300
+
+	SettlePrestage           = 3000
+	SettleStaged             = 3100
+	SettleSigningAndRevoking = 3200
+	SettleComplete           = 3300
 
 	//TODO: Commitment states
 )
@@ -98,6 +102,7 @@ const (
 //4. Update the state to account for revocation
 //5. Both sides committed and revoked prior states, mark state as finished
 
+// LNChannel ...
 type LNChannel struct {
 	fundingTxIn *wire.TxIn
 	channelDB   *channeldb.DB
@@ -147,6 +152,7 @@ type LNChannel struct {
 	theirShaChain *shachain.HyperShaChain
 }
 
+// PaymentDescriptor ...
 type PaymentDescriptor struct {
 	RHashes       []*[20]byte
 	Timeout       uint32
@@ -179,7 +185,7 @@ type PaymentDescriptor struct {
 //NOTE: **MUST** HAVE THE MUTEX LOCKED ALREADY WHEN CALLED
 func (l *LNChannel) addHTLC(h *PaymentDescriptor) (lnwire.HTLCKey, error) {
 	//Sanity check
-	if h.State != ADD_PRESTAGE {
+	if h.State != AddPrestage {
 		return 0, fmt.Errorf("addHTLC can only add PRESTAGE")
 	}
 
@@ -198,11 +204,11 @@ func (l *LNChannel) addHTLC(h *PaymentDescriptor) (lnwire.HTLCKey, error) {
 	//If it is, we iterate to the next one
 	if l.ourLastKey%1 == 1 {
 		if l.isEven {
-			l.ourLastKey += 1
+			l.ourLastKey++
 		}
 	} else {
 		if !l.isEven {
-			l.ourLastKey += 1
+			l.ourLastKey++
 		}
 	}
 
@@ -213,16 +219,17 @@ func (l *LNChannel) addHTLC(h *PaymentDescriptor) (lnwire.HTLCKey, error) {
 	return l.ourLastKey, nil
 }
 
+// CreateHTLC ...
 func (l *LNChannel) CreateHTLC(h *PaymentDescriptor) error {
 	l.Lock()
 	var err error
-	//if h.State == ADD_PRESTAGE {
+	//if h.State == AddPrestage {
 	//	//We already have it created, but let's re-send!
 	//	//Send a payment request LNWire
 	//}
-	if h.State > ADD_PRESTAGE {
+	if h.State > AddPrestage {
 		l.Unlock()
-		return fmt.Errorf("HTLC is already created!")
+		return fmt.Errorf("HTLC is already created")
 	}
 
 	if !h.PayToUs { //We created the payment
@@ -233,7 +240,7 @@ func (l *LNChannel) CreateHTLC(h *PaymentDescriptor) error {
 			return err
 		}
 		//Update state as pre-commit
-		h.State = ADD_PRESTAGE
+		h.State = AddPrestage
 		if _, err := l.addHTLC(h); err != nil {
 			return err
 		}
@@ -278,14 +285,14 @@ func (l *LNChannel) recvHTLCAddRequest(p *lnwire.HTLCAddRequest) error {
 	htlc.Timeout = p.Expiry
 	htlc.CreditsAmount = p.Amount
 	htlc.Blob = p.Blob
-	htlc.State = ADD_STAGED //mark as staged by both parties
-	htlc.PayToUs = true     //assume this is paid to us, may change in the future
+	htlc.State = AddStaged //mark as staged by both parties
+	htlc.PayToUs = true    //assume this is paid to us, may change in the future
 
 	//Validate the HTLC
 	err = l.validateHTLC(htlc, true)
 	if err != nil {
 		//Update state just in case (not used but y'know..)
-		htlc.State = ADD_REJECTED
+		htlc.State = AddRejected
 
 		//currently not yet added to staging
 		//so we don't need to worry about the above htlc
@@ -327,10 +334,10 @@ func (l *LNChannel) recvAddReject(htlckey lnwire.HTLCKey) error {
 	if htlc == nil {
 		return fmt.Errorf("Counterparty rejected non-existent HTLC")
 	}
-	if htlc.State != ADD_PRESTAGE {
+	if htlc.State != AddPrestage {
 		return fmt.Errorf("Counterparty atttempted to reject invalid state")
 	}
-	htlc.State = ADD_REJECTED
+	htlc.State = AddRejected
 	disk()
 
 	return nil
@@ -342,7 +349,7 @@ func (l *LNChannel) sendAddAccept(htlckey lnwire.HTLCKey) error {
 	msg := new(lnwire.HTLCAddAccept)
 	msg.ChannelID = l.channelID
 	msg.HTLCKey = htlckey
-	htlc.State = ADD_STAGED
+	htlc.State = AddStaged
 
 	disk()
 	net(msg)
@@ -360,9 +367,9 @@ func (l *LNChannel) recvAddAccept(p *lnwire.HTLCAddAccept) error {
 
 	//Update pre-stage to staged
 	//Everything else it won't do anything
-	if htlc.State == ADD_PRESTAGE {
+	if htlc.State == AddPrestage {
 		//Update to staged
-		htlc.State = ADD_STAGED
+		htlc.State = AddStaged
 		disk()
 	}
 	return nil
@@ -378,9 +385,9 @@ func (l *LNChannel) settleHTLC(htlcKey lnwire.HTLCKey) error {
 
 //receive AddAcceptHTLC: Find the HTLC and call createHTLC
 func (l *LNChannel) addAccept(h *PaymentDescriptor) error {
-	if h.State == ADD_PRESTAGE {
+	if h.State == AddPrestage {
 		//Mark stage as accepted
-		h.State = ADD_SIGNING_AND_REVOKING
+		h.State = AddSigningAndRevoking
 		//Write to disk
 		disk()
 	}

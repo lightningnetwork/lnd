@@ -97,7 +97,7 @@ func (b *bobNode) Contribution() *ChannelContribution {
 func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
 	bobSigs := make([][]byte, 0, len(b.availableOutputs))
 	bobPkScript := b.changeOutputs[0].PkScript
-	for i, _ := range fundingTx.TxIn {
+	for i := range fundingTx.TxIn {
 		// Alice has already signed this input
 		if fundingTx.TxIn[i].SignatureScript != nil {
 			continue

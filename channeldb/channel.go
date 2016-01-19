@@ -24,20 +24,22 @@ var (
 	identityKey = []byte("idkey")
 
 	// TODO(roasbeef): replace w/ tesnet-L also revisit dependancy...
+
+	// ActiveNetParams ...
 	ActiveNetParams = &chaincfg.TestNet3Params
 )
 
-// Payment...
+// Payment ...
 type Payment struct {
 	// r [32]byte
 	// path *Route
 }
 
-// ClosedChannel...
+// ClosedChannel ...
 type ClosedChannel struct {
 }
 
-// OpenChannel...
+// OpenChannel ...
 // TODO(roasbeef): store only the essentials? optimize space...
 // TODO(roasbeef): switch to "column store"
 type OpenChannel struct {
@@ -98,8 +100,9 @@ type OpenChannel struct {
 }
 
 // These don't really belong here but not sure which other file to put them yet.
-// PutIdKey saves the private key used for
-func (c *DB) PutIdKey(pkh []byte) error {
+
+// PutIDKey saves the private key used for
+func (c *DB) PutIDKey(pkh []byte) error {
 	return c.namespace.Update(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
@@ -108,8 +111,8 @@ func (c *DB) PutIdKey(pkh []byte) error {
 	})
 }
 
-// GetIdKey returns the IdKey
-func (c *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
+// GetIDAdr returns the IDKey
+func (c *DB) GetIDAdr() (*btcutil.AddressPubKeyHash, error) {
 	var pkh []byte
 	err := c.namespace.View(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
@@ -125,7 +128,7 @@ func (c *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
 	return btcutil.NewAddressPubKeyHash(pkh, ActiveNetParams)
 }
 
-// PutOpenChannel...
+// PutOpenChannel ...
 func (c *DB) PutOpenChannel(channel *OpenChannel) error {
 	return c.namespace.Update(func(tx walletdb.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
@@ -140,7 +143,7 @@ func (c *DB) PutOpenChannel(channel *OpenChannel) error {
 	})
 }
 
-// GetOpenChannel...
+// FetchOpenChannel ...
 // TODO(roasbeef): assumes only 1 active channel per-node
 func (c *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
 	var channel *OpenChannel
@@ -166,7 +169,7 @@ func (c *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
 	return channel, err
 }
 
-// putChannel...
+// putChannel ...
 func putOpenChannel(activeChanBucket walletdb.Bucket, channel *OpenChannel,
 	addrmgr *waddrmgr.Manager) error {
 
@@ -215,7 +218,7 @@ func fetchOpenChannel(bucket walletdb.Bucket, nodeID [32]byte,
 	return channel, nil
 }
 
-// Encode...
+// Encode ...
 // TODO(roasbeef): checksum
 func (o *OpenChannel) Encode(b io.Writer, addrManager *waddrmgr.Manager) error {
 	if _, err := b.Write(o.TheirLNID[:]); err != nil {
@@ -306,7 +309,7 @@ func (o *OpenChannel) Encode(b io.Writer, addrManager *waddrmgr.Manager) error {
 	return nil
 }
 
-// Decode...
+// Decode ...
 func (o *OpenChannel) Decode(b io.Reader, addrManager *waddrmgr.Manager) error {
 	var scratch [8]byte
 

@@ -34,6 +34,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	// TODO: properly address golint's complaint: "a blank import should be only in a main or test package, or have a comment justifying it"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 

@@ -13,9 +13,13 @@ import (
 var (
 	// TODO(roasbeef): remove these and use the one's defined in txscript
 	// within testnet-L.
-	SequenceLockTimeSeconds      = uint32(1 << 22)
-	SequenceLockTimeMask         = uint32(0x0000ffff)
-	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
+
+	// SequenceLockTimeSeconds ...
+	SequenceLockTimeSeconds = uint32(1 << 22)
+	// SequenceLockTimeMask ...
+	SequenceLockTimeMask = uint32(0x0000ffff)
+	// OP_CHECKSEQUENCEVERIFY ...
+	OP_CHECKSEQUENCEVERIFY byte = txscript.OP_NOP3
 )
 
 // scriptHashPkScript generates a pay-to-script-hash public key script paying

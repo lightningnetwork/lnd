@@ -11,6 +11,8 @@ import "github.com/btcsuite/btcd/wire"
 //   * electrum?
 //   * SPV bloomfilter
 //   * other stuff maybe...
+
+// ChainNotifier ...
 type ChainNotifier interface {
 	RegisterConfirmationsNotification(txid *wire.ShaHash, numConfs uint32, trigger *NotificationTrigger) error
 	RegisterSpendNotification(outpoint *wire.OutPoint, trigger *NotificationTrigger) error
@@ -19,6 +21,7 @@ type ChainNotifier interface {
 	Stop() error
 }
 
+// NotificationTrigger ...
 type NotificationTrigger struct {
 	TriggerChan chan struct{}
 	Callback    func()

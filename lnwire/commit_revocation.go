@@ -5,6 +5,7 @@ import (
 	"io"
 )
 
+// CommitRevocation ...
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type CommitRevocation struct {
@@ -23,6 +24,7 @@ type CommitRevocation struct {
 	RevocationProof [20]byte
 }
 
+// Decode ...
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// CommitmentHeight(8)
@@ -39,12 +41,12 @@ func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new CommitRevocation
+// NewCommitRevocation creates a new CommitRevocation
 func NewCommitRevocation() *CommitRevocation {
 	return &CommitRevocation{}
 }
 
-// Serializes the item from the CommitRevocation struct
+// Encode serializes the item from the CommitRevocation struct
 // Writes the data to w
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
@@ -59,15 +61,17 @@ func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command ...
 func (c *CommitRevocation) Command() uint32 {
 	return CmdCommitRevocation
 }
 
+// MaxPayloadLength ...
 func (c *CommitRevocation) MaxPayloadLength(uint32) uint32 {
 	return 36
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *CommitRevocation) Validate() error {
 	// We're good!
 	return nil

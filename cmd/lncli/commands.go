@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-func printRespJson(resp interface{}) {
+func printRespJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
 		fatal(err)
@@ -21,6 +21,7 @@ func printRespJson(resp interface{}) {
 	out.WriteTo(os.Stdout)
 }
 
+// ShellCommand ...
 var ShellCommand = cli.Command{
 	Name:  "shell",
 	Usage: "enter interactive shell",
@@ -29,6 +30,7 @@ var ShellCommand = cli.Command{
 	},
 }
 
+// NewAddressCommand ...
 var NewAddressCommand = cli.Command{
 	Name:   "newaddress",
 	Usage:  "gets the next address in the HD chain",
@@ -44,9 +46,10 @@ func newAddress(ctx *cli.Context) {
 		fatal(err)
 	}
 
-	printRespJson(addr)
+	printRespJSON(addr)
 }
 
+// SendManyCommand ...
 var SendManyCommand = cli.Command{
 	Name: "sendmany",
 	Usage: "create and broadcast a transaction paying the specified " +
@@ -70,9 +73,10 @@ func sendMany(ctx *cli.Context) {
 		fatal(err)
 	}
 
-	printRespJson(txid)
+	printRespJSON(txid)
 }
 
+// ConnectCommand ...
 var ConnectCommand = cli.Command{
 	Name:   "connect",
 	Usage:  "connect to a remote lnd peer: <lnid>@host",
@@ -91,5 +95,5 @@ func connectPeer(ctx *cli.Context) {
 		fatal(err)
 	}
 
-	printRespJson(lnid)
+	printRespJSON(lnid)
 }

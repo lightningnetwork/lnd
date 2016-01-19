@@ -37,12 +37,15 @@ const (
 )
 
 var (
+	// ErrInsufficientFunds ...
 	// Error types
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
 		"create funding transaction")
 
 	// Which bitcoin network are we using?
 	// TODO(roasbeef): config
+
+	// ActiveNetParams ...
 	ActiveNetParams = &chaincfg.TestNet3Params
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
@@ -60,22 +63,13 @@ var (
 // NOTE: Ultimately, this will most likely be deprecated...
 type FundingType uint16
 
+// constants ...
 const (
-	// Use SegWit, assumes CSV+CLTV
-	SEGWIT FundingType = iota
-
-	// Use SIGHASH_NOINPUT, assumes CSV+CLTV
-	SIGHASH
-
-	// Use CSV without reserve
-	CSV
-
-	// Use CSV with reserve
-	// Reserve is a permanent amount of funds locked and the capacity.
-	CSV_RESERVE
-
-	// CLTV with reserve.
-	CLTV_RESERVE
+	SEGWIT      FundingType = iota // Use SegWit, assumes CSV+CLTV
+	SIGHASH                        // Use SIGHASH_NOINPUT, assumes CSV+CLTV
+	CSV                            // Use CSV without reserve
+	CSVReserve                     // Use CSV with reserve. Reserve is a permanent amount of funds locked and the capacity.
+	CLTVReserve                    // CLTV with reserve.
 )
 
 // initFundingReserveReq is the first message sent to initiate the workflow
@@ -312,7 +306,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		}
 
 		idPubkeyHash := adrs[0].Address().ScriptAddress()
-		if err := cdb.PutIdKey(idPubkeyHash); err != nil {
+		if err := cdb.PutIDKey(idPubkeyHash); err != nil {
 			return nil, nil, err
 		}
 		log.Printf("stored identity key pubkey hash in channeldb\n")
@@ -350,7 +344,7 @@ func (l *LightningWallet) Startup() error {
 	// TODO(roasbeef): config...
 
 	rpcc, err := chain.NewClient(ActiveNetParams,
-		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false)
+		l.cfg.RPCHost, l.cfg.RPCUser, l.cfg.RPCPass, l.cfg.CACert, false)
 	if err != nil {
 		return err
 	}

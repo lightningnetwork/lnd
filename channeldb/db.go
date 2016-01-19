@@ -17,7 +17,7 @@ var bufPool = &sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
-// Store...
+// DB ...
 // TODO(roasbeef): CHECKSUMS, REDUNDANCY, etc etc.
 type DB struct {
 	// TODO(roasbeef): caching, etc?
@@ -26,7 +26,7 @@ type DB struct {
 	namespace walletdb.Namespace
 }
 
-// Wipe...
+// Wipe ...
 func (d *DB) Wipe() error {
 	return d.namespace.Update(func(tx walletdb.Tx) error {
 		rootBucket := tx.RootBucket()
@@ -35,20 +35,20 @@ func (d *DB) Wipe() error {
 	})
 }
 
-// New...
+// New ...
 // TODO(roasbeef): re-visit this dependancy...
 func New(addrmgr *waddrmgr.Manager, namespace walletdb.Namespace) *DB {
 	// TODO(roasbeef): create buckets if not created?
 	return &DB{addrmgr, namespace}
 }
 
-// Open...
+// Open ...
 // TODO(roasbeef): create+open, ditch New, fixes above
 func Open() *DB {
 	return nil
 }
 
-// Create...
+// Create ...
 func Create() *DB {
 	return nil
 }

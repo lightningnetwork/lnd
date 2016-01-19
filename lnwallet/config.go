@@ -29,16 +29,16 @@ var (
 	walletDbName = "lnwallet.db"
 )
 
-// Config...
+// Config ...
 type Config struct {
 	DataDir string
 	LogDir  string
 
 	DebugLevel string
 
-	RpcHost string // localhost:18334
-	RpcUser string
-	RpcPass string
+	RPCHost string // localhost:18334
+	RPCUser string
+	RPCPass string
 
 	RPCCert string
 	RPCKey  string

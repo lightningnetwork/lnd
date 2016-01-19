@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// connects via grpc to the ln node.  default (hardcoded?) local:10K
-func RpcConnect(args []string) error {
+// RPCConnect connects via grpc to the ln node.  default (hardcoded?) local:10K
+func RPCConnect(args []string) error {
 	//	client := getClient(ctx)
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 	conn, err := grpc.Dial("localhost:10000", opts...)
@@ -38,6 +38,7 @@ func RpcConnect(args []string) error {
 	return nil
 }
 
+// LnConnect ...
 func LnConnect(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("need: lnc pubkeyhash@hostname or pkh (via pbx)")

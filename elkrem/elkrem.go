@@ -123,7 +123,7 @@ func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
 	var n ElkremNode
 	n.sha = sha
 	t := len(e.s) - 1 // top of stack
-	if t > 0 {        // if this is not the first hash
+	if t >= 0 {       // if this is not the first hash (>= because we -1'd)
 		n.i = e.s[t].i + 1 // incoming index is tip of stack index + 1
 	}
 	if t > 0 && e.s[t-1].h == e.s[t].h { // top 2 elements are equal height

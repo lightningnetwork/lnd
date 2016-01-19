@@ -45,7 +45,11 @@ func (e *ElkremSender) ToBytes() ([]byte, error) {
 // the index where it left off.
 func ElkremSenderFromBytes(b []byte) (ElkremSender, error) {
 	var e ElkremSender
+	e.root = new(wire.ShaHash)
 	buf := bytes.NewBuffer(b)
+	if buf.Len() != 41 {
+		return e, fmt.Errorf("Got %d bytes for sender, expect 41")
+	}
 	// read 1 byte height
 	err := binary.Read(buf, binary.BigEndian, &e.treeHeight)
 	if err != nil {
@@ -139,7 +143,6 @@ func ElkremReceiverFromBytes(b []byte) (ElkremReceiver, error) {
 	if e.treeHeight < 1 || e.treeHeight > 63 {
 		return e, fmt.Errorf("Read invalid receiver height: %d", e.treeHeight)
 	}
-
 	var max uint64 // maximum possible given height
 	for j := uint8(0); j <= e.treeHeight; j++ {
 		max = max<<1 | 1
@@ -154,9 +157,10 @@ func ElkremReceiverFromBytes(b []byte) (ElkremReceiver, error) {
 	if numOfNodes < 1 || numOfNodes > 64 {
 		return e, fmt.Errorf("Read invalid number of nodes: %d", numOfNodes)
 	}
-	if buf.Len() != (int(numOfNodes)*41)+2 {
-		return e, fmt.Errorf("Input buf wrong size, expect %d got %d",
-			(numOfNodes*41)+2, buf.Len())
+
+	if buf.Len() != (int(numOfNodes) * 41) {
+		return e, fmt.Errorf("Remaining buf wrong size, expect %d got %d",
+			(numOfNodes * 41), buf.Len())
 	}
 
 	for i := uint8(0); i < numOfNodes; i++ {

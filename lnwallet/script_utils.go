@@ -192,7 +192,7 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// indefinately.
 	builder.AddOp(txscript.OP_NOTIF)
 	builder.AddInt64(int64(absoluteTimeout))
-	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_ENDIF)
 

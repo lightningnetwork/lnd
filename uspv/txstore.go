@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"li.lan/labs/uwallet"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
@@ -72,6 +74,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	inTxid := tx.TxSha()
 	height, ok := t.OKTxids[inTxid]
 	if !ok {
+		log.Printf("False postive tx? %s", uwallet.TxToString(tx))
 		return fmt.Errorf("we don't care about tx %s", inTxid.String())
 	}
 

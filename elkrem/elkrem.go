@@ -48,7 +48,6 @@ type ElkremSender struct {
 	root       *wire.ShaHash // root hash of the tree
 }
 type ElkremReceiver struct {
-	current    uint64       // last received index (actually don't need it?)
 	treeHeight uint8        // height of tree (size is 2**height -1 )
 	s          []ElkremNode // store of received hashes, max size = height
 }
@@ -123,7 +122,10 @@ func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
 	// note: careful about atomicity / disk writes here
 	var n ElkremNode
 	n.sha = sha
-	t := len(e.s) - 1                    // top of stack
+	t := len(e.s) - 1 // top of stack
+	if t > 0 {        // if this is not the first hash
+		n.i = e.s[t].i + 1 // incoming index is tip of stack index + 1
+	}
 	if t > 0 && e.s[t-1].h == e.s[t].h { // top 2 elements are equal height
 		// next node must be parent; verify and remove children
 		n.h = e.s[t].h + 1             // assign height
@@ -139,8 +141,6 @@ func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
 		}
 		e.s = e.s[:len(e.s)-2] // l and r children OK, remove them
 	} // if that didn't happen, height defaults to 0
-	e.current++          // increment current index
-	n.i = e.current      // set new node to that incremented index
 	e.s = append(e.s, n) // append new node to stack
 	return nil
 }

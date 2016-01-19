@@ -1,6 +1,8 @@
 package lndc
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -13,13 +15,14 @@ import (
 
 // lnAddr...
 type LNAdr struct {
-	lnId   [16]byte // redundant because adr contains it
+	LnID   [16]byte // redundant because adr contains it
 	PubKey *btcec.PublicKey
 
-	Base58Addr btcutil.Address // Base58 encoded address (1XXX...)
-	NetAddr    *net.TCPAddr    // IP address
+	Base58Adr btcutil.Address // Base58 encoded address (1XXX...)
+	NetAddr   *net.TCPAddr    // IP address
 
 	name        string // human readable name?  Not a thing yet.
+	host        string // internet host this ID is reachable at. also not a thing
 	endorsement []byte // a sig confirming the name?  Not implemented
 }
 
@@ -27,7 +30,7 @@ type LNAdr struct {
 func (l *LNAdr) String() string {
 	var encodedId []byte
 	if l.PubKey == nil {
-		encodedId = l.Base58Addr.ScriptAddress()
+		encodedId = l.Base58Adr.ScriptAddress()
 	} else {
 		encodedId = l.PubKey.SerializeCompressed()
 	}
@@ -69,14 +72,14 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 
 		// got pubey, populate address from pubkey
 		pkh := btcutil.Hash160(addr.PubKey.SerializeCompressed())
-		addr.Base58Addr, err = btcutil.NewAddressPubKeyHash(pkh,
+		addr.Base58Adr, err = btcutil.NewAddressPubKeyHash(pkh,
 			&chaincfg.TestNet3Params)
 		if err != nil {
 			return nil, err
 		}
 	// Is the ID a string encoded bitcoin address?
 	case idLen > 33 && idLen < 37:
-		addr.Base58Addr, err = btcutil.DecodeAddress(idHost[0],
+		addr.Base58Adr, err = btcutil.DecodeAddress(idHost[0],
 			&chaincfg.TestNet3Params)
 		if err != nil {
 			return nil, err
@@ -86,7 +89,81 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 	}
 
 	// Finally, populate the lnid from the address.
-	copy(addr.lnId[:], addr.Base58Addr.ScriptAddress())
+	copy(addr.LnID[:], addr.Base58Adr.ScriptAddress())
 
 	return addr, nil
+}
+
+// Deserialize an LNId from byte slice (on disk)
+// Note that this does not check any internal consistency, because on local
+// storage there's no point.  Check separately if needed.
+// Also, old and probably needs to be changed / updated
+func (l *LNAdr) Deserialize(s []byte) error {
+	b := bytes.NewBuffer(s)
+
+	// Fail if on-disk LNId too short
+	if b.Len() < 24 { // 24 is min lenght
+		return fmt.Errorf("can't read LNId - too short")
+	}
+	// read indicator of pubkey or pubkeyhash
+	x, err := b.ReadByte()
+	if err != nil {
+		return err
+	}
+	if x == 0xb0 { // for pubkey storage
+		// read 33 bytes of pubkey
+		l.PubKey, err = btcec.ParsePubKey(b.Next(33), btcec.S256())
+		if err != nil {
+			return err
+		}
+
+		l.Base58Adr, err = btcutil.NewAddressPubKeyHash(
+			btcutil.Hash160(l.PubKey.SerializeCompressed()),
+			&chaincfg.TestNet3Params)
+		if err != nil {
+			return err
+		}
+	} else if x == 0xa0 { // for pubkeyhash storage
+		l.Base58Adr, err = btcutil.NewAddressPubKeyHash(
+			b.Next(20), &chaincfg.TestNet3Params)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("Unknown lnid indicator byte %x", x)
+	}
+
+	var nameLen, hostLen, endorseLen uint8
+
+	// read name length
+	err = binary.Read(b, binary.BigEndian, &nameLen)
+	if err != nil {
+		return err
+	}
+	// if name non-zero, read name
+	if nameLen > 0 {
+		l.name = string(b.Next(int(nameLen)))
+	}
+
+	// read host length
+	err = binary.Read(b, binary.BigEndian, &hostLen)
+	if err != nil {
+		return err
+	}
+	// if host non-zero, read host
+	if hostLen > 0 {
+		l.host = string(b.Next(int(hostLen)))
+	}
+
+	// read endorsement length
+	err = binary.Read(b, binary.BigEndian, &endorseLen)
+	if err != nil {
+		return err
+	}
+	// if endorsement non-zero, read endorsement
+	if endorseLen > 0 {
+		l.endorsement = b.Next(int(endorseLen))
+	}
+
+	return nil
 }

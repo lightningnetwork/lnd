@@ -37,13 +37,13 @@ to compute a previous index, compute at most h hashes.
 // You can calculate h from i but I can't figure out how without taking
 // O(i) ops.  Feels like there should be a clever O(h) way.  1 byte, whatever.
 type ElkremNode struct {
-	i   uint64        // index (ith node)
 	h   uint8         // height of this node
+	i   uint64        // index (ith node)
 	sha *wire.ShaHash // hash
 }
 type ElkremSender struct {
-	current    uint64        // last sent hash index
 	treeHeight uint8         // height of tree (size is 2**height -1 )
+	current    uint64        // last sent hash index
 	maxIndex   uint64        // top of the tree
 	root       *wire.ShaHash // root hash of the tree
 }

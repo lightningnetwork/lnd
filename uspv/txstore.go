@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	"li.lan/labs/uwallet"
-
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
@@ -74,7 +72,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	inTxid := tx.TxSha()
 	height, ok := t.OKTxids[inTxid]
 	if !ok {
-		log.Printf("False postive tx? %s", uwallet.TxToString(tx))
+		log.Printf("False postive tx? %s", TxToString(tx))
 		return fmt.Errorf("we don't care about tx %s", inTxid.String())
 	}
 
@@ -146,4 +144,22 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx) error {
 	log.Printf("%d hits, lost %d", hits, loss)
 	t.Sum -= loss
 	return nil
+}
+
+// TxToString prints out some info about a transaction. for testing / debugging
+func TxToString(tx *wire.MsgTx) string {
+	str := "\t\t\t - Tx - \n"
+	for i, in := range tx.TxIn {
+		str += fmt.Sprintf("Input %d: %s\n", i, in.PreviousOutPoint.String())
+		str += fmt.Sprintf("SigScript for input %d: %x\n", i, in.SignatureScript)
+	}
+	for i, out := range tx.TxOut {
+		if out != nil {
+			str += fmt.Sprintf("\toutput %d script: %x amt: %d\n",
+				i, out.PkScript, out.Value)
+		} else {
+			str += fmt.Sprintf("output %d nil (WARNING)\n", i)
+		}
+	}
+	return str
 }

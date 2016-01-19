@@ -5,19 +5,19 @@ import (
 	"testing"
 )
 
-func ReceiverSerdesTest(t *testing.T, er ElkremReceiver) {
-	b, err := er.ToBytes()
+func ReceiverSerdesTest(t *testing.T, rcv *ElkremReceiver) {
+	b, err := rcv.ToBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("Serialized receiver; %d bytes, hex:\n%x\n", len(b), b)
 
-	rcv2, err := ElkremReceiverFromBytes(b)
+	*rcv, err = ElkremReceiverFromBytes(b)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2, err := rcv2.ToBytes()
+	b2, err := rcv.ToBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,19 +27,19 @@ func ReceiverSerdesTest(t *testing.T, er ElkremReceiver) {
 	}
 }
 
-func SenderSerdesTest(t *testing.T, es ElkremSender) {
-	b, err := es.ToBytes()
+func SenderSerdesTest(t *testing.T, sndr *ElkremSender) {
+	b, err := sndr.ToBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("Serialized sender; %d bytes, hex:\n%x\n", len(b), b)
 
-	sndr2, err := ElkremSenderFromBytes(b)
+	*sndr, err = ElkremSenderFromBytes(b)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	b2, err := sndr2.ToBytes()
+	b2, err := sndr.ToBytes()
 	if err != nil {
 		t.Fatal(err)
 	}

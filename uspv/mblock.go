@@ -77,6 +77,9 @@ func checkMBlock(m *wire.MsgMerkleBlock) ([]*wire.ShaHash, error) {
 	if len(m.Flags) == 0 {
 		return nil, fmt.Errorf("No flag bits")
 	}
+	if len(m.Hashes) < 2 { // nothing but the merkle root
+		return nil, nil // nothin.
+	}
 	var s []merkleNode    // the stack
 	var r []*wire.ShaHash // slice to return; txids we care about
 

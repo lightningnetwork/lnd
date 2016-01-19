@@ -39,13 +39,21 @@ func (s *SPVCon) incomingMessageHandler() {
 			if err != nil {
 				log.Printf("Merkle block error: %s\n", err.Error())
 				return
-				//				continue
 			}
 			fmt.Printf(" got %d txs ", len(txids))
 			//			fmt.Printf(" = got %d txs from block %s\n",
 			//				len(txids), m.Header.BlockSha().String())
+			var height uint32
+			if len(txids) > 0 {
+				// make sure block is in our store before adding txs
+				height, err = s.HeightFromHeader(m.Header)
+				if err != nil {
+					log.Printf("Merkle block height error: %s\n", err.Error())
+					continue
+				}
+			}
 			for _, txid := range txids {
-				err := s.TS.AddTxid(txid)
+				err := s.TS.AddTxid(txid, height)
 				if err != nil {
 					log.Printf("Txid store error: %s\n", err.Error())
 				}

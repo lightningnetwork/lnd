@@ -11,10 +11,11 @@ import (
 )
 
 type TxStore struct {
-	KnownTxids []*wire.ShaHash
-	Utxos      []Utxo  // stacks on stacks
-	Sum        int64   // racks on racks
-	Adrs       []MyAdr // endeavouring to acquire capital
+	OKTxids map[wire.ShaHash]uint32 // known good txids and their heights
+
+	Utxos []Utxo  // stacks on stacks
+	Sum   int64   // racks on racks
+	Adrs  []MyAdr // endeavouring to acquire capital
 }
 
 type Utxo struct { // cash money.
@@ -30,6 +31,12 @@ type MyAdr struct { // an address I have the private key for
 	KeyIdx uint32 // index for private key needed to sign / spend
 }
 
+func NewTxStore() TxStore {
+	var txs TxStore
+	txs.OKTxids = make(map[wire.ShaHash]uint32)
+	return txs
+}
+
 // add addresses into the TxStore
 func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	var ma MyAdr
@@ -40,11 +47,11 @@ func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 }
 
 // add txid of interest
-func (t *TxStore) AddTxid(txid *wire.ShaHash) error {
+func (t *TxStore) AddTxid(txid *wire.ShaHash, height uint32) error {
 	if txid == nil {
 		return fmt.Errorf("tried to add nil txid")
 	}
-	t.KnownTxids = append(t.KnownTxids, txid)
+	t.OKTxids[*txid] = height
 	return nil
 }
 
@@ -62,19 +69,13 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 
 // Ingest a tx into wallet, dealing with both gains and losses
 func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
-	var match bool
 	inTxid := tx.TxSha()
-	for _, ktxid := range t.KnownTxids {
-		if inTxid.IsEqual(ktxid) {
-			match = true
-			break // found tx match,
-		}
-	}
-	if !match {
+	height, ok := t.OKTxids[inTxid]
+	if !ok {
 		return fmt.Errorf("we don't care about tx %s", inTxid.String())
 	}
 
-	err := t.AbsorbTx(tx)
+	err := t.AbsorbTx(tx, height)
 	if err != nil {
 		return err
 	}
@@ -87,7 +88,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 }
 
 // Absorb money into wallet from a tx
-func (t *TxStore) AbsorbTx(tx *wire.MsgTx) error {
+func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height uint32) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")
 	}
@@ -102,6 +103,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx) error {
 				hits++
 				acq += out.Value
 				var newu Utxo
+				newu.AtHeight = height
 				newu.KeyIdx = a.KeyIdx
 				newu.Txo = *out
 

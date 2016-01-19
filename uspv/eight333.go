@@ -156,6 +156,45 @@ func (s *SPVCon) SendFilter(f *bloom.Filter) {
 	return
 }
 
+// HeightFromHeader gives you the block height given a 80 byte block header
+// seems like looking for the merkle root is the best way to do this
+func (s *SPVCon) HeightFromHeader(query wire.BlockHeader) (uint32, error) {
+	// start from the most recent and work back in time; even though that's
+	// kind of annoying it's probably a lot faster since things tend to have
+	// happened recently.
+
+	// seek to last header
+	lastPos, err := s.headerFile.Seek(-80, os.SEEK_END)
+	if err != nil {
+		return 0, err
+	}
+	height := lastPos / 80
+
+	var current wire.BlockHeader
+
+	for height > 0 {
+		// grab header from disk
+		err = current.Deserialize(s.headerFile)
+		if err != nil {
+			return 0, err
+		}
+		// check if merkle roots match
+		if current.MerkleRoot.IsEqual(&query.MerkleRoot) {
+			// if they do, great, return height
+			return uint32(height), nil
+		}
+		// skip back one header (2 because we just read one)
+		_, err = s.headerFile.Seek(-160, os.SEEK_CUR)
+		if err != nil {
+			return 0, err
+		}
+		// decrement height
+		height--
+	}
+	// finished for loop without finding match
+	return 0, fmt.Errorf("Header not found on disk")
+}
+
 func (s *SPVCon) AskForHeaders() error {
 	var hdr wire.BlockHeader
 	ghdr := wire.NewMsgGetHeaders()
@@ -201,6 +240,7 @@ func (s *SPVCon) AskForHeaders() error {
 
 func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	var err error
+	// seek to last header
 	_, err = s.headerFile.Seek(-80, os.SEEK_END)
 	if err != nil {
 		return false, err

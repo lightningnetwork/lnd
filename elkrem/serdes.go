@@ -38,7 +38,7 @@ func (e *ElkremSender) ToBytes() ([]byte, error) {
 		return nil, fmt.Errorf("%d byte hash, expect 32", n)
 	}
 
-	return nil, nil
+	return buf.Bytes(), nil
 }
 
 // ElkremSenderFromBytes turns a 41 byte slice into a sender, picking up at

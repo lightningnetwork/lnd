@@ -104,9 +104,13 @@ func NewElkremReceiver(th uint8) ElkremReceiver {
 
 // Next() increments the index to the next hash and outputs it
 func (e *ElkremSender) Next() (*wire.ShaHash, error) {
-	// increment index
+	sha, err := e.AtIndex(e.current)
+	if err != nil {
+		return nil, err
+	}
+	// increment index for next time
 	e.current++
-	return e.AtIndex(e.current)
+	return sha, nil
 }
 
 // w is the wanted index, i is the root index

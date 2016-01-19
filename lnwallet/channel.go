@@ -590,8 +590,10 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	}
 
 	// Now that both output scripts have been created, we can finally create
-	// the transaction itself.
+	// the transaction itself. We use a transaction version of 2 since CSV
+	// will fail unless the tx version is >= 2.
 	commitTx := wire.NewMsgTx()
+	commitTx.Version = 2
 	commitTx.AddTxIn(fundingOutput)
 	// TODO(roasbeef): we default to blocks, make configurable as part of
 	// channel reservation.

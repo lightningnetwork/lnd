@@ -27,7 +27,6 @@ func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 }
 
 func (ts *TxStore) LoadUtxos() error {
-	var kc, vc []byte
 
 	err := ts.StateDB.View(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
@@ -42,11 +41,12 @@ func (ts *TxStore) LoadUtxos() error {
 		duf.ForEach(func(k, v []byte) error {
 			// have to copy these here, otherwise append will crash it.
 			// not quite sure why but append does weird stuff I guess.
-			copy(kc, k)
-			copy(vc, v)
-			if spent.Get(kc) == nil { // if it's not in the spent bucket
+			if spent.Get(k) == nil { // if it's not in the spent bucket
 				// create a new utxo
-				newU, err := UtxoFromBytes(append(kc, vc...))
+				x := make([]byte, len(k)+len(v))
+				copy(x, k)
+				copy(x[len(k):], v)
+				newU, err := UtxoFromBytes(x)
 				if err != nil {
 					return err
 				}

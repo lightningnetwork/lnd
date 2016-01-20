@@ -111,6 +111,9 @@ func OpenSPV(remoteNode string, hfn string,
 	log.Printf("remote reports version %x (dec %d)\n",
 		mv.ProtocolVersion, mv.ProtocolVersion)
 
+	// set remote height
+	s.remoteHeight = mv.LastBlock
+
 	mva := wire.NewMsgVerAck()
 	n, err = wire.WriteMessageN(s.con, mva, s.localVersion, s.param.Net)
 	if err != nil {
@@ -118,9 +121,9 @@ func OpenSPV(remoteNode string, hfn string,
 	}
 	s.WBytes += uint64(n)
 
-	s.inMsgQueue = make(chan wire.Message)
+	s.inMsgQueue = make(chan wire.Message, 1)
 	go s.incomingMessageHandler()
-	s.outMsgQueue = make(chan wire.Message)
+	s.outMsgQueue = make(chan wire.Message, 1)
 	go s.outgoingMessageHandler()
 	s.mBlockQueue = make(chan RootAndHeight, 32) // queue depth 32 is a thing
 
@@ -353,11 +356,11 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 // look them up from the disk.
 type RootAndHeight struct {
 	root   wire.ShaHash
-	height uint32
+	height int32
 }
 
 // NewRootAndHeight saves like 2 lines.
-func NewRootAndHeight(r wire.ShaHash, h uint32) (rah RootAndHeight) {
+func NewRootAndHeight(r wire.ShaHash, h int32) (rah RootAndHeight) {
 	rah.root = r
 	rah.height = h
 	return
@@ -366,8 +369,17 @@ func NewRootAndHeight(r wire.ShaHash, h uint32) (rah RootAndHeight) {
 // AskForMerkBlocks requests blocks from current to last
 // right now this asks for 1 block per getData message.
 // Maybe it's faster to ask for many in a each message?
-func (s *SPVCon) AskForMerkBlocks(current, last uint32) error {
+func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	var hdr wire.BlockHeader
+	// if last is 0, that means go as far as we can
+	if last == 0 {
+		n, err := s.headerFile.Seek(-80, os.SEEK_END)
+		if err != nil {
+			return err
+		}
+		last = int32(n / 80)
+	}
+
 	_, err := s.headerFile.Seek(int64(current*80), os.SEEK_SET)
 	if err != nil {
 		return err

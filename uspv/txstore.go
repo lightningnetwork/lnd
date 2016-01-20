@@ -12,7 +12,7 @@ import (
 )
 
 type TxStore struct {
-	OKTxids map[wire.ShaHash]uint32 // known good txids and their heights
+	OKTxids map[wire.ShaHash]int32 // known good txids and their heights
 
 	Utxos   []Utxo   // stacks on stacks
 	Sum     int64    // racks on racks
@@ -22,7 +22,7 @@ type TxStore struct {
 
 type Utxo struct { // cash money.
 	// combo of outpoint and txout which has all the info needed to spend
-	AtHeight uint32        // block height where this tx was confirmed, 0 for unconf
+	AtHeight int32         // block height where this tx was confirmed, 0 for unconf
 	KeyIdx   uint32        // index for private key needed to sign / spend
 	Op       wire.OutPoint // where
 	Txo      wire.TxOut    // what
@@ -35,7 +35,7 @@ type MyAdr struct { // an address I have the private key for
 
 func NewTxStore() TxStore {
 	var txs TxStore
-	txs.OKTxids = make(map[wire.ShaHash]uint32)
+	txs.OKTxids = make(map[wire.ShaHash]int32)
 	return txs
 }
 
@@ -49,7 +49,7 @@ func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 }
 
 // add txid of interest
-func (t *TxStore) AddTxid(txid *wire.ShaHash, height uint32) error {
+func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 	if txid == nil {
 		return fmt.Errorf("tried to add nil txid")
 	}
@@ -92,7 +92,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 }
 
 // Absorb money into wallet from a tx
-func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height uint32) error {
+func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")
 	}

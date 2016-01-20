@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/boltdb/bolt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
@@ -13,17 +14,18 @@ import (
 type TxStore struct {
 	OKTxids map[wire.ShaHash]uint32 // known good txids and their heights
 
-	Utxos []Utxo  // stacks on stacks
-	Sum   int64   // racks on racks
-	Adrs  []MyAdr // endeavouring to acquire capital
+	Utxos   []Utxo   // stacks on stacks
+	Sum     int64    // racks on racks
+	Adrs    []MyAdr  // endeavouring to acquire capital
+	StateDB *bolt.DB // place to write all this down
 }
 
 type Utxo struct { // cash money.
 	// combo of outpoint and txout which has all the info needed to spend
-	Op       wire.OutPoint
-	Txo      wire.TxOut
-	AtHeight uint32 // block height where this tx was confirmed, 0 for unconf
-	KeyIdx   uint32 // index for private key needed to sign / spend
+	AtHeight uint32        // block height where this tx was confirmed, 0 for unconf
+	KeyIdx   uint32        // index for private key needed to sign / spend
+	Op       wire.OutPoint // where
+	Txo      wire.TxOut    // what
 }
 
 type MyAdr struct { // an address I have the private key for

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/boltdb/bolt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil/bloom"
@@ -69,6 +70,10 @@ func OpenSPV(remoteNode string, hfn string,
 	s.localVersion = VERSION
 
 	// transaction store for this SPV connection
+	err = inTs.OpenDB("utxo.db")
+	if err != nil {
+		return s, err
+	}
 	s.TS = inTs
 
 	myMsgVer, err := wire.NewMsgVersionFromConn(s.con, 0, 0)
@@ -117,8 +122,29 @@ func OpenSPV(remoteNode string, hfn string,
 	go s.incomingMessageHandler()
 	s.outMsgQueue = make(chan wire.Message)
 	go s.outgoingMessageHandler()
-	s.mBlockQueue = make(chan RootAndHeight, 10) // queue of 10 requests? more?
+	s.mBlockQueue = make(chan RootAndHeight, 32) // queue depth 32 is a thing
+
 	return s, nil
+}
+
+func (ts *TxStore) OpenDB(filename string) error {
+	var err error
+	ts.StateDB, err = bolt.Open(filename, 0644, nil)
+	if err != nil {
+		return err
+	}
+	// create buckets if they're not already there
+	return ts.StateDB.Update(func(tx *bolt.Tx) error {
+		_, err = tx.CreateBucketIfNotExists(BKTUtxos)
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateBucketIfNotExists(BKTOld)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *SPVCon) openHeaderFile(hfn string) error {
@@ -138,7 +164,6 @@ func (s *SPVCon) openHeaderFile(hfn string) error {
 				hfn)
 		}
 	}
-
 	s.headerFile, err = os.OpenFile(hfn, os.O_RDWR, 0600)
 	if err != nil {
 		return err

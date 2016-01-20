@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
+
 	"github.com/boltdb/bolt"
 )
 
@@ -26,8 +28,32 @@ func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 	})
 }
 
-func (ts *TxStore) LoadUtxos() error {
+func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error {
 
+	// we write in key = outpoint (32 hash, 4 index)
+	// value = spending txid
+	// if we care about the spending tx we can store that in another bucket.
+	return ts.StateDB.Update(func(tx *bolt.Tx) error {
+		old := tx.Bucket(BKTOld)
+		opb, err := outPointToBytes(op)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		err = binary.Write(&buf, binary.BigEndian, h)
+		if err != nil {
+			return err
+		}
+		sha := stx.TxSha()
+		err = old.Put(opb, sha.Bytes()) // write k:v outpoint:txid
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (ts *TxStore) LoadUtxos() error {
 	err := ts.StateDB.View(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
 		if duf == nil {
@@ -41,7 +67,8 @@ func (ts *TxStore) LoadUtxos() error {
 		duf.ForEach(func(k, v []byte) error {
 			// have to copy these here, otherwise append will crash it.
 			// not quite sure why but append does weird stuff I guess.
-			if spent.Get(k) == nil { // if it's not in the spent bucket
+			stx := spent.Get(k)
+			if stx == nil { // if it's not in the spent bucket
 				// create a new utxo
 				x := make([]byte, len(k)+len(v))
 				copy(x, k)
@@ -52,6 +79,9 @@ func (ts *TxStore) LoadUtxos() error {
 				}
 				// and add it to ram
 				ts.Utxos = append(ts.Utxos, newU)
+			} else {
+				fmt.Printf("had utxo %x but spent by tx %x...\n",
+					k, stx[:8])
 			}
 			return nil
 		})
@@ -61,6 +91,21 @@ func (ts *TxStore) LoadUtxos() error {
 		return err
 	}
 	return nil
+}
+
+// outPointToBytes turns an outpoint into 36 bytes.
+func outPointToBytes(op *wire.OutPoint) ([]byte, error) {
+	var buf bytes.Buffer
+	_, err := buf.Write(op.Hash.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	// write 4 byte outpoint index within the tx to spend
+	err = binary.Write(&buf, binary.BigEndian, op.Index)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // ToBytes turns a Utxo into some bytes.

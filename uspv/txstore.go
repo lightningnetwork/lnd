@@ -83,7 +83,7 @@ func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
 	if err != nil {
 		return err
 	}
-	err = t.ExpellTx(tx)
+	err = t.ExpellTx(tx, height)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,10 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				newop.Hash = tx.TxSha()
 				newop.Index = uint32(i)
 				newu.Op = newop
-
+				err := newu.SaveToDB(t.StateDB)
+				if err != nil {
+					return err
+				}
 				t.Utxos = append(t.Utxos, newu)
 				break
 			}
@@ -127,7 +130,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 }
 
 // Expell money from wallet due to a tx
-func (t *TxStore) ExpellTx(tx *wire.MsgTx) error {
+func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")
 	}
@@ -139,7 +142,11 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx) error {
 			if myutxo.Op == in.PreviousOutPoint {
 				hits++
 				loss += myutxo.Txo.Value
-				// delete from my utxo set
+				err := t.MarkSpent(&myutxo.Op, height, tx)
+				if err != nil {
+					return err
+				}
+				// delete from my in-ram utxo set
 				t.Utxos = append(t.Utxos[:i], t.Utxos[i+1:]...)
 			}
 		}

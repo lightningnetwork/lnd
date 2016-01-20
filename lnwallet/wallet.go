@@ -473,6 +473,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// when we encounter an error condition.
 	l.coinSelectMtx.Lock()
 
+	// TODO(roasbeef): check if balance is insufficient, if so then select
+	// on two channels, one is a time.After that will bail out with
+	// insuffcient funds, the other is a notification that the balance has
+	// been updated make(chan struct{}, 1).
+
 	// Find all unlocked unspent outputs with greater than 6 confirmations.
 	maxConfs := int32(math.MaxInt32)
 	// TODO(roasbeef): make 6 a config paramter?

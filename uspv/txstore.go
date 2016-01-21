@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/btcsuite/btcd/chaincfg"
+
 	"github.com/boltdb/bolt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
+	"github.com/btcsuite/btcutil/hdkeychain"
 )
 
 type TxStore struct {
@@ -17,7 +20,13 @@ type TxStore struct {
 	Utxos   []Utxo   // stacks on stacks
 	Sum     int64    // racks on racks
 	Adrs    []MyAdr  // endeavouring to acquire capital
+	LastIdx uint32   // should equal len(Adrs)
 	StateDB *bolt.DB // place to write all this down
+	// this is redundant with the SPVCon param... ugly and should be taken out
+	param *chaincfg.Params // network parameters (testnet3, testnetL)
+
+	// From here, comes everything. It's a secret to everybody.
+	rootPrivKey *hdkeychain.ExtendedKey
 }
 
 type Utxo struct { // cash money.

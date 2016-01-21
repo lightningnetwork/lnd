@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 
 	"github.com/btcsuite/btcd/wire"
 
@@ -16,6 +17,42 @@ var (
 	KEYState = []byte("LastUpdate") // last state of DB
 )
 
+func (ts *TxStore) OpenDB(filename string) error {
+	var err error
+	ts.StateDB, err = bolt.Open(filename, 0644, nil)
+	if err != nil {
+		return err
+	}
+	// create buckets if they're not already there
+	return ts.StateDB.Update(func(tx *bolt.Tx) error {
+		_, err = tx.CreateBucketIfNotExists(BKTUtxos)
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateBucketIfNotExists(BKTOld)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
+	for k := uint32(0); k < lastKey; k++ {
+
+		priv, err := ts.rootPrivKey.Child(k)
+		if err != nil {
+			log.Fatal(err)
+		}
+		myadr, err := priv.Address(ts.param)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("made adr %s\n", myadr.String())
+		ts.AddAdr(myadr, k)
+	}
+	return nil
+}
 func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 	return dbx.Update(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)

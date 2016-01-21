@@ -30,11 +30,12 @@ type TxStore struct {
 }
 
 type Utxo struct { // cash money.
-	// combo of outpoint and txout which has all the info needed to spend
-	AtHeight int32         // block height where this tx was confirmed, 0 for unconf
-	KeyIdx   uint32        // index for private key needed to sign / spend
-	Op       wire.OutPoint // where
-	Txo      wire.TxOut    // what
+	// all the info needed to spend
+	AtHeight int32  // block height where this tx was confirmed, 0 for unconf
+	KeyIdx   uint32 // index for private key needed to sign / spend
+	Value    int64  // higher is better
+
+	Op wire.OutPoint // where
 }
 
 type MyAdr struct { // an address I have the private key for
@@ -118,7 +119,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				var newu Utxo
 				newu.AtHeight = height
 				newu.KeyIdx = a.KeyIdx
-				newu.Txo = *out
+				newu.Value = out.Value
 
 				var newop wire.OutPoint
 				newop.Hash = tx.TxSha()
@@ -150,7 +151,7 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 		for i, myutxo := range t.Utxos {
 			if myutxo.Op == in.PreviousOutPoint {
 				hits++
-				loss += myutxo.Txo.Value
+				loss += myutxo.Value
 				err := t.MarkSpent(&myutxo.Op, height, tx)
 				if err != nil {
 					return err

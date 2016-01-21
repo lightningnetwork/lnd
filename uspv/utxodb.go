@@ -171,13 +171,7 @@ func (u *Utxo) ToBytes() ([]byte, error) {
 		return nil, err
 	}
 	// write 8 byte amount of money at the utxo
-	err = binary.Write(&buf, binary.BigEndian, u.Txo.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	// write variable length (usually like 25 byte) pkscript
-	_, err = buf.Write(u.Txo.PkScript)
+	err = binary.Write(&buf, binary.BigEndian, u.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +212,9 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 		return u, err
 	}
 	// read 8 byte amount of money at the utxo
-	err = binary.Read(buf, binary.BigEndian, &u.Txo.Value)
+	err = binary.Read(buf, binary.BigEndian, &u.Value)
 	if err != nil {
 		return u, err
 	}
-	// read variable length (usually like 25 byte) pkscript
-	u.Txo.PkScript = buf.Bytes()
 	return u, nil
 }

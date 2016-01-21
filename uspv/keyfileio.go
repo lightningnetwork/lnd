@@ -155,7 +155,8 @@ func SaveKeyToFileArg(filename string, priv32 *[32]byte, pass []byte) error {
 // ReadKeyFileToECPriv returns an extendedkey from a file.
 // If there's no file there, it'll make one.  If there's a password needed,
 // it'll prompt for one.  One stop function.
-func ReadKeyFileToECPriv(filename string) (*hdkeychain.ExtendedKey, error) {
+func ReadKeyFileToECPriv(
+	filename string, p *chaincfg.Params) (*hdkeychain.ExtendedKey, error) {
 	key32 := new([32]byte)
 	_, err := os.Stat(filename)
 	if err != nil {
@@ -183,7 +184,7 @@ func ReadKeyFileToECPriv(filename string) (*hdkeychain.ExtendedKey, error) {
 		return nil, err
 	}
 
-	rootpriv, err := hdkeychain.NewMaster(key[:], &chaincfg.TestNet3Params)
+	rootpriv, err := hdkeychain.NewMaster(key[:], p)
 	if err != nil {
 		return nil, err
 	}

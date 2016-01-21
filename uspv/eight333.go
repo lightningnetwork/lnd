@@ -73,7 +73,8 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	if err != nil {
 		return s, err
 	}
-	s.TS = inTs
+	inTs.Param = p
+	s.TS = inTs // copy pointer of txstore into spvcon
 
 	myMsgVer, err := wire.NewMsgVersionFromConn(s.con, 0, 0)
 	if err != nil {

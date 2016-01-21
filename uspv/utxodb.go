@@ -4,17 +4,19 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 
 	"github.com/boltdb/bolt"
 )
 
 var (
-	BKTUtxos = []byte("DuffelBag")  // leave the rest to collect interest
-	BKTOld   = []byte("SpentTxs")   // for bookkeeping
-	KEYState = []byte("LastUpdate") // last state of DB
+	BKTUtxos = []byte("DuffelBag") // leave the rest to collect interest
+	BKTOld   = []byte("SpentTxs")  // for bookkeeping
+	BKTState = []byte("MiscState") // last state of DB
+
+	KEYNumKeys = []byte("NumKeys") // number of keys used
 )
 
 func (ts *TxStore) OpenDB(filename string) error {
@@ -33,26 +35,70 @@ func (ts *TxStore) OpenDB(filename string) error {
 		if err != nil {
 			return err
 		}
+		_, err = tx.CreateBucketIfNotExists(BKTState)
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 }
 
+// NewAdr creates a new, never before seen address, and increments the
+// DB counter as well as putting it in the ram Adrs store, and returns it
+func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
+	if ts.Param == nil {
+		return nil, fmt.Errorf("nil param")
+	}
+	n := uint32(len(ts.Adrs))
+	priv, err := ts.rootPrivKey.Child(n) // + hdkeychain.HardenedKeyStart)
+	if err != nil {
+		return nil, err
+	}
+
+	newAdr, err := priv.Address(ts.Param)
+	if err != nil {
+		return nil, err
+	}
+
+	// total number of keys (now +1) into 4 bytes
+	var buf bytes.Buffer
+	err = binary.Write(&buf, binary.BigEndian, n+1)
+	if err != nil {
+		return nil, err
+	}
+
+	// write to db file
+	err = ts.StateDB.Update(func(tx *bolt.Tx) error {
+		stt := tx.Bucket(BKTState)
+		return stt.Put(KEYNumKeys, buf.Bytes())
+	})
+	if err != nil {
+		return nil, err
+	}
+	// add in to ram.
+	ts.AddAdr(newAdr, n)
+	return newAdr, nil
+}
+
+// PopulateAdrs just puts a bunch of adrs in ram; it doesn't touch the DB
 func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 	for k := uint32(0); k < lastKey; k++ {
 
-		priv, err := ts.rootPrivKey.Child(k)
+		priv, err := ts.rootPrivKey.Child(k) // + hdkeychain.HardenedKeyStart)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		myadr, err := priv.Address(ts.param)
+
+		newAdr, err := priv.Address(ts.Param)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		fmt.Printf("made adr %s\n", myadr.String())
-		ts.AddAdr(myadr, k)
+
+		ts.AddAdr(newAdr, k)
 	}
 	return nil
 }
+
 func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 	return dbx.Update(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
@@ -66,7 +112,6 @@ func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 }
 
 func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error {
-
 	// we write in key = outpoint (32 hash, 4 index)
 	// value = spending txid
 	// if we care about the spending tx we can store that in another bucket.
@@ -90,8 +135,14 @@ func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error 
 	})
 }
 
-func (ts *TxStore) LoadUtxos() error {
-	err := ts.StateDB.View(func(tx *bolt.Tx) error {
+// LoadFromDB loads everything in the db file into ram, rebuilding the TxStore
+// (except the rootPrivKey, that should be done before calling this --
+// this will error if ts.rootPrivKey hasn't been loaded)
+func (ts *TxStore) LoadFromDB() error {
+	if ts.rootPrivKey == nil {
+		return fmt.Errorf("LoadFromDB needs rootPrivKey loaded")
+	}
+	return ts.StateDB.View(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
 		if duf == nil {
 			return fmt.Errorf("no duffel bag")
@@ -100,9 +151,28 @@ func (ts *TxStore) LoadUtxos() error {
 		if spent == nil {
 			return fmt.Errorf("no spenttx bucket")
 		}
-
+		state := tx.Bucket(BKTState)
+		if state == nil {
+			return fmt.Errorf("no state bucket")
+		}
+		// first populate addresses from state bucket
+		numKeysBytes := state.Get(KEYNumKeys)
+		if numKeysBytes != nil { // NumKeys exists, read into uint32
+			buf := bytes.NewBuffer(numKeysBytes)
+			var numKeys uint32
+			err := binary.Read(buf, binary.BigEndian, &numKeys)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("db says %d keys\n", numKeys)
+			err = ts.PopulateAdrs(numKeys)
+			if err != nil {
+				return err
+			}
+		}
+		// next load all utxos from db into ram
 		duf.ForEach(func(k, v []byte) error {
-			// have to copy these here, otherwise append will crash it.
+			// have to copy k and v here, otherwise append will crash it.
 			// not quite sure why but append does weird stuff I guess.
 			stx := spent.Get(k)
 			if stx == nil { // if it's not in the spent bucket
@@ -115,6 +185,7 @@ func (ts *TxStore) LoadUtxos() error {
 					return err
 				}
 				// and add it to ram
+				ts.Sum += newU.Value
 				ts.Utxos = append(ts.Utxos, newU)
 			} else {
 				fmt.Printf("had utxo %x but spent by tx %x...\n",
@@ -124,10 +195,6 @@ func (ts *TxStore) LoadUtxos() error {
 		})
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // outPointToBytes turns an outpoint into 36 bytes.

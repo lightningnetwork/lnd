@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/btcsuite/btcd/txscript"
+
 	"github.com/btcsuite/btcd/chaincfg"
 
 	"github.com/boltdb/bolt"
@@ -23,7 +25,7 @@ type TxStore struct {
 	LastIdx uint32   // should equal len(Adrs)
 	StateDB *bolt.DB // place to write all this down
 	// this is redundant with the SPVCon param... ugly and should be taken out
-	param *chaincfg.Params // network parameters (testnet3, testnetL)
+	Param *chaincfg.Params // network parameters (testnet3, testnetL)
 
 	// From here, comes everything. It's a secret to everybody.
 	rootPrivKey *hdkeychain.ExtendedKey
@@ -39,20 +41,23 @@ type Utxo struct { // cash money.
 }
 
 type MyAdr struct { // an address I have the private key for
-	btcutil.Address
+	PkhAdr btcutil.Address
 	KeyIdx uint32 // index for private key needed to sign / spend
+	// ^^ this is kindof redundant because it'll just be their position
+	// inside the Adrs slice, right? leave for now
 }
 
-func NewTxStore() TxStore {
+func NewTxStore(rootkey *hdkeychain.ExtendedKey) TxStore {
 	var txs TxStore
+	txs.rootPrivKey = rootkey
 	txs.OKTxids = make(map[wire.ShaHash]int32)
 	return txs
 }
 
-// add addresses into the TxStore
+// add addresses into the TxStore in memory
 func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
 	var ma MyAdr
-	ma.Address = a
+	ma.PkhAdr = a
 	ma.KeyIdx = kidx
 	t.Adrs = append(t.Adrs, ma)
 	return
@@ -75,7 +80,7 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	}
 	f := bloom.NewFilter(uint32(len(t.Adrs)), 0, 0.001, wire.BloomUpdateNone)
 	for _, a := range t.Adrs {
-		f.Add(a.ScriptAddress())
+		f.Add(a.PkhAdr.ScriptAddress())
 	}
 	return f, nil
 }
@@ -111,9 +116,12 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 	// check if any of the tx's outputs match my adrs
 	for i, out := range tx.TxOut { // in each output of tx
 		for _, a := range t.Adrs { // compare to each adr we have
-			// more correct would be to check for full script
-			// contains could have false positive? (p2sh/p2pkh same hash ..?)
-			if bytes.Contains(out.PkScript, a.ScriptAddress()) { // hit
+			// check for full script to eliminate false positives
+			aPKscript, err := txscript.PayToAddrScript(a.PkhAdr)
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(out.PkScript, aPKscript) { // hit
 				hits++
 				acq += out.Value
 				var newu Utxo
@@ -129,6 +137,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				if err != nil {
 					return err
 				}
+				t.Sum += newu.Value
 				t.Utxos = append(t.Utxos, newu)
 				break
 			}

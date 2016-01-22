@@ -86,7 +86,7 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 }
 
 // Ingest a tx into wallet, dealing with both gains and losses
-func (t *TxStore) IngestTx(tx *wire.MsgTx) error {
+func (t *TxStore) AckTx(tx *wire.MsgTx) error {
 	inTxid := tx.TxSha()
 	height, ok := t.OKTxids[inTxid]
 	if !ok {
@@ -158,7 +158,7 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 
 	for _, in := range tx.TxIn {
 		for i, myutxo := range t.Utxos {
-			if myutxo.Op == in.PreviousOutPoint {
+			if OutPointsEqual(myutxo.Op, in.PreviousOutPoint) {
 				hits++
 				loss += myutxo.Value
 				err := t.MarkSpent(&myutxo.Op, height, tx)
@@ -173,6 +173,15 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 	log.Printf("%d hits, lost %d", hits, loss)
 	t.Sum -= loss
 	return nil
+}
+
+// need this because before I was comparing pointers maybe?
+// so they were the same outpoint but stored in 2 places so false negative?
+func OutPointsEqual(a, b wire.OutPoint) bool {
+	if !a.Hash.IsEqual(&b.Hash) {
+		return false
+	}
+	return a.Index == b.Index
 }
 
 // TxToString prints out some info about a transaction. for testing / debugging

@@ -346,6 +346,20 @@ func NewRootAndHeight(r wire.ShaHash, h int32) (rah RootAndHeight) {
 	return
 }
 
+func (s *SPVCon) PushTx(tx *wire.MsgTx) error {
+	txid := tx.TxSha()
+	err := s.TS.AddTxid(&txid, 0)
+	if err != nil {
+		return err
+	}
+	err = s.TS.AckTx(tx)
+	if err != nil {
+		return err
+	}
+	s.outMsgQueue <- tx
+	return nil
+}
+
 // AskForMerkBlocks requests blocks from current to last
 // right now this asks for 1 block per getData message.
 // Maybe it's faster to ask for many in a each message?

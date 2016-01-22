@@ -66,7 +66,7 @@ func (s *SPVCon) incomingMessageHandler() {
 				s.AskForHeaders()
 			}
 		case *wire.MsgTx:
-			err := s.TS.IngestTx(m)
+			err := s.TS.AckTx(m)
 			if err != nil {
 				log.Printf("Incoming Tx error: %s\n", err.Error())
 			}

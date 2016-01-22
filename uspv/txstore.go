@@ -140,11 +140,15 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				newop.Hash = tx.TxSha()
 				newop.Index = uint32(i)
 				newu.Op = newop
-				err := newu.SaveToDB(t.StateDB)
+				dupe, err := newu.SaveToDB(t.StateDB)
 				if err != nil {
 					return err
 				}
-				t.Utxos = append(t.Utxos, newu)
+				if !dupe { // only save to DB if new txid
+					t.Utxos = append(t.Utxos, newu)
+				} else {
+					fmt.Printf("...dupe ")
+				}
 				break
 			}
 		}

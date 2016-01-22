@@ -368,7 +368,7 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	var hdr wire.BlockHeader
 	// if last is 0, that means go as far as we can
 	if last == 0 {
-		n, err := s.headerFile.Seek(-80, os.SEEK_END)
+		n, err := s.headerFile.Seek(0, os.SEEK_END)
 		if err != nil {
 			return err
 		}
@@ -392,8 +392,8 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	}
 	// loop through all heights where we want merkleblocks.
 	for current < last {
-		// check if we need to update filter... every 5 new inputs...?
-		if track+4 < len(s.TS.Utxos) {
+		// check if we need to update filter... diff of 5 utxos...?
+		if track < len(s.TS.Utxos)-4 || track > len(s.TS.Utxos)+4 {
 			track = len(s.TS.Utxos)
 			filt, err := s.TS.GimmeFilter()
 			if err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/hdkeychain"
 
 	"github.com/boltdb/bolt"
 )
@@ -50,7 +51,7 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 		return nil, fmt.Errorf("nil param")
 	}
 	n := uint32(len(ts.Adrs))
-	priv, err := ts.rootPrivKey.Child(n) // + hdkeychain.HardenedKeyStart)
+	priv, err := ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +85,7 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 	for k := uint32(0); k < lastKey; k++ {
 
-		priv, err := ts.rootPrivKey.Child(k) // + hdkeychain.HardenedKeyStart)
+		priv, err := ts.rootPrivKey.Child(k + hdkeychain.HardenedKeyStart)
 		if err != nil {
 			return err
 		}
@@ -99,16 +100,26 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 	return nil
 }
 
-func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
-	return dbx.Update(func(tx *bolt.Tx) error {
+// SaveToDB write a utxo to disk, and returns true if it's a dupe
+func (u *Utxo) SaveToDB(dbx *bolt.DB) (bool, error) {
+	var dupe bool
+	err := dbx.Update(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
 		b, err := u.ToBytes()
 		if err != nil {
 			return err
 		}
+		if duf.Get(b[:36]) != nil { // already have tx
+			dupe = true
+			return nil
+		}
 		// key : val is txid:everything else
 		return duf.Put(b[:36], b[36:])
 	})
+	if err != nil {
+		return false, err
+	}
+	return dupe, nil
 }
 
 func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error {

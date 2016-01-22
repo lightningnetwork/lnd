@@ -164,6 +164,7 @@ func (s *SPVCon) PongBack(nonce uint64) {
 
 func (s *SPVCon) SendFilter(f *bloom.Filter) {
 	s.outMsgQueue <- f.MsgFilterLoad()
+
 	return
 }
 
@@ -374,12 +375,35 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		last = int32(n / 80)
 	}
 
-	_, err := s.headerFile.Seek(int64(current*80), os.SEEK_SET)
+	// track number of utxos
+	track := len(s.TS.Utxos)
+	// create initial filter
+	filt, err := s.TS.GimmeFilter()
+	if err != nil {
+		return err
+	}
+	// send filter
+	s.SendFilter(filt)
+	fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+
+	_, err = s.headerFile.Seek(int64(current*80), os.SEEK_SET)
 	if err != nil {
 		return err
 	}
 	// loop through all heights where we want merkleblocks.
 	for current < last {
+		// check if we need to update filter... every 5 new inputs...?
+		if track+4 < len(s.TS.Utxos) {
+			track = len(s.TS.Utxos)
+			filt, err := s.TS.GimmeFilter()
+			if err != nil {
+				return err
+			}
+			s.SendFilter(filt)
+
+			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+		}
+
 		// load header from file
 		err = hdr.Deserialize(s.headerFile)
 		if err != nil {
@@ -400,6 +424,5 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		s.mBlockQueue <- rah // push height and mroot of requested block on queue
 		current++
 	}
-
 	return nil
 }

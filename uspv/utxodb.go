@@ -185,8 +185,8 @@ func (ts *TxStore) LoadFromDB() error {
 					return err
 				}
 				// and add it to ram
-				ts.Sum += newU.Value
 				ts.Utxos = append(ts.Utxos, newU)
+				ts.Sum += newU.Value
 			} else {
 				fmt.Printf("had utxo %x but spent by tx %x...\n",
 					k, stx[:8])

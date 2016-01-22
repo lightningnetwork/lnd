@@ -1,7 +1,6 @@
 package uspv
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/btcsuite/btcd/wire"
@@ -40,7 +39,7 @@ func (s *SPVCon) incomingMessageHandler() {
 				log.Printf("Merkle block error: %s\n", err.Error())
 				return
 			}
-			fmt.Printf(" got %d txs ", len(txids))
+			//			fmt.Printf(" got %d txs ", len(txids))
 			//			fmt.Printf(" = got %d txs from block %s\n",
 			//				len(txids), m.Header.BlockSha().String())
 			rah := <-s.mBlockQueue // pop height off mblock queue
@@ -70,7 +69,12 @@ func (s *SPVCon) incomingMessageHandler() {
 			if err != nil {
 				log.Printf("Incoming Tx error: %s\n", err.Error())
 			}
-			//			log.Printf("Got tx %s\n", m.TxSha().String())
+		//			log.Printf("Got tx %s\n", m.TxSha().String())
+
+		case *wire.MsgReject:
+			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
+				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
+
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}

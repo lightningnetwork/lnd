@@ -78,10 +78,17 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	if len(t.Adrs) == 0 {
 		return nil, fmt.Errorf("no addresses to filter for")
 	}
-	f := bloom.NewFilter(uint32(len(t.Adrs)), 0, 0.001, wire.BloomUpdateNone)
+	// add addresses to look for incoming
+	elem := uint32(len(t.Adrs) + len(t.Utxos))
+	f := bloom.NewFilter(elem, 0, 0.001, wire.BloomUpdateAll)
 	for _, a := range t.Adrs {
 		f.Add(a.PkhAdr.ScriptAddress())
 	}
+	// add txids of utxos to look for outgoing
+	for _, u := range t.Utxos {
+		f.AddOutPoint(&u.Op)
+	}
+
 	return f, nil
 }
 
@@ -137,7 +144,6 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				if err != nil {
 					return err
 				}
-				t.Sum += newu.Value
 				t.Utxos = append(t.Utxos, newu)
 				break
 			}

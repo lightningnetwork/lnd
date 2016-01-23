@@ -100,26 +100,28 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 	return nil
 }
 
-// SaveToDB write a utxo to disk, and returns true if it's a dupe
-func (u *Utxo) SaveToDB(dbx *bolt.DB) (bool, error) {
-	var dupe bool
+// SaveToDB write a utxo to disk, overwriting an old utxo of the same outpoint
+func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
+
 	err := dbx.Update(func(tx *bolt.Tx) error {
 		duf := tx.Bucket(BKTUtxos)
 		b, err := u.ToBytes()
 		if err != nil {
 			return err
 		}
-		if duf.Get(b[:36]) != nil { // already have tx
-			dupe = true
-			return nil
-		}
+		// don't check for dupes here, check in AbsorbTx(). here overwrite.
+		//		if duf.Get(b[:36]) != nil { // already have tx
+		//			dupe = true
+		//			return nil
+		//		}
+
 		// key : val is txid:everything else
 		return duf.Put(b[:36], b[36:])
 	})
 	if err != nil {
-		return false, err
+		return err
 	}
-	return dupe, nil
+	return nil
 }
 
 func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error {
@@ -196,7 +198,7 @@ func (ts *TxStore) LoadFromDB() error {
 					return err
 				}
 				// and add it to ram
-				ts.Utxos = append(ts.Utxos, newU)
+				ts.Utxos = append(ts.Utxos, &newU)
 				ts.Sum += newU.Value
 			} else {
 				fmt.Printf("had utxo %x but spent by tx %x...\n",

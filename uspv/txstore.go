@@ -19,7 +19,7 @@ import (
 type TxStore struct {
 	OKTxids map[wire.ShaHash]int32 // known good txids and their heights
 
-	Utxos   []Utxo   // stacks on stacks
+	Utxos   []*Utxo  // stacks on stacks
 	Sum     int64    // racks on racks
 	Adrs    []MyAdr  // endeavouring to acquire capital
 	LastIdx uint32   // should equal len(Adrs)
@@ -118,16 +118,40 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 	if tx == nil {
 		return fmt.Errorf("Tried to add nil tx")
 	}
-	var hits uint32
-	var acq int64
+	newTxid := tx.TxSha()
+	var hits uint32 // how many outputs of this tx are ours
+	var acq int64   // total acquirement from this tx
 	// check if any of the tx's outputs match my adrs
 	for i, out := range tx.TxOut { // in each output of tx
+		dup := false // start by assuming its new until found duplicate
+		newOp := wire.NewOutPoint(&newTxid, uint32(i))
+		// first look for dupes -- already known outpoints.
+		// if we find a dupe here overwrite it to the DB.
+		for _, u := range t.Utxos {
+			dup = OutPointsEqual(*newOp, u.Op) // is this outpoint known?
+			if dup {                           // found dupe
+				fmt.Printf(" %s is dupe\t", newOp.String())
+				u.AtHeight = height // ONLY difference is height
+				// save modified utxo to db, overwriting old one
+				err := u.SaveToDB(t.StateDB)
+				if err != nil {
+					return err
+				}
+				break // out of the t.Utxo range loop
+			}
+		}
+		if dup {
+			// if we found the outpoint to be a dup above, don't add it again
+			// when it matches an address, just go to the next outpoint
+			continue
+		}
 		for _, a := range t.Adrs { // compare to each adr we have
 			// check for full script to eliminate false positives
 			aPKscript, err := txscript.PayToAddrScript(a.PkhAdr)
 			if err != nil {
 				return err
 			}
+			// already checked for dupes, this must be a new outpoint
 			if bytes.Equal(out.PkScript, aPKscript) { // hit
 
 				var newu Utxo
@@ -139,17 +163,14 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				newop.Hash = tx.TxSha()
 				newop.Index = uint32(i)
 				newu.Op = newop
-				dupe, err := newu.SaveToDB(t.StateDB)
+				err = newu.SaveToDB(t.StateDB)
 				if err != nil {
 					return err
 				}
-				if !dupe { // only save to DB if new txid
-					t.Utxos = append(t.Utxos, newu)
-					acq += out.Value
-					hits++
-				} else {
-					fmt.Printf("...dupe ")
-				}
+
+				acq += out.Value
+				hits++
+				t.Utxos = append(t.Utxos, &newu) // always add new utxo
 				break
 			}
 		}

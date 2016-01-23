@@ -129,8 +129,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				return err
 			}
 			if bytes.Equal(out.PkScript, aPKscript) { // hit
-				hits++
-				acq += out.Value
+
 				var newu Utxo
 				newu.AtHeight = height
 				newu.KeyIdx = a.KeyIdx
@@ -146,6 +145,8 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				}
 				if !dupe { // only save to DB if new txid
 					t.Utxos = append(t.Utxos, newu)
+					acq += out.Value
+					hits++
 				} else {
 					fmt.Printf("...dupe ")
 				}

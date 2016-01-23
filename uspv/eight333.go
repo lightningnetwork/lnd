@@ -27,9 +27,11 @@ type SPVCon struct {
 	con        net.Conn // the (probably tcp) connection to the node
 	headerFile *os.File // file for SPV headers
 
+	//[doesn't work without fancy mutexes, nevermind, just use header file]
+	// localHeight   int32  // block height we're on
+	remoteHeight  int32  // block height they're on
 	localVersion  uint32 // version we report
 	remoteVersion uint32 // version remote node
-	remoteHeight  int32  // block height they're on
 
 	// what's the point of the input queue? remove? leave for now...
 	inMsgQueue  chan wire.Message // Messages coming in from remote node
@@ -42,7 +44,7 @@ type SPVCon struct {
 	param *chaincfg.Params // network parameters (testnet3, testnetL)
 
 	// mBlockQueue is for keeping track of what height we've requested.
-	mBlockQueue chan RootAndHeight
+	mBlockQueue chan HashAndHeight
 }
 
 func OpenSPV(remoteNode string, hfn, tsfn string,
@@ -125,7 +127,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	go s.incomingMessageHandler()
 	s.outMsgQueue = make(chan wire.Message, 1)
 	go s.outgoingMessageHandler()
-	s.mBlockQueue = make(chan RootAndHeight, 32) // queue depth 32 is a thing
+	s.mBlockQueue = make(chan HashAndHeight, 32) // queue depth 32 is a thing
 
 	return s, nil
 }
@@ -207,6 +209,36 @@ func (s *SPVCon) HeightFromHeader(query wire.BlockHeader) (uint32, error) {
 	return 0, fmt.Errorf("Header not found on disk")
 }
 
+// AskForTx requests a tx we heard about from an inv message.
+// It's one at a time but should be fast enough.
+func (s *SPVCon) AskForTx(txid wire.ShaHash) {
+	gdata := wire.NewMsgGetData()
+	inv := wire.NewInvVect(wire.InvTypeTx, &txid)
+	gdata.AddInvVect(inv)
+	s.outMsgQueue <- gdata
+}
+
+// AskForBlock requests a merkle block we heard about from an inv message.
+// We don't have it in our header file so when we get it we do both operations:
+// appending and checking the header, and checking spv proofs
+func (s *SPVCon) AskForBlock(hsh wire.ShaHash) {
+	gdata := wire.NewMsgGetData()
+	inv := wire.NewInvVect(wire.InvTypeFilteredBlock, &hsh)
+	gdata.AddInvVect(inv)
+
+	info, err := s.headerFile.Stat() // get
+	if err != nil {
+		log.Fatal(err) // crash if header file disappears
+	}
+	nextHeight := int32(info.Size() / 80)
+
+	hah := NewRootAndHeight(hsh, nextHeight)
+
+	s.mBlockQueue <- hah   // push height and mroot of requested block on queue
+	s.outMsgQueue <- gdata // push request to outbox
+
+}
+
 func (s *SPVCon) AskForHeaders() error {
 	var hdr wire.BlockHeader
 	ghdr := wire.NewMsgGetHeaders()
@@ -229,6 +261,7 @@ func (s *SPVCon) AskForHeaders() error {
 	}
 
 	log.Printf("suk to offset %d (should be near the end\n", ns)
+
 	// get header from last 80 bytes of file
 	err = hdr.Deserialize(s.headerFile)
 	if err != nil {
@@ -250,6 +283,31 @@ func (s *SPVCon) AskForHeaders() error {
 	return nil
 }
 
+func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
+	txids, err := checkMBlock(m) // check self-consistency
+	if err != nil {
+		return err
+	}
+	hah := <-s.mBlockQueue // pop height off mblock queue
+	// this verifies order, and also that the returned header fits
+	// into our SPV header file
+	newMerkBlockSha := m.Header.BlockSha()
+	if !hah.blockhash.IsEqual(&newMerkBlockSha) {
+		return fmt.Errorf("merkle block out of order error")
+	}
+	for _, txid := range txids {
+		err := s.TS.AddTxid(txid, hah.height)
+		if err != nil {
+			return fmt.Errorf("Txid store error: %s\n", err.Error())
+		}
+	}
+	return nil
+}
+
+// IngestHeaders takes in a bunch of headers and appends them to the
+// local header file, checking that they fit.  If there's no headers,
+// it assumes we're done and returns false.  If it worked it assumes there's
+// more to request and returns true.9
 func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	var err error
 	// seek to last header
@@ -264,6 +322,12 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	}
 	prevHash := last.BlockSha()
 
+	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
+	if err != nil {
+		return false, err
+	}
+	tip := int32(endPos/80) - 1 // move back 1 header length to read
+
 	gotNum := int64(len(m.Headers))
 	if gotNum > 0 {
 		fmt.Printf("got %d headers. Range:\n%s - %s\n",
@@ -273,17 +337,11 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		log.Printf("got 0 headers, we're probably synced up")
 		return false, nil
 	}
-
-	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
-	if err != nil {
-		return false, err
-	}
-
 	// check first header returned to make sure it fits on the end
 	// of our header file
 	if !m.Headers[0].PrevBlock.IsEqual(&prevHash) {
 		// delete 100 headers if this happens!  Dumb reorg.
-		log.Printf("possible reorg; header msg doesn't fit. points to %s, expect %s",
+		log.Printf("reorg? header msg doesn't fit. points to %s, expect %s",
 			m.Headers[0].PrevBlock.String(), prevHash.String())
 		if endPos < 8080 {
 			// jeez I give up, back to genesis
@@ -297,8 +355,6 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		return false, fmt.Errorf("Truncated header file to try again")
 	}
 
-	tip := endPos / 80
-	tip-- // move back header length so it can read last header
 	for _, resphdr := range m.Headers {
 		// write to end of file
 		err = resphdr.Serialize(s.headerFile)
@@ -328,22 +384,25 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		}
 	}
 	log.Printf("Headers to height %d OK.", tip)
+
 	return true, nil
 }
 
-// RootAndHeight is needed instead of just height in case a fullnode
+// HashAndHeight is needed instead of just height in case a fullnode
 // responds abnormally (?) by sending out of order merkleblocks.
 // we cache a merkleroot:height pair in the queue so we don't have to
 // look them up from the disk.
-type RootAndHeight struct {
-	root   wire.ShaHash
-	height int32
+// Also used when inv messages indicate blocks so we can add the header
+// and parse the txs in one request instead of requesting headers first.
+type HashAndHeight struct {
+	blockhash wire.ShaHash
+	height    int32
 }
 
 // NewRootAndHeight saves like 2 lines.
-func NewRootAndHeight(r wire.ShaHash, h int32) (rah RootAndHeight) {
-	rah.root = r
-	rah.height = h
+func NewRootAndHeight(b wire.ShaHash, h int32) (hah HashAndHeight) {
+	hah.blockhash = b
+	hah.height = h
 	return
 }
 
@@ -366,15 +425,17 @@ func (s *SPVCon) PushTx(tx *wire.MsgTx) error {
 // Maybe it's faster to ask for many in a each message?
 func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	var hdr wire.BlockHeader
+	info, err := s.headerFile.Stat() // get
+	if err != nil {
+		return err // crash if header file disappears
+	}
+	nextHeight := int32(info.Size() / 80)
+	fmt.Printf("have headers up to height %d\n", nextHeight-1)
 	// if last is 0, that means go as far as we can
 	if last == 0 {
-		n, err := s.headerFile.Seek(0, os.SEEK_END)
-		if err != nil {
-			return err
-		}
-		last = int32(n / 80)
+		last = nextHeight - 1
 	}
-
+	fmt.Printf("will request merkleblocks %d to %d\n", current, last)
 	// track number of utxos
 	track := len(s.TS.Utxos)
 	// create initial filter
@@ -419,9 +480,9 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		if err != nil {
 			return err
 		}
-		rah := NewRootAndHeight(hdr.MerkleRoot, current)
+		hah := NewRootAndHeight(hdr.BlockSha(), current)
 		s.outMsgQueue <- gdataMsg
-		s.mBlockQueue <- rah // push height and mroot of requested block on queue
+		s.mBlockQueue <- hah // push height and mroot of requested block on queue
 		current++
 	}
 	return nil

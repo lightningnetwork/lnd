@@ -30,31 +30,11 @@ func (s *SPVCon) incomingMessageHandler() {
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
 		case *wire.MsgMerkleBlock:
-
-			//			log.Printf("Got merkle block message. Will verify.\n")
-			//			fmt.Printf("%d flag bytes, %d txs, %d hashes",
-			//				len(m.Flags), m.Transactions, len(m.Hashes))
-			txids, err := checkMBlock(m)
+			err = s.IngestMerkleBlock(m)
 			if err != nil {
 				log.Printf("Merkle block error: %s\n", err.Error())
-				return
+				continue
 			}
-			//			fmt.Printf(" got %d txs ", len(txids))
-			//			fmt.Printf(" = got %d txs from block %s\n",
-			//				len(txids), m.Header.BlockSha().String())
-			rah := <-s.mBlockQueue // pop height off mblock queue
-			// this verifies order, and also that the returned header fits
-			// into our SPV header file
-			if !rah.root.IsEqual(&m.Header.MerkleRoot) {
-				log.Printf("out of order error")
-			}
-			for _, txid := range txids {
-				err := s.TS.AddTxid(txid, rah.height)
-				if err != nil {
-					log.Printf("Txid store error: %s\n", err.Error())
-				}
-			}
-
 		case *wire.MsgHeaders:
 			moar, err := s.IngestHeaders(m)
 			if err != nil {
@@ -70,11 +50,22 @@ func (s *SPVCon) incomingMessageHandler() {
 				log.Printf("Incoming Tx error: %s\n", err.Error())
 			}
 		//			log.Printf("Got tx %s\n", m.TxSha().String())
-
 		case *wire.MsgReject:
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
 				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
-
+		case *wire.MsgInv:
+			log.Printf("got inv.  Contains:\n")
+			for i, thing := range m.InvList {
+				log.Printf("\t%d)%s : %s",
+					i, thing.Type.String(), thing.Hash.String())
+				if thing.Type == wire.InvTypeTx { // new tx, ingest
+					s.TS.OKTxids[thing.Hash] = 0 // unconfirmed
+					s.AskForTx(thing.Hash)
+				}
+				if thing.Type == wire.InvTypeBlock { // new block, ingest
+					s.AskForBlock(thing.Hash)
+				}
+			}
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}

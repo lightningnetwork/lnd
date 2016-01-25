@@ -43,7 +43,7 @@ var (
 
 	// Which bitcoin network are we using?
 	// TODO(roasbeef): config
-	ActiveNetParams = &chaincfg.TestNet3Params
+	ActiveNetParams = &chaincfg.RegressionNetParams
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
@@ -343,30 +343,40 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 // Startup establishes a connection to the RPC source, and spins up all
 // goroutines required to handle incoming messages.
 func (l *LightningWallet) Startup() error {
+	fmt.Println("Entering LightningWallet.Startup")
+	defer fmt.Println("Exeting LightningWallet.Startup")
 	// Already started?
 	if atomic.AddInt32(&l.started, 1) != 1 {
 		return nil
 	}
 	// TODO(roasbeef): config...
-
+	fmt.Println("LightningWallet.Startup: Step 1")
+	fmt.Println("**************************************")
+	fmt.Println("ActiveNetParams:", ActiveNetParams)
+	fmt.Println("l.cfg.RpcHost:", l.cfg.RpcHost)
+	fmt.Println("l.cfg.RpcUser:", l.cfg.RpcUser)
+	fmt.Println("l.cfg.RpcPass:", l.cfg.RpcPass)
+	fmt.Println("l.cfg.CACert:", l.cfg.RpcPass)
+	fmt.Println("***************************************")
 	rpcc, err := chain.NewClient(ActiveNetParams,
-		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false)
+		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, true)
 	if err != nil {
 		return err
 	}
-
+	fmt.Println("LightningWallet.Startup: Step 2")
 	// Start the goroutines in the underlying wallet.
 	l.rpc = rpcc
 	if err := l.rpc.Start(); err != nil {
 		return err
 	}
-
+	fmt.Println("LightningWallet.Startup: Step 3")
 	l.Start(rpcc)
-
+	fmt.Println("LightningWallet.Startup: Step 4")
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?
+	fmt.Println("LightningWallet.Startup: Step 5")
 	go l.requestHandler()
-
+	fmt.Println("LightningWallet.Startup: Step 6")
 	return nil
 }
 

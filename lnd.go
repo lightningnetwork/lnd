@@ -17,10 +17,17 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
+const (
+	btcdUserInitial = "<RPCUser from btcd.conf file>"
+	btcdPassInitial = "<RPCPass value from btcd.conf>"
+)
 var (
 	rpcPort  = flag.Int("rpcport", 10009, "The port for the rpc server")
 	peerPort = flag.String("peerport", "10011", "The port to listen on for incoming p2p connections")
 	dataDir  = flag.String("datadir", "test_wal", "The directory to store lnd's data within")
+	btcdHost = flag.String("btcdhost", "localhost:18334", "The BTCD RPC address. ")
+	btcdUser = flag.String("btcduser", btcdUserInitial, "The BTCD RPC user")
+	btcdPass = flag.String("btcdpass", btcdPassInitial, "The BTCD RPC password")
 )
 
 func main() {
@@ -38,8 +45,25 @@ func main() {
 	// logic, and exposes control via proxy state machines.
 	// TODO(roasbeef): accept config via cli flags, move to real config file
 	// afterwards
-	config := &lnwallet.Config{PrivatePass: []byte("hello"), DataDir: *dataDir}
-
+	btcdConfig, err := GetBtcdConfig()
+	if err != nil{
+		fmt.Println("Error reading btcd.conf file. Options will not be imported")
+	}else{
+		if *btcdUser == btcdUserInitial {
+			*btcdUser = btcdConfig.RPCUser
+		}
+		if *btcdPass == btcdPassInitial{
+			*btcdPass = btcdConfig.RPCPass
+		}
+	}
+	config := &lnwallet.Config{
+		PrivatePass: []byte("hello"),
+		DataDir: *dataDir,
+		RpcHost: *btcdHost,
+		RpcUser: *btcdUser,
+		RpcPass: *btcdPass,
+	}
+	fmt.Println("config", config)
 	lnwallet, db, err := lnwallet.NewLightningWallet(config)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)

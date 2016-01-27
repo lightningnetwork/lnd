@@ -14,7 +14,8 @@ import (
 
 var (
 	BKTUtxos = []byte("DuffelBag") // leave the rest to collect interest
-	BKTOld   = []byte("SpentTxs")  // for bookkeeping
+	BKTStxos = []byte("SpentTxs")  // for bookkeeping
+	BKTTxns  = []byte("Txns")      // all txs we care about, for replays
 	BKTState = []byte("MiscState") // last state of DB
 
 	KEYNumKeys = []byte("NumKeys") // number of keys used
@@ -27,16 +28,20 @@ func (ts *TxStore) OpenDB(filename string) error {
 		return err
 	}
 	// create buckets if they're not already there
-	return ts.StateDB.Update(func(tx *bolt.Tx) error {
-		_, err = tx.CreateBucketIfNotExists(BKTUtxos)
+	return ts.StateDB.Update(func(btx *bolt.Tx) error {
+		_, err = btx.CreateBucketIfNotExists(BKTUtxos)
 		if err != nil {
 			return err
 		}
-		_, err = tx.CreateBucketIfNotExists(BKTOld)
+		_, err = btx.CreateBucketIfNotExists(BKTStxos)
 		if err != nil {
 			return err
 		}
-		_, err = tx.CreateBucketIfNotExists(BKTState)
+		_, err = btx.CreateBucketIfNotExists(BKTTxns)
+		if err != nil {
+			return err
+		}
+		_, err = btx.CreateBucketIfNotExists(BKTState)
 		if err != nil {
 			return err
 		}
@@ -69,8 +74,8 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	}
 
 	// write to db file
-	err = ts.StateDB.Update(func(tx *bolt.Tx) error {
-		stt := tx.Bucket(BKTState)
+	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
+		stt := btx.Bucket(BKTState)
 		return stt.Put(KEYNumKeys, buf.Bytes())
 	})
 	if err != nil {
@@ -79,6 +84,24 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	// add in to ram.
 	ts.AddAdr(newAdr, n)
 	return newAdr, nil
+}
+
+// NumUtxos returns the number of utxos in the DB.
+func (ts *TxStore) NumUtxos() (uint32, error) {
+	var n uint32
+	err := ts.StateDB.View(func(btx *bolt.Tx) error {
+		duf := btx.Bucket(BKTUtxos)
+		if duf == nil {
+			return fmt.Errorf("no duffel bag")
+		}
+		stats := duf.Stats()
+		n = uint32(stats.KeyN)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // PopulateAdrs just puts a bunch of adrs in ram; it doesn't touch the DB
@@ -101,10 +124,9 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 }
 
 // SaveToDB write a utxo to disk, overwriting an old utxo of the same outpoint
-func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
-
-	err := dbx.Update(func(tx *bolt.Tx) error {
-		duf := tx.Bucket(BKTUtxos)
+func (ts *TxStore) SaveUtxo(u *Utxo) error {
+	err := ts.StateDB.Update(func(btx *bolt.Tx) error {
+		duf := btx.Bucket(BKTUtxos)
 		b, err := u.ToBytes()
 		if err != nil {
 			return err
@@ -124,26 +146,47 @@ func (u *Utxo) SaveToDB(dbx *bolt.DB) error {
 	return nil
 }
 
-func (ts *TxStore) MarkSpent(op *wire.OutPoint, h int32, stx *wire.MsgTx) error {
+func (ts *TxStore) MarkSpent(ut Utxo, h int32, stx *wire.MsgTx) error {
 	// we write in key = outpoint (32 hash, 4 index)
 	// value = spending txid
 	// if we care about the spending tx we can store that in another bucket.
-	return ts.StateDB.Update(func(tx *bolt.Tx) error {
-		old := tx.Bucket(BKTOld)
-		opb, err := outPointToBytes(op)
+
+	var st Stxo
+	st.Utxo = ut
+	st.SpendHeight = h
+	st.SpendTxid = stx.TxSha()
+
+	return ts.StateDB.Update(func(btx *bolt.Tx) error {
+		duf := btx.Bucket(BKTUtxos)
+		old := btx.Bucket(BKTStxos)
+		txns := btx.Bucket(BKTTxns)
+
+		opb, err := outPointToBytes(&st.Op)
 		if err != nil {
 			return err
 		}
-		var buf bytes.Buffer
-		err = binary.Write(&buf, binary.BigEndian, h)
+
+		err = duf.Delete(opb) // not utxo anymore
 		if err != nil {
 			return err
 		}
+
+		stxb, err := st.ToBytes()
+		if err != nil {
+			return err
+		}
+
+		err = old.Put(opb, stxb) // write k:v outpoint:stxo bytes
+		if err != nil {
+			return err
+		}
+
+		// store spending tx
 		sha := stx.TxSha()
-		err = old.Put(opb, sha.Bytes()) // write k:v outpoint:txid
-		if err != nil {
-			return err
-		}
+		var buf bytes.Buffer
+		stx.Serialize(&buf)
+		txns.Put(sha.Bytes(), buf.Bytes())
+
 		return nil
 	})
 }
@@ -155,16 +198,16 @@ func (ts *TxStore) LoadFromDB() error {
 	if ts.rootPrivKey == nil {
 		return fmt.Errorf("LoadFromDB needs rootPrivKey loaded")
 	}
-	return ts.StateDB.View(func(tx *bolt.Tx) error {
-		duf := tx.Bucket(BKTUtxos)
+	return ts.StateDB.View(func(btx *bolt.Tx) error {
+		duf := btx.Bucket(BKTUtxos)
 		if duf == nil {
 			return fmt.Errorf("no duffel bag")
 		}
-		spent := tx.Bucket(BKTOld)
+		spent := btx.Bucket(BKTStxos)
 		if spent == nil {
 			return fmt.Errorf("no spenttx bucket")
 		}
-		state := tx.Bucket(BKTState)
+		state := btx.Bucket(BKTState)
 		if state == nil {
 			return fmt.Errorf("no state bucket")
 		}
@@ -268,8 +311,8 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 		return u, fmt.Errorf("nil input slice")
 	}
 	buf := bytes.NewBuffer(b)
-	if buf.Len() < 52 { // minimum 52 bytes with no pkscript
-		return u, fmt.Errorf("Got %d bytes for sender, expect > 52", buf.Len())
+	if buf.Len() < 52 { // utxos are 52 bytes
+		return u, fmt.Errorf("Got %d bytes for utxo, expect 52", buf.Len())
 	}
 	// read 32 byte txid
 	err := u.Op.Hash.SetBytes(buf.Next(32))
@@ -297,4 +340,94 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 		return u, err
 	}
 	return u, nil
+}
+
+// ToBytes turns an Stxo into some bytes.
+// outpoint txid, outpoint idx, height, key idx, amt, spendheight, spendtxid
+func (s *Stxo) ToBytes() ([]byte, error) {
+	var buf bytes.Buffer
+	// write 32 byte txid of the utxo
+	_, err := buf.Write(s.Op.Hash.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	// write 4 byte outpoint index within the tx to spend
+	err = binary.Write(&buf, binary.BigEndian, s.Op.Index)
+	if err != nil {
+		return nil, err
+	}
+	// write 4 byte height of utxo
+	err = binary.Write(&buf, binary.BigEndian, s.AtHeight)
+	if err != nil {
+		return nil, err
+	}
+	// write 4 byte key index of utxo
+	err = binary.Write(&buf, binary.BigEndian, s.KeyIdx)
+	if err != nil {
+		return nil, err
+	}
+	// write 8 byte amount of money at the utxo
+	err = binary.Write(&buf, binary.BigEndian, s.Value)
+	if err != nil {
+		return nil, err
+	}
+	// write 4 byte height where the txo was spent
+	err = binary.Write(&buf, binary.BigEndian, s.SpendHeight)
+	if err != nil {
+		return nil, err
+	}
+	// write 32 byte txid of the spending transaction
+	_, err = buf.Write(s.SpendTxid.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// StxoFromBytes turns bytes into a Stxo.
+func StxoFromBytes(b []byte) (Stxo, error) {
+	var s Stxo
+	if b == nil {
+		return s, fmt.Errorf("nil input slice")
+	}
+	buf := bytes.NewBuffer(b)
+	if buf.Len() < 88 { // stxos are 88 bytes
+		return s, fmt.Errorf("Got %d bytes for stxo, expect 88", buf.Len())
+	}
+	// read 32 byte txid
+	err := s.Op.Hash.SetBytes(buf.Next(32))
+	if err != nil {
+		return s, err
+	}
+	// read 4 byte outpoint index within the tx to spend
+	err = binary.Read(buf, binary.BigEndian, &s.Op.Index)
+	if err != nil {
+		return s, err
+	}
+	// read 4 byte height of utxo
+	err = binary.Read(buf, binary.BigEndian, &s.AtHeight)
+	if err != nil {
+		return s, err
+	}
+	// read 4 byte key index of utxo
+	err = binary.Read(buf, binary.BigEndian, &s.KeyIdx)
+	if err != nil {
+		return s, err
+	}
+	// read 8 byte amount of money at the utxo
+	err = binary.Read(buf, binary.BigEndian, &s.Value)
+	if err != nil {
+		return s, err
+	}
+	// read 4 byte spend height
+	err = binary.Read(buf, binary.BigEndian, &s.SpendHeight)
+	if err != nil {
+		return s, err
+	}
+	// read 32 byte txid
+	err = s.SpendTxid.SetBytes(buf.Next(32))
+	if err != nil {
+		return s, err
+	}
+	return s, nil
 }

@@ -222,9 +222,18 @@ func (s *SPVCon) AskForTx(txid wire.ShaHash) {
 // We don't have it in our header file so when we get it we do both operations:
 // appending and checking the header, and checking spv proofs
 func (s *SPVCon) AskForBlock(hsh wire.ShaHash) {
+
+	fmt.Printf("mBlockQueue len %d\n", len(s.mBlockQueue))
+	// wait until all mblocks are done before adding
+	for len(s.mBlockQueue) != 0 {
+		//		fmt.Printf("mBlockQueue len %d\n", len(s.mBlockQueue))
+	}
+
 	gdata := wire.NewMsgGetData()
 	inv := wire.NewInvVect(wire.InvTypeFilteredBlock, &hsh)
 	gdata.AddInvVect(inv)
+
+	// TODO - wait until headers are sync'd before checking height
 
 	info, err := s.headerFile.Stat() // get
 	if err != nil {
@@ -437,7 +446,11 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	}
 	fmt.Printf("will request merkleblocks %d to %d\n", current, last)
 	// track number of utxos
-	track := len(s.TS.Utxos)
+	track, err := s.TS.NumUtxos()
+	if err != nil {
+		return err
+	}
+
 	// create initial filter
 	filt, err := s.TS.GimmeFilter()
 	if err != nil {
@@ -454,15 +467,20 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	// loop through all heights where we want merkleblocks.
 	for current < last {
 		// check if we need to update filter... diff of 5 utxos...?
-		if track < len(s.TS.Utxos)-4 || track > len(s.TS.Utxos)+4 {
-			track = len(s.TS.Utxos)
+		nTrack, err := s.TS.NumUtxos()
+		if err != nil {
+			return err
+		}
+
+		if track < nTrack-4 || track > nTrack+4 {
+			track = nTrack
 			filt, err := s.TS.GimmeFilter()
 			if err != nil {
 				return err
 			}
 			s.SendFilter(filt)
 
-			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+			fmt.Printf("sent %d byte filter\n", len(filt.MsgFilterLoad().Filter))
 		}
 
 		// load header from file

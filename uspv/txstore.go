@@ -32,12 +32,21 @@ type TxStore struct {
 }
 
 type Utxo struct { // cash money.
+	Op wire.OutPoint // where
+
 	// all the info needed to spend
 	AtHeight int32  // block height where this tx was confirmed, 0 for unconf
 	KeyIdx   uint32 // index for private key needed to sign / spend
 	Value    int64  // higher is better
 
-	Op wire.OutPoint // where
+	//	IsCoinbase bool          // can't spend for a while
+}
+
+// Stxo is a utxo that has moved on.
+type Stxo struct {
+	Utxo                     // when it used to be a utxo
+	SpendHeight int32        // height at which it met its demise
+	SpendTxid   wire.ShaHash // the tx that consumed it
 }
 
 type MyAdr struct { // an address I have the private key for
@@ -79,7 +88,12 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 		return nil, fmt.Errorf("no addresses to filter for")
 	}
 	// add addresses to look for incoming
-	elem := uint32(len(t.Adrs) + len(t.Utxos))
+	nutxo, err := t.NumUtxos()
+	if err != nil {
+		return nil, err
+	}
+
+	elem := uint32(len(t.Adrs)) + nutxo
 	f := bloom.NewFilter(elem, 0, 0.001, wire.BloomUpdateAll)
 	for _, a := range t.Adrs {
 		f.Add(a.PkhAdr.ScriptAddress())
@@ -121,7 +135,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 	newTxid := tx.TxSha()
 	var hits uint32 // how many outputs of this tx are ours
 	var acq int64   // total acquirement from this tx
-	// check if any of the tx's outputs match my adrs
+	// check if any of the tx's outputs match my known outpoints
 	for i, out := range tx.TxOut { // in each output of tx
 		dup := false // start by assuming its new until found duplicate
 		newOp := wire.NewOutPoint(&newTxid, uint32(i))
@@ -133,7 +147,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				fmt.Printf(" %s is dupe\t", newOp.String())
 				u.AtHeight = height // ONLY difference is height
 				// save modified utxo to db, overwriting old one
-				err := u.SaveToDB(t.StateDB)
+				err := t.SaveUtxo(u)
 				if err != nil {
 					return err
 				}
@@ -145,15 +159,15 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 			// when it matches an address, just go to the next outpoint
 			continue
 		}
+		// check if this is a new txout matching one of my addresses
 		for _, a := range t.Adrs { // compare to each adr we have
 			// check for full script to eliminate false positives
 			aPKscript, err := txscript.PayToAddrScript(a.PkhAdr)
 			if err != nil {
 				return err
 			}
-			// already checked for dupes, this must be a new outpoint
 			if bytes.Equal(out.PkScript, aPKscript) { // hit
-
+				// already checked for dupes, so this must be a new outpoint
 				var newu Utxo
 				newu.AtHeight = height
 				newu.KeyIdx = a.KeyIdx
@@ -163,7 +177,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				newop.Hash = tx.TxSha()
 				newop.Index = uint32(i)
 				newu.Op = newop
-				err = newu.SaveToDB(t.StateDB)
+				err = t.SaveUtxo(&newu)
 				if err != nil {
 					return err
 				}
@@ -193,7 +207,7 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 			if OutPointsEqual(myutxo.Op, in.PreviousOutPoint) {
 				hits++
 				loss += myutxo.Value
-				err := t.MarkSpent(&myutxo.Op, height, tx)
+				err := t.MarkSpent(*myutxo, height, tx)
 				if err != nil {
 					return err
 				}

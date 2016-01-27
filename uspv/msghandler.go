@@ -54,18 +54,14 @@ func (s *SPVCon) incomingMessageHandler() {
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
 				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
 		case *wire.MsgInv:
-			log.Printf("got inv.  Contains:\n")
+			go s.InvHandler(m)
+
+		case *wire.MsgNotFound:
+			log.Printf("Got not found response from remote:")
 			for i, thing := range m.InvList {
-				log.Printf("\t%d)%s : %s",
-					i, thing.Type.String(), thing.Hash.String())
-				if thing.Type == wire.InvTypeTx { // new tx, ingest
-					s.TS.OKTxids[thing.Hash] = 0 // unconfirmed
-					s.AskForTx(thing.Hash)
-				}
-				if thing.Type == wire.InvTypeBlock { // new block, ingest
-					s.AskForBlock(thing.Hash)
-				}
+				log.Printf("\t$d) %s: %s", i, thing.Type, thing.Hash)
 			}
+
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}
@@ -85,4 +81,19 @@ func (s *SPVCon) outgoingMessageHandler() {
 		s.WBytes += uint64(n)
 	}
 	return
+}
+
+func (s *SPVCon) InvHandler(m *wire.MsgInv) {
+	log.Printf("got inv.  Contains:\n")
+	for i, thing := range m.InvList {
+		log.Printf("\t%d)%s : %s",
+			i, thing.Type.String(), thing.Hash.String())
+		if thing.Type == wire.InvTypeTx { // new tx, ingest
+			s.TS.OKTxids[thing.Hash] = 0 // unconfirmed
+			s.AskForTx(thing.Hash)
+		}
+		if thing.Type == wire.InvTypeBlock { // new block, ingest
+			s.AskForBlock(thing.Hash)
+		}
+	}
 }

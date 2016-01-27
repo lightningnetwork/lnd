@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/globalconfig"
 )
 
 const (
@@ -28,11 +29,16 @@ var (
 	btcdHost = flag.String("btcdhost", "localhost:18334", "The BTCD RPC address. ")
 	btcdUser = flag.String("btcduser", btcdUserInitial, "The BTCD RPC user")
 	btcdPass = flag.String("btcdpass", btcdPassInitial, "The BTCD RPC password")
+	useTestNet3 = flag.Bool("testnet3", false, "Use TestNet3. If not specified RegNet is used")
 )
 
 func main() {
 	flag.Parse()
-
+	if *useTestNet3{
+		globalconfig.NetParams = &chaincfg.TestNet3Params
+	} else {
+		globalconfig.NetParams = &chaincfg.RegressionNetParams
+	}
 	go func() {
 		listenAddr := net.JoinHostPort("", "5009")
 		profileRedirect := http.RedirectHandler("/debug/pprof",
@@ -82,7 +88,7 @@ func main() {
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	defaultListenAddr := []string{net.JoinHostPort("", *peerPort)}
-	server, err := newServer(defaultListenAddr, &chaincfg.TestNet3Params,
+	server, err := newServer(defaultListenAddr, globalconfig.NetParams,
 		lnwallet)
 	if err != nil {
 		fmt.Printf("unable to create server: %v\n", err)

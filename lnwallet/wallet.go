@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -28,6 +27,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/globalconfig"
 )
 
 const (
@@ -43,7 +43,7 @@ var (
 
 	// Which bitcoin network are we using?
 	// TODO(roasbeef): config
-	ActiveNetParams = &chaincfg.RegressionNetParams
+	ActiveNetParams = globalconfig.NetParams
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")

@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/globalconfig"
 )
 
 // lnAddr...
@@ -73,14 +73,14 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 		// got pubey, populate address from pubkey
 		pkh := btcutil.Hash160(addr.PubKey.SerializeCompressed())
 		addr.Base58Adr, err = btcutil.NewAddressPubKeyHash(pkh,
-			&chaincfg.TestNet3Params)
+			globalconfig.NetParams)
 		if err != nil {
 			return nil, err
 		}
 	// Is the ID a string encoded bitcoin address?
 	case idLen > 33 && idLen < 37:
 		addr.Base58Adr, err = btcutil.DecodeAddress(idHost[0],
-			&chaincfg.TestNet3Params)
+			globalconfig.NetParams)
 		if err != nil {
 			return nil, err
 		}
@@ -119,13 +119,13 @@ func (l *LNAdr) Deserialize(s []byte) error {
 
 		l.Base58Adr, err = btcutil.NewAddressPubKeyHash(
 			btcutil.Hash160(l.PubKey.SerializeCompressed()),
-			&chaincfg.TestNet3Params)
+			globalconfig.NetParams)
 		if err != nil {
 			return err
 		}
 	} else if x == 0xa0 { // for pubkeyhash storage
 		l.Base58Adr, err = btcutil.NewAddressPubKeyHash(
-			b.Next(20), &chaincfg.TestNet3Params)
+			b.Next(20), globalconfig.NetParams)
 		if err != nil {
 			return err
 		}

@@ -3,6 +3,7 @@ package uspv
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -106,8 +107,32 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 		log.Printf("Header error: %s\n", err.Error())
 		return
 	}
+	// if we got post DB syncheight headers, get merkleblocks for them
+	// this is always true except for first pre-birthday sync
+	syncTip, err := s.TS.GetDBSyncHeight()
+	if err != nil {
+		log.Printf("Header error: %s", err.Error())
+		return
+	}
+	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
+	if err != nil {
+		log.Printf("Header error: %s", err.Error())
+		return
+	}
+	tip := int32(endPos/80) - 1 // move back 1 header length to read
+
+	// checked header lenght, start req for more if needed
 	if moar {
 		s.AskForHeaders()
+	}
+
+	if syncTip < tip {
+		fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
+		err = s.AskForMerkBlocks(syncTip, tip)
+		if err != nil {
+			log.Printf("AskForMerkBlocks error: %s", err.Error())
+			return
+		}
 	}
 }
 
@@ -120,6 +145,9 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 		log.Printf("tx %s had no hits, filter false positive.",
 			m.TxSha().String())
 		s.fPositives <- 1 // add one false positive to chan
+	} else {
+		log.Printf("tx %s ingested and matches utxo/adrs.",
+			m.TxSha().String())
 	}
 }
 
@@ -135,7 +163,10 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 		if thing.Type == wire.InvTypeBlock { // new block, ingest
 			if len(s.mBlockQueue) == 0 {
 				// don't ask directly; instead ask for header
-				s.AskForHeaders()
+				fmt.Printf("asking for headers due to inv block\n")
+				//				s.AskForHeaders()
+			} else {
+				fmt.Printf("inv block but ignoring, not synched\n")
 			}
 		}
 	}

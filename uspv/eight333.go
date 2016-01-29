@@ -394,21 +394,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		}
 	}
 	log.Printf("Headers to height %d OK.", tip)
-	// if we got post DB syncheight headers, get merkleblocks for them
-	// this is always true except for first pre-birthday sync
 
-	syncTip, err := s.TS.GetDBSyncHeight()
-	if err != nil {
-		return false, err
-	}
-
-	if syncTip < tip {
-		fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
-		err = s.AskForMerkBlocks(syncTip, tip)
-		if err != nil {
-			return false, err
-		}
-	}
 	return true, nil
 }
 
@@ -492,7 +478,7 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	s.SendFilter(filt)
 	fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
 
-	_, err = s.headerFile.Seek(int64(current*80), os.SEEK_SET)
+	_, err = s.headerFile.Seek(int64((current-1)*80), os.SEEK_SET)
 	if err != nil {
 		return err
 	}
@@ -501,6 +487,7 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		// load header from file
 		err = hdr.Deserialize(s.headerFile)
 		if err != nil {
+			log.Printf("Deserialize err\n")
 			return err
 		}
 
@@ -518,10 +505,8 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		s.mBlockQueue <- hah // push height and mroot of requested block on queue
 		current++
 	}
-	fmt.Printf("mblock reqs done, more headers\n")
-
 	// done syncing blocks known in header file, ask for new headers we missed
-	s.AskForHeaders()
-
+	//	s.AskForHeaders()
+	// don't need this -- will sync to end regardless
 	return nil
 }

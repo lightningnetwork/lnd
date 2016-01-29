@@ -77,7 +77,7 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 	if txid == nil {
 		return fmt.Errorf("tried to add nil txid")
 	}
-	log.Printf("added %s at height %d\n", txid.String(), height)
+	log.Printf("added %s to OKTxids at height %d\n", txid.String(), height)
 	t.OKTxids[*txid] = height
 	return nil
 }
@@ -94,7 +94,7 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	}
 
 	elem := uint32(len(t.Adrs)) + nutxo
-	f := bloom.NewFilter(elem, 0, 0.001, wire.BloomUpdateAll)
+	f := bloom.NewFilter(elem, 0, 0.000001, wire.BloomUpdateAll)
 	for _, a := range t.Adrs {
 		f.Add(a.PkhAdr.ScriptAddress())
 	}
@@ -107,30 +107,35 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 }
 
 // Ingest a tx into wallet, dealing with both gains and losses
-func (t *TxStore) AckTx(tx *wire.MsgTx) error {
+func (t *TxStore) AckTx(tx *wire.MsgTx) (uint32, error) {
+	var ioHits uint32 // number of utxos changed due to this tx
+
 	inTxid := tx.TxSha()
 	height, ok := t.OKTxids[inTxid]
 	if !ok {
-		log.Printf("False postive tx? %s", TxToString(tx))
-		return fmt.Errorf("we don't care about tx %s", inTxid.String())
+		log.Printf("%s", TxToString(tx))
+		return 0, fmt.Errorf("tx %s not in OKTxids.", inTxid.String())
 	}
+	delete(t.OKTxids, inTxid) // don't need anymore
+	hitsGained, err := t.AbsorbTx(tx, height)
+	if err != nil {
+		return 0, err
+	}
+	hitsLost, err := t.ExpellTx(tx, height)
+	if err != nil {
+		return 0, err
+	}
+	ioHits = hitsGained + hitsLost
 
-	err := t.AbsorbTx(tx, height)
-	if err != nil {
-		return err
-	}
-	err = t.ExpellTx(tx, height)
-	if err != nil {
-		return err
-	}
 	//	fmt.Printf("ingested tx %s total amt %d\n", inTxid.String(), t.Sum)
-	return nil
+	return ioHits, nil
 }
 
-// Absorb money into wallet from a tx
-func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
+// AbsorbTx Absorbs money into wallet from a tx. returns number of
+// new utxos absorbed.
+func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) (uint32, error) {
 	if tx == nil {
-		return fmt.Errorf("Tried to add nil tx")
+		return 0, fmt.Errorf("Tried to add nil tx")
 	}
 	newTxid := tx.TxSha()
 	var hits uint32 // how many outputs of this tx are ours
@@ -145,11 +150,12 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 			dup = OutPointsEqual(*newOp, u.Op) // is this outpoint known?
 			if dup {                           // found dupe
 				fmt.Printf(" %s is dupe\t", newOp.String())
+				hits++              // thought a dupe, still a hit
 				u.AtHeight = height // ONLY difference is height
 				// save modified utxo to db, overwriting old one
 				err := t.SaveUtxo(u)
 				if err != nil {
-					return err
+					return 0, err
 				}
 				break // out of the t.Utxo range loop
 			}
@@ -164,7 +170,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 			// check for full script to eliminate false positives
 			aPKscript, err := txscript.PayToAddrScript(a.PkhAdr)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			if bytes.Equal(out.PkScript, aPKscript) { // hit
 				// already checked for dupes, so this must be a new outpoint
@@ -179,7 +185,7 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 				newu.Op = newop
 				err = t.SaveUtxo(&newu)
 				if err != nil {
-					return err
+					return 0, err
 				}
 
 				acq += out.Value
@@ -189,15 +195,15 @@ func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) error {
 			}
 		}
 	}
-	log.Printf("%d hits, acquired %d", hits, acq)
+	//	log.Printf("%d hits, acquired %d", hits, acq)
 	t.Sum += acq
-	return nil
+	return hits, nil
 }
 
 // Expell money from wallet due to a tx
-func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
+func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) (uint32, error) {
 	if tx == nil {
-		return fmt.Errorf("Tried to add nil tx")
+		return 0, fmt.Errorf("Tried to add nil tx")
 	}
 	var hits uint32
 	var loss int64
@@ -209,16 +215,16 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) error {
 				loss += myutxo.Value
 				err := t.MarkSpent(*myutxo, height, tx)
 				if err != nil {
-					return err
+					return 0, err
 				}
 				// delete from my in-ram utxo set
 				t.Utxos = append(t.Utxos[:i], t.Utxos[i+1:]...)
 			}
 		}
 	}
-	log.Printf("%d hits, lost %d", hits, loss)
+	//	log.Printf("%d hits, lost %d", hits, loss)
 	t.Sum -= loss
-	return nil
+	return hits, nil
 }
 
 // need this because before I was comparing pointers maybe?

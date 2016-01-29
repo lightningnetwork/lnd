@@ -1,6 +1,7 @@
 package uspv
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/btcsuite/btcd/wire"
@@ -25,7 +26,7 @@ func (s *SPVCon) incomingMessageHandler() {
 		case *wire.MsgAddr:
 			log.Printf("got %d addresses.\n", len(m.AddrList))
 		case *wire.MsgPing:
-			log.Printf("Got a ping message.  We should pong back or they will kick us off.")
+			// log.Printf("Got a ping message.  We should pong back or they will kick us off.")
 			s.PongBack(m.Nonce)
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
@@ -45,9 +46,15 @@ func (s *SPVCon) incomingMessageHandler() {
 				s.AskForHeaders()
 			}
 		case *wire.MsgTx:
-			err := s.TS.AckTx(m)
+			hits, err := s.TS.AckTx(m)
 			if err != nil {
 				log.Printf("Incoming Tx error: %s\n", err.Error())
+				continue
+			}
+			if hits == 0 {
+				log.Printf("tx %s had no hits, filter false positive.",
+					m.TxSha().String())
+				s.fPositives <- 1 // add one false positive to chan
 			}
 		//			log.Printf("Got tx %s\n", m.TxSha().String())
 		case *wire.MsgReject:
@@ -83,6 +90,34 @@ func (s *SPVCon) outgoingMessageHandler() {
 	return
 }
 
+// fPositiveHandler monitors false positives and when it gets enough of them,
+//
+func (s *SPVCon) fPositiveHandler() {
+	var fpAccumulator int32
+	for {
+		fpAccumulator += <-s.fPositives // blocks here
+		if fpAccumulator > 7 {
+			filt, err := s.TS.GimmeFilter()
+			if err != nil {
+				log.Printf("Filter creation error: %s\n", err.Error())
+				log.Printf("uhoh, crashing filter handler")
+				return
+			}
+
+			// send filter
+			s.SendFilter(filt)
+			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+			// clear the channel
+			for len(s.fPositives) != 0 {
+				fpAccumulator += <-s.fPositives
+			}
+			fmt.Printf("reset %d false positives\n", fpAccumulator)
+			// reset accumulator
+			fpAccumulator = 0
+		}
+	}
+}
+
 func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 	log.Printf("got inv.  Contains:\n")
 	for i, thing := range m.InvList {
@@ -93,7 +128,10 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 			s.AskForTx(thing.Hash)
 		}
 		if thing.Type == wire.InvTypeBlock { // new block, ingest
-			s.AskForBlock(thing.Hash)
+			if len(s.mBlockQueue) == 0 {
+				// don't ask directly; instead ask for header
+				s.AskForHeaders()
+			}
 		}
 	}
 }

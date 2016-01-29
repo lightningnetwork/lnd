@@ -17,8 +17,9 @@ var (
 	BKTStxos = []byte("SpentTxs")  // for bookkeeping
 	BKTTxns  = []byte("Txns")      // all txs we care about, for replays
 	BKTState = []byte("MiscState") // last state of DB
-
-	KEYNumKeys = []byte("NumKeys") // number of keys used
+	// these are in the state bucket
+	KEYNumKeys   = []byte("NumKeys")   // number of keys used
+	KEYTipHeight = []byte("TipHeight") // height synced to
 )
 
 func (ts *TxStore) OpenDB(filename string) error {
@@ -75,8 +76,8 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 
 	// write to db file
 	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
-		stt := btx.Bucket(BKTState)
-		return stt.Put(KEYNumKeys, buf.Bytes())
+		sta := btx.Bucket(BKTState)
+		return sta.Put(KEYNumKeys, buf.Bytes())
 	})
 	if err != nil {
 		return nil, err
@@ -84,6 +85,44 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	// add in to ram.
 	ts.AddAdr(newAdr, n)
 	return newAdr, nil
+}
+
+// SetBDay sets the birthday (birth height) of the db (really keyfile)
+func (ts *TxStore) SetDBSyncHeight(n int32) error {
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.BigEndian, n)
+
+	return ts.StateDB.Update(func(btx *bolt.Tx) error {
+		sta := btx.Bucket(BKTState)
+		return sta.Put(KEYTipHeight, buf.Bytes())
+	})
+}
+
+// SyncHeight returns the chain height to which the db has synced
+func (ts *TxStore) GetDBSyncHeight() (int32, error) {
+	var n int32
+	err := ts.StateDB.View(func(btx *bolt.Tx) error {
+		sta := btx.Bucket(BKTState)
+		if sta == nil {
+			return fmt.Errorf("no state")
+		}
+		t := sta.Get(KEYTipHeight)
+
+		if t == nil { // no height written, so 0
+			return nil
+		}
+
+		// read 4 byte tip height to n
+		err := binary.Read(bytes.NewBuffer(t), binary.BigEndian, &n)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // NumUtxos returns the number of utxos in the DB.
@@ -125,17 +164,22 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 
 // SaveToDB write a utxo to disk, overwriting an old utxo of the same outpoint
 func (ts *TxStore) SaveUtxo(u *Utxo) error {
-	err := ts.StateDB.Update(func(btx *bolt.Tx) error {
+	b, err := u.ToBytes()
+	if err != nil {
+		return err
+	}
+
+	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
 		duf := btx.Bucket(BKTUtxos)
-		b, err := u.ToBytes()
-		if err != nil {
-			return err
+		sta := btx.Bucket(BKTState)
+		// kindof hack, height is 36:40
+		// also not really tip height...
+		if u.AtHeight > 0 { // if confirmed
+			err = sta.Put(KEYTipHeight, b[36:40])
+			if err != nil {
+				return err
+			}
 		}
-		// don't check for dupes here, check in AbsorbTx(). here overwrite.
-		//		if duf.Get(b[:36]) != nil { // already have tx
-		//			dupe = true
-		//			return nil
-		//		}
 
 		// key : val is txid:everything else
 		return duf.Put(b[:36], b[36:])
@@ -207,12 +251,12 @@ func (ts *TxStore) LoadFromDB() error {
 		if spent == nil {
 			return fmt.Errorf("no spenttx bucket")
 		}
-		state := btx.Bucket(BKTState)
-		if state == nil {
+		sta := btx.Bucket(BKTState)
+		if sta == nil {
 			return fmt.Errorf("no state bucket")
 		}
 		// first populate addresses from state bucket
-		numKeysBytes := state.Get(KEYNumKeys)
+		numKeysBytes := sta.Get(KEYNumKeys)
 		if numKeysBytes != nil { // NumKeys exists, read into uint32
 			buf := bytes.NewBuffer(numKeysBytes)
 			var numKeys uint32

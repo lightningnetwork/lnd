@@ -401,7 +401,9 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	if syncTip < tip {
+		fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
 		err = s.AskForMerkBlocks(syncTip, tip)
 		if err != nil {
 			return false, err
@@ -451,6 +453,18 @@ func (s *SPVCon) GetNextHeaderHeight() (int32, error) {
 	return nextHeight, nil
 }
 
+func (s *SPVCon) RemoveHeaders(r int32) error {
+	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
+	if err != nil {
+		return err
+	}
+	err = s.headerFile.Truncate(endPos - int64(r*80))
+	if err != nil {
+		return fmt.Errorf("couldn't truncate header file")
+	}
+	return nil
+}
+
 // AskForMerkBlocks requests blocks from current to last
 // right now this asks for 1 block per getData message.
 // Maybe it's faster to ask for many in a each message?
@@ -464,8 +478,8 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 
 	fmt.Printf("have headers up to height %d\n", nextHeight-1)
 	// if last is 0, that means go as far as we can
-	if last == 0 {
-		last = nextHeight - 1
+	if last < current {
+		return fmt.Errorf("MBlock range %d < %d\n", last, current)
 	}
 	fmt.Printf("will request merkleblocks %d to %d\n", current, last)
 
@@ -483,9 +497,7 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		return err
 	}
 	// loop through all heights where we want merkleblocks.
-	for current < last {
-		// check if we need to update filter... diff of 5 utxos...?
-
+	for current <= last {
 		// load header from file
 		err = hdr.Deserialize(s.headerFile)
 		if err != nil {
@@ -506,6 +518,8 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 		s.mBlockQueue <- hah // push height and mroot of requested block on queue
 		current++
 	}
+	fmt.Printf("mblock reqs done, more headers\n")
+
 	// done syncing blocks known in header file, ask for new headers we missed
 	s.AskForHeaders()
 

@@ -27,7 +27,7 @@ func (s *SPVCon) incomingMessageHandler() {
 			log.Printf("got %d addresses.\n", len(m.AddrList))
 		case *wire.MsgPing:
 			// log.Printf("Got a ping message.  We should pong back or they will kick us off.")
-			s.PongBack(m.Nonce)
+			go s.PongBack(m.Nonce)
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
 		case *wire.MsgMerkleBlock:
@@ -37,32 +37,14 @@ func (s *SPVCon) incomingMessageHandler() {
 				continue
 			}
 		case *wire.MsgHeaders:
-			moar, err := s.IngestHeaders(m)
-			if err != nil {
-				log.Printf("Header error: %s\n", err.Error())
-				return
-			}
-			if moar {
-				s.AskForHeaders()
-			}
+			go s.HeaderHandler(m)
 		case *wire.MsgTx:
-			hits, err := s.TS.AckTx(m)
-			if err != nil {
-				log.Printf("Incoming Tx error: %s\n", err.Error())
-				continue
-			}
-			if hits == 0 {
-				log.Printf("tx %s had no hits, filter false positive.",
-					m.TxSha().String())
-				s.fPositives <- 1 // add one false positive to chan
-			}
-		//			log.Printf("Got tx %s\n", m.TxSha().String())
+			go s.TxHandler(m)
 		case *wire.MsgReject:
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
 				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
 		case *wire.MsgInv:
 			go s.InvHandler(m)
-
 		case *wire.MsgNotFound:
 			log.Printf("Got not found response from remote:")
 			for i, thing := range m.InvList {
@@ -115,6 +97,29 @@ func (s *SPVCon) fPositiveHandler() {
 			// reset accumulator
 			fpAccumulator = 0
 		}
+	}
+}
+
+func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
+	moar, err := s.IngestHeaders(m)
+	if err != nil {
+		log.Printf("Header error: %s\n", err.Error())
+		return
+	}
+	if moar {
+		s.AskForHeaders()
+	}
+}
+
+func (s *SPVCon) TxHandler(m *wire.MsgTx) {
+	hits, err := s.TS.AckTx(m)
+	if err != nil {
+		log.Printf("Incoming Tx error: %s\n", err.Error())
+	}
+	if hits == 0 {
+		log.Printf("tx %s had no hits, filter false positive.",
+			m.TxSha().String())
+		s.fPositives <- 1 // add one false positive to chan
 	}
 }
 

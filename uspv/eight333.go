@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
@@ -24,8 +25,10 @@ const (
 )
 
 type SPVCon struct {
-	con        net.Conn // the (probably tcp) connection to the node
-	headerFile *os.File // file for SPV headers
+	con net.Conn // the (probably tcp) connection to the node
+
+	headerMutex sync.Mutex
+	headerFile  *os.File // file for SPV headers
 
 	//[doesn't work without fancy mutexes, nevermind, just use header file]
 	// localHeight   int32  // block height we're on
@@ -182,6 +185,8 @@ func (s *SPVCon) HeightFromHeader(query wire.BlockHeader) (uint32, error) {
 	// happened recently.
 
 	// seek to last header
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
 	lastPos, err := s.headerFile.Seek(-80, os.SEEK_END)
 	if err != nil {
 		return 0, err
@@ -226,6 +231,8 @@ func (s *SPVCon) AskForTx(txid wire.ShaHash) {
 // We don't have it in our header file so when we get it we do both operations:
 // appending and checking the header, and checking spv proofs
 func (s *SPVCon) AskForBlock(hsh wire.ShaHash) {
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
 
 	gdata := wire.NewMsgGetData()
 	inv := wire.NewInvVect(wire.InvTypeFilteredBlock, &hsh)
@@ -241,9 +248,13 @@ func (s *SPVCon) AskForBlock(hsh wire.ShaHash) {
 	fmt.Printf("AskForBlock - %s height %d\n", hsh.String(), nextHeight)
 	s.mBlockQueue <- hah   // push height and mroot of requested block on queue
 	s.outMsgQueue <- gdata // push request to outbox
+	return
 }
 
 func (s *SPVCon) AskForHeaders() error {
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
+
 	var hdr wire.BlockHeader
 	ghdr := wire.NewMsgGetHeaders()
 	ghdr.ProtocolVersion = s.localVersion
@@ -319,6 +330,9 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 // it assumes we're done and returns false.  If it worked it assumes there's
 // more to request and returns true.
 func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
+
 	var err error
 	// seek to last header
 	_, err = s.headerFile.Seek(-80, os.SEEK_END)
@@ -431,6 +445,8 @@ func (s *SPVCon) PushTx(tx *wire.MsgTx) error {
 }
 
 func (s *SPVCon) GetNextHeaderHeight() (int32, error) {
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
 	info, err := s.headerFile.Stat() // get
 	if err != nil {
 		return 0, err // crash if header file disappears
@@ -477,6 +493,9 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	// send filter
 	s.SendFilter(filt)
 	fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+
+	s.headerMutex.Lock()
+	defer s.headerMutex.Unlock()
 
 	_, err = s.headerFile.Seek(int64((current-1)*80), os.SEEK_SET)
 	if err != nil {

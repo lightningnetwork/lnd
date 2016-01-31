@@ -39,8 +39,8 @@ func (s *SPVCon) incomingMessageHandler() {
 			}
 		case *wire.MsgHeaders:
 			go s.HeaderHandler(m)
-		case *wire.MsgTx:
-			go s.TxHandler(m)
+		case *wire.MsgTx: // can't be concurrent! out of order kills
+			s.TxHandler(m)
 		case *wire.MsgReject:
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
 				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
@@ -137,7 +137,7 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 }
 
 func (s *SPVCon) TxHandler(m *wire.MsgTx) {
-	hits, err := s.TS.AckTx(m)
+	hits, err := s.TS.Ingest(m)
 	if err != nil {
 		log.Printf("Incoming Tx error: %s\n", err.Error())
 	}
@@ -146,8 +146,8 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 			m.TxSha().String())
 		s.fPositives <- 1 // add one false positive to chan
 	} else {
-		log.Printf("tx %s ingested and matches utxo/adrs.",
-			m.TxSha().String())
+		log.Printf("tx %s ingested and matches utxo/adrs. sum %d",
+			m.TxSha().String(), s.TS.Sum)
 	}
 }
 

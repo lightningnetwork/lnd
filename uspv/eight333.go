@@ -402,7 +402,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 			}
 			// probably should disconnect from spv node at this point,
 			// since they're giving us invalid headers.
-			return false, fmt.Errorf(
+			return true, fmt.Errorf(
 				"Header %d - %s doesn't fit, dropping 100 headers.",
 				resphdr.BlockSha().String(), tip)
 		}
@@ -436,7 +436,7 @@ func (s *SPVCon) PushTx(tx *wire.MsgTx) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.TS.AckTx(tx) // our own tx so don't need to track relevance
+	_, err = s.TS.Ingest(tx) // our own tx so don't need to track relevance
 	if err != nil {
 		return err
 	}

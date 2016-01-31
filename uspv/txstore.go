@@ -98,8 +98,14 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	for _, a := range t.Adrs {
 		f.Add(a.PkhAdr.ScriptAddress())
 	}
-	// add txids of utxos to look for outgoing
-	for _, u := range t.Utxos {
+
+	// get all utxos to add outpoints to filter
+	allUtxos, err := t.GetAllUtxos()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, u := range allUtxos {
 		f.AddOutPoint(&u.Op)
 	}
 
@@ -107,7 +113,7 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 }
 
 // Ingest a tx into wallet, dealing with both gains and losses
-func (t *TxStore) AckTx(tx *wire.MsgTx) (uint32, error) {
+func (t *TxStore) AckTxz(tx *wire.MsgTx) (uint32, error) {
 	var ioHits uint32 // number of utxos changed due to this tx
 
 	inTxid := tx.TxSha()

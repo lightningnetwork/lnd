@@ -246,8 +246,9 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 				nUtxoBytes = append(nUtxoBytes, b)
 				ts.Sum += newu.Value
 				hits++
+				break // only one match
 			}
-			break // only one match
+
 		}
 	}
 

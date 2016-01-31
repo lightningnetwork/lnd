@@ -230,7 +230,7 @@ func (s *SPVCon) AskForTx(txid wire.ShaHash) {
 // AskForBlock requests a merkle block we heard about from an inv message.
 // We don't have it in our header file so when we get it we do both operations:
 // appending and checking the header, and checking spv proofs
-func (s *SPVCon) AskForBlock(hsh wire.ShaHash) {
+func (s *SPVCon) AskForBlockx(hsh wire.ShaHash) {
 	s.headerMutex.Lock()
 	defer s.headerMutex.Unlock()
 
@@ -493,7 +493,6 @@ func (s *SPVCon) AskForMerkBlocks(current, last int32) error {
 	// send filter
 	s.SendFilter(filt)
 	fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
-
 	s.headerMutex.Lock()
 	defer s.headerMutex.Unlock()
 

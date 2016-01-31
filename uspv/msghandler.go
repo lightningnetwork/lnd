@@ -37,9 +37,9 @@ func (s *SPVCon) incomingMessageHandler() {
 				log.Printf("Merkle block error: %s\n", err.Error())
 				continue
 			}
-		case *wire.MsgHeaders:
+		case *wire.MsgHeaders: // concurrent because we keep asking for blocks
 			go s.HeaderHandler(m)
-		case *wire.MsgTx: // can't be concurrent! out of order kills
+		case *wire.MsgTx: // not concurrent! txs must be in order
 			s.TxHandler(m)
 		case *wire.MsgReject:
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
@@ -109,29 +109,32 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 	}
 	// if we got post DB syncheight headers, get merkleblocks for them
 	// this is always true except for first pre-birthday sync
-	syncTip, err := s.TS.GetDBSyncHeight()
-	if err != nil {
-		log.Printf("Header error: %s", err.Error())
-		return
-	}
-	endPos, err := s.headerFile.Seek(0, os.SEEK_END)
-	if err != nil {
-		log.Printf("Header error: %s", err.Error())
-		return
-	}
-	tip := int32(endPos/80) - 1 // move back 1 header length to read
 
-	// checked header lenght, start req for more if needed
+	// checked header length, start req for more if needed
 	if moar {
 		s.AskForHeaders()
-	}
-
-	if syncTip < tip {
-		fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
-		err = s.AskForMerkBlocks(syncTip, tip)
+	} else { // no moar, done w/ headers, get merkleblocks
+		fmt.Printf("locks here...?? ")
+		s.headerMutex.Lock()
+		endPos, err := s.headerFile.Seek(0, os.SEEK_END)
 		if err != nil {
-			log.Printf("AskForMerkBlocks error: %s", err.Error())
+			log.Printf("Header error: %s", err.Error())
 			return
+		}
+		s.headerMutex.Unlock()
+		tip := int32(endPos/80) - 1 // move back 1 header length to read
+		syncTip, err := s.TS.GetDBSyncHeight()
+		if err != nil {
+			log.Printf("syncTip error: %s", err.Error())
+			return
+		}
+		if syncTip < tip {
+			fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
+			err = s.AskForMerkBlocks(syncTip+1, tip)
+			if err != nil {
+				log.Printf("AskForMerkBlocks error: %s", err.Error())
+				return
+			}
 		}
 	}
 }
@@ -164,7 +167,7 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 			if len(s.mBlockQueue) == 0 {
 				// don't ask directly; instead ask for header
 				fmt.Printf("asking for headers due to inv block\n")
-				//				s.AskForHeaders()
+				s.AskForHeaders()
 			} else {
 				fmt.Printf("inv block but ignoring, not synched\n")
 			}

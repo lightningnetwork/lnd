@@ -1,11 +1,8 @@
 package uspv
 
 import (
-	"bytes"
 	"fmt"
 	"log"
-
-	"github.com/btcsuite/btcd/txscript"
 
 	"github.com/btcsuite/btcd/chaincfg"
 
@@ -110,127 +107,6 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	}
 
 	return f, nil
-}
-
-// Ingest a tx into wallet, dealing with both gains and losses
-func (t *TxStore) AckTxz(tx *wire.MsgTx) (uint32, error) {
-	var ioHits uint32 // number of utxos changed due to this tx
-
-	inTxid := tx.TxSha()
-	height, ok := t.OKTxids[inTxid]
-	if !ok {
-		log.Printf("%s", TxToString(tx))
-		return 0, fmt.Errorf("tx %s not in OKTxids.", inTxid.String())
-	}
-	delete(t.OKTxids, inTxid) // don't need anymore
-	hitsGained, err := t.AbsorbTx(tx, height)
-	if err != nil {
-		return 0, err
-	}
-	hitsLost, err := t.ExpellTx(tx, height)
-	if err != nil {
-		return 0, err
-	}
-	ioHits = hitsGained + hitsLost
-
-	//	fmt.Printf("ingested tx %s total amt %d\n", inTxid.String(), t.Sum)
-	return ioHits, nil
-}
-
-// AbsorbTx Absorbs money into wallet from a tx. returns number of
-// new utxos absorbed.
-func (t *TxStore) AbsorbTx(tx *wire.MsgTx, height int32) (uint32, error) {
-	if tx == nil {
-		return 0, fmt.Errorf("Tried to add nil tx")
-	}
-	newTxid := tx.TxSha()
-	var hits uint32 // how many outputs of this tx are ours
-	var acq int64   // total acquirement from this tx
-	// check if any of the tx's outputs match my known outpoints
-	for i, out := range tx.TxOut { // in each output of tx
-		dup := false // start by assuming its new until found duplicate
-		newOp := wire.NewOutPoint(&newTxid, uint32(i))
-		// first look for dupes -- already known outpoints.
-		// if we find a dupe here overwrite it to the DB.
-		for _, u := range t.Utxos {
-			dup = OutPointsEqual(*newOp, u.Op) // is this outpoint known?
-			if dup {                           // found dupe
-				fmt.Printf(" %s is dupe\t", newOp.String())
-				hits++              // thought a dupe, still a hit
-				u.AtHeight = height // ONLY difference is height
-				// save modified utxo to db, overwriting old one
-				err := t.SaveUtxo(u)
-				if err != nil {
-					return 0, err
-				}
-				break // out of the t.Utxo range loop
-			}
-		}
-		if dup {
-			// if we found the outpoint to be a dup above, don't add it again
-			// when it matches an address, just go to the next outpoint
-			continue
-		}
-		// check if this is a new txout matching one of my addresses
-		for _, a := range t.Adrs { // compare to each adr we have
-			// check for full script to eliminate false positives
-			aPKscript, err := txscript.PayToAddrScript(a.PkhAdr)
-			if err != nil {
-				return 0, err
-			}
-			if bytes.Equal(out.PkScript, aPKscript) { // hit
-				// already checked for dupes, so this must be a new outpoint
-				var newu Utxo
-				newu.AtHeight = height
-				newu.KeyIdx = a.KeyIdx
-				newu.Value = out.Value
-
-				var newop wire.OutPoint
-				newop.Hash = tx.TxSha()
-				newop.Index = uint32(i)
-				newu.Op = newop
-				err = t.SaveUtxo(&newu)
-				if err != nil {
-					return 0, err
-				}
-
-				acq += out.Value
-				hits++
-				t.Utxos = append(t.Utxos, &newu) // always add new utxo
-				break
-			}
-		}
-	}
-	//	log.Printf("%d hits, acquired %d", hits, acq)
-	t.Sum += acq
-	return hits, nil
-}
-
-// Expell money from wallet due to a tx
-func (t *TxStore) ExpellTx(tx *wire.MsgTx, height int32) (uint32, error) {
-	if tx == nil {
-		return 0, fmt.Errorf("Tried to add nil tx")
-	}
-	var hits uint32
-	var loss int64
-
-	for _, in := range tx.TxIn {
-		for i, myutxo := range t.Utxos {
-			if OutPointsEqual(myutxo.Op, in.PreviousOutPoint) {
-				hits++
-				loss += myutxo.Value
-				err := t.MarkSpent(*myutxo, height, tx)
-				if err != nil {
-					return 0, err
-				}
-				// delete from my in-ram utxo set
-				t.Utxos = append(t.Utxos[:i], t.Utxos[i+1:]...)
-			}
-		}
-	}
-	//	log.Printf("%d hits, lost %d", hits, loss)
-	t.Sum -= loss
-	return hits, nil
 }
 
 // need this because before I was comparing pointers maybe?

@@ -76,11 +76,11 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	s.localVersion = VERSION
 
 	// transaction store for this SPV connection
+	inTs.Param = p
 	err = inTs.OpenDB(tsfn)
 	if err != nil {
 		return s, err
 	}
-	inTs.Param = p
 	s.TS = inTs // copy pointer of txstore into spvcon
 
 	myMsgVer, err := wire.NewMsgVersionFromConn(s.con, 0, 0)

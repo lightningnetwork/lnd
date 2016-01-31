@@ -114,7 +114,6 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 	if moar {
 		s.AskForHeaders()
 	} else { // no moar, done w/ headers, get merkleblocks
-		fmt.Printf("locks here...?? ")
 		s.headerMutex.Lock()
 		endPos, err := s.headerFile.Seek(0, os.SEEK_END)
 		if err != nil {
@@ -164,7 +163,7 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 			s.AskForTx(thing.Hash)
 		}
 		if thing.Type == wire.InvTypeBlock { // new block, ingest
-			if len(s.mBlockQueue) == 0 {
+			if len(s.mBlockQueue) == 0 { // this is not a good check...
 				// don't ask directly; instead ask for header
 				fmt.Printf("asking for headers due to inv block\n")
 				s.AskForHeaders()

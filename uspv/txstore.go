@@ -60,15 +60,6 @@ func NewTxStore(rootkey *hdkeychain.ExtendedKey) TxStore {
 	return txs
 }
 
-// add addresses into the TxStore in memory
-func (t *TxStore) AddAdr(a btcutil.Address, kidx uint32) {
-	var ma MyAdr
-	ma.PkhAdr = a
-	ma.KeyIdx = kidx
-	t.Adrs = append(t.Adrs, ma)
-	return
-}
-
 // add txid of interest
 func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 	if txid == nil {

@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -28,6 +27,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/globalconfig"
 )
 
 const (
@@ -43,7 +43,7 @@ var (
 
 	// Which bitcoin network are we using?
 	// TODO(roasbeef): config
-	ActiveNetParams = &chaincfg.TestNet3Params
+	ActiveNetParams = globalconfig.NetParams
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
@@ -348,25 +348,20 @@ func (l *LightningWallet) Startup() error {
 		return nil
 	}
 	// TODO(roasbeef): config...
-
 	rpcc, err := chain.NewClient(ActiveNetParams,
-		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false)
+		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, true)
 	if err != nil {
 		return err
 	}
-
 	// Start the goroutines in the underlying wallet.
 	l.rpc = rpcc
 	if err := l.rpc.Start(); err != nil {
 		return err
 	}
-
 	l.Start(rpcc)
-
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?
 	go l.requestHandler()
-
 	return nil
 }
 

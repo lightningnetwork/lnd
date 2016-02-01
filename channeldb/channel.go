@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/globalconfig"
 )
 
 var (
@@ -24,7 +24,7 @@ var (
 	identityKey = []byte("idkey")
 
 	// TODO(roasbeef): replace w/ tesnet-L also revisit dependancy...
-	ActiveNetParams = &chaincfg.TestNet3Params
+	ActiveNetParams = globalconfig.NetParams
 )
 
 // Payment...

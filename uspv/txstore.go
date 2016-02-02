@@ -131,6 +131,7 @@ func (t *TxStore) ExpellTx(tx *wire.MsgTx) error {
 	for _, in := range tx.TxIn {
 		for i, myutxo := range t.Utxos {
 			if myutxo.Op == in.PreviousOutPoint {
+
 				hits++
 				loss += myutxo.Txo.Value
 				// delete from my utxo set

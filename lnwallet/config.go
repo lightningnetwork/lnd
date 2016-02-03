@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"path/filepath"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 )
 
@@ -48,6 +49,9 @@ type Config struct {
 	PrivatePass []byte
 	PublicPass  []byte
 	HdSeed      []byte
+
+	// Which bitcoin network are we using?
+	NetParams *chaincfg.Params
 }
 
 // setDefaults...

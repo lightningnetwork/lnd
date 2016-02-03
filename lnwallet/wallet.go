@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -41,9 +40,6 @@ var (
 	ErrInsufficientFunds = errors.New("not enough available outputs to " +
 		"create funding transaction")
 
-	// Which bitcoin network are we using?
-	// TODO(roasbeef): config
-	ActiveNetParams = &chaincfg.TestNet3Params
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
@@ -253,7 +249,7 @@ type LightningWallet struct {
 // TODO(roasbeef): fin...add config
 func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(config.DataDir, ActiveNetParams)
+	netDir := networkDir(config.DataDir, config.NetParams)
 	dbPath := filepath.Join(netDir, walletDbName)
 
 	var pubPass []byte
@@ -348,7 +344,7 @@ func (l *LightningWallet) Startup() error {
 	}
 	// TODO(roasbeef): config...
 
-	rpcc, err := chain.NewRPCClient(ActiveNetParams, l.cfg.RpcHost,
+	rpcc, err := chain.NewRPCClient(l.cfg.NetParams, l.cfg.RpcHost,
 		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
 	if err != nil {
 		return err
@@ -750,7 +746,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		// Is this our txin? TODO(roasbeef): assumes all inputs are P2PKH...
 		prevIndex := txIn.PreviousOutPoint.Index
 		prevOut := txDetail.TxRecord.MsgTx.TxOut[prevIndex]
-		_, addrs, _, _ := txscript.ExtractPkScriptAddrs(prevOut.PkScript, ActiveNetParams)
+		_, addrs, _, _ := txscript.ExtractPkScriptAddrs(prevOut.PkScript, l.cfg.NetParams)
 		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
 		if !ok {
 			req.err <- btcwallet.ErrUnsupportedTransactionType

@@ -868,6 +868,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	fundingTx := pendingReservation.partialState.FundingTx
 	for i, txin := range fundingTx.TxIn {
 		if txin.SignatureScript == nil {
+			// Attach the signature so we can verify it below.
+			txin.SignatureScript = pendingReservation.theirFundingSigs[i]
+
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
@@ -896,8 +899,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 				msg.err <- fmt.Errorf("cannot validate transaction: %s", err)
 				return
 			}
-
-			txin.SignatureScript = pendingReservation.theirFundingSigs[i]
 		}
 	}
 

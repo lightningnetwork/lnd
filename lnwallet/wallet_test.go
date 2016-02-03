@@ -2,20 +2,22 @@ package lnwallet
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/coinset"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/btcsuite/btcwallet/wtxmgr"
 )
 
 var (
@@ -51,7 +53,7 @@ var (
 // within the wallet are *exactly* amount. If unable to retrieve the current
 // balance, or the assertion fails, the test will halt with a fatal error.
 func assertProperBalance(t *testing.T, lw *LightningWallet, numConfirms, amount int32) {
-	balance, err := lw.TxStore.Balance(0, 20)
+	balance, err := lw.CalculateBalance(1)
 	if err != nil {
 		t.Fatalf("unable to query for balance: %v", err)
 	}
@@ -116,7 +118,7 @@ func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
 	return bobSigs, nil
 }
 
-// signFundingTx generates a raw signature required for generating a spend from
+// signCommitTx generates a raw signature required for generating a spend from
 // the funding transaction.
 func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte) ([]byte, error) {
 	return txscript.RawTxInSignature(commitTx, 0, fundingScript,
@@ -127,27 +129,55 @@ func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte) ([]by
 // funding transaction, bob has a single output totaling 7BTC. For our basic
 // test, he'll fund the channel with 5BTC, leaving 2BTC to the change output.
 // TODO(roasbeef): proper handling of change etc.
-func newBobNode() (*bobNode, error) {
+func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 	// First, parse Bob's priv key in order to obtain a key he'll use for the
 	// multi-sig funding transaction.
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
 
 	// Next, generate an output redeemable by bob.
-	bobAddr, err := btcutil.NewAddressPubKey(privKey.PubKey().SerializeCompressed(),
-		ActiveNetParams)
+	bobAddrPk, err := btcutil.NewAddressPubKey(privKey.PubKey().SerializeCompressed(),
+		miner.ActiveNet)
 	if err != nil {
 		return nil, err
 	}
-	bobAddrScript, err := txscript.PayToAddrScript(bobAddr.AddressPubKeyHash())
+	bobAddr := bobAddrPk.AddressPubKeyHash()
+	bobAddrScript, err := txscript.PayToAddrScript(bobAddr)
 	if err != nil {
 		return nil, err
 	}
-	prevOut := wire.NewOutPoint(&wire.ShaHash{}, ^uint32(0))
+
+	// Give bobNode one 7 BTC output for use in creating channels.
+	outputMap := map[string]btcutil.Amount{
+		bobAddr.String(): btcutil.Amount(7e8),
+	}
+	mainTxid, err := miner.CoinbaseSpend(outputMap)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mine a block in order to include the above output in a block. During
+	// the reservation workflow, we currently test to ensure that the funding
+	// output we're given actually exists.
+	if _, err := miner.Node.Generate(1); err != nil {
+		return nil, err
+	}
+
+	// Grab the transaction in order to locate the output index to Bob.
+	tx, err := miner.Node.GetRawTransaction(mainTxid)
+	if err != nil {
+		return nil, err
+	}
+	found, index := findScriptOutputIndex(tx.MsgTx(), bobAddrScript)
+	if !found {
+		return nil, fmt.Errorf("output to bob never created")
+	}
+
+	prevOut := wire.NewOutPoint(mainTxid, index)
 	// TODO(roasbeef): When the chain rpc is hooked in, assert bob's output
 	// actually exists and it unspent in the chain.
 	bobTxIn := wire.NewTxIn(prevOut, nil)
 
-	// Using bobs priv key above, create a change address he can spend.
+	// Using bobs priv key above, create a change output he can spend.
 	bobChangeOutput := wire.NewTxOut(2*1e8, bobAddrScript)
 
 	// Bob's initial revocation hash is just his private key with the first
@@ -172,119 +202,57 @@ func newBobNode() (*bobNode, error) {
 	}, nil
 }
 
-// addTestTx adds an output spendable by our test wallet, marked as included in
-// 'block'.
-func addTestTx(w *LightningWallet, rec *wtxmgr.TxRecord, block *wtxmgr.BlockMeta) error {
-	err := w.TxStore.InsertTx(rec, block)
-	if err != nil {
-		return err
-	}
-
-	// Check every output to determine whether it is controlled by a wallet
-	// key.  If so, mark the output as a credit.
-	for i, output := range rec.MsgTx.TxOut {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(output.PkScript,
-			ActiveNetParams)
-		if err != nil {
-			// Non-standard outputs are skipped.
-			continue
-		}
-		for _, addr := range addrs {
-			ma, err := w.Manager.Address(addr)
-			if err == nil {
-				err = w.TxStore.AddCredit(rec, block, uint32(i),
-					ma.Internal())
-				if err != nil {
-					return err
-				}
-				err = w.Manager.MarkUsed(addr)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-
-			// Missing addresses are skipped.  Other errors should
-			// be propagated.
-			if !waddrmgr.IsError(err, waddrmgr.ErrAddressNotFound) {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// genBlockHash deterministically generates a dummy block header hash for use
-// within our tests below.
-func genBlockHash(n int) *wire.ShaHash {
-	sha := sha256.Sum256([]byte{byte(n)})
-	hash, _ := wire.NewShaHash(sha[:])
-	return hash
-}
-
-func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
-	// Import the priv key (converting to WIF) above that controls all our
-	// available outputs.
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
-	if err := w.Unlock(privPass, time.Duration(0)); err != nil {
-		return err
-	}
-	bs := &waddrmgr.BlockStamp{Hash: *genBlockHash(1), Height: 1}
-	wif, err := btcutil.NewWIF(privKey, ActiveNetParams, true)
-	if err != nil {
-		return err
-	}
-	if _, err := w.ImportPrivateKey(wif, bs, false); err != nil {
-		return nil
-	}
-	if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(1), *genBlockHash(1)}); err != nil {
-		return err
-	}
-
-	blk := wtxmgr.BlockMeta{wtxmgr.Block{Hash: *genBlockHash(2), Height: 2}, time.Now()}
-
-	// Create a simple P2PKH pubkey script spendable by Alice. For simplicity
-	// all of Alice's spendable funds will reside in this output.
-	satosihPerOutput := int64(btcPerOutput * 1e8)
-	walletAddr, err := btcutil.NewAddressPubKey(privKey.PubKey().SerializeCompressed(),
-		ActiveNetParams)
-	if err != nil {
-		return err
-	}
-	walletScriptCredit, err := txscript.PayToAddrScript(walletAddr.AddressPubKeyHash())
-	if err != nil {
-		return err
-	}
-
-	// Create numOutputs outputs spendable by our wallet each holding btcPerOutput
-	// in satoshis.
-	tx := wire.NewMsgTx()
-	prevOut := wire.NewOutPoint(genBlockHash(999), 1)
-	txIn := wire.NewTxIn(prevOut, []byte{txscript.OP_0, txscript.OP_0})
-	tx.AddTxIn(txIn)
+func loadTestCredits(miner *rpctest.Harness, w *LightningWallet, numOutputs, btcPerOutput int) error {
+	// Using the mining node, spend from a coinbase output numOutputs to
+	// give us btcPerOutput with each output.
+	satoshiPerOutput := btcutil.Amount(btcPerOutput * 1e8)
+	addrs := make([]btcutil.Address, 0, numOutputs)
 	for i := 0; i < numOutputs; i++ {
-		tx.AddTxOut(wire.NewTxOut(satosihPerOutput, walletScriptCredit))
-	}
-	txCredit, err := wtxmgr.NewTxRecordFromMsgTx(tx, time.Now())
-	if err != nil {
-		return err
-	}
-
-	if err := addTestTx(w, txCredit, &blk); err != nil {
-		return err
-	}
-	if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(2), *genBlockHash(2)}); err != nil {
-		return err
-	}
-
-	// Make the wallet think it's been synced to block 10. This way the
-	// outputs we added above will have sufficient confirmations
-	// (hard coded to 6 atm).
-	for i := 3; i < 10; i++ {
-		sha := *genBlockHash(i)
-		if err := w.Manager.SetSyncedTo(&waddrmgr.BlockStamp{int32(i), sha}); err != nil {
+		// Grab a fresh address from the wallet to house this output.
+		walletAddr, err := w.NewAddress(waddrmgr.DefaultAccountNum)
+		if err != nil {
 			return err
 		}
+
+		addrs = append(addrs, walletAddr)
+
+		outputMap := map[string]btcutil.Amount{walletAddr.String(): satoshiPerOutput}
+		if _, err := miner.CoinbaseSpend(outputMap); err != nil {
+			return err
+		}
+	}
+
+	// TODO(roasbeef): shouldn't hardcode 10, use config param that dictates
+	// how many confs we wait before opening a channel.
+	// Generate 10 blocks with the mining node, this should mine all
+	// numOutputs transactions created above. We generate 10 blocks here
+	// in order to give all the outputs a "sufficient" number of confirmations.
+	if _, err := miner.Node.Generate(10); err != nil {
+		return err
+	}
+
+	_, bestHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	// Wait until the wallet has finished syncing up to the main chain.
+	ticker := time.NewTicker(100 * time.Millisecond)
+out:
+	for {
+		select {
+		case <-ticker.C:
+			if w.Manager.SyncedTo().Height == bestHeight {
+				break out
+			}
+		}
+	}
+	ticker.Stop()
+
+	// Trigger a re-scan to ensure the wallet knows of the newly created
+	// outputs it can spend.
+	if err := w.Rescan(addrs, nil); err != nil {
+		return err
 	}
 
 	return nil
@@ -292,35 +260,44 @@ func loadTestCredits(w *LightningWallet, numOutputs, btcPerOutput int) error {
 
 // createTestWallet creates a test LightningWallet will a total of 20BTC
 // available for funding channels.
-func createTestWallet() (string, *LightningWallet, error) {
+func createTestWallet(miningNode *rpctest.Harness, netParams *chaincfg.Params) (string, *LightningWallet, error) {
 	privPass := []byte("private-test")
 	tempTestDir, err := ioutil.TempDir("", "lnwallet")
 	if err != nil {
 		return "", nil, nil
 	}
 
-	config := &Config{PrivatePass: privPass, HdSeed: testHdSeed[:],
-		DataDir: tempTestDir}
+	rpcConfig := miningNode.RPCConfig()
+	config := &Config{
+		PrivatePass: privPass,
+		HdSeed:      testHdSeed[:],
+		DataDir:     tempTestDir,
+		NetParams:   netParams,
+		RpcHost:     rpcConfig.Host,
+		RpcUser:     rpcConfig.User,
+		RpcPass:     rpcConfig.Pass,
+		CACert:      rpcConfig.Certificates,
+	}
+
 	wallet, _, err := NewLightningWallet(config)
 	if err != nil {
 		return "", nil, err
 	}
-	// TODO(roasbeef): check error once nodetest is finished.
 	if err := wallet.Startup(); err != nil {
 		return "", nil, err
 	}
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
-	if err := loadTestCredits(wallet, 5, 4); err != nil {
+	if err := loadTestCredits(miningNode, wallet, 5, 4); err != nil {
 		return "", nil, err
 	}
 
 	return tempTestDir, wallet, nil
 }
 
-func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T) {
+func testBasicWalletReservationWorkFlow(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 	// Create our test wallet, will have a total of 20 BTC available for
-	bobNode, err := newBobNode()
+	bobNode, err := newBobNode(miner)
 	if err != nil {
 		t.Fatalf("unable to create bob node: %v", err)
 	}
@@ -427,9 +404,8 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	// At this point, the channel can be considered "open" when the funding
 	// txn hits a "comfortable" depth.
 
-	fundingTx := chanReservation.FinalFundingTx()
-
 	// The resulting active channel state should have been persisted to the DB.
+	fundingTx := chanReservation.FinalFundingTx()
 	channel, err := lnwallet.ChannelDB.FetchOpenChannel(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
@@ -437,40 +413,9 @@ func testBasicWalletReservationWorkFlow(lnwallet *LightningWallet, t *testing.T)
 	if channel.FundingTx.TxSha() != fundingTx.TxSha() {
 		t.Fatalf("channel state not properly saved")
 	}
-
-	// The funding tx should now be valid and complete.
-	// Check each input and ensure all scripts are fully valid.
-	// TODO(roasbeef): remove this loop after nodetest hooked up.
-	var zeroHash wire.ShaHash
-	for i, input := range fundingTx.TxIn {
-		var pkscript []byte
-		// Bob's txin
-		if bytes.Equal(input.PreviousOutPoint.Hash.Bytes(),
-			zeroHash.Bytes()) {
-			pkscript = bobNode.changeOutputs[0].PkScript
-		} else {
-			// Does the wallet know about the txin?
-			txDetail, err := lnwallet.TxStore.TxDetails(&input.PreviousOutPoint.Hash)
-			if txDetail == nil || err != nil {
-				t.Fatalf("txstore can't find tx detail, err: %v", err)
-			}
-			prevIndex := input.PreviousOutPoint.Index
-			pkscript = txDetail.TxRecord.MsgTx.TxOut[prevIndex].PkScript
-		}
-
-		vm, err := txscript.NewEngine(pkscript,
-			fundingTx, i, txscript.StandardVerifyFlags, nil)
-		if err != nil {
-			// TODO(roasbeef): cancel at this stage if invalid sigs?
-			t.Fatalf("cannot create script engine: %s", err)
-		}
-		if err = vm.Execute(); err != nil {
-			t.Fatalf("cannot validate transaction: %s", err)
-		}
-	}
 }
 
-func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T) {
+func testFundingTransactionLockedOutputs(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 	// Create two channels, both asking for 8 BTC each, totalling 16
 	// BTC.
 	// TODO(roasbeef): tests for concurrent funding.
@@ -525,7 +470,7 @@ func testFundingTransactionLockedOutputs(lnwallet *LightningWallet, t *testing.T
 	}
 }
 
-func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing.T) {
+func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 	// Create a reservation for 12 BTC.
 	fundingAmount := btcutil.Amount(12 * 1e8)
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
@@ -578,7 +523,7 @@ func testFundingCancellationNotEnoughFunds(lnwallet *LightningWallet, t *testing
 	}
 }
 
-func testCancelNonExistantReservation(lnwallet *LightningWallet, t *testing.T) {
+func testCancelNonExistantReservation(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 	// Create our own reservation, give it some ID.
 	res := newChannelReservation(SIGHASH, 1000, 5000, lnwallet, 22)
 
@@ -589,18 +534,22 @@ func testCancelNonExistantReservation(lnwallet *LightningWallet, t *testing.T) {
 	}
 }
 
-func testFundingReservationInvalidCounterpartySigs(lnwallet *LightningWallet, t *testing.T) {
+func testFundingReservationInvalidCounterpartySigs(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 }
 
-func testFundingTransactionTxFees(lnwallet *LightningWallet, t *testing.T) {
+func testFundingTransactionTxFees(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 }
 
-var walletTests = []func(w *LightningWallet, test *testing.T){
+var walletTests = []func(miner *rpctest.Harness, w *LightningWallet, test *testing.T){
 	testBasicWalletReservationWorkFlow,
 	testFundingTransactionLockedOutputs,
 	testFundingCancellationNotEnoughFunds,
 	testFundingReservationInvalidCounterpartySigs,
 	testFundingTransactionLockedOutputs,
+	// TODO(roasbeef):
+	// * test for non-existant output given in funding tx
+	// * channel open after confirmations
+	// * channel update stuff
 }
 
 type testLnWallet struct {
@@ -615,12 +564,25 @@ func clearWalletState(w *LightningWallet) error {
 	return w.ChannelDB.Wipe()
 }
 
-// TODO(roasbeef): why is wallet so slow to create+open?
-// * investigate
-// * re-use same lnwallet instance accross tests resetting each time?
 func TestLightningWallet(t *testing.T) {
-	// funding via 5 outputs with 4BTC each.
-	testDir, lnwallet, err := createTestWallet()
+	// TODO(roasbeef): switch to testnetL later
+	netParams := &chaincfg.SimNetParams
+
+	// Initialize the harness around a btcd node which will serve as our
+	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
+	// up this node with a chain length of 125, so we have plentyyy of BTC
+	// to play around with.
+	miningNode, err := rpctest.New(netParams, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	if err := miningNode.SetUp(true, 25); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer miningNode.TearDown()
+
+	// Funding via 5 outputs with 4BTC each.
+	testDir, lnwallet, err := createTestWallet(miningNode, netParams)
 	if err != nil {
 		t.Fatalf("unable to create test ln wallet: %v", err)
 	}
@@ -630,15 +592,16 @@ func TestLightningWallet(t *testing.T) {
 	// The wallet should now have 20BTC available for spending.
 	assertProperBalance(t, lnwallet, 1, 20)
 
-	// TODO(roasbeef): initialize nodetest state here once done.
-
 	// Execute every test, clearing possibly mutated wallet state after
 	// each step.
 	for _, walletTest := range walletTests {
-		walletTest(lnwallet, t)
+		walletTest(miningNode, lnwallet, t)
 
 		if err := clearWalletState(lnwallet); err != nil && err != walletdb.ErrBucketNotFound {
 			t.Fatalf("unable to clear wallet state: %v", err)
 		}
+
+		// TODO(roasbeef): possible reset mining node's chainstate to
+		// initial level
 	}
 }

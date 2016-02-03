@@ -993,8 +993,16 @@ func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation,
 	txid := res.partialState.FundingTx.TxSha()
 	l.chainNotifier.RegisterConfirmationsNotification(&txid, numConfs, trigger)
 
-	// Wait until the specified number of confirmations has been reached.
-	<-trigger.TriggerChan
+	// Wait until the specified number of confirmations has been reached,
+	// or the wallet signals a shutdown.
+out:
+	select {
+	case <-trigger.TriggerChan:
+		break out
+	case <-l.quit:
+		res.chanOpen <- nil
+		return
+	}
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'

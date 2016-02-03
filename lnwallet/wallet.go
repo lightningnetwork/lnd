@@ -270,7 +270,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 
 		// Attempt to create  a new wallet
 		if err := createWallet(config.PrivatePass, pubPass,
-			config.HdSeed, dbPath); err != nil {
+			config.HdSeed, dbPath, config.NetParams); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
@@ -280,7 +280,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 
 	// Wallet has been created and been initialized at this point, open it
 	// along with all the required DB namepsaces, and the DB itself.
-	wallet, db, err := openWallet(pubPass, netDir)
+	wallet, db, err := openWallet(pubPass, netDir, config.NetParams)
 	if err != nil {
 		return nil, nil, err
 	}

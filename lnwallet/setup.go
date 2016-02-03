@@ -89,7 +89,7 @@ func checkCreateDir(path string) error {
 // provided path.
 // TODO(roasbeef): maybe pass in config after all for testing purposes?
 func createWallet(privPass, pubPass, userSeed []byte,
-	dbPath string) error {
+	dbPath string, activeNet *chaincfg.Params) error {
 	// TODO(roasbeef): replace with tadge's seed format?
 	hdSeed := userSeed
 	var seedErr error
@@ -115,7 +115,7 @@ func createWallet(privPass, pubPass, userSeed []byte,
 		return err
 	}
 	manager, err := waddrmgr.Create(namespace, hdSeed, []byte(pubPass),
-		[]byte(privPass), ActiveNetParams, nil)
+		[]byte(privPass), activeNet, nil)
 	if err != nil {
 		return err
 	}
@@ -199,7 +199,7 @@ func promptPrivPassPhrase() ([]byte, error) {
 // openWallet returns a wallet. The function handles opening an existing wallet
 // database, the address manager and the transaction store and uses the values
 // to open a wallet.Wallet
-func openWallet(pubPass []byte, dbDir string) (*wallet.Wallet, walletdb.DB, error) {
+func openWallet(pubPass []byte, dbDir string, activeNet *chaincfg.Params) (*wallet.Wallet, walletdb.DB, error) {
 	db, err := openDb(dbDir, walletDbName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Failed to open database: %v", err)
@@ -218,7 +218,7 @@ func openWallet(pubPass []byte, dbDir string) (*wallet.Wallet, walletdb.DB, erro
 		ObtainSeed:        promptSeed,
 		ObtainPrivatePass: promptPrivPassPhrase,
 	}
-	w, err := wallet.Open(pubPass, ActiveNetParams, db, addrMgrNS, txMgrNS,
+	w, err := wallet.Open(pubPass, activeNet, db, addrMgrNS, txMgrNS,
 		cbs)
 	return w, db, err
 }

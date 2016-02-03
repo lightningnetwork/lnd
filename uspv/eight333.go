@@ -43,8 +43,7 @@ type SPVCon struct {
 	WBytes uint64 // total bytes written
 	RBytes uint64 // total bytes read
 
-	TS    *TxStore         // transaction store to write to
-	param *chaincfg.Params // network parameters (testnet3, testnetL)
+	TS *TxStore // transaction store to write to
 
 	// mBlockQueue is for keeping track of what height we've requested.
 	mBlockQueue chan HashAndHeight
@@ -56,16 +55,17 @@ type SPVCon struct {
 	inWaitState chan bool
 }
 
-func OpenSPV(remoteNode string, hfn, tsfn string,
+func OpenSPV(remoteNode string, hfn, dbfn string,
 	inTs *TxStore, p *chaincfg.Params) (SPVCon, error) {
 	// create new SPVCon
 	var s SPVCon
 
-	// assign network parameters to SPVCon
-	s.param = p
+	// I should really merge SPVCon and TxStore, they're basically the same
+	inTs.Param = p
+	s.TS = inTs // copy pointer of txstore into spvcon
 
 	// open header file
-	err := s.openHeaderFile(headerFileName)
+	err := s.openHeaderFile(hfn)
 	if err != nil {
 		return s, err
 	}
@@ -80,12 +80,10 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	s.localVersion = VERSION
 
 	// transaction store for this SPV connection
-	inTs.Param = p
-	err = inTs.OpenDB(tsfn)
+	err = inTs.OpenDB(dbfn)
 	if err != nil {
 		return s, err
 	}
-	s.TS = inTs // copy pointer of txstore into spvcon
 
 	myMsgVer, err := wire.NewMsgVersionFromConn(s.con, 0, 0)
 	if err != nil {
@@ -99,7 +97,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	myMsgVer.AddService(wire.SFNodeBloom)
 
 	// this actually sends
-	n, err := wire.WriteMessageN(s.con, myMsgVer, s.localVersion, s.param.Net)
+	n, err := wire.WriteMessageN(s.con, myMsgVer, s.localVersion, s.TS.Param.Net)
 	if err != nil {
 		return s, err
 	}
@@ -107,7 +105,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	log.Printf("wrote %d byte version message to %s\n",
 		n, s.con.RemoteAddr().String())
 
-	n, m, b, err := wire.ReadMessageN(s.con, s.localVersion, s.param.Net)
+	n, m, b, err := wire.ReadMessageN(s.con, s.localVersion, s.TS.Param.Net)
 	if err != nil {
 		return s, err
 	}
@@ -126,7 +124,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	s.remoteHeight = mv.LastBlock
 
 	mva := wire.NewMsgVerAck()
-	n, err = wire.WriteMessageN(s.con, mva, s.localVersion, s.param.Net)
+	n, err = wire.WriteMessageN(s.con, mva, s.localVersion, s.TS.Param.Net)
 	if err != nil {
 		return s, err
 	}
@@ -149,7 +147,7 @@ func (s *SPVCon) openHeaderFile(hfn string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			var b bytes.Buffer
-			err = s.param.GenesisBlock.Header.Serialize(&b)
+			err = s.TS.Param.GenesisBlock.Header.Serialize(&b)
 			if err != nil {
 				return err
 			}
@@ -405,7 +403,7 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		// advance chain tip
 		tip++
 		// check last header
-		worked := CheckHeader(s.headerFile, tip, s.param)
+		worked := CheckHeader(s.headerFile, tip, s.TS.Param)
 		if !worked {
 			if endPos < 8080 {
 				// jeez I give up, back to genesis

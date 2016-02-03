@@ -20,7 +20,8 @@ type TxStore struct {
 
 	Adrs    []MyAdr  // endeavouring to acquire capital
 	StateDB *bolt.DB // place to write all this down
-	// this is redundant with the SPVCon param... ugly and should be taken out
+
+	// Params live here, not SCon
 	Param *chaincfg.Params // network parameters (testnet3, testnetL)
 
 	// From here, comes everything. It's a secret to everybody.
@@ -52,9 +53,10 @@ type MyAdr struct { // an address I have the private key for
 	// inside the Adrs slice, right? leave for now
 }
 
-func NewTxStore(rootkey *hdkeychain.ExtendedKey) TxStore {
+func NewTxStore(rootkey *hdkeychain.ExtendedKey, p *chaincfg.Params) TxStore {
 	var txs TxStore
 	txs.rootPrivKey = rootkey
+	txs.Param = p
 	txs.OKTxids = make(map[wire.ShaHash]int32)
 	return txs
 }

@@ -22,8 +22,8 @@ func RpcConnect(args []string) error {
 	}
 	fmt.Printf("connection state: %s\n", state.String())
 	time.Sleep(time.Second * 2)
-	//	lnClient := lnrpc.NewLightningClient(conn)
-	//	lnClient.NewAddress(nil, nil, nil) // crashes
+	// lnClient := lnrpc.NewLightningClient(conn)
+	// lnClient.NewAddress(nil, nil, nil) // crashes
 
 	state, err = conn.State()
 	if err != nil {

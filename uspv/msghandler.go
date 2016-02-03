@@ -10,7 +10,7 @@ import (
 
 func (s *SPVCon) incomingMessageHandler() {
 	for {
-		n, xm, _, err := wire.ReadMessageN(s.con, s.localVersion, s.param.Net)
+		n, xm, _, err := wire.ReadMessageN(s.con, s.localVersion, s.TS.Param.Net)
 		if err != nil {
 			log.Printf("ReadMessageN error.  Disconnecting: %s\n", err.Error())
 			return
@@ -64,7 +64,7 @@ func (s *SPVCon) incomingMessageHandler() {
 func (s *SPVCon) outgoingMessageHandler() {
 	for {
 		msg := <-s.outMsgQueue
-		n, err := wire.WriteMessageN(s.con, msg, s.localVersion, s.param.Net)
+		n, err := wire.WriteMessageN(s.con, msg, s.localVersion, s.TS.Param.Net)
 		if err != nil {
 			log.Printf("Write message error: %s", err.Error())
 		}

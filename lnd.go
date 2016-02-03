@@ -21,10 +21,16 @@ var (
 	rpcPort  = flag.Int("rpcport", 10009, "The port for the rpc server")
 	peerPort = flag.String("peerport", "10011", "The port to listen on for incoming p2p connections")
 	dataDir  = flag.String("datadir", "test_wal", "The directory to store lnd's data within")
+	spvMode  = flag.Bool("spv", false, "assert to enter spv wallet mode")
 )
 
 func main() {
 	flag.Parse()
+
+	if *spvMode == true {
+		shell()
+		return
+	}
 
 	go func() {
 		listenAddr := net.JoinHostPort("", "5009")

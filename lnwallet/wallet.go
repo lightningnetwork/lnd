@@ -213,14 +213,13 @@ type LightningWallet struct {
 
 	// The core wallet, all non Lightning Network specific interaction is
 	// proxied to the internal wallet.
-	// TODO(roasbeef): Why isn't this just embedded again?
 	*btcwallet.Wallet
 
 	// An active RPC connection to a full-node. In the case of a btcd node,
 	// websockets are used for notifications. If using Bitcoin Core,
 	// notifications are either generated via long-polling or the usage of
 	// ZeroMQ.
-	rpc *chain.Client
+	rpc *chain.RPCClient
 
 	// All messages to the wallet are to be sent accross this channel.
 	msgChan chan interface{}
@@ -349,8 +348,8 @@ func (l *LightningWallet) Startup() error {
 	}
 	// TODO(roasbeef): config...
 
-	rpcc, err := chain.NewClient(ActiveNetParams,
-		l.cfg.RpcHost, l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false)
+	rpcc, err := chain.NewRPCClient(ActiveNetParams, l.cfg.RpcHost,
+		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
 	if err != nil {
 		return err
 	}
@@ -360,8 +359,11 @@ func (l *LightningWallet) Startup() error {
 	if err := l.rpc.Start(); err != nil {
 		return err
 	}
+	l.Start()
 
-	l.Start(rpcc)
+	// Pass the rpc client into the wallet so it can sync up to the current
+	// main chain.
+	l.SynchronizeRPC(l.rpc)
 
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?

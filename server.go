@@ -144,7 +144,7 @@ out:
 					// 20-byte pkh.
 					var remoteId []byte
 					if addr.PubKey == nil {
-						remoteId = addr.Base58Addr.ScriptAddress()
+						remoteId = addr.Base58Adr.ScriptAddress()
 					} else {
 						remoteId = addr.PubKey.SerializeCompressed()
 					}

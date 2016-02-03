@@ -289,7 +289,6 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 					return hits, err
 				}
 				nUtxoBytes = append(nUtxoBytes, b)
-				ts.Sum += newu.Value
 				hits++
 				break // only one match
 			}
@@ -318,7 +317,6 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 					if err != nil {
 						return err
 					}
-					ts.Sum -= lostTxo.Value
 					hits++
 					// then delete the utxo from duf, save to old
 					err = duf.Delete(k)

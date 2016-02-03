@@ -148,8 +148,8 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 			m.TxSha().String())
 		s.fPositives <- 1 // add one false positive to chan
 	} else {
-		log.Printf("tx %s ingested and matches utxo/adrs. sum %d",
-			m.TxSha().String(), s.TS.Sum)
+		log.Printf("tx %s ingested and matches %d utxo/adrs.",
+			m.TxSha().String(), hits)
 	}
 }
 
@@ -167,10 +167,13 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 			case <-s.inWaitState:
 				// start getting headers
 				fmt.Printf("asking for headers due to inv block\n")
-				s.AskForHeaders()
+				err := s.AskForHeaders()
+				if err != nil {
+					log.Printf("AskForHeaders error: %s", err.Error())
+				}
 			default:
 				// drop it as if its component particles had high thermal energies
-				fmt.Printf("inv block but ignoring, not synched\n")
+				fmt.Printf("inv block but ignoring; not synched\n")
 			}
 		}
 	}

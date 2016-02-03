@@ -138,7 +138,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	go s.outgoingMessageHandler()
 	s.mBlockQueue = make(chan HashAndHeight, 32) // queue depth 32 is a thing
 	s.fPositives = make(chan int32, 4000)        // a block full, approx
-	s.inWaitState = make(chan bool)
+	s.inWaitState = make(chan bool, 1)
 	go s.fPositiveHandler()
 
 	return s, nil
@@ -308,7 +308,18 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 	if err != nil {
 		return err
 	}
-	hah := <-s.mBlockQueue // pop height off mblock queue
+	var hah HashAndHeight
+	select {
+	case hah = <-s.mBlockQueue: // pop height off mblock queue
+		// not super comfortable with this but it seems to work.
+		if len(s.mBlockQueue) == 0 { // done and fully sync'd
+			s.inWaitState <- true
+		}
+		break
+	default:
+		return fmt.Errorf("Unrequested merkle block")
+	}
+
 	// this verifies order, and also that the returned header fits
 	// into our SPV header file
 	newMerkBlockSha := m.Header.BlockSha()
@@ -328,10 +339,6 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 		return err
 	}
 
-	// not super comfortable with this but it seems to work.
-	if len(s.mBlockQueue) == 0 { // done and fully sync'd
-		s.inWaitState <- true
-	}
 	return nil
 }
 

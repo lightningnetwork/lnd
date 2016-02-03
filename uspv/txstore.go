@@ -18,7 +18,6 @@ import (
 type TxStore struct {
 	OKTxids map[wire.ShaHash]int32 // known good txids and their heights
 
-	Sum     int64    // racks on racks
 	Adrs    []MyAdr  // endeavouring to acquire capital
 	StateDB *bolt.DB // place to write all this down
 	// this is redundant with the SPVCon param... ugly and should be taken out

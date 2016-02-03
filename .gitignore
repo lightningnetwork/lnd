@@ -37,3 +37,7 @@ test_wal/*
 
 # vim
 **.swp
+
+*.hex
+*.db
+*.bin

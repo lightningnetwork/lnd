@@ -65,9 +65,8 @@ func inDeadZone(pos, size uint32) bool {
 	return pos > last
 }
 
-// take in a merkle block, parse through it, and return the
-// txids that they're trying to tell us about.  If there's any problem
-// return an error.
+// take in a merkle block, parse through it, and return txids indicated
+// If there's any problem return an error.  Checks self-consistency only.
 // doing it with a stack instead of recursion.  Because...
 // OK I don't know why I'm just not in to recursion OK?
 func checkMBlock(m *wire.MsgMerkleBlock) ([]*wire.ShaHash, error) {

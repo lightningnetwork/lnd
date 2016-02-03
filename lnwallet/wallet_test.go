@@ -10,8 +10,8 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 
+	"github.com/Roasbeef/btcd/rpctest"
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"

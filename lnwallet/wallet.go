@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -250,7 +248,6 @@ type LightningWallet struct {
 func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(config.DataDir, config.NetParams)
-	dbPath := filepath.Join(netDir, walletDbName)
 
 	var pubPass []byte
 	if config.PublicPass == nil {
@@ -259,36 +256,41 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		pubPass = config.PublicPass
 	}
 
-	// Wallet has never been created, perform initial set up.
-	var createID bool
-	if !fileExists(dbPath) {
-		// Ensure the data directory for the network exists.
-		if err := checkCreateDir(netDir); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return nil, nil, err
-		}
+	var walletDB walletdb.DB
+	loader := btcwallet.NewLoader(config.NetParams, netDir)
+	loader.RunAfterLoad(func(w *btcwallet.Wallet, db walletdb.DB) {
+		walletDB = db
+	})
 
-		// Attempt to create  a new wallet
-		if err := createWallet(config.PrivatePass, pubPass,
-			config.HdSeed, dbPath, config.NetParams); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+	walletExists, err := loader.WalletExists()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var createID bool
+	var wallet *btcwallet.Wallet
+	if !walletExists {
+		// Wallet has never been created, perform initial set up.
+		wallet, err = loader.CreateNewWallet(pubPass, config.PrivatePass,
+			config.HdSeed)
+		if err != nil {
 			return nil, nil, err
 		}
 
 		createID = true
-	}
-
-	// Wallet has been created and been initialized at this point, open it
-	// along with all the required DB namepsaces, and the DB itself.
-	wallet, db, err := openWallet(pubPass, netDir, config.NetParams)
-	if err != nil {
-		return nil, nil, err
+	} else {
+		// Wallet has been created and been initialized at this point, open it
+		// along with all the required DB namepsaces, and the DB itself.
+		wallet, err = loader.OpenExistingWallet(pubPass, false)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	// Create a special namespace for our unique payment channel related
 	// meta-data. Subsequently initializing the channeldb around the
 	// created namespace.
-	lnNamespace, err := db.Namespace(lightningNamespaceKey)
+	lnNamespace, err := walletDB.Namespace(lightningNamespaceKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -320,7 +322,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 
 	// TODO(roasbeef): logging
 	return &LightningWallet{
-		db:            db,
+		db:            walletDB,
 		chainNotifier: chainNotifier,
 		Wallet:        wallet,
 		ChannelDB:     cdb,
@@ -332,7 +334,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		cfg:           config,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
-	}, db, nil
+	}, walletDB, nil
 }
 
 // Startup establishes a connection to the RPC source, and spins up all

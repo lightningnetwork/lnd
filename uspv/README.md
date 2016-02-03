@@ -50,10 +50,21 @@ There's still quite a bit left, though most of it hopefully won't be too hard.
 Problems / still to do:
 
 * Only connects to one node, and that node is hard-coded.
-* Currently doesn't check signatures of received transactions.
 * Re-orgs affect only headers, and don't evict confirmed transactions.
 * Double spends are not detected; Double spent txs will stay at height 0.
 * Tx creation and signing is still very rudimentary.
 * There may be wire-protocol irregularities which can get it kicked off.
 
 Hopefully I can get most of that list deleted soon.
+
+(Now sanity checks txs, but can't check sigs... because it's SPV.  Right.)
+
+Later functionality to implement:
+
+* "Desktop Mode" SPV, or "Unfiltered" SPV or some other name
+
+This would be a mode where uspv doesn't use bloom filters and request merkle blocks, but instead grabs everything in the block and discards most of the data.  This prevents nodes from learning about your utxo set.  To further enhance this, it should connect to multiple nodes and relay txs and inv messages to blend in.
+
+* Ironman SPV
+
+Never request txs.  Only merkleBlocks (or in above mode, blocks).  No unconfirmed transactions are presented to the user, which makes a whole lot of sense as with unconfirmed SPV transactions you're relying completely on the honesty of the reporting node.

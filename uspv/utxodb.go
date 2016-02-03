@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/blockchain"
+
 	"github.com/btcsuite/btcd/txscript"
 
 	"github.com/btcsuite/btcd/wire"
@@ -238,13 +240,23 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 	var spentOPs [][]byte
 	var nUtxoBytes [][]byte
 
-	// check that we have a height and tx has been SPV OK'd
+	// first check that we have a height and tx has been SPV OK'd
 	inTxid := tx.TxSha()
 	height, ok := ts.OKTxids[inTxid]
 	if !ok {
 		return hits, fmt.Errorf("Ingest error: tx %s not in OKTxids.",
 			inTxid.String())
 	}
+
+	// tx has been OK'd by SPV; check tx sanity
+	utilTx := btcutil.NewTx(tx) // convert for validation
+	// checks stuff like inputs >= ouputs
+	err = blockchain.CheckTransactionSanity(utilTx)
+	if err != nil {
+		return hits, err
+	}
+	// note that you can't check signatures; this is SPV.
+	// 0 conf SPV means pretty much nothing.  Anyone can say anything.
 
 	// before entering into db, serialize all inputs of the ingested tx
 	for _, txin := range tx.TxIn {

@@ -50,6 +50,10 @@ type SPVCon struct {
 	mBlockQueue chan HashAndHeight
 	// fPositives is a channel to keep track of bloom filter false positives.
 	fPositives chan int32
+
+	// waitState is a channel that is empty while in the header and block
+	// sync modes, but when in the idle state has a "true" in it.
+	inWaitState chan bool
 }
 
 func OpenSPV(remoteNode string, hfn, tsfn string,
@@ -134,6 +138,7 @@ func OpenSPV(remoteNode string, hfn, tsfn string,
 	go s.outgoingMessageHandler()
 	s.mBlockQueue = make(chan HashAndHeight, 32) // queue depth 32 is a thing
 	s.fPositives = make(chan int32, 4000)        // a block full, approx
+	s.inWaitState = make(chan bool)
 	go s.fPositiveHandler()
 
 	return s, nil
@@ -317,11 +322,16 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 			return fmt.Errorf("Txid store error: %s\n", err.Error())
 		}
 	}
+
 	err = s.TS.SetDBSyncHeight(hah.height)
 	if err != nil {
 		return err
 	}
 
+	// not super comfortable with this but it seems to work.
+	if len(s.mBlockQueue) == 0 { // done and fully sync'd
+		s.inWaitState <- true
+	}
 	return nil
 }
 
@@ -385,7 +395,6 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-
 		// advance chain tip
 		tip++
 		// check last header
@@ -408,7 +417,6 @@ func (s *SPVCon) IngestHeaders(m *wire.MsgHeaders) (bool, error) {
 		}
 	}
 	log.Printf("Headers to height %d OK.", tip)
-
 	return true, nil
 }
 

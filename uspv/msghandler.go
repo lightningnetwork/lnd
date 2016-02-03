@@ -45,7 +45,7 @@ func (s *SPVCon) incomingMessageHandler() {
 			log.Printf("Rejected! cmd: %s code: %s tx: %s reason: %s",
 				m.Cmd, m.Code.String(), m.Hash.String(), m.Reason)
 		case *wire.MsgInv:
-			go s.InvHandler(m)
+			s.InvHandler(m)
 		case *wire.MsgNotFound:
 			log.Printf("Got not found response from remote:")
 			for i, thing := range m.InvList {
@@ -162,12 +162,14 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 			s.TS.OKTxids[thing.Hash] = 0 // unconfirmed
 			s.AskForTx(thing.Hash)
 		}
-		if thing.Type == wire.InvTypeBlock { // new block, ingest
-			if len(s.mBlockQueue) == 0 { // this is not a good check...
-				// don't ask directly; instead ask for header
+		if thing.Type == wire.InvTypeBlock { // new block what to do?
+			select {
+			case <-s.inWaitState:
+				// start getting headers
 				fmt.Printf("asking for headers due to inv block\n")
 				s.AskForHeaders()
-			} else {
+			default:
+				// drop it as if its component particles had high thermal energies
 				fmt.Printf("inv block but ignoring, not synched\n")
 			}
 		}

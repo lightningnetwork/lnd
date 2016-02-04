@@ -3,7 +3,6 @@ package uspv
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -107,34 +106,20 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 		log.Printf("Header error: %s\n", err.Error())
 		return
 	}
-	// if we got post DB syncheight headers, get merkleblocks for them
-	// this is always true except for first pre-birthday sync
-
-	// checked header length, start req for more if needed
+	// more to get? if so, ask for them and return
 	if moar {
-		s.AskForHeaders()
-	} else { // no moar, done w/ headers, get merkleblocks
-		s.headerMutex.Lock()
-		endPos, err := s.headerFile.Seek(0, os.SEEK_END)
+		err = s.AskForHeaders()
 		if err != nil {
-			log.Printf("Header error: %s", err.Error())
-			return
+			log.Printf("AskForHeaders error: %s", err.Error())
 		}
-		s.headerMutex.Unlock()
-		tip := int32(endPos/80) - 1 // move back 1 header length to read
-		syncTip, err := s.TS.GetDBSyncHeight()
-		if err != nil {
-			log.Printf("syncTip error: %s", err.Error())
-			return
-		}
-		if syncTip < tip {
-			fmt.Printf("syncTip %d headerTip %d\n", syncTip, tip)
-			err = s.AskForMerkBlocks(syncTip+1, tip)
-			if err != nil {
-				log.Printf("AskForMerkBlocks error: %s", err.Error())
-				return
-			}
-		}
+		return
+	}
+
+	// no moar, done w/ headers, get merkleblocks
+	err = s.AskForMerkBlocks()
+	if err != nil {
+		log.Printf("AskForMerkBlocks error: %s", err.Error())
+		return
 	}
 }
 

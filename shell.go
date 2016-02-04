@@ -69,7 +69,7 @@ func shell() {
 	}
 
 	// once we're connected, initiate headers sync
-	err = Hdr()
+	err = SCon.AskForHeaders()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -146,18 +146,6 @@ func Shellparse(cmdslice []string) error {
 	}
 
 	fmt.Printf("Command not recognized. type help for command list.\n")
-	return nil
-}
-
-// Hdr asks for headers.
-func Hdr() error {
-	if SCon.RBytes == 0 {
-		return fmt.Errorf("No SPV connection, can't get headers.")
-	}
-	err := SCon.AskForHeaders()
-	if err != nil {
-		return err
-	}
 	return nil
 }
 

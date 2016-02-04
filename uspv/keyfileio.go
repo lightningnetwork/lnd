@@ -28,13 +28,16 @@ If you want fewer bytes, put some zeroes at the end */
 func LoadKeyFromFileInteractive(filename string) (*[32]byte, error) {
 	a, err := os.Stat(filename)
 	if err != nil {
-		return new([32]byte), err
+		return nil, err
 	}
 	if a.Size() < 80 { // there can't be a password...
 		return LoadKeyFromFileArg(filename, nil)
 	}
 	fmt.Printf("passphrase: ")
-	pass := gopass.GetPasswd()
+	pass, err := gopass.GetPasswd()
+	if err != nil {
+		return nil, err
+	}
 	fmt.Printf("\n")
 	return LoadKeyFromFileArg(filename, pass)
 }
@@ -93,12 +96,19 @@ func LoadKeyFromFileArg(filename string, pass []byte) (*[32]byte, error) {
 // in the clear.
 func SaveKeyToFileInteractive(filename string, priv32 *[32]byte) error {
 	var match bool
+	var err error
 	var pass1, pass2 []byte
 	for match != true {
 		fmt.Printf("passphrase: ")
-		pass1 = gopass.GetPasswd()
+		pass1, err = gopass.GetPasswd()
+		if err != nil {
+			return err
+		}
 		fmt.Printf("repeat passphrase: ")
-		pass2 = gopass.GetPasswd()
+		pass2, err = gopass.GetPasswd()
+		if err != nil {
+			return err
+		}
 		if string(pass1) == string(pass2) {
 			match = true
 		} else {

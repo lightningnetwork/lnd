@@ -7,7 +7,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -57,7 +56,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	lnwallet.Unlock(config.PrivatePass, time.Duration(0))
 	fmt.Println("wallet open")
 	defer db.Close()
 

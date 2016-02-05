@@ -50,7 +50,8 @@ func (s *SPVCon) incomingMessageHandler() {
 			for i, thing := range m.InvList {
 				log.Printf("\t$d) %s: %s", i, thing.Type, thing.Hash)
 			}
-
+		case *wire.MsgGetData:
+			s.GetDataHandler(m)
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}
@@ -114,7 +115,6 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 		}
 		return
 	}
-
 	// no moar, done w/ headers, get merkleblocks
 	err = s.AskForMerkBlocks()
 	if err != nil {
@@ -123,19 +123,52 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 	}
 }
 
+// TxHandler takes in transaction messages that come in from either a request
+// after an inv message or after a merkle block message.
 func (s *SPVCon) TxHandler(m *wire.MsgTx) {
-	hits, err := s.TS.Ingest(m)
+	s.TS.OKMutex.Lock()
+	height, ok := s.TS.OKTxids[m.TxSha()]
+	s.TS.OKMutex.Unlock()
+	if !ok {
+		log.Printf("Tx %s unknown, will not ingest\n")
+		return
+	}
+	hits, err := s.TS.Ingest(m, height)
 	if err != nil {
 		log.Printf("Incoming Tx error: %s\n", err.Error())
+		return
 	}
 	if hits == 0 {
 		log.Printf("tx %s had no hits, filter false positive.",
 			m.TxSha().String())
 		s.fPositives <- 1 // add one false positive to chan
-	} else {
-		log.Printf("tx %s ingested and matches %d utxo/adrs.",
-			m.TxSha().String(), hits)
+		return
 	}
+	log.Printf("tx %s ingested and matches %d utxo/adrs.",
+		m.TxSha().String(), hits)
+}
+
+// GetDataHandler responds to requests for tx data, which happen after
+// advertising our txs via an inv message
+func (s *SPVCon) GetDataHandler(m *wire.MsgGetData) {
+	log.Printf("got GetData.  Contains:\n")
+	var sent int32
+	for i, thing := range m.InvList {
+		log.Printf("\t%d)%s : %s",
+			i, thing.Type.String(), thing.Hash.String())
+		if thing.Type != wire.InvTypeTx { // refuse non-tx reqs
+			log.Printf("We only respond to tx requests, ignoring")
+			continue
+		}
+		tx, err := s.TS.GetTx(&thing.Hash)
+		if err != nil {
+			log.Printf("error getting tx %s: %s",
+				thing.Hash.String(), err.Error())
+		}
+		s.outMsgQueue <- tx
+		sent++
+	}
+	log.Printf("sent %d of %d requested items", sent, len(m.InvList))
 }
 
 func (s *SPVCon) InvHandler(m *wire.MsgInv) {
@@ -143,8 +176,8 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 	for i, thing := range m.InvList {
 		log.Printf("\t%d)%s : %s",
 			i, thing.Type.String(), thing.Hash.String())
-		if thing.Type == wire.InvTypeTx { // new tx, ingest
-			s.TS.OKTxids[thing.Hash] = 0 // unconfirmed
+		if thing.Type == wire.InvTypeTx { // new tx, OK it at 0 and request
+			s.TS.AddTxid(&thing.Hash, 0) // unconfirmed
 			s.AskForTx(thing.Hash)
 		}
 		if thing.Type == wire.InvTypeBlock { // new block what to do?

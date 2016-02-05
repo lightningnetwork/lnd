@@ -302,7 +302,7 @@ func SendCoins(s uspv.SPVCon, adr btcutil.Address, sendAmt int64) error {
 
 	// send it out on the wire.  hope it gets there.
 	// we should deal with rejects.  Don't yet.
-	err = s.PushTx(tx)
+	err = s.NewOutgoingTx(tx)
 	if err != nil {
 		return err
 	}

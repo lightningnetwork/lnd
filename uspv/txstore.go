@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg"
 
@@ -17,6 +18,7 @@ import (
 
 type TxStore struct {
 	OKTxids map[wire.ShaHash]int32 // known good txids and their heights
+	OKMutex sync.Mutex
 
 	Adrs    []MyAdr  // endeavouring to acquire capital
 	StateDB *bolt.DB // place to write all this down
@@ -67,7 +69,9 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 		return fmt.Errorf("tried to add nil txid")
 	}
 	log.Printf("added %s to OKTxids at height %d\n", txid.String(), height)
+	t.OKMutex.Lock()
 	t.OKTxids[*txid] = height
+	t.OKMutex.Unlock()
 	return nil
 }
 
@@ -76,22 +80,17 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	if len(t.Adrs) == 0 {
 		return nil, fmt.Errorf("no addresses to filter for")
 	}
-	// add addresses to look for incoming
-	nutxo, err := t.NumUtxos()
-	if err != nil {
-		return nil, err
-	}
-
-	elem := uint32(len(t.Adrs)) + nutxo
-	f := bloom.NewFilter(elem, 0, 0.000001, wire.BloomUpdateAll)
-	for _, a := range t.Adrs {
-		f.Add(a.PkhAdr.ScriptAddress())
-	}
 
 	// get all utxos to add outpoints to filter
 	allUtxos, err := t.GetAllUtxos()
 	if err != nil {
 		return nil, err
+	}
+
+	elem := uint32(len(t.Adrs) + len(allUtxos))
+	f := bloom.NewFilter(elem, 0, 0.000001, wire.BloomUpdateAll)
+	for _, a := range t.Adrs {
+		f.Add(a.PkhAdr.ScriptAddress())
 	}
 
 	for _, u := range allUtxos {

@@ -121,7 +121,8 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	return newAdr, nil
 }
 
-// SetBDay sets the birthday (birth height) of the db (really keyfile)
+// SetDBSyncHeight sets sync height of the db, indicated the latest block
+// of which it has ingested all the transactions.
 func (ts *TxStore) SetDBSyncHeight(n int32) error {
 	var buf bytes.Buffer
 	_ = binary.Write(&buf, binary.BigEndian, n)
@@ -159,24 +160,7 @@ func (ts *TxStore) GetDBSyncHeight() (int32, error) {
 	return n, nil
 }
 
-// NumUtxos returns the number of utxos in the DB.
-func (ts *TxStore) NumUtxos() (uint32, error) {
-	var n uint32
-	err := ts.StateDB.View(func(btx *bolt.Tx) error {
-		duf := btx.Bucket(BKTUtxos)
-		if duf == nil {
-			return fmt.Errorf("no duffel bag")
-		}
-		stats := duf.Stats()
-		n = uint32(stats.KeyN)
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
+// GetAllUtxos returns a slice of all utxos known to the db. empty slice is OK.
 func (ts *TxStore) GetAllUtxos() ([]*Utxo, error) {
 	var utxos []*Utxo
 	err := ts.StateDB.View(func(btx *bolt.Tx) error {
@@ -198,16 +182,114 @@ func (ts *TxStore) GetAllUtxos() ([]*Utxo, error) {
 			}
 			// and add it to ram
 			utxos = append(utxos, &newU)
-
 			return nil
 		})
-
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return utxos, nil
+}
+
+// GetAllStxos returns a slice of all stxos known to the db. empty slice is OK.
+func (ts *TxStore) GetAllStxos() ([]*Stxo, error) {
+	// this is almost the same as GetAllUtxos but whatever, it'd be more
+	// complicated to make one contain the other or something
+	var stxos []*Stxo
+	err := ts.StateDB.View(func(btx *bolt.Tx) error {
+		old := btx.Bucket(BKTStxos)
+		if old == nil {
+			return fmt.Errorf("no old txos")
+		}
+		return old.ForEach(func(k, v []byte) error {
+			// have to copy k and v here, otherwise append will crash it.
+			// not quite sure why but append does weird stuff I guess.
+
+			// create a new stxo
+			x := make([]byte, len(k)+len(v))
+			copy(x, k)
+			copy(x[len(k):], v)
+			newS, err := StxoFromBytes(x)
+			if err != nil {
+				return err
+			}
+			// and add it to ram
+			stxos = append(stxos, &newS)
+			return nil
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stxos, nil
+}
+
+// GetTx takes a txid and returns the transaction.  If we have it.
+func (ts *TxStore) GetTx(txid *wire.ShaHash) (*wire.MsgTx, error) {
+	rtx := wire.NewMsgTx()
+
+	err := ts.StateDB.View(func(btx *bolt.Tx) error {
+		txns := btx.Bucket(BKTTxns)
+		if txns == nil {
+			return fmt.Errorf("no transactions in db")
+		}
+		txbytes := txns.Get(txid.Bytes())
+		if txbytes == nil {
+			return fmt.Errorf("tx %x not in db", txid.String())
+		}
+		buf := bytes.NewBuffer(txbytes)
+		return rtx.Deserialize(buf)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rtx, nil
+}
+
+// GetPendingInv returns an inv message containing all txs known to the
+// db which are at height 0 (not known to be confirmed).
+// This can be useful on startup or to rebroadcast unconfirmed txs.
+func (ts *TxStore) GetPendingInv() (*wire.MsgInv, error) {
+	// use a map (really a set) do avoid dupes
+	txidMap := make(map[wire.ShaHash]struct{})
+
+	utxos, err := ts.GetAllUtxos() // get utxos from db
+	if err != nil {
+		return nil, err
+	}
+	stxos, err := ts.GetAllStxos() // get stxos from db
+	if err != nil {
+		return nil, err
+	}
+
+	// iterate through utxos, adding txids of anything with height 0
+	for _, utxo := range utxos {
+		if utxo.AtHeight == 0 {
+			txidMap[utxo.Op.Hash] = struct{}{} // adds to map
+		}
+	}
+	// do the same with stxos based on height at which spent
+	for _, stxo := range stxos {
+		if stxo.SpendHeight == 0 {
+			txidMap[stxo.SpendTxid] = struct{}{}
+		}
+	}
+
+	invMsg := wire.NewMsgInv()
+	for txid := range txidMap {
+		item := wire.NewInvVect(wire.InvTypeTx, &txid)
+		err = invMsg.AddInvVect(item)
+		if err != nil {
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// return inv message with all txids (maybe none)
+	return invMsg, nil
 }
 
 // PopulateAdrs just puts a bunch of adrs in ram; it doesn't touch the DB
@@ -227,26 +309,17 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 		ma.PkhAdr = newAdr
 		ma.KeyIdx = k
 		ts.Adrs = append(ts.Adrs, ma)
-
 	}
 	return nil
 }
 
 // Ingest puts a tx into the DB atomically.  This can result in a
 // gain, a loss, or no result.  Gain or loss in satoshis is returned.
-func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
+func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	var hits uint32
 	var err error
 	var spentOPs [][]byte
 	var nUtxoBytes [][]byte
-
-	// first check that we have a height and tx has been SPV OK'd
-	inTxid := tx.TxSha()
-	height, ok := ts.OKTxids[inTxid]
-	if !ok {
-		return hits, fmt.Errorf("Ingest error: tx %s not in OKTxids.",
-			inTxid.String())
-	}
 
 	// tx has been OK'd by SPV; check tx sanity
 	utilTx := btcutil.NewTx(tx) // convert for validation
@@ -292,7 +365,6 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 				hits++
 				break // only one match
 			}
-
 		}
 	}
 
@@ -302,6 +374,9 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx) (uint32, error) {
 		//		sta := btx.Bucket(BKTState)
 		old := btx.Bucket(BKTStxos)
 		txns := btx.Bucket(BKTTxns)
+		if duf == nil || old == nil || txns == nil {
+			return fmt.Errorf("error: db not initialized")
+		}
 
 		// first see if we lose utxos
 		// iterate through duffel bag and look for matches

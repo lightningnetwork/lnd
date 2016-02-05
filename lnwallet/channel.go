@@ -189,16 +189,10 @@ func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	// public keys in descending order. So we do a quick comparison in order
 	// ensure the signatures appear on the Script Virual Machine stack in
 	// the correct order.
-	// TODO(roasbeef): func
 	redeemScript := channelState.FundingRedeemScript
 	ourKey := channelState.OurCommitKey.PubKey().SerializeCompressed()
 	theirKey := channelState.TheirCommitKey.SerializeCompressed()
-	if bytes.Compare(ourKey, theirKey) == -1 {
-		scriptSig, err = spendMultiSig(redeemScript, theirSig, ourSig)
-	} else {
-		scriptSig, err = spendMultiSig(redeemScript, ourSig, theirSig)
-	}
-
+	scriptSig, err = spendMultiSig(redeemScript, ourKey, ourSig, theirKey, theirSig)
 	if err != nil {
 		return err
 	}

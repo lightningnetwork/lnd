@@ -67,6 +67,7 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 	if err != nil {
 		return nil, nil, err
 	}
+
 	pkScript, err := scriptHashPkScript(redeemScript)
 	if err != nil {
 		return nil, nil, err
@@ -77,16 +78,23 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 
 // spendMultiSig generates the scriptSig required to redeem the 2-of-2 p2sh
 // multi-sig output.
-func spendMultiSig(redeemScript, sigA, sigB []byte) ([]byte, error) {
+func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	// add a 0 for some multisig fun
 	bldr.AddOp(txscript.OP_0)
 
-	// add sigA
-	bldr.AddData(sigA)
-	// add sigB
-	bldr.AddData(sigB)
+	// When initially generating the redeemScript, we sorted the serialized
+	// public keys in descending order. So we do a quick comparison in order
+	// ensure the signatures appear on the Script Virual Machine stack in
+	// the correct order.
+	if bytes.Compare(pubA, pubB) == -1 {
+		bldr.AddData(sigB)
+		bldr.AddData(sigA)
+	} else {
+		bldr.AddData(sigA)
+		bldr.AddData(sigB)
+	}
 
 	// preimage goes on AT THE ENDDDD
 	bldr.AddData(redeemScript)

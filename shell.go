@@ -144,8 +144,26 @@ func Shellparse(cmdslice []string) error {
 		}
 		return nil
 	}
+	if cmd == "txs" {
+		err = Txs(args)
+		if err != nil {
+			fmt.Printf("txs error: %s\n", err)
+		}
+		return nil
+	}
 
 	fmt.Printf("Command not recognized. type help for command list.\n")
+	return nil
+}
+
+func Txs(args []string) error {
+	alltx, err := SCon.TS.GetAllTxs()
+	if err != nil {
+		return err
+	}
+	for i, tx := range alltx {
+		fmt.Printf("tx %d %s\n", i, uspv.TxToString(tx))
+	}
 	return nil
 }
 

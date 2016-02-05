@@ -248,6 +248,33 @@ func (ts *TxStore) GetTx(txid *wire.ShaHash) (*wire.MsgTx, error) {
 	return rtx, nil
 }
 
+// GetTx takes a txid and returns the transaction.  If we have it.
+func (ts *TxStore) GetAllTxs() ([]*wire.MsgTx, error) {
+	var rtxs []*wire.MsgTx
+
+	err := ts.StateDB.View(func(btx *bolt.Tx) error {
+		txns := btx.Bucket(BKTTxns)
+		if txns == nil {
+			return fmt.Errorf("no transactions in db")
+		}
+
+		return txns.ForEach(func(k, v []byte) error {
+			tx := wire.NewMsgTx()
+			buf := bytes.NewBuffer(v)
+			err := tx.Deserialize(buf)
+			if err != nil {
+				return err
+			}
+			rtxs = append(rtxs, tx)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rtxs, nil
+}
+
 // GetPendingInv returns an inv message containing all txs known to the
 // db which are at height 0 (not known to be confirmed).
 // This can be useful on startup or to rebroadcast unconfirmed txs.

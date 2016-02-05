@@ -100,9 +100,40 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	return f, nil
 }
 
+// GetDoubleSpends takes a transaction and compares it with
+// all transactions in the db.  It returns a slice of all txids in the db
+// which are double spent by the received tx.
+func GetDoubleSpends(
+	argTx *wire.MsgTx, txs []*wire.MsgTx) ([]*wire.ShaHash, error) {
+
+	var dubs []*wire.ShaHash // slice of all double-spent txs
+	argTxid := argTx.TxSha()
+
+	for _, compTx := range txs {
+		compTxid := compTx.TxSha()
+		// check if entire tx is dup
+		if argTxid.IsEqual(&compTxid) {
+			return nil, fmt.Errorf("tx %s is dup", argTxid.String())
+		}
+		// not dup, iterate through inputs of argTx
+		for _, argIn := range argTx.TxIn {
+			// iterate through inputs of compTx
+			for _, compIn := range compTx.TxIn {
+				if OutPointsEqual(
+					argIn.PreviousOutPoint, compIn.PreviousOutPoint) {
+					// found double spend
+					dubs = append(dubs, &compTxid)
+					break // back to argIn loop
+				}
+			}
+		}
+	}
+	return dubs, nil
+}
+
 // TxToString prints out some info about a transaction. for testing / debugging
 func TxToString(tx *wire.MsgTx) string {
-	str := "\t\t\t - Tx - \n"
+	str := fmt.Sprintf("\t - Tx %s\n", tx.TxSha().String())
 	for i, in := range tx.TxIn {
 		str += fmt.Sprintf("Input %d: %s\n", i, in.PreviousOutPoint.String())
 		str += fmt.Sprintf("SigScript for input %d: %x\n", i, in.SignatureScript)

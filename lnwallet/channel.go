@@ -589,9 +589,6 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx := wire.NewMsgTx()
 	commitTx.Version = 2
 	commitTx.AddTxIn(fundingOutput)
-	// TODO(roasbeef): we default to blocks, make configurable as part of
-	// channel reservation.
-	commitTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), payToThemScriptHash))
 

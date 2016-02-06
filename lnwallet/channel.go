@@ -597,22 +597,3 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 
 	return commitTx, nil
 }
-
-// lockTimeToSequence converts the passed relative locktime to a sequence
-// number in accordance to BIP-68.
-// See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
-//  * (Compatibility)
-func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
-	if !isSeconds {
-		// The locktime is to be expressed in confirmations. Apply the
-		// mask to restrict the number of confirmations to 65,535 or
-		// 1.25 years.
-		return SequenceLockTimeMask & locktime
-	}
-
-	// Set the 22nd bit which indicates the lock time is in seconds, then
-	// shift the locktime over by 9 since the time granularity is in
-	// 512-second intervals (2^9). This results in a max lock-time of
-	// 33,554,431 seconds, or 1.06 years.
-	return SequenceLockTimeSeconds | (locktime >> 9)
-}

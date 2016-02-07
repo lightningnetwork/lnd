@@ -21,6 +21,11 @@ const (
 type SPVCon struct {
 	con net.Conn // the (probably tcp) connection to the node
 
+	// Enhanced SPV modes for users who have outgrown easy mode SPV
+	// but have not yet graduated to full nodes.
+	HardMode bool // hard mode doesn't use filters.
+	Ironman  bool // ironman only gets blocks, never requests txs.
+
 	headerMutex sync.Mutex
 	headerFile  *os.File // file for SPV headers
 
@@ -90,30 +95,34 @@ func (s *SPVCon) RemoveHeaders(r int32) error {
 	return nil
 }
 
-func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
+func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) {
 	txids, err := checkMBlock(m) // check self-consistency
 	if err != nil {
-		return err
+		log.Printf("Merkle block error: %s\n", err.Error())
+		return
 	}
 	var hah HashAndHeight
 	select { // select here so we don't block on an unrequested mblock
 	case hah = <-s.mBlockQueue: // pop height off mblock queue
 		break
 	default:
-		return fmt.Errorf("Unrequested merkle block")
+		log.Printf("Unrequested merkle block")
+		return
 	}
 
 	// this verifies order, and also that the returned header fits
 	// into our SPV header file
 	newMerkBlockSha := m.Header.BlockSha()
 	if !hah.blockhash.IsEqual(&newMerkBlockSha) {
-		return fmt.Errorf("merkle block out of order error")
+		log.Printf("merkle block out of order error")
+		return
 	}
 
 	for _, txid := range txids {
 		err := s.TS.AddTxid(txid, hah.height)
 		if err != nil {
-			return fmt.Errorf("Txid store error: %s\n", err.Error())
+			log.Printf("Txid store error: %s\n", err.Error())
+			return
 		}
 	}
 	// write to db that we've sync'd to the height indicated in the
@@ -121,7 +130,8 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 	// the txs yet but if there are problems with the txs we should backtrack.
 	err = s.TS.SetDBSyncHeight(hah.height)
 	if err != nil {
-		return err
+		log.Printf("Merkle block error: %s\n", err.Error())
+		return
 	}
 	if hah.final {
 		// don't set waitstate; instead, ask for headers again!
@@ -130,11 +140,11 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) error {
 		// that way you are pretty sure you're synced up.
 		err = s.AskForHeaders()
 		if err != nil {
-			return err
+			log.Printf("Merkle block error: %s\n", err.Error())
+			return
 		}
 	}
-
-	return nil
+	return
 }
 
 // IngestHeaders takes in a bunch of headers and appends them to the

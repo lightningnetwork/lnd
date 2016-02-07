@@ -31,11 +31,7 @@ func (s *SPVCon) incomingMessageHandler() {
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
 		case *wire.MsgMerkleBlock:
-			err = s.IngestMerkleBlock(m)
-			if err != nil {
-				log.Printf("Merkle block error: %s\n", err.Error())
-				continue
-			}
+			s.IngestMerkleBlock(m)
 		case *wire.MsgHeaders: // concurrent because we keep asking for blocks
 			go s.HeaderHandler(m)
 		case *wire.MsgTx: // not concurrent! txs must be in order
@@ -52,6 +48,8 @@ func (s *SPVCon) incomingMessageHandler() {
 			}
 		case *wire.MsgGetData:
 			s.GetDataHandler(m)
+		case *wire.MsgBlock:
+			s.IngestBlock(m)
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}
@@ -116,10 +114,14 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 		return
 	}
 	// no moar, done w/ headers, get merkleblocks
-	err = s.AskForMerkBlocks()
-	if err != nil {
-		log.Printf("AskForMerkBlocks error: %s", err.Error())
-		return
+	if s.HardMode { // in hard mode ask for regular blocks.
+
+	} else {
+		err = s.AskForMerkBlocks()
+		if err != nil {
+			log.Printf("AskForMerkBlocks error: %s", err.Error())
+			return
+		}
 	}
 }
 
@@ -133,6 +135,25 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 		log.Printf("Tx %s unknown, will not ingest\n")
 		return
 	}
+
+	// check for double spends
+	allTxs, err := s.TS.GetAllTxs()
+	if err != nil {
+		log.Printf("Can't get txs from db: %s", err.Error())
+		return
+	}
+	dubs, err := CheckDoubleSpends(m, allTxs)
+	if err != nil {
+		log.Printf("CheckDoubleSpends error: %s", err.Error())
+		return
+	}
+	if len(dubs) > 0 {
+		for i, dub := range dubs {
+			fmt.Printf("dub %d known tx %s and new tx %s are exclusive!!!\n",
+				i, dub.String(), m.TxSha().String())
+		}
+	}
+
 	hits, err := s.TS.Ingest(m, height)
 	if err != nil {
 		log.Printf("Incoming Tx error: %s\n", err.Error())
@@ -176,9 +197,12 @@ func (s *SPVCon) InvHandler(m *wire.MsgInv) {
 	for i, thing := range m.InvList {
 		log.Printf("\t%d)%s : %s",
 			i, thing.Type.String(), thing.Hash.String())
-		if thing.Type == wire.InvTypeTx { // new tx, OK it at 0 and request
-			s.TS.AddTxid(&thing.Hash, 0) // unconfirmed
-			s.AskForTx(thing.Hash)
+		if thing.Type == wire.InvTypeTx {
+			if !s.Ironman { // ignore tx invs in ironman mode
+				// new tx, OK it at 0 and request
+				s.TS.AddTxid(&thing.Hash, 0) // unconfirmed
+				s.AskForTx(thing.Hash)
+			}
 		}
 		if thing.Type == wire.InvTypeBlock { // new block what to do?
 			select {

@@ -7,25 +7,24 @@ import (
 )
 
 func MakeMerkleParent(left *wire.ShaHash, right *wire.ShaHash) *wire.ShaHash {
-	// this can screw things up; CVE-2012-2459
+	// dupes can screw things up; CVE-2012-2459. check for them
 	if left != nil && right != nil && left.IsEqual(right) {
 		fmt.Printf("DUP HASH CRASH")
 		return nil
 	}
-	// if left chils is nil, output nil.  Shouldn't need this?
+	// if left child is nil, output nil.  Need this for hard mode.
 	if left == nil {
-		fmt.Printf("L CRASH")
 		return nil
 	}
-	// if right is nil, has left with itself
+	// if right is nil, hash left with itself
 	if right == nil {
 		right = left
 	}
 
 	// Concatenate the left and right nodes
-	var sha [wire.HashSize * 2]byte
-	copy(sha[:wire.HashSize], left[:])
-	copy(sha[wire.HashSize:], right[:])
+	var sha [64]byte
+	copy(sha[:32], left[:])
+	copy(sha[32:], right[:])
 
 	newSha := wire.DoubleSha256SH(sha[:])
 	return &newSha

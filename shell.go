@@ -151,7 +151,13 @@ func Shellparse(cmdslice []string) error {
 		}
 		return nil
 	}
-
+	if cmd == "blk" {
+		err = Blk(args)
+		if err != nil {
+			fmt.Printf("blk error: %s\n", err)
+		}
+		return nil
+	}
 	fmt.Printf("Command not recognized. type help for command list.\n")
 	return nil
 }
@@ -163,6 +169,26 @@ func Txs(args []string) error {
 	}
 	for i, tx := range alltx {
 		fmt.Printf("tx %d %s\n", i, uspv.TxToString(tx))
+	}
+	return nil
+}
+
+func Blk(args []string) error {
+	if SCon.RBytes == 0 {
+		return fmt.Errorf("Can't check block, spv connection broken")
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("must specify height")
+	}
+	height, err := strconv.ParseInt(args[0], 10, 32)
+	if err != nil {
+		return err
+	}
+
+	// request most recent block just to test
+	err = SCon.AskForOneBlock(int32(height))
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -208,6 +234,9 @@ func Adr(args []string) error {
 
 // Send sends coins.
 func Send(args []string) error {
+	if SCon.RBytes == 0 {
+		return fmt.Errorf("Can't send, spv connection broken")
+	}
 	// get all utxos from the database
 	allUtxos, err := SCon.TS.GetAllUtxos()
 	if err != nil {

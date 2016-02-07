@@ -13,10 +13,10 @@ import (
 
 // OpenPV starts a
 func OpenSPV(remoteNode string, hfn, dbfn string,
-	inTs *TxStore, p *chaincfg.Params) (SPVCon, error) {
+	inTs *TxStore, hard bool, p *chaincfg.Params) (SPVCon, error) {
 	// create new SPVCon
 	var s SPVCon
-
+	s.HardMode = hard
 	// I should really merge SPVCon and TxStore, they're basically the same
 	inTs.Param = p
 	s.TS = inTs // copy pointer of txstore into spvcon
@@ -83,7 +83,7 @@ func OpenSPV(remoteNode string, hfn, dbfn string,
 	go s.incomingMessageHandler()
 	s.outMsgQueue = make(chan wire.Message)
 	go s.outgoingMessageHandler()
-	s.mBlockQueue = make(chan HashAndHeight, 32) // queue depth 32 is a thing
+	s.blockQueue = make(chan HashAndHeight, 32) // queue depth 32 is a thing
 	s.fPositives = make(chan int32, 4000)        // a block full, approx
 	s.inWaitState = make(chan bool, 1)
 	go s.fPositiveHandler()

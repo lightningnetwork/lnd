@@ -45,7 +45,7 @@ type SPVCon struct {
 	TS *TxStore // transaction store to write to
 
 	// mBlockQueue is for keeping track of what height we've requested.
-	mBlockQueue chan HashAndHeight
+	blockQueue chan HashAndHeight
 	// fPositives is a channel to keep track of bloom filter false positives.
 	fPositives chan int32
 
@@ -96,6 +96,7 @@ func (s *SPVCon) RemoveHeaders(r int32) error {
 }
 
 func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) {
+
 	txids, err := checkMBlock(m) // check self-consistency
 	if err != nil {
 		log.Printf("Merkle block error: %s\n", err.Error())
@@ -103,7 +104,7 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) {
 	}
 	var hah HashAndHeight
 	select { // select here so we don't block on an unrequested mblock
-	case hah = <-s.mBlockQueue: // pop height off mblock queue
+	case hah = <-s.blockQueue: // pop height off mblock queue
 		break
 	default:
 		log.Printf("Unrequested merkle block")
@@ -282,7 +283,7 @@ func (s *SPVCon) AskForHeaders() error {
 // AskForMerkBlocks requests blocks from current to last
 // right now this asks for 1 block per getData message.
 // Maybe it's faster to ask for many in a each message?
-func (s *SPVCon) AskForMerkBlocks() error {
+func (s *SPVCon) AskForBlocks() error {
 	var hdr wire.BlockHeader
 
 	s.headerMutex.Lock() // lock just to check filesize
@@ -311,15 +312,16 @@ func (s *SPVCon) AskForMerkBlocks() error {
 
 	fmt.Printf("will request merkleblocks %d to %d\n", dbTip, headerTip)
 
-	// create initial filter
-	filt, err := s.TS.GimmeFilter()
-	if err != nil {
-		return err
+	if !s.HardMode { // don't send this in hardmode! that's the whole point
+		// create initial filter
+		filt, err := s.TS.GimmeFilter()
+		if err != nil {
+			return err
+		}
+		// send filter
+		s.SendFilter(filt)
+		fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
 	}
-	// send filter
-	s.SendFilter(filt)
-	fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
-
 	// loop through all heights where we want merkleblocks.
 	for dbTip <= headerTip {
 		// load header from file
@@ -338,7 +340,13 @@ func (s *SPVCon) AskForMerkBlocks() error {
 
 		bHash := hdr.BlockSha()
 		// create inventory we're asking for
-		iv1 := wire.NewInvVect(wire.InvTypeFilteredBlock, &bHash)
+		iv1 := new(wire.InvVect)
+		// if hardmode, ask for legit blocks, none of this ralphy stuff
+		if s.HardMode {
+			iv1 = wire.NewInvVect(wire.InvTypeBlock, &bHash)
+		} else { // ah well
+			iv1 = wire.NewInvVect(wire.InvTypeFilteredBlock, &bHash)
+		}
 		gdataMsg := wire.NewMsgGetData()
 		// add inventory
 		err = gdataMsg.AddInvVect(iv1)
@@ -351,7 +359,7 @@ func (s *SPVCon) AskForMerkBlocks() error {
 		}
 		s.outMsgQueue <- gdataMsg
 		// waits here most of the time for the queue to empty out
-		s.mBlockQueue <- hah // push height and mroot of requested block on queue
+		s.blockQueue <- hah // push height and mroot of requested block on queue
 		dbTip++
 	}
 	return nil

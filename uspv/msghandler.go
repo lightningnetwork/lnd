@@ -30,6 +30,8 @@ func (s *SPVCon) incomingMessageHandler() {
 			go s.PongBack(m.Nonce)
 		case *wire.MsgPong:
 			log.Printf("Got a pong response. OK.\n")
+		case *wire.MsgBlock:
+			s.IngestBlock(m)
 		case *wire.MsgMerkleBlock:
 			s.IngestMerkleBlock(m)
 		case *wire.MsgHeaders: // concurrent because we keep asking for blocks
@@ -48,8 +50,7 @@ func (s *SPVCon) incomingMessageHandler() {
 			}
 		case *wire.MsgGetData:
 			s.GetDataHandler(m)
-		case *wire.MsgBlock:
-			s.IngestBlock(m)
+
 		default:
 			log.Printf("Got unknown message type %s\n", m.Command())
 		}
@@ -113,15 +114,11 @@ func (s *SPVCon) HeaderHandler(m *wire.MsgHeaders) {
 		}
 		return
 	}
-	// no moar, done w/ headers, get merkleblocks
-	if s.HardMode { // in hard mode ask for regular blocks.
-
-	} else {
-		err = s.AskForMerkBlocks()
-		if err != nil {
-			log.Printf("AskForMerkBlocks error: %s", err.Error())
-			return
-		}
+	// no moar, done w/ headers, get blocks
+	err = s.AskForBlocks()
+	if err != nil {
+		log.Printf("AskForBlocks error: %s", err.Error())
+		return
 	}
 }
 
@@ -153,13 +150,12 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 				i, dub.String(), m.TxSha().String())
 		}
 	}
-
 	hits, err := s.TS.Ingest(m, height)
 	if err != nil {
 		log.Printf("Incoming Tx error: %s\n", err.Error())
 		return
 	}
-	if hits == 0 {
+	if hits == 0 && !s.HardMode {
 		log.Printf("tx %s had no hits, filter false positive.",
 			m.TxSha().String())
 		s.fPositives <- 1 // add one false positive to chan

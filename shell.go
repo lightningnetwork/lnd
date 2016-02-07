@@ -51,7 +51,7 @@ func shell() {
 	// setup spvCon
 
 	SCon, err = uspv.OpenSPV(
-		SPVHostAdr, headerFileName, dbFileName, &Store, Params)
+		SPVHostAdr, headerFileName, dbFileName, &Store, true, Params)
 	if err != nil {
 		log.Fatal(err)
 	}

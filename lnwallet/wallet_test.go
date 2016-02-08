@@ -573,13 +573,13 @@ func TestLightningWallet(t *testing.T) {
 	// up this node with a chain length of 125, so we have plentyyy of BTC
 	// to play around with.
 	miningNode, err := rpctest.New(netParams, nil, nil)
+	defer miningNode.TearDown()
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
 	if err := miningNode.SetUp(true, 25); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
-	defer miningNode.TearDown()
 
 	// Funding via 5 outputs with 4BTC each.
 	testDir, lnwallet, err := createTestWallet(miningNode, netParams)

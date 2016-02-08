@@ -67,6 +67,7 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 	if err != nil {
 		return nil, nil, err
 	}
+
 	pkScript, err := scriptHashPkScript(redeemScript)
 	if err != nil {
 		return nil, nil, err
@@ -77,16 +78,23 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 
 // spendMultiSig generates the scriptSig required to redeem the 2-of-2 p2sh
 // multi-sig output.
-func spendMultiSig(redeemScript, sigA, sigB []byte) ([]byte, error) {
+func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	// add a 0 for some multisig fun
 	bldr.AddOp(txscript.OP_0)
 
-	// add sigA
-	bldr.AddData(sigA)
-	// add sigB
-	bldr.AddData(sigB)
+	// When initially generating the redeemScript, we sorted the serialized
+	// public keys in descending order. So we do a quick comparison in order
+	// ensure the signatures appear on the Script Virual Machine stack in
+	// the correct order.
+	if bytes.Compare(pubA, pubB) == -1 {
+		bldr.AddData(sigB)
+		bldr.AddData(sigA)
+	} else {
+		bldr.AddData(sigA)
+		bldr.AddData(sigB)
+	}
 
 	// preimage goes on AT THE ENDDDD
 	bldr.AddData(redeemScript)
@@ -202,6 +210,25 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddOp(txscript.OP_CHECKSIG)
 
 	return builder.Script()
+}
+
+// lockTimeToSequence converts the passed relative locktime to a sequence
+// number in accordance to BIP-68.
+// See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
+//  * (Compatibility)
+func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
+	if !isSeconds {
+		// The locktime is to be expressed in confirmations. Apply the
+		// mask to restrict the number of confirmations to 65,535 or
+		// 1.25 years.
+		return SequenceLockTimeMask & locktime
+	}
+
+	// Set the 22nd bit which indicates the lock time is in seconds, then
+	// shift the locktime over by 9 since the time granularity is in
+	// 512-second intervals (2^9). This results in a max lock-time of
+	// 33,554,431 seconds, or 1.06 years.
+	return SequenceLockTimeSeconds | (locktime >> 9)
 }
 
 // commitScriptToSelf constructs the public key script for the output on the

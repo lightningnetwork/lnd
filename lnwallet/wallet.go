@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -934,18 +933,12 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
-	//
-	// When initially generating the redeemScript, we sorted the serialized
-	// public keys in descending order. So we do a quick comparison in order
-	// ensure the signatures appear on the Script Virual Machine stack in
-	// the correct order.
-	var scriptSig []byte
 	theirCommitSig := msg.theirCommitmentSig
-	if bytes.Compare(ourKey.PubKey().SerializeCompressed(), theirKey.SerializeCompressed()) == -1 {
-		scriptSig, err = spendMultiSig(redeemScript, theirCommitSig, ourCommitSig)
-	} else {
-		scriptSig, err = spendMultiSig(redeemScript, ourCommitSig, theirCommitSig)
-	}
+	ourKeySer := ourKey.PubKey().SerializeCompressed()
+	theirKeySer := theirKey.SerializeCompressed()
+	scriptSig, err := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
+		theirKeySer,
+		theirCommitSig)
 	if err != nil {
 		msg.err <- err
 		return

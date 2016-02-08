@@ -303,7 +303,8 @@ func (s *SPVCon) AskForBlocks() error {
 	}
 	if dbTip == headerTip {
 		// nothing to ask for; set wait state and return
-		fmt.Printf("no merkle blocks to request, entering wait state\n")
+		fmt.Printf("no blocks to request, entering wait state\n")
+		fmt.Printf("%d bytes received\n", s.RBytes)
 		s.inWaitState <- true
 		// also advertise any unconfirmed txs here
 		s.Rebroadcast()

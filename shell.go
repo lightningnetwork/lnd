@@ -25,7 +25,7 @@ testing.  It can send and receive coins.
 const (
 	keyFileName    = "testkey.hex"
 	headerFileName = "headers.bin"
-	dbFileName     = "utxo.db"
+	dbFileName     = "/dev/shm/utxo.db"
 	// this is my local testnet node, replace it with your own close by.
 	// Random internet testnet nodes usually work but sometimes don't, so
 	// maybe I should test against different versions out there.
@@ -51,7 +51,7 @@ func shell() {
 	// setup spvCon
 
 	SCon, err = uspv.OpenSPV(
-		SPVHostAdr, headerFileName, dbFileName, &Store, true, Params)
+		SPVHostAdr, headerFileName, dbFileName, &Store, false, false, Params)
 	if err != nil {
 		log.Fatal(err)
 	}

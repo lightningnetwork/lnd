@@ -85,7 +85,6 @@ func (s *SPVCon) fPositiveHandler() {
 				log.Printf("uhoh, crashing filter handler")
 				return
 			}
-
 			// send filter
 			s.SendFilter(filt)
 			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)

@@ -350,7 +350,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 
 	// tx has been OK'd by SPV; check tx sanity
 	utilTx := btcutil.NewTx(tx) // convert for validation
-	// checks stuff like inputs >= ouputs
+	// checks basic stuff like there are inputs and ouputs
 	err = blockchain.CheckTransactionSanity(utilTx)
 	if err != nil {
 		return hits, err

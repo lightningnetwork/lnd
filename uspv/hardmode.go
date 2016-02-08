@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -22,7 +23,7 @@ func BlockRootOK(blk wire.MsgBlock) bool {
 	}
 	for len(shas) > 1 { // calculate merkle root. Terse, eh?
 		shas = append(shas[2:], MakeMerkleParent(shas[0], shas[1]))
-	}
+	} // auto recognizes coinbase-only blocks
 	return blk.Header.MerkleRoot.IsEqual(shas[0])
 }
 
@@ -55,17 +56,24 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	// iterate through all txs in the block, looking for matches.
 	// this is slow and can be sped up by doing in-ram filters client side.
 	// kindof a pain to implement though and it's fast enough for now.
+	var wg sync.WaitGroup
+	wg.Add(len(m.Transactions))
 	for i, tx := range m.Transactions {
-		hits, err := s.TS.Ingest(tx, hah.height)
-		if err != nil {
-			log.Printf("Incoming Tx error: %s\n", err.Error())
-			return
-		}
-		if hits > 0 {
-			log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
-				hah.height, i, tx.TxSha().String(), hits)
-		}
+
+		go func() {
+			hits, err := s.TS.Ingest(tx, hah.height)
+			if err != nil {
+				log.Printf("Incoming Tx error: %s\n", err.Error())
+				return
+			}
+			if hits > 0 {
+				log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
+					hah.height, i, tx.TxSha().String(), hits)
+			}
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 
 	// write to db that we've sync'd to the height indicated in the
 	// merkle block.  This isn't QUITE true since we haven't actually gotten

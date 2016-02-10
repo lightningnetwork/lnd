@@ -128,7 +128,7 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 	height, ok := s.TS.OKTxids[m.TxSha()]
 	s.TS.OKMutex.Unlock()
 	if !ok {
-		log.Printf("Tx %s unknown, will not ingest\n")
+		log.Printf("Tx %s unknown, will not ingest\n", m.TxSha().String())
 		return
 	}
 

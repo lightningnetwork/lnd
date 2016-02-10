@@ -25,15 +25,15 @@ testing.  It can send and receive coins.
 const (
 	keyFileName    = "testkey.hex"
 	headerFileName = "headers.bin"
-	dbFileName     = "/dev/shm/utxo.db"
+	dbFileName     = "utxo.db"
 	// this is my local testnet node, replace it with your own close by.
 	// Random internet testnet nodes usually work but sometimes don't, so
 	// maybe I should test against different versions out there.
-	SPVHostAdr = "127.0.0.1:18333"
+	SPVHostAdr = "127.0.0.1:28333"
 )
 
 var (
-	Params = &chaincfg.TestNet3Params
+	Params = &chaincfg.SegNetParams
 	SCon   uspv.SPVCon // global here for now
 )
 
@@ -51,7 +51,7 @@ func shell() {
 	// setup spvCon
 
 	SCon, err = uspv.OpenSPV(
-		SPVHostAdr, headerFileName, dbFileName, &Store, false, false, Params)
+		SPVHostAdr, headerFileName, dbFileName, &Store, true, false, Params)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func shell() {
 		log.Fatal(err)
 	}
 	if tip == 0 { // DB has never been used, set to birthday
-		tip = 675000 // hardcoded; later base on keyfile date?
+		tip = 1234 // hardcoded; later base on keyfile date?
 		err = SCon.TS.SetDBSyncHeight(tip)
 		if err != nil {
 			log.Fatal(err)

@@ -15,7 +15,8 @@ const (
 	headerFileName = "headers.bin"
 
 	// version hardcoded for now, probably ok...?
-	VERSION = 70011
+	// 70012 is for segnet... make this a init var?
+	VERSION = 70012
 )
 
 type SPVCon struct {
@@ -115,7 +116,9 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) {
 	// into our SPV header file
 	newMerkBlockSha := m.Header.BlockSha()
 	if !hah.blockhash.IsEqual(&newMerkBlockSha) {
-		log.Printf("merkle block out of order error")
+		log.Printf("merkle block out of order got %s expect %s",
+			m.Header.BlockSha().String(), hah.blockhash.String())
+		log.Printf("has %d hashes", len(m.Hashes))
 		return
 	}
 

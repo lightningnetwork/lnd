@@ -133,7 +133,8 @@ func CheckDoubleSpends(
 
 // TxToString prints out some info about a transaction. for testing / debugging
 func TxToString(tx *wire.MsgTx) string {
-	str := fmt.Sprintf("\t - Tx %s\n", tx.TxSha().String())
+	str := fmt.Sprintf("\t size %d wsize %d Tx %s\n",
+		tx.SerializeSize(), tx.SerializeSizeWitness(), tx.TxSha().String())
 	for i, in := range tx.TxIn {
 		str += fmt.Sprintf("Input %d: %s\n", i, in.PreviousOutPoint.String())
 		str += fmt.Sprintf("SigScript for input %d: %x\n", i, in.SignatureScript)
@@ -146,6 +147,12 @@ func TxToString(tx *wire.MsgTx) string {
 			str += fmt.Sprintf("output %d nil (WARNING)\n", i)
 		}
 	}
+	for i, wit := range tx.TxWitness {
+		if wit.ScriptWitness != nil {
+			str += fmt.Sprintf("Witness %d: %x\n", i, wit.ScriptWitness)
+		}
+	}
+
 	return str
 }
 

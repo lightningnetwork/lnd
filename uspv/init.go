@@ -49,6 +49,8 @@ func OpenSPV(remoteNode string, hfn, dbfn string,
 	}
 	// must set this to enable SPV stuff
 	myMsgVer.AddService(wire.SFNodeBloom)
+	// set this to enable segWit
+	myMsgVer.AddService(wire.SFNodeWitness)
 	// this actually sends
 	n, err := wire.WriteMessageN(s.con, myMsgVer, s.localVersion, s.TS.Param.Net)
 	if err != nil {

@@ -1,9 +1,9 @@
 package uspv
 
 import (
+	"bytes"
 	"fmt"
 	"log"
-	"os"
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
@@ -24,6 +24,8 @@ func BlockRootOK(blk wire.MsgBlock) bool {
 	for len(shas) > 1 { // calculate merkle root. Terse, eh?
 		shas = append(shas[2:], MakeMerkleParent(shas[0], shas[1]))
 	} // auto recognizes coinbase-only blocks
+	fmt.Printf("MRs calcd %s given %s\n",
+		shas[0].String(), blk.Header.MerkleRoot.String())
 	return blk.Header.MerkleRoot.IsEqual(shas[0])
 }
 
@@ -31,7 +33,16 @@ func BlockRootOK(blk wire.MsgBlock) bool {
 // different enough that it's better to have 2 separate functions
 func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	var err error
-
+	var buf bytes.Buffer
+	m.SerializeWitness(&buf)
+	fmt.Printf("block hex %x\n", buf.Bytes())
+	for i, tx := range m.Transactions {
+		//		if i > 0 {
+		fmt.Printf("wtxid: %s\n", tx.WTxSha())
+		fmt.Printf("txid: %s\n", tx.TxSha())
+		fmt.Printf("%d %s", i, TxToString(tx))
+		//		}
+	}
 	ok := BlockRootOK(*m) // check block self-consistency
 	if !ok {
 		fmt.Printf("block %s not OK!!11\n", m.BlockSha().String())
@@ -59,7 +70,6 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	var wg sync.WaitGroup
 	wg.Add(len(m.Transactions))
 	for i, tx := range m.Transactions {
-
 		go func() {
 			hits, err := s.TS.Ingest(tx, hah.height)
 			if err != nil {
@@ -98,36 +108,4 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		}
 	}
 	return
-}
-
-func (s *SPVCon) AskForOneBlock(h int32) error {
-	var hdr wire.BlockHeader
-	var err error
-
-	dbTip := int32(h)
-	s.headerMutex.Lock() // seek to header we need
-	_, err = s.headerFile.Seek(int64((dbTip)*80), os.SEEK_SET)
-	if err != nil {
-		return err
-	}
-	err = hdr.Deserialize(s.headerFile) // read header, done w/ file for now
-	s.headerMutex.Unlock()              // unlock after reading 1 header
-	if err != nil {
-		log.Printf("header deserialize error!\n")
-		return err
-	}
-
-	bHash := hdr.BlockSha()
-	// create inventory we're asking for
-	iv1 := wire.NewInvVect(wire.InvTypeBlock, &bHash)
-	gdataMsg := wire.NewMsgGetData()
-	// add inventory
-	err = gdataMsg.AddInvVect(iv1)
-	if err != nil {
-		return err
-	}
-
-	s.outMsgQueue <- gdataMsg
-
-	return nil
 }

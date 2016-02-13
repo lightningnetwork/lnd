@@ -118,7 +118,8 @@ func (s *SPVCon) IngestMerkleBlock(m *wire.MsgMerkleBlock) {
 	if !hah.blockhash.IsEqual(&newMerkBlockSha) {
 		log.Printf("merkle block out of order got %s expect %s",
 			m.Header.BlockSha().String(), hah.blockhash.String())
-		log.Printf("has %d hashes", len(m.Hashes))
+		log.Printf("has %d hashes %d txs flags: %x",
+			len(m.Hashes), m.Transactions, m.Flags)
 		return
 	}
 
@@ -283,6 +284,40 @@ func (s *SPVCon) AskForHeaders() error {
 	return nil
 }
 
+// AskForOneBlock is for testing only, so you can ask for a specific block height
+// and see what goes wrong
+func (s *SPVCon) AskForOneBlock(h int32) error {
+	var hdr wire.BlockHeader
+	var err error
+
+	dbTip := int32(h)
+	s.headerMutex.Lock() // seek to header we need
+	_, err = s.headerFile.Seek(int64((dbTip)*80), os.SEEK_SET)
+	if err != nil {
+		return err
+	}
+	err = hdr.Deserialize(s.headerFile) // read header, done w/ file for now
+	s.headerMutex.Unlock()              // unlock after reading 1 header
+	if err != nil {
+		log.Printf("header deserialize error!\n")
+		return err
+	}
+
+	bHash := hdr.BlockSha()
+	// create inventory we're asking for
+	iv1 := wire.NewInvVect(wire.InvTypeWitnessBlock, &bHash)
+	gdataMsg := wire.NewMsgGetData()
+	// add inventory
+	err = gdataMsg.AddInvVect(iv1)
+	if err != nil {
+		return err
+	}
+	hah := NewRootAndHeight(bHash, h)
+	s.outMsgQueue <- gdataMsg
+	s.blockQueue <- hah // push height and mroot of requested block on queue
+	return nil
+}
+
 // AskForMerkBlocks requests blocks from current to last
 // right now this asks for 1 block per getData message.
 // Maybe it's faster to ask for many in a each message?
@@ -347,9 +382,9 @@ func (s *SPVCon) AskForBlocks() error {
 		iv1 := new(wire.InvVect)
 		// if hardmode, ask for legit blocks, none of this ralphy stuff
 		if s.HardMode {
-			iv1 = wire.NewInvVect(wire.InvTypeBlock, &bHash)
+			iv1 = wire.NewInvVect(wire.InvTypeWitnessBlock, &bHash)
 		} else { // ah well
-			iv1 = wire.NewInvVect(wire.InvTypeFilteredBlock, &bHash)
+			iv1 = wire.NewInvVect(wire.InvTypeFilteredWitnessBlock, &bHash)
 		}
 		gdataMsg := wire.NewMsgGetData()
 		// add inventory

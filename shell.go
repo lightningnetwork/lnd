@@ -68,11 +68,11 @@ func shell() {
 		}
 	}
 
-	// once we're connected, initiate headers sync
-	//	err = SCon.AskForHeaders()
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
+	//	 once we're connected, initiate headers sync
+	err = SCon.AskForHeaders()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// main shell loop
 	for {

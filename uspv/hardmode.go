@@ -39,7 +39,7 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	for i, tx := range m.Transactions {
 		//		if i > 0 {
 		fmt.Printf("wtxid: %s\n", tx.WTxSha())
-		fmt.Printf("txid: %s\n", tx.TxSha())
+		fmt.Printf(" txid: %s\n", tx.TxSha())
 		fmt.Printf("%d %s", i, TxToString(tx))
 		//		}
 	}

@@ -349,7 +349,7 @@ func (s *SPVCon) AskForBlocks() error {
 		return nil
 	}
 
-	fmt.Printf("will request merkleblocks %d to %d\n", dbTip, headerTip)
+	fmt.Printf("will request blocks %d to %d\n", dbTip, headerTip)
 
 	if !s.HardMode { // don't send this in hardmode! that's the whole point
 		// create initial filter

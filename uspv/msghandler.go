@@ -88,10 +88,19 @@ func (s *SPVCon) fPositiveHandler() {
 			// send filter
 			s.SendFilter(filt)
 			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+
 			// clear the channel
-			for len(s.fPositives) != 0 {
-				fpAccumulator += <-s.fPositives
+		finClear:
+			for {
+				select {
+				case x := <-s.fPositives:
+					fpAccumulator += x
+
+				default:
+					break finClear
+				}
 			}
+
 			fmt.Printf("reset %d false positives\n", fpAccumulator)
 			// reset accumulator
 			fpAccumulator = 0

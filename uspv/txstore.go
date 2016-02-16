@@ -139,6 +139,10 @@ func TxToString(tx *wire.MsgTx) string {
 	for i, in := range tx.TxIn {
 		str += fmt.Sprintf("Input %d: %s\n", i, in.PreviousOutPoint.String())
 		str += fmt.Sprintf("SigScript for input %d: %x\n", i, in.SignatureScript)
+		for j, wit := range in.Witness {
+			str += fmt.Sprintf("witness %d: %x\t", j, wit)
+		}
+		str += fmt.Sprintf("\n")
 	}
 	for i, out := range tx.TxOut {
 		if out != nil {
@@ -148,12 +152,6 @@ func TxToString(tx *wire.MsgTx) string {
 			str += fmt.Sprintf("output %d nil (WARNING)\n", i)
 		}
 	}
-	for i, wit := range tx.TxWitness {
-		if wit != nil {
-			str += fmt.Sprintf("Witness %d: %x\n", i, wit.ScriptWitness)
-		}
-	}
-
 	return str
 }
 

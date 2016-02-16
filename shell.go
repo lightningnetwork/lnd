@@ -314,7 +314,7 @@ func SendCoins(s uspv.SPVCon, adr btcutil.Address, sendAmt int64) error {
 			return err
 		}
 		// make new input from this utxo
-		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript)
+		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript, nil)
 		tx.AddTxIn(thisInput)
 		nokori -= utxo.Value
 		if nokori < -10000 { // minimum overage / fee is 1K now

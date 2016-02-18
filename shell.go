@@ -61,7 +61,7 @@ func shell() {
 		log.Fatal(err)
 	}
 	if tip == 0 { // DB has never been used, set to birthday
-		tip = 1234 // hardcoded; later base on keyfile date?
+		tip = 20000 // hardcoded; later base on keyfile date?
 		err = SCon.TS.SetDBSyncHeight(tip)
 		if err != nil {
 			log.Fatal(err)
@@ -254,7 +254,11 @@ func Send(args []string) error {
 	}
 	// need args, fail
 	if len(args) < 2 {
-		return fmt.Errorf("need args: ssend amount(satoshis) address")
+		return fmt.Errorf("need args: ssend amount(satoshis) address wit?")
+	}
+	var wit bool // whether to send to p2wpkh
+	if len(args) > 2 {
+		wit = true
 	}
 	amt, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
@@ -270,7 +274,8 @@ func Send(args []string) error {
 	}
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
-	err = SendCoins(SCon, adr, amt)
+
+	err = SendCoins(SCon, adr, amt, wit)
 	if err != nil {
 		return err
 	}
@@ -278,7 +283,10 @@ func Send(args []string) error {
 }
 
 // SendCoins does send coins, but it's very rudimentary
-func SendCoins(s uspv.SPVCon, adr btcutil.Address, sendAmt int64) error {
+// wit makes it into p2wpkh.  Which is not yet spendable.
+func SendCoins(
+	s uspv.SPVCon, adr btcutil.Address, sendAmt int64, wit bool) error {
+
 	var err error
 	var score int64
 	allUtxos, err := s.TS.GetAllUtxos()
@@ -297,10 +305,19 @@ func SendCoins(s uspv.SPVCon, adr btcutil.Address, sendAmt int64) error {
 
 	tx := wire.NewMsgTx() // make new tx
 	// make address script 76a914...88ac
-	adrScript, err := txscript.PayToAddrScript(adr)
-	if err != nil {
-		return err
+	var adrScript []byte
+	if wit {
+		adrScript, err = uspv.P2wpkhScript(adr)
+		if err != nil {
+			return err
+		}
+	} else { // non-wit, use old p2pkh
+		adrScript, err = txscript.PayToAddrScript(adr)
+		if err != nil {
+			return err
+		}
 	}
+
 	// make user specified txout and add to tx
 	txout := wire.NewTxOut(sendAmt, adrScript)
 	tx.AddTxOut(txout)

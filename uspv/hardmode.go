@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/btcsuite/btcd/wire"
 )
@@ -123,13 +122,11 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	//	var buf bytes.Buffer
 	//	m.SerializeWitness(&buf)
 	//	fmt.Printf("block hex %x\n", buf.Bytes())
-	for _, tx := range m.Transactions {
-		//		if i > 0 {
-		fmt.Printf("wtxid: %s\n", tx.WTxSha())
-		fmt.Printf(" txid: %s\n", tx.TxSha())
-		//		fmt.Printf("%d %s", i, TxToString(tx))
-		//		}
-	}
+	//	for _, tx := range m.Transactions {
+	//		fmt.Printf("wtxid: %s\n", tx.WTxSha())
+	//		fmt.Printf(" txid: %s\n", tx.TxSha())
+	//		fmt.Printf("%d %s", i, TxToString(tx))
+	//	}
 	ok := BlockOK(*m) // check block self-consistency
 	if !ok {
 		fmt.Printf("block %s not OK!!11\n", m.BlockSha().String())
@@ -154,23 +151,17 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	// iterate through all txs in the block, looking for matches.
 	// this is slow and can be sped up by doing in-ram filters client side.
 	// kindof a pain to implement though and it's fast enough for now.
-	var wg sync.WaitGroup
-	wg.Add(len(m.Transactions))
 	for i, tx := range m.Transactions {
-		go func() {
-			defer wg.Done()
-			hits, err := s.TS.Ingest(tx, hah.height)
-			if err != nil {
-				log.Printf("Incoming Tx error: %s\n", err.Error())
-				return
-			}
-			if hits > 0 {
-				log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
-					hah.height, i, tx.TxSha().String(), hits)
-			}
-		}()
+		hits, err := s.TS.Ingest(tx, hah.height)
+		if err != nil {
+			log.Printf("Incoming Tx error: %s\n", err.Error())
+			return
+		}
+		if hits > 0 {
+			log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
+				hah.height, i, tx.TxSha().String(), hits)
+		}
 	}
-	wg.Wait()
 
 	// write to db that we've sync'd to the height indicated in the
 	// merkle block.  This isn't QUITE true since we haven't actually gotten

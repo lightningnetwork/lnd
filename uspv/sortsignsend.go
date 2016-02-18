@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/bloom"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/txsort"
@@ -41,6 +42,17 @@ func (s *SPVCon) Rebroadcast() {
 	return
 }
 
+func P2wpkhScript(adr btcutil.Address) ([]byte, error) {
+	switch adr := adr.(type) {
+	case *btcutil.AddressPubKeyHash:
+		sb := txscript.NewScriptBuilder()
+		sb.AddOp(txscript.OP_0)
+		sb.AddData(adr.ScriptAddress())
+		return sb.Script()
+	}
+	return nil, fmt.Errorf("%s is not pkh address", adr.String())
+}
+
 func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 	txid := tx.TxSha()
 	// assign height of zero for txs we create
@@ -53,7 +65,7 @@ func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 		return err
 	}
 	// make an inv message instead of a tx message to be polite
-	iv1 := wire.NewInvVect(wire.InvTypeTx, &txid)
+	iv1 := wire.NewInvVect(wire.InvTypeWitnessTx, &txid)
 	invMsg := wire.NewMsgInv()
 	err = invMsg.AddInvVect(iv1)
 	if err != nil {

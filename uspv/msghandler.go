@@ -95,7 +95,6 @@ func (s *SPVCon) fPositiveHandler() {
 				select {
 				case x := <-s.fPositives:
 					fpAccumulator += x
-
 				default:
 					break finClear
 				}
@@ -181,17 +180,32 @@ func (s *SPVCon) GetDataHandler(m *wire.MsgGetData) {
 	for i, thing := range m.InvList {
 		log.Printf("\t%d)%s : %s",
 			i, thing.Type.String(), thing.Hash.String())
-		if thing.Type != wire.InvTypeTx { // refuse non-tx reqs
-			log.Printf("We only respond to tx requests, ignoring")
+
+		// separate wittx and tx.  needed / combine?
+		// does the same thing right now
+		if thing.Type == wire.InvTypeWitnessTx {
+			tx, err := s.TS.GetTx(&thing.Hash)
+			if err != nil {
+				log.Printf("error getting tx %s: %s",
+					thing.Hash.String(), err.Error())
+			}
+			s.outMsgQueue <- tx
+			sent++
 			continue
 		}
-		tx, err := s.TS.GetTx(&thing.Hash)
-		if err != nil {
-			log.Printf("error getting tx %s: %s",
-				thing.Hash.String(), err.Error())
+		if thing.Type == wire.InvTypeTx {
+			tx, err := s.TS.GetTx(&thing.Hash)
+			if err != nil {
+				log.Printf("error getting tx %s: %s",
+					thing.Hash.String(), err.Error())
+			}
+			s.outMsgQueue <- tx
+			sent++
+			continue
 		}
-		s.outMsgQueue <- tx
-		sent++
+		// didn't match, so it's not something we're responding to
+		log.Printf("We only respond to tx requests, ignoring")
+
 	}
 	log.Printf("sent %d of %d requested items", sent, len(m.InvList))
 }

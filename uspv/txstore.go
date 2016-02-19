@@ -185,6 +185,20 @@ func outPointToBytes(op *wire.OutPoint) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+/*----- serialization for utxos ------- */
+/* Utxos serialization:
+byte length   desc   at offset
+
+32	txid		0
+4	idx		32
+4	height	36
+4	keyidx	40
+8	amt		44
+1	flag		52
+
+end len 	53
+*/
+
 // ToBytes turns a Utxo into some bytes.
 // note that the txid is the first 36 bytes and in our use cases will be stripped
 // off, but is left here for other applications
@@ -277,6 +291,17 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 
 	return u, nil
 }
+
+/*----- serialization for stxos ------- */
+/* Stxo serialization:
+byte length   desc   at offset
+
+53	utxo		0
+4	sheight	53
+32	stxid	57
+
+end len 	89
+*/
 
 // ToBytes turns an Stxo into some bytes.
 // prevUtxo serialization, then spendheight [4], spendtxid [32]

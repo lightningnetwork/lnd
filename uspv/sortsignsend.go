@@ -226,6 +226,7 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 	return nil
 }
 
+// SignThis isn't used anymore...
 func (t *TxStore) SignThis(tx *wire.MsgTx) error {
 	fmt.Printf("-= SignThis =-\n")
 

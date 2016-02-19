@@ -2,15 +2,11 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
@@ -205,14 +201,21 @@ func Bal(args []string) error {
 	}
 	var score int64
 	for i, u := range allUtxos {
-		fmt.Printf("\tutxo %d height %d %s key: %d amt %d\n",
+		fmt.Printf("\tutxo %d height %d %s key:%d amt %d",
 			i, u.AtHeight, u.Op.String(), u.KeyIdx, u.Value)
+		if u.IsWit {
+			fmt.Printf(" WIT")
+		}
+		fmt.Printf("\n")
 		score += u.Value
 	}
 	height, _ := SCon.TS.GetDBSyncHeight()
 
 	for i, a := range SCon.TS.Adrs {
 		fmt.Printf("address %d %s\n", i, a.PkhAdr.String())
+	}
+	for i, a := range SCon.TS.WitAdrs {
+		fmt.Printf("address %d %s [WIT]\n", i, a.PkhAdr.String())
 	}
 	fmt.Printf("Total known utxos: %d\n", len(allUtxos))
 	fmt.Printf("Total spendable coin: %d\n", score)
@@ -222,12 +225,24 @@ func Bal(args []string) error {
 
 // Adr makes a new address.
 func Adr(args []string) error {
-	a, err := SCon.TS.NewAdr()
+
+	// if there's an arg, make 10 regular adrs
+	if len(args) > 0 {
+		for i := 0; i < 10; i++ {
+			_, err := SCon.TS.NewAdr(false)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// always make one segwit
+	a, err := SCon.TS.NewAdr(true)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("made new address %s, %d addresses total\n",
-		a.String(), len(SCon.TS.Adrs))
+	fmt.Printf("made new address %s\n",
+		a.String())
 
 	return nil
 }
@@ -275,98 +290,7 @@ func Send(args []string) error {
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
 
-	err = SendCoins(SCon, adr, amt, wit)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// SendCoins does send coins, but it's very rudimentary
-// wit makes it into p2wpkh.  Which is not yet spendable.
-func SendCoins(
-	s uspv.SPVCon, adr btcutil.Address, sendAmt int64, wit bool) error {
-
-	var err error
-	var score int64
-	allUtxos, err := s.TS.GetAllUtxos()
-	if err != nil {
-		return err
-	}
-
-	for _, utxo := range allUtxos {
-		score += utxo.Value
-	}
-	// important rule in bitcoin, output total > input total is invalid.
-	if sendAmt > score {
-		return fmt.Errorf("trying to send %d but %d available.",
-			sendAmt, score)
-	}
-
-	tx := wire.NewMsgTx() // make new tx
-	// make address script 76a914...88ac
-	var adrScript []byte
-	if wit {
-		adrScript, err = uspv.P2wpkhScript(adr)
-		if err != nil {
-			return err
-		}
-	} else { // non-wit, use old p2pkh
-		adrScript, err = txscript.PayToAddrScript(adr)
-		if err != nil {
-			return err
-		}
-	}
-
-	// make user specified txout and add to tx
-	txout := wire.NewTxOut(sendAmt, adrScript)
-	tx.AddTxOut(txout)
-
-	nokori := sendAmt // nokori is how much is needed on input side
-	for _, utxo := range allUtxos {
-		// generate pkscript to sign
-		prevPKscript, err := txscript.PayToAddrScript(
-			s.TS.Adrs[utxo.KeyIdx].PkhAdr)
-		if err != nil {
-			return err
-		}
-		// make new input from this utxo
-		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript, nil)
-		tx.AddTxIn(thisInput)
-		nokori -= utxo.Value
-		if nokori < -10000 { // minimum overage / fee is 1K now
-			break
-		}
-	}
-	// there's enough left to make a change output
-	if nokori < -200000 {
-		change, err := s.TS.NewAdr()
-		if err != nil {
-			return err
-		}
-
-		changeScript, err := txscript.PayToAddrScript(change)
-		if err != nil {
-			return err
-		}
-		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
-		tx.AddTxOut(changeOut)
-	}
-
-	// use txstore method to sign
-	err = s.TS.SignThis(tx)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("tx: %s", uspv.TxToString(tx))
-	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
-	tx.Serialize(buf)
-	fmt.Printf("tx: %x\n", buf.Bytes())
-
-	// send it out on the wire.  hope it gets there.
-	// we should deal with rejects.  Don't yet.
-	err = s.NewOutgoingTx(tx)
+	err = SCon.SendCoins(adr, amt, wit)
 	if err != nil {
 		return err
 	}

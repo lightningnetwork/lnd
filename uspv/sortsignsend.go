@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"sort"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -42,15 +43,29 @@ func (s *SPVCon) Rebroadcast() {
 	return
 }
 
-func P2wpkhScript(adr btcutil.Address) ([]byte, error) {
-	switch adr := adr.(type) {
-	case *btcutil.AddressPubKeyHash:
-		sb := txscript.NewScriptBuilder()
-		sb.AddOp(txscript.OP_0)
-		sb.AddData(adr.ScriptAddress())
-		return sb.Script()
+// make utxo slices sortable
+type utxoSlice []Utxo
+
+// Sort utxos just like txins -- Len, Less, Swap
+func (s utxoSlice) Len() int      { return len(s) }
+func (s utxoSlice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+// outpoint sort; First input hash (reversed / rpc-style), then index.
+func (s utxoSlice) Less(i, j int) bool {
+	// Input hashes are the same, so compare the index.
+	ihash := s[i].Op.Hash
+	jhash := s[j].Op.Hash
+	if ihash == jhash {
+		return s[i].Op.Index < s[j].Op.Index
 	}
-	return nil, fmt.Errorf("%s is not pkh address", adr.String())
+	// At this point, the hashes are not equal, so reverse them to
+	// big-endian and return the result of the comparison.
+	const hashSize = wire.HashSize
+	for b := 0; b < hashSize/2; b++ {
+		ihash[b], ihash[hashSize-1-b] = ihash[hashSize-1-b], ihash[b]
+		jhash[b], jhash[hashSize-1-b] = jhash[hashSize-1-b], jhash[b]
+	}
+	return bytes.Compare(ihash[:], jhash[:]) == -1
 }
 
 func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
@@ -72,6 +87,130 @@ func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 		return err
 	}
 	s.outMsgQueue <- invMsg
+	return nil
+}
+
+// SendCoins does send coins, but it's very rudimentary
+// wit makes it into p2wpkh.  Which is not yet spendable.
+func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64, wit bool) error {
+
+	var err error
+	var score int64
+	allUtxos, err := s.TS.GetAllUtxos()
+	if err != nil {
+		return err
+	}
+
+	for _, utxo := range allUtxos {
+		score += utxo.Value
+	}
+	// important rule in bitcoin, output total > input total is invalid.
+	if sendAmt > score {
+		return fmt.Errorf("trying to send %d but %d available.",
+			sendAmt, score)
+	}
+
+	///////////////////
+	tx := wire.NewMsgTx() // make new tx
+	// make address script 76a914...88ac or 0014...
+	outAdrScript, err := txscript.PayToAddrScript(adr)
+	if err != nil {
+		return err
+	}
+
+	// make user specified txout and add to tx
+	txout := wire.NewTxOut(sendAmt, outAdrScript)
+	tx.AddTxOut(txout)
+	////////////////////////////
+
+	// generate a utxo slice for your inputs
+	nokori := sendAmt // nokori is how much is needed on input side
+	var ins utxoSlice
+	for _, utxo := range allUtxos {
+		// yeah, lets add this utxo!
+		ins = append(ins, *utxo)
+		nokori -= utxo.Value
+		if nokori < -10000 { // minimum overage / fee is 1K now
+			break
+		}
+	}
+	// sort utxos on the input side
+	sort.Sort(ins)
+
+	// add all the utxos as txins
+	for _, in := range ins {
+		var prevPKscript []byte
+
+		prevPKscript, err := txscript.PayToAddrScript(
+			s.TS.Adrs[in.KeyIdx].PkhAdr)
+		if err != nil {
+			return err
+		}
+		tx.AddTxIn(wire.NewTxIn(&in.Op, prevPKscript, nil))
+	}
+
+	// there's enough left to make a change output
+	if nokori < -200000 {
+		change, err := s.TS.NewAdr(true) // change is witnessy
+		if err != nil {
+			return err
+		}
+
+		changeScript, err := txscript.PayToAddrScript(change)
+		if err != nil {
+			return err
+		}
+		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
+		tx.AddTxOut(changeOut)
+	}
+
+	for _, utxo := range allUtxos {
+		// generate pkscript to sign
+		prevPKscript, err := txscript.PayToAddrScript(
+			s.TS.Adrs[utxo.KeyIdx].PkhAdr)
+		if err != nil {
+			return err
+		}
+		// make new input from this utxo
+		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript, nil)
+		tx.AddTxIn(thisInput)
+		nokori -= utxo.Value
+		if nokori < -10000 { // minimum overage / fee is 1K now
+			break
+		}
+	}
+	// there's enough left to make a change output
+	if nokori < -200000 {
+		change, err := s.TS.NewAdr(true) // change is witnessy
+		if err != nil {
+			return err
+		}
+
+		changeScript, err := txscript.PayToAddrScript(change)
+		if err != nil {
+			return err
+		}
+		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
+		tx.AddTxOut(changeOut)
+	}
+
+	// use txstore method to sign
+	err = s.TS.SignThis(tx)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("tx: %s", TxToString(tx))
+	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
+	tx.Serialize(buf)
+	fmt.Printf("tx: %x\n", buf.Bytes())
+
+	// send it out on the wire.  hope it gets there.
+	// we should deal with rejects.  Don't yet.
+	err = s.NewOutgoingTx(tx)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

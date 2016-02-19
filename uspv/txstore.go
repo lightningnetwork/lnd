@@ -21,6 +21,7 @@ type TxStore struct {
 	OKMutex sync.Mutex
 
 	Adrs    []MyAdr  // endeavouring to acquire capital
+	WitAdrs []MyAdr  // separate segwit address slice
 	StateDB *bolt.DB // place to write all this down
 
 	// Params live here, not SCon
@@ -38,7 +39,8 @@ type Utxo struct { // cash money.
 	KeyIdx   uint32 // index for private key needed to sign / spend
 	Value    int64  // higher is better
 
-	//	IsCoinbase bool          // can't spend for a while
+	//		IsCoinbase bool          // can't spend for a while
+	IsWit bool // true if p2wpkh output
 }
 
 // Stxo is a utxo that has moved on.
@@ -77,8 +79,8 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 
 // ... or I'm gonna fade away
 func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
-	if len(t.Adrs) == 0 {
-		return nil, fmt.Errorf("no addresses to filter for")
+	if len(t.Adrs) == 0 && len(t.WitAdrs) == 9 {
+		return nil, fmt.Errorf("no address to filter for")
 	}
 
 	// get all utxos to add outpoints to filter
@@ -87,9 +89,15 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 		return nil, err
 	}
 
-	elem := uint32(len(t.Adrs) + len(allUtxos))
+	elem := uint32(len(t.Adrs) + len(t.WitAdrs) + len(allUtxos))
 	f := bloom.NewFilter(elem, 0, 0.000001, wire.BloomUpdateAll)
-	for _, a := range t.Adrs {
+
+	// note there could be false positives since we're just looking
+	// for the 20 byte PKH without the opcodes.
+	for _, a := range t.Adrs { // add 20-byte pubkeyhash
+		f.Add(a.PkhAdr.ScriptAddress())
+	}
+	for _, a := range t.WitAdrs { // add witness 20-byte pubkeyhash
 		f.Add(a.PkhAdr.ScriptAddress())
 	}
 
@@ -211,6 +219,16 @@ func (u *Utxo) ToBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// last byte indicates tx witness flags ( tx[5] from serialized tx)
+	// write a 1 at the end for p2wpkh (same as flags byte)
+	witByte := byte(0x00)
+	if u.IsWit {
+		witByte = 0x01
+	}
+	err = buf.WriteByte(witByte)
+	if err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }
@@ -224,8 +242,8 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 		return u, fmt.Errorf("nil input slice")
 	}
 	buf := bytes.NewBuffer(b)
-	if buf.Len() < 52 { // utxos are 52 bytes
-		return u, fmt.Errorf("Got %d bytes for utxo, expect 52", buf.Len())
+	if buf.Len() < 53 { // utxos are 53 bytes
+		return u, fmt.Errorf("Got %d bytes for utxo, expect 53", buf.Len())
 	}
 	// read 32 byte txid
 	err := u.Op.Hash.SetBytes(buf.Next(32))
@@ -252,38 +270,33 @@ func UtxoFromBytes(b []byte) (Utxo, error) {
 	if err != nil {
 		return u, err
 	}
+	// read 1 byte witness flags
+	witByte, err := buf.ReadByte()
+	if err != nil {
+		return u, err
+	}
+	if witByte != 0x00 {
+		u.IsWit = true
+	}
+
 	return u, nil
 }
 
 // ToBytes turns an Stxo into some bytes.
-// outpoint txid, outpoint idx, height, key idx, amt, spendheight, spendtxid
+// prevUtxo serialization, then spendheight [4], spendtxid [32]
 func (s *Stxo) ToBytes() ([]byte, error) {
 	var buf bytes.Buffer
-	// write 32 byte txid of the utxo
-	_, err := buf.Write(s.Op.Hash.Bytes())
+	// first serialize the utxo part
+	uBytes, err := s.Utxo.ToBytes()
 	if err != nil {
 		return nil, err
 	}
-	// write 4 byte outpoint index within the tx to spend
-	err = binary.Write(&buf, binary.BigEndian, s.Op.Index)
+	// write that into the buffer first
+	_, err = buf.Write(uBytes)
 	if err != nil {
 		return nil, err
 	}
-	// write 4 byte height of utxo
-	err = binary.Write(&buf, binary.BigEndian, s.AtHeight)
-	if err != nil {
-		return nil, err
-	}
-	// write 4 byte key index of utxo
-	err = binary.Write(&buf, binary.BigEndian, s.KeyIdx)
-	if err != nil {
-		return nil, err
-	}
-	// write 8 byte amount of money at the utxo
-	err = binary.Write(&buf, binary.BigEndian, s.Value)
-	if err != nil {
-		return nil, err
-	}
+
 	// write 4 byte height where the txo was spent
 	err = binary.Write(&buf, binary.BigEndian, s.SpendHeight)
 	if err != nil {
@@ -298,40 +311,21 @@ func (s *Stxo) ToBytes() ([]byte, error) {
 }
 
 // StxoFromBytes turns bytes into a Stxo.
+// first take the first 53 bytes as a utxo, then the next 36 for how it's spent.
 func StxoFromBytes(b []byte) (Stxo, error) {
 	var s Stxo
-	if b == nil {
-		return s, fmt.Errorf("nil input slice")
+	if len(b) < 89 {
+		return s, fmt.Errorf("Got %d bytes for stxo, expect 89", len(b))
 	}
-	buf := bytes.NewBuffer(b)
-	if buf.Len() < 88 { // stxos are 88 bytes
-		return s, fmt.Errorf("Got %d bytes for stxo, expect 88", buf.Len())
-	}
-	// read 32 byte txid
-	err := s.Op.Hash.SetBytes(buf.Next(32))
+
+	u, err := UtxoFromBytes(b[:53])
 	if err != nil {
 		return s, err
 	}
-	// read 4 byte outpoint index within the tx to spend
-	err = binary.Read(buf, binary.BigEndian, &s.Op.Index)
-	if err != nil {
-		return s, err
-	}
-	// read 4 byte height of utxo
-	err = binary.Read(buf, binary.BigEndian, &s.AtHeight)
-	if err != nil {
-		return s, err
-	}
-	// read 4 byte key index of utxo
-	err = binary.Read(buf, binary.BigEndian, &s.KeyIdx)
-	if err != nil {
-		return s, err
-	}
-	// read 8 byte amount of money at the utxo
-	err = binary.Read(buf, binary.BigEndian, &s.Value)
-	if err != nil {
-		return s, err
-	}
+	s.Utxo = u // assign the utxo
+
+	buf := bytes.NewBuffer(b[53:]) // make buffer for spend data
+
 	// read 4 byte spend height
 	err = binary.Read(buf, binary.BigEndian, &s.SpendHeight)
 	if err != nil {

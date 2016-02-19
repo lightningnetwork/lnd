@@ -22,7 +22,8 @@ var (
 	BKTTxns  = []byte("Txns")      // all txs we care about, for replays
 	BKTState = []byte("MiscState") // last state of DB
 	// these are in the state bucket
-	KEYNumKeys   = []byte("NumKeys")   // number of keys used
+	KEYStdKeys   = []byte("StdKeys")   // number of p2pkh keys used
+	KEYWitKeys   = []byte("WitKeys")   // number of p2wpkh keys used
 	KEYTipHeight = []byte("TipHeight") // height synced to
 )
 
@@ -52,7 +53,7 @@ func (ts *TxStore) OpenDB(filename string) error {
 			return err
 		}
 
-		numKeysBytes := sta.Get(KEYNumKeys)
+		numKeysBytes := sta.Get(KEYStdKeys)
 		if numKeysBytes != nil { // NumKeys exists, read into uint32
 			buf := bytes.NewBuffer(numKeysBytes)
 			err := binary.Read(buf, binary.BigEndian, &numKeys)
@@ -67,7 +68,7 @@ func (ts *TxStore) OpenDB(filename string) error {
 			if err != nil {
 				return err
 			}
-			err = sta.Put(KEYNumKeys, buf.Bytes())
+			err = sta.Put(KEYStdKeys, buf.Bytes())
 			if err != nil {
 				return err
 			}
@@ -82,19 +83,42 @@ func (ts *TxStore) OpenDB(filename string) error {
 
 // NewAdr creates a new, never before seen address, and increments the
 // DB counter as well as putting it in the ram Adrs store, and returns it
-func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
+func (ts *TxStore) NewAdr(wit bool) (btcutil.Address, error) {
 	if ts.Param == nil {
-		return nil, fmt.Errorf("nil param")
-	}
-	n := uint32(len(ts.Adrs))
-	priv, err := ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("NewAdr error: nil param")
 	}
 
-	newAdr, err := priv.Address(ts.Param)
-	if err != nil {
-		return nil, err
+	priv := new(hdkeychain.ExtendedKey)
+	var err error
+	var n uint32
+	var nAdr btcutil.Address
+
+	if wit {
+		n = uint32(len(ts.WitAdrs))
+
+		// witness keys are another branch down from the rootpriv
+		ephpriv, err := ts.rootPrivKey.Child(1<<30 + hdkeychain.HardenedKeyStart)
+		if err != nil {
+			return nil, err
+		}
+		priv, err = ephpriv.Child(n + hdkeychain.HardenedKeyStart)
+		if err != nil {
+			return nil, err
+		}
+		nAdr, err = priv.WitnessAddress(ts.Param)
+		if err != nil {
+			return nil, err
+		}
+	} else { // regular p2pkh
+		n = uint32(len(ts.Adrs))
+		priv, err = ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
+		if err != nil {
+			return nil, err
+		}
+		nAdr, err = priv.Address(ts.Param)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// total number of keys (now +1) into 4 bytes
@@ -107,18 +131,24 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	// write to db file
 	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
 		sta := btx.Bucket(BKTState)
-		return sta.Put(KEYNumKeys, buf.Bytes())
+		if wit {
+			return sta.Put(KEYStdKeys, buf.Bytes())
+		}
+		return sta.Put(KEYWitKeys, buf.Bytes())
 	})
 	if err != nil {
 		return nil, err
 	}
 	// add in to ram.
 	var ma MyAdr
-	ma.PkhAdr = newAdr
+	ma.PkhAdr = nAdr
 	ma.KeyIdx = n
-	ts.Adrs = append(ts.Adrs, ma)
-
-	return newAdr, nil
+	if wit {
+		ts.WitAdrs = append(ts.WitAdrs, ma)
+	} else {
+		ts.Adrs = append(ts.Adrs, ma)
+	}
+	return nAdr, nil
 }
 
 // SetDBSyncHeight sets sync height of the db, indicated the latest block
@@ -369,17 +399,38 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	// also generate PKscripts for all addresses (maybe keep storing these?)
 	for _, adr := range ts.Adrs {
 		// iterate through all our addresses
+
+		// convert regular address to witness address.  (split adrs later)
+		wa, err := btcutil.NewAddressWitnessPubKeyHash(
+			adr.PkhAdr.ScriptAddress(), ts.Param)
+		if err != nil {
+			return hits, err
+		}
+
+		wPKscript, err := txscript.PayToAddrScript(wa)
+		if err != nil {
+			return hits, err
+		}
 		aPKscript, err := txscript.PayToAddrScript(adr.PkhAdr)
 		if err != nil {
 			return hits, err
 		}
-		// iterate through all outputs of this tx
+
+		// iterate through all outputs of this tx, see if we gain
 		for i, out := range tx.TxOut {
-			if bytes.Equal(out.PkScript, aPKscript) { // new utxo for us
-				var newu Utxo
+
+			// detect p2wpkh
+			witBool := false
+			if bytes.Equal(out.PkScript, wPKscript) {
+				witBool = true
+			}
+
+			if bytes.Equal(out.PkScript, aPKscript) || witBool { // new utxo found
+				var newu Utxo // create new utxo and copy into it
 				newu.AtHeight = height
 				newu.KeyIdx = adr.KeyIdx
 				newu.Value = out.Value
+				newu.IsWit = witBool // copy witness version from pkscript
 				var newop wire.OutPoint
 				newop.Hash = tx.TxSha()
 				newop.Index = uint32(i)

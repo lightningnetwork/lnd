@@ -21,7 +21,6 @@ type TxStore struct {
 	OKMutex sync.Mutex
 
 	Adrs    []MyAdr  // endeavouring to acquire capital
-	WitAdrs []MyAdr  // separate segwit address slice
 	StateDB *bolt.DB // place to write all this down
 
 	// Params live here, not SCon
@@ -79,7 +78,7 @@ func (t *TxStore) AddTxid(txid *wire.ShaHash, height int32) error {
 
 // ... or I'm gonna fade away
 func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
-	if len(t.Adrs) == 0 && len(t.WitAdrs) == 9 {
+	if len(t.Adrs) == 0 {
 		return nil, fmt.Errorf("no address to filter for")
 	}
 
@@ -89,15 +88,12 @@ func (t *TxStore) GimmeFilter() (*bloom.Filter, error) {
 		return nil, err
 	}
 
-	elem := uint32(len(t.Adrs) + len(t.WitAdrs) + len(allUtxos))
+	elem := uint32(len(t.Adrs) + len(allUtxos))
 	f := bloom.NewFilter(elem, 0, 0.000001, wire.BloomUpdateAll)
 
 	// note there could be false positives since we're just looking
 	// for the 20 byte PKH without the opcodes.
 	for _, a := range t.Adrs { // add 20-byte pubkeyhash
-		f.Add(a.PkhAdr.ScriptAddress())
-	}
-	for _, a := range t.WitAdrs { // add witness 20-byte pubkeyhash
 		f.Add(a.PkhAdr.ScriptAddress())
 	}
 

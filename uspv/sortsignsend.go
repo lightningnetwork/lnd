@@ -92,7 +92,7 @@ func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 
 // SendCoins does send coins, but it's very rudimentary
 // wit makes it into p2wpkh.  Which is not yet spendable.
-func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64, wit bool) error {
+func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 
 	var err error
 	var score int64
@@ -118,86 +118,98 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64, wit bool) error {
 		return err
 	}
 
-	// make user specified txout and add to tx
-	txout := wire.NewTxOut(sendAmt, outAdrScript)
-	tx.AddTxOut(txout)
 	////////////////////////////
 
 	// generate a utxo slice for your inputs
-	nokori := sendAmt // nokori is how much is needed on input side
 	var ins utxoSlice
+
+	// add utxos until we've had enough
+	nokori := sendAmt // nokori is how much is needed on input side
 	for _, utxo := range allUtxos {
 		// yeah, lets add this utxo!
 		ins = append(ins, *utxo)
 		nokori -= utxo.Value
-		if nokori < -10000 { // minimum overage / fee is 1K now
+		if nokori < -10000 { // minimum overage / fee is 10K now
 			break
 		}
 	}
+
 	// sort utxos on the input side
 	sort.Sort(ins)
 
-	// add all the utxos as txins
+	// make user specified txout and add to tx
+	txout := wire.NewTxOut(sendAmt, outAdrScript)
+	tx.AddTxOut(txout)
+	// see if there's enough left to also add a change output
+	if nokori < -200000 {
+		changeOld, err := s.TS.NewAdr() // change is witnessy
+		if err != nil {
+			return err
+		}
+		changeAdr, err := btcutil.NewAddressWitnessPubKeyHash(
+			changeOld.ScriptAddress(), s.TS.Param)
+		if err != nil {
+			return err
+		}
+
+		changeScript, err := txscript.PayToAddrScript(changeAdr)
+		if err != nil {
+			return err
+		}
+		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
+		tx.AddTxOut(changeOut)
+	}
+
+	// generate previous pkscripts for all the (now sorted) utxos
+	// then make txins with the utxo and prevpk, and insert them into the tx
 	for _, in := range ins {
-		var prevPKscript []byte
+		var prevPKs []byte
 
-		prevPKscript, err := txscript.PayToAddrScript(
-			s.TS.Adrs[in.KeyIdx].PkhAdr)
-		if err != nil {
-			return err
+		// if wit utxo, convert address to generate pkscript
+		if in.IsWit {
+			wa, err := btcutil.NewAddressWitnessPubKeyHash(
+				s.TS.Adrs[in.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
+			prevPKs, err = txscript.PayToAddrScript(wa)
+			if err != nil {
+				return err
+			}
+		} else { // otherwise generate directly
+			prevPKs, err = txscript.PayToAddrScript(
+				s.TS.Adrs[in.KeyIdx].PkhAdr)
+			if err != nil {
+				return err
+			}
 		}
-		tx.AddTxIn(wire.NewTxIn(&in.Op, prevPKscript, nil))
+		tx.AddTxIn(wire.NewTxIn(&in.Op, prevPKs, nil))
 	}
+	// sort tx -- this only will change txouts since inputs are already sorted
+	txsort.InPlaceSort(tx)
 
-	// there's enough left to make a change output
-	if nokori < -200000 {
-		change, err := s.TS.NewAdr(true) // change is witnessy
+	// tx is ready for signing,
+	sigStash := make([][]byte, len(ins))
+	for i, txin := range tx.TxIn {
+		// pick key
+		child, err := s.TS.rootPrivKey.Child(
+			ins[i].KeyIdx + hdkeychain.HardenedKeyStart)
+		if err != nil {
+			return err
+		}
+		priv, err := child.ECPrivKey()
 		if err != nil {
 			return err
 		}
 
-		changeScript, err := txscript.PayToAddrScript(change)
+		// This is where witness based sighash types need to happen
+		// sign into stash
+		sigStash[i], err = txscript.SignatureScript(
+			tx, i, txin.SignatureScript, txscript.SigHashAll, priv, true)
 		if err != nil {
 			return err
-		}
-		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
-		tx.AddTxOut(changeOut)
-	}
-
-	for _, utxo := range allUtxos {
-		// generate pkscript to sign
-		prevPKscript, err := txscript.PayToAddrScript(
-			s.TS.Adrs[utxo.KeyIdx].PkhAdr)
-		if err != nil {
-			return err
-		}
-		// make new input from this utxo
-		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript, nil)
-		tx.AddTxIn(thisInput)
-		nokori -= utxo.Value
-		if nokori < -10000 { // minimum overage / fee is 1K now
-			break
 		}
 	}
-	// there's enough left to make a change output
-	if nokori < -200000 {
-		change, err := s.TS.NewAdr(true) // change is witnessy
-		if err != nil {
-			return err
-		}
-
-		changeScript, err := txscript.PayToAddrScript(change)
-		if err != nil {
-			return err
-		}
-		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
-		tx.AddTxOut(changeOut)
-	}
-
-	// use txstore method to sign
-	err = s.TS.SignThis(tx)
-	if err != nil {
-		return err
+	// swap sigs into sigScripts in txins
+	for i, txin := range tx.TxIn {
+		txin.SignatureScript = sigStash[i]
 	}
 
 	fmt.Printf("tx: %s", TxToString(tx))

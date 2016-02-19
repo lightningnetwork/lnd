@@ -212,11 +212,14 @@ func Bal(args []string) error {
 	height, _ := SCon.TS.GetDBSyncHeight()
 
 	for i, a := range SCon.TS.Adrs {
-		fmt.Printf("address %d %s\n", i, a.PkhAdr.String())
+		wa, err := btcutil.NewAddressWitnessPubKeyHash(
+			a.PkhAdr.ScriptAddress(), Params)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("address %d %s OR %s\n", i, a.PkhAdr.String(), wa.String())
 	}
-	for i, a := range SCon.TS.WitAdrs {
-		fmt.Printf("address %d %s [WIT]\n", i, a.PkhAdr.String())
-	}
+
 	fmt.Printf("Total known utxos: %d\n", len(allUtxos))
 	fmt.Printf("Total spendable coin: %d\n", score)
 	fmt.Printf("DB sync height: %d\n", height)
@@ -226,18 +229,18 @@ func Bal(args []string) error {
 // Adr makes a new address.
 func Adr(args []string) error {
 
-	// if there's an arg, make 10 regular adrs
+	// if there's an arg, make 10 adrs
 	if len(args) > 0 {
 		for i := 0; i < 10; i++ {
-			_, err := SCon.TS.NewAdr(false)
+			_, err := SCon.TS.NewAdr()
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	// always make one segwit
-	a, err := SCon.TS.NewAdr(true)
+	// always make one
+	a, err := SCon.TS.NewAdr()
 	if err != nil {
 		return err
 	}
@@ -271,10 +274,7 @@ func Send(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("need args: ssend amount(satoshis) address wit?")
 	}
-	var wit bool // whether to send to p2wpkh
-	if len(args) > 2 {
-		wit = true
-	}
+
 	amt, err := strconv.ParseInt(args[0], 10, 64)
 	if err != nil {
 		return err
@@ -290,7 +290,7 @@ func Send(args []string) error {
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
 
-	err = SCon.SendCoins(adr, amt, wit)
+	err = SCon.SendCoins(adr, amt)
 	if err != nil {
 		return err
 	}

@@ -22,8 +22,7 @@ var (
 	BKTTxns  = []byte("Txns")      // all txs we care about, for replays
 	BKTState = []byte("MiscState") // last state of DB
 	// these are in the state bucket
-	KEYStdKeys   = []byte("StdKeys")   // number of p2pkh keys used
-	KEYWitKeys   = []byte("WitKeys")   // number of p2wpkh keys used
+	KEYNumKeys   = []byte("NumKeys")   // number of p2pkh keys used
 	KEYTipHeight = []byte("TipHeight") // height synced to
 )
 
@@ -53,7 +52,7 @@ func (ts *TxStore) OpenDB(filename string) error {
 			return err
 		}
 
-		numKeysBytes := sta.Get(KEYStdKeys)
+		numKeysBytes := sta.Get(KEYNumKeys)
 		if numKeysBytes != nil { // NumKeys exists, read into uint32
 			buf := bytes.NewBuffer(numKeysBytes)
 			err := binary.Read(buf, binary.BigEndian, &numKeys)
@@ -68,7 +67,7 @@ func (ts *TxStore) OpenDB(filename string) error {
 			if err != nil {
 				return err
 			}
-			err = sta.Put(KEYStdKeys, buf.Bytes())
+			err = sta.Put(KEYNumKeys, buf.Bytes())
 			if err != nil {
 				return err
 			}
@@ -83,7 +82,7 @@ func (ts *TxStore) OpenDB(filename string) error {
 
 // NewAdr creates a new, never before seen address, and increments the
 // DB counter as well as putting it in the ram Adrs store, and returns it
-func (ts *TxStore) NewAdr(wit bool) (btcutil.Address, error) {
+func (ts *TxStore) NewAdr() (btcutil.Address, error) {
 	if ts.Param == nil {
 		return nil, fmt.Errorf("NewAdr error: nil param")
 	}
@@ -93,32 +92,14 @@ func (ts *TxStore) NewAdr(wit bool) (btcutil.Address, error) {
 	var n uint32
 	var nAdr btcutil.Address
 
-	if wit {
-		n = uint32(len(ts.WitAdrs))
-
-		// witness keys are another branch down from the rootpriv
-		ephpriv, err := ts.rootPrivKey.Child(1<<30 + hdkeychain.HardenedKeyStart)
-		if err != nil {
-			return nil, err
-		}
-		priv, err = ephpriv.Child(n + hdkeychain.HardenedKeyStart)
-		if err != nil {
-			return nil, err
-		}
-		nAdr, err = priv.WitnessAddress(ts.Param)
-		if err != nil {
-			return nil, err
-		}
-	} else { // regular p2pkh
-		n = uint32(len(ts.Adrs))
-		priv, err = ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
-		if err != nil {
-			return nil, err
-		}
-		nAdr, err = priv.Address(ts.Param)
-		if err != nil {
-			return nil, err
-		}
+	n = uint32(len(ts.Adrs))
+	priv, err = ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
+	if err != nil {
+		return nil, err
+	}
+	nAdr, err = priv.Address(ts.Param)
+	if err != nil {
+		return nil, err
 	}
 
 	// total number of keys (now +1) into 4 bytes
@@ -131,10 +112,9 @@ func (ts *TxStore) NewAdr(wit bool) (btcutil.Address, error) {
 	// write to db file
 	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
 		sta := btx.Bucket(BKTState)
-		if wit {
-			return sta.Put(KEYStdKeys, buf.Bytes())
-		}
-		return sta.Put(KEYWitKeys, buf.Bytes())
+
+		return sta.Put(KEYNumKeys, buf.Bytes())
+
 	})
 	if err != nil {
 		return nil, err
@@ -143,11 +123,9 @@ func (ts *TxStore) NewAdr(wit bool) (btcutil.Address, error) {
 	var ma MyAdr
 	ma.PkhAdr = nAdr
 	ma.KeyIdx = n
-	if wit {
-		ts.WitAdrs = append(ts.WitAdrs, ma)
-	} else {
-		ts.Adrs = append(ts.Adrs, ma)
-	}
+
+	ts.Adrs = append(ts.Adrs, ma)
+
 	return nAdr, nil
 }
 

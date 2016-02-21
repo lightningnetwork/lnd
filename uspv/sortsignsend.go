@@ -201,10 +201,20 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 
 		// This is where witness based sighash types need to happen
 		// sign into stash
-		sigStash[i], err = txscript.SignatureScript(
-			tx, i, txin.SignatureScript, txscript.SigHashAll, priv, true)
-		if err != nil {
-			return err
+		if ins[i].IsWit {
+			sigStash[i], err = txscript.WitnessSignatureScript(
+				tx, i, ins[i].Value, txin.SignatureScript,
+				txscript.SigHashAll, priv, true)
+			if err != nil {
+				return err
+			}
+		} else {
+			sigStash[i], err = txscript.SignatureScript(
+				tx, i, txin.SignatureScript,
+				txscript.SigHashAll, priv, true)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// swap sigs into sigScripts in txins

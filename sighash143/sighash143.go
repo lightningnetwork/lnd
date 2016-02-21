@@ -25,10 +25,16 @@ const (
 )
 
 // calcWitnessSignatureHash is the witnessified version of calcSignatureHash
+// put your pkscripts in the sigscript slot before handing the tx to this
+// function.  Also you're clearly supposed to cache the 3 sub-hashes generated
+// here, because they apply to the tx, not a txin.  But this doesn't yet.
 func calcWitnessSignatureHash(
 	hashType txscript.SigHashType, tx *wire.MsgTx, idx int, amt int64) []byte {
 	// in the script.go calcSignatureHash(), idx is assumed safe, so I guess
-	// that's OK here too...
+	// that's OK here too...?  Nah I'm gonna check
+	if idx > len(tx.TxIn)-1 {
+		return nil
+	}
 
 	// first get hashPrevOuts, hashSequence, and hashOutputs
 	hashPrevOuts := calcHashPrevOuts(tx, hashType)
@@ -51,10 +57,27 @@ func calcWitnessSignatureHash(
 	pre = append(pre, buf4[:]...)
 
 	// scriptCode which is some new thing
-	sCode := []byte{0x19, 0x76, 0xa9, 0x14}
-	sCode = append(sCode, tx.TxIn[idx].SignatureScript[2:22]...)
-	sCode = append(sCode, []byte{0x88, 0xac}...)
-	pre = append(pre, sCode...)
+
+	// detect wpkh mode
+	if len(tx.TxIn[idx].SignatureScript) == 22 &&
+		tx.TxIn[idx].SignatureScript[0] == 0x00 &&
+		tx.TxIn[idx].SignatureScript[1] == 0x14 {
+		// wpkh mode .... recreate op_dup codes here
+		sCode := []byte{0x19, 0x76, 0xa9, 0x14}
+		sCode = append(sCode, tx.TxIn[idx].SignatureScript[2:22]...)
+		sCode = append(sCode, []byte{0x88, 0xac}...)
+		pre = append(pre, sCode...)
+	} else if len(tx.TxIn[idx].SignatureScript) == 34 &&
+		tx.TxIn[idx].SignatureScript[0] == 0x00 &&
+		tx.TxIn[idx].SignatureScript[1] == 0x20 {
+		// whs mode- need to remove codeseparators.  this doesn't yet.
+		var buf bytes.Buffer
+		writeVarBytes(&buf, 0, tx.TxIn[idx].Witness[0])
+		pre = append(pre, buf.Bytes()...)
+	} else {
+		// ?? this is not witness tx! fail
+		return nil
+	}
 
 	// amount being signed off
 	binary.LittleEndian.PutUint64(buf8[:], uint64(amt))

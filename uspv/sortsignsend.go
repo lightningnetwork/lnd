@@ -92,10 +92,14 @@ func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 
 // SendCoins does send coins, but it's very rudimentary
 // wit makes it into p2wpkh.  Which is not yet spendable.
-func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
-
+func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
+	if len(adrs) != len(sendAmts) {
+		return fmt.Errorf("%d addresses and %d amounts", len(adrs), len(sendAmts))
+	}
 	var err error
-	var score int64
+	var score, totalSend, fee int64
+	dustCutoff := int64(20000) // below this amount, just give to miners
+	satPerByte := int64(30)    // satoshis per byte fee; have as arg later
 	allUtxos, err := s.TS.GetAllUtxos()
 	if err != nil {
 		return err
@@ -104,44 +108,66 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 	for _, utxo := range allUtxos {
 		score += utxo.Value
 	}
+	for _, amt := range sendAmts {
+		totalSend += amt
+	}
 	// important rule in bitcoin, output total > input total is invalid.
-	if sendAmt > score {
+	if totalSend > score {
 		return fmt.Errorf("trying to send %d but %d available.",
-			sendAmt, score)
+			totalSend, score)
 	}
 
-	///////////////////
 	tx := wire.NewMsgTx() // make new tx
-	// make address script 76a914...88ac or 0014...
-	outAdrScript, err := txscript.PayToAddrScript(adr)
-	if err != nil {
-		return err
+	// add non-change (arg) outputs
+	for i, adr := range adrs {
+		// make address script 76a914...88ac or 0014...
+		outAdrScript, err := txscript.PayToAddrScript(adr)
+		if err != nil {
+			return err
+		}
+		// make user specified txout and add to tx
+		txout := wire.NewTxOut(sendAmts[i], outAdrScript)
+		tx.AddTxOut(txout)
 	}
-
-	////////////////////////////
 
 	// generate a utxo slice for your inputs
 	var ins utxoSlice
 
 	// add utxos until we've had enough
-	nokori := sendAmt // nokori is how much is needed on input side
+	nokori := totalSend // nokori is how much is needed on input side
 	for _, utxo := range allUtxos {
 		// yeah, lets add this utxo!
 		ins = append(ins, *utxo)
+		// as we add utxos, fill in sigscripts
+		// generate previous pkscripts (subscritpt?) for all utxos
+		// then make txins with the utxo and prevpk, and insert them into the tx
+		// these are all zeroed out during signing but it's an easy way to keep track
+		var prevPKs []byte
+		if utxo.IsWit {
+			tx.Flags = 0x01
+			wa, err := btcutil.NewAddressWitnessPubKeyHash(
+				s.TS.Adrs[utxo.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
+			prevPKs, err = txscript.PayToAddrScript(wa)
+			if err != nil {
+				return err
+			}
+		} else { // otherwise generate directly
+			prevPKs, err = txscript.PayToAddrScript(
+				s.TS.Adrs[utxo.KeyIdx].PkhAdr)
+			if err != nil {
+				return err
+			}
+		}
+		tx.AddTxIn(wire.NewTxIn(&utxo.Op, prevPKs, nil))
 		nokori -= utxo.Value
-		if nokori < -10000 { // minimum overage / fee is 10K now
+		fee = EstFee(tx, satPerByte)
+		if nokori < -fee { // done adding utxos: nokori below negative est. fee
 			break
 		}
 	}
 
-	// sort utxos on the input side
-	sort.Sort(ins)
-
-	// make user specified txout and add to tx
-	txout := wire.NewTxOut(sendAmt, outAdrScript)
-	tx.AddTxOut(txout)
 	// see if there's enough left to also add a change output
-	if nokori < -200000 {
+	if nokori < -dustCutoff {
 		changeOld, err := s.TS.NewAdr() // change is witnessy
 		if err != nil {
 			return err
@@ -156,34 +182,17 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 		if err != nil {
 			return err
 		}
-		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
+
+		changeOut := wire.NewTxOut(0, changeScript)
 		tx.AddTxOut(changeOut)
+		fee = EstFee(tx, satPerByte)
+		changeOut.Value = -(nokori + fee)
 	}
 
-	// generate previous pkscripts for all the (now sorted) utxos
-	// then make txins with the utxo and prevpk, and insert them into the tx
-	for _, in := range ins {
-		var prevPKs []byte
+	// sort utxos on the input side.  use this instead of txsort
+	// because we want to remember which keys are associated with which inputs
+	sort.Sort(ins)
 
-		// if wit utxo, convert address to generate pkscript
-		if in.IsWit {
-			// adding a witness input, so set the tx as witness tx
-			tx.Flags = 0x01
-			wa, err := btcutil.NewAddressWitnessPubKeyHash(
-				s.TS.Adrs[in.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
-			prevPKs, err = txscript.PayToAddrScript(wa)
-			if err != nil {
-				return err
-			}
-		} else { // otherwise generate directly
-			prevPKs, err = txscript.PayToAddrScript(
-				s.TS.Adrs[in.KeyIdx].PkhAdr)
-			if err != nil {
-				return err
-			}
-		}
-		tx.AddTxIn(wire.NewTxIn(&in.Op, prevPKs, nil))
-	}
 	// sort tx -- this only will change txouts since inputs are already sorted
 	txsort.InPlaceSort(tx)
 
@@ -244,6 +253,48 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 		return err
 	}
 	return nil
+}
+
+// EstFee gives a fee estimate based on a tx and a sat/Byte target.
+// The TX should have all outputs, including the change address already
+// populated (with potentially 0 amount.  Also it should have all inputs
+// populated, but inputs don't need to have sigscripts or witnesses
+// (it'll guess the sizes of sigs/wits that arent' filled in).
+func EstFee(otx *wire.MsgTx, spB int64) int64 {
+	mtsig := make([]byte, 72)
+	mtpub := make([]byte, 33)
+
+	tx := otx.Copy()
+
+	// iterate through txins, replacing subscript sigscripts with noise
+	// sigs or witnesses
+	for _, txin := range tx.TxIn {
+		// check wpkh
+		if len(txin.SignatureScript) == 22 &&
+			txin.SignatureScript[0] == 0x00 && txin.SignatureScript[1] == 0x14 {
+			txin.SignatureScript = nil
+			txin.Witness = make([][]byte, 2)
+			txin.Witness[0] = mtsig
+			txin.Witness[1] = mtpub
+		} else if len(txin.SignatureScript) == 34 &&
+			txin.SignatureScript[0] == 0x00 && txin.SignatureScript[1] == 0x20 {
+			// p2wsh -- sig lenght is a total guess!
+			txin.SignatureScript = nil
+			txin.Witness = make([][]byte, 3)
+			// 3 sigs? totally guessing here
+			txin.Witness[0] = mtsig
+			txin.Witness[1] = mtsig
+			txin.Witness[2] = mtsig
+		} else {
+			// assume everything else is p2pkh.  Even though it's not
+			txin.Witness = nil
+			txin.SignatureScript = make([]byte, 105) // len of p2pkh sigscript
+		}
+	}
+	fmt.Printf(TxToString(tx))
+	size := int64(tx.VirtualSize())
+	fmt.Printf("%d spB, est vsize %d, fee %d\n", spB, size, size*spB)
+	return size * spB
 }
 
 // SignThis isn't used anymore...

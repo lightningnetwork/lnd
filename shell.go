@@ -290,7 +290,12 @@ func Send(args []string) error {
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
 
-	err = SCon.SendCoins(adr, amt)
+	var adrs []btcutil.Address
+	var amts []int64
+
+	adrs = append(adrs, adr)
+	amts = append(amts, amt)
+	err = SCon.SendCoins(adrs, amts)
 	if err != nil {
 		return err
 	}

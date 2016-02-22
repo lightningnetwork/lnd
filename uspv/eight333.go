@@ -329,7 +329,7 @@ func (s *SPVCon) AskForBlocks() error {
 	s.headerMutex.Unlock() // checked, unlock
 	endPos := stat.Size()
 
-	headerTip := int32(endPos / 80) // DONT move back 1 header length to read
+	headerTip := int32(endPos/80) - 1 // move back 1 header length to read
 
 	dbTip, err := s.TS.GetDBSyncHeight()
 	if err != nil {
@@ -366,7 +366,7 @@ func (s *SPVCon) AskForBlocks() error {
 		// load header from file
 
 		s.headerMutex.Lock() // seek to header we need
-		_, err = s.headerFile.Seek(int64((dbTip-1)*80), os.SEEK_SET)
+		_, err = s.headerFile.Seek(int64((dbTip)*80), os.SEEK_SET)
 		if err != nil {
 			return err
 		}

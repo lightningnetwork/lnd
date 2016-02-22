@@ -11,6 +11,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/uspv"
@@ -22,6 +23,8 @@ const (
 
 	inspk1 = "00141d0f172a0ecb48aee1be1f2687d2963ae33f71a1"
 	inamt1 = int64(600000000)
+
+	xpecthash = "c37af31116d1b27caf68aae9e3ac82f1477929014d5b917657d0eb49478cb670"
 )
 
 // calcWitnessSignatureHash is the witnessified version of calcSignatureHash
@@ -97,7 +100,7 @@ func calcWitnessSignatureHash(
 	binary.LittleEndian.PutUint32(buf4[:], uint32(hashType))
 	pre = append(pre, buf4[:]...)
 
-	fmt.Printf("pre: %x\n", pre)
+	fmt.Printf("calcWitnessSignatureHash pre: %x\n", pre)
 	hsh := wire.DoubleSha256SH(pre)
 	return hsh.Bytes()
 }
@@ -119,7 +122,7 @@ func calcHashPrevOuts(tx *wire.MsgTx, hType txscript.SigHashType) wire.ShaHash {
 		binary.LittleEndian.PutUint32(buf[:], in.PreviousOutPoint.Index)
 		pre = append(pre, buf[:]...)
 	}
-	fmt.Printf("pre: %x\n", pre)
+	fmt.Printf("calcHashPrevOuts pre: %x\n", pre)
 	return wire.DoubleSha256SH(pre)
 }
 
@@ -138,7 +141,7 @@ func calcHashSequence(tx *wire.MsgTx, hType txscript.SigHashType) wire.ShaHash {
 		binary.LittleEndian.PutUint32(buf[:], in.Sequence)
 		pre = append(pre, buf[:]...)
 	}
-	fmt.Printf("pre: %x\n", pre)
+	fmt.Printf("calcHashSequence pre: %x\n", pre)
 	return wire.DoubleSha256SH(pre)
 }
 
@@ -163,7 +166,7 @@ func calcHashOutputs(
 		writeTxOut(&buf, 0, 0, out)
 		pre = append(pre, buf.Bytes()...)
 	}
-	fmt.Printf("pre: %x\n", pre)
+	fmt.Printf("calcHashOutputs pre: %x\n", pre)
 	return wire.DoubleSha256SH(pre)
 }
 
@@ -176,6 +179,10 @@ func main() {
 		log.Fatal(err)
 	}
 	in1spk, err := hex.DecodeString(string(inspk1))
+	if err != nil {
+		log.Fatal(err)
+	}
+	xpkt, err := hex.DecodeString(string(xpecthash))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -207,9 +214,19 @@ func main() {
 
 	fmt.Printf(uspv.TxToString(ttx))
 
+	priv, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	sig, err := txscript.WitnessScript(ttx, 1, inamt1, in1spk,
+		txscript.SigHashAll, priv, true)
+
+	fmt.Printf("got sig %x\n", sig)
 	hxh := calcWitnessSignatureHash(txscript.SigHashAll, ttx, 1, inamt1)
 
 	fmt.Printf("got sigHash %x\n", hxh)
+	fmt.Printf("expect hash %x\n ", xpkt)
 }
 
 // pver can be 0, doesn't do anything in these.  Same for msg.Version

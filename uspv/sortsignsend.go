@@ -167,6 +167,8 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 
 		// if wit utxo, convert address to generate pkscript
 		if in.IsWit {
+			// adding a witness input, so set the tx as witness tx
+			tx.Flags = 0x01
 			wa, err := btcutil.NewAddressWitnessPubKeyHash(
 				s.TS.Adrs[in.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
 			prevPKs, err = txscript.PayToAddrScript(wa)
@@ -187,6 +189,7 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 
 	// tx is ready for signing,
 	sigStash := make([][]byte, len(ins))
+	witStash := make([][][]byte, len(ins))
 	for i, txin := range tx.TxIn {
 		// pick key
 		child, err := s.TS.rootPrivKey.Child(
@@ -202,7 +205,7 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 		// This is where witness based sighash types need to happen
 		// sign into stash
 		if ins[i].IsWit {
-			sigStash[i], err = txscript.WitnessSignatureScript(
+			witStash[i], err = txscript.WitnessScript(
 				tx, i, ins[i].Value, txin.SignatureScript,
 				txscript.SigHashAll, priv, true)
 			if err != nil {
@@ -219,7 +222,14 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 	}
 	// swap sigs into sigScripts in txins
 	for i, txin := range tx.TxIn {
-		txin.SignatureScript = sigStash[i]
+		if sigStash[i] != nil {
+			txin.SignatureScript = sigStash[i]
+		}
+		if witStash[i] != nil {
+			txin.Witness = witStash[i]
+			txin.SignatureScript = nil
+		}
+
 	}
 
 	fmt.Printf("tx: %s", TxToString(tx))

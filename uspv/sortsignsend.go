@@ -234,7 +234,7 @@ func (s *SPVCon) SendCoins(adr btcutil.Address, sendAmt int64) error {
 
 	fmt.Printf("tx: %s", TxToString(tx))
 	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
-	tx.Serialize(buf)
+	tx.SerializeWitness(buf)
 	fmt.Printf("tx: %x\n", buf.Bytes())
 
 	// send it out on the wire.  hope it gets there.

@@ -31,11 +31,13 @@ const (
 // put your pkscripts in the sigscript slot before handing the tx to this
 // function.  Also you're clearly supposed to cache the 3 sub-hashes generated
 // here, because they apply to the tx, not a txin.  But this doesn't yet.
-func calcWitnessSignatureHash(
+func calcWitnessSignatureHash(sigscript []byte,
 	hashType txscript.SigHashType, tx *wire.MsgTx, idx int, amt int64) []byte {
 	// in the script.go calcSignatureHash(), idx is assumed safe, so I guess
 	// that's OK here too...?  Nah I'm gonna check
 	if idx > len(tx.TxIn)-1 {
+		fmt.Printf("calcWitnessSignatureHash error: idx %d but %d txins",
+			idx, len(tx.TxIn))
 		return nil
 	}
 
@@ -62,23 +64,22 @@ func calcWitnessSignatureHash(
 	// scriptCode which is some new thing
 
 	// detect wpkh mode
-	if len(tx.TxIn[idx].SignatureScript) == 22 &&
-		tx.TxIn[idx].SignatureScript[0] == 0x00 &&
-		tx.TxIn[idx].SignatureScript[1] == 0x14 {
+	fmt.Printf("txin %d sscript len %d\n", idx, len(tx.TxIn[idx].SignatureScript))
+	if len(sigscript) == 22 && sigscript[0] == 0x00 && sigscript[1] == 0x14 {
 		// wpkh mode .... recreate op_dup codes here
 		sCode := []byte{0x19, 0x76, 0xa9, 0x14}
-		sCode = append(sCode, tx.TxIn[idx].SignatureScript[2:22]...)
+		sCode = append(sCode, sigscript[2:22]...)
 		sCode = append(sCode, []byte{0x88, 0xac}...)
 		pre = append(pre, sCode...)
-	} else if len(tx.TxIn[idx].SignatureScript) == 34 &&
-		tx.TxIn[idx].SignatureScript[0] == 0x00 &&
-		tx.TxIn[idx].SignatureScript[1] == 0x20 {
+	} else if len(sigscript) == 34 &&
+		sigscript[0] == 0x00 && sigscript[1] == 0x20 {
 		// whs mode- need to remove codeseparators.  this doesn't yet.
 		var buf bytes.Buffer
-		writeVarBytes(&buf, 0, tx.TxIn[idx].Witness[0])
+		writeVarBytes(&buf, 0, sigscript)
 		pre = append(pre, buf.Bytes()...)
 	} else {
 		// ?? this is not witness tx! fail
+		fmt.Printf("Non witness error ")
 		return nil
 	}
 
@@ -204,13 +205,13 @@ func main() {
 
 	// 	make tx
 	ttx := wire.NewMsgTx()
-
 	// deserialize into tx
 	buf := bytes.NewBuffer(txbytes)
 	ttx.Deserialize(buf)
 
+	fmt.Printf("=====tx locktime: %x\n", ttx.LockTime)
 	ttx.TxIn[0].SignatureScript = in0spk
-	ttx.TxIn[1].SignatureScript = in1spk
+	//	ttx.TxIn[1].SignatureScript = in1spk
 
 	fmt.Printf(uspv.TxToString(ttx))
 
@@ -218,15 +219,36 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	sig, err := txscript.WitnessScript(ttx, 1, inamt1, in1spk,
+	// assert flag before writing witness
+	ttx.Flags = 0x01
+	ttx.TxIn[1].Witness, err = txscript.WitnessScript(ttx, 1, inamt1, in1spk,
 		txscript.SigHashAll, priv, true)
+	//	ttx.TxIn[1].SignatureScript = nil
 
-	fmt.Printf("got sig %x\n", sig)
-	hxh := calcWitnessSignatureHash(txscript.SigHashAll, ttx, 1, inamt1)
+	hxh := calcWitnessSignatureHash(in1spk, txscript.SigHashAll, ttx, 1, inamt1)
 
-	fmt.Printf("got sigHash %x\n", hxh)
+	fmt.Printf("got sigHash %x NON LIB\n", hxh)
 	fmt.Printf("expect hash %x\n ", xpkt)
+	fmt.Printf("\n%s\n", uspv.TxToString(ttx))
+
+	fmt.Printf("loading tx from file xtx.hex\n")
+	txhex, err = ioutil.ReadFile("xtx.hex")
+	if err != nil {
+		log.Fatal(err)
+	}
+	txhex = []byte(strings.TrimSpace(string(txhex)))
+	txbytes, err = hex.DecodeString(string(txhex))
+	if err != nil {
+		log.Fatal(err)
+	}
+	// 	make tx
+	xtx := wire.NewMsgTx()
+	// deserialize into tx
+	buf = bytes.NewBuffer(txbytes)
+	xtx.Deserialize(buf)
+
+	//	ttx.Flags = 0x01
+	fmt.Printf("\n%s\n", uspv.TxToString(xtx))
 }
 
 // pver can be 0, doesn't do anything in these.  Same for msg.Version

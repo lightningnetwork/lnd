@@ -137,20 +137,19 @@ func CheckDoubleSpends(
 
 // TxToString prints out some info about a transaction. for testing / debugging
 func TxToString(tx *wire.MsgTx) string {
-	str := fmt.Sprintf("\t size %d vsize %d wsize %d Tx %s\n",
+	str := fmt.Sprintf("size %d vsize %d wsize %d locktime %d flag %x txid %s\n",
 		tx.SerializeSize(), tx.VirtualSize(), tx.SerializeSizeWitness(),
-		tx.TxSha().String())
+		tx.LockTime, tx.Flags, tx.TxSha().String())
 	for i, in := range tx.TxIn {
-		str += fmt.Sprintf("Input %d: %s\n", i, in.PreviousOutPoint.String())
-		str += fmt.Sprintf("SigScript for input %d: %x\n", i, in.SignatureScript)
+		str += fmt.Sprintf("Input %d spends %s\n", i, in.PreviousOutPoint.String())
+		str += fmt.Sprintf("\tSigScript: %x\n", in.SignatureScript)
 		for j, wit := range in.Witness {
-			str += fmt.Sprintf("witness %d: %x\t", j, wit)
+			str += fmt.Sprintf("\twitness %d: %x\n", j, wit)
 		}
-		str += fmt.Sprintf("\n")
 	}
 	for i, out := range tx.TxOut {
 		if out != nil {
-			str += fmt.Sprintf("\toutput %d script: %x amt: %d\n",
+			str += fmt.Sprintf("output %d script: %x amt: %d\n",
 				i, out.PkScript, out.Value)
 		} else {
 			str += fmt.Sprintf("output %d nil (WARNING)\n", i)

@@ -470,7 +470,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 					// store this relevant tx
 					sha := tx.TxSha()
 					var buf bytes.Buffer
-					tx.Serialize(&buf)
+					tx.SerializeWitness(&buf) // always store witness version
 					err = txns.Put(sha.Bytes(), buf.Bytes())
 					if err != nil {
 						return err

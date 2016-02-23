@@ -439,21 +439,25 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 		// this makes us lose money, which is regrettable, but we need to know.
 
 		var delOPs [][]byte
-		fmt.Printf("%d nOP to iterate over\n", len(spentOPs))
+		//		fmt.Printf("%d nOP to iterate over\n", len(spentOPs))
 		for _, nOP := range spentOPs {
 			duf.ForEach(func(k, v []byte) error {
 				if bytes.Equal(k, nOP) { // matched, we lost utxo
+					fmt.Printf("will delete point %x\n", k)
+					hits++
 					// do all this just to figure out value we lost
 					x := make([]byte, len(k)+len(v))
 					copy(x, k)
-					// mark utxos for deletion
-					delOPs = append(delOPs, x)
+					y := make([]byte, len(k))
+					// mark utxo for deletion
+					copy(y, k)
+					delOPs = append(delOPs, y)
+
 					copy(x[len(k):], v)
 					lostTxo, err := UtxoFromBytes(x)
 					if err != nil {
 						return err
 					}
-					hits++
 
 					// after marking for deletion, save stxo to old bucket
 					var st Stxo               // generate spent txo
@@ -482,13 +486,15 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				return nil // no match
 			})
 			// delete after done with foreach
-			for _, k := range delOPs {
-				err = duf.Delete(k)
-				if err != nil {
-					return err
-				}
+		}
+		for _, y := range delOPs {
+			fmt.Printf("deleting outpoint %x\n", y)
+			err = duf.Delete(y)
+			if err != nil {
+				return err
 			}
-		} // done losing utxos, next gain utxos
+		}
+		// done losing utxos, next gain utxos
 		// next add all new utxos to db, this is quick as the work is above
 		for _, ub := range nUtxoBytes {
 			err = duf.Put(ub[:36], ub[36:])

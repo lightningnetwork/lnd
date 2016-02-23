@@ -160,33 +160,39 @@ func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
 		}
 		tx.AddTxIn(wire.NewTxIn(&utxo.Op, prevPKs, nil))
 		nokori -= utxo.Value
-		fee = EstFee(tx, satPerByte)
-		if nokori < -fee { // done adding utxos: nokori below negative est. fee
-			break
+		// if nokori is positive, don't bother checking fee yet.
+		if nokori < 0 {
+			fee = EstFee(tx, satPerByte)
+			if nokori < -fee { // done adding utxos: nokori below negative est. fee
+				break
+			}
 		}
 	}
 
 	// see if there's enough left to also add a change output
-	if nokori < -dustCutoff {
-		changeOld, err := s.TS.NewAdr() // change is witnessy
-		if err != nil {
-			return err
-		}
-		changeAdr, err := btcutil.NewAddressWitnessPubKeyHash(
-			changeOld.ScriptAddress(), s.TS.Param)
-		if err != nil {
-			return err
-		}
 
-		changeScript, err := txscript.PayToAddrScript(changeAdr)
-		if err != nil {
-			return err
-		}
+	changeOld, err := s.TS.NewAdr() // change is witnessy
+	if err != nil {
+		return err
+	}
+	changeAdr, err := btcutil.NewAddressWitnessPubKeyHash(
+		changeOld.ScriptAddress(), s.TS.Param)
+	if err != nil {
+		return err
+	}
 
-		changeOut := wire.NewTxOut(0, changeScript)
-		tx.AddTxOut(changeOut)
-		fee = EstFee(tx, satPerByte)
-		changeOut.Value = -(nokori + fee)
+	changeScript, err := txscript.PayToAddrScript(changeAdr)
+	if err != nil {
+		return err
+	}
+
+	changeOut := wire.NewTxOut(0, changeScript)
+	tx.AddTxOut(changeOut)
+	fee = EstFee(tx, satPerByte)
+	changeOut.Value = -(nokori + fee)
+	if changeOut.Value < dustCutoff {
+		// remove last output (change) : not worth it
+		tx.TxOut = tx.TxOut[:len(tx.TxOut)-1]
 	}
 
 	// sort utxos on the input side.  use this instead of txsort

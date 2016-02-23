@@ -353,7 +353,6 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	var hits uint32
 	var err error
-	var spentOPs [][]byte
 	var nUtxoBytes [][]byte
 
 	// tx has been OK'd by SPV; check tx sanity
@@ -366,13 +365,14 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	// note that you can't check signatures; this is SPV.
 	// 0 conf SPV means pretty much nothing.  Anyone can say anything.
 
+	spentOPs := make([][]byte, len(tx.TxIn))
 	// before entering into db, serialize all inputs of the ingested tx
-	for _, txin := range tx.TxIn {
+	for i, txin := range tx.TxIn {
 		nOP, err := outPointToBytes(&txin.PreviousOutPoint)
 		if err != nil {
 			return hits, err
 		}
-		spentOPs = append(spentOPs, nOP)
+		spentOPs[i] = nOP
 	}
 	// also generate PKscripts for all addresses (maybe keep storing these?)
 	for _, adr := range ts.Adrs {
@@ -419,7 +419,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				}
 				nUtxoBytes = append(nUtxoBytes, b)
 				hits++
-				break // only one match
+				// break // keep looking! address re-use in same tx
 			}
 		}
 	}
@@ -437,24 +437,25 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 		// first see if we lose utxos
 		// iterate through duffel bag and look for matches
 		// this makes us lose money, which is regrettable, but we need to know.
+
+		var delOPs [][]byte
+		fmt.Printf("%d nOP to iterate over\n", len(spentOPs))
 		for _, nOP := range spentOPs {
 			duf.ForEach(func(k, v []byte) error {
 				if bytes.Equal(k, nOP) { // matched, we lost utxo
 					// do all this just to figure out value we lost
 					x := make([]byte, len(k)+len(v))
 					copy(x, k)
+					// mark utxos for deletion
+					delOPs = append(delOPs, x)
 					copy(x[len(k):], v)
 					lostTxo, err := UtxoFromBytes(x)
 					if err != nil {
 						return err
 					}
 					hits++
-					// then delete the utxo from duf, save to old
-					err = duf.Delete(k)
-					if err != nil {
-						return err
-					}
-					// after deletion, save stxo to old bucket
+
+					// after marking for deletion, save stxo to old bucket
 					var st Stxo               // generate spent txo
 					st.Utxo = lostTxo         // assign outpoint
 					st.SpendHeight = height   // spent at height
@@ -480,6 +481,13 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				}
 				return nil // no match
 			})
+			// delete after done with foreach
+			for _, k := range delOPs {
+				err = duf.Delete(k)
+				if err != nil {
+					return err
+				}
+			}
 		} // done losing utxos, next gain utxos
 		// next add all new utxos to db, this is quick as the work is above
 		for _, ub := range nUtxoBytes {

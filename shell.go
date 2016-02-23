@@ -140,6 +140,13 @@ func Shellparse(cmdslice []string) error {
 		}
 		return nil
 	}
+	if cmd == "fan" {
+		err = Fan(args)
+		if err != nil {
+			fmt.Printf("fan error: %s\n", err)
+		}
+		return nil
+	}
 	if cmd == "txs" {
 		err = Txs(args)
 		if err != nil {
@@ -238,6 +245,14 @@ func Adr(args []string) error {
 			}
 		}
 	}
+	if len(args) > 1 {
+		for i := 0; i < 1000; i++ {
+			_, err := SCon.TS.NewAdr()
+			if err != nil {
+				return err
+			}
+		}
+	}
 
 	// always make one
 	a, err := SCon.TS.NewAdr()
@@ -248,6 +263,50 @@ func Adr(args []string) error {
 		a.String())
 
 	return nil
+}
+
+// Fan generates a bunch of fanout.  Only for testing, can be expensive.
+// syntax: fan numOutputs valOutputs witty
+func Fan(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("fan syntax: fan numOutputs valOutputs witty")
+	}
+	numOutputs, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		return err
+	}
+	valOutputs, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	wittynum, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	adrs := make([]btcutil.Address, numOutputs)
+	amts := make([]int64, numOutputs)
+
+	oAdr, err := SCon.TS.NewAdr()
+	if err != nil {
+		return err
+	}
+	for i := int64(0); i < numOutputs; i++ {
+		if wittynum != 0 {
+			wAdr, err := btcutil.NewAddressWitnessPubKeyHash(
+				oAdr.ScriptAddress(), SCon.TS.Param)
+			if err != nil {
+				return err
+			}
+			adrs[i] = wAdr
+		} else {
+			adrs[i] = oAdr
+		}
+		amts[i] = valOutputs + i
+	}
+
+	return SCon.SendCoins(adrs, amts)
+
 }
 
 // Send sends coins.

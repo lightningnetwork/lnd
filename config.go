@@ -89,7 +89,7 @@ func loadConfig() (*config, error) {
 	}
 //	Read certificate if needed
 	if cfg.BTCDCACertPath!=""{
-		f, err := os.Open("rpc.cert")
+		f, err := os.Open(cfg.BTCDCACertPath)
 		defer f.Close()
 		if err!=nil{
 			return nil, err

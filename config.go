@@ -5,6 +5,8 @@ import (
 	"github.com/btcsuite/btcutil"
 	flags "github.com/btcsuite/go-flags"
 	"path/filepath"
+	"io/ioutil"
+	"os"
 )
 
 const (
@@ -16,6 +18,7 @@ const (
 	defaultBTCDHost       = "localhost:18334"
 	defaultBTCDUser       = "user"
 	defaultBTCDPass       = "passwd"
+	defaultBTCDCACertPath = ""
 	defaultUseRegtest     = false
 	defaultSPVHostAdr     = "localhost:18333"
 	defaultBTCDNoTLS      = false
@@ -37,9 +40,11 @@ type config struct {
 	BTCDUser   string `long:"btcduser" description:"The BTCD RPC user"`
 	BTCDPass   string `long:"btcdpass" description:"The BTCD RPC password"`
 	BTCDNoTLS  bool   `long:"btcdnotls" description:"Do not use TLS for RPC connection to BTCD"`
+	BTCDCACertPath string `long:"btcdcacert" description:"Path to certificate for BTCD RPC"`
 	UseRegtest bool   `long:"regtest" description:"Use RegNet. If not specified TestNet3 is used"`
 	SPVHostAdr string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
 	NetParams  *chaincfg.Params
+	BTCDCACert []byte
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -61,6 +66,7 @@ func loadConfig() (*config, error) {
 		BTCDUser:   defaultBTCDUser,
 		BTCDPass:   defaultBTCDPass,
 		BTCDNoTLS:  defaultBTCDNoTLS,
+		BTCDCACertPath: defaultBTCDCACertPath,
 		UseRegtest: defaultUseRegtest,
 		SPVHostAdr: defaultSPVHostAdr,
 	}
@@ -75,10 +81,24 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 	_, err = flags.Parse(&cfg)
+//	Determine net parameters
 	if cfg.UseRegtest {
 		cfg.NetParams = &chaincfg.RegressionNetParams
 	} else {
 		cfg.NetParams = &chaincfg.TestNet3Params
+	}
+//	Read certificate if needed
+	if cfg.BTCDCACertPath!=""{
+		f, err := os.Open("rpc.cert")
+		defer f.Close()
+		if err!=nil{
+			return nil, err
+		}
+		cert, err := ioutil.ReadAll(f)
+		if err!=nil{
+			return nil, err
+		}
+		cfg.BTCDCACert = cert
 	}
 
 	return &cfg, nil

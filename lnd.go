@@ -47,9 +47,9 @@ func main() {
 		RpcUser:     loadedConfig.BTCDUser,
 		RpcPass:     loadedConfig.BTCDPass,
 		RpcNoTLS:    loadedConfig.BTCDNoTLS,
+		CACert:      loadedConfig.BTCDCACert,
 		NetParams:   loadedConfig.NetParams,
 	}
-
 	lnwallet, db, err := lnwallet.NewLightningWallet(config)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)

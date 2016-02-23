@@ -1,74 +1,73 @@
 package main
 
 import (
-	"path/filepath"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/btcsuite/go-flags"
-	"github.com/btcsuite/btcd/chaincfg"
+	"path/filepath"
 )
 
 const (
-	defaultConfigFilename    = "lnwallet.conf"
-	defaultDataDirname       = "test_wal"
-	defaultRPCPort = 10009
-	defaultSPVMode = false
-	defaultPeerPort = 10011
-	defaultBTCDHost = "localhost:18334"
-	defaultBTCDUser = "user"
-	defaultBTCDPass = "passwd"
-	defaultUseRegtest = false
-	defaultSPVHostAdr = "localhost:18333"
-	defaultBTCDNoTLS = false
+	defaultConfigFilename = "lnwallet.conf"
+	defaultDataDirname    = "test_wal"
+	defaultRPCPort        = 10009
+	defaultSPVMode        = false
+	defaultPeerPort       = 10011
+	defaultBTCDHost       = "localhost:18334"
+	defaultBTCDUser       = "user"
+	defaultBTCDPass       = "passwd"
+	defaultUseRegtest     = false
+	defaultSPVHostAdr     = "localhost:18333"
+	defaultBTCDNoTLS      = false
 )
 
 var (
-	lnwalletHomeDir    = btcutil.AppDataDir("lnwallet", false)
-	defaultConfigFile  = filepath.Join(lnwalletHomeDir, defaultConfigFilename)
-	defaultDataDir     = filepath.Join(lnwalletHomeDir, defaultDataDirname)
+	lnwalletHomeDir   = btcutil.AppDataDir("lnwallet", false)
+	defaultConfigFile = filepath.Join(lnwalletHomeDir, defaultConfigFilename)
+	defaultDataDir    = filepath.Join(lnwalletHomeDir, defaultDataDirname)
 )
 
 type config struct {
-	ConfigFile         string        `short:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir            string        `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	PeerPort		   int 		     `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort			   int		 `long:"rpcport" description:"The port for the rpc server"`
-	SPVMode			   bool			 `long:"spv" description:"assert to enter spv wallet mode"`
-	BTCDHost		   string		 `long:"btcdhost" description:"The BTCD RPC address. "`
-	BTCDUser		   string		 `long:"btcduser" description:"The BTCD RPC user"`
-	BTCDPass		   string		 `long:"btcdpass" description:"The BTCD RPC password"`
-	BTCDNoTLS		   bool			  `long:"btcdnotls" description:"Do not use TLS for RPC connection to BTCD"`
-	UseRegtest		   bool			 `long:"regtest" description:"Use RegNet. If not specified TestNet3 is used"`
-	SPVHostAdr			string 		 `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
-	NetParams		   *chaincfg.Params
+	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir    string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	PeerPort   int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
+	RPCPort    int    `long:"rpcport" description:"The port for the rpc server"`
+	SPVMode    bool   `long:"spv" description:"assert to enter spv wallet mode"`
+	BTCDHost   string `long:"btcdhost" description:"The BTCD RPC address. "`
+	BTCDUser   string `long:"btcduser" description:"The BTCD RPC user"`
+	BTCDPass   string `long:"btcdpass" description:"The BTCD RPC password"`
+	BTCDNoTLS  bool   `long:"btcdnotls" description:"Do not use TLS for RPC connection to BTCD"`
+	UseRegtest bool   `long:"regtest" description:"Use RegNet. If not specified TestNet3 is used"`
+	SPVHostAdr string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
+	NetParams  *chaincfg.Params
 }
 
-
-func loadConfig()  (*config, error) {
+func loadConfig() (*config, error) {
 	defaultCfg := config{
 		ConfigFile: defaultConfigFile,
-		DataDir: defaultDataDir,
-		PeerPort: defaultPeerPort,
-		RPCPort: defaultRPCPort,
-		SPVMode: defaultSPVMode,
-		BTCDHost: defaultBTCDHost,
-		BTCDUser: defaultBTCDUser,
-		BTCDPass: defaultBTCDPass,
-		BTCDNoTLS: defaultBTCDNoTLS,
+		DataDir:    defaultDataDir,
+		PeerPort:   defaultPeerPort,
+		RPCPort:    defaultRPCPort,
+		SPVMode:    defaultSPVMode,
+		BTCDHost:   defaultBTCDHost,
+		BTCDUser:   defaultBTCDUser,
+		BTCDPass:   defaultBTCDPass,
+		BTCDNoTLS:  defaultBTCDNoTLS,
 		UseRegtest: defaultUseRegtest,
 		SPVHostAdr: defaultSPVHostAdr,
 	}
 	preCfg := defaultCfg
 	_, err := flags.Parse(&preCfg)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	cfg := defaultCfg
 	err = flags.IniParse(preCfg.ConfigFile, &cfg)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	_, err = flags.Parse(&cfg)
-	if cfg.UseRegtest{
+	if cfg.UseRegtest {
 		cfg.NetParams = &chaincfg.RegressionNetParams
 	} else {
 		cfg.NetParams = &chaincfg.TestNet3Params

@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"strconv"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -18,7 +18,7 @@ func main() {
 
 	loadedConfig, err := loadConfig()
 
-	if err != nil{
+	if err != nil {
 		fmt.Printf("unable to load config: %v\n", err)
 		os.Exit(1)
 	}
@@ -42,12 +42,12 @@ func main() {
 	// afterwards
 	config := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
-		DataDir: loadedConfig.DataDir,
-		RpcHost: loadedConfig.BTCDHost,
-		RpcUser: loadedConfig.BTCDUser,
-		RpcPass: loadedConfig.BTCDPass,
-		RpcNoTLS: loadedConfig.BTCDNoTLS,
-		NetParams: loadedConfig.NetParams,
+		DataDir:     loadedConfig.DataDir,
+		RpcHost:     loadedConfig.BTCDHost,
+		RpcUser:     loadedConfig.BTCDUser,
+		RpcPass:     loadedConfig.BTCDPass,
+		RpcNoTLS:    loadedConfig.BTCDNoTLS,
+		NetParams:   loadedConfig.NetParams,
 	}
 
 	lnwallet, db, err := lnwallet.NewLightningWallet(config)

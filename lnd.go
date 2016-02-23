@@ -1,33 +1,30 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strconv"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
-
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-var (
-	rpcPort  = flag.Int("rpcport", 10009, "The port for the rpc server")
-	peerPort = flag.String("peerport", "10011", "The port to listen on for incoming p2p connections")
-	dataDir  = flag.String("datadir", "test_wal", "The directory to store lnd's data within")
-	spvMode  = flag.Bool("spv", false, "assert to enter spv wallet mode")
-)
-
 func main() {
-	flag.Parse()
 
-	if *spvMode == true {
-		shell()
+	loadedConfig, err := loadConfig()
+
+	if err != nil {
+		fmt.Printf("unable to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if loadedConfig.SPVMode == true {
+		shell(loadedConfig.SPVHostAdr, loadedConfig.NetParams)
 		return
 	}
 
@@ -43,8 +40,16 @@ func main() {
 	// logic, and exposes control via proxy state machines.
 	// TODO(roasbeef): accept config via cli flags, move to real config file
 	// afterwards
-	config := &lnwallet.Config{PrivatePass: []byte("hello"), DataDir: *dataDir}
-
+	config := &lnwallet.Config{
+		PrivatePass: []byte("hello"),
+		DataDir:     loadedConfig.DataDir,
+		RpcHost:     loadedConfig.BTCDHost,
+		RpcUser:     loadedConfig.BTCDUser,
+		RpcPass:     loadedConfig.BTCDPass,
+		RpcNoTLS:    loadedConfig.BTCDNoTLS,
+		CACert:      loadedConfig.BTCDCACert,
+		NetParams:   loadedConfig.NetParams,
+	}
 	lnwallet, db, err := lnwallet.NewLightningWallet(config)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
@@ -61,8 +66,8 @@ func main() {
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
-	defaultListenAddr := []string{net.JoinHostPort("", *peerPort)}
-	server, err := newServer(defaultListenAddr, &chaincfg.TestNet3Params,
+	defaultListenAddr := []string{net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort))}
+	server, err := newServer(defaultListenAddr, loadedConfig.NetParams,
 		lnwallet)
 	if err != nil {
 		fmt.Printf("unable to create server: %v\n", err)
@@ -76,7 +81,7 @@ func main() {
 	lnrpc.RegisterLightningServer(grpcServer, server.rpcServer)
 
 	// Finally, start the grpc server listening for HTTP/2 connections.
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *rpcPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", loadedConfig.RPCPort))
 	if err != nil {
 		grpclog.Fatalf("failed to listen: %v", err)
 		fmt.Printf("failed to listen: %v", err)

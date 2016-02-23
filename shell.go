@@ -34,7 +34,7 @@ var (
 	SCon   uspv.SPVCon // global here for now
 )
 
-func shell() {
+func shell(SPVHostAdr string, Params *chaincfg.Params) {
 	fmt.Printf("LND spv shell v0.0\n")
 	fmt.Printf("Not yet well integrated, but soon.\n")
 

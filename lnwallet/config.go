@@ -40,6 +40,7 @@ type Config struct {
 	RpcHost string // localhost:18334
 	RpcUser string
 	RpcPass string
+	RpcNoTLS bool
 
 	RPCCert string
 	RPCKey  string

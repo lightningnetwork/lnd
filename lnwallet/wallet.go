@@ -346,7 +346,7 @@ func (l *LightningWallet) Startup() error {
 	// TODO(roasbeef): config...
 
 	rpcc, err := chain.NewRPCClient(l.cfg.NetParams, l.cfg.RpcHost,
-		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
+		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, l.cfg.RpcNoTLS, 20)
 	if err != nil {
 		return err
 	}

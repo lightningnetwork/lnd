@@ -26,10 +26,6 @@ const (
 	keyFileName    = "testkey.hex"
 	headerFileName = "headers.bin"
 	dbFileName     = "/dev/shm/utxo.db"
-	// this is my local testnet node, replace it with your own close by.
-	// Random internet testnet nodes usually work but sometimes don't, so
-	// maybe I should test against different versions out there.
-	SPVHostAdr = "127.0.0.1:18333"
 )
 
 var (
@@ -37,7 +33,7 @@ var (
 	SCon   uspv.SPVCon // global here for now
 )
 
-func shell() {
+func shell(SPVHostAdr string, Params *chaincfg.Params) {
 	fmt.Printf("LND spv shell v0.0\n")
 	fmt.Printf("Not yet well integrated, but soon.\n")
 

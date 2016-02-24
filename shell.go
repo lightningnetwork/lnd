@@ -206,7 +206,7 @@ func Bal(args []string) error {
 	if err != nil {
 		return err
 	}
-	var score int64
+	var score, confScore int64
 	for i, u := range allUtxos {
 		fmt.Printf("\tutxo %d height %d %s key:%d amt %d",
 			i, u.AtHeight, u.Op.String(), u.KeyIdx, u.Value)
@@ -215,6 +215,9 @@ func Bal(args []string) error {
 		}
 		fmt.Printf("\n")
 		score += u.Value
+		if u.AtHeight != 0 {
+			confScore += u.Value
+		}
 	}
 	height, _ := SCon.TS.GetDBSyncHeight()
 
@@ -228,7 +231,7 @@ func Bal(args []string) error {
 	}
 
 	fmt.Printf("Total known utxos: %d\n", len(allUtxos))
-	fmt.Printf("Total spendable coin: %d\n", score)
+	fmt.Printf("Total coin: %d confirmed: %d\n", score, confScore)
 	fmt.Printf("DB sync height: %d\n", height)
 	return nil
 }
@@ -266,20 +269,22 @@ func Adr(args []string) error {
 }
 
 // Fan generates a bunch of fanout.  Only for testing, can be expensive.
-// syntax: fan numOutputs valOutputs witty
+// syntax: fan adr numOutputs valOutputs witty
 func Fan(args []string) error {
 	if len(args) < 3 {
-		return fmt.Errorf("fan syntax: fan numOutputs valOutputs witty")
+		return fmt.Errorf("fan syntax: fan adr numOutputs valOutputs")
 	}
-	numOutputs, err := strconv.ParseInt(args[0], 10, 64)
+
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	numOutputs, err := strconv.ParseInt(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
-	valOutputs, err := strconv.ParseInt(args[1], 10, 64)
-	if err != nil {
-		return err
-	}
-	wittynum, err := strconv.ParseInt(args[2], 10, 64)
+	valOutputs, err := strconv.ParseInt(args[2], 10, 64)
 	if err != nil {
 		return err
 	}
@@ -287,21 +292,8 @@ func Fan(args []string) error {
 	adrs := make([]btcutil.Address, numOutputs)
 	amts := make([]int64, numOutputs)
 
-	oAdr, err := SCon.TS.NewAdr()
-	if err != nil {
-		return err
-	}
 	for i := int64(0); i < numOutputs; i++ {
-		if wittynum != 0 {
-			wAdr, err := btcutil.NewAddressWitnessPubKeyHash(
-				oAdr.ScriptAddress(), SCon.TS.Param)
-			if err != nil {
-				return err
-			}
-			adrs[i] = wAdr
-		} else {
-			adrs[i] = oAdr
-		}
+		adrs[i] = adr
 		amts[i] = valOutputs + i
 	}
 
@@ -331,21 +323,21 @@ func Send(args []string) error {
 	}
 	// need args, fail
 	if len(args) < 2 {
-		return fmt.Errorf("need args: ssend amount(satoshis) address wit?")
+		return fmt.Errorf("need args: ssend address amount(satoshis) wit?")
 	}
-
-	amt, err := strconv.ParseInt(args[0], 10, 64)
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	amt, err := strconv.ParseInt(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
 	if amt < 1000 {
 		return fmt.Errorf("can't send %d, too small", amt)
 	}
-	adr, err := btcutil.DecodeAddress(args[1], SCon.TS.Param)
-	if err != nil {
-		fmt.Printf("error parsing %s as address\t", args[1])
-		return err
-	}
+
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
 

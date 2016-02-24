@@ -368,16 +368,14 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	spentOPs := make([][]byte, len(tx.TxIn))
 	// before entering into db, serialize all inputs of the ingested tx
 	for i, txin := range tx.TxIn {
-		nOP, err := outPointToBytes(&txin.PreviousOutPoint)
+		spentOPs[i], err = outPointToBytes(&txin.PreviousOutPoint)
 		if err != nil {
 			return hits, err
 		}
-		spentOPs[i] = nOP
 	}
 	// also generate PKscripts for all addresses (maybe keep storing these?)
 	for _, adr := range ts.Adrs {
 		// iterate through all our addresses
-
 		// convert regular address to witness address.  (split adrs later)
 		wa, err := btcutil.NewAddressWitnessPubKeyHash(
 			adr.PkhAdr.ScriptAddress(), ts.Param)
@@ -437,59 +435,49 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 		// first see if we lose utxos
 		// iterate through duffel bag and look for matches
 		// this makes us lose money, which is regrettable, but we need to know.
-
-		var delOPs [][]byte
-		//		fmt.Printf("%d nOP to iterate over\n", len(spentOPs))
+		//		var delOPs [][]byte
 		for _, nOP := range spentOPs {
-			duf.ForEach(func(k, v []byte) error {
-				if bytes.Equal(k, nOP) { // matched, we lost utxo
-					fmt.Printf("will delete point %x\n", k)
-					hits++
-					// do all this just to figure out value we lost
-					x := make([]byte, len(k)+len(v))
-					copy(x, k)
-					y := make([]byte, len(k))
-					// mark utxo for deletion
-					copy(y, k)
-					delOPs = append(delOPs, y)
-
-					copy(x[len(k):], v)
-					lostTxo, err := UtxoFromBytes(x)
-					if err != nil {
-						return err
-					}
-
-					// after marking for deletion, save stxo to old bucket
-					var st Stxo               // generate spent txo
-					st.Utxo = lostTxo         // assign outpoint
-					st.SpendHeight = height   // spent at height
-					st.SpendTxid = tx.TxSha() // spent by txid
-					stxb, err := st.ToBytes() // serialize
-					if err != nil {
-						return err
-					}
-					err = old.Put(k, stxb) // write k:v outpoint:stxo bytes
-					if err != nil {
-						return err
-					}
-					// store this relevant tx
-					sha := tx.TxSha()
-					var buf bytes.Buffer
-					tx.SerializeWitness(&buf) // always store witness version
-					err = txns.Put(sha.Bytes(), buf.Bytes())
-					if err != nil {
-						return err
-					}
-
-					return nil // matched utxo k, won't match another
+			v := duf.Get(nOP)
+			if v != nil {
+				hits++
+				// do all this just to figure out value we lost
+				x := make([]byte, len(nOP)+len(v))
+				copy(x, nOP)
+				copy(x[len(nOP):], v)
+				lostTxo, err := UtxoFromBytes(x)
+				if err != nil {
+					return err
 				}
-				return nil // no match
-			})
-			// delete after done with foreach
+
+				// after marking for deletion, save stxo to old bucket
+				var st Stxo               // generate spent txo
+				st.Utxo = lostTxo         // assign outpoint
+				st.SpendHeight = height   // spent at height
+				st.SpendTxid = tx.TxSha() // spent by txid
+				stxb, err := st.ToBytes() // serialize
+				if err != nil {
+					return err
+				}
+				err = old.Put(nOP, stxb) // write nOP:v outpoint:stxo bytes
+				if err != nil {
+					return err
+				}
+				// store this relevant tx
+				sha := tx.TxSha()
+				var buf bytes.Buffer
+				tx.SerializeWitness(&buf) // always store witness version
+				err = txns.Put(sha.Bytes(), buf.Bytes())
+				if err != nil {
+					return err
+				}
+				// stash for deletion
+				//				delOPs = append(delOPs, nOP)
+			}
 		}
-		for _, y := range delOPs {
-			fmt.Printf("deleting outpoint %x\n", y)
-			err = duf.Delete(y)
+
+		//delete everything even if it doesn't exist!
+		for _, dOP := range spentOPs {
+			err = duf.Delete(dOP)
 			if err != nil {
 				return err
 			}

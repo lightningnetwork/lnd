@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -147,6 +148,13 @@ func Shellparse(cmdslice []string) error {
 		}
 		return nil
 	}
+	if cmd == "sweep" {
+		err = Sweep(args)
+		if err != nil {
+			fmt.Printf("sweep error: %s\n", err)
+		}
+		return nil
+	}
 	if cmd == "txs" {
 		err = Txs(args)
 		if err != nil {
@@ -202,10 +210,17 @@ func Bal(args []string) error {
 		return fmt.Errorf("Can't get balance, spv connection broken")
 	}
 	fmt.Printf(" ----- Account Balance ----- \n")
-	allUtxos, err := SCon.TS.GetAllUtxos()
+	rawUtxos, err := SCon.TS.GetAllUtxos()
 	if err != nil {
 		return err
 	}
+	var allUtxos uspv.SortableUtxoSlice
+	for _, utxo := range rawUtxos {
+		allUtxos = append(allUtxos, *utxo)
+	}
+	// smallest and unconfirmed last (because it's reversed)
+	sort.Sort(sort.Reverse(allUtxos))
+
 	var score, confScore int64
 	for i, u := range allUtxos {
 		fmt.Printf("\tutxo %d height %d %s key:%d amt %d",
@@ -221,6 +236,10 @@ func Bal(args []string) error {
 	}
 	height, _ := SCon.TS.GetDBSyncHeight()
 
+	atx, err := SCon.TS.GetAllTxs()
+
+	stxos, err := SCon.TS.GetAllStxos()
+
 	for i, a := range SCon.TS.Adrs {
 		wa, err := btcutil.NewAddressWitnessPubKeyHash(
 			a.PkhAdr.ScriptAddress(), Params)
@@ -229,8 +248,9 @@ func Bal(args []string) error {
 		}
 		fmt.Printf("address %d %s OR %s\n", i, a.PkhAdr.String(), wa.String())
 	}
-
-	fmt.Printf("Total known utxos: %d\n", len(allUtxos))
+	fmt.Printf("Total known txs: %d\n", len(atx))
+	fmt.Printf("Known utxos: %d\tPreviously spent txos: %d\n",
+		len(allUtxos), len(stxos))
 	fmt.Printf("Total coin: %d confirmed: %d\n", score, confScore)
 	fmt.Printf("DB sync height: %d\n", height)
 	return nil
@@ -268,13 +288,62 @@ func Adr(args []string) error {
 	return nil
 }
 
+// Sweep sends every confirmed uxto in your wallet to an address.
+// it does them all individually to there are a lot of txs generated.
+// syntax: sweep adr
+func Sweep(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("sweep syntax: sweep adr")
+	}
+
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	numTxs, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	if numTxs < 1 {
+		return fmt.Errorf("can't send %d txs", numTxs)
+	}
+
+	rawUtxos, err := SCon.TS.GetAllUtxos()
+	if err != nil {
+		return err
+	}
+	var allUtxos uspv.SortableUtxoSlice
+	for _, utxo := range rawUtxos {
+		allUtxos = append(allUtxos, *utxo)
+	}
+	// smallest and unconfirmed last (because it's reversed)
+	sort.Sort(sort.Reverse(allUtxos))
+
+	for i, u := range allUtxos {
+		if u.AtHeight != 0 {
+			err = SCon.SendOne(allUtxos[i], adr)
+			if err != nil {
+				return err
+			}
+			numTxs--
+			if numTxs == 0 {
+				return nil
+			}
+		}
+	}
+
+	fmt.Printf("spent all confirmed utxos; not enough by %d\n", numTxs)
+
+	return nil
+}
+
 // Fan generates a bunch of fanout.  Only for testing, can be expensive.
 // syntax: fan adr numOutputs valOutputs witty
 func Fan(args []string) error {
 	if len(args) < 3 {
 		return fmt.Errorf("fan syntax: fan adr numOutputs valOutputs")
 	}
-
 	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
 	if err != nil {
 		fmt.Printf("error parsing %s as address\t", args[0])
@@ -296,9 +365,7 @@ func Fan(args []string) error {
 		adrs[i] = adr
 		amts[i] = valOutputs + i
 	}
-
 	return SCon.SendCoins(adrs, amts)
-
 }
 
 // Send sends coins.

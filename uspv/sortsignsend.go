@@ -68,12 +68,22 @@ func (s utxoSlice) Less(i, j int) bool {
 	return bytes.Compare(ihash[:], jhash[:]) == -1
 }
 
-type utxoByAmt []Utxo
+type SortableUtxoSlice []Utxo
 
-// utxoByAmts get sorted by utxo value
-func (s utxoByAmt) Len() int           { return len(s) }
-func (s utxoByAmt) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s utxoByAmt) Less(i, j int) bool { return s[i].Value < s[j].Value }
+// utxoByAmts get sorted by utxo value. also put unconfirmed last
+func (s SortableUtxoSlice) Len() int      { return len(s) }
+func (s SortableUtxoSlice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+// height 0 means your lesser
+func (s SortableUtxoSlice) Less(i, j int) bool {
+	if s[i].AtHeight == 0 {
+		return true
+	}
+	if s[j].AtHeight == 0 {
+		return false
+	}
+	return s[i].Value < s[j].Value
+}
 
 func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 	txid := tx.TxSha()
@@ -97,6 +107,84 @@ func (s *SPVCon) NewOutgoingTx(tx *wire.MsgTx) error {
 	return nil
 }
 
+func (s *SPVCon) SendOne(u Utxo, adr btcutil.Address) error {
+	// fixed fee
+	fee := int64(5000)
+
+	sendAmt := u.Value - fee
+	tx := wire.NewMsgTx() // make new tx
+	// add single output
+	outAdrScript, err := txscript.PayToAddrScript(adr)
+	if err != nil {
+		return err
+	}
+	// make user specified txout and add to tx
+	txout := wire.NewTxOut(sendAmt, outAdrScript)
+	tx.AddTxOut(txout)
+
+	var prevPKs []byte
+	if u.IsWit {
+		tx.Flags = 0x01
+		wa, err := btcutil.NewAddressWitnessPubKeyHash(
+			s.TS.Adrs[u.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
+		prevPKs, err = txscript.PayToAddrScript(wa)
+		if err != nil {
+			return err
+		}
+	} else { // otherwise generate directly
+		prevPKs, err = txscript.PayToAddrScript(
+			s.TS.Adrs[u.KeyIdx].PkhAdr)
+		if err != nil {
+			return err
+		}
+	}
+
+	tx.AddTxIn(wire.NewTxIn(&u.Op, prevPKs, nil))
+
+	var sig []byte
+	var wit [][]byte
+	hCache := txscript.CalcHashCache(tx, 0, txscript.SigHashAll)
+
+	child, err := s.TS.rootPrivKey.Child(u.KeyIdx + hdkeychain.HardenedKeyStart)
+
+	if err != nil {
+		return err
+	}
+	priv, err := child.ECPrivKey()
+	if err != nil {
+		return err
+	}
+
+	// This is where witness based sighash types need to happen
+	// sign into stash
+	if u.IsWit {
+		wit, err = txscript.WitnessScript(
+			tx, hCache, 0, u.Value, tx.TxIn[0].SignatureScript,
+			txscript.SigHashAll, priv, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		sig, err = txscript.SignatureScript(
+			tx, 0, tx.TxIn[0].SignatureScript,
+			txscript.SigHashAll, priv, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	// swap sigs into sigScripts in txins
+
+	if sig != nil {
+		tx.TxIn[0].SignatureScript = sig
+	}
+	if wit != nil {
+		tx.TxIn[0].Witness = wit
+		tx.TxIn[0].SignatureScript = nil
+	}
+	return s.NewOutgoingTx(tx)
+}
+
 // SendCoins does send coins, but it's very rudimentary
 // wit makes it into p2wpkh.  Which is not yet spendable.
 func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
@@ -111,18 +199,17 @@ func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
 	if err != nil {
 		return err
 	}
-	var allUtxos utxoByAmt
+	var allUtxos SortableUtxoSlice
 	// start with utxos sorted by value.
 
 	for _, utxo := range rawUtxos {
 		score += utxo.Value
 		allUtxos = append(allUtxos, *utxo)
 	}
+	// smallest and unconfirmed last (because it's reversed)
 	sort.Sort(sort.Reverse(allUtxos))
+
 	//	sort.Reverse(allUtxos)
-	for _, u := range allUtxos {
-		fmt.Printf("%d ", u.Value)
-	}
 	for _, amt := range sendAmts {
 		totalSend += amt
 	}
@@ -272,10 +359,8 @@ func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
 
 	}
 
-	fmt.Printf("tx: %s", TxToString(tx))
-	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
-	tx.SerializeWitness(buf)
-	fmt.Printf("tx: %x\n", buf.Bytes())
+	//	fmt.Printf("tx: %s", TxToString(tx))
+	//	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
 
 	// send it out on the wire.  hope it gets there.
 	// we should deal with rejects.  Don't yet.

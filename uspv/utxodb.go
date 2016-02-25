@@ -373,8 +373,14 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 			return hits, err
 		}
 	}
-	// also generate PKscripts for all addresses (maybe keep storing these?)
-	for _, adr := range ts.Adrs {
+
+	// go through txouts, and then go through addresses to match
+
+	// generate PKscripts for all addresses
+	wPKscripts := make([][]byte, len(ts.Adrs))
+	aPKscripts := make([][]byte, len(ts.Adrs))
+
+	for i, adr := range ts.Adrs {
 		// iterate through all our addresses
 		// convert regular address to witness address.  (split adrs later)
 		wa, err := btcutil.NewAddressWitnessPubKeyHash(
@@ -383,28 +389,30 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 			return hits, err
 		}
 
-		wPKscript, err := txscript.PayToAddrScript(wa)
+		wPKscripts[i], err = txscript.PayToAddrScript(wa)
 		if err != nil {
 			return hits, err
 		}
-		aPKscript, err := txscript.PayToAddrScript(adr.PkhAdr)
+		aPKscripts[i], err = txscript.PayToAddrScript(adr.PkhAdr)
 		if err != nil {
 			return hits, err
 		}
+	}
 
-		// iterate through all outputs of this tx, see if we gain
-		for i, out := range tx.TxOut {
+	// iterate through all outputs of this tx, see if we gain
+	for i, out := range tx.TxOut {
+		for j, ascr := range aPKscripts {
 
 			// detect p2wpkh
 			witBool := false
-			if bytes.Equal(out.PkScript, wPKscript) {
+			if bytes.Equal(out.PkScript, wPKscripts[j]) {
 				witBool = true
 			}
 
-			if bytes.Equal(out.PkScript, aPKscript) || witBool { // new utxo found
+			if bytes.Equal(out.PkScript, ascr) || witBool { // new utxo found
 				var newu Utxo // create new utxo and copy into it
 				newu.AtHeight = height
-				newu.KeyIdx = adr.KeyIdx
+				newu.KeyIdx = ts.Adrs[j].KeyIdx
 				newu.Value = out.Value
 				newu.IsWit = witBool // copy witness version from pkscript
 				var newop wire.OutPoint
@@ -417,7 +425,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				}
 				nUtxoBytes = append(nUtxoBytes, b)
 				hits++
-				// break // keep looking! address re-use in same tx
+				break // txos can match only 1 script
 			}
 		}
 	}

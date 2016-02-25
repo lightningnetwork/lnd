@@ -76,10 +76,10 @@ func (s SortableUtxoSlice) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 // height 0 means your lesser
 func (s SortableUtxoSlice) Less(i, j int) bool {
-	if s[i].AtHeight == 0 {
+	if s[i].AtHeight == 0 && s[j].AtHeight > 0 {
 		return true
 	}
-	if s[j].AtHeight == 0 {
+	if s[j].AtHeight == 0 && s[i].AtHeight > 0 {
 		return false
 	}
 	return s[i].Value < s[j].Value

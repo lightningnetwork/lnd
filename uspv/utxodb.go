@@ -380,11 +380,11 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	wPKscripts := make([][]byte, len(ts.Adrs))
 	aPKscripts := make([][]byte, len(ts.Adrs))
 
-	for i, adr := range ts.Adrs {
+	for i, _ := range ts.Adrs {
 		// iterate through all our addresses
 		// convert regular address to witness address.  (split adrs later)
 		wa, err := btcutil.NewAddressWitnessPubKeyHash(
-			adr.PkhAdr.ScriptAddress(), ts.Param)
+			ts.Adrs[i].PkhAdr.ScriptAddress(), ts.Param)
 		if err != nil {
 			return hits, err
 		}
@@ -393,7 +393,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 		if err != nil {
 			return hits, err
 		}
-		aPKscripts[i], err = txscript.PayToAddrScript(adr.PkhAdr)
+		aPKscripts[i], err = txscript.PayToAddrScript(ts.Adrs[i].PkhAdr)
 		if err != nil {
 			return hits, err
 		}
@@ -440,10 +440,8 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 			return fmt.Errorf("error: db not initialized")
 		}
 
-		// first see if we lose utxos
 		// iterate through duffel bag and look for matches
 		// this makes us lose money, which is regrettable, but we need to know.
-		//		var delOPs [][]byte
 		for _, nOP := range spentOPs {
 			v := duf.Get(nOP)
 			if v != nil {
@@ -478,18 +476,20 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				if err != nil {
 					return err
 				}
-				// stash for deletion
-				//				delOPs = append(delOPs, nOP)
+				err = duf.Delete(nOP)
+				if err != nil {
+					return err
+				}
 			}
 		}
 
 		//delete everything even if it doesn't exist!
-		for _, dOP := range spentOPs {
-			err = duf.Delete(dOP)
-			if err != nil {
-				return err
-			}
-		}
+		//		for _, dOP := range spentOPs {
+		//			err = duf.Delete(dOP)
+		//			if err != nil {
+		//				return err
+		//			}
+		//		}
 		// done losing utxos, next gain utxos
 		// next add all new utxos to db, this is quick as the work is above
 		for _, ub := range nUtxoBytes {

@@ -141,22 +141,22 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 	}
 
 	// check for double spends
-	allTxs, err := s.TS.GetAllTxs()
-	if err != nil {
-		log.Printf("Can't get txs from db: %s", err.Error())
-		return
-	}
-	dubs, err := CheckDoubleSpends(m, allTxs)
-	if err != nil {
-		log.Printf("CheckDoubleSpends error: %s", err.Error())
-		return
-	}
-	if len(dubs) > 0 {
-		for i, dub := range dubs {
-			fmt.Printf("dub %d known tx %s and new tx %s are exclusive!!!\n",
-				i, dub.String(), m.TxSha().String())
-		}
-	}
+	//	allTxs, err := s.TS.GetAllTxs()
+	//	if err != nil {
+	//		log.Printf("Can't get txs from db: %s", err.Error())
+	//		return
+	//	}
+	//	dubs, err := CheckDoubleSpends(m, allTxs)
+	//	if err != nil {
+	//		log.Printf("CheckDoubleSpends error: %s", err.Error())
+	//		return
+	//	}
+	//	if len(dubs) > 0 {
+	//		for i, dub := range dubs {
+	//			fmt.Printf("dub %d known tx %s and new tx %s are exclusive!!!\n",
+	//				i, dub.String(), m.TxSha().String())
+	//		}
+	//	}
 	hits, err := s.TS.Ingest(m, height)
 	if err != nil {
 		log.Printf("Incoming Tx error: %s\n", err.Error())

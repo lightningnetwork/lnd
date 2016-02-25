@@ -212,6 +212,9 @@ type LightningWallet struct {
 	// websockets are used for notifications. If using Bitcoin Core,
 	// notifications are either generated via long-polling or the usage of
 	// ZeroMQ.
+	// TODO(roasbeef): make into interface need: getrawtransaction + gettxout
+	//  * getrawtransaction -> verify proof of channel links
+	//  * gettxout -> verify inputs to funding tx exist and are unspent
 	rpc *chain.RPCClient
 
 	// All messages to the wallet are to be sent accross this channel.
@@ -314,7 +317,12 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
-	chainNotifier, err := btcdnotify.NewBtcdNotifier(wallet)
+	rpcc, err := chain.NewRPCClient(l.cfg.NetParams, l.cfg.RpcHost,
+		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
+	if err != nil {
+		return err
+	}
+	chainNotifier, err := btcdnotify.NewBtcdNotifier(wallet.NtfnServer, rpcc)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -323,6 +331,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	return &LightningWallet{
 		db:            walletDB,
 		chainNotifier: chainNotifier,
+		rpc:           rpcc,
 		Wallet:        wallet,
 		ChannelDB:     cdb,
 		msgChan:       make(chan interface{}, msgBufferSize),
@@ -343,20 +352,22 @@ func (l *LightningWallet) Startup() error {
 	if atomic.AddInt32(&l.started, 1) != 1 {
 		return nil
 	}
-	// TODO(roasbeef): config...
 
-	rpcc, err := chain.NewRPCClient(l.cfg.NetParams, l.cfg.RpcHost,
-		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
-	if err != nil {
-		return err
-	}
-
-	// Start the goroutines in the underlying wallet.
-	l.rpc = rpcc
+	// Establish an RPC connection in additino to starting the goroutines
+	// in the underlying wallet.
 	if err := l.rpc.Start(); err != nil {
 		return err
 	}
 	l.Start()
+
+	// Start the notification server. This is used so channel managment
+	// goroutines can be notified when a funding transaction reaches a
+	// sufficient number of confirmations, or when the input for the funding
+	// transaction is spent in an attempt at an uncooperative close by the
+	// counter party.
+	if err := l.chainNotifier.Start(); err != nil {
+		return err
+	}
 
 	// Pass the rpc client into the wallet so it can sync up to the current
 	// main chain.
@@ -376,7 +387,10 @@ func (l *LightningWallet) Shutdown() error {
 	}
 
 	l.Stop()
+
 	l.rpc.Shutdown()
+
+	l.chainNotifier.Stop()
 
 	close(l.quit)
 	l.wg.Wait()
@@ -937,8 +951,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	ourKeySer := ourKey.PubKey().SerializeCompressed()
 	theirKeySer := theirKey.SerializeCompressed()
 	scriptSig, err := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
-		theirKeySer,
-		theirCommitSig)
+		theirKeySer, theirCommitSig)
 	if err != nil {
 		msg.err <- err
 		return

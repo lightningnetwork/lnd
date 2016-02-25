@@ -48,6 +48,7 @@ Library for authenticated encrypted communication between LN nodes.  It uses cha
 `lnd`'s RPC interface. Currently [gRPC](http://www.grpc.io/), a high-performance RPC framework is used. gRPC provides features such as a stub-based client interface in several languages, streaming RPCs, payload agnostic request/response handling, and more. In addition to gRPC, `lnd` will also offer a basic REST-based http RPC interface. For now, connections are not encrypted, or authenticated. For authentication, [macaroons](http://research.google.com/pubs/pub41892.html) will likely be integrated due to their simplicity, flexibility, and expressiveness.
 
 ### lnstate
+
 In-progress update which improves current implementation of channel state machine to allow for higher throughput.
 
 ### lnwallet
@@ -62,3 +63,14 @@ An implementation of Rusty Russell's [64-dimensional shachain](https://github.co
 
 ### uspv
 Wallet library to connect to bitcoin nodes and build a local SPV and wallet transaction state.
+
+## Other Lightning Network implementations
+
+As an analogy, Bitcoin has multiple [full node](https://en.bitcoin.it/wiki/Full_node) implementations written in different programming languages—as long as they follow the same protocol, they are all completely compatible. For example, there is of course the original and most well-known [Bitcoin Core](https://github.com/bitcoin/bitcoin) (C++) software, but there's also [btcd](https://github.com/btcsuite/btcd) (Go), and [Toshi](https://github.com/coinbase/toshi) (Ruby), to name a couple of alternative implementations. Similarly, `lnd` is a Go implementation of the Lightning Network that is being worked on by (amongst [others](https://github.com/LightningNetwork/lnd/graphs/contributors)) the original authors of [the Lightning Network whitepaper](http://lightning.network/lightning-network-paper.pdf), but fully compatible alternatives are also being worked on by different teams of people.
+
+Other implementations of the Lightning Network include:
+
+* [ElementsProject/lightning](https://github.com/ElementsProject/lightning) (C)
+* [hashplex/Lightning](https://github.com/hashplex/Lightning) (Python)
+* [matsjj/thundernetwork](https://github.com/matsjj/thundernetwork) (Java)
+* [ACINQ/eclair](https://github.com/ACINQ/eclair) (Scala)

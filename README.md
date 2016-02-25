@@ -1,6 +1,6 @@
 # lnd - Lightning Network Daemon
 
-This repo is preliminary work on a lightning network peer-to-peer node and wallet.
+This repo is preliminary work on a [Lightning Network](http://lightning.network/) peer-to-peer node and wallet.
 
 It currently is being designed for testnet-L, a test network where all txids are normalized.  The plan is to eventually use the agreed longer-term solution (segwit?), but we want to not be concerned with updates to segwit, so we're running with this.  Normalized txids fixes malleability but isn't something that will/can be integrated to the existing bitcoin network cleanly (so it's a good way to ensure testing-only before segwit is finalized, which solves the problem too).
 

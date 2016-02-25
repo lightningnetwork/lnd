@@ -23,14 +23,14 @@ go get -u -v github.com/lightningnetwork/lnd/...
 
 A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds.
 
-At the moment, it only has a single concrete implementation: using btcd's websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more.
+At the moment, it only has a single concrete implementation: using [btcd](https://github.com/btcsuite/btcd)'s websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more.
 
 ### channeldb
 
 `lnd`'s primary datastore. It uses a generic interface defined in [walletdb](https://godoc.org/github.com/btcsuite/btcwallet/walletdb) allowing for usage of any storage backend which adheres to the interface. The current concrete implementation used is driven by [bolt](https://github.com/boltdb/bolt). `channeldb` is responsible for storing state such as meta-data concerning the current open channels, closed channels, past routes we used, fee schedules within the network, and information about remote peers (ID, uptime, reputation, etc).
 
 ### cmd / lncli
-A command line to query and control a running `lnd`.  Similar to bitcoin-cli
+A command line to query and control a running `lnd`.  Similar to bitcoin-cli.
 
 ### cmd / lnshell
 Interactive shell for commands to direct the `lnd` node.  Will probably be merged into `lnd` soon as a command line option.

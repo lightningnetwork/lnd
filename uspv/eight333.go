@@ -349,7 +349,7 @@ func (s *SPVCon) AskForBlocks() error {
 		return nil
 	}
 
-	fmt.Printf("will request blocks %d to %d\n", dbTip, headerTip)
+	fmt.Printf("will request blocks %d to %d\n", dbTip+1, headerTip)
 
 	if !s.HardMode { // don't send this in hardmode! that's the whole point
 		// create initial filter
@@ -362,9 +362,10 @@ func (s *SPVCon) AskForBlocks() error {
 		fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
 	}
 	// loop through all heights where we want merkleblocks.
-	for dbTip <= headerTip {
-		// load header from file
+	for dbTip < headerTip {
+		dbTip++ // we're requesting the next header
 
+		// load header from file
 		s.headerMutex.Lock() // seek to header we need
 		_, err = s.headerFile.Seek(int64((dbTip)*80), os.SEEK_SET)
 		if err != nil {
@@ -392,6 +393,7 @@ func (s *SPVCon) AskForBlocks() error {
 		if err != nil {
 			return err
 		}
+
 		hah := NewRootAndHeight(hdr.BlockSha(), dbTip)
 		if dbTip == headerTip { // if this is the last block, indicate finality
 			hah.final = true
@@ -399,8 +401,6 @@ func (s *SPVCon) AskForBlocks() error {
 		// waits here most of the time for the queue to empty out
 		s.blockQueue <- hah // push height and mroot of requested block on queue
 		s.outMsgQueue <- gdataMsg
-
-		dbTip++
 	}
 	return nil
 }

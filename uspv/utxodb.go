@@ -125,7 +125,7 @@ func (ts *TxStore) NewAdr() (btcutil.Address, error) {
 	ma.KeyIdx = n
 
 	ts.Adrs = append(ts.Adrs, ma)
-
+	ts.localFilter.Add(ma.PkhAdr.ScriptAddress())
 	return nAdr, nil
 }
 
@@ -399,16 +399,15 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 		}
 	}
 
+	cachedSha := tx.TxSha()
 	// iterate through all outputs of this tx, see if we gain
 	for i, out := range tx.TxOut {
 		for j, ascr := range aPKscripts {
-
 			// detect p2wpkh
 			witBool := false
 			if bytes.Equal(out.PkScript, wPKscripts[j]) {
 				witBool = true
 			}
-
 			if bytes.Equal(out.PkScript, ascr) || witBool { // new utxo found
 				var newu Utxo // create new utxo and copy into it
 				newu.AtHeight = height
@@ -416,7 +415,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				newu.Value = out.Value
 				newu.IsWit = witBool // copy witness version from pkscript
 				var newop wire.OutPoint
-				newop.Hash = tx.TxSha()
+				newop.Hash = cachedSha
 				newop.Index = uint32(i)
 				newu.Op = newop
 				b, err := newu.ToBytes()
@@ -459,7 +458,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				var st Stxo               // generate spent txo
 				st.Utxo = lostTxo         // assign outpoint
 				st.SpendHeight = height   // spent at height
-				st.SpendTxid = tx.TxSha() // spent by txid
+				st.SpendTxid = cachedSha  // spent by txid
 				stxb, err := st.ToBytes() // serialize
 				if err != nil {
 					return err
@@ -468,14 +467,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				if err != nil {
 					return err
 				}
-				// store this relevant tx
-				sha := tx.TxSha()
-				var buf bytes.Buffer
-				tx.SerializeWitness(&buf) // always store witness version
-				err = txns.Put(sha.Bytes(), buf.Bytes())
-				if err != nil {
-					return err
-				}
+
 				err = duf.Delete(nOP)
 				if err != nil {
 					return err
@@ -483,13 +475,6 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 			}
 		}
 
-		//delete everything even if it doesn't exist!
-		//		for _, dOP := range spentOPs {
-		//			err = duf.Delete(dOP)
-		//			if err != nil {
-		//				return err
-		//			}
-		//		}
 		// done losing utxos, next gain utxos
 		// next add all new utxos to db, this is quick as the work is above
 		for _, ub := range nUtxoBytes {
@@ -498,6 +483,15 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				return err
 			}
 		}
+
+		// if hits is nonzero it's a relevant tx and we should store it
+		var buf bytes.Buffer
+		tx.SerializeWitness(&buf) // always store witness version
+		err = txns.Put(cachedSha.Bytes(), buf.Bytes())
+		if err != nil {
+			return err
+		}
+
 		return nil
 	})
 	return hits, err

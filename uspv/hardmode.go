@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bloom"
 )
 
 var (
@@ -115,6 +117,27 @@ func calcRoot(hashes []*wire.ShaHash) *wire.ShaHash {
 	return hashes[0]
 }
 
+func (ts *TxStore) Refilter() error {
+	allUtxos, err := ts.GetAllUtxos()
+	if err != nil {
+		return err
+	}
+	filterElements := uint32(len(allUtxos) + len(ts.Adrs))
+
+	ts.localFilter = bloom.NewFilter(filterElements, 0, 0, wire.BloomUpdateAll)
+
+	for _, u := range allUtxos {
+		ts.localFilter.AddOutPoint(&u.Op)
+	}
+	for _, a := range ts.Adrs {
+		ts.localFilter.Add(a.PkhAdr.ScriptAddress())
+	}
+
+	msg := ts.localFilter.MsgFilterLoad()
+	fmt.Printf("made %d element filter: %x\n", filterElements, msg.Filter)
+	return nil
+}
+
 // IngestBlock is like IngestMerkleBlock but aralphic
 // different enough that it's better to have 2 separate functions
 func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
@@ -148,21 +171,39 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		return
 	}
 
+	fPositive := 0 // local filter false positives
+	reFilter := 10 // after that many false positives, regenerate filter.
+	// 10?  Making it up.  False positives have disk i/o cost, and regenning
+	// the filter also has costs.  With a large local filter, false positives
+	// should be rare.
+
 	// iterate through all txs in the block, looking for matches.
-	// this is slow and can be sped up by doing in-ram filters client side.
-	// kindof a pain to implement though and it's fast enough for now.
+	// use a local bloom filter to ignore txs that don't affect us
 	for i, tx := range m.Transactions {
-		hits, err := s.TS.Ingest(tx, hah.height)
-		if err != nil {
-			log.Printf("Incoming Tx error: %s\n", err.Error())
-			return
-		}
-		if hits > 0 {
-			log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
-				hah.height, i, tx.TxSha().String(), hits)
+		utilTx := btcutil.NewTx(tx)
+		if s.TS.localFilter.MatchTxAndUpdate(utilTx) {
+			hits, err := s.TS.Ingest(tx, hah.height)
+			if err != nil {
+				log.Printf("Incoming Tx error: %s\n", err.Error())
+				return
+			}
+			if hits > 0 {
+				log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
+					hah.height, i, tx.TxSha().String(), hits)
+			} else {
+				fPositive++ // matched filter but no hits
+			}
 		}
 	}
 
+	if fPositive > reFilter {
+		fmt.Printf("%d filter false positives in this block\n", fPositive)
+		err = s.TS.Refilter()
+		if err != nil {
+			log.Printf("Refilter error: %s\n", err.Error())
+			return
+		}
+	}
 	// write to db that we've sync'd to the height indicated in the
 	// merkle block.  This isn't QUITE true since we haven't actually gotten
 	// the txs yet but if there are problems with the txs we should backtrack.
@@ -171,6 +212,7 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		log.Printf("full block sync error: %s\n", err.Error())
 		return
 	}
+
 	fmt.Printf("ingested full block %s height %d OK\n",
 		m.Header.BlockSha().String(), hah.height)
 

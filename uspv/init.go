@@ -91,6 +91,13 @@ func OpenSPV(remoteNode string, hfn, dbfn string,
 	s.inWaitState = make(chan bool, 1)
 	go s.fPositiveHandler()
 
+	if hard {
+		err = s.TS.Refilter()
+		if err != nil {
+			return s, err
+		}
+	}
+
 	return s, nil
 }
 

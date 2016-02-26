@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 func (s *SPVCon) incomingMessageHandler() {
@@ -157,19 +158,22 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 	//				i, dub.String(), m.TxSha().String())
 	//		}
 	//	}
-	hits, err := s.TS.Ingest(m, height)
-	if err != nil {
-		log.Printf("Incoming Tx error: %s\n", err.Error())
-		return
+	utilTx := btcutil.NewTx(m)
+	if !s.HardMode || s.TS.localFilter.MatchTxAndUpdate(utilTx) {
+		hits, err := s.TS.Ingest(m, height)
+		if err != nil {
+			log.Printf("Incoming Tx error: %s\n", err.Error())
+			return
+		}
+		if hits == 0 && !s.HardMode {
+			log.Printf("tx %s had no hits, filter false positive.",
+				m.TxSha().String())
+			s.fPositives <- 1 // add one false positive to chan
+			return
+		}
+		log.Printf("tx %s ingested and matches %d utxo/adrs.",
+			m.TxSha().String(), hits)
 	}
-	if hits == 0 && !s.HardMode {
-		log.Printf("tx %s had no hits, filter false positive.",
-			m.TxSha().String())
-		s.fPositives <- 1 // add one false positive to chan
-		return
-	}
-	log.Printf("tx %s ingested and matches %d utxo/adrs.",
-		m.TxSha().String(), hits)
 }
 
 // GetDataHandler responds to requests for tx data, which happen after

@@ -23,6 +23,8 @@ type TxStore struct {
 	Adrs    []MyAdr  // endeavouring to acquire capital
 	StateDB *bolt.DB // place to write all this down
 
+	localFilter *bloom.Filter // local bloom filter for hard mode
+
 	// Params live here, not SCon
 	Param *chaincfg.Params // network parameters (testnet3, testnetL)
 

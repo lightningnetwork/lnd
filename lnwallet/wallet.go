@@ -529,7 +529,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
 		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
-		ourContribution.Inputs[i] = wire.NewTxIn(outPoint, nil)
+		ourContribution.Inputs[i] = wire.NewTxIn(outPoint, nil, nil)
 	}
 
 	l.coinSelectMtx.Unlock()
@@ -794,7 +794,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// since the outputs are cannonically sorted.
 	fundingNTxid := fundingTx.TxSha() // NOTE: assumes testnet-L
 	_, multiSigIndex := findScriptOutputIndex(fundingTx, multiSigOut.PkScript)
-	fundingTxIn := wire.NewTxIn(wire.NewOutPoint(&fundingNTxid, multiSigIndex), nil)
+	fundingTxIn := wire.NewTxIn(wire.NewOutPoint(&fundingNTxid, multiSigIndex), nil, nil)
 
 	// With the funding tx complete, create both commitment transactions.
 	initialBalance := ourContribution.FundingAmount

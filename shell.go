@@ -2,15 +2,12 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
@@ -25,15 +22,15 @@ testing.  It can send and receive coins.
 const (
 	keyFileName    = "testkey.hex"
 	headerFileName = "headers.bin"
-	dbFileName     = "/dev/shm/utxo.db"
+	dbFileName     = "utxo.db"
 	// this is my local testnet node, replace it with your own close by.
 	// Random internet testnet nodes usually work but sometimes don't, so
 	// maybe I should test against different versions out there.
-	SPVHostAdr = "127.0.0.1:18333"
+	SPVHostAdr = "127.0.0.1:28333"
 )
 
 var (
-	Params = &chaincfg.TestNet3Params
+	Params = &chaincfg.SegNetParams
 	SCon   uspv.SPVCon // global here for now
 )
 
@@ -51,7 +48,7 @@ func shell() {
 	// setup spvCon
 
 	SCon, err = uspv.OpenSPV(
-		SPVHostAdr, headerFileName, dbFileName, &Store, false, false, Params)
+		SPVHostAdr, headerFileName, dbFileName, &Store, true, false, Params)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,14 +58,14 @@ func shell() {
 		log.Fatal(err)
 	}
 	if tip == 0 { // DB has never been used, set to birthday
-		tip = 675000 // hardcoded; later base on keyfile date?
+		tip = 21900 // hardcoded; later base on keyfile date?
 		err = SCon.TS.SetDBSyncHeight(tip)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	// once we're connected, initiate headers sync
+	//	 once we're connected, initiate headers sync
 	err = SCon.AskForHeaders()
 	if err != nil {
 		log.Fatal(err)
@@ -144,6 +141,20 @@ func Shellparse(cmdslice []string) error {
 		}
 		return nil
 	}
+	if cmd == "fan" {
+		err = Fan(args)
+		if err != nil {
+			fmt.Printf("fan error: %s\n", err)
+		}
+		return nil
+	}
+	if cmd == "sweep" {
+		err = Sweep(args)
+		if err != nil {
+			fmt.Printf("sweep error: %s\n", err)
+		}
+		return nil
+	}
 	if cmd == "txs" {
 		err = Txs(args)
 		if err != nil {
@@ -199,37 +210,162 @@ func Bal(args []string) error {
 		return fmt.Errorf("Can't get balance, spv connection broken")
 	}
 	fmt.Printf(" ----- Account Balance ----- \n")
-	allUtxos, err := SCon.TS.GetAllUtxos()
+	rawUtxos, err := SCon.TS.GetAllUtxos()
 	if err != nil {
 		return err
 	}
-	var score int64
+	var allUtxos uspv.SortableUtxoSlice
+	for _, utxo := range rawUtxos {
+		allUtxos = append(allUtxos, *utxo)
+	}
+	// smallest and unconfirmed last (because it's reversed)
+	sort.Sort(sort.Reverse(allUtxos))
+
+	var score, confScore int64
 	for i, u := range allUtxos {
-		fmt.Printf("\tutxo %d height %d %s key: %d amt %d\n",
+		fmt.Printf("\tutxo %d height %d %s key:%d amt %d",
 			i, u.AtHeight, u.Op.String(), u.KeyIdx, u.Value)
+		if u.IsWit {
+			fmt.Printf(" WIT")
+		}
+		fmt.Printf("\n")
 		score += u.Value
+		if u.AtHeight != 0 {
+			confScore += u.Value
+		}
 	}
 	height, _ := SCon.TS.GetDBSyncHeight()
 
+	atx, err := SCon.TS.GetAllTxs()
+
+	stxos, err := SCon.TS.GetAllStxos()
+
 	for i, a := range SCon.TS.Adrs {
-		fmt.Printf("address %d %s\n", i, a.PkhAdr.String())
+		wa, err := btcutil.NewAddressWitnessPubKeyHash(
+			a.PkhAdr.ScriptAddress(), Params)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("address %d %s OR %s\n", i, a.PkhAdr.String(), wa.String())
 	}
-	fmt.Printf("Total known utxos: %d\n", len(allUtxos))
-	fmt.Printf("Total spendable coin: %d\n", score)
+	fmt.Printf("Total known txs: %d\n", len(atx))
+	fmt.Printf("Known utxos: %d\tPreviously spent txos: %d\n",
+		len(allUtxos), len(stxos))
+	fmt.Printf("Total coin: %d confirmed: %d\n", score, confScore)
 	fmt.Printf("DB sync height: %d\n", height)
 	return nil
 }
 
 // Adr makes a new address.
 func Adr(args []string) error {
+
+	// if there's an arg, make 10 adrs
+	if len(args) > 0 {
+		for i := 0; i < 10; i++ {
+			_, err := SCon.TS.NewAdr()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if len(args) > 1 {
+		for i := 0; i < 1000; i++ {
+			_, err := SCon.TS.NewAdr()
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// always make one
 	a, err := SCon.TS.NewAdr()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("made new address %s, %d addresses total\n",
-		a.String(), len(SCon.TS.Adrs))
+	fmt.Printf("made new address %s\n",
+		a.String())
 
 	return nil
+}
+
+// Sweep sends every confirmed uxto in your wallet to an address.
+// it does them all individually to there are a lot of txs generated.
+// syntax: sweep adr
+func Sweep(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("sweep syntax: sweep adr")
+	}
+
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	numTxs, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	if numTxs < 1 {
+		return fmt.Errorf("can't send %d txs", numTxs)
+	}
+
+	rawUtxos, err := SCon.TS.GetAllUtxos()
+	if err != nil {
+		return err
+	}
+	var allUtxos uspv.SortableUtxoSlice
+	for _, utxo := range rawUtxos {
+		allUtxos = append(allUtxos, *utxo)
+	}
+	// smallest and unconfirmed last (because it's reversed)
+	sort.Sort(sort.Reverse(allUtxos))
+
+	for i, u := range allUtxos {
+		if u.AtHeight != 0 {
+			err = SCon.SendOne(allUtxos[i], adr)
+			if err != nil {
+				return err
+			}
+			numTxs--
+			if numTxs == 0 {
+				return nil
+			}
+		}
+	}
+
+	fmt.Printf("spent all confirmed utxos; not enough by %d\n", numTxs)
+
+	return nil
+}
+
+// Fan generates a bunch of fanout.  Only for testing, can be expensive.
+// syntax: fan adr numOutputs valOutputs witty
+func Fan(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("fan syntax: fan adr numOutputs valOutputs")
+	}
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	numOutputs, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+	valOutputs, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	adrs := make([]btcutil.Address, numOutputs)
+	amts := make([]int64, numOutputs)
+
+	for i := int64(0); i < numOutputs; i++ {
+		adrs[i] = adr
+		amts[i] = valOutputs + i
+	}
+	return SCon.SendCoins(adrs, amts)
 }
 
 // Send sends coins.
@@ -254,102 +390,30 @@ func Send(args []string) error {
 	}
 	// need args, fail
 	if len(args) < 2 {
-		return fmt.Errorf("need args: ssend amount(satoshis) address")
+		return fmt.Errorf("need args: ssend address amount(satoshis) wit?")
 	}
-	amt, err := strconv.ParseInt(args[0], 10, 64)
+	adr, err := btcutil.DecodeAddress(args[0], SCon.TS.Param)
+	if err != nil {
+		fmt.Printf("error parsing %s as address\t", args[0])
+		return err
+	}
+	amt, err := strconv.ParseInt(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
 	if amt < 1000 {
 		return fmt.Errorf("can't send %d, too small", amt)
 	}
-	adr, err := btcutil.DecodeAddress(args[1], SCon.TS.Param)
-	if err != nil {
-		fmt.Printf("error parsing %s as address\t", args[1])
-		return err
-	}
+
 	fmt.Printf("send %d to address: %s \n",
 		amt, adr.String())
-	err = SendCoins(SCon, adr, amt)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
-// SendCoins does send coins, but it's very rudimentary
-func SendCoins(s uspv.SPVCon, adr btcutil.Address, sendAmt int64) error {
-	var err error
-	var score int64
-	allUtxos, err := s.TS.GetAllUtxos()
-	if err != nil {
-		return err
-	}
+	var adrs []btcutil.Address
+	var amts []int64
 
-	for _, utxo := range allUtxos {
-		score += utxo.Value
-	}
-	// important rule in bitcoin, output total > input total is invalid.
-	if sendAmt > score {
-		return fmt.Errorf("trying to send %d but %d available.",
-			sendAmt, score)
-	}
-
-	tx := wire.NewMsgTx() // make new tx
-	// make address script 76a914...88ac
-	adrScript, err := txscript.PayToAddrScript(adr)
-	if err != nil {
-		return err
-	}
-	// make user specified txout and add to tx
-	txout := wire.NewTxOut(sendAmt, adrScript)
-	tx.AddTxOut(txout)
-
-	nokori := sendAmt // nokori is how much is needed on input side
-	for _, utxo := range allUtxos {
-		// generate pkscript to sign
-		prevPKscript, err := txscript.PayToAddrScript(
-			s.TS.Adrs[utxo.KeyIdx].PkhAdr)
-		if err != nil {
-			return err
-		}
-		// make new input from this utxo
-		thisInput := wire.NewTxIn(&utxo.Op, prevPKscript)
-		tx.AddTxIn(thisInput)
-		nokori -= utxo.Value
-		if nokori < -10000 { // minimum overage / fee is 1K now
-			break
-		}
-	}
-	// there's enough left to make a change output
-	if nokori < -200000 {
-		change, err := s.TS.NewAdr()
-		if err != nil {
-			return err
-		}
-
-		changeScript, err := txscript.PayToAddrScript(change)
-		if err != nil {
-			return err
-		}
-		changeOut := wire.NewTxOut((-100000)-nokori, changeScript)
-		tx.AddTxOut(changeOut)
-	}
-
-	// use txstore method to sign
-	err = s.TS.SignThis(tx)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("tx: %s", uspv.TxToString(tx))
-	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
-	tx.Serialize(buf)
-	fmt.Printf("tx: %x\n", buf.Bytes())
-
-	// send it out on the wire.  hope it gets there.
-	// we should deal with rejects.  Don't yet.
-	err = s.NewOutgoingTx(tx)
+	adrs = append(adrs, adr)
+	amts = append(amts, amt)
+	err = SCon.SendCoins(adrs, amts)
 	if err != nil {
 		return err
 	}

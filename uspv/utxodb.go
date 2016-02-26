@@ -22,7 +22,7 @@ var (
 	BKTTxns  = []byte("Txns")      // all txs we care about, for replays
 	BKTState = []byte("MiscState") // last state of DB
 	// these are in the state bucket
-	KEYNumKeys   = []byte("NumKeys")   // number of keys used
+	KEYNumKeys   = []byte("NumKeys")   // number of p2pkh keys used
 	KEYTipHeight = []byte("TipHeight") // height synced to
 )
 
@@ -82,17 +82,22 @@ func (ts *TxStore) OpenDB(filename string) error {
 
 // NewAdr creates a new, never before seen address, and increments the
 // DB counter as well as putting it in the ram Adrs store, and returns it
-func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
+func (ts *TxStore) NewAdr() (btcutil.Address, error) {
 	if ts.Param == nil {
-		return nil, fmt.Errorf("nil param")
+		return nil, fmt.Errorf("NewAdr error: nil param")
 	}
-	n := uint32(len(ts.Adrs))
-	priv, err := ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
+
+	priv := new(hdkeychain.ExtendedKey)
+	var err error
+	var n uint32
+	var nAdr btcutil.Address
+
+	n = uint32(len(ts.Adrs))
+	priv, err = ts.rootPrivKey.Child(n + hdkeychain.HardenedKeyStart)
 	if err != nil {
 		return nil, err
 	}
-
-	newAdr, err := priv.Address(ts.Param)
+	nAdr, err = priv.Address(ts.Param)
 	if err != nil {
 		return nil, err
 	}
@@ -107,18 +112,21 @@ func (ts *TxStore) NewAdr() (*btcutil.AddressPubKeyHash, error) {
 	// write to db file
 	err = ts.StateDB.Update(func(btx *bolt.Tx) error {
 		sta := btx.Bucket(BKTState)
+
 		return sta.Put(KEYNumKeys, buf.Bytes())
+
 	})
 	if err != nil {
 		return nil, err
 	}
 	// add in to ram.
 	var ma MyAdr
-	ma.PkhAdr = newAdr
+	ma.PkhAdr = nAdr
 	ma.KeyIdx = n
-	ts.Adrs = append(ts.Adrs, ma)
 
-	return newAdr, nil
+	ts.Adrs = append(ts.Adrs, ma)
+	ts.localFilter.Add(ma.PkhAdr.ScriptAddress())
+	return nAdr, nil
 }
 
 // SetDBSyncHeight sets sync height of the db, indicated the latest block
@@ -345,7 +353,6 @@ func (ts *TxStore) PopulateAdrs(lastKey uint32) error {
 func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	var hits uint32
 	var err error
-	var spentOPs [][]byte
 	var nUtxoBytes [][]byte
 
 	// tx has been OK'd by SPV; check tx sanity
@@ -358,30 +365,57 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 	// note that you can't check signatures; this is SPV.
 	// 0 conf SPV means pretty much nothing.  Anyone can say anything.
 
+	spentOPs := make([][]byte, len(tx.TxIn))
 	// before entering into db, serialize all inputs of the ingested tx
-	for _, txin := range tx.TxIn {
-		nOP, err := outPointToBytes(&txin.PreviousOutPoint)
+	for i, txin := range tx.TxIn {
+		spentOPs[i], err = outPointToBytes(&txin.PreviousOutPoint)
 		if err != nil {
 			return hits, err
 		}
-		spentOPs = append(spentOPs, nOP)
 	}
-	// also generate PKscripts for all addresses (maybe keep storing these?)
-	for _, adr := range ts.Adrs {
+
+	// go through txouts, and then go through addresses to match
+
+	// generate PKscripts for all addresses
+	wPKscripts := make([][]byte, len(ts.Adrs))
+	aPKscripts := make([][]byte, len(ts.Adrs))
+
+	for i, _ := range ts.Adrs {
 		// iterate through all our addresses
-		aPKscript, err := txscript.PayToAddrScript(adr.PkhAdr)
+		// convert regular address to witness address.  (split adrs later)
+		wa, err := btcutil.NewAddressWitnessPubKeyHash(
+			ts.Adrs[i].PkhAdr.ScriptAddress(), ts.Param)
 		if err != nil {
 			return hits, err
 		}
-		// iterate through all outputs of this tx
-		for i, out := range tx.TxOut {
-			if bytes.Equal(out.PkScript, aPKscript) { // new utxo for us
-				var newu Utxo
+
+		wPKscripts[i], err = txscript.PayToAddrScript(wa)
+		if err != nil {
+			return hits, err
+		}
+		aPKscripts[i], err = txscript.PayToAddrScript(ts.Adrs[i].PkhAdr)
+		if err != nil {
+			return hits, err
+		}
+	}
+
+	cachedSha := tx.TxSha()
+	// iterate through all outputs of this tx, see if we gain
+	for i, out := range tx.TxOut {
+		for j, ascr := range aPKscripts {
+			// detect p2wpkh
+			witBool := false
+			if bytes.Equal(out.PkScript, wPKscripts[j]) {
+				witBool = true
+			}
+			if bytes.Equal(out.PkScript, ascr) || witBool { // new utxo found
+				var newu Utxo // create new utxo and copy into it
 				newu.AtHeight = height
-				newu.KeyIdx = adr.KeyIdx
+				newu.KeyIdx = ts.Adrs[j].KeyIdx
 				newu.Value = out.Value
+				newu.IsWit = witBool // copy witness version from pkscript
 				var newop wire.OutPoint
-				newop.Hash = tx.TxSha()
+				newop.Hash = cachedSha
 				newop.Index = uint32(i)
 				newu.Op = newop
 				b, err := newu.ToBytes()
@@ -390,7 +424,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				}
 				nUtxoBytes = append(nUtxoBytes, b)
 				hits++
-				break // only one match
+				break // txos can match only 1 script
 			}
 		}
 	}
@@ -405,53 +439,43 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 			return fmt.Errorf("error: db not initialized")
 		}
 
-		// first see if we lose utxos
 		// iterate through duffel bag and look for matches
 		// this makes us lose money, which is regrettable, but we need to know.
 		for _, nOP := range spentOPs {
-			duf.ForEach(func(k, v []byte) error {
-				if bytes.Equal(k, nOP) { // matched, we lost utxo
-					// do all this just to figure out value we lost
-					x := make([]byte, len(k)+len(v))
-					copy(x, k)
-					copy(x[len(k):], v)
-					lostTxo, err := UtxoFromBytes(x)
-					if err != nil {
-						return err
-					}
-					hits++
-					// then delete the utxo from duf, save to old
-					err = duf.Delete(k)
-					if err != nil {
-						return err
-					}
-					// after deletion, save stxo to old bucket
-					var st Stxo               // generate spent txo
-					st.Utxo = lostTxo         // assign outpoint
-					st.SpendHeight = height   // spent at height
-					st.SpendTxid = tx.TxSha() // spent by txid
-					stxb, err := st.ToBytes() // serialize
-					if err != nil {
-						return err
-					}
-					err = old.Put(k, stxb) // write k:v outpoint:stxo bytes
-					if err != nil {
-						return err
-					}
-					// store this relevant tx
-					sha := tx.TxSha()
-					var buf bytes.Buffer
-					tx.Serialize(&buf)
-					err = txns.Put(sha.Bytes(), buf.Bytes())
-					if err != nil {
-						return err
-					}
-
-					return nil // matched utxo k, won't match another
+			v := duf.Get(nOP)
+			if v != nil {
+				hits++
+				// do all this just to figure out value we lost
+				x := make([]byte, len(nOP)+len(v))
+				copy(x, nOP)
+				copy(x[len(nOP):], v)
+				lostTxo, err := UtxoFromBytes(x)
+				if err != nil {
+					return err
 				}
-				return nil // no match
-			})
-		} // done losing utxos, next gain utxos
+
+				// after marking for deletion, save stxo to old bucket
+				var st Stxo               // generate spent txo
+				st.Utxo = lostTxo         // assign outpoint
+				st.SpendHeight = height   // spent at height
+				st.SpendTxid = cachedSha  // spent by txid
+				stxb, err := st.ToBytes() // serialize
+				if err != nil {
+					return err
+				}
+				err = old.Put(nOP, stxb) // write nOP:v outpoint:stxo bytes
+				if err != nil {
+					return err
+				}
+
+				err = duf.Delete(nOP)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		// done losing utxos, next gain utxos
 		// next add all new utxos to db, this is quick as the work is above
 		for _, ub := range nUtxoBytes {
 			err = duf.Put(ub[:36], ub[36:])
@@ -459,6 +483,15 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 				return err
 			}
 		}
+
+		// if hits is nonzero it's a relevant tx and we should store it
+		var buf bytes.Buffer
+		tx.SerializeWitness(&buf) // always store witness version
+		err = txns.Put(cachedSha.Bytes(), buf.Bytes())
+		if err != nil {
+			return err
+		}
+
 		return nil
 	})
 	return hits, err

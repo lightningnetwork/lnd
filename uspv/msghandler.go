@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 )
 
 func (s *SPVCon) incomingMessageHandler() {
@@ -88,10 +89,18 @@ func (s *SPVCon) fPositiveHandler() {
 			// send filter
 			s.SendFilter(filt)
 			fmt.Printf("sent filter %x\n", filt.MsgFilterLoad().Filter)
+
 			// clear the channel
-			for len(s.fPositives) != 0 {
-				fpAccumulator += <-s.fPositives
+		finClear:
+			for {
+				select {
+				case x := <-s.fPositives:
+					fpAccumulator += x
+				default:
+					break finClear
+				}
 			}
+
 			fmt.Printf("reset %d false positives\n", fpAccumulator)
 			// reset accumulator
 			fpAccumulator = 0
@@ -128,40 +137,43 @@ func (s *SPVCon) TxHandler(m *wire.MsgTx) {
 	height, ok := s.TS.OKTxids[m.TxSha()]
 	s.TS.OKMutex.Unlock()
 	if !ok {
-		log.Printf("Tx %s unknown, will not ingest\n")
+		log.Printf("Tx %s unknown, will not ingest\n", m.TxSha().String())
 		return
 	}
 
 	// check for double spends
-	allTxs, err := s.TS.GetAllTxs()
-	if err != nil {
-		log.Printf("Can't get txs from db: %s", err.Error())
-		return
-	}
-	dubs, err := CheckDoubleSpends(m, allTxs)
-	if err != nil {
-		log.Printf("CheckDoubleSpends error: %s", err.Error())
-		return
-	}
-	if len(dubs) > 0 {
-		for i, dub := range dubs {
-			fmt.Printf("dub %d known tx %s and new tx %s are exclusive!!!\n",
-				i, dub.String(), m.TxSha().String())
+	//	allTxs, err := s.TS.GetAllTxs()
+	//	if err != nil {
+	//		log.Printf("Can't get txs from db: %s", err.Error())
+	//		return
+	//	}
+	//	dubs, err := CheckDoubleSpends(m, allTxs)
+	//	if err != nil {
+	//		log.Printf("CheckDoubleSpends error: %s", err.Error())
+	//		return
+	//	}
+	//	if len(dubs) > 0 {
+	//		for i, dub := range dubs {
+	//			fmt.Printf("dub %d known tx %s and new tx %s are exclusive!!!\n",
+	//				i, dub.String(), m.TxSha().String())
+	//		}
+	//	}
+	utilTx := btcutil.NewTx(m)
+	if !s.HardMode || s.TS.localFilter.MatchTxAndUpdate(utilTx) {
+		hits, err := s.TS.Ingest(m, height)
+		if err != nil {
+			log.Printf("Incoming Tx error: %s\n", err.Error())
+			return
 		}
+		if hits == 0 && !s.HardMode {
+			log.Printf("tx %s had no hits, filter false positive.",
+				m.TxSha().String())
+			s.fPositives <- 1 // add one false positive to chan
+			return
+		}
+		log.Printf("tx %s ingested and matches %d utxo/adrs.",
+			m.TxSha().String(), hits)
 	}
-	hits, err := s.TS.Ingest(m, height)
-	if err != nil {
-		log.Printf("Incoming Tx error: %s\n", err.Error())
-		return
-	}
-	if hits == 0 && !s.HardMode {
-		log.Printf("tx %s had no hits, filter false positive.",
-			m.TxSha().String())
-		s.fPositives <- 1 // add one false positive to chan
-		return
-	}
-	log.Printf("tx %s ingested and matches %d utxo/adrs.",
-		m.TxSha().String(), hits)
 }
 
 // GetDataHandler responds to requests for tx data, which happen after
@@ -172,17 +184,33 @@ func (s *SPVCon) GetDataHandler(m *wire.MsgGetData) {
 	for i, thing := range m.InvList {
 		log.Printf("\t%d)%s : %s",
 			i, thing.Type.String(), thing.Hash.String())
-		if thing.Type != wire.InvTypeTx { // refuse non-tx reqs
-			log.Printf("We only respond to tx requests, ignoring")
+
+		// separate wittx and tx.  needed / combine?
+		// does the same thing right now
+		if thing.Type == wire.InvTypeWitnessTx {
+			tx, err := s.TS.GetTx(&thing.Hash)
+			if err != nil {
+				log.Printf("error getting tx %s: %s",
+					thing.Hash.String(), err.Error())
+			}
+			s.outMsgQueue <- tx
+			sent++
 			continue
 		}
-		tx, err := s.TS.GetTx(&thing.Hash)
-		if err != nil {
-			log.Printf("error getting tx %s: %s",
-				thing.Hash.String(), err.Error())
+		if thing.Type == wire.InvTypeTx {
+			tx, err := s.TS.GetTx(&thing.Hash)
+			if err != nil {
+				log.Printf("error getting tx %s: %s",
+					thing.Hash.String(), err.Error())
+			}
+			tx.Flags = 0x00 // dewitnessify
+			s.outMsgQueue <- tx
+			sent++
+			continue
 		}
-		s.outMsgQueue <- tx
-		sent++
+		// didn't match, so it's not something we're responding to
+		log.Printf("We only respond to tx requests, ignoring")
+
 	}
 	log.Printf("sent %d of %d requested items", sent, len(m.InvList))
 }

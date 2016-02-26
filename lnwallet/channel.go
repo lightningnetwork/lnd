@@ -86,7 +86,7 @@ func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 		return nil, err
 	}
 	_, multiSigIndex := findScriptOutputIndex(state.FundingTx, fundingPkScript)
-	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxId, multiSigIndex), nil)
+	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxId, multiSigIndex), nil, nil)
 	lc.fundingP2SH = fundingPkScript
 
 	return lc, nil

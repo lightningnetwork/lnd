@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"io/ioutil"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"io"
-	"io/ioutil"
 )
 
 var MAX_SLICE_LENGTH = 65535
@@ -557,7 +558,7 @@ func readElement(r io.Reader, element interface{}) error {
 		var txins []*wire.TxIn
 		for i := uint8(0); i < numScripts; i++ {
 			outpoint := new(wire.OutPoint)
-			txin := wire.NewTxIn(outpoint, nil)
+			txin := wire.NewTxIn(outpoint, nil, nil)
 			err = readElement(r, &txin)
 			if err != nil {
 				return err

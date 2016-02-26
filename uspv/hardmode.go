@@ -1,38 +1,156 @@
 package uspv
 
 import (
+	"bytes"
 	"fmt"
 	"log"
-	"os"
-	"sync"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/bloom"
 )
 
-// BlockRootOK checks that all the txs in the block match the merkle root.
-// Only checks merkle root; it doesn't look at txs themselves.
-func BlockRootOK(blk wire.MsgBlock) bool {
-	var shas []*wire.ShaHash
-	for _, tx := range blk.Transactions { // make slice of txids
-		nSha := tx.TxSha()
-		shas = append(shas, &nSha)
+var (
+	WitMagicBytes = []byte{0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed}
+)
+
+// BlockRootOK checks for block self-consistency.
+// If the block has no wintess txs, and no coinbase witness commitment,
+// it only checks the tx merkle root.  If either a witness commitment or
+// any witnesses are detected, it also checks that as well.
+// Returns false if anything goes wrong, true if everything is fine.
+func BlockOK(blk wire.MsgBlock) bool {
+	var txids, wtxids []*wire.ShaHash // txids and wtxids
+	// witMode true if any tx has a wintess OR coinbase has wit commit
+	var witMode bool
+
+	for _, tx := range blk.Transactions { // make slice of (w)/txids
+		txid := tx.TxSha()
+		wtxid := tx.WTxSha()
+		if !witMode && !txid.IsEqual(&wtxid) {
+			witMode = true
+		}
+		txids = append(txids, &txid)
+		wtxids = append(wtxids, &wtxid)
 	}
-	neededLen := int(nextPowerOfTwo(uint32(len(shas)))) // kindof ugly
-	for len(shas) < neededLen {
-		shas = append(shas, nil) // pad out tx slice to get the full tree base
+
+	var commitBytes []byte
+	// try to extract coinbase witness commitment (even if !witMode)
+	cb := blk.Transactions[0]                 // get coinbase tx
+	for i := len(cb.TxOut) - 1; i >= 0; i-- { // start at the last txout
+		if bytes.HasPrefix(cb.TxOut[i].PkScript, WitMagicBytes) &&
+			len(cb.TxOut[i].PkScript) > 37 {
+			// 38 bytes or more, and starts with WitMagicBytes is a hit
+			commitBytes = cb.TxOut[i].PkScript[6:38]
+			witMode = true // it there is a wit commit it must be valid
+		}
 	}
-	for len(shas) > 1 { // calculate merkle root. Terse, eh?
-		shas = append(shas[2:], MakeMerkleParent(shas[0], shas[1]))
-	} // auto recognizes coinbase-only blocks
-	return blk.Header.MerkleRoot.IsEqual(shas[0])
+
+	if witMode { // witmode, so check witness tree
+		// first find ways witMode can be disqualified
+		if len(commitBytes) != 32 {
+			// witness in block but didn't find a wintess commitment; fail
+			log.Printf("block %s has witness but no witcommit",
+				blk.BlockSha().String())
+			return false
+		}
+		if len(cb.TxIn) != 1 {
+			log.Printf("block %s coinbase tx has %d txins (must be 1)",
+				blk.BlockSha().String(), len(cb.TxIn))
+			return false
+		}
+		if len(cb.TxIn[0].Witness) != 1 {
+			log.Printf("block %s coinbase has %d witnesses (must be 1)",
+				blk.BlockSha().String(), len(cb.TxIn[0].Witness))
+			return false
+		}
+
+		if len(cb.TxIn[0].Witness[0]) != 32 {
+			log.Printf("block %s coinbase has %d byte witness nonce (not 32)",
+				blk.BlockSha().String(), len(cb.TxIn[0].Witness[0]))
+			return false
+		}
+		// witness nonce is the cb's witness, subject to above constraints
+		witNonce, err := wire.NewShaHash(cb.TxIn[0].Witness[0])
+		if err != nil {
+			log.Printf("Witness nonce error: %s", err.Error())
+			return false // not sure why that'd happen but fail
+		}
+
+		var empty [32]byte
+		wtxids[0].SetBytes(empty[:]) // coinbase wtxid is 0x00...00
+
+		// witness root calculated from wtixds
+		witRoot := calcRoot(wtxids)
+
+		calcWitCommit := wire.DoubleSha256SH(
+			append(witRoot.Bytes(), witNonce.Bytes()...))
+
+		// witness root given in coinbase op_return
+		givenWitCommit, err := wire.NewShaHash(commitBytes)
+		if err != nil {
+			log.Printf("Witness root error: %s", err.Error())
+			return false // not sure why that'd happen but fail
+		}
+		// they should be the same.  If not, fail.
+		if !calcWitCommit.IsEqual(givenWitCommit) {
+			log.Printf("Block %s witRoot error: calc %s given %s",
+				blk.BlockSha().String(),
+				calcWitCommit.String(), givenWitCommit.String())
+			return false
+		}
+	}
+
+	// got through witMode check so that should be OK;
+	// check regular txid merkleroot.  Which is, like, trivial.
+	return blk.Header.MerkleRoot.IsEqual(calcRoot(txids))
+}
+
+// calcRoot calculates the merkle root of a slice of hashes.
+func calcRoot(hashes []*wire.ShaHash) *wire.ShaHash {
+	for len(hashes) < int(nextPowerOfTwo(uint32(len(hashes)))) {
+		hashes = append(hashes, nil) // pad out hash slice to get the full base
+	}
+	for len(hashes) > 1 { // calculate merkle root. Terse, eh?
+		hashes = append(hashes[2:], MakeMerkleParent(hashes[0], hashes[1]))
+	}
+	return hashes[0]
+}
+
+func (ts *TxStore) Refilter() error {
+	allUtxos, err := ts.GetAllUtxos()
+	if err != nil {
+		return err
+	}
+	filterElements := uint32(len(allUtxos) + len(ts.Adrs))
+
+	ts.localFilter = bloom.NewFilter(filterElements, 0, 0, wire.BloomUpdateAll)
+
+	for _, u := range allUtxos {
+		ts.localFilter.AddOutPoint(&u.Op)
+	}
+	for _, a := range ts.Adrs {
+		ts.localFilter.Add(a.PkhAdr.ScriptAddress())
+	}
+
+	msg := ts.localFilter.MsgFilterLoad()
+	fmt.Printf("made %d element filter: %x\n", filterElements, msg.Filter)
+	return nil
 }
 
 // IngestBlock is like IngestMerkleBlock but aralphic
 // different enough that it's better to have 2 separate functions
 func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 	var err error
-
-	ok := BlockRootOK(*m) // check block self-consistency
+	//	var buf bytes.Buffer
+	//	m.SerializeWitness(&buf)
+	//	fmt.Printf("block hex %x\n", buf.Bytes())
+	//	for _, tx := range m.Transactions {
+	//		fmt.Printf("wtxid: %s\n", tx.WTxSha())
+	//		fmt.Printf(" txid: %s\n", tx.TxSha())
+	//		fmt.Printf("%d %s", i, TxToString(tx))
+	//	}
+	ok := BlockOK(*m) // check block self-consistency
 	if !ok {
 		fmt.Printf("block %s not OK!!11\n", m.BlockSha().String())
 		return
@@ -53,28 +171,39 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		return
 	}
 
-	// iterate through all txs in the block, looking for matches.
-	// this is slow and can be sped up by doing in-ram filters client side.
-	// kindof a pain to implement though and it's fast enough for now.
-	var wg sync.WaitGroup
-	wg.Add(len(m.Transactions))
-	for i, tx := range m.Transactions {
+	fPositive := 0 // local filter false positives
+	reFilter := 10 // after that many false positives, regenerate filter.
+	// 10?  Making it up.  False positives have disk i/o cost, and regenning
+	// the filter also has costs.  With a large local filter, false positives
+	// should be rare.
 
-		go func() {
+	// iterate through all txs in the block, looking for matches.
+	// use a local bloom filter to ignore txs that don't affect us
+	for _, tx := range m.Transactions {
+		utilTx := btcutil.NewTx(tx)
+		if s.TS.localFilter.MatchTxAndUpdate(utilTx) {
 			hits, err := s.TS.Ingest(tx, hah.height)
 			if err != nil {
 				log.Printf("Incoming Tx error: %s\n", err.Error())
 				return
 			}
 			if hits > 0 {
-				log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
-					hah.height, i, tx.TxSha().String(), hits)
+				// log.Printf("block %d tx %d %s ingested and matches %d utxo/adrs.",
+				//	hah.height, i, tx.TxSha().String(), hits)
+			} else {
+				fPositive++ // matched filter but no hits
 			}
-			wg.Done()
-		}()
+		}
 	}
-	wg.Wait()
 
+	if fPositive > reFilter {
+		fmt.Printf("%d filter false positives in this block\n", fPositive)
+		err = s.TS.Refilter()
+		if err != nil {
+			log.Printf("Refilter error: %s\n", err.Error())
+			return
+		}
+	}
 	// write to db that we've sync'd to the height indicated in the
 	// merkle block.  This isn't QUITE true since we haven't actually gotten
 	// the txs yet but if there are problems with the txs we should backtrack.
@@ -83,6 +212,7 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		log.Printf("full block sync error: %s\n", err.Error())
 		return
 	}
+
 	fmt.Printf("ingested full block %s height %d OK\n",
 		m.Header.BlockSha().String(), hah.height)
 
@@ -98,36 +228,4 @@ func (s *SPVCon) IngestBlock(m *wire.MsgBlock) {
 		}
 	}
 	return
-}
-
-func (s *SPVCon) AskForOneBlock(h int32) error {
-	var hdr wire.BlockHeader
-	var err error
-
-	dbTip := int32(h)
-	s.headerMutex.Lock() // seek to header we need
-	_, err = s.headerFile.Seek(int64((dbTip)*80), os.SEEK_SET)
-	if err != nil {
-		return err
-	}
-	err = hdr.Deserialize(s.headerFile) // read header, done w/ file for now
-	s.headerMutex.Unlock()              // unlock after reading 1 header
-	if err != nil {
-		log.Printf("header deserialize error!\n")
-		return err
-	}
-
-	bHash := hdr.BlockSha()
-	// create inventory we're asking for
-	iv1 := wire.NewInvVect(wire.InvTypeBlock, &bHash)
-	gdataMsg := wire.NewMsgGetData()
-	// add inventory
-	err = gdataMsg.AddInvVect(iv1)
-	if err != nil {
-		return err
-	}
-
-	s.outMsgQueue <- gdataMsg
-
-	return nil
 }

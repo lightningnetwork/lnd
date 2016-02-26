@@ -396,9 +396,10 @@ func (s *SPVCon) AskForBlocks() error {
 		if dbTip == headerTip { // if this is the last block, indicate finality
 			hah.final = true
 		}
-		s.outMsgQueue <- gdataMsg
 		// waits here most of the time for the queue to empty out
 		s.blockQueue <- hah // push height and mroot of requested block on queue
+		s.outMsgQueue <- gdataMsg
+
 		dbTip++
 	}
 	return nil

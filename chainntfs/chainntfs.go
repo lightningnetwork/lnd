@@ -33,15 +33,14 @@ type ConfirmationEvent struct {
 	// to sync, to request another confirmation event ntfn, then re-open
 	// channel after confs.
 
-	NegativeConf chan uint32 // MUST be buffered.
+	NegativeConf chan int32 // MUST be buffered.
 }
 
 // SpendDetail ...
 type SpendDetail struct {
-	SpentOutPoint *wire.OutPoint
-
-	SpendingTx        *wire.MsgTx
+	SpentOutPoint     *wire.OutPoint
 	SpenderTxHash     *wire.ShaHash
+	SpendingTx        *wire.MsgTx
 	SpenderInputIndex uint32
 }
 

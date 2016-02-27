@@ -110,6 +110,16 @@ func (b *BtcdNotifier) Stop() error {
 	close(b.quit)
 	b.wg.Wait()
 
+	// Notify all pending clients of our shutdown by closing the related
+	// notification channels.
+	for _, spendClient := range b.spendNotifications {
+		close(spendClient.spendChan)
+	}
+	for _, confClient := range b.confNotifications {
+		close(confClient.finConf)
+		close(confClient.negativeConf)
+	}
+
 	return nil
 }
 

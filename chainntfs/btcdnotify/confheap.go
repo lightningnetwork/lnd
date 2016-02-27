@@ -44,7 +44,7 @@ func (c *confirmationHeap) Push(x interface{}) {
 func (c *confirmationHeap) Pop() interface{} {
 	n := len(c.items)
 	x := c.items[n-1]
+	c.items[n-1] = nil
 	c.items = c.items[0 : n-1]
-	c.items[n] = nil
 	return x
 }

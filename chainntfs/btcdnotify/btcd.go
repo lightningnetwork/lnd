@@ -14,10 +14,12 @@ import (
 	"github.com/lightningnetwork/lnd/chainntfs"
 )
 
-// BtcdNotifier...
+// BtcdNotifier implements the ChainNotifier interface using btcd's websockets
+// notifications. Multiple concurrent clients are supported. All notifications
+// are achieved via non-blocking sends on client channels.
 type BtcdNotifier struct {
-	started int32 // To be used atomically
-	stopped int32 // To be used atomically
+	started int32 // To be used atomically.
+	stopped int32 // To be used atomically.
 
 	chainConn *btcrpcclient.Client
 
@@ -37,16 +39,14 @@ type BtcdNotifier struct {
 	quit chan struct{}
 }
 
+// Ensure BtcdNotifier implements the ChainNotifier interface at compile time.
 var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 
-// NewBtcdNotifier...
-// TODO(roasbeef):
-//  * when asked for spent, request via client
-//func NewBtcdNotifier(ntfnSource *btcwallet.NotificationServer,
-//	chainConn *chain.RPCClient) (*BtcdNotifier, error) {
+// NewBtcdNotifier returns a new BtcdNotifier instance. This function assumes
+// the btcd node detailed in the passed configuration is already running, and
+// willing to accept new websockets clients.
 func NewBtcdNotifier(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 	notifier := &BtcdNotifier{
-
 		notificationRegistry: make(chan interface{}),
 
 		spendNotifications: make(map[wire.OutPoint]*spendNotification),
@@ -66,6 +66,8 @@ func NewBtcdNotifier(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
+	// Disable connecting to btcd within the btcrpcclient.New method. We defer
+	// establishing the connection to our .Start() method.
 	config.DisableConnectOnNew = true
 	config.DisableAutoReconnect = false
 	chainConn, err := btcrpcclient.New(config, ntfnCallbacks)
@@ -77,17 +79,19 @@ func NewBtcdNotifier(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 	return notifier, nil
 }
 
-// Start...
+// Start connects to the running btcd node over websockets, registers for block
+// notifications, and finally launches all related helper goroutines.
 func (b *BtcdNotifier) Start() error {
 	// Already started?
 	if atomic.AddInt32(&b.started, 1) != 1 {
 		return nil
 	}
 
+	// Connect to btcd, and register for notifications on connected, and
+	// disconnected blocks.
 	if err := b.chainConn.Connect(20); err != nil {
 		return err
 	}
-
 	if err := b.chainConn.NotifyBlocks(); err != nil {
 		return err
 	}
@@ -98,13 +102,15 @@ func (b *BtcdNotifier) Start() error {
 	return nil
 }
 
-// Stop...
+// Stop shutsdown the BtcdNotifier.
 func (b *BtcdNotifier) Stop() error {
 	// Already shutting down?
 	if atomic.AddInt32(&b.stopped, 1) != 1 {
 		return nil
 	}
 
+	// Shutdown the rpc client, this gracefully disconnects from btcd, and
+	// cleans up all related resources.
 	b.chainConn.Shutdown()
 
 	close(b.quit)
@@ -123,13 +129,14 @@ func (b *BtcdNotifier) Stop() error {
 	return nil
 }
 
-// connectedBlock...
+// blockNtfn packages a notification of a connected/disconnected block along
+// with its height at the time.
 type blockNtfn struct {
 	sha    *wire.ShaHash
 	height int32
 }
 
-// onBlockConnected...
+// onBlockConnected implements on OnBlockConnected callback for btcrpcclient.
 func (b *BtcdNotifier) onBlockConnected(hash *wire.ShaHash, height int32, t time.Time) {
 	select {
 	case b.connectedBlockHashes <- &blockNtfn{hash, height}:
@@ -137,12 +144,12 @@ func (b *BtcdNotifier) onBlockConnected(hash *wire.ShaHash, height int32, t time
 	}
 }
 
-// onBlockDisconnected...
+// onBlockDisconnected implements on OnBlockDisconnected callback for btcrpcclient.
 func (b *BtcdNotifier) onBlockDisconnected(hash *wire.ShaHash, height int32, t time.Time) {
 	b.onBlockDisconnected(hash, height, t)
 }
 
-// onRedeemingTx...
+// onRedeemingTx implements on OnRedeemingTx callback for btcrpcclient.
 func (b *BtcdNotifier) onRedeemingTx(transaction *btcutil.Tx, details *btcjson.BlockDetails) {
 	select {
 	case b.relevantTxs <- transaction:
@@ -150,7 +157,8 @@ func (b *BtcdNotifier) onRedeemingTx(transaction *btcutil.Tx, details *btcjson.B
 	}
 }
 
-// notificationDispatcher...
+// notificationDispatcher is the primary goroutine which handles client
+// notification registrations, as well as notification dispatches.
 func (b *BtcdNotifier) notificationDispatcher() {
 out:
 	for {
@@ -222,7 +230,9 @@ out:
 	b.wg.Done()
 }
 
-// notifyConfs...
+// notifyConfs examines the current confirmation heap, sending off any
+// notifications which have been triggered by the connection of a new block at
+// newBlockHeight.
 func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 	// If the heap is empty, we have nothing to do.
 	if b.confHeap.Len() == 0 {
@@ -249,8 +259,11 @@ func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 	heap.Push(b.confHeap, nextConf)
 }
 
-// checkConfirmationTrigger...
-// TODO(roasbeef): perheps lookup, then track by inputs instead?
+// checkConfirmationTrigger determines if the passed txSha included at blockHeight
+// triggers any single confirmation notifications. In the event that the txid
+// matches, yet needs additional confirmations, it is added to the confirmation
+// heap to be triggered at a later time.
+// TODO(roasbeef): perhaps lookup, then track by inputs instead?
 func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight int32) {
 	// If a confirmation notification has been registered
 	// for this txid, then either trigger a notification
@@ -280,15 +293,18 @@ func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight
 	}
 }
 
-// spendNotification....
+// spendNotification couples a target outpoint along with the channel used for
+// notifications once a spend of the outpoint has been detected.
 type spendNotification struct {
 	targetOutpoint *wire.OutPoint
 
 	spendChan chan *chainntnfs.SpendDetail
 }
 
-// RegisterSpendNotification...
-// NOTE: eventChan MUST be buffered
+// RegisterSpendNotification registers an intent to be notified once the target
+// outpoint has been spent by a transaction on-chain. Once a spend of the target
+// outpoint has been detected, the details of the spending event will be sent
+// across the 'Spend' channel.
 func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
 	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
 		return nil, err
@@ -304,8 +320,8 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 	return &chainntnfs.SpendEvent{ntfn.spendChan}, nil
 }
 
-// confirmationNotification...
-// TODO(roasbeef): re-org funny business
+// confirmationNotification represents a client's intent to receive a
+// notification once the target txid reaches numConfirmations confirmations.
 type confirmationsNotification struct {
 	txid *wire.ShaHash
 
@@ -313,10 +329,12 @@ type confirmationsNotification struct {
 	numConfirmations     uint32
 
 	finConf      chan struct{}
-	negativeConf chan int32
+	negativeConf chan int32 // TODO(roasbeef): re-org funny business
 }
 
-// RegisterConfirmationsNotification...
+// RegisterConfirmationsNotification registers a notification with BtcdNotifier
+// which will be triggered once the txid reaches numConfs number of
+// confirmations.
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
 

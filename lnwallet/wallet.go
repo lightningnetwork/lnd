@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcrpcclient"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/coinset"
 	"github.com/btcsuite/btcutil/txsort"
@@ -317,12 +318,28 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		log.Printf("stored identity key pubkey hash in channeldb\n")
 	}
 
-	rpcc, err := chain.NewRPCClient(l.cfg.NetParams, l.cfg.RpcHost,
-		l.cfg.RpcUser, l.cfg.RpcPass, l.cfg.CACert, false, 20)
+	// Create a special websockets rpc client for btcd which will be used
+	// by the wallet for notifications, calls, etc.
+	rpcc, err := chain.NewRPCClient(config.NetParams, config.RpcHost,
+		config.RpcUser, config.RpcPass, config.CACert, false, 20)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	chainNotifier, err := btcdnotify.NewBtcdNotifier(wallet.NtfnServer, rpcc)
+
+	// Using the same authentication info, create a config for a second
+	// rpcclient which will be used by the current default chain
+	// notifier implemenation.
+	rpcConfig := &btcrpcclient.ConnConfig{
+		Host:                 config.RpcHost,
+		Endpoint:             "ws",
+		User:                 config.RpcUser,
+		Pass:                 config.RpcPass,
+		Certificates:         config.CACert,
+		DisableTLS:           false,
+		DisableConnectOnNew:  true,
+		DisableAutoReconnect: false,
+	}
+	chainNotifier, err := btcdnotify.NewBtcdNotifier(rpcConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -997,17 +1014,14 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation, numConfs uint32) {
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
-	trigger := &chainntnfs.NotificationTrigger{
-		TriggerChan: make(chan struct{}, 1),
-	}
 	txid := res.partialState.FundingTx.TxSha()
-	l.chainNotifier.RegisterConfirmationsNotification(&txid, numConfs, trigger)
+	confNtfn, _ := l.chainNotifier.RegisterConfirmationsNtfn(&txid, numConfs)
 
 	// Wait until the specified number of confirmations has been reached,
 	// or the wallet signals a shutdown.
 out:
 	select {
-	case <-trigger.TriggerChan:
+	case <-confNtfn.Confirmed:
 		break out
 	case <-l.quit:
 		res.chanOpen <- nil

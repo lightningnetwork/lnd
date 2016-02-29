@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
-	"io/ioutil"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"io"
+	"io/ioutil"
 )
 
 var MAX_SLICE_LENGTH = 65535
@@ -31,9 +30,14 @@ type CommitHeight uint64
 // https:// en.wikipedia.org/wiki/List_of_fictional_currencies
 // https:// en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
 // http:// tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
-type CreditsAmount int32 // Credits (XCB, accountants should use XCB :^)
+type CreditsAmount int64 // Credits (XCB, accountants should use XCB :^)
 // US Display format: 1 BTC = 100,000,000'000 XCB
 // Or in BTC = 1.00000000'000
+
+//Rounds down
+func (c CreditsAmount) ToSatoshi() int64 {
+	return int64(c / 1000)
+}
 
 // Writes the big endian representation of element
 // Unified function to call when writing different types
@@ -59,7 +63,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		return nil
 	case CreditsAmount:
-		err = binary.Write(w, binary.BigEndian, int32(e))
+		err = binary.Write(w, binary.BigEndian, int64(e))
 		if err != nil {
 			return err
 		}
@@ -81,10 +85,11 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		return nil
 	case HTLCKey:
-		err = writeElement(w, uint64(e))
+		err = binary.Write(w, binary.BigEndian, int64(e))
 		if err != nil {
 			return err
 		}
+		return nil
 	case btcutil.Amount:
 		err = binary.Write(w, binary.BigEndian, int64(e))
 		if err != nil {
@@ -317,12 +322,12 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = binary.BigEndian.Uint16(b[:])
 		return nil
 	case *CreditsAmount:
-		var b [4]byte
+		var b [8]byte
 		_, err = io.ReadFull(r, b[:])
 		if err != nil {
 			return err
 		}
-		*e = CreditsAmount(int32(binary.BigEndian.Uint32(b[:])))
+		*e = CreditsAmount(int64(binary.BigEndian.Uint64(b[:])))
 		return nil
 	case *uint32:
 		var b [4]byte
@@ -346,7 +351,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		*e = HTLCKey(binary.BigEndian.Uint64(b[:]))
+		*e = HTLCKey(int64(binary.BigEndian.Uint64(b[:])))
 		return nil
 	case *btcutil.Amount:
 		var b [8]byte
@@ -374,7 +379,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		*e = &*x
+		*e = x
 		return nil
 	case *[]uint64:
 		var numItems uint16
@@ -396,7 +401,7 @@ func readElement(r io.Reader, element interface{}) error {
 			}
 			items = append(items, item)
 		}
-		*e = *&items
+		*e = items
 		return nil
 	case *[]*btcec.Signature:
 		var numSigs uint8
@@ -418,7 +423,7 @@ func readElement(r io.Reader, element interface{}) error {
 			}
 			sigs = append(sigs, sig)
 		}
-		*e = *&sigs
+		*e = sigs
 		return nil
 	case **btcec.Signature:
 		var sigLength uint8
@@ -444,7 +449,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		*e = &*btcecSig
+		*e = btcecSig
 		return nil
 	case *[]*[20]byte:
 		// How many to read
@@ -565,7 +570,7 @@ func readElement(r io.Reader, element interface{}) error {
 			}
 			txins = append(txins, txin)
 		}
-		*e = *&txins
+		*e = txins
 		return nil
 	case **wire.TxIn:
 		// Hash

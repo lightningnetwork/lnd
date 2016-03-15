@@ -19,10 +19,13 @@ type CommitSignature struct {
 	// This is used for shachain.
 	// Each party increments their own CommitmentHeight, they can differ for
 	// each part of the Commitment.
+	//FIXME This might be superfluous
 	CommitmentHeight uint64
 
 	// List of HTLC Keys which are updated from all parties
-	UpdatedHTLCKeys []uint64
+	//UpdatedHTLCKeys []uint64
+	LastCommittedKeyAlice HTLCKey
+	LastCommittedKeyBob   HTLCKey
 
 	// Hash of the revocation to use
 	RevocationHash [20]byte
@@ -37,14 +40,14 @@ type CommitSignature struct {
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// CommitmentHeight(8)
-	// c.UpdatedHTLCKeys(8*1000max)
 	// RevocationHash(20)
 	// Fee(8)
 	// RequesterCommitSig(73max+2)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.CommitmentHeight,
-		&c.UpdatedHTLCKeys,
+		&c.LastCommittedKeyAlice,
+		&c.LastCommittedKeyBob,
 		&c.RevocationHash,
 		&c.Fee,
 		&c.CommitSig,
@@ -67,7 +70,8 @@ func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
 		c.CommitmentHeight,
-		c.UpdatedHTLCKeys,
+		c.LastCommittedKeyAlice,
+		c.LastCommittedKeyBob,
 		c.RevocationHash,
 		c.Fee,
 		c.CommitSig,
@@ -106,18 +110,15 @@ func (c *CommitSignature) String() string {
 	// c.Fee,
 	// c.CommitSig,
 	var serializedSig []byte
-	if &c.CommitSig != nil && c.CommitSig.R != nil {
+	if c.CommitSig != nil && c.CommitSig.R != nil {
 		serializedSig = c.CommitSig.Serialize()
-	}
-	var items string
-	for i := 0; i < len(c.UpdatedHTLCKeys); i++ {
-		items += fmt.Sprintf("%d ", c.UpdatedHTLCKeys[i])
 	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
 		fmt.Sprintf("CommitmentHeight:\t%d\n", c.CommitmentHeight) +
-		fmt.Sprintf("UpdatedHTLCKeys:\t%s\n", items) +
+		fmt.Sprintf("LastCommittedKeyAlice:\t%d\n", c.LastCommittedKeyAlice) +
+		fmt.Sprintf("LastCommittedKeyBob:\t%d\n", c.LastCommittedKeyBob) +
 		fmt.Sprintf("RevocationHash:\t\t%x\n", c.RevocationHash) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +

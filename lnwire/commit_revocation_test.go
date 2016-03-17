@@ -7,14 +7,15 @@ import (
 var (
 	// Need to to do this here
 	_ = copy(revocationHash[:], revocationHashBytes)
+	_ = copy(nextHop[:], nextHopBytes)
 
 	commitRevocation = &CommitRevocation{
-		ChannelID:        uint64(12345678),
-		CommitmentHeight: uint64(12345),
-		RevocationProof:  revocationHash, // technically it's not a hash... fix later
+		ChannelID:          uint64(12345678),
+		RevocationProof:    revocationHash, // technically it's not a hash... fix later
+		NextRevocationHash: nextHop,        // technically it's not a hash... fix later
 	}
-	commitRevocationSerializedString  = "0000000000bc614e00000000000030394132b6b48371f7b022a16eacb9b2b0ebee134d41"
-	commitRevocationSerializedMessage = "0709110b000007da000000240000000000bc614e00000000000030394132b6b48371f7b022a16eacb9b2b0ebee134d41"
+	commitRevocationSerializedString  = "0000000000bc614e4132b6b48371f7b022a16eacb9b2b0ebee134d4194a9ded5a30fc5944cb1e2cbcd980f30616a1440"
+	commitRevocationSerializedMessage = "0709110b000007da000000300000000000bc614e4132b6b48371f7b022a16eacb9b2b0ebee134d4194a9ded5a30fc5944cb1e2cbcd980f30616a1440"
 )
 
 func TestCommitRevocationEncodeDecode(t *testing.T) {

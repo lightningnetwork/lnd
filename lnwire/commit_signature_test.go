@@ -12,8 +12,8 @@ var (
 	commitSignature = &CommitSignature{
 		ChannelID:             uint64(12345678),
 		CommitmentHeight:      uint64(12345),
-		LastCommittedKeyAlice: uint64(12345),
-		LastCommittedKeyBob:   uint64(54321),
+		LastCommittedKeyAlice: HTLCKey(12345),
+		LastCommittedKeyBob:   HTLCKey(54321),
 		RevocationHash:        revocationHash,
 		Fee:                   btcutil.Amount(10000),
 		CommitSig:             commitSig,

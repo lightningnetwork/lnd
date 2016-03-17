@@ -11,16 +11,11 @@ type CommitRevocation struct {
 	// We can use a different data type for this if necessary...
 	ChannelID uint64
 
-	// Height of the commitment
-	// You should have the most recent commitment height stored locally
-	// This should be validated!
-	// This is used for shachain.
-	// Each party increments their own CommitmentHeight, they can differ for
-	// each part of the Commitment.
-	CommitmentHeight uint64
-
 	// Revocation to use
 	RevocationProof [20]byte
+
+	//Next revocation to use
+	NextRevocationHash [20]byte
 }
 
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
@@ -29,8 +24,8 @@ func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 	// RevocationProof(20)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.CommitmentHeight,
 		&c.RevocationProof,
+		&c.NextRevocationHash,
 	)
 	if err != nil {
 		return err
@@ -49,8 +44,8 @@ func NewCommitRevocation() *CommitRevocation {
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.CommitmentHeight,
 		c.RevocationProof,
+		c.NextRevocationHash,
 	)
 	if err != nil {
 		return err
@@ -64,7 +59,7 @@ func (c *CommitRevocation) Command() uint32 {
 }
 
 func (c *CommitRevocation) MaxPayloadLength(uint32) uint32 {
-	return 36
+	return 48
 }
 
 // Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
@@ -76,7 +71,7 @@ func (c *CommitRevocation) Validate() error {
 func (c *CommitRevocation) String() string {
 	return fmt.Sprintf("\n--- Begin CommitRevocation ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("CommitmentHeight:\t%d\n", c.CommitmentHeight) +
 		fmt.Sprintf("RevocationProof:\t%x\n", c.RevocationProof) +
+		fmt.Sprintf("NextRevocationHash:\t%x\n", c.NextRevocationHash) +
 		fmt.Sprintf("--- End CommitRevocation ---\n")
 }

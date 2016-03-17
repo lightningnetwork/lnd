@@ -9,20 +9,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
-//  message type identifyer bytes
-const (
-	MSGID_FUNDREQUEST  = 0x30
-	MSGID_FUNDRESPONSE = 0x31
-
-	MSGID_CLOSEREQUEST  = 0x40
-	MSGID_CLOSERESPONSE = 0x41
-
-	MSGID_TEXTCHAT = 0x70
-
-	MSGID_FWDMSG     = 0x20
-	MSGID_FWDAUTHREQ = 0x21
-)
-
 // 4-byte network + 4-byte message id + payload-length 4-byte
 const MessageHeaderSize = 12
 

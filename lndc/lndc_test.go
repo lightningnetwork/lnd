@@ -30,7 +30,7 @@ func TestConnectionCorrectness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create listener: %v", err)
 	}
-	conn := NewConn(remotePriv, nil)
+	conn := NewConn(nil)
 
 	var wg sync.WaitGroup
 	var dialErr error
@@ -39,7 +39,7 @@ func TestConnectionCorrectness(t *testing.T) {
 	// main one. If both errors are nil, then encryption+auth was succesful.
 	wg.Add(1)
 	go func() {
-		dialErr = conn.Dial(listener.Addr().String(),
+		dialErr = conn.Dial(remotePriv, listener.Addr().String(),
 			localPriv.PubKey().SerializeCompressed())
 		wg.Done()
 	}()

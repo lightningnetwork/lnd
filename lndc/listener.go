@@ -40,7 +40,7 @@ func NewListener(localPriv *btcec.PrivateKey, listenAddr string) (*Listener, err
 func (l *Listener) Accept() (c net.Conn, err error) {
 	conn, err := l.tcp.Accept()
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
 	lndc := NewConn(conn)

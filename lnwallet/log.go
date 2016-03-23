@@ -1,10 +1,11 @@
-package channeldb
+package lnwallet
 
 import (
 	"errors"
 	"io"
 
 	"github.com/btcsuite/btclog"
+	btcwallet "github.com/btcsuite/btcwallet/wallet"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -28,6 +29,7 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	btcwallet.UseLogger(logger)
 }
 
 // SetLogWriter uses a specified io.Writer to output package logging info.

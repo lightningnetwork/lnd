@@ -1,4 +1,4 @@
-package channeldb
+package chainntnfs
 
 import (
 	"errors"

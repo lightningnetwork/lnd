@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -24,7 +23,6 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwallet "github.com/btcsuite/btcwallet/wallet"
-	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 const (
@@ -197,8 +195,7 @@ type LightningWallet struct {
 	// A wrapper around a namespace within boltdb reserved for ln-based
 	// wallet meta-data. See the 'channeldb' package for further
 	// information.
-	ChannelDB *channeldb.DB
-	db        walletdb.DB
+	channelDB *channeldb.DB
 
 	// Used by in order to obtain notifications about funding transaction
 	// reaching a specified confirmation depth, and to catch
@@ -248,7 +245,7 @@ type LightningWallet struct {
 // If the wallet has never been created (according to the passed dataDir), first-time
 // setup is executed.
 // TODO(roasbeef): fin...add config
-func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
+func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(config.DataDir, config.NetParams)
 
@@ -259,15 +256,10 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		pubPass = config.PublicPass
 	}
 
-	var walletDB walletdb.DB
 	loader := btcwallet.NewLoader(config.NetParams, netDir)
-	loader.RunAfterLoad(func(w *btcwallet.Wallet, db walletdb.DB) {
-		walletDB = db
-	})
-
 	walletExists, err := loader.WalletExists()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var createID bool
@@ -277,7 +269,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		wallet, err = loader.CreateNewWallet(pubPass, config.PrivatePass,
 			config.HdSeed)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		createID = true
@@ -286,21 +278,12 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		// along with all the required DB namepsaces, and the DB itself.
 		wallet, err = loader.OpenExistingWallet(pubPass, false)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 
-	// Create a special namespace for our unique payment channel related
-	// meta-data. Subsequently initializing the channeldb around the
-	// created namespace.
-	lnNamespace, err := walletDB.Namespace(lightningNamespaceKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	cdb := channeldb.New(wallet.Manager, lnNamespace)
-
 	if err := wallet.Manager.Unlock(config.PrivatePass); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// If we just created the wallet, then reserve, and store a key for
@@ -308,14 +291,14 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	if createID {
 		adrs, err := wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		idPubkeyHash := adrs[0].Address().ScriptAddress()
 		if err := cdb.PutIdKey(idPubkeyHash); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		log.Printf("stored identity key pubkey hash in channeldb\n")
+		log.Infof("stored identity key pubkey hash in channeldb")
 	}
 
 	// Create a special websockets rpc client for btcd which will be used
@@ -323,7 +306,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	rpcc, err := chain.NewRPCClient(config.NetParams, config.RpcHost,
 		config.RpcUser, config.RpcPass, config.CACert, false, 20)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Using the same authentication info, create a config for a second
@@ -341,16 +324,15 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 	}
 	chainNotifier, err := btcdnotify.NewBtcdNotifier(rpcConfig)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// TODO(roasbeef): logging
 	return &LightningWallet{
-		db:            walletDB,
 		chainNotifier: chainNotifier,
 		rpc:           rpcc,
 		Wallet:        wallet,
-		ChannelDB:     cdb,
+		channelDB:     cdb,
 		msgChan:       make(chan interface{}, msgBufferSize),
 		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
 		// faster, locks or CAS? I'm guessing CAS because assembly:
@@ -359,7 +341,7 @@ func NewLightningWallet(config *Config) (*LightningWallet, walletdb.DB, error) {
 		cfg:           config,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
-	}, walletDB, nil
+	}, nil
 }
 
 // Startup establishes a connection to the RPC source, and spins up all
@@ -781,8 +763,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		_, addrs, _, _ := txscript.ExtractPkScriptAddrs(prevOut.PkScript, l.cfg.NetParams)
 		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
 		if !ok {
-			req.err <- btcwallet.ErrUnsupportedTransactionType
-			return
+			req.err <- fmt.Errorf("only p2pkh wallet outputs are supported")
 		}
 
 		ai, err := l.Manager.Address(apkh)
@@ -998,7 +979,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	err = l.ChannelDB.PutOpenChannel(pendingReservation.partialState)
+	err = l.channelDB.PutOpenChannel(pendingReservation.partialState)
 
 	// Create a goroutine to watch the chain so we can open the channel once
 	// the funding tx has enough confirmations.
@@ -1030,7 +1011,7 @@ out:
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := newLightningChannel(l, l.chainNotifier, l.ChannelDB,
+	channel, _ := newLightningChannel(l, l.chainNotifier, l.channelDB,
 		res.partialState)
 	res.chanOpen <- channel
 }

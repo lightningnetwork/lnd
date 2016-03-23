@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/lndc"
@@ -58,12 +60,22 @@ func (r *rpcServer) Stop() error {
 // SendMany...
 func (r *rpcServer) SendMany(ctx context.Context, in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
-	sendMap := make(map[string]btcutil.Amount)
+	outputs := make([]*wire.TxOut, 0, len(in.AddrToAmount))
 	for addr, amt := range in.AddrToAmount {
-		sendMap[addr] = btcutil.Amount(amt)
+		addr, err := btcutil.DecodeAddress(addr, activeNetParams)
+		if err != nil {
+			return nil, err
+		}
+
+		pkscript, err := txscript.PayToAddrScript(addr)
+		if err != nil {
+			return nil, err
+		}
+
+		outputs = append(outputs, wire.NewTxOut(amt, pkscript))
 	}
 
-	txid, err := r.server.lnwallet.SendPairs(sendMap, defaultAccount, 1)
+	txid, err := r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
 	if err != nil {
 		return nil, err
 	}

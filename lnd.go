@@ -2,29 +2,47 @@ package main
 
 import (
 	"fmt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
+	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/grpclog"
+
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
+var (
+	cfg             *config
+	shutdownChannel = make(chan struct{})
+)
+
 func main() {
+	// Use all processor cores.
+	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	// Load the configuration, and parse any command line options. This
+	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
-
 	if err != nil {
 		fmt.Printf("unable to load config: %v\n", err)
 		os.Exit(1)
 	}
+	cfg = loadedConfig
+	defer backendLog.Flush()
+
+	// Show version at startup.
+	ltndLog.Infof("Version %s", version())
 
 	if loadedConfig.SPVMode == true {
-		shell(loadedConfig.SPVHostAdr, loadedConfig.NetParams)
+		shell(loadedConfig.SPVHostAdr, activeNetParams)
 		return
 	}
 
@@ -36,44 +54,67 @@ func main() {
 		fmt.Println(http.ListenAndServe(listenAddr, nil))
 	}()
 
+	// Open the channeldb, which is dedicated to storing channel, and
+	// network related meta-data.
+	chanDB, err := channeldb.New(loadedConfig.DataDir, nil)
+	if err != nil {
+		fmt.Println("unable to open channeldb: ", err)
+		os.Exit(1)
+	}
+	defer chanDB.Close()
+
+	// Read btcd's for lnwallet's convenience.
+	f, err := os.Open(loadedConfig.RPCCert)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	cert, err := ioutil.ReadAll(f)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
 	// Create, and start the lnwallet, which handles the core payment channel
 	// logic, and exposes control via proxy state machines.
-	// TODO(roasbeef): accept config via cli flags, move to real config file
-	// afterwards
 	config := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
-		DataDir:     loadedConfig.DataDir,
-		RpcHost:     loadedConfig.BTCDHost,
-		RpcUser:     loadedConfig.BTCDUser,
-		RpcPass:     loadedConfig.BTCDPass,
-		RpcNoTLS:    loadedConfig.BTCDNoTLS,
-		CACert:      loadedConfig.BTCDCACert,
-		NetParams:   loadedConfig.NetParams,
+		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
+		RpcHost:     loadedConfig.RPCHost,
+		RpcUser:     loadedConfig.RPCUser,
+		RpcPass:     loadedConfig.RPCPass,
+		CACert:      cert,
+		NetParams:   activeNetParams,
 	}
-	lnwallet, db, err := lnwallet.NewLightningWallet(config)
+	lnwallet, err := lnwallet.NewLightningWallet(config, chanDB)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		os.Exit(1)
 	}
-
 	if err := lnwallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		os.Exit(1)
 	}
-
-	fmt.Println("wallet open")
-	defer db.Close()
+	ltndLog.Info("LightningWallet opened")
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
-	defaultListenAddr := []string{net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort))}
-	server, err := newServer(defaultListenAddr, loadedConfig.NetParams,
-		lnwallet)
+	defaultListenAddrs := []string{
+		net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort)),
+	}
+	server, err := newServer(defaultListenAddrs, lnwallet, chanDB)
 	if err != nil {
 		fmt.Printf("unable to create server: %v\n", err)
 		os.Exit(1)
 	}
 	server.Start()
+
+	addInterruptHandler(func() {
+		ltndLog.Infof("Gracefully shutting down the server...")
+		server.Stop()
+		server.WaitForShutdown()
+	})
 
 	// Initialize, and register our implementation of the gRPC server.
 	var opts []grpc.ServerOption
@@ -87,5 +128,13 @@ func main() {
 		fmt.Printf("failed to listen: %v", err)
 		os.Exit(1)
 	}
-	grpcServer.Serve(lis)
+	go func() {
+		rpcsLog.Infof("RPC server listening on %s", lis.Addr())
+		grpcServer.Serve(lis)
+	}()
+
+	// Wait for shutdown signal from either a graceful server stop or from
+	// the interrupt handler.
+	<-shutdownChannel
+	ltndLog.Info("Shutdown complete")
 }

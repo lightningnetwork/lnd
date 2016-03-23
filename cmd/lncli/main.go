@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
@@ -9,10 +8,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 
 	"google.golang.org/grpc"
-)
-
-var (
-	serverAddr = flag.String("rpcserver", "localhost:10000", "The server address in the format of host:port")
 )
 
 func fatal(err error) {
@@ -48,7 +43,7 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
-			Value: "localhost:10000",
+			Value: "localhost:10009",
 			Usage: "host:port of ln daemon",
 		},
 	}

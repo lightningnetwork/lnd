@@ -94,6 +94,7 @@ func (r *rpcServer) NewAddress(ctx context.Context, in *lnrpc.NewAddressRequest)
 		return nil, err
 	}
 
+	rpcsLog.Infof("Generated new address: %v", addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
@@ -114,5 +115,6 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, err
 	}
 
+	rpcsLog.Infof("Connected to peer: %v", peerAddr.String())
 	return &lnrpc.ConnectPeerResponse{[]byte(peerAddr.String())}, nil
 }

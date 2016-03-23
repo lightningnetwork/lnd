@@ -8,12 +8,11 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 // server...
@@ -22,14 +21,13 @@ type server struct {
 	shutdown int32 // atomic
 
 	longTermPriv *btcec.PrivateKey
-	bitcoinNet   *chaincfg.Params
 
 	listeners []net.Listener
 	peers     map[int32]*peer
 
 	rpcServer *rpcServer
 	lnwallet  *lnwallet.LightningWallet
-	db        walletdb.DB
+	chanDB    *channeldb.DB
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -40,9 +38,10 @@ type server struct {
 }
 
 // newServer...
-func newServer(listenAddrs []string, bitcoinNet *chaincfg.Params,
-	wallet *lnwallet.LightningWallet) (*server, error) {
-	privKey, err := getIdentityPrivKey(wallet)
+func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
+	chanDB *channeldb.DB) (*server, error) {
+
+	privKey, err := getIdentityPrivKey(chanDB, wallet)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +55,7 @@ func newServer(listenAddrs []string, bitcoinNet *chaincfg.Params,
 	}
 
 	s := &server{
+		chanDB:       chanDB,
 		longTermPriv: privKey,
 		listeners:    listeners,
 		peers:        make(map[int32]*peer),
@@ -194,14 +194,15 @@ func (s *server) AddPeer(p *peer) {
 
 // listener...
 func (s *server) listener(l net.Listener) {
+	srvrLog.Infof("Server listening on %s", l.Addr())
 	for atomic.LoadInt32(&s.shutdown) == 0 {
 		conn, err := l.Accept()
 		if err != nil {
-			// TODO(roasbeef): log
-			fmt.Println("err: ", err)
+			srvrLog.Errorf("Can't accept connection: %v", err)
 			continue
 		}
 
+		srvrLog.Tracef("New inbound connection from %v", conn.RemoteAddr())
 		peer := newPeer(conn, s)
 		peer.Start()
 	}
@@ -250,21 +251,26 @@ func (s *server) Stop() error {
 }
 
 // getIdentityPrivKey gets the identity private key out of the wallet DB.
-func getIdentityPrivKey(l *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
-	adr, err := l.ChannelDB.GetIdAdr()
+func getIdentityPrivKey(c *channeldb.DB, w *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
+	adr, err := c.GetIdAdr()
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("got ID address: %s\n", adr.String())
-	adr2, err := l.Manager.Address(adr)
+	ltndLog.Infof("got ID address: %s", adr.String())
+	adr2, err := w.Manager.Address(adr)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("pubkey: %v", hex.EncodeToString(adr2.(waddrmgr.ManagedPubKeyAddress).PubKey().SerializeCompressed()))
+	ltndLog.Infof("pubkey: %v", hex.EncodeToString(adr2.(waddrmgr.ManagedPubKeyAddress).PubKey().SerializeCompressed()))
 	priv, err := adr2.(waddrmgr.ManagedPubKeyAddress).PrivKey()
 	if err != nil {
 		return nil, err
 	}
 
 	return priv, nil
+}
+
+// WaitForShutdown blocks all goroutines have been stopped.
+func (s *server) WaitForShutdown() {
+	s.wg.Wait()
 }

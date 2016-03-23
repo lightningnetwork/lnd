@@ -7,12 +7,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -97,65 +97,35 @@ type OpenChannel struct {
 	CreationTime          time.Time
 }
 
-// These don't really belong here but not sure which other file to put them yet.
-// PutIdKey saves the private key used for
-func (c *DB) PutIdKey(pkh []byte) error {
-	return c.namespace.Update(func(tx walletdb.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
-		// channels.
-		rootBucket := tx.RootBucket()
-		return rootBucket.Put(identityKey, pkh)
-	})
-}
-
-// GetIdKey returns the IdKey
-func (c *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
-	var pkh []byte
-	err := c.namespace.View(func(tx walletdb.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
-		// channels.
-		rootBucket := tx.RootBucket()
-		pkh = rootBucket.Get(identityKey)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("identity key has length %d\n", len(pkh))
-	return btcutil.NewAddressPubKeyHash(pkh, ActiveNetParams)
-}
-
 // PutOpenChannel...
-func (c *DB) PutOpenChannel(channel *OpenChannel) error {
-	return c.namespace.Update(func(tx walletdb.Tx) error {
+func (d *DB) PutOpenChannel(channel *OpenChannel) error {
+	return d.db.Update(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
-		rootBucket := tx.RootBucket()
-		openChanBucket, err := rootBucket.CreateBucketIfNotExists(openChannelBucket)
+		openChanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
 		if err != nil {
 			return err
 		}
 
-		return putOpenChannel(openChanBucket, channel, c.addrmgr)
+		return putOpenChannel(openChanBucket, channel, d.addrmgr)
 	})
 }
 
 // GetOpenChannel...
 // TODO(roasbeef): assumes only 1 active channel per-node
-func (c *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
+func (d *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
 	var channel *OpenChannel
 
-	err := c.namespace.View(func(tx walletdb.Tx) error {
+	err := d.db.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
-		rootBucket := tx.RootBucket()
-		openChanBucket := rootBucket.Bucket(openChannelBucket)
+		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChannelBucket == nil {
 			return fmt.Errorf("open channel bucket does not exist")
 		}
 
 		oChannel, err := fetchOpenChannel(openChanBucket, nodeID,
-			c.addrmgr)
+			d.addrmgr)
 		if err != nil {
 			return err
 		}
@@ -167,7 +137,7 @@ func (c *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
 }
 
 // putChannel...
-func putOpenChannel(activeChanBucket walletdb.Bucket, channel *OpenChannel,
+func putOpenChannel(activeChanBucket *bolt.Bucket, channel *OpenChannel,
 	addrmgr *waddrmgr.Manager) error {
 
 	// Generate a serialized version of the open channel. The addrmgr is
@@ -188,7 +158,7 @@ func putOpenChannel(activeChanBucket walletdb.Bucket, channel *OpenChannel,
 }
 
 // fetchOpenChannel
-func fetchOpenChannel(bucket walletdb.Bucket, nodeID [32]byte,
+func fetchOpenChannel(bucket *bolt.Bucket, nodeID [32]byte,
 	addrmgr *waddrmgr.Manager) (*OpenChannel, error) {
 
 	// Grab the bucket dedicated to storing data related to this particular

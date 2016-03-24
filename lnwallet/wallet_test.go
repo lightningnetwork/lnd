@@ -297,7 +297,7 @@ func createTestWallet(miningNode *rpctest.Harness, netParams *chaincfg.Params) (
 		return "", nil, err
 	}
 
-	cdb.RegisterCryptoSystem(&waddrmgrEncryptorDecryptor{wallet.Manager})
+	cdb.RegisterCryptoSystem(&WaddrmgrEncryptorDecryptor{wallet.Manager})
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
 	if err := loadTestCredits(miningNode, wallet, 5, 4); err != nil {

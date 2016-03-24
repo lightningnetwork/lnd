@@ -1060,18 +1060,18 @@ func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	return pkAddr.PrivKey()
 }
 
-type waddrmgrEncryptorDecryptor struct {
-	m *waddrmgr.Manager
+type WaddrmgrEncryptorDecryptor struct {
+	M *waddrmgr.Manager
 }
 
-func (w *waddrmgrEncryptorDecryptor) Encrypt(p []byte) ([]byte, error) {
-	return w.m.Encrypt(waddrmgr.CKTPrivate, p)
+func (w *WaddrmgrEncryptorDecryptor) Encrypt(p []byte) ([]byte, error) {
+	return w.M.Encrypt(waddrmgr.CKTPrivate, p)
 }
 
-func (w *waddrmgrEncryptorDecryptor) Decrypt(c []byte) ([]byte, error) {
-	return w.m.Decrypt(waddrmgr.CKTPrivate, c)
+func (w *WaddrmgrEncryptorDecryptor) Decrypt(c []byte) ([]byte, error) {
+	return w.M.Decrypt(waddrmgr.CKTPrivate, c)
 }
 
-func (w *waddrmgrEncryptorDecryptor) OverheadSize() uint32 {
+func (w *WaddrmgrEncryptorDecryptor) OverheadSize() uint32 {
 	return 24
 }

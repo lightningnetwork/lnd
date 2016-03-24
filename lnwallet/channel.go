@@ -129,8 +129,8 @@ func (c *ChannelUpdate) RevocationHash() ([]byte, error) {
 	c.lnChannel.stateMtx.RLock()
 	defer c.lnChannel.stateMtx.RUnlock()
 
-	shachain := c.lnChannel.channelState.OurShaChain
-	nextPreimage, err := shachain.GetHash(c.pendingUpdateNum)
+	e := c.lnChannel.channelState.LocalElkrem
+	nextPreimage, err := e.AtIndex(c.pendingUpdateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +167,8 @@ func (c *ChannelUpdate) PreviousRevocationPreImage() ([]byte, error) {
 
 	// Retrieve the pre-image to the revocation hash our current commitment
 	// transaction.
-	shachain := c.lnChannel.channelState.OurShaChain
-	revokePreImage, err := shachain.GetHash(c.currentUpdateNum)
+	e := c.lnChannel.channelState.LocalElkrem
+	revokePreImage, err := e.AtIndex(c.currentUpdateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -216,12 +216,12 @@ func (c *ChannelUpdate) Commit(pastRevokePreimage []byte) error {
 	defer c.lnChannel.stateMtx.Unlock()
 
 	// First, ensure that the pre-image properly links into the shachain.
-	theirShaChain := c.lnChannel.channelState.TheirShaChain
-	var preImage [32]byte
-	copy(preImage[:], pastRevokePreimage)
-	if err := theirShaChain.AddNextHash(preImage); err != nil {
-		return err
-	}
+	//theirShaChain := c.lnChannel.channelState.TheirShaChain
+	//var preImage [32]byte
+	//copy(preImage[:], pastRevokePreimage)
+	//if err := theirShaChain.AddNextHash(preImage); err != nil {
+	//	return err
+	//}
 
 	channelState := c.lnChannel.channelState
 
@@ -297,7 +297,7 @@ func (lc *LightningChannel) AddHTLC(timeout uint32, value btcutil.Amount,
 	// channel as a result.
 	chanUpdate.currentUpdateNum = lc.channelState.NumUpdates
 	chanUpdate.pendingUpdateNum = lc.channelState.NumUpdates + 1
-	nextPreimage, err := lc.channelState.OurShaChain.GetHash(chanUpdate.pendingUpdateNum)
+	nextPreimage, err := lc.channelState.LocalElkrem.AtIndex(chanUpdate.pendingUpdateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +375,7 @@ func (lc *LightningChannel) addHTLC(ourCommitTx, theirCommitTx *wire.MsgTx,
 	// sender and the receiver.
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
-	delay := lc.channelState.CsvDelay
+	delay := lc.channelState.LocalCsvDelay
 	senderPKScript, err := senderHTLCScript(timeout, delay, senderKey,
 		receiverKey, senderRevocation[:], rHash[:])
 	if err != nil {
@@ -441,7 +441,7 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 	// channel as a result.
 	chanUpdate.currentUpdateNum = lc.channelState.NumUpdates
 	chanUpdate.pendingUpdateNum = lc.channelState.NumUpdates + 1
-	nextPreimage, err := lc.channelState.OurShaChain.GetHash(chanUpdate.pendingUpdateNum)
+	nextPreimage, err := lc.channelState.LocalElkrem.AtIndex(chanUpdate.pendingUpdateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +499,7 @@ func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChanne
 
 	ourNewCommitTx, err := createCommitTx(fundingTxIn,
 		state.OurCommitKey.PubKey(), state.TheirCommitKey,
-		chanUpdate.pendingDesc.OurRevocation[:], state.CsvDelay,
+		chanUpdate.pendingDesc.OurRevocation[:], state.LocalCsvDelay,
 		amountToUs, amountToThem)
 	if err != nil {
 		return nil, nil, err
@@ -507,7 +507,7 @@ func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChanne
 
 	theirNewCommitTx, err := createCommitTx(fundingTxIn,
 		state.TheirCommitKey, state.OurCommitKey.PubKey(),
-		chanUpdate.pendingDesc.TheirRevocation[:], state.CsvDelay,
+		chanUpdate.pendingDesc.TheirRevocation[:], state.RemoteCsvDelay,
 		amountToThem, amountToUs)
 	if err != nil {
 		return nil, nil, err

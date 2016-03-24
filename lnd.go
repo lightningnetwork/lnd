@@ -56,7 +56,7 @@ func main() {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.New(loadedConfig.DataDir, nil)
+	chanDB, err := channeldb.Open(loadedConfig.DataDir)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
 		os.Exit(1)
@@ -87,25 +87,28 @@ func main() {
 		CACert:      cert,
 		NetParams:   activeNetParams,
 	}
-	lnwallet, err := lnwallet.NewLightningWallet(config, chanDB)
+	wallet, err := lnwallet.NewLightningWallet(config, chanDB)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		os.Exit(1)
 	}
-	if err := lnwallet.Startup(); err != nil {
+	if err := wallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		os.Exit(1)
 	}
 	ltndLog.Info("LightningWallet opened")
+
+	ec := &lnwallet.WaddrmgrEncryptorDecryptor{wallet.Manager}
+	chanDB.RegisterCryptoSystem(ec)
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	defaultListenAddrs := []string{
 		net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort)),
 	}
-	server, err := newServer(defaultListenAddrs, lnwallet, chanDB)
+	server, err := newServer(defaultListenAddrs, wallet, chanDB)
 	if err != nil {
-		fmt.Printf("unable to create server: %v\n", err)
+		srvrLog.Errorf("unable to create server: %v\n", err)
 		os.Exit(1)
 	}
 	server.Start()

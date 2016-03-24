@@ -2,19 +2,16 @@ package channeldb
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/LightningNetwork/lnd/elkrem"
+	"github.com/Roasbeef/btcd/txscript"
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
@@ -70,61 +67,40 @@ var (
 	}
 )
 
-// createDbNamespace creates a new wallet database at the provided path and
-// returns it along with the address manager namespace.
-func createDbNamespace(dbPath string) (walletdb.DB, walletdb.Namespace, error) {
-	db, err := walletdb.Create("bdb", dbPath)
-	if err != nil {
-		fmt.Println("fuk")
-		return nil, nil, err
-	}
-
-	namespace, err := db.Namespace([]byte("waddr"))
-	if err != nil {
-		db.Close()
-		return nil, nil, err
-	}
-
-	return db, namespace, nil
+type MockEncryptorDecryptor struct {
 }
 
-// setupManager creates a new address manager and returns a teardown function
-// that should be invoked to ensure it is closed and removed upon completion.
-func createTestManager(t *testing.T) (tearDownFunc func(), mgr *waddrmgr.Manager) {
-	t.Parallel()
-
-	// Create a new manager in a temp directory.
-	dirName, err := ioutil.TempDir("", "mgrtest")
-	if err != nil {
-		t.Fatalf("Failed to create db temp dir: %v", err)
-	}
-	dbPath := filepath.Join(dirName, "mgrtest.db")
-	db, namespace, err := createDbNamespace(dbPath)
-	if err != nil {
-		_ = os.RemoveAll(dirName)
-		t.Fatalf("createDbNamespace: unexpected error: %v", err)
-	}
-	mgr, err = waddrmgr.Create(namespace, key[:], []byte("test"),
-		[]byte("test"), ActiveNetParams, nil)
-	if err != nil {
-		db.Close()
-		_ = os.RemoveAll(dirName)
-		t.Fatalf("Failed to create Manager: %v", err)
-	}
-	tearDownFunc = func() {
-		mgr.Close()
-		db.Close()
-		_ = os.RemoveAll(dirName)
-	}
-	if err := mgr.Unlock([]byte("test")); err != nil {
-		t.Fatalf("unable to unlock mgr: %v", err)
-	}
-	return tearDownFunc, mgr
+func (m *MockEncryptorDecryptor) Encrypt(n []byte) ([]byte, error) {
+	return n, nil
 }
+
+func (m *MockEncryptorDecryptor) Decrypt(n []byte) ([]byte, error) {
+	return n, nil
+}
+
+func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
+	return 0
+}
+
+var _ EncryptorDecryptor = (*MockEncryptorDecryptor)(nil)
 
 func TestOpenChannelEncodeDecode(t *testing.T) {
-	teardown, manager := createTestManager(t)
-	defer teardown()
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v")
+	}
+	defer os.RemoveAll(tempDirName)
+
+	// Next, create channeldb for the first time, also setting a mock
+	// EncryptorDecryptor implementation for testing purposes.
+	cdb, err := Create(tempDirName)
+	if err != nil {
+		t.Fatalf("unable to create channeldb: %v", err)
+	}
+	cdb.RegisterCryptoSystem(&MockEncryptorDecryptor{})
+	defer cdb.Close()
 
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	addr, err := btcutil.NewAddressPubKey(pubKey.SerializeCompressed(), ActiveNetParams)
@@ -137,6 +113,21 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to create redeemScript")
 	}
 
+	// Simulate 1000 channel updates via progression of the elkrem
+	// revocation trees.
+	sender := elkrem.NewElkremSender(32, key)
+	receiver := elkrem.NewElkremReceiver(32)
+	for i := 0; i < 1000; i++ {
+		preImage, err := sender.AtIndex(uint64(i))
+		if err != nil {
+			t.Fatalf("unable to progress elkrem sender: %v", err)
+		}
+
+		if receiver.AddNext(preImage); err != nil {
+			t.Fatalf("unable to progress elkrem receiver: %v", err)
+		}
+	}
+
 	state := OpenChannel{
 		TheirLNID:              id,
 		ChanID:                 id,
@@ -145,31 +136,34 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		TheirCommitKey:         pubKey,
 		Capacity:               btcutil.Amount(10000),
 		OurBalance:             btcutil.Amount(3000),
-		TheirBalance:           btcutil.Amount(7000),
+		TheirBalance:           btcutil.Amount(9000),
 		TheirCommitTx:          testTx,
 		OurCommitTx:            testTx,
+		LocalElkrem:            &sender,
+		RemoteElkrem:           &receiver,
 		FundingTx:              testTx,
 		MultiSigKey:            privKey,
 		FundingRedeemScript:    script,
 		TheirCurrentRevocation: rev,
-		OurDeliveryAddress:     addr,
-		TheirDeliveryAddress:   addr,
-		CsvDelay:               5,
+		OurDeliveryScript:      script,
+		TheirDeliveryScript:    script,
+		LocalCsvDelay:          5,
+		RemoteCsvDelay:         9,
 		NumUpdates:             1,
-		TotalSatoshisSent:      1,
+		TotalSatoshisSent:      8,
 		TotalSatoshisReceived:  2,
+		TotalNetFees:           9,
 		CreationTime:           time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
+		db:                     cdb,
 	}
 
-	var b bytes.Buffer
-	if err := state.Encode(&b, manager); err != nil {
-		t.Fatalf("unable to encode channel state: %v", err)
+	if err := state.FullSync(); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
-	reader := bytes.NewReader(b.Bytes())
-	newState := &OpenChannel{}
-	if err := newState.Decode(reader, manager); err != nil {
-		t.Fatalf("unable to decode channel state: %v", err)
+	newState, err := cdb.FetchOpenChannel(id)
+	if err != nil {
+		t.Fatalf("unable to fetch open channel: %v", err)
 	}
 
 	// The decoded channel state should be identical to what we stored
@@ -194,7 +188,8 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	}
 
 	if state.Capacity != newState.Capacity {
-		t.Fatalf("capacity doesn't match")
+		t.Fatalf("capacity doesn't match: %v vs %v", state.Capacity,
+			newState.Capacity)
 	}
 	if state.OurBalance != newState.OurBalance {
 		t.Fatalf("our balance doesn't match")
@@ -248,10 +243,10 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		t.Fatalf("redeem script doesn't match")
 	}
 
-	if state.OurDeliveryAddress.EncodeAddress() != newState.OurDeliveryAddress.EncodeAddress() {
+	if !bytes.Equal(state.OurDeliveryScript, newState.OurDeliveryScript) {
 		t.Fatalf("our delivery address doesn't match")
 	}
-	if state.TheirDeliveryAddress.EncodeAddress() != newState.TheirDeliveryAddress.EncodeAddress() {
+	if !bytes.Equal(state.TheirDeliveryScript, newState.TheirDeliveryScript) {
 		t.Fatalf("their delivery address doesn't match")
 	}
 
@@ -259,9 +254,13 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		t.Fatalf("num updates doesn't match: %v vs %v",
 			state.NumUpdates, newState.NumUpdates)
 	}
-	if state.CsvDelay != newState.CsvDelay {
+	if state.RemoteCsvDelay != newState.RemoteCsvDelay {
 		t.Fatalf("csv delay doesn't match: %v vs %v",
-			state.CsvDelay, newState.CsvDelay)
+			state.RemoteCsvDelay, newState.RemoteCsvDelay)
+	}
+	if state.LocalCsvDelay != newState.LocalCsvDelay {
+		t.Fatalf("csv delay doesn't match: %v vs %v",
+			state.LocalCsvDelay, newState.LocalCsvDelay)
 	}
 	if state.TotalSatoshisSent != newState.TotalSatoshisSent {
 		t.Fatalf("satoshis sent doesn't match: %v vs %v",

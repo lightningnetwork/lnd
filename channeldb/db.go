@@ -132,3 +132,24 @@ func fileExists(path string) bool {
 	return true
 }
 
+// FetchOpenChannel...
+func (d *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
+	var channel *OpenChannel
+	err := d.store.View(func(tx *bolt.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChannelBucket == nil {
+			return fmt.Errorf("open channel bucket does not exist")
+		}
+
+		oChannel, err := fetchOpenChannel(openChanBucket, nodeID, d.cryptoSystem)
+		if err != nil {
+			return err
+		}
+		channel = oChannel
+		return nil
+	})
+
+	return channel, err
+}

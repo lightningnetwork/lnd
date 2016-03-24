@@ -6,17 +6,19 @@ import (
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/boltdb/bolt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 )
 
 var (
-	idBucket = []byte("i")
+	idBucket        = []byte("i")
+	ActiveNetParams = &chaincfg.TestNet3Params
 )
 
 // PutIdKey saves the hash160 of the public key used for our identity within
 // the Lightning Network.
 func (d *DB) PutIdKey(pkh []byte) error {
-	return d.db.Update(func(tx *bolt.Tx) error {
+	return d.store.Update(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		bucket, err := tx.CreateBucketIfNotExists(idBucket)
@@ -32,7 +34,7 @@ func (d *DB) PutIdKey(pkh []byte) error {
 // the Lightning Network as a p2pkh bitcoin address.
 func (d *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
 	pkh := make([]byte, ripemd160.Size)
-	err := d.db.View(func(tx *bolt.Tx) error {
+	err := d.store.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		bucket := tx.Bucket(idBucket)

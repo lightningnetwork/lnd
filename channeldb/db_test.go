@@ -3,16 +3,11 @@ package channeldb
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestOpenNotCreated(t *testing.T) {
-	if _, err := Open("path doesn't exist"); err != ErrNoExists {
-		t.Fatalf("channeldb Open should fail due to non-existant dir")
-	}
-}
-
-func TestCreateThenOpen(t *testing.T) {
+func TestOpenWithCreate(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
@@ -21,8 +16,9 @@ func TestCreateThenOpen(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDirName)
 
-	// Next, create channeldb for the first time.
-	cdb, err := Create(tempDirName)
+	// Next, open thereby creating channeldb for the first time.
+	dbPath := filepath.Join(tempDirName, "cdb")
+	cdb, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -30,9 +26,8 @@ func TestCreateThenOpen(t *testing.T) {
 		t.Fatalf("unable to close channeldb: %v", err)
 	}
 
-	// Open should now succeed as the cdb was created above.
-	cdb, err = Open(tempDirName)
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
+	// The path should have been succesfully created.
+	if !fileExists(dbPath) {
+		t.Fatalf("channeldb failed to create data directory")
 	}
 }

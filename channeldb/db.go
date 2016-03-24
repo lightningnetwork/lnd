@@ -44,22 +44,15 @@ type DB struct {
 // sensitive data encrypted by the passed EncryptorDecryptor implementation.
 // TODO(roasbeef): versioning?
 func Open(dbPath string) (*DB, error) {
-	if !fileExists(dbPath) {
-		return nil, ErrNoExists
-	}
-
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := bolt.Open(path, 0600, nil)
-	if err != nil {
-		return nil, err
+
+	if !fileExists(path) {
+		if err := createChannelDB(dbPath); err != nil {
+			return nil, err
+		}
 	}
 
-	return &DB{store: bdb}, nil
-}
-
-// Create...
-func Create(dbPath string) (*DB, error) {
-	bdb, err := createChannelDB(dbPath)
+	bdb, err := bolt.Open(path, 0600, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -86,17 +79,17 @@ func (d *DB) Close() error {
 }
 
 // createChannelDB...
-func createChannelDB(dbPath string) (*bolt.DB, error) {
+func createChannelDB(dbPath string) error {
 	if !fileExists(dbPath) {
 		if err := os.MkdirAll(dbPath, 0700); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	path := filepath.Join(dbPath, dbName)
 	bdb, err := bolt.Open(path, 0600, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	err = bdb.Update(func(tx *bolt.Tx) error {
@@ -115,10 +108,10 @@ func createChannelDB(dbPath string) (*bolt.DB, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to create new channeldb")
+		return fmt.Errorf("unable to create new channeldb")
 	}
 
-	return bdb, nil
+	return bdb.Close()
 }
 
 // fileExists...

@@ -95,7 +95,7 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 
 	// Next, create channeldb for the first time, also setting a mock
 	// EncryptorDecryptor implementation for testing purposes.
-	cdb, err := Create(tempDirName)
+	cdb, err := Open(tempDirName)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		TotalSatoshisReceived:  2,
 		TotalNetFees:           9,
 		CreationTime:           time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
-		db:                     cdb,
+		Db:                     cdb,
 	}
 
 	if err := state.FullSync(); err != nil {

@@ -149,7 +149,8 @@ type OpenChannel struct {
 	// TODO(roasbeef): scrap? already have snapshots now?
 	isPrevState bool
 
-	db *DB
+	// TODO(roasbeef): eww
+	Db *DB
 
 	sync.RWMutex
 }
@@ -201,7 +202,7 @@ func (c OpenChannel) RecordChannelDelta(theirRevokedCommit *wire.MsgTx, updateNu
 // NOTE: This method requires an active EncryptorDecryptor to be registered in
 // order to encrypt sensitive information.
 func (c *OpenChannel) FullSync() error {
-	return c.db.store.Update(func(tx *bolt.Tx) error {
+	return c.Db.store.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data related to
 		// current, active channels.
 		chanBucket := tx.Bucket(openChannelBucket)
@@ -213,7 +214,7 @@ func (c *OpenChannel) FullSync() error {
 			return err
 		}
 
-		return putOpenChannel(chanBucket, nodeChanBucket, c, c.db.cryptoSystem)
+		return putOpenChannel(chanBucket, nodeChanBucket, c, c.Db.cryptoSystem)
 	})
 }
 

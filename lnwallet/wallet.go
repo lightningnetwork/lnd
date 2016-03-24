@@ -8,10 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/LightningNetwork/lnd/elkrem"
 	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/shachain"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -477,6 +477,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.partialState.TheirLNID = req.nodeID
 	ourContribution := reservation.ourContribution
 	ourContribution.CsvDelay = req.csvDelay
+	reservation.partialState.LocalCsvDelay = req.csvDelay
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double spends
@@ -602,21 +603,30 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		req.resp <- nil
 		return
 	}
-	reservation.partialState.OurDeliveryAddress = deliveryAddress
-	ourContribution.DeliveryAddress = deliveryAddress
-
-	// Create a new shaChain for verifiable transaction revocations. This
-	// will be used to generate revocation hashes for our past/current
-	// commitment transactions once we start to make payments within the
-	// channel.
-	shaChain, err := shachain.NewFromSeed(nil, 0)
+	deliveryScript, err := txscript.PayToAddrScript(deliveryAddress)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	reservation.partialState.OurShaChain = shaChain
-	copy(ourContribution.RevocationHash[:], shaChain.CurrentRevocationHash())
+	reservation.partialState.OurDeliveryScript = deliveryScript
+	ourContribution.DeliveryAddress = deliveryAddress
+
+	// Create a new elkrem for verifiable transaction revocations. This
+	// will be used to generate revocation hashes for our past/current
+	// commitment transactions once we start to make payments within the
+	// channel.
+	// TODO(roabeef): should be HMAC based...REMOVE BEFORE ALPHA
+	var zero wire.ShaHash
+	elkremSender := elkrem.NewElkremSender(63, zero)
+	reservation.partialState.LocalElkrem = &elkremSender
+	firstPrimage, err := elkremSender.AtIndex(0)
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
+	copy(ourContribution.RevocationHash[:], btcutil.Hash160(firstPrimage[:]))
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -793,7 +803,15 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the pre-image so we can't add it
 	// to the chain).
-	pendingReservation.partialState.TheirShaChain = shachain.New()
+	e := elkrem.NewElkremReceiver(63)
+	// TODO(roasbeef): this is incorrect!! fix before lnstate integration
+	var zero wire.ShaHash
+	if err := e.AddNext(&zero); err != nil {
+		req.err <- nil
+		return
+	}
+
+	pendingReservation.partialState.RemoteElkrem = &e
 	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationHash
 
 	// Grab the hash of the current pre-image in our chain, this is needed
@@ -834,9 +852,15 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	txsort.InPlaceSort(ourCommitTx)
 	txsort.InPlaceSort(theirCommitTx)
 
+	deliveryScript, err := txscript.PayToAddrScript(theirContribution.DeliveryAddress)
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// Record newly available information witin the open channel state.
-	pendingReservation.partialState.CsvDelay = theirContribution.CsvDelay
-	pendingReservation.partialState.TheirDeliveryAddress = theirContribution.DeliveryAddress
+	pendingReservation.partialState.RemoteCsvDelay = theirContribution.CsvDelay
+	pendingReservation.partialState.TheirDeliveryScript = deliveryScript
 	pendingReservation.partialState.ChanID = fundingNTxid
 	pendingReservation.partialState.TheirCommitKey = theirCommitKey
 	pendingReservation.partialState.TheirCommitTx = theirCommitTx
@@ -979,14 +1003,16 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	err = l.channelDB.PutOpenChannel(pendingReservation.partialState)
+	if err := pendingReservation.partialState.FullSync(); err != nil {
+		msg.err <- err
+		return
+	}
 
 	// Create a goroutine to watch the chain so we can open the channel once
 	// the funding tx has enough confirmations.
 	// TODO(roasbeef): add number of confs to the confi
 	go l.openChannelAfterConfirmations(pendingReservation, 3)
-
-	msg.err <- err
+	msg.err <- nil
 }
 
 // openChannelAfterConfirmations creates, and opens a payment channel after
@@ -1032,4 +1058,20 @@ func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
 
 	return pkAddr.PrivKey()
+}
+
+type waddrmgrEncryptorDecryptor struct {
+	m *waddrmgr.Manager
+}
+
+func (w *waddrmgrEncryptorDecryptor) Encrypt(p []byte) ([]byte, error) {
+	return w.m.Encrypt(waddrmgr.CKTPrivate, p)
+}
+
+func (w *waddrmgrEncryptorDecryptor) Decrypt(c []byte) ([]byte, error) {
+	return w.m.Decrypt(waddrmgr.CKTPrivate, c)
+}
+
+func (w *waddrmgrEncryptorDecryptor) OverheadSize() uint32 {
+	return 24
 }

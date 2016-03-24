@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/channeldb"
 
 	"github.com/Roasbeef/btcd/rpctest"
 	"github.com/btcsuite/btcd/btcec"
@@ -17,7 +19,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/coinset"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/walletdb"
 )
 
 var (
@@ -147,10 +148,8 @@ func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 	}
 
 	// Give bobNode one 7 BTC output for use in creating channels.
-	outputMap := map[string]btcutil.Amount{
-		bobAddr.String(): btcutil.Amount(7e8),
-	}
-	mainTxid, err := miner.CoinbaseSpend(outputMap)
+	output := &wire.TxOut{7e8, bobAddrScript}
+	mainTxid, err := miner.CoinbaseSpend([]*wire.TxOut{output})
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +174,7 @@ func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 	prevOut := wire.NewOutPoint(mainTxid, index)
 	// TODO(roasbeef): When the chain rpc is hooked in, assert bob's output
 	// actually exists and it unspent in the chain.
-	bobTxIn := wire.NewTxIn(prevOut, nil)
+	bobTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	// Using bobs priv key above, create a change output he can spend.
 	bobChangeOutput := wire.NewTxOut(2*1e8, bobAddrScript)
@@ -205,7 +204,7 @@ func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 func loadTestCredits(miner *rpctest.Harness, w *LightningWallet, numOutputs, btcPerOutput int) error {
 	// Using the mining node, spend from a coinbase output numOutputs to
 	// give us btcPerOutput with each output.
-	satoshiPerOutput := btcutil.Amount(btcPerOutput * 1e8)
+	satoshiPerOutput := int64(btcPerOutput * 1e8)
 	addrs := make([]btcutil.Address, 0, numOutputs)
 	for i := 0; i < numOutputs; i++ {
 		// Grab a fresh address from the wallet to house this output.
@@ -214,10 +213,15 @@ func loadTestCredits(miner *rpctest.Harness, w *LightningWallet, numOutputs, btc
 			return err
 		}
 
+		script, err := txscript.PayToAddrScript(walletAddr)
+		if err != nil {
+			return err
+		}
+
 		addrs = append(addrs, walletAddr)
 
-		outputMap := map[string]btcutil.Amount{walletAddr.String(): satoshiPerOutput}
-		if _, err := miner.CoinbaseSpend(outputMap); err != nil {
+		output := &wire.TxOut{satoshiPerOutput, script}
+		if _, err := miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
 			return err
 		}
 	}
@@ -279,13 +283,21 @@ func createTestWallet(miningNode *rpctest.Harness, netParams *chaincfg.Params) (
 		CACert:      rpcConfig.Certificates,
 	}
 
-	wallet, _, err := NewLightningWallet(config)
+	dbDir := filepath.Join(tempTestDir, "cdb")
+	cdb, err := channeldb.Create(dbDir)
+	if err != nil {
+		return "", nil, err
+	}
+
+	wallet, err := NewLightningWallet(config, cdb)
 	if err != nil {
 		return "", nil, err
 	}
 	if err := wallet.Startup(); err != nil {
 		return "", nil, err
 	}
+
+	cdb.RegisterCryptoSystem(&waddrmgrEncryptorDecryptor{wallet.Manager})
 
 	// Load our test wallet with 5 outputs each holding 4BTC.
 	if err := loadTestCredits(miningNode, wallet, 5, 4); err != nil {
@@ -406,7 +418,7 @@ func testBasicWalletReservationWorkFlow(miner *rpctest.Harness, lnwallet *Lightn
 
 	// The resulting active channel state should have been persisted to the DB.
 	fundingTx := chanReservation.FinalFundingTx()
-	channel, err := lnwallet.ChannelDB.FetchOpenChannel(bobNode.id)
+	channel, err := lnwallet.channelDB.FetchOpenChannel(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
 	}
@@ -557,11 +569,10 @@ type testLnWallet struct {
 	cleanUpFunc func()
 }
 
-func clearWalletState(w *LightningWallet) error {
+func clearWalletState(w *LightningWallet) {
 	w.nextFundingID = 0
 	w.fundingLimbo = make(map[uint64]*ChannelReservation)
 	w.ResetLockedOutpoints()
-	return w.ChannelDB.Wipe()
 }
 
 func TestLightningWallet(t *testing.T) {
@@ -597,11 +608,8 @@ func TestLightningWallet(t *testing.T) {
 	for _, walletTest := range walletTests {
 		walletTest(miningNode, lnwallet, t)
 
-		if err := clearWalletState(lnwallet); err != nil && err != walletdb.ErrBucketNotFound {
-			t.Fatalf("unable to clear wallet state: %v", err)
-		}
-
 		// TODO(roasbeef): possible reset mining node's chainstate to
-		// initial level
+		// initial level, cleanly wipe buckets
+		clearWalletState(lnwallet)
 	}
 }

@@ -8,24 +8,17 @@ import (
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type CommitRevocation struct {
-	// We can use a different data type for this if necessary...
-	ChannelID uint64
-
-	// Revocation to use
-	RevocationProof [20]byte
-
 	//Next revocation to use
 	NextRevocationHash [20]byte
+	Revocation         [20]byte
 }
 
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
-	// CommitmentHeight(8)
-	// RevocationProof(20)
+	// NextRevocationHash(20)
+	// Revocation(20)
 	err := readElements(r,
-		&c.ChannelID,
-		&c.RevocationProof,
 		&c.NextRevocationHash,
+		&c.Revocation,
 	)
 	if err != nil {
 		return err
@@ -43,9 +36,8 @@ func NewCommitRevocation() *CommitRevocation {
 // Writes the data to w
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
-		c.RevocationProof,
 		c.NextRevocationHash,
+		c.Revocation,
 	)
 	if err != nil {
 		return err
@@ -70,8 +62,7 @@ func (c *CommitRevocation) Validate() error {
 
 func (c *CommitRevocation) String() string {
 	return fmt.Sprintf("\n--- Begin CommitRevocation ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("RevocationProof:\t%x\n", c.RevocationProof) +
 		fmt.Sprintf("NextRevocationHash:\t%x\n", c.NextRevocationHash) +
+		fmt.Sprintf("Revocation:\t%x\n", c.Revocation) +
 		fmt.Sprintf("--- End CommitRevocation ---\n")
 }

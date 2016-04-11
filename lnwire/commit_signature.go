@@ -10,25 +10,9 @@ import (
 // Multiple Clearing Requests are possible by putting this inside an array of
 // clearing requests
 type CommitSignature struct {
-	// We can use a different data type for this if necessary...
-	ChannelID uint64
-
-	// Height of the commitment
-	// You should have the most recent commitment height stored locally
-	// This should be validated!
-	// This is used for shachain.
-	// Each party increments their own CommitmentHeight, they can differ for
-	// each part of the Commitment.
-	//FIXME This might be superfluous
-	CommitmentHeight uint64
-
 	// List of HTLC Keys which are updated from all parties
 	//UpdatedHTLCKeys []uint64
-	LastCommittedKeyAlice HTLCKey
-	LastCommittedKeyBob   HTLCKey
-
-	// Hash of the revocation to use
-	RevocationHash [20]byte
+	HighestPosition uint64
 
 	// Total miners' fee that was used
 	Fee btcutil.Amount
@@ -44,11 +28,7 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	// Fee(8)
 	// RequesterCommitSig(73max+2)
 	err := readElements(r,
-		&c.ChannelID,
-		&c.CommitmentHeight,
-		&c.LastCommittedKeyAlice,
-		&c.LastCommittedKeyBob,
-		&c.RevocationHash,
+		&c.HighestPosition,
 		&c.Fee,
 		&c.CommitSig,
 	)
@@ -68,11 +48,7 @@ func NewCommitSignature() *CommitSignature {
 // Writes the data to w
 func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
-		c.CommitmentHeight,
-		c.LastCommittedKeyAlice,
-		c.LastCommittedKeyBob,
-		c.RevocationHash,
+		c.HighestPosition,
 		c.Fee,
 		c.CommitSig,
 	)
@@ -115,11 +91,7 @@ func (c *CommitSignature) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("CommitmentHeight:\t%d\n", c.CommitmentHeight) +
-		fmt.Sprintf("LastCommittedKeyAlice:\t%d\n", c.LastCommittedKeyAlice) +
-		fmt.Sprintf("LastCommittedKeyBob:\t%d\n", c.LastCommittedKeyBob) +
-		fmt.Sprintf("RevocationHash:\t\t%x\n", c.RevocationHash) +
+		fmt.Sprintf("HighestPosition:\t%d\n", c.HighestPosition) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
 		fmt.Sprintf("--- End CommitSignature ---\n")

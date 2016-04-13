@@ -927,7 +927,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 			// Ensure that the signature is valid.
 			vm, err := txscript.NewEngine(pkscript,
-				fundingTx, i, txscript.StandardVerifyFlags, nil)
+				fundingTx, i, txscript.StandardVerifyFlags, nil, nil, 0)
 			if err != nil {
 				// TODO(roasbeef): cancel at this stage if invalid sigs?
 				msg.err <- fmt.Errorf("cannot create script engine: %s", err)
@@ -983,7 +983,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Script executes succesfully.
 	commitTx.TxIn[0].SignatureScript = scriptSig
 	vm, err := txscript.NewEngine(p2sh, commitTx, 0,
-		txscript.StandardVerifyFlags, nil)
+		txscript.StandardVerifyFlags, nil, nil, 0)
 	if err != nil {
 		msg.err <- err
 		return

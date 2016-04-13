@@ -202,7 +202,7 @@ func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	commitTx := c.ourPendingCommitTx
 	commitTx.TxIn[0].SignatureScript = scriptSig
 	vm, err := txscript.NewEngine(c.lnChannel.fundingP2SH, commitTx, 0,
-		txscript.StandardVerifyFlags, nil)
+		txscript.StandardVerifyFlags, nil, nil, 0)
 	if err != nil {
 		return err
 	}

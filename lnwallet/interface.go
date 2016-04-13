@@ -26,18 +26,18 @@ type WalletController interface {
 	// NewAddress returns the next external address for the wallet. The
 	// type of address returned is dictated by the wallet's capabilities,
 	// and may be of type: p2sh, p2pkh, p2wkh, p2wsh, etc.
-	NewAddress() (btcutil.Address, error)
+	NewAddress(witness bool) (btcutil.Address, error)
+
+	// NewChangeAddress returns a new change address for the wallet. If the
+	// underlying wallet supports hd key chains, then this address should be
+	// dervied from an internal branch.
+	NewChangeAddress(witness bool) (btcutil.Address, error)
 
 	// GetPrivKey retrives the underlying private key associated with the
 	// passed address. If the wallet is unable to locate this private key
 	// due to the address not being under control of the wallet, then an
 	// error should be returned.
 	GetPrivKey(a *btcutil.Address) (*btcec.PrivateKey, error)
-
-	// NewChangeAddress returns a new change address for the wallet. If the
-	// underlying wallet supports hd key chains, then this address should be
-	// dervied from an internal branch.
-	NewChangeAddress() (btcutil.Address, error)
 
 	// NewRawKey returns a raw private key controlled by the wallet. These
 	// keys are used for the 2-of-2 multi-sig outputs for funding
@@ -70,6 +70,13 @@ type WalletController interface {
 	// out to the specified outputs. In the case the wallet has insufficient
 	// funds, or the outputs are non-standard, and error should be returned.
 	SendMany(outputs []*wire.TxOut) (*wire.ShaHash, error)
+
+	// ListUnspentWitness returns all unspent outputs which are version 0
+	// witness programs. The 'confirms' parameter indicates the minimum
+	// number of confirmations an output needs in order to be returned by
+	// this method. Passing -1 as 'confirms' indicates that even unconfirmed
+	// outputs should be returned.
+	ListUnspentWitness(confirms int32) ([]*wire.OutPoint, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligble for coin selection. Locking outputs are utilized

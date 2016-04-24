@@ -32,6 +32,10 @@ var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
 
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+const _ = proto.ProtoPackageIsVersion1
+
 type SendManyRequest struct {
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 }
@@ -105,6 +109,10 @@ func init() {
 var _ context.Context
 var _ grpc.ClientConn
 
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the grpc package it is being compiled against.
+const _ = grpc.SupportPackageIsVersion2
+
 // Client API for Lightning service
 
 type LightningClient interface {
@@ -160,40 +168,58 @@ func RegisterLightningServer(s *grpc.Server, srv LightningServer) {
 	s.RegisterService(&_Lightning_serviceDesc, srv)
 }
 
-func _Lightning_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+func _Lightning_SendMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendManyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(LightningServer).SendMany(ctx, in)
-	if err != nil {
-		return nil, err
+	if interceptor == nil {
+		return srv.(LightningServer).SendMany(ctx, in)
 	}
-	return out, nil
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/SendMany",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).SendMany(ctx, req.(*SendManyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-func _Lightning_NewAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+func _Lightning_NewAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(NewAddressRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(LightningServer).NewAddress(ctx, in)
-	if err != nil {
-		return nil, err
+	if interceptor == nil {
+		return srv.(LightningServer).NewAddress(ctx, in)
 	}
-	return out, nil
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/NewAddress",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).NewAddress(ctx, req.(*NewAddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-func _Lightning_ConnectPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error) (interface{}, error) {
+func _Lightning_ConnectPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ConnectPeerRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	out, err := srv.(LightningServer).ConnectPeer(ctx, in)
-	if err != nil {
-		return nil, err
+	if interceptor == nil {
+		return srv.(LightningServer).ConnectPeer(ctx, in)
 	}
-	return out, nil
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/ConnectPeer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).ConnectPeer(ctx, req.(*ConnectPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 var _Lightning_serviceDesc = grpc.ServiceDesc{

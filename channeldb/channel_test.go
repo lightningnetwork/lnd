@@ -10,12 +10,15 @@ import (
 	"github.com/LightningNetwork/lnd/elkrem"
 	"github.com/Roasbeef/btcd/txscript"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 var (
+	netParams = &chaincfg.SegNet4Params
+
 	key = [wire.HashSize]byte{
 		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x68, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
@@ -95,7 +98,7 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 
 	// Next, create channeldb for the first time, also setting a mock
 	// EncryptorDecryptor implementation for testing purposes.
-	cdb, err := Open(tempDirName)
+	cdb, err := Open(tempDirName, netParams)
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
@@ -103,7 +106,7 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	defer cdb.Close()
 
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
-	addr, err := btcutil.NewAddressPubKey(pubKey.SerializeCompressed(), ActiveNetParams)
+	addr, err := btcutil.NewAddressPubKey(pubKey.SerializeCompressed(), netParams)
 	if err != nil {
 		t.Fatalf("unable to create delivery address")
 	}

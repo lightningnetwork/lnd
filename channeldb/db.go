@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/btcsuite/btcd/chaincfg"
 )
 
 const (
@@ -37,13 +38,15 @@ type EncryptorDecryptor interface {
 type DB struct {
 	store *bolt.DB
 
+	netParams *chaincfg.Params
+
 	cryptoSystem EncryptorDecryptor
 }
 
 // Open opens an existing channeldb created under the passed namespace with
 // sensitive data encrypted by the passed EncryptorDecryptor implementation.
 // TODO(roasbeef): versioning?
-func Open(dbPath string) (*DB, error) {
+func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
 	if !fileExists(path) {
@@ -57,7 +60,7 @@ func Open(dbPath string) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{store: bdb}, nil
+	return &DB{store: bdb, netParams: netParams}, nil
 }
 
 // RegisterCryptoSystem...

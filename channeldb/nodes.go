@@ -6,13 +6,11 @@ import (
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 )
 
 var (
-	idBucket        = []byte("i")
-	ActiveNetParams = &chaincfg.TestNet3Params
+	idBucket = []byte("i")
 )
 
 // PutIdKey saves the hash160 of the public key used for our identity within
@@ -52,5 +50,5 @@ func (d *DB) GetIdAdr() (*btcutil.AddressPubKeyHash, error) {
 	}
 
 	log.Infof("identity key has length %d", len(pkh))
-	return btcutil.NewAddressPubKeyHash(pkh, ActiveNetParams)
+	return btcutil.NewAddressPubKeyHash(pkh, d.netParams)
 }

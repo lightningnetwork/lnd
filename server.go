@@ -198,7 +198,11 @@ func (s *server) listener(l net.Listener) {
 	for atomic.LoadInt32(&s.shutdown) == 0 {
 		conn, err := l.Accept()
 		if err != nil {
-			srvrLog.Errorf("Can't accept connection: %v", err)
+			// Only log the error message if we aren't currently
+			// shutting down.
+			if atomic.LoadInt32(&s.shutdown) == 0 {
+				srvrLog.Errorf("Can't accept connection: %v", err)
+			}
 			continue
 		}
 

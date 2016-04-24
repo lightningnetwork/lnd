@@ -247,7 +247,7 @@ func (s *server) Stop() error {
 	}
 
 	s.rpcServer.Stop()
-	s.lnwallet.Stop()
+	s.lnwallet.Shutdown()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)

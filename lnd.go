@@ -56,7 +56,7 @@ func main() {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.Open(loadedConfig.DataDir)
+	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
 		os.Exit(1)

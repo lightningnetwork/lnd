@@ -385,7 +385,10 @@ func (l *LightningWallet) Shutdown() error {
 		return nil
 	}
 
+	// Signal the underlying wallet controller to shutdown, waiting until
+	// all active goroutines have been shutdown.
 	l.Stop()
+	l.WaitForShutdown()
 
 	l.rpc.Shutdown()
 

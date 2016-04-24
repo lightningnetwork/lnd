@@ -35,8 +35,7 @@ var (
 
 	// activeNetParams is a pointer to the parameters specific to the
 	// currently active bitcoin network.
-	//activeNetParams = &chaincfg.SegNetParams
-	activeNetParams = &chaincfg.TestNet3Params
+	activeNetParams = &chaincfg.SegNet4Params
 
 	btcdHomeDir        = btcutil.AppDataDir("btcd", false)
 	defaultRPCKeyFile  = filepath.Join(btcdHomeDir, "rpc.key")
@@ -156,7 +155,7 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.SegNet {
 		numNets++
-		activeNetParams = &chaincfg.SegNetParams
+		activeNetParams = &chaincfg.SegNet4Params
 	}
 	if cfg.SimNet {
 		numNets++

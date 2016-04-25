@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"sync"
@@ -54,6 +53,8 @@ func (r *rpcServer) Stop() error {
 		return nil
 	}
 
+	close(r.quit)
+
 	return nil
 }
 
@@ -80,16 +81,32 @@ func (r *rpcServer) SendMany(ctx context.Context, in *lnrpc.SendManyRequest) (*l
 		return nil, err
 	}
 
-	return &lnrpc.SendManyResponse{Txid: hex.EncodeToString(txid[:])}, nil
+	rpcsLog.Infof("Generated txid: %v", txid.String())
+
+	return &lnrpc.SendManyResponse{Txid: txid.String()}, nil
 }
 
 // NewAddress...
-func (r *rpcServer) NewAddress(ctx context.Context, in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
+func (r *rpcServer) NewAddress(ctx context.Context,
+	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
 	r.server.lnwallet.KeyGenMtx.Lock()
 	defer r.server.lnwallet.KeyGenMtx.Unlock()
 
-	addr, err := r.server.lnwallet.NewAddress(defaultAccount)
+	// Translate the gRPC proto address type to the wallet controller's
+	// available address types.
+	var addrType waddrmgr.AddressType
+	switch in.Type {
+	case lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH:
+		addrType = waddrmgr.WitnessPubKey
+	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
+		addrType = waddrmgr.NestedWitnessPubKey
+	case lnrpc.NewAddressRequest_PUBKEY_HASH:
+		addrType = waddrmgr.PubKeyHash
+	}
+
+	addr, err := r.server.lnwallet.NewAddress(defaultAccount,
+		addrType)
 	if err != nil {
 		return nil, err
 	}

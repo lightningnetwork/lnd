@@ -17,8 +17,15 @@ message SendManyResponse {
     string txid = 1;
 }
 
-message NewAddressRequest {}
+message NewAddressRequest {
+    enum AddressType {
+        WITNESS_PUBKEY_HASH = 0;
+        NESTED_PUBKEY_HASH = 1;
+        PUBKEY_HASH = 2;
+    }
 
+    AddressType type = 1;
+}
 message NewAddressResponse {
     string address = 1;
 }

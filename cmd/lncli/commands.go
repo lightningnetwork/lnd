@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/codegangsta/cli"
@@ -31,15 +32,34 @@ var ShellCommand = cli.Command{
 
 var NewAddressCommand = cli.Command{
 	Name:   "newaddress",
-	Usage:  "gets the next address in the HD chain",
+	Usage:  "Generates a new address. Three address types are supported: p2wkh, np2wkh, p2pkh",
 	Action: newAddress,
 }
 
 func newAddress(ctx *cli.Context) {
 	client := getClient(ctx)
 
+	stringAddrType := ctx.Args().Get(0)
+
+	// Map the string encoded address type, to the concrete typed address
+	// type enum. An unrecognized address type will result in an error.
+	var addrType lnrpc.NewAddressRequest_AddressType
+	switch stringAddrType { // TODO(roasbeef): make them ints on the cli?
+	case "p2wkh":
+		addrType = lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH
+	case "np2wkh":
+		addrType = lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH
+	case "p2pkh":
+		addrType = lnrpc.NewAddressRequest_PUBKEY_HASH
+	default:
+		fatal(fmt.Errorf("invalid address type %v, support address type "+
+			"are: p2wkh, np2wkh, p2pkh", stringAddrType))
+	}
+
 	ctxb := context.Background()
-	addr, err := client.NewAddress(ctxb, &lnrpc.NewAddressRequest{})
+	addr, err := client.NewAddress(ctxb, &lnrpc.NewAddressRequest{
+		Type: addrType,
+	})
 	if err != nil {
 		fatal(err)
 	}

@@ -289,7 +289,8 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, er
 	// If we just created the wallet, then reserve, and store a key for
 	// our ID within the Lightning Network.
 	if createID {
-		adrs, err := wallet.Manager.NextInternalAddresses(waddrmgr.DefaultAccountNum, 1)
+		account := uint32(waddrmgr.DefaultAccountNum)
+		adrs, err := wallet.Manager.NextInternalAddresses(account, 1, waddrmgr.WitnessPubKey)
 		if err != nil {
 			return nil, err
 		}
@@ -557,7 +558,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		ourContribution.ChangeOutputs = make([]*wire.TxOut, 1)
 		// Change is necessary. Query for an available change address to
 		// send the remainder to.
-		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum)
+		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum,
+			waddrmgr.WitnessPubKey)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
@@ -600,7 +602,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// Generate a fresh address to be used in the case of a cooperative
 	// channel close.
-	deliveryAddress, err := l.NewAddress(waddrmgr.DefaultAccountNum)
+	deliveryAddress, err := l.NewAddress(waddrmgr.DefaultAccountNum,
+		waddrmgr.WitnessPubKey)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -1053,7 +1056,8 @@ func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	l.KeyGenMtx.Lock()
 	defer l.KeyGenMtx.Unlock()
 
-	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum, 1)
+	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum,
+		1, waddrmgr.WitnessPubKey)
 	if err != nil {
 		return nil, err
 	}

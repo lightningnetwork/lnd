@@ -8,10 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/LightningNetwork/lnd/elkrem"
 	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/elkrem"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"

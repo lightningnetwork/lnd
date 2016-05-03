@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/LightningNetwork/lnd/elkrem"
-	"github.com/Roasbeef/btcd/txscript"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
+	"github.com/lightningnetwork/lnd/elkrem"
 )
 
 var (

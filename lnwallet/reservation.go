@@ -79,9 +79,6 @@ type ChannelContribution struct {
 //     * We then verify the validity of all signatures before considering the
 //       channel "open".
 type ChannelReservation struct {
-	// TODO(roasbeef): remove this? we're only implementing the golden...
-	fundingType FundingType
-
 	// This mutex MUST be held when either reading or modifying any of the
 	// fields below.
 	sync.RWMutex
@@ -120,11 +117,10 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the creation
 // of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func newChannelReservation(t FundingType, fundingAmt btcutil.Amount,
-	minFeeRate btcutil.Amount, wallet *LightningWallet, id uint64) *ChannelReservation {
+func newChannelReservation(fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
+	wallet *LightningWallet, id uint64) *ChannelReservation {
 	// TODO(roasbeef): CSV here, or on delay?
 	return &ChannelReservation{
-		fundingType: t,
 		ourContribution: &ChannelContribution{
 			FundingAmount: fundingAmt,
 		},

@@ -42,34 +42,6 @@ var (
 	wtxmgrNamespaceKey    = []byte("wtxmgr")
 )
 
-// FundingType represents the type of the funding transaction. The type of
-// funding transaction available depends entirely on the level of upgrades to
-// Script on the current network. Across the network it's possible for asymmetric
-// funding types to exist across hop. However, for direct links, the funding type
-// supported by both parties must be identical. The most 'powerful' funding type
-// is SEGWIT. This funding type also assumes that both CSV+CLTV are available on
-// the network.
-// NOTE: Ultimately, this will most likely be deprecated...
-type FundingType uint16
-
-const (
-	// Use SegWit, assumes CSV+CLTV
-	SEGWIT FundingType = iota
-
-	// Use SIGHASH_NOINPUT, assumes CSV+CLTV
-	SIGHASH
-
-	// Use CSV without reserve
-	CSV
-
-	// Use CSV with reserve
-	// Reserve is a permanent amount of funds locked and the capacity.
-	CSV_RESERVE
-
-	// CLTV with reserve.
-	CLTV_RESERVE
-)
-
 // initFundingReserveReq is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
 // paramters are configurable accross channels. These paramters are to be chosen
@@ -83,9 +55,6 @@ const (
 // Meaning both parties must encumber the same amount of funds.
 // TODO(roasbeef): zombie reservation sweeper goroutine.
 type initFundingReserveMsg struct {
-	// The type of the funding transaction. See above for further details.
-	fundingType FundingType
-
 	// The amount of funds requested for this channel.
 	fundingAmount btcutil.Amount
 
@@ -443,7 +412,7 @@ out:
 // contribution. The third, and final step verifies all signatures for the inputs
 // of the funding transaction, and that the signature we records for our version
 // of the commitment transaction is valid.
-func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType,
+func (l *LightningWallet) InitChannelReservation(a btcutil.Amount,
 	theirID [32]byte, csvDelay uint32) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
@@ -451,7 +420,6 @@ func (l *LightningWallet) InitChannelReservation(a btcutil.Amount, t FundingType
 
 	l.msgChan <- &initFundingReserveMsg{
 		fundingAmount: a,
-		fundingType:   t,
 		csvDelay:      csvDelay,
 		nodeID:        theirID,
 		err:           errChan,
@@ -468,7 +436,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	l.limboMtx.Lock()
 
 	id := l.nextFundingID
-	reservation := newChannelReservation(req.fundingType, req.fundingAmount, req.minFeeRate, l, id)
+	reservation := newChannelReservation(req.fundingAmount, req.minFeeRate, l, id)
 	l.nextFundingID++
 	l.fundingLimbo[id] = reservation
 
@@ -486,7 +454,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double spends
 	// accross funding transactions.
-	// NOTE: we don't use defer her so we can properly release the lock
+	// NOTE: We don't use defer her so we can properly release the lock
 	// when we encounter an error condition.
 	l.coinSelectMtx.Lock()
 

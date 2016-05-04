@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/fastsha256"
 )
 
 var (
@@ -18,19 +19,20 @@ var (
 	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
 )
 
-// scriptHashPkScript generates a pay-to-script-hash public key script paying
-// to the hash160 of the passed redeem script.
-func scriptHashPkScript(redeemScript []byte) ([]byte, error) {
+// witnessScriptHash generates a pay-to-witness-script-hash public key script
+// paying to a version 0 witness program paying to the passed redeem script.
+func witnessScriptHash(redeemScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
-	bldr.AddOp(txscript.OP_HASH160)
-	bldr.AddData(btcutil.Hash160(redeemScript))
-	bldr.AddOp(txscript.OP_EQUAL)
+
+	bldr.AddOp(txscript.OP_0)
+	scriptHash := fastsha256.Sum256(redeemScript)
+	bldr.AddData(scriptHash[:])
 	return bldr.Script()
 }
 
-// getFundingPkScript generates the non-p2sh'd multisig script for 2 of 2
+// genMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
 // pubkeys.
-func genFundingPkScript(aPub, bPub []byte) ([]byte, error) {
+func genMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	if len(aPub) != 33 || len(bPub) != 33 {
 		return nil, fmt.Errorf("Pubkey size error. Compressed pubkeys only")
 	}
@@ -52,23 +54,24 @@ func genFundingPkScript(aPub, bPub []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
-// fundMultiSigOut create the redeemScript for the funding transaction, and
-// also a TxOut paying to the p2sh of the multi-sig redeemScript. Give it the
-// two pubkeys and it'll give you the p2sh'd txout. You don't have to remember
-// the p2sh preimage, as long as you remember the pubkeys involved.
-func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) {
-	if amt < 0 {
+// genFundingPkScript creates a redeem script, and its matching p2wsh
+// output for the funding transaction.
+func genFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) {
+	// As a sanity check, ensure that the passed amount is above zero.
+	if amt <= 0 {
 		return nil, nil, fmt.Errorf("can't create FundTx script with " +
-			"negative coins")
+			"zero, or negative coins")
 	}
 
-	// p2shify
-	redeemScript, err := genFundingPkScript(aPub, bPub)
+	// First, create the 2-of-2 multi-sig script itself.
+	redeemScript, err := genMultiSigScript(aPub, bPub)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	pkScript, err := scriptHashPkScript(redeemScript)
+	// With the 2-of-2 script in had, generate a p2wsh script which pays
+	// to the funding script.
+	pkScript, err := witnessScriptHash(redeemScript)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,31 +79,31 @@ func fundMultiSigOut(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) 
 	return redeemScript, wire.NewTxOut(amt, pkScript), nil
 }
 
-// spendMultiSig generates the scriptSig required to redeem the 2-of-2 p2sh
+// spendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
 // multi-sig output.
-func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
+func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
+	witness := make([][]byte, 4)
 
-	// add a 0 for some multisig fun
-	bldr.AddOp(txscript.OP_0)
+	// When spending a p2wsh multi-sig script, rather than an OP_0, we add
+	// a nil stack element to eat the extra pop.
+	witness[0] = nil
 
 	// When initially generating the redeemScript, we sorted the serialized
 	// public keys in descending order. So we do a quick comparison in order
 	// ensure the signatures appear on the Script Virual Machine stack in
 	// the correct order.
 	if bytes.Compare(pubA, pubB) == -1 {
-		bldr.AddData(sigB)
-		bldr.AddData(sigA)
+		witness[1] = sigB
+		witness[2] = sigA
 	} else {
-		bldr.AddData(sigA)
-		bldr.AddData(sigB)
+		witness[1] = sigA
+		witness[2] = sigB
 	}
 
-	// preimage goes on AT THE ENDDDD
-	bldr.AddData(redeemScript)
+	// Finally, add the pre-image as the last witness element.
+	witness[3] = redeemScript
 
-	// that's all, get bytes
-	return bldr.Script()
+	return witness
 }
 
 // findScriptOutputIndex finds the index of the public key script output

@@ -30,11 +30,15 @@ var (
 )
 
 func getTestTxId(miner *rpctest.Harness) (*wire.ShaHash, error) {
-	// First, parse the test priv key in order to obtain a key we'll use
-	// for the confirmation notification test.
-	outputMap := map[string]btcutil.Amount{testAddr.String(): 2e8}
-	return miner.CoinbaseSpend(outputMap)
+	script, err := txscript.PayToAddrScript(testAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	outputs := []*wire.TxOut{&wire.TxOut{2e8, script}}
+	return miner.CoinbaseSpend(outputs)
 }
+
 func testSingleConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 

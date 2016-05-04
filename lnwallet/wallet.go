@@ -463,10 +463,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// insuffcient funds, the other is a notification that the balance has
 	// been updated make(chan struct{}, 1).
 
-	// Find all unlocked unspent outputs with greater than 6 confirmations.
-	maxConfs := int32(math.MaxInt32)
+	// Find all unlocked unspent witness outputs with greater than 6
+	// confirmations.
 	// TODO(roasbeef): make 6 a config paramter?
-	unspentOutputs, err := l.ListUnspent(6, maxConfs, nil)
+	unspentOutputs, err := l.ListUnspentWitness(6)
 	if err != nil {
 		l.coinSelectMtx.Unlock()
 		req.err <- err
@@ -1033,6 +1033,37 @@ func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
 	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
 
 	return pkAddr.PrivKey()
+}
+
+// ListUnspentWitness returns a slice of all the unspent outputs the wallet
+// controls which pay to witness programs either directly or indirectly.
+func (l *LightningWallet) ListUnspentWitness(minConfs int32) ([]*btcjson.ListUnspentResult, error) {
+	// First, grab all the unfiltered currently unspent outputs.
+	maxConfs := int32(math.MaxInt32)
+	unspentOutputs, err := l.ListUnspent(minConfs, maxConfs, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next, we'll run through all the regular outputs, only saving those
+	// which are p2wkh outputs or a p2wsh output nested within a p2sh output.
+	witnessOutputs := make([]*btcjson.ListUnspentResult, 0, len(unspentOutputs))
+	for _, output := range unspentOutputs {
+		pkScript, err := hex.DecodeString(output.ScriptPubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO(roasbeef): this assumes all p2sh outputs returned by
+		// the wallet are nested p2sh...
+		if txscript.IsPayToWitnessPubKeyHash(pkScript) ||
+			txscript.IsPayToScriptHash(pkScript) {
+			witnessOutputs = append(witnessOutputs, output)
+		}
+
+	}
+
+	return witnessOutputs, nil
 }
 
 type WaddrmgrEncryptorDecryptor struct {

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -26,7 +27,7 @@ import (
 )
 
 const (
-	// The size of the buffered queue of request to the wallet from the
+	// The size of the buffered queue of requests to the wallet from the
 	// outside word.
 	msgBufferSize = 100
 )
@@ -124,7 +125,7 @@ type addCounterPartySigsMsg struct {
 	// Should be order of sorted inputs that are theirs. Sorting is done
 	// in accordance to BIP-69:
 	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	theirFundingSigs [][]byte
+	theirFundingInputScripts []*InputScript
 
 	// This should be 1/2 of the signatures needed to succesfully spend our
 	// version of the commitment transaction.
@@ -674,21 +675,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	theirContribution := req.contribution
 	ourContribution := pendingReservation.ourContribution
 
-	// First, add all multi-party inputs to the transaction
-	// TODO(roasbeef); handle case that tx doesn't exist, fake input
-	// TODO(roasbeef): validate SPV proof from other side if in SPV mode.
-	//  * actually, pure SPV would need fraud proofs right? must prove input
-	//    is unspent
-	//  * or, something like getutxo?
+	// Add all multi-party inputs and outputs to the transaction.
 	for _, ourInput := range ourContribution.Inputs {
 		fundingTx.AddTxIn(ourInput)
 	}
 	for _, theirInput := range theirContribution.Inputs {
 		fundingTx.AddTxIn(theirInput)
 	}
-
-	// Next, add all multi-party outputs to the transaction. This includes
-	// change outputs for both side.
 	for _, ourChangeOutput := range ourContribution.ChangeOutputs {
 		fundingTx.AddTxOut(ourChangeOutput)
 	}
@@ -702,7 +695,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, multiSigOut, err := fundMultiSigOut(ourKey.PubKey().SerializeCompressed(),
+	redeemScript, multiSigOut, err := genFundingPkScript(ourKey.PubKey().SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
@@ -733,7 +726,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
-	pendingReservation.ourFundingSigs = make([][]byte, 0, len(ourContribution.Inputs))
+	pendingReservation.ourFundingInputScripts = make([]*InputScript, 0, len(ourContribution.Inputs))
+	hashCache := txscript.NewTxSigHashes(fundingTx)
 	for i, txIn := range fundingTx.TxIn {
 		// Does the wallet know about the txin?
 		txDetail, _ := l.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
@@ -741,14 +735,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			continue
 		}
 
-		// Is this our txin? TODO(roasbeef): assumes all inputs are P2PKH...
+		// Is this our txin?
 		prevIndex := txIn.PreviousOutPoint.Index
 		prevOut := txDetail.TxRecord.MsgTx.TxOut[prevIndex]
 		_, addrs, _, _ := txscript.ExtractPkScriptAddrs(prevOut.PkScript, l.cfg.NetParams)
-		apkh, ok := addrs[0].(*btcutil.AddressPubKeyHash)
-		if !ok {
-			req.err <- fmt.Errorf("only p2pkh wallet outputs are supported")
-		}
+		apkh := addrs[0]
 
 		ai, err := l.Manager.Address(apkh)
 		if err != nil {
@@ -756,22 +747,52 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			return
 		}
 		pka := ai.(waddrmgr.ManagedPubKeyAddress)
-		privkey, err := pka.PrivKey()
+		privKey, err := pka.PrivKey()
 		if err != nil {
 			req.err <- fmt.Errorf("cannot get private key: %v", err)
 			return
 		}
 
-		sigscript, err := txscript.SignatureScript(pendingReservation.partialState.FundingTx, i,
-			prevOut.PkScript, txscript.SigHashAll, privkey,
-			ai.Compressed())
-		if err != nil {
-			req.err <- fmt.Errorf("cannot create sigscript: %s", err)
-			return
+		var witnessProgram []byte
+		inputScript := &InputScript{}
+
+		// If we're spending p2wkh output nested within a p2sh output,
+		// then we'll need to attach a sigScript in addition to witness
+		// data.
+		if pka.IsNestedWitness() {
+			witnessProgram, err = txscript.PayToAddrScript(pka.Address())
+			if err != nil {
+				req.err <- fmt.Errorf("unable to create witness program: %v", err)
+				return
+			}
+			bldr := txscript.NewScriptBuilder()
+			bldr.AddData(witnessProgram)
+			scriptSig, err := bldr.Script()
+			if err != nil {
+				req.err <- fmt.Errorf("unable to create scriptsig: %v", err)
+				return
+			}
+			txIn.SignatureScript = scriptSig
+			inputScript.ScriptSig = scriptSig
+		} else {
+			witnessProgram = prevOut.PkScript
 		}
 
-		fundingTx.TxIn[i].SignatureScript = sigscript
-		pendingReservation.ourFundingSigs = append(pendingReservation.ourFundingSigs, sigscript)
+		// Generate a valid witness stack for the input.
+		inputValue := prevOut.Value
+		witnessScript, err := txscript.WitnessScript(fundingTx, hashCache, i,
+			inputValue, witnessProgram, txscript.SigHashAll, privKey, true)
+		if err != nil {
+			req.err <- fmt.Errorf("cannot create witnessscript: %s", err)
+			return
+		}
+		txIn.Witness = witnessScript
+		inputScript.Witness = witnessScript
+
+		pendingReservation.ourFundingInputScripts = append(
+			pendingReservation.ourFundingInputScripts,
+			inputScript,
+		)
 	}
 
 	// Initialize an empty sha-chain for them, tracking the current pending
@@ -875,33 +896,39 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Now we can complete the funding transaction by adding their
 	// signatures to their inputs.
-	pendingReservation.theirFundingSigs = msg.theirFundingSigs
+	pendingReservation.theirFundingInputScripts = msg.theirFundingInputScripts
 	fundingTx := pendingReservation.partialState.FundingTx
 	sigIndex := 0
+	fundingHashCache := txscript.NewTxSigHashes(fundingTx)
 	for i, txin := range fundingTx.TxIn {
-		if txin.SignatureScript == nil {
-			// Attach the signature so we can verify it below.
-			txin.SignatureScript = pendingReservation.theirFundingSigs[sigIndex]
+		if len(txin.Witness) == 0 {
+			// Attach the input scripts so we can verify it below.
+			inputScripts := pendingReservation.theirFundingInputScripts
+			txin.Witness = inputScripts[sigIndex].Witness
+			txin.SignatureScript = inputScripts[sigIndex].ScriptSig
 
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
 			output, err := l.rpc.GetTxOut(&prevOut.Hash, prevOut.Index, false)
 			if output == nil {
-				// TODO(roasbeef): do this at the start to avoid wasting out time?
-				//  8 or a set of nodes "we" run with exposed unauthenticated RPC?
 				msg.err <- fmt.Errorf("input to funding tx does not exist: %v", err)
 				return
 			}
-			pkscript, err := hex.DecodeString(output.ScriptPubKey.Hex)
+
+			pkScript, err := hex.DecodeString(output.ScriptPubKey.Hex)
 			if err != nil {
 				msg.err <- err
 				return
 			}
+			// Sadly, gettxout returns the output value in BTC
+			// instead of satoshis.
+			inputValue := int64(output.Value) * 1e8
 
-			// Ensure that the signature is valid.
-			vm, err := txscript.NewEngine(pkscript,
-				fundingTx, i, txscript.StandardVerifyFlags, nil, nil, 0)
+			// Ensure that the witness+sigScript combo is valid.
+			vm, err := txscript.NewEngine(pkScript,
+				fundingTx, i, txscript.StandardVerifyFlags, nil,
+				fundingHashCache, inputValue)
 			if err != nil {
 				// TODO(roasbeef): cancel at this stage if invalid sigs?
 				msg.err <- fmt.Errorf("cannot create script engine: %s", err)
@@ -927,15 +954,17 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// redeemScript script, but include the p2sh output as the subscript
 	// for verification.
 	redeemScript := pendingReservation.partialState.FundingRedeemScript
-	p2sh, err := scriptHashPkScript(redeemScript)
+	p2wsh, err := witnessScriptHash(redeemScript)
 	if err != nil {
 		msg.err <- err
 		return
 	}
 
 	// First, we sign our copy of the commitment transaction ourselves.
-	ourCommitSig, err := txscript.RawTxInSignature(commitTx, 0, redeemScript,
-		txscript.SigHashAll, ourKey)
+	channelValue := int64(pendingReservation.partialState.Capacity)
+	hashCache := txscript.NewTxSigHashes(commitTx)
+	ourCommitSig, err := txscript.RawTxInWitnessSignature(commitTx, hashCache, 0,
+		channelValue, redeemScript, txscript.SigHashAll, ourKey)
 	if err != nil {
 		msg.err <- err
 		return
@@ -946,18 +975,17 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	theirCommitSig := msg.theirCommitmentSig
 	ourKeySer := ourKey.PubKey().SerializeCompressed()
 	theirKeySer := theirKey.SerializeCompressed()
-	scriptSig, err := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
+	witness := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
 		theirKeySer, theirCommitSig)
-	if err != nil {
-		msg.err <- err
-		return
-	}
 
 	// Finally, create an instance of a Script VM, and ensure that the
 	// Script executes succesfully.
-	commitTx.TxIn[0].SignatureScript = scriptSig
-	vm, err := txscript.NewEngine(p2sh, commitTx, 0,
-		txscript.StandardVerifyFlags, nil, nil, 0)
+	inputValue := pendingReservation.partialState.Capacity
+	fmt.Println(inputValue)
+	commitTx.TxIn[0].Witness = witness
+	vm, err := txscript.NewEngine(p2wsh,
+		commitTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, int64(inputValue))
 	if err != nil {
 		msg.err <- err
 		return

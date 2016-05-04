@@ -96,34 +96,42 @@ func (b *bobNode) Contribution() *ChannelContribution {
 
 // signFundingTx generates signatures for all the inputs in the funding tx
 // belonging to Bob.
-// NOTE: This generates the full sig-script.
-func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([][]byte, error) {
-	bobSigs := make([][]byte, 0, len(b.availableOutputs))
+// NOTE: This generates the full witness stack.
+func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([]*InputScript, error) {
+	bobInputScripts := make([]*InputScript, 0, len(b.availableOutputs))
 	bobPkScript := b.changeOutputs[0].PkScript
+
+	inputValue := int64(7e8)
+	hashCache := txscript.NewTxSigHashes(fundingTx)
 	for i, _ := range fundingTx.TxIn {
-		// Alice has already signed this input
-		if fundingTx.TxIn[i].SignatureScript != nil {
+		// Alice has already signed this input.
+		if fundingTx.TxIn[i].Witness != nil {
 			continue
 		}
 
-		sigScript, err := txscript.SignatureScript(fundingTx, i,
-			bobPkScript, txscript.SigHashAll, b.privKey,
+		witness, err := txscript.WitnessScript(fundingTx, hashCache, i,
+			inputValue, bobPkScript, txscript.SigHashAll, b.privKey,
 			true)
 		if err != nil {
 			return nil, err
 		}
 
-		bobSigs = append(bobSigs, sigScript)
+		inputScript := &InputScript{Witness: witness}
+		bobInputScripts = append(bobInputScripts, inputScript)
 	}
 
-	return bobSigs, nil
+	return bobInputScripts, nil
 }
 
 // signCommitTx generates a raw signature required for generating a spend from
 // the funding transaction.
-func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte) ([]byte, error) {
-	return txscript.RawTxInSignature(commitTx, 0, fundingScript,
-		txscript.SigHashAll, b.privKey)
+func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte,
+	channelValue int64) ([]byte, error) {
+
+	hashCache := txscript.NewTxSigHashes(commitTx)
+
+	return txscript.RawTxInWitnessSignature(commitTx, hashCache, 0,
+		channelValue, fundingScript, txscript.SigHashAll, b.privKey)
 }
 
 // newBobNode generates a test "ln node" to interact with Alice (us). For the
@@ -136,12 +144,13 @@ func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
 
 	// Next, generate an output redeemable by bob.
-	bobAddrPk, err := btcutil.NewAddressPubKey(privKey.PubKey().SerializeCompressed(),
+	pkHash := btcutil.Hash160(pubKey.SerializeCompressed())
+	bobAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		pkHash,
 		miner.ActiveNet)
 	if err != nil {
 		return nil, err
 	}
-	bobAddr := bobAddrPk.AddressPubKeyHash()
 	bobAddrScript, err := txscript.PayToAddrScript(bobAddr)
 	if err != nil {
 		return nil, err
@@ -172,8 +181,6 @@ func newBobNode(miner *rpctest.Harness) (*bobNode, error) {
 	}
 
 	prevOut := wire.NewOutPoint(mainTxid, index)
-	// TODO(roasbeef): When the chain rpc is hooked in, assert bob's output
-	// actually exists and it unspent in the chain.
 	bobTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	// Using bobs priv key above, create a change output he can spend.
@@ -208,7 +215,7 @@ func loadTestCredits(miner *rpctest.Harness, w *LightningWallet, numOutputs, btc
 	addrs := make([]btcutil.Address, 0, numOutputs)
 	for i := 0; i < numOutputs; i++ {
 		// Grab a fresh address from the wallet to house this output.
-		walletAddr, err := w.NewAddress(waddrmgr.DefaultAccountNum)
+		walletAddr, err := w.NewAddress(waddrmgr.DefaultAccountNum, waddrmgr.WitnessPubKey)
 		if err != nil {
 			return err
 		}
@@ -284,7 +291,7 @@ func createTestWallet(miningNode *rpctest.Harness, netParams *chaincfg.Params) (
 	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	cdb, err := channeldb.Create(dbDir)
+	cdb, err := channeldb.Open(dbDir, &chaincfg.SegNet4Params)
 	if err != nil {
 		return "", nil, err
 	}
@@ -318,7 +325,7 @@ func testBasicWalletReservationWorkFlow(miner *rpctest.Harness, lnwallet *Lightn
 	// BTC total. He also generates 2 BTC in change.
 	fundingAmount := btcutil.Amount(5 * 1e8)
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, bobNode.id, 4)
+		bobNode.id, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -405,7 +412,8 @@ func testBasicWalletReservationWorkFlow(miner *rpctest.Harness, lnwallet *Lightn
 	}
 	commitSig, err := bobNode.signCommitTx(
 		chanReservation.partialState.OurCommitTx,
-		chanReservation.partialState.FundingRedeemScript)
+		chanReservation.partialState.FundingRedeemScript,
+		10e8)
 	if err != nil {
 		t.Fatalf("bob is unable to sign alice's commit tx: %v", err)
 	}
@@ -434,12 +442,12 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness, lnwallet *Light
 	//  * also func for below
 	fundingAmount := btcutil.Amount(8 * 1e8)
 	chanReservation1, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
 	chanReservation2, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 2: %v", err)
 	}
@@ -470,7 +478,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness, lnwallet *Light
 	// this should fail.
 	amt := btcutil.Amount(8 * 1e8)
 	failedReservation, err := lnwallet.InitChannelReservation(amt,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -486,7 +494,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness, lnwallet *Lig
 	// Create a reservation for 12 BTC.
 	fundingAmount := btcutil.Amount(12 * 1e8)
 	chanReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -500,7 +508,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness, lnwallet *Lig
 
 	// Attempt to create another channel with 12 BTC, this should fail.
 	failedReservation, err := lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err != coinset.ErrCoinsNoSelectionAvailable {
 		t.Fatalf("coin selection succeded should have insufficient funds: %+v",
 			failedReservation)
@@ -529,7 +537,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness, lnwallet *Lig
 
 	// Request to fund a new channel should now succeeed.
 	_, err = lnwallet.InitChannelReservation(fundingAmount,
-		SIGHASH, testHdSeed, 4)
+		testHdSeed, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -537,7 +545,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness, lnwallet *Lig
 
 func testCancelNonExistantReservation(miner *rpctest.Harness, lnwallet *LightningWallet, t *testing.T) {
 	// Create our own reservation, give it some ID.
-	res := newChannelReservation(SIGHASH, 1000, 5000, lnwallet, 22)
+	res := newChannelReservation(1000, 5000, lnwallet, 22)
 
 	// Attempt to cancel this reservation. This should fail, we know
 	// nothing of it.
@@ -576,7 +584,6 @@ func clearWalletState(w *LightningWallet) {
 }
 
 func TestLightningWallet(t *testing.T) {
-	// TODO(roasbeef): switch to testnetL later
 	netParams := &chaincfg.SimNetParams
 
 	// Initialize the harness around a btcd node which will serve as our

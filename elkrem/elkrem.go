@@ -3,7 +3,7 @@ package elkrem
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 /* elkrem is a simpler alternative to the 64 dimensional sha-chain.

@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 /* Serialization and Deserialization methods for the Elkrem structs.

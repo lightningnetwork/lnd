@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/elkrem"
+	"github.com/roasbeef/btcutil"
 )
 
 var (

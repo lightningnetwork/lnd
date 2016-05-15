@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/bloom"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/bloom"
 )
 
 var (

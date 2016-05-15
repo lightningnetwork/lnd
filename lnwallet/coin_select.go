@@ -3,10 +3,10 @@ package lnwallet
 import (
 	"encoding/hex"
 
-	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/coinset"
+	"github.com/roasbeef/btcd/btcjson"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/coinset"
 )
 
 // lnCoin represents a single unspet output. Its purpose is to convert a regular

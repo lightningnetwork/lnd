@@ -2,7 +2,7 @@ package lnwire
 
 import (
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/roasbeef/btcd/btcec"
 	"io"
 )
 

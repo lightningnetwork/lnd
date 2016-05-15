@@ -3,9 +3,9 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
 	"io/ioutil"
 	"reflect"
 	"testing"

@@ -7,8 +7,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // OpenPV starts a

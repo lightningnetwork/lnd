@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // 4-byte network + 4-byte message id + payload-length 4-byte

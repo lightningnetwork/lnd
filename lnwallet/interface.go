@@ -1,9 +1,9 @@
 package lnwallet
 
 import (
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 // WalletController defines an abstract interface for controlling a local Pure

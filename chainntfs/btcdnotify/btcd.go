@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcrpcclient"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/roasbeef/btcd/btcjson"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcutil"
 )
 
 // BtcdNotifier implements the ChainNotifier interface using btcd's websockets

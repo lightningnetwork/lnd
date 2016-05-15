@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/uspv"
 )

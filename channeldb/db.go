@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg"
 )
 
 const (

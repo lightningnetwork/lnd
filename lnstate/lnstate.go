@@ -2,15 +2,15 @@ package lnstate
 
 import (
 	"fmt"
-	//"github.com/btcsuite/btcd/btcec"
+	//"github.com/roasbeef/btcd/btcec"
 	//"atomic"
 	"sync"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 //This is a state machine which allows for simultaneous high-volume

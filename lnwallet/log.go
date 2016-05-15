@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btclog"
-	btcwallet "github.com/btcsuite/btcwallet/wallet"
+	btcwallet "github.com/roasbeef/btcwallet/wallet"
 )
 
 // log is a logger that is initialized with no output filters.  This

@@ -3,7 +3,7 @@ package uspv
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 func MakeMerkleParent(left *wire.ShaHash, right *wire.ShaHash) *wire.ShaHash {

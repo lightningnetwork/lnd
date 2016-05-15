@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/fastsha256"
 	"github.com/codahale/chacha20poly1305"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcutil"
 )
 
 // Listener...

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcutil"
 )
 
 /* findpre - find the pre-image for a given hash

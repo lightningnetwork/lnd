@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/howeyc/gopass"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcutil/hdkeychain"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/scrypt"
 )

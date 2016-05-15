@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/ripemd160"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcutil"
 )
 
 var (

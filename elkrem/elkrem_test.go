@@ -3,7 +3,7 @@ package elkrem
 import (
 	"testing"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // TestElkremBig makes a height 63 (max size possible) tree and tries 10K hashes

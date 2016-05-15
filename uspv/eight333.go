@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/roasbeef/btcd/wire"
 )
 
 const (

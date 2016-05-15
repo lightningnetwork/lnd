@@ -1,6 +1,6 @@
 package chainntnfs
 
-import "github.com/btcsuite/btcd/wire"
+import "github.com/roasbeef/btcd/wire"
 
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is

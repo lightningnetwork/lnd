@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/blockchain"
+	"github.com/roasbeef/btcd/blockchain"
 
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/roasbeef/btcd/txscript"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/hdkeychain"
 
 	"github.com/boltdb/bolt"
 )

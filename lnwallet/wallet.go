@@ -8,22 +8,22 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/btcjson"
 	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/elkrem"
+	"github.com/roasbeef/btcd/btcjson"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcrpcclient"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/coinset"
-	"github.com/btcsuite/btcutil/txsort"
-	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/waddrmgr"
-	btcwallet "github.com/btcsuite/btcwallet/wallet"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/coinset"
+	"github.com/roasbeef/btcutil/txsort"
+	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/waddrmgr"
+	btcwallet "github.com/roasbeef/btcwallet/wallet"
 )
 
 const (

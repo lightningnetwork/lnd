@@ -9,11 +9,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/fastsha256"
 	"github.com/codahale/chacha20poly1305"
+	"github.com/roasbeef/btcutil"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/roasbeef/btcd/btcec"
 )
 
 // Conn...

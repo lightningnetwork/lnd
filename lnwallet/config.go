@@ -3,8 +3,8 @@ package lnwallet
 import (
 	"path/filepath"
 
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcutil"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -37,9 +37,9 @@ type Config struct {
 
 	DebugLevel string
 
-	RpcHost string // localhost:18334
-	RpcUser string
-	RpcPass string
+	RpcHost  string // localhost:18334
+	RpcUser  string
+	RpcPass  string
 	RpcNoTLS bool
 
 	RPCCert string

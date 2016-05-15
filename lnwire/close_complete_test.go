@@ -1,7 +1,7 @@
 package lnwire
 
 import (
-	// "github.com/btcsuite/btcutil"
+	// "github.com/roasbeef/btcutil"
 	"testing"
 )
 

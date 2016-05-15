@@ -7,12 +7,12 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcd/btcec"
 
-	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 // server...

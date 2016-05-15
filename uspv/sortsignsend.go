@@ -6,12 +6,12 @@ import (
 	"log"
 	"sort"
 
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/bloom"
-	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/btcsuite/btcutil/txsort"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/bloom"
+	"github.com/roasbeef/btcutil/hdkeychain"
+	"github.com/roasbeef/btcutil/txsort"
 )
 
 func (s *SPVCon) PongBack(nonce uint64) {

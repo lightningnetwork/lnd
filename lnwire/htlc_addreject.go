@@ -7,7 +7,7 @@ import (
 
 type HTLCAddReject struct {
 	ChannelID uint64
-	HTLCKey HTLCKey
+	HTLCKey   HTLCKey
 }
 
 func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {

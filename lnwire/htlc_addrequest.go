@@ -12,7 +12,8 @@ type HTLCAddRequest struct {
 	ChannelID uint64
 
 	// ID of this request
-	HTLCKey HTLCKey
+	// implicit
+	// HTLCKey HTLCKey
 
 	// When the HTLC expires
 	Expiry uint32
@@ -27,13 +28,14 @@ type HTLCAddRequest struct {
 
 	// Contract Type
 	// first 4 bits is n, second for is m, in n-of-m "multisig"
+	// default is 0.
 	ContractType uint8
 
 	// Redemption Hashes
 	RedemptionHashes []*[20]byte
 
 	// Data to parse&pass on to the next node
-	// Eventually, we need to make this into a group of 2 nested structs?
+	// Nested HTLCAddRequests with a uint32 in front for the size
 	Blob []byte
 }
 

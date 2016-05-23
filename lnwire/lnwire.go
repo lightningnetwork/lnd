@@ -609,33 +609,55 @@ func readElements(r io.Reader, elements ...interface{}) error {
 	return nil
 }
 
-// Validates whether a PkScript byte array is P2SH or P2PKH
-func ValidatePkScript(pkScript PkScript) error {
-	if &pkScript == nil {
-		return fmt.Errorf("PkScript should not be empty!")
-	}
-	if len(pkScript) == 25 {
-		// P2PKH
-		// Begins with OP_DUP OP_HASH160 PUSHDATA(20)
-		if !bytes.Equal(pkScript[0:3], []byte{118, 169, 20}) ||
-			// Ends with OP_EQUALVERIFY OP_CHECKSIG
-			!bytes.Equal(pkScript[23:25], []byte{136, 172}) {
-			// If it's not correct, return error
-			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
-		}
-	} else if len(pkScript) == 23 {
-		// P2SH
-		// Begins with OP_HASH160 PUSHDATA(20)
-		if !bytes.Equal(pkScript[0:2], []byte{169, 20}) ||
-			// Ends with OP_EQUAL
-			!bytes.Equal(pkScript[22:23], []byte{135}) {
-			// If it's not correct, return error
-			return fmt.Errorf("PkScript only allows P2SH or P2PKH")
-		}
-	} else {
-		// Length not 23 or 25
-		return fmt.Errorf("PkScript only allows P2SH or P2PKH")
+// validatePkScript determines if the passed pkScript is a valid pkScript within
+// lnwire. The only pkScript templates that lnwire currently allows are:
+// P2SH, P2WSH, P2PKH, and P2WKH.
+func isValidPkScript(pkScript PkScript) bool {
+	// A nil pkScript is obviously invalid.
+	if pkScript == nil {
+		return false
 	}
 
-	return nil
+	switch len(pkScript) {
+	case 25:
+		// A valid p2pkh script must be exactly 25 bytes. It must begin
+		// with the define prefix, and end with the define suffix.
+		p2pkhPrefix := []byte{txscript.OP_DUP, txscript.OP_HASH160}
+		p2pkhSuffix := []byte{txscript.OP_EQUALVERIFY, txscript.OP_CHECKSIG,
+			txscript.OP_DATA_20}
+		if !bytes.Equal(pkScript[0:3], p2pkhPrefix) ||
+			!bytes.Equal(pkScript[23:25], p2pkhSuffix) {
+			return false
+		}
+	case 22:
+		// P2WKH
+		// A valid P2WKH script must be exactly 22 bytes, with the first
+		// two op codes being an OP_0 marking a version zero witness
+		// program, and the second byte being a 20 byte push data.
+		if pkScript[0] != txscript.OP_0 ||
+			pkScript[1] != txscript.OP_DATA_20 {
+			return false
+		}
+	case 23:
+		// A valid P2SH script must begin with OP_HASH160 PUSHDATA(20),
+		// contain 20 bytes, then end with an OP_EQUAL.
+		p2shPrefix := []byte{txscript.OP_HASH160, txscript.OP_DATA_20}
+		p2shSuffix := []byte{txscript.OP_EQUAL}
+		if !bytes.Equal(pkScript[0:2], p2shPrefix) ||
+			!bytes.Equal(pkScript[22:23], p2shSuffix) {
+			return false
+		}
+	case 34:
+		// A P2WSH script must be exactly 34 bytes, with the first two
+		// op codes being an OP_0 marking a version zero witness program,
+		// and the second byte being a 32 byte push data.
+		if pkScript[0] != txscript.OP_0 ||
+			pkScript[1] != txscript.OP_DATA_32 {
+			return false
+		}
+	default:
+		return false
+	}
+
+	return true
 }

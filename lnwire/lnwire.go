@@ -4,37 +4,60 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"io"
-	"io/ioutil"
 )
 
-var MAX_SLICE_LENGTH = 65535
+// MaxSliceLength is the maximum allowed lenth for any opaque byte slices in
+// the wire protocol.
+const MaxSliceLength = 65535
 
-// Actual pkScript, not redeemScript
+// PkScript is simple type definition which represents a raw serialized public
+// key script.
 type PkScript []byte
 
+// HTLCKey is an identifier used to uniquely identify any HTLC's transmitted
+// between Alice and Bob. In order to cancel, timeout, or settle HTLC's this
+// identifier should be used to allow either side to easily locate and modify
+// any staged or pending HTLCs.
+// TODO(roasbeef): change to HTLCIdentifier?
 type HTLCKey int64
+
+// CommitHeight is an integer which represents the highest HTLCKey seen by
+// either side within their commitment transaction. Any addition to the pending,
+// HTLC lists on either side will increment this height. As a result this value
+// should always be monotonically increasing. Any CommitSignature or
+// CommitRevocation messages will reference a value for the commitment height
+// up to which it covers. HTLC's are only explicltly excluded by sending
+// HTLCReject messages referencing a particular HTLCKey.
 type CommitHeight uint64
 
-// Subsatoshi amount (Micro-Satoshi, 1/1000th)
-// Should be a signed int to account for negative fees
+// CreditsAmount are the native currency unit used within the Lightning Network.
+// Credits are denominated in sub-satoshi amounts, so micro-satoshis (1/1000).
+// This value is purposefully signed in order to allow the expression of negative
+// fees.
 //
 // "In any science-fiction movie, anywhere in the galaxy, currency is referred
 // to as 'credits.'"
 // 	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
 // 	glossary. Andrews McMeel. p. 172.
 //
-// https:// en.wikipedia.org/wiki/List_of_fictional_currencies
-// https:// en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
-// http:// tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
-type CreditsAmount int64 // Credits (XCB, accountants should use XCB :^)
+// https://en.wikipedia.org/wiki/List_of_fictional_currencies
+// https://en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
+// http://tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
 // US Display format: 1 BTC = 100,000,000'000 XCB
 // Or in BTC = 1.00000000'000
+// Credits (XCB, accountants should use XCB :^)
+type CreditsAmount int64
 
-//Rounds down
+// ToSatoshi converts an amount in Credits to the coresponding amount
+// expressed in Satoshis.
+//
+// NOTE: This function rounds down by default (floor).
 func (c CreditsAmount) ToSatoshi() int64 {
 	return int64(c / 1000)
 }

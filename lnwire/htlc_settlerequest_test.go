@@ -7,8 +7,8 @@ import (
 var (
 	// Need to to do this here
 	_                     = copy(redemptionHash[:], redemptionHashBytes)
-	emptyRedemptionProofs = []*[20]byte{}
-	redemptionProofs      = append(emptyRedemptionProofs, &redemptionHash)
+	emptyRedemptionProofs = [][20]byte{}
+	redemptionProofs      = append(emptyRedemptionProofs, redemptionHash)
 
 	htlcSettleRequest = &HTLCSettleRequest{
 		ChannelID:        uint64(12345678),

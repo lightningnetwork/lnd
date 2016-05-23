@@ -1,8 +1,9 @@
 package lnwire
 
 import (
-	"github.com/roasbeef/btcutil"
 	"testing"
+
+	"github.com/roasbeef/btcutil"
 )
 
 var (

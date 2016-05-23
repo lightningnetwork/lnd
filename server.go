@@ -209,6 +209,8 @@ func (s *server) listener(l net.Listener) {
 		srvrLog.Tracef("New inbound connection from %v", conn.RemoteAddr())
 		peer := newPeer(conn, s)
 		peer.Start()
+
+		s.newPeers <- peer
 	}
 
 	s.wg.Done()

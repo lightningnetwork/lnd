@@ -2,9 +2,10 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
-	"io"
 )
 
 type FundingSignComplete struct {

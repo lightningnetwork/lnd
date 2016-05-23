@@ -8,18 +8,16 @@ var (
 	// Need to to do this here
 	_                     = copy(revocationHash[:], revocationHashBytes)
 	_                     = copy(redemptionHash[:], redemptionHashBytes)
-	emptyRedemptionHashes = []*[20]byte{}
-	redemptionHashes      = append(emptyRedemptionHashes, &redemptionHash)
+	emptyRedemptionHashes = [][20]byte{}
+	redemptionHashes      = append(emptyRedemptionHashes, redemptionHash)
 
 	htlcAddRequest = &HTLCAddRequest{
 		ChannelID:        uint64(12345678),
-		HTLCKey:          HTLCKey(12345),
 		Expiry:           uint32(144),
 		Amount:           CreditsAmount(123456000),
 		ContractType:     uint8(17),
 		RedemptionHashes: redemptionHashes,
-
-		Blob: []byte{255, 0, 255, 0, 255, 0, 255, 0},
+		Blob:             []byte{255, 0, 255, 0, 255, 0, 255, 0},
 	}
 	htlcAddRequestSerializedString = "0000000000bc614e00000000000030390000009000000000075bca001100015b315ebabb0d8c0d94281caa2dfee69a1a00436e0008ff00ff00ff00ff00"
 

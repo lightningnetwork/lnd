@@ -11,7 +11,7 @@ var (
 
 	commitRevocation = &CommitRevocation{
 		ChannelID:          uint64(12345678),
-		RevocationProof:    revocationHash, // technically it's not a hash... fix later
+		Revocation:         revocationHash, // technically it's not a hash... fix later
 		NextRevocationHash: nextHop,        // technically it's not a hash... fix later
 	}
 	commitRevocationSerializedString  = "0000000000bc614e4132b6b48371f7b022a16eacb9b2b0ebee134d4194a9ded5a30fc5944cb1e2cbcd980f30616a1440"

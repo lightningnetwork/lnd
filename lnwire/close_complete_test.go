@@ -1,15 +1,13 @@
 package lnwire
 
 import (
-	// "github.com/roasbeef/btcutil"
 	"testing"
 )
 
 var (
 	closeComplete = &CloseComplete{
-		ReservationID:     uint64(12345678),
+		ChannelID:         uint64(12345678),
 		ResponderCloseSig: commitSig,
-		CloseShaHash:      shaHash1,
 	}
 	closeCompleteSerializedString  = "0000000000bc614e4630440220333835e58e958f5e92b4ff4e6fa2470dac88094c97506b4d6d1f4e23e52cb481022057483ac18d6b9c9c14f0c626694c9ccf8b27b3dbbedfdf6b6c9a9fa9f427a1dfe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	closeCompleteSerializedMessage = "0709110b000001360000006f0000000000bc614e4630440220333835e58e958f5e92b4ff4e6fa2470dac88094c97506b4d6d1f4e23e52cb481022057483ac18d6b9c9c14f0c626694c9ccf8b27b3dbbedfdf6b6c9a9fa9f427a1dfe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

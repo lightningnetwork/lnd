@@ -1,13 +1,14 @@
 package lnwire
 
 import (
-	"github.com/roasbeef/btcutil"
 	"testing"
+
+	"github.com/roasbeef/btcutil"
 )
 
 var (
 	closeRequest = &CloseRequest{
-		ReservationID:     uint64(12345678),
+		ChannelID:         uint64(12345678),
 		RequesterCloseSig: commitSig,
 		Fee:               btcutil.Amount(12345),
 	}

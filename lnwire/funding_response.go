@@ -2,10 +2,11 @@ package lnwire
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"io"
 )
 
 type FundingResponse struct {
@@ -134,8 +135,6 @@ func (c *FundingResponse) MaxPayloadLength(uint32) uint32 {
 
 // Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
 func (c *FundingResponse) Validate() error {
-	var err error
-
 	// No negative values
 	if c.ResponderFundingAmount < 0 {
 		return fmt.Errorf("ResponderFundingAmount cannot be negative")
@@ -160,15 +159,16 @@ func (c *FundingResponse) Validate() error {
 	}
 
 	// Delivery PkScript is either P2SH or P2PKH
-	err = ValidatePkScript(c.DeliveryPkScript)
-	if err != nil {
-		return err
+	if !isValidPkScript(c.DeliveryPkScript) {
+		return fmt.Errorf("Valid delivery public key scripts MUST be: " +
+			"P2PKH, P2WKH, P2SH, or P2WSH.")
 	}
 
 	// Change PkScript is either P2SH or P2PKH
-	err = ValidatePkScript(c.ChangePkScript)
-	if err != nil {
-		return err
+	if !isValidPkScript(c.ChangePkScript) {
+		// TODO(roasbeef): move into actual error
+		return fmt.Errorf("Valid change public key scripts MUST be: " +
+			"P2PKH, P2WKH, P2SH, or P2WSH.")
 	}
 
 	// We're good!

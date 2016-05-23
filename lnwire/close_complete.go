@@ -2,28 +2,41 @@ package lnwire
 
 import (
 	"fmt"
+
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 
 	"io"
 )
 
+// CloseComplete is sent by Bob signalling a fufillment and completion of
+// Alice's prior CloseRequest message. After Alice receives Bob's CloseComplete
+// message, she is able to broadcast the fully signed transaction executing a
+// cooperative closure of the channel.
+//
+// NOTE: The responder is able to only send a signature without any additional
+// message as all transactions are assembled observing BIP 69 which defines a
+// cannonical ordering for input/outputs. Therefore, both sides are able to
+// arrive at an identical closure transaction as they know the order of the
+// inputs/outputs.
 type CloseComplete struct {
-	ReservationID uint64
+	// ChannelID serves to identify which channel is to be closed.
+	ChannelID uint64
 
-	ResponderCloseSig *btcec.Signature // Requester's Commitment
-	CloseShaHash      *wire.ShaHash    // TxID of the Close Tx
+	// ResponderCloseSig is the signature of the responder for the
+	// transaction which closes the previously active channel.
+	ResponderCloseSig *btcec.Signature
 }
 
+// Decode deserializes a serialized CloseComplete message stored in the passed
+// io.Reader observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
-	// ReservationID (8)
+	// ChannelID (8)
 	// ResponderCloseSig (73)
-	// 	First byte length then sig
-	// CloseShaHash (32)
 	err := readElements(r,
-		&c.ReservationID,
-		&c.ResponderCloseSig,
-		&c.CloseShaHash)
+		&c.ChannelID,
+		&c.ResponderCloseSig)
 	if err != nil {
 		return err
 	}
@@ -31,21 +44,26 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Creates a new CloseComplete
+// NewCloseComplete creates a new empty CloseComplete message.
+// TODO(roasbeef): add params to all constructors...
 func NewCloseComplete() *CloseComplete {
 	return &CloseComplete{}
 }
 
-// Serializes the item from the CloseComplete struct
-// Writes the data to w
+// A compile time check to ensure CloseComplete implements the lnwire.Message
+// interface.
+var _ Message = (*CloseComplete)(nil)
+
+// Encode serializes the target CloseComplete into the passed io.Writer observing
+// the protocol version specified.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
-	// ReservationID
-	// ResponderCloseSig
-	// CloseShaHash
+	// ChannelID (8)
+	// ResponderCloseSig (73)
 	err := writeElements(w,
-		c.ReservationID,
-		c.ResponderCloseSig,
-		c.CloseShaHash)
+		c.ChannelID,
+		c.ResponderCloseSig)
 	if err != nil {
 		return err
 	}
@@ -53,34 +71,43 @@ func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
 	return nil
 }
 
+// Command returns the integer uniquely identifying this message type on the
+// wire.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) Command() uint32 {
 	return CmdCloseComplete
 }
 
+// MaxPayloadLength returns the maximum allowed payload size for a CloseComplete
+// complete message observing the specified protocol version.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
 	// 8 + 73 + 32
 	return 113
 }
 
-// Makes sure the struct data is valid (e.g. no negatives or invalid pkscripts)
+// Validate performs any necessary sanity checks to ensure all fields present
+// on the CloseComplete are valid.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) Validate() error {
 	// We're good!
 	return nil
 }
 
+// String returns the string representation of the target CloseComplete.
+//
+// This is part of the lnwire.Message interface.
 func (c *CloseComplete) String() string {
 	var serializedSig []byte
-	var shaString string
-	if c.ResponderCloseSig != nil && c.ResponderCloseSig.R != nil {
+	if c.ResponderCloseSig != nil {
 		serializedSig = c.ResponderCloseSig.Serialize()
-	}
-	if c.CloseShaHash != nil {
-		shaString = (*c).CloseShaHash.String()
 	}
 
 	return fmt.Sprintf("\n--- Begin CloseComplete ---\n") +
-		fmt.Sprintf("ReservationID:\t\t%d\n", c.ReservationID) +
+		fmt.Sprintf("ReservationID:\t\t%d\n", c.ChannelID) +
 		fmt.Sprintf("ResponderCloseSig:\t%x\n", serializedSig) +
-		fmt.Sprintf("CloseShaHash:\t\t%s\n", shaString) +
 		fmt.Sprintf("--- End CloseComplete ---\n")
 }

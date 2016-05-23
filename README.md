@@ -2,9 +2,9 @@
 
 This repo is preliminary work on a lightning network peer-to-peer node and wallet.
 
-It currently is being designed for testnet-L, a test network where all txids are normalized.  The plan is to eventually use the agreed longer-term solution (segwit?), but we want to not be concerned with updates to segwit, so we're running with this.  Normalized txids fixes malleability but isn't something that will/can be integrated to the existing bitcoin network cleanly (so it's a good way to ensure testing-only before segwit is finalized, which solves the problem too).
+It's currently being tested on Segnet4, where malleability has been solved with segwit.
 
-This version of Lnd is not yet fully-operational, but a proof of concept on testnet-L will likely exist soon.  The projection is it will be operational before the necessary malleability soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
+This version of Lnd is not yet fully-operational, but a proof of concept on Segnet4 will likely exist soon.  The projection is it will be operational before the necessary malleability soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
 
 Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lightning transactions will be fast, but for now, please wait just a little bit.
 

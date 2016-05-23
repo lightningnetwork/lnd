@@ -3,12 +3,13 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
 	"io/ioutil"
 	"reflect"
 	"testing"
+
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // Common variables and functions for the message tests
@@ -16,7 +17,7 @@ import (
 var (
 	// For debugging, writes to /dev/shm/
 	// Maybe in the future do it if you do "go test -v"
-	WRITE_FILE = true
+	WRITE_FILE = false
 	filename   = "/dev/shm/serialized.raw"
 
 	// preimage: 9a2cbd088763db88dd8ba79e5726daa6aba4aa7e
@@ -57,7 +58,7 @@ var (
 	shaHash2, _      = wire.NewShaHash(shaHash2Bytes)
 	outpoint2        = wire.NewOutPoint(shaHash2, 1)
 	// create inputs from outpoint1 and outpoint2
-	inputs = []*wire.TxIn{wire.NewTxIn(outpoint1, nil), wire.NewTxIn(outpoint2, nil)}
+	inputs = []*wire.TxIn{wire.NewTxIn(outpoint1, nil, nil), wire.NewTxIn(outpoint2, nil, nil)}
 
 	// Commitment Signature
 	tx           = wire.NewMsgTx()

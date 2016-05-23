@@ -1,17 +1,17 @@
 # lnd - Lightning Network Daemon
 
-This repo is preliminary work on a lightning network peer-to-peer node and wallet.
+This repo is preliminary work on a [Lightning Network](http://lightning.network/) peer-to-peer node and wallet.
 
 It currently is being designed for testnet-L, a test network where all txids are normalized.  The plan is to eventually use the agreed longer-term solution (segwit?), but we want to not be concerned with updates to segwit, so we're running with this.  Normalized txids fixes malleability but isn't something that will/can be integrated to the existing bitcoin network cleanly (so it's a good way to ensure testing-only before segwit is finalized, which solves the problem too).
 
-This version of Lnd is not yet fully-operational, but a proof of concept on testnet-L will likely exist soon.  The projection is it will be operational before the necessary malleability soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
+This version of `lnd` is not yet fully-operational, but a proof of concept on testnet-L will likely exist soon.  The projection is it will be operational before the necessary malleability soft-forks are into bitcoin mainnet (may be significantly before if there are any delays in mainnet malleability fix).
 
 Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lightning transactions will be fast, but for now, please wait just a little bit.
 
 ## Installation
 
 * If necessary, install Go according to the installation instructions here: http://golang.org/doc/install. It is recommended to add `$GOPATH/bin` to your `PATH` at this point.
-* Run the following command to obtain and install lnd, lncli, lnshell and all dependencies:
+* Run the following command to obtain and install `lnd`, `lncli`, `lnshell` and all dependencies:
 
 ```
 go get -u -v github.com/lightningnetwork/lnd/...
@@ -23,17 +23,17 @@ go get -u -v github.com/lightningnetwork/lnd/...
 
 A package centered around a generic interface for receiving transaction/confirmation based notifications concerning the blockchain. Such notifications are required in order for pending payment channels to be notified once the funding transaction gains a specified number of confirmations, and in order to catch a counter-party attempting a non-cooperative close using a past commitment transaction to steal funds.
 
-At the moment, it only has a single concrete implementation: using btcd's websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more.
+At the moment, it only has a single concrete implementation: using [btcd](https://github.com/btcsuite/btcd)'s websockets notifications. However, more implementations of the interface are planned, such as electrum, polling via JSON-RPC, Bitcoin Core's ZeroMQ notifications, and more.
 
 ### channeldb
 
-lnd's primary datastore. It uses a generic interface defined in [walletdb](https://godoc.org/github.com/btcsuite/btcwallet/walletdb) allowing for usage of any storage backend which adheres to the interface. The current concrete implementation used is driven by [bolt](https://github.com/boltdb/bolt). `channeldb` is responsible for storing state such as meta-data concerning the current open channels, closed channels, past routes we used, fee schedules within the network, and information about remote peers (ID, uptime, reputation, etc).
+`lnd`'s primary datastore. It uses a generic interface defined in [walletdb](https://godoc.org/github.com/btcsuite/btcwallet/walletdb) allowing for usage of any storage backend which adheres to the interface. The current concrete implementation used is driven by [bolt](https://github.com/boltdb/bolt). `channeldb` is responsible for storing state such as meta-data concerning the current open channels, closed channels, past routes we used, fee schedules within the network, and information about remote peers (ID, uptime, reputation, etc).
 
 ### cmd / lncli
-A command line to query and control a running lnd.  Similar to bitcoin-cli
+A command line to query and control a running `lnd`.  Similar to bitcoin-cli.
 
 ### cmd / lnshell
-Interactive shell for commands to direct the lnd node.  Will probably be merged into lnd soon as a command line option.
+Interactive shell for commands to direct the `lnd` node.  Will probably be merged into `lnd` soon as a command line option.
 
 ### elkrem
 Library to send and receive a tree structure of hashes which can be sequentially revealed.  If you want to send N secrets, you only need to send N secrets (no penalty there) but the receiver only needs to store log2(N) hashes, and can quickly compute any previous secret from those.
@@ -45,9 +45,10 @@ Library for authenticated encrypted communication between LN nodes.  It uses cha
 
 ### lnrpc
 
-lnd's RPC interface. Currently [gRPC](http://www.grpc.io/), a high-performance RPC framework is used. gRPC provides features such as a stub-based client interface in several languages, streaming RPCs, payload agnostic request/response handling, and more. In addition to gRPC, lnd will also offer a basic REST-based http RPC interface. For now, connections are not encrypted, or authenticated. For authentication, [macaroons](http://research.google.com/pubs/pub41892.html) will likely be integrated due to their simplicity, flexibility, and expressiveness.
+`lnd`'s RPC interface. Currently [gRPC](http://www.grpc.io/), a high-performance RPC framework is used. gRPC provides features such as a stub-based client interface in several languages, streaming RPCs, payload agnostic request/response handling, and more. In addition to gRPC, `lnd` will also offer a basic REST-based http RPC interface. For now, connections are not encrypted, or authenticated. For authentication, [macaroons](http://research.google.com/pubs/pub41892.html) will likely be integrated due to their simplicity, flexibility, and expressiveness.
 
 ### lnstate
+
 In-progress update which improves current implementation of channel state machine to allow for higher throughput.
 
 ### lnwallet
@@ -62,3 +63,14 @@ An implementation of Rusty Russell's [64-dimensional shachain](https://github.co
 
 ### uspv
 Wallet library to connect to bitcoin nodes and build a local SPV and wallet transaction state.
+
+## Other Lightning Network implementations
+
+As an analogy, Bitcoin has multiple [full node](https://en.bitcoin.it/wiki/Full_node) implementations written in different programming languages—as long as they follow the same protocol, they are all completely compatible. For example, there is of course the original and most well-known [Bitcoin Core](https://github.com/bitcoin/bitcoin) (C++) software, but there's also [btcd](https://github.com/btcsuite/btcd) (Go), and [Toshi](https://github.com/coinbase/toshi) (Ruby), to name a couple of alternative implementations. Similarly, `lnd` is a Go implementation of the Lightning Network that is being worked on by (amongst [others](https://github.com/LightningNetwork/lnd/graphs/contributors)) the original authors of [the Lightning Network whitepaper](http://lightning.network/lightning-network-paper.pdf), but fully compatible alternatives are also being worked on by different teams of people.
+
+Other implementations of the Lightning Network include:
+
+* [ElementsProject/lightning](https://github.com/ElementsProject/lightning) (C)
+* [hashplex/Lightning](https://github.com/hashplex/Lightning) (Python)
+* [matsjj/thundernetwork](https://github.com/matsjj/thundernetwork) (Java)
+* [ACINQ/eclair](https://github.com/ACINQ/eclair) (Scala)

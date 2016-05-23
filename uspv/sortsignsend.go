@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -124,7 +125,7 @@ func (s *SPVCon) SendOne(u Utxo, adr btcutil.Address) error {
 
 	var prevPKs []byte
 	if u.IsWit {
-		tx.Flags = 0x01
+		//tx.Flags = 0x01
 		wa, err := btcutil.NewAddressWitnessPubKeyHash(
 			s.TS.Adrs[u.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
 		prevPKs, err = txscript.PayToAddrScript(wa)
@@ -143,7 +144,7 @@ func (s *SPVCon) SendOne(u Utxo, adr btcutil.Address) error {
 
 	var sig []byte
 	var wit [][]byte
-	hCache := txscript.CalcHashCache(tx, 0, txscript.SigHashAll)
+	hCache := txscript.NewTxSigHashes(tx)
 
 	child, err := s.TS.rootPrivKey.Child(u.KeyIdx + hdkeychain.HardenedKeyStart)
 
@@ -251,7 +252,7 @@ func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
 		// these are all zeroed out during signing but it's an easy way to keep track
 		var prevPKs []byte
 		if utxo.IsWit {
-			tx.Flags = 0x01
+			//tx.Flags = 0x01
 			wa, err := btcutil.NewAddressWitnessPubKeyHash(
 				s.TS.Adrs[utxo.KeyIdx].PkhAdr.ScriptAddress(), s.TS.Param)
 			prevPKs, err = txscript.PayToAddrScript(wa)
@@ -315,7 +316,7 @@ func (s *SPVCon) SendCoins(adrs []btcutil.Address, sendAmts []int64) error {
 
 	// generate tx-wide hashCache for segwit stuff
 	// middle index number doesn't matter for sighashAll.
-	hCache := txscript.CalcHashCache(tx, 0, txscript.SigHashAll)
+	hCache := txscript.NewTxSigHashes(tx)
 
 	for i, txin := range tx.TxIn {
 		// pick key
@@ -408,7 +409,7 @@ func EstFee(otx *wire.MsgTx, spB int64) int64 {
 		}
 	}
 	fmt.Printf(TxToString(tx))
-	size := int64(tx.VirtualSize())
+	size := int64(blockchain.GetTxVirtualSize(btcutil.NewTx(tx)))
 	fmt.Printf("%d spB, est vsize %d, fee %d\n", spB, size, size*spB)
 	return size * spB
 }

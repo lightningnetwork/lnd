@@ -30,7 +30,7 @@ const (
 )
 
 var (
-	Params = &chaincfg.SegNetParams
+	Params = &chaincfg.SegNet4Params
 	SCon   uspv.SPVCon // global here for now
 )
 

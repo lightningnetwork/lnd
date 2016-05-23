@@ -486,7 +486,7 @@ func (ts *TxStore) Ingest(tx *wire.MsgTx, height int32) (uint32, error) {
 
 		// if hits is nonzero it's a relevant tx and we should store it
 		var buf bytes.Buffer
-		tx.SerializeWitness(&buf) // always store witness version
+		tx.Serialize(&buf)
 		err = txns.Put(cachedSha.Bytes(), buf.Bytes())
 		if err != nil {
 			return err

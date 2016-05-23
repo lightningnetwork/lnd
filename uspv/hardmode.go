@@ -26,7 +26,7 @@ func BlockOK(blk wire.MsgBlock) bool {
 
 	for _, tx := range blk.Transactions { // make slice of (w)/txids
 		txid := tx.TxSha()
-		wtxid := tx.WTxSha()
+		wtxid := tx.WitnessHash()
 		if !witMode && !txid.IsEqual(&wtxid) {
 			witMode = true
 		}

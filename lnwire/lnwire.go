@@ -178,7 +178,7 @@ func writeElement(w io.Writer, element interface{}) error {
 
 		// Then write each out sequentially.
 		for _, element := range e {
-			if err := writeElement(w, &element); err != nil {
+			if err := writeElement(w, element); err != nil {
 				return err
 			}
 		}

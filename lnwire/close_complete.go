@@ -27,6 +27,16 @@ type CloseComplete struct {
 	ResponderCloseSig *btcec.Signature
 }
 
+// NewCloseComplete creates a new empty CloseComplete message.
+// TODO(roasbeef): add params to all constructors...
+func NewCloseComplete() *CloseComplete {
+	return &CloseComplete{}
+}
+
+// A compile time check to ensure CloseComplete implements the lnwire.Message
+// interface.
+var _ Message = (*CloseComplete)(nil)
+
 // Decode deserializes a serialized CloseComplete message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -43,16 +53,6 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 
 	return nil
 }
-
-// NewCloseComplete creates a new empty CloseComplete message.
-// TODO(roasbeef): add params to all constructors...
-func NewCloseComplete() *CloseComplete {
-	return &CloseComplete{}
-}
-
-// A compile time check to ensure CloseComplete implements the lnwire.Message
-// interface.
-var _ Message = (*CloseComplete)(nil)
 
 // Encode serializes the target CloseComplete into the passed io.Writer observing
 // the protocol version specified.

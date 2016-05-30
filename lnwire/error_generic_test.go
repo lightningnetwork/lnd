@@ -1,32 +1,33 @@
 package lnwire
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 )
 
-var (
-	errorGeneric = &ErrorGeneric{
+func TestErrorGenericEncodeDecode(t *testing.T) {
+	eg := &ErrorGeneric{
 		ChannelID: uint64(12345678),
+		ErrorID:   99,
 		Problem:   "Hello world!",
 	}
-	errorGenericSerializedString  = "0000000000bc614e000c48656c6c6f20776f726c6421"
-	errorGenericSerializedMessage = "0709110b00000fa0000000160000000000bc614e000c48656c6c6f20776f726c6421"
-)
 
-func TestErrorGenericEncodeDecode(t *testing.T) {
-	// All of these types being passed are of the message interface type
-	// Test serialization, runs: message.Encode(b, 0)
-	// Returns bytes
-	// Compares the expected serialized string from the original
-	s := SerializeTest(t, errorGeneric, errorGenericSerializedString, filename)
+	// Next encode the EG message into an empty bytes buffer.
+	var b bytes.Buffer
+	if err := eg.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode ErrorGeneric: %v", err)
+	}
 
-	// Test deserialization, runs: message.Decode(s, 0)
-	// Makes sure the deserialized struct is the same as the original
-	newMessage := NewErrorGeneric()
-	DeserializeTest(t, s, newMessage, errorGeneric)
+	// Deserialize the encoded EG message into a new empty struct.
+	eg2 := &ErrorGeneric{}
+	if err := eg2.Decode(&b, 0); err != nil {
+		t.Fatalf("unable to decode ErrorGeneric: %v", err)
+	}
 
-	// Test message using Message interface
-	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
-	MessageSerializeDeserializeTest(t, errorGeneric, errorGenericSerializedMessage)
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(eg, eg2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			eg, eg2)
+	}
 }

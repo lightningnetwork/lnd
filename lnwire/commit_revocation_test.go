@@ -1,37 +1,36 @@
 package lnwire
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 )
 
-var (
-	// Need to to do this here
-	_ = copy(revocationHash[:], revocationHashBytes)
-	_ = copy(nextHop[:], nextHopBytes)
-
-	commitRevocation = &CommitRevocation{
-		ChannelID:          uint64(12345678),
-		Revocation:         revocationHash, // technically it's not a hash... fix later
-		NextRevocationHash: nextHop,        // technically it's not a hash... fix later
-	}
-	commitRevocationSerializedString  = "0000000000bc614e4132b6b48371f7b022a16eacb9b2b0ebee134d4194a9ded5a30fc5944cb1e2cbcd980f30616a1440"
-	commitRevocationSerializedMessage = "0709110b000007da000000300000000000bc614e4132b6b48371f7b022a16eacb9b2b0ebee134d4194a9ded5a30fc5944cb1e2cbcd980f30616a1440"
-)
-
 func TestCommitRevocationEncodeDecode(t *testing.T) {
-	// All of these types being passed are of the message interface type
-	// Test serialization, runs: message.Encode(b, 0)
-	// Returns bytes
-	// Compares the expected serialized string from the original
-	s := SerializeTest(t, commitRevocation, commitRevocationSerializedString, filename)
+	copy(revocationHash[:], revocationHashBytes)
+	copy(nextHop[:], nextHopBytes)
 
-	// Test deserialization, runs: message.Decode(s, 0)
-	// Makes sure the deserialized struct is the same as the original
-	newMessage := NewCommitRevocation()
-	DeserializeTest(t, s, newMessage, commitRevocation)
+	cr := &CommitRevocation{
+		ChannelID:          uint64(12345678),
+		Revocation:         revocationHash,
+		NextRevocationHash: nextHop,
+	}
 
-	// Test message using Message interface
-	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
-	MessageSerializeDeserializeTest(t, commitRevocation, commitRevocationSerializedMessage)
+	// Next encode the CR message into an empty bytes buffer.
+	var b bytes.Buffer
+	if err := cr.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode CommitRevocation: %v", err)
+	}
+
+	// Deserialize the encoded EG message into a new empty struct.
+	cr2 := &CommitRevocation{}
+	if err := cr2.Decode(&b, 0); err != nil {
+		t.Fatalf("unable to decode CommitRevocation: %v", err)
+	}
+
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(cr, cr2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			cr, cr2)
+	}
 }

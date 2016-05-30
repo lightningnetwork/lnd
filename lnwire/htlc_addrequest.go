@@ -45,10 +45,6 @@ type HTLCAddRequest struct {
 	// length of this slice should be N.
 	RedemptionHashes [][20]byte
 
-	// Data to parse&pass on to the next node
-	// Nested HTLCAddRequests with a uint32 in front for the size
-	Blob []byte
-
 	// OnionBlob is the raw serialized mix header used to route an HTLC in
 	// a privacy-preserving manner. The mix header is defined currently to
 	// be parsed as a 4-tuple: (groupElement, routingInfo, headerMAC, body).
@@ -62,6 +58,15 @@ type HTLCAddRequest struct {
 	OnionBlob []byte
 }
 
+// NewHTLCAddRequest returns a new empty HTLCAddRequest message.
+func NewHTLCAddRequest() *HTLCAddRequest {
+	return &HTLCAddRequest{}
+}
+
+// A compile time check to ensure HTLCAddRequest implements the lnwire.Message
+// interface.
+var _ Message = (*HTLCAddRequest)(nil)
+
 // Decode deserializes a serialized HTLCAddRequest message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -72,7 +77,6 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 	// Amount(4)
 	// ContractType(1)
 	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	// Blob(2+blobsize)
 	// OnionBlog
 	err := readElements(r,
 		&c.ChannelID,
@@ -80,7 +84,6 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 		&c.Amount,
 		&c.ContractType,
 		&c.RedemptionHashes,
-		&c.Blob,
 		&c.OnionBlob,
 	)
 	if err != nil {
@@ -89,15 +92,6 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 
 	return nil
 }
-
-// NewHTLCAddRequest returns a new empty HTLCAddRequest message.
-func NewHTLCAddRequest() *HTLCAddRequest {
-	return &HTLCAddRequest{}
-}
-
-// A compile time check to ensure HTLCAddRequest implements the lnwire.Message
-// interface.
-var _ Message = (*HTLCAddRequest)(nil)
 
 // Encode serializes the target HTLCAddRequest into the passed io.Writer observing
 // the protocol version specified.
@@ -110,7 +104,6 @@ func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 		c.Amount,
 		c.ContractType,
 		c.RedemptionHashes,
-		c.Blob,
 		c.OnionBlob,
 	)
 	if err != nil {
@@ -169,7 +162,6 @@ func (c *HTLCAddRequest) String() string {
 		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionHashes +
-		fmt.Sprintf("Blob:\t\t\t\t%x\n", c.Blob) +
 		fmt.Sprintf("OnionBlob:\t\t\t\t%x\n", c.OnionBlob) +
 		fmt.Sprintf("--- End HTLCAddRequest ---\n")
 }

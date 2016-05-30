@@ -1,17 +1,18 @@
 package lnwire
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/roasbeef/btcutil"
 )
 
-var (
-	// Need to do this here
-	_ = copy(revocationHash[:], revocationHashBytes)
+func TestFundingRequestEncodeDecode(t *testing.T) {
+	copy(revocationHash[:], revocationHashBytes)
 
 	// funding request
-	fundingRequest = &FundingRequest{
+	fr := &FundingRequest{
 		ReservationID:          uint64(12345678),
 		ChannelType:            uint8(0),
 		RequesterFundingAmount: btcutil.Amount(100000000),
@@ -28,24 +29,22 @@ var (
 		ChangePkScript:         changePkScript,
 		Inputs:                 inputs,
 	}
-	fundingRequestSerializedString  = "0000000000bc614e000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000000000012d68700000006000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac1976a914238ee44bb5c8c1314dd03974a17ec6c406fdcb8388ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
-	fundingRequestSerializedMessage = "0709110b000000c8000000ec0000000000bc614e000000000005f5e1000000000008f0d1804132b6b48371f7b022a16eacb9b2b0ebee134d4102f977808cb9577897582d7524b562691e180953dd0008eb44e09594c539d6daee00000000000200000000000000004e20000000000012d68700000006000010e0001976a914e8048c0fb75bdecc91ebfb99c174f4ece29ffbd488ac1976a914238ee44bb5c8c1314dd03974a17ec6c406fdcb8388ac02e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b8550000000001ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b00000001"
-)
 
-func TestFundingRequestEncodeDecode(t *testing.T) {
-	// All of these types being passed are of the message interface type
-	// Test serialization, runs: message.Encode(b, 0)
-	// Returns bytes
-	// Compares the expected serialized string from the original
-	s := SerializeTest(t, fundingRequest, fundingRequestSerializedString, filename)
+	// Next encode the FR message into an empty bytes buffer.
+	var b bytes.Buffer
+	if err := fr.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode FundingRequest: %v", err)
+	}
 
-	// Test deserialization, runs: message.Decode(s, 0)
-	// Makes sure the deserialized struct is the same as the original
-	newMessage := NewFundingRequest()
-	DeserializeTest(t, s, newMessage, fundingRequest)
+	// Deserialize the encoded FR message into a new empty struct.
+	fr2 := &FundingRequest{}
+	if err := fr2.Decode(&b, 0); err != nil {
+		t.Fatalf("unable to decode FundingRequest: %v", err)
+	}
 
-	// Test message using Message interface
-	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
-	MessageSerializeDeserializeTest(t, fundingRequest, fundingRequestSerializedMessage)
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(fr, fr2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			fr, fr2)
+	}
 }

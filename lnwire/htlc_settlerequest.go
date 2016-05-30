@@ -27,6 +27,21 @@ type HTLCSettleRequest struct {
 	RedemptionProofs [][20]byte
 }
 
+// NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
+func NewHTLCSettleRequest(chanID uint64, key HTLCKey,
+	redemptionProofs [][20]byte) *HTLCSettleRequest {
+
+	return &HTLCSettleRequest{
+		ChannelID:        chanID,
+		HTLCKey:          key,
+		RedemptionProofs: redemptionProofs,
+	}
+}
+
+// A compile time check to ensure HTLCSettleRequest implements the lnwire.Message
+// interface.
+var _ Message = (*HTLCSettleRequest)(nil)
+
 // Decode deserializes a serialized HTLCSettleRequest message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -34,12 +49,7 @@ type HTLCSettleRequest struct {
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelID(8)
 	// HTLCKey(8)
-	// Expiry(4)
-	// Amount(4)
-	// NextHop(20)
-	// ContractType(1)
-	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
-	// Blob(2+blobsize)
+	// RedemptionProofs(N*20)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.HTLCKey,
@@ -52,17 +62,10 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
-func NewHTLCSettleRequest() *HTLCSettleRequest {
-	return &HTLCSettleRequest{}
-}
-
-// A compile time check to ensure HTLCSettleRequest implements the lnwire.Message
-// interface.
-var _ Message = (*HTLCSettleRequest)(nil)
-
-// Serializes the item from the HTLCSettleRequest struct
-// Writes the data to w
+// Encode serializes the target HTLCSettleRequest into the passed io.Writer
+// observing the protocol version specified.
+//
+// This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,

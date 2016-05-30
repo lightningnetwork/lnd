@@ -33,6 +33,15 @@ type CommitSignature struct {
 	CommitSig *btcec.Signature
 }
 
+// NewCommitSignature creates a new empty CommitSignature message.
+func NewCommitSignature() *CommitSignature {
+	return &CommitSignature{}
+}
+
+// A compile time check to ensure CommitSignature implements the lnwire.Message
+// interface.
+var _ Message = (*CommitSignature)(nil)
+
 // Decode deserializes a serialized CommitSignature message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -52,15 +61,6 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 
 	return nil
 }
-
-// NewCommitSignature creates a new empty CommitSignature message.
-func NewCommitSignature() *CommitSignature {
-	return &CommitSignature{}
-}
-
-// A compile time check to ensure CommitSignature implements the lnwire.Message
-// interface.
-var _ Message = (*CommitSignature)(nil)
 
 // Encode serializes the target CommitSignature into the passed io.Writer
 // observing the protocol version specified.

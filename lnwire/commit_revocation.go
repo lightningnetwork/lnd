@@ -30,14 +30,25 @@ type CommitRevocation struct {
 	NextRevocationHash [20]byte
 }
 
+// NewCommitRevocation creates a new CommitRevocation message.
+func NewCommitRevocation() *CommitRevocation {
+	return &CommitRevocation{}
+}
+
+// A compile time check to ensure CommitRevocation implements the lnwire.Message
+// interface.
+var _ Message = (*CommitRevocation)(nil)
+
 // Decode deserializes a serialized CommitRevocation message stored in the
 // passed io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
+	// ChannelID (8)
 	// NextRevocationHash (20)
 	// Revocation (20)
 	err := readElements(r,
+		&c.ChannelID,
 		&c.NextRevocationHash,
 		&c.Revocation,
 	)
@@ -48,21 +59,13 @@ func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// NewCommitRevocation creates a new CommitRevocation message.
-func NewCommitRevocation() *CommitRevocation {
-	return &CommitRevocation{}
-}
-
-// A compile time check to ensure CommitRevocation implements the lnwire.Message
-// interface.
-var _ Message = (*CommitRevocation)(nil)
-
 // Encode serializes the target CommitRevocation into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
+		c.ChannelID,
 		c.NextRevocationHash,
 		c.Revocation,
 	)

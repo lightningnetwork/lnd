@@ -5,6 +5,20 @@ import (
 	"io"
 )
 
+// ChannelPoint represents a unique state update within currently active
+// channel. A channel update across all open chnnels can be uniquely identified
+// by a two-tuple: (fundingTXID, HTLCKey). All explicit updates to an open
+// channel will reference a ChannelPoint to apply the update to.
+type ChannelPoint struct {
+	// ChannelID references the particular active channel to which this
+	// HTLCAddReject message is binded to.
+	ChannelID uint64
+
+	// HTLCKey is used to identify which HTLC previously attempted to be
+	// added via an HTLCAddRequest message is being declined.
+	HTLCKey HTLCKey
+}
+
 // HTLCAddReject is sent by Bob when he wishes to reject a particular HTLC that
 // Alice attempted to add via an HTLCAddRequest message. The rejected HTLC is
 // referenced by its unique HTLCKey ID. An HTLCAddReject message is bound to a

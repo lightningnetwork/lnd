@@ -173,9 +173,7 @@ func discardInput(r io.Reader, n uint32) {
 
 // WriteMessage writes a lightning Message to w including the necessary header
 // information and returns the number of bytes written.
-func WriteMessage(w io.Writer, msg Message, pver uint32,
-	btcnet wire.BitcoinNet) (int, error) {
-
+func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet) (int, error) {
 	totalBytes := 0
 
 	cmd := msg.Command()

@@ -200,6 +200,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if sliceLength > MaxSliceLength {
 			return fmt.Errorf("Slice length too long!")
 		}
+
+		if err := wire.WriteVarBytes(w, 0, e); err != nil {
+			return err
+		}
 	case PkScript:
 		// Make sure it's P2PKH or P2SH size or less.
 		scriptLength := len(e)
@@ -249,6 +253,21 @@ func writeElement(w io.Writer, element interface{}) error {
 		// Then the exact index of the previous out point.
 		var idx [4]byte
 		binary.BigEndian.PutUint32(idx[:], e.PreviousOutPoint.Index)
+		if _, err := w.Write(idx[:]); err != nil {
+			return err
+		}
+	case wire.OutPoint:
+		// TODO(roasbeef): consolidate with above
+		// First write out the previous txid.
+		var h [32]byte
+		copy(h[:], e.Hash[:])
+		if _, err := w.Write(h[:]); err != nil {
+			return err
+		}
+
+		// Then the exact index of this output.
+		var idx [4]byte
+		binary.BigEndian.PutUint32(idx[:], e.Index)
 		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
@@ -478,6 +497,25 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
+	case *wire.OutPoint:
+		// TODO(roasbeef): consolidate with above
+		var h [32]byte
+		if _, err = io.ReadFull(r, h[:]); err != nil {
+			return err
+		}
+		hash, err := wire.NewShaHash(h[:])
+		if err != nil {
+			return err
+		}
+		(*e).Hash = *hash
+
+		// Index
+		var idxBytes [4]byte
+		_, err = io.ReadFull(r, idxBytes[:])
+		if err != nil {
+			return err
+		}
+		(*e).Index = binary.BigEndian.Uint32(idxBytes[:])
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

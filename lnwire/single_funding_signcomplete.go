@@ -16,9 +16,20 @@ type SingleFundingSignComplete struct {
 	// the initiated single funder workflow.
 	ChannelID uint64
 
-	// CommitmentSignature is Bobs's signature for Alice's version of the
+	// CommitSignature is Bobs's signature for Alice's version of the
 	// commitment transaction.
-	CommitmentSignature *btcec.Signature
+	CommitSignature *btcec.Signature
+}
+
+// NewSingleFundingSignComplete creates a new empty SingleFundingSignComplete
+// message.
+func NewSingleFundingSignComplete(chanID uint64,
+	sig *btcec.Signature) *SingleFundingSignComplete {
+
+	return &SingleFundingSignComplete{
+		ChannelID:       chanID,
+		CommitSignature: sig,
+	}
 }
 
 // Decode deserializes the serialized SingleFundingSignComplete stored in the
@@ -31,18 +42,12 @@ func (c *SingleFundingSignComplete) Decode(r io.Reader, pver uint32) error {
 	// CommitmentSignature (73)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.CommitmentSignature)
+		&c.CommitSignature)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// NewSingleFundingSignComplete creates a new empty SingleFundingSignComplete
-// message.
-func NewSingleFundingSignComplete() *SingleFundingSignComplete {
-	return &SingleFundingSignComplete{}
 }
 
 // Encode serializes the target SingleFundingSignComplete into the passed
@@ -53,7 +58,7 @@ func NewSingleFundingSignComplete() *SingleFundingSignComplete {
 func (c *SingleFundingSignComplete) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
-		c.CommitmentSignature)
+		c.CommitSignature)
 	if err != nil {
 		return err
 	}
@@ -84,7 +89,7 @@ func (c *SingleFundingSignComplete) MaxPayloadLength(uint32) uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingSignComplete) Validate() error {
-	if s.CommitmentSignature == nil {
+	if s.CommitSignature == nil {
 		return fmt.Errorf("commitment signature must be non-nil")
 	}
 
@@ -98,6 +103,6 @@ func (s *SingleFundingSignComplete) Validate() error {
 func (c *SingleFundingSignComplete) String() string {
 	return fmt.Sprintf("\n--- Begin FundingSignComplete ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("CommitmentSignature\t\t%s\n", c.CommitmentSignature) +
+		fmt.Sprintf("CommitSignature\t\t%s\n", c.CommitSignature) +
 		fmt.Sprintf("--- End FundingSignComplete ---\n")
 }

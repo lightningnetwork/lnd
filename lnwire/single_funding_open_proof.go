@@ -25,6 +25,15 @@ type SingleFundingOpenProof struct {
 	SpvProof []byte
 }
 
+// NewSingleFundingSignComplete creates a new empty SingleFundingOpenProof
+// message.
+func NewSingleFundingOpenProof(chanID uint64, spvProof []byte) *SingleFundingOpenProof {
+	return &SingleFundingOpenProof{
+		ChannelID: chanID,
+		SpvProof:  spvProof,
+	}
+}
+
 // Decode deserializes the serialized SingleFundingOpenProof stored in the
 // passed io.Reader into the target SingleFundingOpenProof using the
 // deserialization rules defined by the passed protocol version.
@@ -41,12 +50,6 @@ func (s *SingleFundingOpenProof) Decode(r io.Reader, pver uint32) error {
 	}
 
 	return nil
-}
-
-// NewSingleFundingSignComplete creates a new empty SingleFundingOpenProof
-// message.
-func NewSingleFundingOpenProof() *SingleFundingOpenProof {
-	return &SingleFundingOpenProof{}
 }
 
 // Encode serializes the target SingleFundingOpenProof into the passed

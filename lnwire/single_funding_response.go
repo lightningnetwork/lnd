@@ -38,6 +38,19 @@ type SingleFundingResponse struct {
 	DeliveryPkScript PkScript
 }
 
+// NewSingleFundingResponse creates, and returns a new empty
+// SingleFundingResponse.
+func NewSingleFundingResponse(chanID uint64, revocation [20]byte,
+	cdp *btcec.PublicKey, deliveryScript PkScript) *SingleFundingResponse {
+
+	return &SingleFundingResponse{
+		ChannelID:              chanID,
+		RevocationHash:         revocation,
+		ChannelDerivationPoint: cdp,
+		DeliveryPkScript:       deliveryScript,
+	}
+}
+
 // Decode deserializes the serialized SingleFundingResponse stored in the passed
 // io.Reader into the target SingleFundingResponse using the deserialization
 // rules defined by the passed protocol version.
@@ -58,12 +71,6 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	}
 
 	return nil
-}
-
-// NewSingleFundingResponse creates, and returns a new empty
-// SingleFundingResponse.
-func NewSingleFundingResponse() *SingleFundingResponse {
-	return &SingleFundingResponse{}
 }
 
 // Encode serializes the target SingleFundingResponse into the passed io.Writer

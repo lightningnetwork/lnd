@@ -24,9 +24,21 @@ type SingleFundingComplete struct {
 	// signature for Alice's version of the commitment transaction.
 	FundingOutPoint wire.OutPoint
 
-	// CommitmentSignature is Alice's signature for Bob's version of the
+	// CommitSignature is Alice's signature for Bob's version of the
 	// commitment transaction.
-	CommitmentSignature *btcec.Signature
+	CommitSignature *btcec.Signature
+}
+
+// NewSingleFundingComplete creates, and returns a new empty
+// SingleFundingResponse.
+func NewSingleFundingComplete(chanID uint64, fundingPoint wire.OutPoint,
+	commitSig *btcec.Signature) *SingleFundingComplete {
+
+	return &SingleFundingComplete{
+		ChannelID:       chanID,
+		FundingOutPoint: fundingPoint,
+		CommitSignature: commitSig,
+	}
 }
 
 // Decode deserializes the serialized SingleFundingComplete stored in the passed
@@ -41,7 +53,7 @@ func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 	err := readElements(r,
 		&s.ChannelID,
 		&s.FundingOutPoint,
-		&s.CommitmentSignature)
+		&s.CommitSignature)
 	if err != nil {
 		return err
 	}
@@ -61,18 +73,12 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		s.ChannelID,
 		s.FundingOutPoint,
-		s.CommitmentSignature)
+		s.CommitSignature)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-// NewSingleFundingComplete creates, and returns a new empty
-// SingleFundingResponse.
-func NewSingleFundingComplete() *SingleFundingComplete {
-	return &SingleFundingComplete{}
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a
@@ -104,7 +110,7 @@ func (s *SingleFundingComplete) Validate() error {
 		return fmt.Errorf("funding outpoint hash must be non-zero")
 	}
 
-	if s.CommitmentSignature == nil {
+	if s.CommitSignature == nil {
 		return fmt.Errorf("commitment signature must be non-nil")
 	}
 
@@ -119,6 +125,6 @@ func (s *SingleFundingComplete) String() string {
 	return fmt.Sprintf("\n--- Begin SingleFundingComplete ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", s.ChannelID) +
 		fmt.Sprintf("FundingOutPoint:\t\t\t%x\n", s.FundingOutPoint) +
-		fmt.Sprintf("CommitmentSignature\t\t\t\t%x\n", s.CommitmentSignature) +
+		fmt.Sprintf("CommitSignature\t\t\t\t%x\n", s.CommitSignature) +
 		fmt.Sprintf("--- End SingleFundingComplete ---\n")
 }

@@ -74,6 +74,23 @@ type SingleFundingRequest struct {
 	// TODO(roasbeef): confirmation depth
 }
 
+// NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
+func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
+	fee btcutil.Amount, delay uint32, cdp *btcec.PublicKey, revocation [20]byte,
+	deliveryScript PkScript) *SingleFundingRequest {
+
+	return &SingleFundingRequest{
+		ChannelID:              chanID,
+		ChannelType:            chanType,
+		CoinType:               coinType,
+		FeePerKb:               fee,
+		CsvDelay:               delay,
+		ChannelDerivationPoint: cdp,
+		RevocationHash:         revocation,
+		DeliveryPkScript:       deliveryScript,
+	}
+}
+
 // Decode deserializes the serialized SingleFundingRequest stored in the passed
 // io.Reader into the target SingleFundingRequest using the deserialization
 // rules defined by the passed protocol version.
@@ -104,11 +121,6 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 	}
 
 	return nil
-}
-
-// NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
-func NewSingleFundingRequest() *SingleFundingRequest {
-	return &SingleFundingRequest{}
 }
 
 // Encode serializes the target SingleFundingRequest into the passed io.Writer

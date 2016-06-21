@@ -27,6 +27,12 @@ type ChainNotifier interface {
 	// *seen* on the network, not when it has received a single confirmation.
 	RegisterSpendNtfn(outpoint *wire.OutPoint) (*SpendEvent, error)
 
+	// RegisterBlockEpochNtfn registers an intent to be notified of each
+	// new block connected to the tip of the main chain. The returned
+	// BlockEpochEvent struct contains a channel which will be sent upon
+	// for each new block discovered.
+	RegisterBlockEpochNtfn(targetHeight int32) (*BlockEpochEvent, error)
+
 	// Start the ChainNotifier. Once started, the implementation should be
 	// ready, and able to receive notification registrations from clients.
 	Start() error
@@ -41,6 +47,8 @@ type ChainNotifier interface {
 // TODO(roasbeef): ln channels should request spend ntfns for counterparty's
 // inputs to funding tx also, consider channel closed if funding tx re-org'd
 // out and inputs double spent.
+
+// TODO(roasbeef): all chans should be receive only.
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
@@ -81,4 +89,18 @@ type SpendDetail struct {
 // spent on the blockchain.
 type SpendEvent struct {
 	Spend chan *SpendDetail // MUST be buffered.
+}
+
+// BlockEpoch represents meta-data concerning each new block connected to the
+// main chain.
+type BlockEpoch struct {
+	Height int32
+	Hash   *wire.ShaHash
+}
+
+// BlockEpochEvent encapsulates an on-going stream of block epoch
+// notifications. Its only field 'Epoochs' will be sent upon for each new block
+// connected to the main-chain.
+type BlockEpochEvent struct {
+	Epochs chan *BlockEpoch // MUST be buffered.
 }

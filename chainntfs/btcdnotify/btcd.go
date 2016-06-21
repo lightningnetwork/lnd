@@ -352,3 +352,11 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 		NegativeConf: ntfn.negativeConf,
 	}, nil
 }
+
+// RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
+// caller to receive notificationsm, of each new block connected to the main
+// chain.
+func (b *BtcdNotifier) RegisterBlockEpochNtfn(targetHeight int32) (*chainntnfs.BlockEpochEvent, error) {
+	// TODO(roasbeef): implement
+	return nil, nil
+}

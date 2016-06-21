@@ -10,6 +10,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/wire"
 )
 
 const (
@@ -129,8 +130,8 @@ func fileExists(path string) bool {
 }
 
 // FetchOpenChannel...
-func (d *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
-	var channel *OpenChannel
+func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
+	var channels []*OpenChannel
 	err := d.store.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
@@ -139,13 +140,39 @@ func (d *DB) FetchOpenChannel(nodeID [32]byte) (*OpenChannel, error) {
 			return fmt.Errorf("open channel bucket does not exist")
 		}
 
-		oChannel, err := fetchOpenChannel(openChanBucket, nodeID, d.cryptoSystem)
+		// Within this top level bucket, fetch the bucket dedicated to storing
+		// open channel data specific to the remote node.
+		nodeChanBucket := openChanBucket.Bucket(nodeID[:])
+		if nodeChanBucket == nil {
+			return nil
+		}
+
+		// Once we have the node's channel bucket, iterate through each
+		// item in the inner chan ID bucket. This bucket acts as an
+		// index for all channels we currently have open with this node.
+		nodeChanIDBucket := nodeChanBucket.Bucket(chanIDBucket[:])
+		err := nodeChanIDBucket.ForEach(func(k, v []byte) error {
+			outBytes := bytes.NewReader(k)
+			chanID := &wire.OutPoint{}
+			if err := readOutpoint(outBytes, chanID); err != nil {
+				return err
+			}
+
+			oChannel, err := fetchOpenChannel(openChanBucket,
+				nodeChanBucket, chanID, d.cryptoSystem)
+			if err != nil {
+				return err
+			}
+
+			channels = append(channels, oChannel)
+			return nil
+		})
 		if err != nil {
 			return err
 		}
-		channel = oChannel
+
 		return nil
 	})
 
-	return channel, err
+	return channels, err
 }

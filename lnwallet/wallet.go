@@ -452,104 +452,21 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	ourContribution.CsvDelay = req.csvDelay
 	reservation.partialState.LocalCsvDelay = req.csvDelay
 
-	// We hold the coin select mutex while querying for outputs, and
-	// performing coin selection in order to avoid inadvertent double spends
-	// accross funding transactions.
-	// NOTE: We don't use defer her so we can properly release the lock
-	// when we encounter an error condition.
-	l.coinSelectMtx.Lock()
-
-	// TODO(roasbeef): check if balance is insufficient, if so then select
-	// on two channels, one is a time.After that will bail out with
-	// insuffcient funds, the other is a notification that the balance has
-	// been updated make(chan struct{}, 1).
-
-	// Find all unlocked unspent witness outputs with greater than 6
-	// confirmations.
-	// TODO(roasbeef): make 6 a config paramter?
-	unspentOutputs, err := l.ListUnspentWitness(6)
-	if err != nil {
-		l.coinSelectMtx.Unlock()
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Convert the outputs to coins for coin selection below.
-	coins, err := outputsToCoins(unspentOutputs)
-	if err != nil {
-		l.coinSelectMtx.Unlock()
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Peform coin selection over our available, unlocked unspent outputs
-	// in order to find enough coins to meet the funding amount requirements.
-	//
-	// TODO(roasbeef): Should extend coinset with optimal coin selection
-	// heuristics for our use case.
-	// TODO(roasbeef): factor in fees..
-	// TODO(roasbeef): possibly integrate the fee prediction project? if
-	// results hold up...
-	// NOTE: this current selection assumes "priority" is still a thing.
-	selector := &coinset.MaxValueAgeCoinSelector{
-		MaxInputs:       10,
-		MinChangeAmount: 10000,
-	}
-	selectedCoins, err := selector.CoinSelect(req.fundingAmount, coins)
-	if err != nil {
-		l.coinSelectMtx.Unlock()
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Lock the selected coins. These coins are now "reserved", this
-	// prevents concurrent funding requests from referring to and this
-	// double-spending the same set of coins.
-	ourContribution.Inputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
-	for i, coin := range selectedCoins.Coins() {
-		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
-		l.LockOutpoint(*txout)
-
-		// Empty sig script, we'll actually sign if this reservation is
-		// queued up to be completed (the other side accepts).
-		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
-		ourContribution.Inputs[i] = wire.NewTxIn(outPoint, nil, nil)
-	}
-
-	l.coinSelectMtx.Unlock()
-
-	// Create some possibly neccessary change outputs.
-	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()
-	if selectedTotalValue > req.fundingAmount {
-		ourContribution.ChangeOutputs = make([]*wire.TxOut, 1)
-		// Change is necessary. Query for an available change address to
-		// send the remainder to.
-		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum,
-			waddrmgr.WitnessPubKey)
-		if err != nil {
+	// If we're on the receiving end of a single funder channel then we
+	// don't need to perform any coin selection. Otherwise, attempt to
+	// obtain enough coins to meet the required funding amount.
+	if req.fundingAmount != 0 {
+		if err := l.selectCoinsAndChange(req.fundingAmount, ourContribution); err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
 		}
 
-		changeAddrScript, err := txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			req.err <- err
-			req.resp <- nil
-			return
-		}
-
-		changeAmount := selectedTotalValue - req.fundingAmount
 		ourContribution.ChangeOutputs[0] = wire.NewTxOut(int64(changeAmount),
 			changeAddrScript)
 	}
 
-	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
-
-	// Grab two fresh keys from out HD chain, one will be used for the
+	// Grab two fresh keys from our HD chain, one will be used for the
 	// multi-sig funding transaction, and the other for the commitment
 	// transaction.
 	multiSigKey, err := l.getNextRawKey()
@@ -1092,6 +1009,103 @@ func (l *LightningWallet) ListUnspentWitness(minConfs int32) ([]*btcjson.ListUns
 	}
 
 	return witnessOutputs, nil
+}
+
+// selectCoinsAndChange performs coin selection in order to obtain witness
+// outputs which sum to at least 'numCoins' amount of satoshis. If coin
+// selection is succesful/possible, then the selected coins are available within
+// the passed contribution's inputs. If necessary, a change address will also be
+// generated.
+// TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
+func (l *LightningWallet) selectCoinsAndChange(numCoins btcutil.Amount,
+	contribution *ChannelContribution) error {
+
+	// We hold the coin select mutex while querying for outputs, and
+	// performing coin selection in order to avoid inadvertent double spends
+	// accross funding transactions.
+	// NOTE: We don't use defer her so we can properly release the lock
+	// when we encounter an error condition.
+	l.coinSelectMtx.Lock()
+
+	// TODO(roasbeef): check if balance is insufficient, if so then select
+	// on two channels, one is a time.After that will bail out with
+	// insuffcient funds, the other is a notification that the balance has
+	// been updated make(chan struct{}, 1).
+
+	// Find all unlocked unspent witness outputs with greater than 1
+	// confirmation.
+	// TODO(roasbeef): make num confs a configuration paramter
+	unspentOutputs, err := l.ListUnspentWitness(1)
+	if err != nil {
+		l.coinSelectMtx.Unlock()
+		return err
+	}
+
+	// Convert the outputs to coins for coin selection below.
+	coins, err := outputsToCoins(unspentOutputs)
+	if err != nil {
+		l.coinSelectMtx.Unlock()
+		return err
+	}
+
+	// Peform coin selection over our available, unlocked unspent outputs
+	// in order to find enough coins to meet the funding amount requirements.
+	//
+	// TODO(roasbeef): Should extend coinset with optimal coin selection
+	// heuristics for our use case.
+	// NOTE: this current selection assumes "priority" is still a thing.
+	selector := &coinset.MaxValueAgeCoinSelector{
+		MaxInputs:       10,
+		MinChangeAmount: 10000,
+	}
+	// TODO(roasbeef): don't hardcode fee...
+	totalWithFee := numCoins + 10000
+	selectedCoins, err := selector.CoinSelect(totalWithFee, coins)
+	if err != nil {
+		l.coinSelectMtx.Unlock()
+		return err
+	}
+
+	// Lock the selected coins. These coins are now "reserved", this
+	// prevents concurrent funding requests from referring to and this
+	// double-spending the same set of coins.
+	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
+	for i, coin := range selectedCoins.Coins() {
+		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
+		l.LockOutpoint(*txout)
+
+		// Empty sig script, we'll actually sign if this reservation is
+		// queued up to be completed (the other side accepts).
+		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
+		contribution.Inputs[i] = wire.NewTxIn(outPoint, nil, nil)
+	}
+
+	l.coinSelectMtx.Unlock()
+
+	// Create some possibly neccessary change outputs.
+	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()
+	if selectedTotalValue > totalWithFee {
+		// Change is necessary. Query for an available change address to
+		// send the remainder to.
+		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
+		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum,
+			waddrmgr.WitnessPubKey)
+		if err != nil {
+			return err
+		}
+
+		changeAddrScript, err := txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return err
+		}
+
+		changeAmount := selectedTotalValue - totalWithFee
+		contribution.ChangeOutputs[0] = wire.NewTxOut(int64(changeAmount),
+			changeAddrScript)
+	}
+
+	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
+	return nil
 }
 
 type WaddrmgrEncryptorDecryptor struct {

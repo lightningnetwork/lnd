@@ -149,16 +149,66 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	rpcsLog.Debugf("Connected to peer: %v", peerAddr.String())
 	return &lnrpc.ConnectPeerResponse{peerID}, nil
 }
+
+// OpenChannel attempts to open a singly funded channel specified in the
+// request to a remote peer.
+func (r *rpcServer) OpenChannel(ctx context.Context,
+	in *lnrpc.OpenChannelRequest) (*lnrpc.OpenChannelResponse, error) {
+
+	rpcsLog.Tracef("Recieved request to openchannel to peerid(%v) "+
+		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
+		in.LocalFundingAmount, in.RemoteFundingAmount, in.NumConfs)
+
+	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
+	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+	target := in.TargetPeerId
+	numConfs := in.NumConfs
+	resp, err := r.server.OpenChannel(target, localFundingAmt,
+		remoteFundingAmt, numConfs)
 	if err != nil {
+		rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
+			target, err)
 		return nil, err
 	}
 
-	if err := r.server.ConnectToPeer(peerAddr); err != nil {
+	rpcsLog.Tracef("Opened channel with peerid(%v), fundingtxid %v",
+		in.TargetPeerId, resp)
+
+	return &lnrpc.OpenChannelResponse{
+		&lnrpc.ChannelPoint{
+			FundingTxid: resp.Hash[:],
+			OutputIndex: resp.Index,
+		},
+	}, nil
+}
+
+// CloseChannel attempts to close an active channel identified by its channel
+// point. The actions of this method can additionally be augmented to attempt
+// a force close after a timeout period in the case of an inactive peer.
+func (r *rpcServer) CloseChannel(ctx context.Context,
+	in *lnrpc.CloseChannelRequest) (*lnrpc.CloseChannelResponse, error) {
+
+	index := in.ChannelPoint.OutputIndex
+	txid, err := wire.NewShaHash(in.ChannelPoint.FundingTxid)
+	if err != nil {
+		rpcsLog.Errorf("(closechannel) invalid txid: %v", err)
+		return nil, err
+	}
+	targetChannelPoint := wire.NewOutPoint(txid, index)
+
+	rpcsLog.Tracef("Recieved closechannel request for ChannelPoint(%v)",
+		targetChannelPoint)
+
+	resp, err := r.server.CloseChannel(targetChannelPoint)
+	if err != nil {
+		rpcsLog.Errorf("Unable to close ChannelPoint(%v): %v",
+			targetChannelPoint, err)
 		return nil, err
 	}
 
-	rpcsLog.Infof("Connected to peer: %v", peerAddr.String())
-	return &lnrpc.ConnectPeerResponse{[]byte(peerAddr.String())}, nil
+	return &lnrpc.CloseChannelResponse{resp}, nil
+}
+
 // ListPeers returns a verbose listing of all currently active peers.
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {

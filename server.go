@@ -210,6 +210,48 @@ type connectPeerMsg struct {
 type listPeersMsg struct {
 	resp chan []*peer
 }
+
+// openChanReq is a message sent to the server in order to request the
+// initiation of a channel funding workflow to the peer with the specified
+// node ID.
+type openChanReq struct {
+	targetNodeID int32
+	targetNode   *lndc.LNAdr
+
+	// TODO(roasbeef): make enums in lnwire
+	channelType uint8
+	coinType    uint64
+
+	localFundingAmt  btcutil.Amount
+	remoteFundingAmt btcutil.Amount
+
+	numConfs uint32
+
+	resp chan *openChanResp
+	err  chan error
+}
+
+// openChanResp is the response to an openChanReq, it contains the channel
+// point, or outpoint of the broadcast funding transaction.
+type openChanResp struct {
+	chanPoint *wire.OutPoint
+}
+
+// closeChanReq represents a request to close a particular channel specified
+// by its outpoint.
+type closeChanReq struct {
+	chanPoint *wire.OutPoint
+
+	resp chan *closeChanResp
+	err  chan error
+}
+
+// closeChanResp is the response to a closeChanReq is simply houses a boolean
+// value indicating if the channel coopertive channel closure was succesful or not.
+type closeChanResp struct {
+	success bool
+}
+
 // queryHandler is a a goroutine dedicated to handling an queries or requests
 // to mutate the server's global state.
 //
@@ -226,6 +268,10 @@ out:
 				s.handleConnectPeer(msg)
 			case *listPeersMsg:
 				s.handleListPeers(msg)
+			case *openChanReq:
+				s.handleOpenChanReq(msg)
+			case *closeChanReq:
+				s.handleCloseChanReq(msg)
 			}
 		case <-s.quit:
 			break out
@@ -235,7 +281,8 @@ out:
 	s.wg.Done()
 }
 
-// handleListPeers...
+// handleListPeers sends a lice of all currently active peers to the original
+// caller.
 func (s *server) handleListPeers(msg *listPeersMsg) {
 	peers := make([]*peer, 0, len(s.peers))
 	for _, peer := range s.peers {
@@ -312,22 +359,118 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 		msg.err <- nil
 	}()
 }
+
+// handleOpenChanReq first locates the target peer, and if found hands off the
+// request to the funding manager allowing it to initiate the channel funding
+// workflow.
+func (s *server) handleOpenChanReq(req *openChanReq) {
+	// First attempt to locate the target peer to open a channel with, if
+	// we're unable to locate the peer then this request will fail.
+	target := req.targetNodeID
+	var targetPeer *peer
+	for _, peer := range s.peers { // TODO(roasbeef): threadsafe api
+		// We found the the target
+		if target == peer.id {
+			targetPeer = peer
+			break
+		}
 	}
 
-}
-
+	if targetPeer == nil {
+		req.resp <- nil
+		req.err <- fmt.Errorf("unable to find peer %v", target)
 		return
 	}
 
-	}
+	// Spawn a goroutine to send the funding workflow request to the funding
+	// manager. This allows the server to continue handling queries instead of
+	// blocking on this request which is exporeted as a synchronous request to
+	// the outside world.
+	go func() {
+		// TODO(roasbeef): server semaphore to restrict num goroutines
+		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
 
+		req.resp <- &openChanResp{fundingID}
+		req.err <- err
+	}()
 }
 
+// handleCloseChanReq sends a message to the peer responsible for the target
+// channel point, instructing it to initiate a cooperative channel closure.
+func (s *server) handleCloseChanReq(req *closeChanReq) {
+	s.chanIndexMtx.RLock()
+	key := wire.OutPoint{
+		Hash:  req.chanPoint.Hash,
+		Index: req.chanPoint.Index,
+	}
+	targetPeer, ok := s.chanIndex[key]
+	s.chanIndexMtx.RUnlock()
+
+	if !ok {
+		req.resp <- nil
+		req.err <- fmt.Errorf("channel point %v not found", key)
+		return
 	}
 
-	for _, listener := range s.listeners {
+	targetPeer.localCloseChanReqs <- req
+}
+
+// ConnectToPeer requests that the server connect to a Lightning Network peer
+// at the specified address. This function will *block* until either a
+// connection is established, or the initial handshake process fails.
+func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
+	reply := make(chan int32, 1)
+	errChan := make(chan error, 1)
+
+	s.queries <- &connectPeerMsg{addr, reply, errChan}
+
+	return <-reply, <-errChan
+}
+
+// OpenChannel sends a request to the server to open a channel to the specified
+// peer identified by ID with the passed channel funding paramters.
+func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
+	numConfs uint32) (*wire.OutPoint, error) {
+
+	errChan := make(chan error, 1)
+	respChan := make(chan *openChanResp, 1)
+
+	s.queries <- &openChanReq{
+		targetNodeID:     nodeID,
+		localFundingAmt:  localAmt,
+		remoteFundingAmt: remoteAmt,
+		numConfs:         numConfs,
+
+		resp: respChan,
+		err:  errChan,
 	}
 
+	if err := <-errChan; err != nil {
+		return nil, err
+	}
+
+	return (<-respChan).chanPoint, nil
+}
+
+// CloseChannel attempts to close the channel identified by the specified
+// outpoint in a coopertaive manner.
+func (s *server) CloseChannel(channelPoint *wire.OutPoint) (bool, error) {
+	errChan := make(chan error, 1)
+	respChan := make(chan *closeChanResp, 1)
+
+	s.queries <- &closeChanReq{
+		chanPoint: channelPoint,
+
+		resp: respChan,
+		err:  errChan,
+	}
+
+	if err := <-errChan; err != nil {
+		return false, err
+	}
+
+	return (<-respChan).success, nil
+}
 
 // Peers returns a slice of all active peers.
 func (s *server) Peers() []*peer {

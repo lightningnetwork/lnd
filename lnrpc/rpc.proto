@@ -4,6 +4,7 @@ package lnrpc;
 
 service Lightning {
     rpc SendMany(SendManyRequest) returns (SendManyResponse);
+
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 
     rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
@@ -97,6 +98,31 @@ message ListPeersRequest {}
 message ListPeersResponse {
     repeated Peer peers = 1;
 }
+
+message OpenChannelRequest {
+    int32 target_peer_id = 1;
+    LightningAddress target_node = 2;
+
+    int64 local_funding_amount = 3;
+    int64 remote_funding_amount = 4;
+
+    int64 commission_size = 5;
+
+    uint32 num_confs = 6;
+}
+message OpenChannelResponse {
+    ChannelPoint channel_point = 1;
+}
+
+message CloseChannelRequest {
+    ChannelPoint channel_point = 1;
+    int64 time_limit = 2;
+    bool allow_force_close = 3;
+}
+message CloseChannelResponse {
+    bool success = 1;
+}
+
 message WalletBalanceRequest {
     bool witness_only = 1;
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -174,7 +173,6 @@ out:
 	for {
 		select {
 		case msg := <-f.fundingMsgs:
-			fmt.Println("got funding msg: %v", msg)
 			switch fmsg := msg.(type) {
 			case *fundingRequestMsg:
 				f.handleFundingRequest(fmsg)

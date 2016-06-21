@@ -11,7 +11,7 @@ func TestHTLCSettleRequestEncodeDecode(t *testing.T) {
 	copy(redemptionProofs[0][:], bytes.Repeat([]byte{0x09}, 20))
 
 	// First create a new HTLCSR message.
-	settleReq := NewHTLCSettleRequest(22, HTLCKey(23), redemptionProofs)
+	settleReq := NewHTLCSettleRequest(outpoint1, HTLCKey(23), redemptionProofs)
 
 	// Next encode the HTLCSR message into an empty bytes buffer.
 	var b bytes.Buffer

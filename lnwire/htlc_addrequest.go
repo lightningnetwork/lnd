@@ -3,6 +3,8 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // HTLCAddRequest is the message sent by Alice to Bob when she wishes to add an
@@ -13,9 +15,9 @@ import (
 // A subsequent CommitSignature message will move the pending HTLC to the newly
 // created commitment transaction, marking them as "staged".
 type HTLCAddRequest struct {
-	// ChannelID is the particular active channel that this HTLCAddRequest
+	// ChannelPoint is the particular active channel that this HTLCAddRequest
 	// is binded to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// Expiry is the number of blocks after which this HTLC should expire.
 	// It is the receiver's duty to ensure that the outgoing HTLC has a
@@ -72,14 +74,14 @@ var _ Message = (*HTLCAddRequest)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// Expiry(4)
 	// Amount(4)
 	// ContractType(1)
 	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
 	// OnionBlog
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.Expiry,
 		&c.Amount,
 		&c.ContractType,
@@ -99,7 +101,7 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.Expiry,
 		c.Amount,
 		c.ContractType,
@@ -156,7 +158,7 @@ func (c *HTLCAddRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCAddRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
 		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
 		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +

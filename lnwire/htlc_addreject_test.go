@@ -1,32 +1,33 @@
 package lnwire
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 )
 
-var (
-	htlcAddReject = &HTLCAddReject{
-		ChannelID: uint64(12345678),
-		HTLCKey:   HTLCKey(12345),
-	}
-	htlcAddRejectSerializedString  = "0000000000bc614e0000000000003039"
-	htlcAddRejectSerializedMessage = "0709110b000003fc000000100000000000bc614e0000000000003039"
-)
-
 func TestHTLCAddRejectEncodeDecode(t *testing.T) {
-	// All of these types being passed are of the message interface type
-	// Test serialization, runs: message.Encode(b, 0)
-	// Returns bytes
-	// Compares the expected serialized string from the original
-	s := SerializeTest(t, htlcAddReject, htlcAddRejectSerializedString, filename)
+	// First create a new HTLCAR message.
+	rejectReq := &HTLCAddReject{
+		ChannelPoint: outpoint1,
+		HTLCKey:      22,
+	}
 
-	// Test deserialization, runs: message.Decode(s, 0)
-	// Makes sure the deserialized struct is the same as the original
-	newMessage := NewHTLCAddReject()
-	DeserializeTest(t, s, newMessage, htlcAddReject)
+	// Next encode the HTLCAR message into an empty bytes buffer.
+	var b bytes.Buffer
+	if err := rejectReq.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode HTLCSettleRequest: %v", err)
+	}
 
-	// Test message using Message interface
-	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
-	MessageSerializeDeserializeTest(t, htlcAddReject, htlcAddRejectSerializedMessage)
+	// Deserialize the encoded HTLCAR message into a new empty struct.
+	rejectReq2 := &HTLCAddReject{}
+	if err := rejectReq2.Decode(&b, 0); err != nil {
+		t.Fatalf("unable to decode HTLCAddReject: %v", err)
+	}
+
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(rejectReq, rejectReq2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			rejectReq, rejectReq2)
+	}
 }

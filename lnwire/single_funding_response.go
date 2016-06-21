@@ -23,6 +23,15 @@ type SingleFundingResponse struct {
 	// public key.
 	RevocationHash [20]byte
 
+	// CommitmentKey is key the responder to the funding workflow wishes to
+	// use within their versino of the commitment transaction for any
+	// delayed (CSV) or immediate outputs to them.
+	CommitmentKey *btcec.PublicKey
+
+	// CsvDelay is the number of blocks to use for the relative time lock
+	// in the pay-to-self output of both commitment transactions.
+	CsvDelay uint32
+
 	// ChannelDerivationPoint is an secp256k1 point which will be used to
 	// derive the public key the responder will use for the half of the
 	// 2-of-2 multi-sig. Using the channel derivation point (CDP), and the
@@ -41,11 +50,14 @@ type SingleFundingResponse struct {
 // NewSingleFundingResponse creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingResponse(chanID uint64, revocation [20]byte,
-	cdp *btcec.PublicKey, deliveryScript PkScript) *SingleFundingResponse {
+	ck, cdp *btcec.PublicKey, delay uint32,
+	deliveryScript PkScript) *SingleFundingResponse {
 
 	return &SingleFundingResponse{
 		ChannelID:              chanID,
 		RevocationHash:         revocation,
+		CommitmentKey:          ck,
+		CsvDelay:               delay,
 		ChannelDerivationPoint: cdp,
 		DeliveryPkScript:       deliveryScript,
 	}
@@ -64,7 +76,9 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	err := readElements(r,
 		&c.ChannelID,
 		&c.RevocationHash,
+		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
+		&c.CsvDelay,
 		&c.DeliveryPkScript)
 	if err != nil {
 		return err
@@ -86,7 +100,9 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelID,
 		c.RevocationHash,
+		c.CommitmentKey,
 		c.ChannelDerivationPoint,
+		c.CsvDelay,
 		c.DeliveryPkScript)
 	if err != nil {
 		return err
@@ -107,11 +123,11 @@ func (c *SingleFundingResponse) Command() uint32 {
 // SingleFundingResponse. This is calculated by summing the max length of all
 // the fields within a SingleFundingResponse. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 20 + 32 + 25 = 85
+// Therefore, the final breakdown is: 8 + 20 + 33 + 33 + 4 + 25 = 123
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
-	return 85
+	return 123
 }
 
 // Validate examines each populated field within the SingleFundingResponse for
@@ -130,10 +146,10 @@ func (c *SingleFundingResponse) Validate() error {
 	if c.ChannelDerivationPoint == nil {
 		return fmt.Errorf("The channel derivation point must be non-nil")
 	}
-	if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
-		return fmt.Errorf("The channel derivation point must have an odd " +
-			"y-coordinate")
-	}
+	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
+	//	return fmt.Errorf("The channel derivation point must have an odd " +
+	//		"y-coordinate")
+	//}
 
 	// The delivery pkScript must be amongst the supported script
 	// templates.

@@ -3,6 +3,8 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // HTLCTimeoutRequest is sent by Alice to Bob in order to timeout a previously
@@ -10,9 +12,9 @@ import (
 // from the next commitment transaction, with the HTLCTimeoutRequest propgated
 // backwards in the route to fully clear the HTLC.
 type HTLCTimeoutRequest struct {
-	// ChannelID is the particular active channel that this HTLCTimeoutRequest
+	// ChannelPoint is the particular active channel that this HTLCTimeoutRequest
 	// is binded to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// HTLCKey references which HTLC on the remote node's commitment
 	// transaction has timed out.
@@ -24,10 +26,10 @@ type HTLCTimeoutRequest struct {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCTimeoutRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// HTLCKey(8)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.HTLCKey,
 	)
 	if err != nil {
@@ -52,7 +54,7 @@ var _ Message = (*HTLCTimeoutRequest)(nil)
 // This is part of the lnwire.Message interface.
 func (c *HTLCTimeoutRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.HTLCKey,
 	)
 	if err != nil {
@@ -75,8 +77,8 @@ func (c *HTLCTimeoutRequest) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCTimeoutRequest) MaxPayloadLength(uint32) uint32 {
-	// 16
-	return 16
+	// 36 + 8
+	return 44
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -92,7 +94,7 @@ func (c *HTLCTimeoutRequest) Validate() error {
 // This is part of the lnwire.Message interface.
 func (c *HTLCTimeoutRequest) String() string {
 	return fmt.Sprintf("\n--- Begin HTLCTimeoutRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("--- End HTLCTimeoutRequest ---\n")
 }

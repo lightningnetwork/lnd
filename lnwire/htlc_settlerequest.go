@@ -3,19 +3,21 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // HTLCSettleRequest is sent by Alice to Bob when she wishes to settle a
 // particular HTLC referenced by its HTLCKey within a specific active channel
-// referenced by ChannelID. The message allows multiple hash preimages to be
+// referenced by ChannelPoint. The message allows multiple hash preimages to be
 // presented in order to support N-of-M HTLC contracts. A subsequent
 // CommitSignature message will be sent by Alice to "lock-in" the removal of the
 // specified HTLC, possible containing a batch signature covering several settled
 // HTLC's.
 type HTLCSettleRequest struct {
-	// ChannelID references an active channel which holds the HTLC to be
+	// ChannelPoint references an active channel which holds the HTLC to be
 	// settled.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// HTLCKey denotes the exact HTLC stage within the receiving node's
 	// commitment transaction to be removed.
@@ -28,11 +30,11 @@ type HTLCSettleRequest struct {
 }
 
 // NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
-func NewHTLCSettleRequest(chanID uint64, key HTLCKey,
+func NewHTLCSettleRequest(chanPoint *wire.OutPoint, key HTLCKey,
 	redemptionProofs [][20]byte) *HTLCSettleRequest {
 
 	return &HTLCSettleRequest{
-		ChannelID:        chanID,
+		ChannelPoint:     chanPoint,
 		HTLCKey:          key,
 		RedemptionProofs: redemptionProofs,
 	}
@@ -47,11 +49,11 @@ var _ Message = (*HTLCSettleRequest)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// HTLCKey(8)
 	// RedemptionProofs(N*20)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.HTLCKey,
 		&c.RedemptionProofs,
 	)
@@ -68,7 +70,7 @@ func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.HTLCKey,
 		c.RedemptionProofs,
 	)
@@ -92,8 +94,8 @@ func (c *HTLCSettleRequest) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
-	// 8 + 8 + (21 * 15)
-	return 331
+	// 36 + 8 + (21 * 15)
+	return 359
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -116,7 +118,7 @@ func (c *HTLCSettleRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCSettleRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionProofs +

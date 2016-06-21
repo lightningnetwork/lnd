@@ -8,7 +8,7 @@ import (
 
 func TestCloseCompleteEncodeDecode(t *testing.T) {
 	cc := &CloseComplete{
-		ChannelID:         uint64(12345678),
+		ChannelPoint:      outpoint1,
 		ResponderCloseSig: commitSig,
 	}
 

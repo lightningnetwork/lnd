@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -16,9 +17,9 @@ import (
 // messages in order to batch add several HTLC's with a single signature
 // covering all implicitly accepted HTLC's.
 type CommitSignature struct {
-	// ChannelID uniquely identifies to which currently active channel this
+	// ChannelPoint uniquely identifies to which currently active channel this
 	// CommitSignature applies to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// Fee represents the total miner's fee that was used when constructing
 	// the new commitment transaction.
@@ -47,11 +48,11 @@ var _ Message = (*CommitSignature)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// Fee(8)
 	// RequesterCommitSig(73max+2)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.Fee,
 		&c.CommitSig,
 	)
@@ -69,7 +70,7 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
 	// TODO(roasbeef): make similar modificaiton to all other encode/decode
 	// messags
-	return writeElements(w, c.ChannelID, c.Fee, c.CommitSig)
+	return writeElements(w, c.ChannelPoint, c.Fee, c.CommitSig)
 }
 
 // Command returns the integer uniquely identifying this message type on the
@@ -85,8 +86,8 @@ func (c *CommitSignature) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) MaxPayloadLength(uint32) uint32 {
-	// 8 + 8 + 73
-	return 89
+	// 36 + 8 + 73
+	return 117
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -114,7 +115,7 @@ func (c *CommitSignature) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
 		fmt.Sprintf("--- End CommitSignature ---\n")

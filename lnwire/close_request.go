@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"io"
@@ -20,8 +21,8 @@ import (
 // both sides are able to arrive at an identical closure transaction as they
 // know the order of the inputs/outputs.
 type CloseRequest struct {
-	// ChannelID serves to identify which channel is to be closed.
-	ChannelID uint64
+	// ChannelPoint serves to identify which channel is to be closed.
+	ChannelPoint *wire.OutPoint
 
 	// RequesterCloseSig is the signature of the requester for the fully
 	// assembled closing transaction.
@@ -30,20 +31,34 @@ type CloseRequest struct {
 	// Fee is the required fee-per-KB the closing transaction must have.
 	// It is recommended that a "sufficient" fee be paid in order to achieve
 	// timely channel closure.
+	// TODO(roasbeef): if initiator always pays fees, then no longer needed.
 	Fee btcutil.Amount
 }
+
+// NewCloseRequest creates a new CloseRequest.
+func NewCloseRequest(cp *wire.OutPoint, sig *btcec.Signature) *CloseRequest {
+	// TODO(roasbeef): update once fees aren't hardcoded
+	return &CloseRequest{
+		ChannelPoint:      cp,
+		RequesterCloseSig: sig,
+	}
+}
+
+// A compile time check to ensure CloseRequest implements the lnwire.Message
+// interface.
+var _ Message = (*CloseRequest)(nil)
 
 // Decode deserializes a serialized CloseRequest stored in the passed io.Reader
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
+	// ChannelPoint (8)
 	// RequesterCloseSig (73)
 	// 	First byte length then sig
 	// Fee (8)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.RequesterCloseSig,
 		&c.Fee)
 	if err != nil {
@@ -52,15 +67,6 @@ func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 
 	return nil
 }
-
-// NewCloseRequest creates a new CloseRequest.
-func NewCloseRequest() *CloseRequest {
-	return &CloseRequest{}
-}
-
-// A compile time check to ensure CloseRequest implements the lnwire.Message
-// interface.
-var _ Message = (*CloseRequest)(nil)
 
 // Encode serializes the target CloseRequest into the passed io.Writer observing
 // the protocol version specified.
@@ -71,7 +77,7 @@ func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 	// RequesterCloseSig
 	// Fee
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.RequesterCloseSig,
 		c.Fee)
 	if err != nil {
@@ -94,8 +100,8 @@ func (c *CloseRequest) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseRequest) MaxPayloadLength(pver uint32) uint32 {
-	// 8 + 73 + 8
-	return 89
+	// 36 + 73 + 8
+	return 117
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -122,7 +128,7 @@ func (c *CloseRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CloseRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("CloseSig\t\t%x\n", serializedSig) +
 		fmt.Sprintf("Fee:\t\t\t%d\n", c.Fee) +
 		fmt.Sprintf("--- End CloseRequest ---\n")

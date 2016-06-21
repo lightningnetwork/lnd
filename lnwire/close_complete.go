@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 
 	"io"
 )
@@ -19,8 +20,8 @@ import (
 // arrive at an identical closure transaction as they know the order of the
 // inputs/outputs.
 type CloseComplete struct {
-	// ChannelID serves to identify which channel is to be closed.
-	ChannelID uint64
+	// ChannelPoint serves to identify which channel is to be closed.
+	ChannelPoint *wire.OutPoint
 
 	// ResponderCloseSig is the signature of the responder for the
 	// transaction which closes the previously active channel.
@@ -42,10 +43,10 @@ var _ Message = (*CloseComplete)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
+	// ChannelPoint (8)
 	// ResponderCloseSig (73)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.ResponderCloseSig)
 	if err != nil {
 		return err
@@ -59,10 +60,10 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
-	// ChannelID (8)
+	// ChannelPoint (8)
 	// ResponderCloseSig (73)
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.ResponderCloseSig)
 	if err != nil {
 		return err
@@ -84,8 +85,8 @@ func (c *CloseComplete) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
-	// 8 + 73 + 32
-	return 113
+	// 141 + 73 + 32
+	return 141
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -107,7 +108,7 @@ func (c *CloseComplete) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CloseComplete ---\n") +
-		fmt.Sprintf("ReservationID:\t\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ReservationID:\t\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("ResponderCloseSig:\t%x\n", serializedSig) +
 		fmt.Sprintf("--- End CloseComplete ---\n")
 }

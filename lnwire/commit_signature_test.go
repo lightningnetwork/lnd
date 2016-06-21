@@ -12,9 +12,9 @@ func TestCommitSignatureEncodeDecode(t *testing.T) {
 	copy(revocationHash[:], revocationHashBytes)
 
 	commitSignature := &CommitSignature{
-		ChannelID: uint64(12345678),
-		Fee:       btcutil.Amount(10000),
-		CommitSig: commitSig,
+		ChannelPoint: outpoint1,
+		Fee:          btcutil.Amount(10000),
+		CommitSig:    commitSig,
 	}
 
 	// Next encode the CS message into an empty bytes buffer.

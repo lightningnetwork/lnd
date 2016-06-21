@@ -48,8 +48,10 @@ type SingleFundingRequest struct {
 
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
-	// TODO(roasbeef): bool for seconds or blocks?
 	CsvDelay uint32
+
+	// CommitmentKey...
+	CommitmentKey *btcec.PublicKey
 
 	// ChannelDerivationPoint is an secp256k1 point which will be used to
 	// derive the public key the initiator will use for the half of the
@@ -76,15 +78,17 @@ type SingleFundingRequest struct {
 
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
 func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
-	fee btcutil.Amount, delay uint32, cdp *btcec.PublicKey, revocation [20]byte,
-	deliveryScript PkScript) *SingleFundingRequest {
+	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
+	cdp *btcec.PublicKey, revocation [20]byte, deliveryScript PkScript) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
 		ChannelID:              chanID,
 		ChannelType:            chanType,
 		CoinType:               coinType,
 		FeePerKb:               fee,
+		FundingAmount:          amt,
 		CsvDelay:               delay,
+		CommitmentKey:          ck,
 		ChannelDerivationPoint: cdp,
 		RevocationHash:         revocation,
 		DeliveryPkScript:       deliveryScript,
@@ -113,6 +117,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.FeePerKb,
 		&c.FundingAmount,
 		&c.CsvDelay,
+		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
 		&c.RevocationHash,
 		&c.DeliveryPkScript)
@@ -145,6 +150,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.FeePerKb,
 		c.FundingAmount,
 		c.CsvDelay,
+		c.CommitmentKey,
 		c.ChannelDerivationPoint,
 		c.RevocationHash,
 		c.DeliveryPkScript)
@@ -167,11 +173,11 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 32 + 20 + 25 = 114.
+// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 20 + 25 = 114.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 114
+	return 148
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -199,10 +205,10 @@ func (c *SingleFundingRequest) Validate() error {
 	if c.ChannelDerivationPoint == nil {
 		return fmt.Errorf("The channel derivation point must be non-nil")
 	}
-	if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
-		return fmt.Errorf("The channel derivation point must have an odd " +
-			"y-coordinate")
-	}
+	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
+	//return fmt.Errorf("The channel derivation point must have an odd " +
+	//"y-coordinate")
+	//}
 
 	// The revocation hash MUST be non-zero.
 	var zeroHash [20]byte
@@ -230,6 +236,8 @@ func (c *SingleFundingRequest) String() string {
 	if &c.ChannelDerivationPoint != nil && c.ChannelDerivationPoint.X != nil {
 		serializedPubkey = c.ChannelDerivationPoint.SerializeCompressed()
 	}
+
+	// TODO(roasbeef): remove string methods?
 
 	return fmt.Sprintf("\n--- Begin SingleFundingRequest ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +

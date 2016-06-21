@@ -1,32 +1,33 @@
 package lnwire
 
 import (
+	"bytes"
+	"reflect"
 	"testing"
 )
 
-var (
-	htlcTimeoutRequest = &HTLCTimeoutRequest{
-		ChannelID: uint64(12345678),
-		HTLCKey:   HTLCKey(12345),
-	}
-	htlcTimeoutRequestSerializedString  = "0000000000bc614e0000000000003039"
-	htlcTimeoutRequestSerializedMessage = "0709110b00000514000000100000000000bc614e0000000000003039"
-)
-
 func TestHTLCTimeoutRequestEncodeDecode(t *testing.T) {
-	// All of these types being passed are of the message interface type
-	// Test serialization, runs: message.Encode(b, 0)
-	// Returns bytes
-	// Compares the expected serialized string from the original
-	s := SerializeTest(t, htlcTimeoutRequest, htlcTimeoutRequestSerializedString, filename)
+	// First create a new HTLCTR message.
+	timeoutReq := &HTLCTimeoutRequest{
+		ChannelPoint: outpoint1,
+		HTLCKey:      22,
+	}
 
-	// Test deserialization, runs: message.Decode(s, 0)
-	// Makes sure the deserialized struct is the same as the original
-	newMessage := NewHTLCTimeoutRequest()
-	DeserializeTest(t, s, newMessage, htlcTimeoutRequest)
+	// Next encode the HTLCTR message into an empty bytes buffer.
+	var b bytes.Buffer
+	if err := timeoutReq.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode HTLCTimeoutRequest: %v", err)
+	}
 
-	// Test message using Message interface
-	// Serializes into buf: WriteMessage(buf, message, uint32(1), wire.TestNet3)
-	// Deserializes into msg: _, msg, _ , err := ReadMessage(buf, uint32(1), wire.TestNet3)
-	MessageSerializeDeserializeTest(t, htlcTimeoutRequest, htlcTimeoutRequestSerializedMessage)
+	// Deserialize the encoded HTLCTR message into a new empty struct.
+	timeoutReq2 := &HTLCTimeoutRequest{}
+	if err := timeoutReq2.Decode(&b, 0); err != nil {
+		t.Fatalf("unable to decode HTLCTimeoutRequest: %v", err)
+	}
+
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(timeoutReq, timeoutReq2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			timeoutReq, timeoutReq2)
+	}
 }

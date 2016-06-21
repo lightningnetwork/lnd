@@ -11,7 +11,7 @@ func TestSingleFundingResponseWire(t *testing.T) {
 	var rev [20]byte
 	cdp := pubKey
 	delivery := PkScript(bytes.Repeat([]byte{0x02}, 25))
-	sfr := NewSingleFundingResponse(22, rev, cdp, delivery)
+	sfr := NewSingleFundingResponse(22, rev, cdp, cdp, 5, delivery)
 
 	// Next encode the SFR message into an empty bytes buffer.
 	var b bytes.Buffer

@@ -11,7 +11,7 @@ func TestCommitRevocationEncodeDecode(t *testing.T) {
 	copy(nextHop[:], nextHopBytes)
 
 	cr := &CommitRevocation{
-		ChannelID:          uint64(12345678),
+		ChannelPoint:       outpoint1,
 		Revocation:         revocationHash,
 		NextRevocationHash: nextHop,
 	}

@@ -3,16 +3,19 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The
 // message format is purposefully general in order to allow expressino of a wide
 // array of possible errors. Each ErrorGeneric message is directed at a particular
-// open channel referenced by ChannelID.
+// open channel referenced by ChannelPoint.
 type ErrorGeneric struct {
-	// ChannelID references the active channel in which the error occured
-	// within.
-	ChannelID uint64
+	// ChannelPoint references the active channel in which the error occured
+	// within. A ChannelPoint of zeroHash:0 denotes this error applies to
+	// the entire established connection.
+	ChannelPoint *wire.OutPoint
 
 	// ErrorID quickly defines the nature of the error according to error
 	// type.
@@ -38,10 +41,10 @@ var _ Message = (*ErrorGeneric)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
-	// ChannelID(8)
+	// ChannelPoint(8)
 	// Problem
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.ErrorID,
 		&c.Problem,
 	)
@@ -58,7 +61,7 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.ErrorID,
 		c.Problem,
 	)
@@ -104,7 +107,7 @@ func (c *ErrorGeneric) Validate() error {
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) String() string {
 	return fmt.Sprintf("\n--- Begin ErrorGeneric ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("ErrorID:\t%d\n", c.ErrorID) +
 		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
 		fmt.Sprintf("--- End ErrorGeneric ---\n")

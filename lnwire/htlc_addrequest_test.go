@@ -12,7 +12,7 @@ func TestHTLCAddRequestEncodeDecode(t *testing.T) {
 
 	// First create a new HTLCAR message.
 	addReq := &HTLCAddRequest{
-		ChannelID:        uint64(12345678),
+		ChannelPoint:     outpoint1,
 		Expiry:           uint32(144),
 		Amount:           CreditsAmount(123456000),
 		ContractType:     uint8(17),

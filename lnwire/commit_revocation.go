@@ -3,12 +3,14 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
 
 // CommitRevocation is sent by either side once a CommitSignature message has
 // been received, and validated. This message serves to revoke the prior
 // commitment transaction, which was the most up to date version until a
-// CommitSignature message referencing the specified ChannelID was received.
+// CommitSignature message referencing the specified ChannelPoint was received.
 // Additionally, this message also piggyback's the next revocation hash that
 // Alice should use when constructing the Bob's version of the next commitment
 // transaction (which would be done before sending a CommitSignature message).
@@ -16,9 +18,9 @@ import (
 // modifying Bob's commitment transaction without first asking for a revocation
 // hash initially.
 type CommitRevocation struct {
-	// ChannelID uniquely identifies to which currently active channel this
+	// ChannelPoint uniquely identifies to which currently active channel this
 	// CommitRevocation applies to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// Revocation is the pre-image to the revocation hash of the now prior
 	// commitment transaction.
@@ -44,11 +46,11 @@ var _ Message = (*CommitRevocation)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
+	// ChannelPoint (8)
 	// NextRevocationHash (20)
 	// Revocation (20)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.NextRevocationHash,
 		&c.Revocation,
 	)
@@ -65,7 +67,7 @@ func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.NextRevocationHash,
 		c.Revocation,
 	)
@@ -89,8 +91,8 @@ func (c *CommitRevocation) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) MaxPayloadLength(uint32) uint32 {
-	// 8 + 20 + 20
-	return 48
+	// 36 + 20 + 20
+	return 76
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -107,7 +109,7 @@ func (c *CommitRevocation) Validate() error {
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) String() string {
 	return fmt.Sprintf("\n--- Begin CommitRevocation ---\n") +
-		fmt.Sprintf("ChannelID:\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("NextRevocationHash:\t%x\n", c.NextRevocationHash) +
 		fmt.Sprintf("Revocation:\t%x\n", c.Revocation) +
 		fmt.Sprintf("--- End CommitRevocation ---\n")

@@ -256,7 +256,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
-	case wire.OutPoint:
+	case *wire.OutPoint:
 		// TODO(roasbeef): consolidate with above
 		// First write out the previous txid.
 		var h [32]byte
@@ -497,7 +497,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
-	case *wire.OutPoint:
+	case **wire.OutPoint:
 		// TODO(roasbeef): consolidate with above
 		var h [32]byte
 		if _, err = io.ReadFull(r, h[:]); err != nil {
@@ -507,15 +507,15 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		(*e).Hash = *hash
-
 		// Index
 		var idxBytes [4]byte
 		_, err = io.ReadFull(r, idxBytes[:])
 		if err != nil {
 			return err
 		}
-		(*e).Index = binary.BigEndian.Uint32(idxBytes[:])
+		index := binary.BigEndian.Uint32(idxBytes[:])
+
+		*e = wire.NewOutPoint(hash, index)
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

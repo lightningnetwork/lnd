@@ -3,31 +3,19 @@ package lnwire
 import (
 	"fmt"
 	"io"
+
+	"github.com/roasbeef/btcd/wire"
 )
-
-// ChannelPoint represents a unique state update within currently active
-// channel. A channel update across all open chnnels can be uniquely identified
-// by a two-tuple: (fundingTXID, HTLCKey). All explicit updates to an open
-// channel will reference a ChannelPoint to apply the update to.
-type ChannelPoint struct {
-	// ChannelID references the particular active channel to which this
-	// HTLCAddReject message is binded to.
-	ChannelID uint64
-
-	// HTLCKey is used to identify which HTLC previously attempted to be
-	// added via an HTLCAddRequest message is being declined.
-	HTLCKey HTLCKey
-}
 
 // HTLCAddReject is sent by Bob when he wishes to reject a particular HTLC that
 // Alice attempted to add via an HTLCAddRequest message. The rejected HTLC is
 // referenced by its unique HTLCKey ID. An HTLCAddReject message is bound to a
-// single active channel, referenced by a unique ChannelID. Additionally, the
+// single active channel, referenced by a unique ChannelPoint. Additionally, the
 // HTLCKey of the rejected HTLC is present
 type HTLCAddReject struct {
-	// ChannelID references the particular active channel to which this
+	// ChannelPoint references the particular active channel to which this
 	// HTLCAddReject message is binded to.
-	ChannelID uint64
+	ChannelPoint *wire.OutPoint
 
 	// HTLCKey is used to identify which HTLC previously attempted to be
 	// added via an HTLCAddRequest message is being declined.
@@ -39,10 +27,10 @@ type HTLCAddReject struct {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddReject) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
+	// ChannelPoint (8)
 	// HTLCKey   (8)
 	err := readElements(r,
-		&c.ChannelID,
+		&c.ChannelPoint,
 		&c.HTLCKey,
 	)
 	if err != nil {
@@ -67,7 +55,7 @@ var _ Message = (*HTLCAddReject)(nil)
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddReject) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
-		c.ChannelID,
+		c.ChannelPoint,
 		c.HTLCKey,
 	)
 
@@ -91,8 +79,8 @@ func (c *HTLCAddReject) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddReject) MaxPayloadLength(uint32) uint32 {
-	// 8 + 8
-	return 16
+	// 36 + 8
+	return 44
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -109,7 +97,7 @@ func (c *HTLCAddReject) Validate() error {
 // This is part of the lnwire.Message interface.
 func (c *HTLCAddReject) String() string {
 	return fmt.Sprintf("\n--- Begin HTLCAddReject ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
+		fmt.Sprintf("ChannelPoint:\t\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("--- End HTLCAddReject ---\n")
 }

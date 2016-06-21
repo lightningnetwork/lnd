@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"sync"
@@ -19,7 +20,7 @@ var (
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 )
 
-// rpcServer...
+// rpcServer is a gRPC, RPC front end to the lnd daemon.
 type rpcServer struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
@@ -31,14 +32,17 @@ type rpcServer struct {
 	quit chan struct{}
 }
 
+// A compile time check to ensure that rpcServer fully implements the
+// LightningServer gRPC service.
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
-// newRpcServer...
+// newRpcServer creates and returns a new instance of the rpcServer.
 func newRpcServer(s *server) *rpcServer {
 	return &rpcServer{server: s, quit: make(chan struct{}, 1)}
 }
 
-// Start...
+// Start launches any helper goroutines required for the rpcServer
+// to function.
 func (r *rpcServer) Start() error {
 	if atomic.AddInt32(&r.started, 1) != 1 {
 		return nil
@@ -47,7 +51,7 @@ func (r *rpcServer) Start() error {
 	return nil
 }
 
-// Stop...
+// Stop signals any active goroutines for a graceful closure.
 func (r *rpcServer) Stop() error {
 	if atomic.AddInt32(&r.shutdown, 1) != 1 {
 		return nil
@@ -58,8 +62,10 @@ func (r *rpcServer) Stop() error {
 	return nil
 }
 
-// SendMany...
-func (r *rpcServer) SendMany(ctx context.Context, in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
+// SendMany handles a request for a transaction create multiple specified
+// outputs in parallel.
+func (r *rpcServer) SendMany(ctx context.Context,
+	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
 	outputs := make([]*wire.TxOut, 0, len(in.AddrToAmount))
 	for addr, amt := range in.AddrToAmount {
@@ -76,6 +82,8 @@ func (r *rpcServer) SendMany(ctx context.Context, in *lnrpc.SendManyRequest) (*l
 		outputs = append(outputs, wire.NewTxOut(amt, pkscript))
 	}
 
+	// Instruct the wallet to create an transaction paying to the specified
+	// outputs, selecting any coins with at least one confirmation.
 	txid, err := r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
 	if err != nil {
 		return nil, err
@@ -86,7 +94,7 @@ func (r *rpcServer) SendMany(ctx context.Context, in *lnrpc.SendManyRequest) (*l
 	return &lnrpc.SendManyResponse{Txid: txid.String()}, nil
 }
 
-// NewAddress...
+// NewAddress creates a new address under control of the local wallet.
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
@@ -115,15 +123,32 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
-// LNConnect...
+// ConnectPeer attempts to establish a connection to a remote peer.
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
 
-	if len(in.IdAtHost) == 0 {
+	if in.Addr == nil {
 		return nil, fmt.Errorf("need: lnc pubkeyhash@hostname")
 	}
 
-	peerAddr, err := lndc.LnAddrFromString(in.IdAtHost)
+	idAtHost := fmt.Sprintf("%v@%v", in.Addr.PubKeyHash, in.Addr.Host)
+	rpcsLog.Debugf("Attempting to connect to peer %v", idAtHost)
+
+	peerAddr, err := lndc.LnAddrFromString(idAtHost)
+	if err != nil {
+		rpcsLog.Errorf("(connectpeer): error parsing ln addr: %v", err)
+		return nil, err
+	}
+
+	peerID, err := r.server.ConnectToPeer(peerAddr)
+	if err != nil {
+		rpcsLog.Errorf("(connectpeer): error connecting to peer: %v", err)
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Connected to peer: %v", peerAddr.String())
+	return &lnrpc.ConnectPeerResponse{peerID}, nil
+}
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +159,36 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 
 	rpcsLog.Infof("Connected to peer: %v", peerAddr.String())
 	return &lnrpc.ConnectPeerResponse{[]byte(peerAddr.String())}, nil
+// ListPeers returns a verbose listing of all currently active peers.
+func (r *rpcServer) ListPeers(ctx context.Context,
+	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
+
+	rpcsLog.Tracef("recieved listpeers request")
+
+	serverPeers := r.server.Peers()
+	resp := &lnrpc.ListPeersResponse{
+		Peers: make([]*lnrpc.Peer, 0, len(serverPeers)),
+	}
+
+	for _, serverPeer := range serverPeers {
+		// TODO(roasbeef): add a snapshot method which grabs peer read mtx
+		peer := &lnrpc.Peer{
+			LightningId: hex.EncodeToString(serverPeer.lightningID[:]),
+			PeerId:      serverPeer.id,
+			Address:     serverPeer.conn.RemoteAddr().String(),
+			Inbound:     serverPeer.inbound,
+			BytesRecv:   atomic.LoadUint64(&serverPeer.bytesReceived),
+			BytesSent:   atomic.LoadUint64(&serverPeer.bytesSent),
+		}
+
+		resp.Peers = append(resp.Peers, peer)
+	}
+
+	rpcsLog.Tracef("listpeers yielded %v peers", serverPeers)
+
+	return resp, nil
+}
+
 // WalletBalance returns the sum of all confirmed unspent outputs under control
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.

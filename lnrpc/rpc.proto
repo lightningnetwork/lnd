@@ -7,13 +7,27 @@ service Lightning {
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 
     rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
+    rpc ListPeers(ListPeersRequest) returns (ListPeersResponse);
+
+    rpc OpenChannel(OpenChannelRequest) returns (OpenChannelResponse);
+    rpc CloseChannel(CloseChannelRequest) returns (CloseChannelResponse);
+
     rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
+}
+
+message ChannelPoint {
+    bytes funding_txid = 1;
+    uint32 output_index = 2;
+}
+
+message LightningAddress {
+    string pubKeyHash = 1;
+    string host = 2;
 }
 
 message SendManyRequest {
     map<string, int64> AddrToAmount = 1;
 }
-
 message SendManyResponse {
     string txid = 1;
 }
@@ -32,11 +46,57 @@ message NewAddressResponse {
 }
 
 message ConnectPeerRequest {
-	string idAtHost = 1;
+    LightningAddress addr = 1;
+}
+message ConnectPeerResponse {
+    int32 peer_id = 1;
 }
 
-message ConnectPeerResponse {
-	bytes lnID = 1;
+message HTLC {
+    int64 id = 1;
+
+    int64 amount = 2;
+
+    bytes hash_lock = 3;
+
+    bool to_us = 4;
+}
+
+message ActiveChannel {
+    bytes funding_txid = 1;
+
+    int64 capacity = 2;
+    int64 local_balance = 3; 
+    int64 remote_balance = 4;
+
+    int64 unsettled_belance = 5;
+    repeated HTLC pending_htlcs = 6;
+
+    int64 num_updates = 7;
+    // TODO(roasbeef): other stuffs
+}
+
+message Peer {
+    string lightning_id = 1;
+    int32 peer_id = 2;
+    string address = 3;
+
+    uint64 bytes_sent = 4;
+    uint64 bytes_recv = 5;
+
+    int64 sat_sent = 6;
+    int64 sat_recv = 7;
+
+    bool inbound = 8;
+
+    // TODO(roasbeef): add pending channels
+    repeated ActiveChannel channels = 9;
+}
+
+message ListPeersRequest {}
+message ListPeersResponse {
+    repeated Peer peers = 1;
+}
 message WalletBalanceRequest {
     bool witness_only = 1;
 }

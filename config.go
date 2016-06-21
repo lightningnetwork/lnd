@@ -5,11 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
+	flags "github.com/btcsuite/go-flags"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
-	flags "github.com/btcsuite/go-flags"
 )
 
 const (
@@ -17,7 +18,7 @@ const (
 	defaultDataDirname    = "data"
 	defaultLogLevel       = "info"
 	defaultLogDirname     = "logs"
-	defaultLogFilename    = "btcd.log"
+	defaultLogFilename    = "lnd.log"
 	defaultRPCPort        = 10009
 	defaultSPVMode        = false
 	defaultPeerPort       = 10011
@@ -42,7 +43,7 @@ var (
 	defaultRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
 )
 
-// config defines the configuratino options for lnd.
+// config defines the configuration options for lnd.
 //
 // See loadConfig for further details regarding the configuration
 // loading+parsing process.
@@ -53,10 +54,12 @@ type config struct {
 	DataDir    string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	LogDir     string `long:"logdir" description:"Directory to log output."`
 
-	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 8333, testnet: 18333)"`
+	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 10011)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+
+	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
 	PeerPort int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
 	RPCPort  int    `long:"rpcport" description:"The port for the rpc server"`
@@ -168,8 +171,20 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
+	// Validate profile port number
+	if cfg.Profile != "" {
+		profilePort, err := strconv.Atoi(cfg.Profile)
+		if err != nil || profilePort < 1024 || profilePort > 65535 {
+			str := "%s: The profile port must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+	}
+
 	// Append the network type to the data directory so it is "namespaced"
-	// per network.  In addition to the block database, there are other
+	// per network. In addition to the block database, there are other
 	// pieces of data that are saved to disk such as address manager state.
 	// All data is specific to a network, so namespacing the data directory
 	// means each individual piece of serialized data does not have to
@@ -194,7 +209,6 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// TODO(roasbeef): logging
 	return &cfg, nil
 }
 
@@ -213,7 +227,7 @@ func cleanAndExpandPath(path string) string {
 }
 
 // parseAndSetDebugLevels attempts to parse the specified debug level and set
-// the levels accordingly.  An appropriate error is returned if anything is
+// the levels accordingly. An appropriate error is returned if anything is
 // invalid.
 func parseAndSetDebugLevels(debugLevel string) error {
 	// When the specified string doesn't have any delimters, treat it as

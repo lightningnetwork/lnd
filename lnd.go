@@ -46,13 +46,16 @@ func main() {
 		return
 	}
 
-	go func() {
-		listenAddr := net.JoinHostPort("", "5009")
-		profileRedirect := http.RedirectHandler("/debug/pprof",
-			http.StatusSeeOther)
-		http.Handle("/", profileRedirect)
-		fmt.Println(http.ListenAndServe(listenAddr, nil))
-	}()
+	// Enable http profiling server if requested.
+	if cfg.Profile != "" {
+		go func() {
+			listenAddr := net.JoinHostPort("", cfg.Profile)
+			profileRedirect := http.RedirectHandler("/debug/pprof",
+				http.StatusSeeOther)
+			http.Handle("/", profileRedirect)
+			fmt.Println(http.ListenAndServe(listenAddr, nil))
+		}()
+	}
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.

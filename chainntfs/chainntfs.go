@@ -22,6 +22,9 @@ type ChainNotifier interface {
 	// outpoint is succesfully spent within a confirmed transaction. The
 	// returned SpendEvent will receive a send on the 'Spend' transaction
 	// once a transaction spending the input is detected on the blockchain.
+	//
+	// NOTE: This notifications should be triggered once the transaction is
+	// *seen* on the network, not when it has received a single confirmation.
 	RegisterSpendNtfn(outpoint *wire.OutPoint) (*SpendEvent, error)
 
 	// Start the ChainNotifier. Once started, the implementation should be

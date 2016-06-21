@@ -99,7 +99,7 @@ type LightningChannel struct {
 }
 
 // newLightningChannel...
-func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
+func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
 	chanDB *channeldb.DB, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	lc := &LightningChannel{
@@ -118,13 +118,11 @@ func newLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 	// Populate the totem.
 	lc.updateTotem <- struct{}{}
 
-	fundingTxId := state.FundingTx.TxSha()
 	fundingPkScript, err := witnessScriptHash(state.FundingRedeemScript)
 	if err != nil {
 		return nil, err
 	}
-	_, multiSigIndex := findScriptOutputIndex(state.FundingTx, fundingPkScript)
-	lc.fundingTxIn = wire.NewTxIn(wire.NewOutPoint(&fundingTxId, multiSigIndex), nil, nil)
+	lc.fundingTxIn = wire.NewTxIn(state.FundingOutpoint, nil, nil)
 	lc.fundingP2SH = fundingPkScript
 
 	return lc, nil
@@ -186,9 +184,11 @@ func (c *ChannelUpdate) SignCounterPartyCommitment() ([]byte, error) {
 	}
 
 	// Sign their version of the commitment transaction.
-	sig, err := txscript.RawTxInSignature(c.theirPendingCommitTx, 0,
+	hashCache := txscript.NewTxSigHashes(c.theirPendingCommitTx)
+	sig, err := txscript.RawTxInWitnessSignature(c.theirPendingCommitTx,
+		hashCache, 0, int64(c.lnChannel.channelState.Capacity),
 		c.lnChannel.channelState.FundingRedeemScript, txscript.SigHashAll,
-		c.lnChannel.channelState.MultiSigKey)
+		c.lnChannel.channelState.OurMultiSigKey)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +220,9 @@ func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	defer c.lnChannel.stateMtx.RUnlock()
 
 	channelState := c.lnChannel.channelState
+
+	// TODO(roasbeef): replace with sighash calc and regular sig check
+	// after merge
 
 	// When initially generating the redeemScript, we sorted the serialized
 	// public keys in descending order. So we do a quick comparison in order
@@ -288,6 +291,13 @@ func (c *ChannelUpdate) Commit(pastRevokePreimage []byte) error {
 	c.lnChannel.updateTotem <- struct{}{}
 
 	return nil
+}
+
+// ChannelPoint returns the outpoint of the original funding transaction which
+// created this active channel. This outpoint is used throughout various
+// sub-systems to uniquely identify an open channel.
+func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
+	return lc.fundingTxIn.PreviousOutPoint
 }
 
 // AddHTLC...

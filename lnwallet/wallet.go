@@ -677,20 +677,33 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		// then we'll need to attach a sigScript in addition to witness
 		// data.
 		if pka.IsNestedWitness() {
-			witnessProgram, err = txscript.PayToAddrScript(pka.Address())
+			pubKey := privKey.PubKey()
+			pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
+
+			// Next, we'll generate a valid sigScript that'll allow us to spend
+			// the p2sh output. The sigScript will contain only a single push of
+			// the p2wkh witness program corresponding to the matching public key
+			// of this address.
+			p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubKeyHash,
+				l.cfg.NetParams)
+			if err != nil {
+				req.err <- fmt.Errorf("unable to create p2wkh addr: %v", err)
+				return
+			}
+			witnessProgram, err = txscript.PayToAddrScript(p2wkhAddr)
 			if err != nil {
 				req.err <- fmt.Errorf("unable to create witness program: %v", err)
 				return
 			}
 			bldr := txscript.NewScriptBuilder()
 			bldr.AddData(witnessProgram)
-			scriptSig, err := bldr.Script()
+			sigScript, err := bldr.Script()
 			if err != nil {
 				req.err <- fmt.Errorf("unable to create scriptsig: %v", err)
 				return
 			}
-			txIn.SignatureScript = scriptSig
-			inputScript.ScriptSig = scriptSig
+			txIn.SignatureScript = sigScript
+			inputScript.ScriptSig = sigScript
 		} else {
 			witnessProgram = prevOut.PkScript
 		}

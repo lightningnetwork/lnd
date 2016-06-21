@@ -26,13 +26,13 @@ var (
 
 func main() {
 	// Use all processor cores.
+	// TODO(roasbeef): remove this if required version # is > 1.6?
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
 	if err != nil {
-		fmt.Printf("unable to load config: %v\n", err)
 		os.Exit(1)
 	}
 	cfg = loadedConfig

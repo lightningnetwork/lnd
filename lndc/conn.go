@@ -92,7 +92,7 @@ func (c *LNDConn) Dial(
 	}
 	ourEphemeralPub := ourEphemeralPriv.PubKey()
 
-	// Sned 1. Send my ephemeral pubkey. Can add version bits.
+	// Send 1. Send my ephemeral pubkey. Can add version bits.
 	if _, err = writeClear(c.Conn, ourEphemeralPub.SerializeCompressed()); err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (c *LNDConn) authPKH(
 	// Send 53 bytes: our pubkey, and the remote's pubkey hash.
 	var greetingMsg [53]byte
 	copy(greetingMsg[:33], myId.PubKey().SerializeCompressed())
-	copy(greetingMsg[:33], theirPKH)
+	copy(greetingMsg[33:], theirPKH)
 	if _, err := c.Conn.Write(greetingMsg[:]); err != nil {
 		return err
 	}

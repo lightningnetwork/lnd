@@ -794,7 +794,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// since the outputs are cannonically sorted. If this is a sigle funder
 	// workflow, then we'll also need to send this to the remote node.
 	fundingTxID := fundingTx.TxSha()
-	found, multiSigIndex := findScriptOutputIndex(fundingTx, multiSigOut.PkScript)
+	_, multiSigIndex := findScriptOutputIndex(fundingTx, multiSigOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = fundingOutpoint
 

@@ -50,7 +50,9 @@ type SingleFundingRequest struct {
 	// in the pay-to-self output of both commitment transactions.
 	CsvDelay uint32
 
-	// CommitmentKey...
+	// CommitmentKey is key the initiator of the funding workflow wishes to
+	// use within their versino of the commitment transaction for any
+	// delayed (CSV) or immediate outputs to them.
 	CommitmentKey *btcec.PublicKey
 
 	// ChannelDerivationPoint is an secp256k1 point which will be used to

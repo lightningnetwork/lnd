@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
-	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcutil"
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -25,11 +26,14 @@ var (
 		0xd, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
 		0x1e, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
 	}
-	id = [wire.HashSize]byte{
-		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
-		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
-		0x2d, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
-		0x1f, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
+	id = &wire.OutPoint{
+		Hash: [wire.HashSize]byte{
+			0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+			0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+			0x2d, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+			0x1f, 0xb, 0x4c, 0xf9, 0x9e, 0xc5, 0x8c, 0xe9,
+		},
+		Index: 9,
 	}
 	rev = [20]byte{
 		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
@@ -67,6 +71,10 @@ var (
 			},
 		},
 		LockTime: 5,
+	}
+	testOutpoint = &wire.OutPoint{
+		Hash:  key,
+		Index: 0,
 	}
 )
 
@@ -132,7 +140,7 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	}
 
 	state := OpenChannel{
-		TheirLNID:              id,
+		TheirLNID:              key,
 		ChanID:                 id,
 		MinFeePerKb:            btcutil.Amount(5000),
 		OurCommitKey:           privKey,
@@ -144,8 +152,9 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		OurCommitTx:            testTx,
 		LocalElkrem:            &sender,
 		RemoteElkrem:           &receiver,
-		FundingTx:              testTx,
-		MultiSigKey:            privKey,
+		FundingOutpoint:        testOutpoint,
+		OurMultiSigKey:         privKey,
+		TheirMultiSigKey:       privKey.PubKey(),
 		FundingRedeemScript:    script,
 		TheirCurrentRevocation: rev,
 		OurDeliveryScript:      script,
@@ -164,17 +173,20 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
-	newState, err := cdb.FetchOpenChannel(id)
+	nodeID := wire.ShaHash(state.TheirLNID)
+	openChannels, err := cdb.FetchOpenChannels(&nodeID)
 	if err != nil {
 		t.Fatalf("unable to fetch open channel: %v", err)
 	}
+
+	newState := openChannels[0]
 
 	// The decoded channel state should be identical to what we stored
 	// above.
 	if !bytes.Equal(state.TheirLNID[:], newState.TheirLNID[:]) {
 		t.Fatalf("their id doesn't match")
 	}
-	if !bytes.Equal(state.ChanID[:], newState.ChanID[:]) {
+	if !reflect.DeepEqual(state.ChanID, newState.ChanID) {
 		t.Fatalf("chan id's don't match")
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
@@ -228,19 +240,18 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 	b1.Reset()
 	b2.Reset()
 
-	if err := state.FundingTx.Serialize(&b1); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if err := newState.FundingTx.Serialize(&b2); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("funding tx doesn't match")
+	// TODO(roasbeef): replace with a single equal?
+	if !reflect.DeepEqual(state.FundingOutpoint, newState.FundingOutpoint) {
+		t.Fatalf("funding outpoint doesn't match")
 	}
 
-	if !bytes.Equal(state.MultiSigKey.Serialize(),
-		newState.MultiSigKey.Serialize()) {
-		t.Fatalf("multisig key doesn't match")
+	if !bytes.Equal(state.OurMultiSigKey.Serialize(),
+		newState.OurMultiSigKey.Serialize()) {
+		t.Fatalf("our multisig key doesn't match")
+	}
+	if !bytes.Equal(state.TheirMultiSigKey.SerializeCompressed(),
+		newState.TheirMultiSigKey.SerializeCompressed()) {
+		t.Fatalf("their multisig key doesn't match")
 	}
 	if !bytes.Equal(state.FundingRedeemScript, newState.FundingRedeemScript) {
 		t.Fatalf("redeem script doesn't match")

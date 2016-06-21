@@ -237,6 +237,7 @@ func (c *ChannelUpdate) VerifyNewCommitmentSigs(ourSig, theirSig []byte) error {
 	// then validate that the scriptSig executes correctly.
 	commitTx := c.ourPendingCommitTx
 	commitTx.TxIn[0].Witness = witness
+	// TODO(roasbeef): need hashcache and value here
 	vm, err := txscript.NewEngine(c.lnChannel.fundingP2SH, commitTx, 0,
 		txscript.StandardVerifyFlags, nil, nil, 0)
 	if err != nil {
@@ -535,30 +536,6 @@ func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) 
 	return chanUpdate, nil
 }
 
-// createNewCommitmentTxns....
-// NOTE: This MUST be called with stateMtx held.
-func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChannel,
-	chanUpdate *ChannelUpdate, amountToUs, amountToThem btcutil.Amount) (*wire.MsgTx, *wire.MsgTx, error) {
-
-	ourNewCommitTx, err := createCommitTx(fundingTxIn,
-		state.OurCommitKey.PubKey(), state.TheirCommitKey,
-		chanUpdate.pendingDesc.OurRevocation[:], state.LocalCsvDelay,
-		amountToUs, amountToThem)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	theirNewCommitTx, err := createCommitTx(fundingTxIn,
-		state.TheirCommitKey, state.OurCommitKey.PubKey(),
-		chanUpdate.pendingDesc.TheirRevocation[:], state.RemoteCsvDelay,
-		amountToThem, amountToUs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return ourNewCommitTx, theirNewCommitTx, nil
-}
-
 // CancelHTLC...
 func (lc *LightningChannel) CancelHTLC() error {
 	return nil
@@ -583,6 +560,106 @@ func (lc *LightningChannel) ForceClose() error {
 	return nil
 }
 
+// InitCooperativeClose initiates a cooperative closure of an active lightning
+// channel. This method should only be executed once all pending HTLCs (if any)
+// on the channel have been cleared/removed. Upon completion, the source channel
+// will shift into the "closing" state, which indicates that all incoming/outgoing
+// HTLC requests should be rejected. A signature for the closing transaction,
+// and the txid of the closing transaction are returned. The initiator of the
+// channel closure should then watch the blockchain for a confirmation of the
+// closing transaction before considering the channel terminated. In the case
+// of an unresponsive remote party, the initiator can either choose to execute
+// a force closure, or backoff for a period of time, and retry the cooperative
+// closure.
+// TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
+// settle any inflight.
+func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error) {
+	lc.Lock()
+	defer lc.Unlock() // TODO(roasbeef): coarser graiend locking
+
+	// If we're already closing the channel, then ignore this request.
+	if lc.status == channelClosing || lc.status == channelClosed {
+		// TODO(roasbeef): check to ensure no pending payments
+		return nil, nil, ErrChanClosing
+	}
+
+	// Otherwise, indicate in the channel status that a channel closure has
+	// been initiated.
+	lc.status = channelClosing
+
+	// TODO(roasbeef): assumes initiator pays fees
+	closeTx := createCooperativeCloseTx(lc.fundingTxIn,
+		lc.channelState.OurBalance, lc.channelState.TheirBalance,
+		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
+		true)
+	closeTxSha := closeTx.TxSha()
+
+	// Finally, sign the completed cooperative closure transaction. As the
+	// initiator we'll simply send our signature over the the remote party,
+	// using the generated txid to be notified once the closure transaction
+	// has been confirmed.
+	hashCache := txscript.NewTxSigHashes(closeTx)
+	closeSig, err := txscript.RawTxInWitnessSignature(closeTx,
+		hashCache, 0, int64(lc.channelState.Capacity),
+		lc.channelState.FundingRedeemScript, txscript.SigHashAll,
+		lc.channelState.OurMultiSigKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return closeSig, &closeTxSha, nil
+}
+
+// CompleteCooperativeClose completes the cooperative closure of the target
+// active lightning channel. This method should be called in response to the
+// remote node initating a cooperative channel closure. A fully signed closure
+// transaction is returned. It is the duty of the responding node to broadcast
+// a signed+valid closure transaction to the network.
+func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.MsgTx, error) {
+	lc.Lock()
+	defer lc.Unlock() // TODO(roasbeef): coarser graiend locking
+
+	// If we're already closing the channel, then ignore this request.
+	if lc.status == channelClosing || lc.status == channelClosed {
+		// TODO(roasbeef): check to ensure no pending payments
+		return nil, ErrChanClosing
+	}
+
+	lc.status = channelClosed
+
+	// Create the transaction used to return the current settled balance
+	// on this active channel back to both parties. In this current model,
+	// the initiator pays full fees for the cooperative close transaction.
+	closeTx := createCooperativeCloseTx(lc.fundingTxIn,
+		lc.channelState.OurBalance, lc.channelState.TheirBalance,
+		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
+		false)
+
+	// With the transaction created, we can finally generate our half of
+	// the 2-of-2 multi-sig needed to redeem the funding output.
+	redeemScript := lc.channelState.FundingRedeemScript
+	hashCache := txscript.NewTxSigHashes(closeTx)
+	closeSig, err := txscript.RawTxInWitnessSignature(closeTx,
+		hashCache, 0, int64(lc.channelState.Capacity),
+		redeemScript, txscript.SigHashAll,
+		lc.channelState.OurMultiSigKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, construct the witness stack minding the order of the
+	// pubkeys+sigs on the stack.
+	ourKey := lc.channelState.OurMultiSigKey.PubKey().SerializeCompressed()
+	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
+	witness := spendMultiSig(redeemScript, ourKey, closeSig,
+		theirKey, remoteSig)
+	closeTx.TxIn[0].Witness = witness
+
+	// TODO(roasbeef): VALIDATE
+
+	return closeTx, nil
+}
+
 // RequestPayment...
 func (lc *LightningChannel) RequestPayment(amount btcutil.Amount) error {
 	// Validate amount
@@ -595,6 +672,30 @@ func (lc *LightningChannel) RequestPayment(amount btcutil.Amount) error {
 type PaymentRequest struct {
 	PaymentPreImage [20]byte
 	Value           btcutil.Amount
+}
+
+// createNewCommitmentTxns....
+// NOTE: This MUST be called with stateMtx held.
+func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChannel,
+	chanUpdate *ChannelUpdate, amountToUs, amountToThem btcutil.Amount) (*wire.MsgTx, *wire.MsgTx, error) {
+
+	ourNewCommitTx, err := createCommitTx(fundingTxIn,
+		state.OurCommitKey.PubKey(), state.TheirCommitKey,
+		chanUpdate.pendingDesc.OurRevocation[:], state.LocalCsvDelay,
+		amountToUs, amountToThem)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	theirNewCommitTx, err := createCommitTx(fundingTxIn,
+		state.TheirCommitKey, state.OurCommitKey.PubKey(),
+		chanUpdate.pendingDesc.TheirRevocation[:], state.RemoteCsvDelay,
+		amountToThem, amountToUs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return ourNewCommitTx, theirNewCommitTx, nil
 }
 
 // createCommitTx...
@@ -636,4 +737,51 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), payToThemScriptHash))
 
 	return commitTx, nil
+}
+
+// createCooperativeCloseTx creates a transaction which if signed by both
+// parties, then broadcast cooperatively closes an active channel. The creation
+// of the closure transaction is modified by a boolean indicating if the party
+// constructing the channel is the initiator of the closure. Currently it is
+// expected that the initiator pays the transaction fees for the closing
+// transaction in full.
+func createCooperativeCloseTx(fundingTxIn *wire.TxIn,
+	ourBalance, theirBalance btcutil.Amount,
+	ourDeliveryScript, theirDeliveryScript []byte,
+	initiator bool) *wire.MsgTx {
+
+	// Construct the transaction to perform a cooperative closure of the
+	// channel. In the event that one side doesn't have any settled funds
+	// within the channel then a refund output for that particular side can
+	// be omitted.
+	closeTx := wire.NewMsgTx()
+	closeTx.AddTxIn(fundingTxIn)
+
+	// The initiator the a cooperative closure pays the fee in entirety.
+	// Determine if we're the initiator so we can compute fees properly.
+	if initiator {
+		// TODO(roasbeef): take sat/byte here instead of properly calc
+		ourBalance -= 5000
+	} else {
+		theirBalance -= 5000
+	}
+
+	// TODO(roasbeef): dust check...
+	//  * although upper layers should prevent
+	if ourBalance != 0 {
+		closeTx.AddTxOut(&wire.TxOut{
+			PkScript: ourDeliveryScript,
+			Value:    int64(ourBalance),
+		})
+	}
+	if theirBalance != 0 {
+		closeTx.AddTxOut(&wire.TxOut{
+			PkScript: theirDeliveryScript,
+			Value:    int64(theirBalance),
+		})
+	}
+
+	txsort.InPlaceSort(closeTx)
+
+	return closeTx
 }

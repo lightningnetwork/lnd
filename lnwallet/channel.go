@@ -15,9 +15,44 @@ import (
 	"github.com/roasbeef/btcutil/txsort"
 )
 
+var (
+	ErrChanClosing = fmt.Errorf("channel is being closed, operation disallowed")
+)
+
 const (
 	// TODO(roasbeef): make not random value
 	MaxPendingPayments = 10
+)
+
+// channelState is an enum like type which represents the current state of a
+// particular channel.
+type channelState uint8
+
+const (
+	// channelPending indicates this channel is still going through the
+	// funding workflow, and isn't yet open.
+	channelPending channelState = iota
+
+	// channelOpen represents an open, active channel capable of
+	// sending/receiving HTLCs.
+	channelOpen
+
+	// channelClosing represents a channel which is in the process of being
+	// closed.
+	channelClosing
+
+	// channelClosed represents a channel which has been fully closed. Note
+	// that before a channel can be closed, ALL pending HTLC's must be
+	// settled/removed.
+	channelClosed
+
+	// channelDispute indicates that an un-cooperative closure has been
+	// detected within the channel.
+	channelDispute
+
+	// channelPendingPayment indicates that there a currently outstanding
+	// HTLC's within the channel.
+	channelPendingPayment
 )
 
 // PaymentHash presents the hash160 of a random value. This hash is used to
@@ -30,6 +65,9 @@ type PaymentHash [20]byte
 type LightningChannel struct {
 	lnwallet      *LightningWallet
 	channelEvents chainntnfs.ChainNotifier
+
+	sync.RWMutex
+	status channelState
 
 	// TODO(roasbeef): Stores all previous R values + timeouts for each
 	// commitment update, plus some other meta-data...Or just use OP_RETURN

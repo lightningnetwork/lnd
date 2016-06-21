@@ -51,6 +51,10 @@ func main() {
 		NewAddressCommand,
 		SendManyCommand,
 		ConnectCommand,
+		OpenChannelCommand,
+		CloseChannelCommand,
+		ListPeersCommand,
+		WalletBalanceCommand,
 		ShellCommand,
 	}
 

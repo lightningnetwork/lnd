@@ -14,6 +14,7 @@ import (
 )
 
 // lnAddr...
+// TODO(roasbeef): revamp
 type LNAdr struct {
 	LnID   [16]byte // redundant because adr contains it
 	PubKey *btcec.PublicKey
@@ -35,7 +36,7 @@ func (l *LNAdr) String() string {
 		encodedId = l.PubKey.SerializeCompressed()
 	}
 
-	return fmt.Sprintf("%v@%v", encodedId, l.NetAddr)
+	return fmt.Sprintf("%v@%v", hex.EncodeToString(encodedId), l.NetAddr)
 }
 
 // newLnAddr...

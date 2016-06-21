@@ -62,8 +62,7 @@ type ChainNotifier interface {
 // chain, the 'NegativeConf' will be sent upon with a value representing the
 // depth of the re-org.
 type ConfirmationEvent struct {
-	Confirmed chan struct{} // MUST be buffered.
-
+	Confirmed chan int32 // MUST be buffered.
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need
 	// to sync, to request another confirmation event ntfn, then re-open
@@ -82,6 +81,7 @@ type SpendDetail struct {
 	SpenderTxHash     *wire.ShaHash
 	SpendingTx        *wire.MsgTx
 	SpenderInputIndex uint32
+	SpendingHeight    int32
 }
 
 // SpendEvent encapsulates a spentness notification. Its only field 'Spend' will

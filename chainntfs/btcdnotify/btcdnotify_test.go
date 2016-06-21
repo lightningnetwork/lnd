@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/Roasbeef/btcd/rpctest"
+	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/lightningnetwork/lnd/chainntfs"
 )
 
 var (
@@ -68,7 +68,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan struct{})
+	confSent := make(chan int32)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()
@@ -105,7 +105,7 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan struct{})
+	confSent := make(chan int32)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()
@@ -163,7 +163,7 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 			t.Fatalf("unable to generate single block: %v", err)
 		}
 
-		confSent := make(chan struct{})
+		confSent := make(chan int32)
 		go func() {
 			confSent <- <-confIntents[i].Confirmed
 		}()

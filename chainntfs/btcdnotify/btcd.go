@@ -168,6 +168,9 @@ out:
 			case *spendNotification:
 				b.spendNotifications[*msg.targetOutpoint] = msg
 			case *confirmationsNotification:
+				chainntnfs.Log.Infof("New confirmations "+
+					"subscription: txid=%v, numconfs=%v",
+					*msg.txid, msg.numConfirmations)
 				b.confNotifications[*msg.txid] = msg
 			}
 		case staleBlockHash := <-b.disconnectedBlockHashes:
@@ -181,6 +184,9 @@ out:
 			if err != nil {
 				continue
 			}
+
+			chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+				connectedBlock.height, connectedBlock.sha)
 
 			newHeight := connectedBlock.height
 			for _, tx := range newBlock.Transactions() {
@@ -247,7 +253,7 @@ func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 	// is eligible until there are no more eligible entries.
 	nextConf := heap.Pop(b.confHeap).(*confEntry)
 	for nextConf.triggerHeight <= uint32(newBlockHeight) {
-		nextConf.finConf <- struct{}{}
+		nextConf.finConf <- newBlockHeight
 
 		if b.confHeap.Len() == 0 {
 			return
@@ -273,7 +279,10 @@ func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight
 	if confNtfn, ok := b.confNotifications[*txSha]; ok {
 		delete(b.confNotifications, *txSha)
 		if confNtfn.numConfirmations == 1 {
-			confNtfn.finConf <- struct{}{}
+			chainntnfs.Log.Infof("Dispatching single conf "+
+				"notification, sha=%v, height=%v", txSha,
+				blockHeight)
+			confNtfn.finConf <- blockHeight
 			return
 		}
 
@@ -328,7 +337,7 @@ type confirmationsNotification struct {
 	initialConfirmHeight uint32
 	numConfirmations     uint32
 
-	finConf      chan struct{}
+	finConf      chan int32
 	negativeConf chan int32 // TODO(roasbeef): re-org funny business
 }
 
@@ -341,7 +350,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	ntfn := &confirmationsNotification{
 		txid:             txid,
 		numConfirmations: numConfs,
-		finConf:          make(chan struct{}, 1),
+		finConf:          make(chan int32, 1),
 		negativeConf:     make(chan int32, 1),
 	}
 

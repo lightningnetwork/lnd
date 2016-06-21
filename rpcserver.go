@@ -134,4 +134,40 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 
 	rpcsLog.Infof("Connected to peer: %v", peerAddr.String())
 	return &lnrpc.ConnectPeerResponse{[]byte(peerAddr.String())}, nil
+// WalletBalance returns the sum of all confirmed unspent outputs under control
+// by the wallet. This method can be modified by having the request specify
+// only witness outputs should be factored into the final output sum.
+// TODO(roasbeef): split into total and confirmed/unconfirmed
+func (r *rpcServer) WalletBalance(ctx context.Context,
+	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
+
+	var balance float64
+
+	if in.WitnessOnly {
+		witnessOutputs, err := r.server.lnwallet.ListUnspentWitness(1)
+		if err != nil {
+			return nil, err
+		}
+
+		// We need to convert from BTC to satoshi here otherwise, and
+		// incorrect sum will be returned.
+		var outputSum btcutil.Amount
+		for _, witnessOutput := range witnessOutputs {
+			outputSum += btcutil.Amount(witnessOutput.Amount * 1e8)
+		}
+
+		balance = outputSum.ToBTC()
+	} else {
+		// TODO(roasbeef): make num confs a param
+		outputSum, err := r.server.lnwallet.CalculateBalance(1)
+		if err != nil {
+			return nil, err
+		}
+
+		balance = outputSum.ToBTC()
+	}
+
+	rpcsLog.Debugf("walletbalance query response: %v", balance)
+
+	return &lnrpc.WalletBalanceResponse{balance}, nil
 }

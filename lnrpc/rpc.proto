@@ -7,6 +7,7 @@ service Lightning {
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 
     rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
+    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
 }
 
 message SendManyRequest {
@@ -36,4 +37,9 @@ message ConnectPeerRequest {
 
 message ConnectPeerResponse {
 	bytes lnID = 1;
+message WalletBalanceRequest {
+    bool witness_only = 1;
+}
+message WalletBalanceResponse {
+    double balance = 1;
 }

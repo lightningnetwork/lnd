@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
-
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -24,7 +23,7 @@ type ChannelContribution struct {
 	Inputs []*wire.TxIn
 
 	// Outputs to be used in the case that the total value of the fund
-	// ing inputs is greather than the total potential channel capacity.
+	// ing inputs is greater than the total potential channel capacity.
 	ChangeOutputs []*wire.TxOut
 
 	// The key to be used for the funding transaction's P2SH multi-sig
@@ -33,6 +32,7 @@ type ChannelContribution struct {
 
 	// The key to be used for this party's version of the commitment
 	// transaction.
+	// TODO(roasbeef): replace with CDP
 	CommitKey *btcec.PublicKey
 
 	// Address to be used for delivery of cleared channel funds in the scenario
@@ -73,23 +73,27 @@ type InputScript struct {
 //      accessible via the .OurContribution() method. This contribution
 //      contains the neccessary items to allow the remote party to build both
 //      the funding, and commitment transactions.
-//  2. ChannelReservation.ProcessContribution
+//  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
 //       This allows us to build the funding, and commitment transactions
 //       ourselves.
 //     * We're now able to sign our inputs to the funding transactions, and
 //       the counterparty's version of the commitment transaction.
 //     * All signatures crafted by us, are now available via .OurSignatures().
-//  3. ChannelReservation.CompleteReservation
+//  3. ChannelReservation.CompleteReservation/ChannelReservation.CompleteReservationSingle
 //     * The final step in the workflow. The counterparty presents the
 //       signatures for all their inputs to the funding transation, as well
 //       as a signature to our version of the commitment transaction.
 //     * We then verify the validity of all signatures before considering the
 //       channel "open".
+// TODO(roasbeef): update with single funder description
 type ChannelReservation struct {
 	// This mutex MUST be held when either reading or modifying any of the
 	// fields below.
 	sync.RWMutex
+
+	// fundingTx is the funding transaction for this pending channel.
+	fundingTx *wire.MsgTx
 
 	// For CLTV it is nLockTime, for CSV it's nSequence, for segwit it's
 	// not needed
@@ -113,6 +117,10 @@ type ChannelReservation struct {
 	// throughout its lifetime.
 	reservationID uint64
 
+	// numConfsToOpen is the number of confirmations required before the
+	// channel should be considered open.
+	numConfsToOpen uint16
+
 	// A channel which will be sent on once the channel is considered
 	// 'open'. A channel is open once the funding transaction has reached
 	// a sufficient number of confirmations.
@@ -125,26 +133,37 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the creation
 // of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func newChannelReservation(fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
-	wallet *LightningWallet, id uint64) *ChannelReservation {
-	// TODO(roasbeef): CSV here, or on delay?
+func newChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
+	wallet *LightningWallet, id uint64, numConfs uint16) *ChannelReservation {
+	var ourBalance btcutil.Amount
+	var theirBalance btcutil.Amount
+
+	if fundingAmt == 0 {
+		ourBalance = 0
+		theirBalance = capacity
+	} else {
+		ourBalance = fundingAmt
+		theirBalance = capacity - fundingAmt
+	}
+
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
-			FundingAmount: fundingAmt,
+			FundingAmount: ourBalance,
 		},
 		theirContribution: &ChannelContribution{
-			FundingAmount: fundingAmt,
+			FundingAmount: theirBalance,
 		},
 		partialState: &channeldb.OpenChannel{
-			// TODO(roasbeef): assumes balanced symmetric channels.
-			Capacity:     fundingAmt * 2,
-			OurBalance:   fundingAmt,
-			TheirBalance: fundingAmt,
+			Capacity:     capacity,
+			OurBalance:   ourBalance,
+			TheirBalance: theirBalance,
 			MinFeePerKb:  minFeeRate,
 			Db:           wallet.channelDB,
 		},
-		reservationID: id,
-		wallet:        wallet,
+		numConfsToOpen: numConfs,
+		reservationID:  id,
+		chanOpen:       make(chan *LightningChannel, 1),
+		wallet:         wallet,
 	}
 }
 
@@ -170,6 +189,22 @@ func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContr
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addContributionMsg{
+		pendingFundingID: r.reservationID,
+		contribution:     theirContribution,
+		err:              errChan,
+	}
+
+	return <-errChan
+}
+
+// ProcessSingleContribution verifies, and records the initiator's contribution
+// to this pending single funder channel. Internally, no further action is
+// taken other than recording the initiator's contribution to the single funder
+// channel.
+func (r *ChannelReservation) ProcessSingleContribution(theirContribution *ChannelContribution) error {
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &addSingleContributionMsg{
 		pendingFundingID: r.reservationID,
 		contribution:     theirContribution,
 		err:              errChan,
@@ -217,6 +252,7 @@ func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
 func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScript,
 	commitmentSig []byte) error {
 
+	// TODO(roasbeef): add flag for watch or not?
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addCounterPartySigsMsg{
@@ -224,6 +260,29 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScr
 		theirFundingInputScripts: fundingInputScripts,
 		theirCommitmentSig:       commitmentSig,
 		err:                      errChan,
+	}
+
+	return <-errChan
+}
+
+// CompleteReservationSingle finalizes the pending single funder channel
+// reservation. Using the funding outpoint of the constructed funding transaction,
+// and the initiator's signature for our version of the commitment transaction,
+// we are able to verify the correctness of our committment transaction as
+// crafted by the initiator. Once this method returns, our signature for the
+// initiator's version of the commitment transaction is available via
+// the .OurSignatures() method. As this method should only be called as a
+// response to a single funder channel, only a commitment signature will be
+// populated.
+func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoint,
+	commitSig []byte) error {
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &addSingleFunderSigsMsg{
+		pendingFundingID:   r.reservationID,
+		fundingOutpoint:    fundingPoint,
+		theirCommitmentSig: commitSig,
+		err:                errChan,
 	}
 
 	return <-errChan
@@ -243,10 +302,26 @@ func (r *ChannelReservation) TheirSignatures() ([]*InputScript, []byte) {
 
 // FinalFundingTx returns the finalized, fully signed funding transaction for
 // this reservation.
+//
+// NOTE: If this reservation was created as the non-initiator to a single
+// funding workflow, then the full funding transaction will not be available.
+// Instead we will only have the final outpoint of the funding transaction.
 func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 	r.RLock()
 	defer r.RUnlock()
-	return r.partialState.FundingTx
+	return r.fundingTx
+}
+
+// FundingOutpoint returns the outpoint of the funding transaction.
+//
+// NOTE: The pointer returned will only be set once the .ProcesContribution()
+// method is called in the case of the initiator of a single funder workflow,
+// and after the .CompleteReservationSingle() method is called in the case of
+// a responder to a single funder workflow.
+func (r *ChannelReservation) FundingOutpoint() *wire.OutPoint {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.FundingOutpoint
 }
 
 // Cancel abandons this channel reservation. This method should be called in
@@ -264,16 +339,29 @@ func (r *ChannelReservation) Cancel() error {
 	return <-errChan
 }
 
-// WaitForChannelOpen blocks until the funding transaction for this pending
-// payment channel obtains the configured number of confirmations. Once
-// confirmations have been obtained, a fully initialized LightningChannel
-// instance is returned, allowing for channel updates.
+// DispatchChan returns a channel which will be sent on once the funding
+// transaction for this pending payment channel obtains the configured number
+// of confirmations. Once confirmations have been obtained, a fully initialized
+// LightningChannel instance is returned, allowing for channel updates.
 // NOTE: If this method is called before .CompleteReservation(), it will block
 // indefinitely.
-func (r *ChannelReservation) WaitForChannelOpen() *LightningChannel {
-	return <-r.chanOpen
+func (r *ChannelReservation) DispatchChan() <-chan *LightningChannel {
+	return r.chanOpen
 }
 
-// * finish reset of tests
-// * start on commitment side
-//   * channel should have active namespace to it's bucket, query at that point fo past commits etc
+// FinalizeReservation completes the pending reservation, returning an active
+// open LightningChannel. This method should be called after the responder to
+// the single funder workflow receives and verifies a proof from the initiator
+// of an open channel.
+//
+// NOTE: This method should *only* be called as the last step when one is the
+// responder to an initiated single funder workflow.
+func (r *ChannelReservation) FinalizeReservation() (*LightningChannel, error) {
+	errChan := make(chan error, 1)
+	r.wallet.msgChan <- &channelOpenMsg{
+		pendingFundingID: r.reservationID,
+		err:              errChan,
+	}
+
+	return <-r.chanOpen, <-errChan
+}

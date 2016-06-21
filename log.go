@@ -20,6 +20,7 @@ var (
 	ltndLog    = btclog.Disabled
 	lnwlLog    = btclog.Disabled
 	peerLog    = btclog.Disabled
+	fndgLog    = btclog.Disabled
 	rpcsLog    = btclog.Disabled
 	srvrLog    = btclog.Disabled
 	ntfnLog    = btclog.Disabled
@@ -35,6 +36,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SRVR": srvrLog,
 	"NTFN": ntfnLog,
 	"CHDB": chdbLog,
+	"FNDG": fndgLog,
 }
 
 // useLogger updates the logger references for subsystemID to logger.  Invalid
@@ -69,6 +71,9 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 	case "CHDB":
 		chdbLog = logger
 		channeldb.UseLogger(logger)
+
+	case "FNDG":
+		fndgLog = logger
 	}
 }
 
@@ -122,12 +127,28 @@ func setLogLevel(subsystemID string, logLevel string) {
 }
 
 // setLogLevels sets the log level for all subsystem loggers to the passed
-// level.  It also dynamically creates the subsystem loggers as needed, so it
+// level. It also dynamically creates the subsystem loggers as needed, so it
 // can be used to initialize the logging system.
 func setLogLevels(logLevel string) {
-	// Configure all sub-systems with the new logging level.  Dynamically
+	// Configure all sub-systems with the new logging level. Dynamically
 	// create loggers as needed.
 	for subsystemID := range subsystemLoggers {
 		setLogLevel(subsystemID, logLevel)
 	}
+}
+
+// logClosure is used to provide a closure over expensive logging operations
+// so don't have to be performed when the logging level doesn't warrant it.
+type logClosure func() string
+
+// String invokes the underlying function and returns the result.
+func (c logClosure) String() string {
+	return c()
+}
+
+// newLogClosure returns a new closure over a function that returns a string
+// which itself provides a Stringer interface so that it can be used with the
+// logging system.
+func newLogClosure(c func() string) logClosure {
+	return logClosure(c)
 }

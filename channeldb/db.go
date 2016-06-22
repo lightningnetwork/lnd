@@ -35,7 +35,9 @@ type EncryptorDecryptor interface {
 	OverheadSize() uint32
 }
 
-// DB...
+// DB is the primary datastore for the LND daemon. The database stores
+// information related to nodes, routing data, open/closed channels, fee
+// schedules, and reputation data.
 type DB struct {
 	store *bolt.DB
 
@@ -64,12 +66,15 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	return &DB{store: bdb, netParams: netParams}, nil
 }
 
-// RegisterCryptoSystem...
+// RegisterCryptoSystem registers an implementation of the EncryptorDecryptor
+// interface for use within the database to encrypt/decrypt sensitive data.
 func (d *DB) RegisterCryptoSystem(ed EncryptorDecryptor) {
 	d.cryptoSystem = ed
 }
 
-// Wipe...
+// Wipe completely deletes all saved state within all used buckets within the
+// database. The deletion is done in a single transaction, therefore this
+// operation is fully atomic.
 func (d *DB) Wipe() error {
 	return d.store.Update(func(tx *bolt.Tx) error {
 		if err := tx.DeleteBucket(openChannelBucket); err != nil {
@@ -80,12 +85,15 @@ func (d *DB) Wipe() error {
 	})
 }
 
-// Close...
+// Close terminates the underlying database handle manually.
 func (d *DB) Close() error {
 	return d.store.Close()
 }
 
-// createChannelDB...
+// createChannelDB creates and initializes a fresh version of channeldb. In
+// the case that the target path has not yet been created or doesn't yet exist,
+// then the path is created. Additionally, all required top-level buckets used
+// within the database are created.
 func createChannelDB(dbPath string) error {
 	if !fileExists(dbPath) {
 		if err := os.MkdirAll(dbPath, 0700); err != nil {
@@ -121,7 +129,7 @@ func createChannelDB(dbPath string) error {
 	return bdb.Close()
 }
 
-// fileExists...
+// fileExists returns true if the file exists, and false otherwise.
 func fileExists(path string) bool {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -132,7 +140,10 @@ func fileExists(path string) bool {
 	return true
 }
 
-// FetchOpenChannel...
+// FetchOpenChannel returns all stored currently active/open channels
+// associated with the target nodeID. In the case that no active channels are
+// known to have been created with this node, then a zero-length slice is
+// returned.
 func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 	err := d.store.View(func(tx *bolt.Tx) error {

@@ -171,7 +171,7 @@ func (r *rpcServer) OpenChannel(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Tracef("Opened channel with peerid(%v), fundingtxid %v",
+	rpcsLog.Tracef("Opened channel with peerid(%v), ChannelPoint(%v)",
 		in.TargetPeerId, resp)
 
 	return &lnrpc.OpenChannelResponse{

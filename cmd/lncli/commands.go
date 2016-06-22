@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -222,14 +221,14 @@ func closeChannel(ctx *cli.Context) {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
-	txid, err := hex.DecodeString(ctx.String("funding_txid"))
+	txid, err := wire.NewShaHashFromStr(ctx.String("funding_txid"))
 	if err != nil {
 		fatal(err)
 	}
 
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
-			FundingTxid: txid,
+			FundingTxid: txid[:],
 			OutputIndex: uint32(ctx.Int("output_index")),
 		},
 	}

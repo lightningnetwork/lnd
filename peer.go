@@ -488,7 +488,7 @@ func (p *peer) handleLocalClose(req *closeChanReq) {
 		return
 	}
 	peerLog.Infof("Executing cooperative closure of "+
-		"ChanPoint(%v) with %v, txid=%v", key, p.id,
+		"ChanPoint(%v) with peerID(%v), txid=%v", key, p.id,
 		txid)
 
 	// With our signature for the close tx generated, send the signature

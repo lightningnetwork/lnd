@@ -95,9 +95,10 @@ func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
 
 var _ EncryptorDecryptor = (*MockEncryptorDecryptor)(nil)
 
-func TestOpenChannelEncodeDecode(t *testing.T) {
+func TestOpenChannelPutGetDelete(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
+	// TODO(roasbeef): move initial set up to something within testing.Main
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
 		t.Fatalf("unable to create temp dir: %v")
@@ -286,6 +287,26 @@ func TestOpenChannelEncodeDecode(t *testing.T) {
 
 	if state.CreationTime.Unix() != newState.CreationTime.Unix() {
 		t.Fatalf("creation time doesn't match")
+	}
+
+	// Finally to wrap up the test, delete the state of the channel within
+	// the database. This involves "closing" the channel which removes all
+	// written state, and creates a small "summary" elsewhere within the
+	// database.
+	if err := state.CloseChannel(); err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// As the channel is now closed, attempting to fetch all open channels
+	// for our fake node ID should return an empty slice.
+	openChans, err := cdb.FetchOpenChannels(&nodeID)
+	if err != nil {
+		t.Fatalf("unable to fetch open channels: %v", err)
+	}
+
+	// TODO(roasbeef): need to assert much more
+	if len(openChans) != 0 {
+		t.Fatalf("all channels not deleted, found %v", len(openChans))
 	}
 }
 

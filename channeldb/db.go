@@ -72,8 +72,11 @@ func (d *DB) RegisterCryptoSystem(ed EncryptorDecryptor) {
 // Wipe...
 func (d *DB) Wipe() error {
 	return d.store.Update(func(tx *bolt.Tx) error {
-		// TODO(roasbee): delete all other top-level buckets.
-		return tx.DeleteBucket(openChannelBucket)
+		if err := tx.DeleteBucket(openChannelBucket); err != nil {
+			return err
+		}
+
+		return tx.DeleteBucket(closedChannelBucket)
 	})
 }
 

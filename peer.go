@@ -180,6 +180,8 @@ func newPeer(conn net.Conn, server *server, net wire.BitcoinNet, inbound bool) (
 			"for peer %v: %v", p, err)
 		return nil, err
 	}
+	peerLog.Debugf("Loaded %v active channels from database with peerID(%v)",
+		len(activeChans), p.id)
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return nil, err
 	}
@@ -441,7 +443,7 @@ out:
 	for {
 		select {
 		case newChan := <-p.newChannels:
-			chanPoint := newChan.ChannelPoint()
+			chanPoint := *newChan.ChannelPoint()
 			p.activeChannels[chanPoint] = newChan
 
 			// TODO(roasbeef): signal channel barrier
@@ -527,12 +529,8 @@ func (p *peer) handleLocalClose(req *closeChanReq) {
 			// active indexes, and the database state.
 			peerLog.Infof("ChannelPoint(%v) is now "+
 				"closed at height %v", key, height)
-			delete(p.activeChannels, key)
+			wipeChannel(p, channel)
 
-			p.server.chanIndexMtx.Lock()
-			delete(p.server.chanIndex, key)
-			p.server.chanIndexMtx.Unlock()
-			// TODO(roasbeef): wipe from DB
 			success = true
 		case <-p.quit:
 		}
@@ -583,12 +581,24 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	// TODO(roasbeef): also wait for confs before removing state
 	peerLog.Infof("ChannelPoint(%v) is now "+
 		"closed", key)
-	delete(p.activeChannels, key)
+	wipeChannel(p, channel)
+}
+
+// wipeChannel removes the passed channel from all indexes associated with the
+// peer, and deletes the channel from the database.
+func wipeChannel(p *peer, channel *lnwallet.LightningChannel) {
+	chanID := *channel.ChannelPoint()
+
+	delete(p.activeChannels, chanID)
 
 	p.server.chanIndexMtx.Lock()
-	delete(p.server.chanIndex, key)
+	delete(p.server.chanIndex, chanID)
 	p.server.chanIndexMtx.Unlock()
-	// TODO(roasbeef): wipe from DB, with above in func
+
+	if err := channel.DeleteState(); err != nil {
+		peerLog.Errorf("Unable to delete ChannelPoint(%v) "+
+			"from db %v", chanID, err)
+	}
 }
 
 // htlcManager...

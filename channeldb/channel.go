@@ -11,7 +11,6 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 var (
@@ -251,26 +250,53 @@ func (c *OpenChannel) CloseChannel() error {
 	})
 }
 
-// ChannelSnapshot....
+// ChannelSnapshot is a frozen snapshot of the current channel state. A
+// snapshot is detached from the original channel that generated it, providing
+// read-only access to the current or prior state of an active channel.
 // TODO(roasbeef): methods to roll forwards/backwards in state etc
 //  * use botldb cursor?
 type ChannelSnapshot struct {
-	OpenChannel
+	RemoteID [wire.HashSize]byte
+
+	ChannelPoint *wire.OutPoint
+
+	Capacity      btcutil.Amount
+	LocalBalance  btcutil.Amount
+	RemoteBalance btcutil.Amount
+
+	NumUpdates uint64
+
+	TotalSatoshisSent     uint64
+	TotalSatoshisReceived uint64
+
+	// TODO(roasbeef): fee stuff
 
 	// TODO(roasbeef): active HTLC's + their direction
-	updateNum      uint64
-	deltaNamespace walletdb.Namespace
+	updateNum uint64
+	channel   *OpenChannel
+}
+
+// Snapshot returns a read-only snapshot of the current channel state. This
+// snapshot includes information concerning the current settled balance within
+// the channel, meta-data detailing total flows, and any outstanding HTLCs.
+func (c *OpenChannel) Snapshot() *ChannelSnapshot {
+	snapshot := &ChannelSnapshot{
+		ChannelPoint:          c.ChanID,
+		Capacity:              c.Capacity,
+		LocalBalance:          c.OurBalance,
+		RemoteBalance:         c.TheirBalance,
+		NumUpdates:            c.NumUpdates,
+		TotalSatoshisSent:     c.TotalSatoshisSent,
+		TotalSatoshisReceived: c.TotalSatoshisReceived,
+	}
+	copy(snapshot.RemoteID[:], c.TheirLNID[:])
+
+	return snapshot
 }
 
 // FindPreviousState...
 // TODO(roasbeef): method to retrieve both old commitment txns given update #
 func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelSnapshot, error) {
-	return nil, nil
-}
-
-// Snapshot....
-// read-only snapshot
-func (c *OpenChannel) Snapshot() (*ChannelSnapshot, error) {
 	return nil, nil
 }
 

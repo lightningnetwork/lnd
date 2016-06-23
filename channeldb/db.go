@@ -177,6 +177,7 @@ func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
 			if err != nil {
 				return err
 			}
+			oChannel.Db = d
 
 			channels = append(channels, oChannel)
 			return nil

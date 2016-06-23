@@ -40,6 +40,12 @@ type outgoinMsg struct {
 	sentChan chan struct{} // MUST be buffered.
 }
 
+// chanSnapshotReq is a message sent by outside sub-systems to a peer in order
+// to gain a snapshot of the peer's currently active channels.
+type chanSnapshotReq struct {
+	resp chan []*channeldb.ChannelSnapshot
+}
+
 // peer is an active peer on the Lightning Network. This struct is responsible
 // for managing any channel state related to this peer. To do so, it has several
 // helper goroutines to handle events such as HTLC timeouts, new funding
@@ -55,9 +61,8 @@ type peer struct {
 	lightningAddr *lndc.LNAdr
 	lightningID   wire.ShaHash
 
-	inbound         bool
-	protocolVersion uint32
-	id              int32
+	inbound bool
+	id      int32
 
 	// For purposes of detecting retransmits, etc.
 	lastNMessages map[lnwire.Message]struct{}
@@ -92,7 +97,8 @@ type peer struct {
 	// activeChannels is a map which stores the state machines of all
 	// active channels. Channels are indexed into the map by the txid of
 	// the funding transaction which opened the channel.
-	activeChannels map[wire.OutPoint]*lnwallet.LightningChannel
+	activeChannels   map[wire.OutPoint]*lnwallet.LightningChannel
+	chanSnapshotReqs chan *chanSnapshotReq
 
 	// newChanBarriers is a map from a channel point to a 'barrier' which
 	// will be signalled once the channel is fully open. This barrier acts
@@ -152,9 +158,10 @@ func newPeer(conn net.Conn, server *server, net wire.BitcoinNet, inbound bool) (
 		sendQueue:     make(chan outgoinMsg, 1),
 		outgoingQueue: make(chan outgoinMsg, outgoingQueueLen),
 
-		newChanBarriers: make(map[wire.OutPoint]chan struct{}),
-		activeChannels:  make(map[wire.OutPoint]*lnwallet.LightningChannel),
-		newChannels:     make(chan *lnwallet.LightningChannel, 1),
+		newChanBarriers:  make(map[wire.OutPoint]chan struct{}),
+		activeChannels:   make(map[wire.OutPoint]*lnwallet.LightningChannel),
+		chanSnapshotReqs: make(chan *chanSnapshotReq),
+		newChannels:      make(chan *lnwallet.LightningChannel, 1),
 
 		localCloseChanReqs:  make(chan *closeChanReq),
 		remoteCloseChanReqs: make(chan *lnwire.CloseRequest),
@@ -433,6 +440,14 @@ func (p *peer) queueMsg(msg lnwire.Message, doneChan chan struct{}) {
 	p.outgoingQueue <- outgoinMsg{msg, doneChan}
 }
 
+// ChannelSnapshots returns a slice of channel snapshots detaling all currently
+// active channels maintained with the remote peer.
+func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
+	resp := make(chan []*channeldb.ChannelSnapshot, 1)
+	p.chanSnapshotReqs <- &chanSnapshotReq{resp}
+	return <-resp
+}
+
 // channelManager is goroutine dedicated to handling all requests/signals
 // pertaining to the opening, cooperative closing, and force closing of all
 // channels maintained with the remote peer.
@@ -442,6 +457,13 @@ func (p *peer) channelManager() {
 out:
 	for {
 		select {
+		case req := <-p.chanSnapshotReqs:
+			snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
+			for _, activeChan := range p.activeChannels {
+				snapshot := activeChan.StateSnapshot()
+				snapshots = append(snapshots, snapshot)
+			}
+			req.resp <- snapshots
 		case newChan := <-p.newChannels:
 			chanPoint := *newChan.ChannelPoint()
 			p.activeChannels[chanPoint] = newChan

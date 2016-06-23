@@ -222,13 +222,29 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 
 	for _, serverPeer := range serverPeers {
 		// TODO(roasbeef): add a snapshot method which grabs peer read mtx
+
+		lnID := hex.EncodeToString(serverPeer.lightningID[:])
 		peer := &lnrpc.Peer{
-			LightningId: hex.EncodeToString(serverPeer.lightningID[:]),
+			LightningId: lnID,
 			PeerId:      serverPeer.id,
 			Address:     serverPeer.conn.RemoteAddr().String(),
 			Inbound:     serverPeer.inbound,
 			BytesRecv:   atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent:   atomic.LoadUint64(&serverPeer.bytesSent),
+		}
+
+		chanSnapshots := serverPeer.ChannelSnapshots()
+		peer.Channels = make([]*lnrpc.ActiveChannel, 0, len(chanSnapshots))
+		for _, chanSnapshot := range chanSnapshots {
+			channel := &lnrpc.ActiveChannel{
+				RemoteId:      lnID,
+				ChannelPoint:  chanSnapshot.ChannelPoint.String(),
+				Capacity:      int64(chanSnapshot.Capacity),
+				LocalBalance:  int64(chanSnapshot.LocalBalance),
+				RemoteBalance: int64(chanSnapshot.RemoteBalance),
+				NumUpdates:    chanSnapshot.NumUpdates,
+			}
+			peer.Channels = append(peer.Channels, channel)
 		}
 
 		resp.Peers = append(resp.Peers, peer)

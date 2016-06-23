@@ -98,7 +98,7 @@ type LightningChannel struct {
 	wg   sync.WaitGroup
 }
 
-// newLightningChannel...
+// NewLightningChannel...
 func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
 	chanDB *channeldb.DB, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
@@ -541,20 +541,6 @@ func (lc *LightningChannel) CancelHTLC() error {
 	return nil
 }
 
-// OurBalance...
-func (lc *LightningChannel) OurBalance() btcutil.Amount {
-	lc.stateMtx.RLock()
-	defer lc.stateMtx.RUnlock()
-	return lc.channelState.OurBalance
-}
-
-// TheirBalance...
-func (lc *LightningChannel) TheirBalance() btcutil.Amount {
-	lc.stateMtx.RLock()
-	defer lc.stateMtx.RUnlock()
-	return lc.channelState.TheirBalance
-}
-
 // ForceClose...
 func (lc *LightningChannel) ForceClose() error {
 	return nil
@@ -658,6 +644,21 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	// TODO(roasbeef): VALIDATE
 
 	return closeTx, nil
+}
+
+// DeleteState deletes all state concerning the channel from the underlying
+// database, only leaving a small summary describing meta-data of the
+// channel's lifetime.
+func (lc *LightningChannel) DeleteState() error {
+	return lc.channelState.CloseChannel()
+}
+
+// StateSnapshot returns a snapshot b
+func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
+	lc.stateMtx.RLock()
+	defer lc.stateMtx.RUnlock()
+
+	return lc.channelState.Snapshot()
 }
 
 // RequestPayment...

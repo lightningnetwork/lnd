@@ -64,16 +64,18 @@ message HTLC {
 }
 
 message ActiveChannel {
-    bytes funding_txid = 1;
+    // TODO(roasbeef): make channel points a string everywhere in rpc?
+    string remote_id = 1;
+    string channel_point = 2;
 
-    int64 capacity = 2;
-    int64 local_balance = 3; 
-    int64 remote_balance = 4;
+    int64 capacity = 3;
+    int64 local_balance = 4;
+    int64 remote_balance = 5;
 
-    int64 unsettled_belance = 5;
-    repeated HTLC pending_htlcs = 6;
+    int64 unsettled_belance = 6;
+    repeated HTLC pending_htlcs = 7;
 
-    int64 num_updates = 7;
+    uint64 num_updates = 8;
     // TODO(roasbeef): other stuffs
 }
 

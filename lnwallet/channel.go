@@ -297,8 +297,8 @@ func (c *ChannelUpdate) Commit(pastRevokePreimage []byte) error {
 // ChannelPoint returns the outpoint of the original funding transaction which
 // created this active channel. This outpoint is used throughout various
 // sub-systems to uniquely identify an open channel.
-func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
-	return lc.fundingTxIn.PreviousOutPoint
+func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
+	return lc.channelState.ChanID
 }
 
 // AddHTLC...

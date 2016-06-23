@@ -180,7 +180,7 @@ func openChannel(ctx *cli.Context) {
 
 	index := resp.ChannelPoint.OutputIndex
 	printRespJson(struct {
-		ChannelPoint string
+		ChannelPoint string `json:"channel_point"`
 	}{
 		ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
 	},

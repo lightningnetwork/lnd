@@ -41,7 +41,7 @@ type ChannelContribution struct {
 
 	// Hash to be used as the revocation for the initial version of this
 	// party's commitment transaction.
-	RevocationHash [20]byte
+	RevocationHash [32]byte
 
 	// The delay (in blocks) to be used for the pay-to-self output in this
 	// party's version of the commitment transaction.

@@ -58,7 +58,7 @@ const (
 // PaymentHash presents the hash160 of a random value. This hash is used to
 // uniquely track incoming/outgoing payments within this channel, as well as
 // payments requested by the wallet/daemon.
-type PaymentHash [20]byte
+type PaymentHash [32]byte
 
 // LightningChannel...
 // TODO(roasbeef): future peer struct should embed this struct
@@ -130,12 +130,12 @@ func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 
 // PaymentDescriptor...
 type PaymentDescriptor struct {
-	RHash   [20]byte
+	RHash   [32]byte
 	Timeout uint32
 	Value   btcutil.Amount
 
-	OurRevocation   [20]byte // TODO(roasbeef): don't need these?
-	TheirRevocation [20]byte
+	OurRevocation   [32]byte // TODO(roasbeef): don't need these?
+	TheirRevocation [32]byte
 
 	PayToUs bool
 }
@@ -151,7 +151,7 @@ type ChannelUpdate struct {
 	ourPendingCommitTx   *wire.MsgTx
 	theirPendingCommitTx *wire.MsgTx
 
-	pendingRevocation [20]byte
+	pendingRevocation [32]byte
 	sigTheirNewCommit []byte
 
 	// TODO(roasbeef): some enum to track current state in lifetime?
@@ -171,7 +171,7 @@ func (c *ChannelUpdate) RevocationHash() ([]byte, error) {
 		return nil, err
 	}
 
-	return btcutil.Hash160(nextPreimage[:]), nil
+	return nextPreimage[:], nil
 }
 
 // SignCounterPartyCommitment...
@@ -458,7 +458,7 @@ func (lc *LightningChannel) addHTLC(ourCommitTx, theirCommitTx *wire.MsgTx,
 // SettleHTLC...
 // R-VALUE, NEW REVOKE HASH
 // accept, sig
-func (lc *LightningChannel) SettleHTLC(rValue [20]byte, newRevocation [20]byte) (*ChannelUpdate, error) {
+func (lc *LightningChannel) SettleHTLC(rValue [32]byte, newRevocation [32]byte) (*ChannelUpdate, error) {
 	// Grab the updateTotem, this acts as a barrier upholding the invariant
 	// that only one channel update transaction should exist at any moment.
 	// This aides in ensuring the channel updates are atomic, and consistent.

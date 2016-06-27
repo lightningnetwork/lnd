@@ -97,7 +97,7 @@ type bobNode struct {
 	// For simplicity, used for both the commit tx and the multi-sig output.
 	channelKey      *btcec.PublicKey
 	deliveryAddress btcutil.Address
-	revocation      [20]byte
+	revocation      [32]byte
 	delay           uint32
 	id              [wire.HashSize]byte
 
@@ -228,7 +228,7 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 
 	// Bob's initial revocation hash is just his private key with the first
 	// byte changed...
-	var revocation [20]byte
+	var revocation [32]byte
 	copy(revocation[:], bobsPrivKey)
 	revocation[0] = 0xff
 
@@ -488,7 +488,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, lnwallet *Lightn
 	// Obtain bob's signature for the closure transaction.
 	redeemScript := lnc.channelState.FundingRedeemScript
 	fundingOut := lnc.ChannelPoint()
-	fundingTxIn := wire.NewTxIn(&fundingOut, nil, nil)
+	fundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 	bobCloseTx := createCooperativeCloseTx(fundingTxIn,
 		lnc.channelState.TheirBalance, lnc.channelState.OurBalance,
 		lnc.channelState.TheirDeliveryScript, lnc.channelState.OurDeliveryScript,

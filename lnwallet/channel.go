@@ -717,13 +717,8 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	}
 
 	// Next, we create the script paying to them. This is just a regular
-	// P2PKH-like output, without any added CSV delay. However, we instead
-	// use P2SH.
-	theirRedeemScript, err := commitScriptUnencumbered(theirKey)
-	if err != nil {
-		return nil, err
-	}
-	payToThemScriptHash, err := witnessScriptHash(theirRedeemScript)
+	// P2WKH output, without any added CSV delay.
+	theirWitnessKeyHash, err := commitScriptUnencumbered(theirKey)
 	if err != nil {
 		return nil, err
 	}
@@ -735,7 +730,7 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx.Version = 2
 	commitTx.AddTxIn(fundingOutput)
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
-	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), payToThemScriptHash))
+	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
 
 	return commitTx, nil
 }

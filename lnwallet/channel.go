@@ -699,15 +699,23 @@ func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChanne
 	return ourNewCommitTx, theirNewCommitTx, nil
 }
 
-// createCommitTx...
-// TODO(roasbeef): fix inconsistency of 32 vs 20 byte revocation hashes everywhere...
+// createCommitTx creates a commitment transaction, spending from specified
+// funding output. The commitment transaction contains two outputs: one paying
+// to the "owner" of the commitment transaction which can be spent after a
+// relative block delay or revocation event, and the other paying the the
+// counter-party within the channel, which can be spent immediately.
 func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
 	revokeHash []byte, csvTimeout uint32, amountToSelf,
 	amountToThem btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
-	ourRedeemScript, err := commitScriptToSelf(csvTimeout, selfKey, theirKey,
-		revokeHash)
+	// This output has 2 main redemption clauses: either we can redeem the
+	// output after a relative block delay, or the remote node can claim
+	// the funds with the revocation key if we broadcast a revoked
+	// commitment transaction.
+	revokeKey := deriveRevocationPubkey(theirKey, revokeHash)
+	ourRedeemScript, err := commitScriptToSelf(csvTimeout, selfKey,
+		revokeKey)
 	if err != nil {
 		return nil, err
 	}

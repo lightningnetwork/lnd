@@ -74,10 +74,45 @@ func newAddress(ctx *cli.Context) {
 	printRespJson(addr)
 }
 
+var SendCoinsCommand = cli.Command{
+	Name:        "sendcoins",
+	Description: "send a specified amount of bitcoin to the passed address",
+	Usage:       "sendcoins --addr=<bitcoin addresss> --amt=<num coins in satoshis>",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "addr",
+			Usage: "the bitcoin address to send coins to on-chain",
+		},
+		// TODO(roasbeef): switch to BTC on command line? int may not be sufficient
+		cli.IntFlag{
+			Name:  "amt",
+			Usage: "the number of bitcoin denominated in satoshis to send",
+		},
+	},
+	Action: sendCoins,
+}
+
+func sendCoins(ctx *cli.Context) {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.SendCoinsRequest{
+		Addr:   ctx.String("addr"),
+		Amount: int64(ctx.Int("amt")),
+	}
+	txid, err := client.SendCoins(ctxb, req)
+	if err != nil {
+		fatal(err)
+	}
+
+	printRespJson(txid)
+}
+
 var SendManyCommand = cli.Command{
 	Name: "sendmany",
-	Usage: "create and broadcast a transaction paying the specified " +
+	Description: "create and broadcast a transaction paying the specified " +
 		"amount(s) to the passed address(es)",
+	Usage:  `sendmany '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'`,
 	Action: sendMany,
 }
 

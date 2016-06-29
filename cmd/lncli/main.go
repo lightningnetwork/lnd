@@ -50,6 +50,7 @@ func main() {
 	app.Commands = []cli.Command{
 		NewAddressCommand,
 		SendManyCommand,
+		SendCoinsCommand,
 		ConnectCommand,
 		OpenChannelCommand,
 		CloseChannelCommand,

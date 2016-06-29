@@ -43,7 +43,7 @@ var NewAddressCommand = cli.Command{
 	Action: newAddress,
 }
 
-func newAddress(ctx *cli.Context) {
+func newAddress(ctx *cli.Context) error {
 	client := getClient(ctx)
 
 	stringAddrType := ctx.Args().Get(0)
@@ -59,8 +59,8 @@ func newAddress(ctx *cli.Context) {
 	case "p2pkh":
 		addrType = lnrpc.NewAddressRequest_PUBKEY_HASH
 	default:
-		fatal(fmt.Errorf("invalid address type %v, support address type "+
-			"are: p2wkh, np2wkh, p2pkh", stringAddrType))
+		return fmt.Errorf("invalid address type %v, support address type "+
+			"are: p2wkh, np2wkh, p2pkh", stringAddrType)
 	}
 
 	ctxb := context.Background()
@@ -68,10 +68,11 @@ func newAddress(ctx *cli.Context) {
 		Type: addrType,
 	})
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(addr)
+	return nil
 }
 
 var SendCoinsCommand = cli.Command{
@@ -92,7 +93,7 @@ var SendCoinsCommand = cli.Command{
 	Action: sendCoins,
 }
 
-func sendCoins(ctx *cli.Context) {
+func sendCoins(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
@@ -102,10 +103,11 @@ func sendCoins(ctx *cli.Context) {
 	}
 	txid, err := client.SendCoins(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(txid)
+	return nil
 }
 
 var SendManyCommand = cli.Command{
@@ -116,12 +118,12 @@ var SendManyCommand = cli.Command{
 	Action: sendMany,
 }
 
-func sendMany(ctx *cli.Context) {
+func sendMany(ctx *cli.Context) error {
 	var amountToAddr map[string]int64
 
 	jsonMap := ctx.Args().Get(0)
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
-		fatal(err)
+		return err
 	}
 
 	ctxb := context.Background()
@@ -129,10 +131,11 @@ func sendMany(ctx *cli.Context) {
 
 	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{amountToAddr})
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(txid)
+	return nil
 }
 
 var ConnectCommand = cli.Command{
@@ -141,7 +144,7 @@ var ConnectCommand = cli.Command{
 	Action: connectPeer,
 }
 
-func connectPeer(ctx *cli.Context) {
+func connectPeer(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
@@ -155,10 +158,11 @@ func connectPeer(ctx *cli.Context) {
 
 	lnid, err := client.ConnectPeer(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(lnid)
+	return nil
 }
 
 // TODO(roasbeef): default number of confirmations
@@ -191,7 +195,7 @@ var OpenChannelCommand = cli.Command{
 	Action: openChannel,
 }
 
-func openChannel(ctx *cli.Context) {
+func openChannel(ctx *cli.Context) error {
 	// TODO(roasbeef): add deadline to context
 	ctxb := context.Background()
 	client := getClient(ctx)
@@ -205,12 +209,12 @@ func openChannel(ctx *cli.Context) {
 
 	resp, err := client.OpenChannel(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	txid, err := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	index := resp.ChannelPoint.OutputIndex
@@ -220,6 +224,7 @@ func openChannel(ctx *cli.Context) {
 		ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
 	},
 	)
+	return nil
 }
 
 // TODO(roasbeef): also allow short relative channel ID.
@@ -252,13 +257,13 @@ var CloseChannelCommand = cli.Command{
 	Action: closeChannel,
 }
 
-func closeChannel(ctx *cli.Context) {
+func closeChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
 	txid, err := wire.NewShaHashFromStr(ctx.String("funding_txid"))
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	req := &lnrpc.CloseChannelRequest{
@@ -270,10 +275,11 @@ func closeChannel(ctx *cli.Context) {
 
 	resp, err := client.CloseChannel(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(resp)
+	return nil
 }
 
 var ListPeersCommand = cli.Command{
@@ -282,17 +288,18 @@ var ListPeersCommand = cli.Command{
 	Action:      listPeers,
 }
 
-func listPeers(ctx *cli.Context) {
+func listPeers(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
 	req := &lnrpc.ListPeersRequest{}
 	resp, err := client.ListPeers(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(resp)
+	return nil
 }
 
 var WalletBalanceCommand = cli.Command{
@@ -309,7 +316,7 @@ var WalletBalanceCommand = cli.Command{
 	Action: walletBalance,
 }
 
-func walletBalance(ctx *cli.Context) {
+func walletBalance(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
@@ -318,8 +325,9 @@ func walletBalance(ctx *cli.Context) {
 	}
 	resp, err := client.WalletBalance(ctxb, req)
 	if err != nil {
-		fatal(err)
+		return err
 	}
 
 	printRespJson(resp)
+	return nil
 }

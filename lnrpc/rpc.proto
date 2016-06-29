@@ -3,8 +3,9 @@ syntax = "proto3";
 package lnrpc;
 
 service Lightning {
+    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
     rpc SendMany(SendManyRequest) returns (SendManyResponse);
-
+    rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse);
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
 
     rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
@@ -13,7 +14,6 @@ service Lightning {
     rpc OpenChannel(OpenChannelRequest) returns (OpenChannelResponse);
     rpc CloseChannel(CloseChannelRequest) returns (CloseChannelResponse);
 
-    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
 }
 
 message ChannelPoint {
@@ -30,6 +30,14 @@ message SendManyRequest {
     map<string, int64> AddrToAmount = 1;
 }
 message SendManyResponse {
+    string txid = 1;
+}
+
+message SendCoinsRequest {
+    string addr = 1;
+    int64 amount = 2;
+}
+message SendCoinsResponse {
     string txid = 1;
 }
 

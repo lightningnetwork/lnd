@@ -62,13 +62,13 @@ func (r *rpcServer) Stop() error {
 	return nil
 }
 
-// SendMany handles a request for a transaction create multiple specified
-// outputs in parallel.
-func (r *rpcServer) SendMany(ctx context.Context,
-	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
-
-	outputs := make([]*wire.TxOut, 0, len(in.AddrToAmount))
-	for addr, amt := range in.AddrToAmount {
+// addrPairsToOutputs converts a map describing a set of outputs to be created,
+// the outputs themselves. The passed map pairs up an address, to a desired
+// output value amount. Each address is converted to its corresponding pkScript
+// to be used within the constructed output(s).
+func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
+	outputs := make([]*wire.TxOut, 0, len(addrPairs))
+	for addr, amt := range addrPairs {
 		addr, err := btcutil.DecodeAddress(addr, activeNetParams)
 		if err != nil {
 			return nil, err
@@ -82,14 +82,50 @@ func (r *rpcServer) SendMany(ctx context.Context,
 		outputs = append(outputs, wire.NewTxOut(amt, pkscript))
 	}
 
-	// Instruct the wallet to create an transaction paying to the specified
-	// outputs, selecting any coins with at least one confirmation.
-	txid, err := r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
+	return outputs, nil
+}
+
+// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
+// more addresses specified in the passed payment map. The payment map maps an
+// address to a specified output value to be sent to that address.
+func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*wire.ShaHash, error) {
+	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Infof("Generated txid: %v", txid.String())
+	return r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
+}
+
+// SendCoins executes a request to send coins to a particular address. Unlike
+// SendMany, this RPC call only allows creating a single output at a time.
+func (r *rpcServer) SendCoins(ctx context.Context,
+	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
+
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v", in.Addr, btcutil.Amount(in.Amount))
+
+	paymentMap := map[string]int64{in.Addr: in.Amount}
+	txid, err := r.sendCoinsOnChain(paymentMap)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendcoins] spend generated txid: %v", txid.String())
+
+	return &lnrpc.SendCoinsResponse{Txid: txid.String()}, nil
+}
+
+// SendMany handles a request for a transaction create multiple specified
+// outputs in parallel.
+func (r *rpcServer) SendMany(ctx context.Context,
+	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
+
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendmany] spend generated txid: %v", txid.String())
 
 	return &lnrpc.SendManyResponse{Txid: txid.String()}, nil
 }
@@ -119,7 +155,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("Generated new address: %v", addr.String())
+	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
@@ -132,7 +168,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	}
 
 	idAtHost := fmt.Sprintf("%v@%v", in.Addr.PubKeyHash, in.Addr.Host)
-	rpcsLog.Debugf("Attempting to connect to peer %v", idAtHost)
+	rpcsLog.Debugf("[connectpeer] peer=%v", idAtHost)
 
 	peerAddr, err := lndc.LnAddrFromString(idAtHost)
 	if err != nil {
@@ -155,7 +191,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 func (r *rpcServer) OpenChannel(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.OpenChannelResponse, error) {
 
-	rpcsLog.Tracef("Recieved request to openchannel to peerid(%v) "+
+	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
 		in.LocalFundingAmount, in.RemoteFundingAmount, in.NumConfs)
 
@@ -171,7 +207,7 @@ func (r *rpcServer) OpenChannel(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Tracef("Opened channel with peerid(%v), ChannelPoint(%v)",
+	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
 		in.TargetPeerId, resp)
 
 	return &lnrpc.OpenChannelResponse{
@@ -191,12 +227,12 @@ func (r *rpcServer) CloseChannel(ctx context.Context,
 	index := in.ChannelPoint.OutputIndex
 	txid, err := wire.NewShaHash(in.ChannelPoint.FundingTxid)
 	if err != nil {
-		rpcsLog.Errorf("(closechannel) invalid txid: %v", err)
+		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return nil, err
 	}
 	targetChannelPoint := wire.NewOutPoint(txid, index)
 
-	rpcsLog.Tracef("Recieved closechannel request for ChannelPoint(%v)",
+	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
 	resp, err := r.server.CloseChannel(targetChannelPoint)
@@ -213,7 +249,7 @@ func (r *rpcServer) CloseChannel(ctx context.Context,
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
 
-	rpcsLog.Tracef("recieved listpeers request")
+	rpcsLog.Tracef("[listpeers] request")
 
 	serverPeers := r.server.Peers()
 	resp := &lnrpc.ListPeersResponse{
@@ -250,7 +286,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		resp.Peers = append(resp.Peers, peer)
 	}
 
-	rpcsLog.Tracef("listpeers yielded %v peers", serverPeers)
+	rpcsLog.Debugf("[listpeers] yielded %v peers", serverPeers)
 
 	return resp, nil
 }
@@ -288,7 +324,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		balance = outputSum.ToBTC()
 	}
 
-	rpcsLog.Debugf("walletbalance query response: %v", balance)
+	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
 	return &lnrpc.WalletBalanceResponse{balance}, nil
 }

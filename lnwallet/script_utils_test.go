@@ -164,6 +164,10 @@ func TestRevocationKeyDerivation(t *testing.T) {
 	}
 }
 
+// makeWitnessTestCase is a helper function used within test cases involving
+// the validity of a crafted witness. This function is a wrapper function which
+// allows constructing table-driven tests. In the case of an error while
+// constructing the witness, the test fails fataly.
 func makeWitnessTestCase(t *testing.T, f func() (wire.TxWitness, error)) func() wire.TxWitness {
 	return func() wire.TxWitness {
 		witness, err := f()
@@ -190,6 +194,8 @@ func makeWitnessTestCase(t *testing.T, f func() (wire.TxWitness, error)) func() 
 //    * invalid sequence for CSV
 //    * valid lock-time+sequence, valid sig
 func TestHTLCSenderSpendValidation(t *testing.T) {
+	// TODO(roasbeef): eliminate duplication with other HTLC tests.
+
 	// We generate a fake output, and the coresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
@@ -199,13 +205,15 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
+	// Generate a payment and revocation pre-image to be used below.
 	revokePreimage := testHdSeed[:]
 	revokeHash := fastsha256.Sum256(revokePreimage)
-
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
 	paymentHash := fastsha256.Sum256(paymentPreimage[:])
 
+	// We'll also need some tests keys for alice and bob, and meta-data of
+	// the HTLC output.
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
@@ -214,6 +222,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	cltvTimeout := uint32(8)
 	csvTimeout := uint32(5)
 
+	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
 	htlcScript, err := senderHTLCScript(cltvTimeout, csvTimeout,
 		aliceKeyPub, bobKeyPub, revokeHash[:], paymentHash[:])
 	if err != nil {
@@ -318,6 +327,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			t.Fatalf("unable to create engine: %v", err)
 		}
 
+		// This buffer will trace execution of the Script, only dumping
+		// out to stdout in the case that a test fails.
 		var debugBuf bytes.Buffer
 
 		done := false
@@ -366,13 +377,15 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
+	// Generate a payment and revocation pre-image to be used below.
 	revokePreimage := testHdSeed[:]
 	revokeHash := fastsha256.Sum256(revokePreimage)
-
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
 	paymentHash := fastsha256.Sum256(paymentPreimage[:])
 
+	// We'll also need some tests keys for alice and bob, and meta-data of
+	// the HTLC output.
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
@@ -381,6 +394,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	cltvTimeout := uint32(8)
 	csvTimeout := uint32(5)
 
+	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
 	htlcScript, err := receiverHTLCScript(cltvTimeout, csvTimeout,
 		aliceKeyPub, bobKeyPub, revokeHash[:], paymentHash[:])
 	if err != nil {
@@ -486,6 +500,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			t.Fatalf("unable to create engine: %v", err)
 		}
 
+		// This buffer will trace execution of the Script, only dumping
+		// out to stdout in the case that a test fails.
 		var debugBuf bytes.Buffer
 
 		done := false

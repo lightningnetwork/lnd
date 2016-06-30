@@ -9,11 +9,10 @@ import (
 )
 
 func TestCommitSignatureEncodeDecode(t *testing.T) {
-	copy(revocationHash[:], revocationHashBytes)
-
 	commitSignature := &CommitSignature{
 		ChannelPoint: outpoint1,
 		Fee:          btcutil.Amount(10000),
+		LogIndex:     5,
 		CommitSig:    commitSig,
 	}
 

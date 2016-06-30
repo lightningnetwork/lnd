@@ -21,6 +21,12 @@ type CommitSignature struct {
 	// CommitSignature applies to.
 	ChannelPoint *wire.OutPoint
 
+	// LogIndex is the index into the reciever's HTLC log to which this
+	// commitment signature covers. In order to properly verify this
+	// signature, the receiver should include all the HTLC's within their
+	// log with an index less-than-or-equal to the listed log-index.
+	LogIndex uint64
+
 	// Fee represents the total miner's fee that was used when constructing
 	// the new commitment transaction.
 	// TODO(roasbeef): is the above comment correct?
@@ -49,10 +55,12 @@ var _ Message = (*CommitSignature)(nil)
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint(8)
+	// LogIndex(8)
 	// Fee(8)
 	// RequesterCommitSig(73max+2)
 	err := readElements(r,
 		&c.ChannelPoint,
+		&c.LogIndex,
 		&c.Fee,
 		&c.CommitSig,
 	)
@@ -68,9 +76,16 @@ func (c *CommitSignature) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) Encode(w io.Writer, pver uint32) error {
-	// TODO(roasbeef): make similar modificaiton to all other encode/decode
-	// messags
-	return writeElements(w, c.ChannelPoint, c.Fee, c.CommitSig)
+	err := writeElements(w,
+		c.ChannelPoint,
+		c.LogIndex,
+		c.Fee,
+		c.CommitSig,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

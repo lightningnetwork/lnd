@@ -108,7 +108,8 @@ type bobNode struct {
 
 // Contribution returns bobNode's contribution necessary to open a payment
 // channel with Alice.
-func (b *bobNode) Contribution() *ChannelContribution {
+func (b *bobNode) Contribution(aliceCommitKey *btcec.PublicKey) *ChannelContribution {
+	revokeKey := deriveRevocationPubkey(aliceCommitKey, b.revocation[:])
 	return &ChannelContribution{
 		FundingAmount:   b.fundingAmt,
 		Inputs:          b.availableOutputs,
@@ -116,20 +117,21 @@ func (b *bobNode) Contribution() *ChannelContribution {
 		MultiSigKey:     b.channelKey,
 		CommitKey:       b.channelKey,
 		DeliveryAddress: b.deliveryAddress,
-		RevocationHash:  b.revocation,
+		RevocationKey:   revokeKey,
 		CsvDelay:        b.delay,
 	}
 }
 
 // SingleContribution returns bobNode's contribution to a single funded
 // channel. This contribution contains no inputs nor change outputs.
-func (b *bobNode) SingleContribution() *ChannelContribution {
+func (b *bobNode) SingleContribution(aliceCommitKey *btcec.PublicKey) *ChannelContribution {
+	revokeKey := deriveRevocationPubkey(aliceCommitKey, b.revocation[:])
 	return &ChannelContribution{
 		FundingAmount:   b.fundingAmt,
 		MultiSigKey:     b.channelKey,
 		CommitKey:       b.channelKey,
 		DeliveryAddress: b.deliveryAddress,
-		RevocationHash:  b.revocation,
+		RevocationKey:   revokeKey,
 		CsvDelay:        b.delay,
 	}
 }
@@ -390,17 +392,15 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, lnwallet *Lightn
 	if ourContribution.DeliveryAddress == nil {
 		t.Fatalf("alice's final delivery address not found")
 	}
-	if bytes.Equal(ourContribution.RevocationHash[:], zeroHash) {
-		t.Fatalf("alice's revocation hash not found")
-	}
 	if ourContribution.CsvDelay == 0 {
 		t.Fatalf("csv delay not set")
 	}
 
 	// Bob sends over his output, change addr, pub keys, initial revocation,
-	// final delivery address, and his accepted csv delay for the commitmen
-	// t transactions.
-	if err := chanReservation.ProcessContribution(bobNode.Contribution()); err != nil {
+	// final delivery address, and his accepted csv delay for the
+	// commitment transactions.
+	bobContribution := bobNode.Contribution(ourContribution.CommitKey)
+	if err := chanReservation.ProcessContribution(bobContribution); err != nil {
 		t.Fatalf("unable to add bob's funds to the funding tx: %v", err)
 	}
 
@@ -414,6 +414,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, lnwallet *Lightn
 	}
 	if ourCommitSig == nil {
 		t.Fatalf("commitment sig not found")
+	}
+	if ourContribution.RevocationKey == nil {
+		t.Fatalf("alice's revocation key not found")
 	}
 	// Additionally, the funding tx should have been populated.
 	if chanReservation.fundingTx == nil {
@@ -438,8 +441,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, lnwallet *Lightn
 	if theirContribution.DeliveryAddress == nil {
 		t.Fatalf("bob's final delivery address not found")
 	}
-	if bytes.Equal(theirContribution.RevocationHash[:], zeroHash) {
-		t.Fatalf("bob's revocaiton hash not found")
+	if theirContribution.RevocationKey == nil {
+		t.Fatalf("bob's revocaiton key not found")
 	}
 
 	// Alice responds with her output, change addr, multi-sig key and signatures.
@@ -667,9 +670,6 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness, lnwall
 	if ourContribution.DeliveryAddress == nil {
 		t.Fatalf("alice's final delivery address not found")
 	}
-	if bytes.Equal(ourContribution.RevocationHash[:], zeroHash) {
-		t.Fatalf("alice's revocation hash not found")
-	}
 	if ourContribution.CsvDelay == 0 {
 		t.Fatalf("csv delay not set")
 	}
@@ -677,7 +677,8 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness, lnwall
 	// At this point bob now responds to our request with a response
 	// containing his channel contribution. The contribution will have no
 	// inputs, only a multi-sig key, csv delay, etc.
-	if err := chanReservation.ProcessContribution(bobNode.SingleContribution()); err != nil {
+	bobContribution := bobNode.SingleContribution(ourContribution.CommitKey)
+	if err := chanReservation.ProcessContribution(bobContribution); err != nil {
 		t.Fatalf("unable to add bob's contribution: %v", err)
 	}
 
@@ -705,6 +706,9 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness, lnwall
 		t.Fatalf("bob shouldn't have any change outputs, instead "+
 			"has %v", theirContribution.ChangeOutputs[0].Value)
 	}
+	if ourContribution.RevocationKey == nil {
+		t.Fatalf("alice's revocation hash not found")
+	}
 	if theirContribution.MultiSigKey == nil {
 		t.Fatalf("bob's key for multi-sig not found")
 	}
@@ -714,7 +718,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness, lnwall
 	if theirContribution.DeliveryAddress == nil {
 		t.Fatalf("bob's final delivery address not found")
 	}
-	if bytes.Equal(theirContribution.RevocationHash[:], zeroHash) {
+	if theirContribution.RevocationKey == nil {
 		t.Fatalf("bob's revocaiton hash not found")
 	}
 
@@ -798,9 +802,6 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 	if ourContribution.DeliveryAddress == nil {
 		t.Fatalf("alice's final delivery address not found")
 	}
-	if bytes.Equal(ourContribution.RevocationHash[:], zeroHash) {
-		t.Fatalf("alice's revocation hash not found")
-	}
 	if ourContribution.CsvDelay == 0 {
 		t.Fatalf("csv delay not set")
 	}
@@ -808,7 +809,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 	// Next we process Bob's single funder contribution which doesn't
 	// include any inputs or change addresses, as only Bob will construct
 	// the funding transaction.
-	bobContribution := bobNode.Contribution()
+	bobContribution := bobNode.Contribution(ourContribution.CommitKey)
 	if err := chanReservation.ProcessSingleContribution(bobContribution); err != nil {
 		t.Fatalf("unable to process bob's contribution: %v", err)
 	}
@@ -818,6 +819,9 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 	if len(bobContribution.Inputs) != 1 {
 		t.Fatalf("bob shouldn't have one inputs, instead has %v",
 			len(bobContribution.Inputs))
+	}
+	if ourContribution.RevocationKey == nil {
+		t.Fatalf("alice's revocation key not found")
 	}
 	if len(bobContribution.ChangeOutputs) != 1 {
 		t.Fatalf("bob shouldn't have one change output, instead "+
@@ -832,8 +836,8 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 	if bobContribution.DeliveryAddress == nil {
 		t.Fatalf("bob's final delivery address not found")
 	}
-	if bytes.Equal(bobContribution.RevocationHash[:], zeroHash) {
-		t.Fatalf("bob's revocaiton hash not found")
+	if bobContribution.RevocationKey == nil {
+		t.Fatalf("bob's revocaiton key not found")
 	}
 
 	fundingRedeemScript, multiOut, err := genFundingPkScript(
@@ -865,7 +869,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 
 	fundingTxIn := wire.NewTxIn(fundingOutpoint, nil, nil)
 	aliceCommitTx, err := createCommitTx(fundingTxIn, ourContribution.CommitKey,
-		bobContribution.CommitKey, ourContribution.RevocationHash[:],
+		bobContribution.CommitKey, ourContribution.RevocationKey,
 		ourContribution.CsvDelay, 0, capacity)
 	if err != nil {
 		t.Fatalf("unable to create alice's commit tx: %v", err)
@@ -878,8 +882,9 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness, lnwall
 	}
 
 	// With this stage complete, Alice can now complete the reservation.
-	if err := chanReservation.CompleteReservationSingle(fundingOutpoint,
-		bobCommitSig); err != nil {
+	bobRevokeKey := bobContribution.RevocationKey
+	if err := chanReservation.CompleteReservationSingle(bobRevokeKey,
+		fundingOutpoint, bobCommitSig); err != nil {
 		t.Fatalf("unable to complete reservation: %v", err)
 	}
 

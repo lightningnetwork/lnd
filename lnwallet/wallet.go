@@ -168,9 +168,14 @@ type addCounterPartySigsMsg struct {
 type addSingleFunderSigsMsg struct {
 	pendingFundingID uint64
 
-	// fundingOutpoint is the out point of the completed funding
+	// fundingOutpoint is the outpoint of the completed funding
 	// transaction as assembled by the workflow initiator.
 	fundingOutpoint *wire.OutPoint
+
+	// revokeKey is the revocation public key derived by the remote node to
+	// be used within the initial version of the commitment transaction we
+	// construct for them.
+	revokeKey *btcec.PublicKey
 
 	// This should be 1/2 of the signatures needed to succesfully spend our
 	// version of the commitment transaction.
@@ -525,7 +530,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		if err := l.selectCoinsAndChange(req.fundingAmount, ourContribution); err != nil {
+		if err := l.selectCoinsAndChange(req.fundingAmount,
+			ourContribution); err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
@@ -569,22 +575,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 	reservation.partialState.OurDeliveryScript = deliveryScript
 	ourContribution.DeliveryAddress = deliveryAddress
-
-	// Create a new elkrem for verifiable transaction revocations. This
-	// will be used to generate revocation hashes for our past/current
-	// commitment transactions once we start to make payments within the
-	// channel.
-	// TODO(roabeef): should be HMAC based...REMOVE BEFORE ALPHA
-	var zero wire.ShaHash
-	elkremSender := elkrem.NewElkremSender(63, zero)
-	reservation.partialState.LocalElkrem = &elkremSender
-	firstPrimage, err := elkremSender.AtIndex(0)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	copy(ourContribution.RevocationHash[:], btcutil.Hash160(firstPrimage[:]))
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -801,21 +791,24 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the pre-image so we can't add it
 	// to the chain).
-	e := elkrem.NewElkremReceiver(63)
-	// TODO(roasbeef): this is incorrect!! fix before lnstate integration
-	var zero wire.ShaHash
-	if err := e.AddNext(&zero); err != nil {
+	e := &elkrem.ElkremReceiver{}
+	pendingReservation.partialState.RemoteElkrem = e
+	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationKey
+
+	// Now that we have their commitment key, we can create the revocation
+	// key for the first version of our commitment transaction. To do so,
+	// we'll first create our elkrem root, then grab the first pre-iamge
+	// from it.
+	elkremRoot := deriveElkremRoot(ourKey, theirKey)
+	elkremSender := elkrem.NewElkremSender(elkremRoot)
+	pendingReservation.partialState.LocalElkrem = elkremSender
+	firstPreimage, err := elkremSender.AtIndex(0)
+	if err != nil {
 		req.err <- err
 		return
 	}
-
-	pendingReservation.partialState.RemoteElkrem = &e
-	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationHash
-
-	// Grab the hash of the current pre-image in our chain, this is needed
-	// for our commitment tx.
-	// TODO(roasbeef): grab partial state above to avoid long attr chain
-	ourCurrentRevokeHash := pendingReservation.ourContribution.RevocationHash
+	theirCommitKey := theirContribution.CommitKey
+	ourRevokeKey := deriveRevocationPubkey(theirCommitKey, firstPreimage[:])
 
 	// Create the txIn to our commitment transaction; required to construct
 	// the commitment transactions.
@@ -824,19 +817,18 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	// TODO(roasbeef): much cleanup + de-duplication
 	pendingReservation.fundingLockTime = theirContribution.CsvDelay
-	ourCommitKey := ourContribution.CommitKey
-	theirCommitKey := theirContribution.CommitKey
 	ourBalance := ourContribution.FundingAmount
 	theirBalance := theirContribution.FundingAmount
+	ourCommitKey := ourContribution.CommitKey
 	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		ourCurrentRevokeHash[:], ourContribution.CsvDelay,
+		ourRevokeKey, ourContribution.CsvDelay,
 		ourBalance, theirBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		theirContribution.RevocationHash[:], theirContribution.CsvDelay,
+		theirContribution.RevocationKey, theirContribution.CsvDelay,
 		theirBalance, ourBalance)
 	if err != nil {
 		req.err <- err
@@ -863,6 +855,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.TheirMultiSigKey = theirContribution.MultiSigKey
 	pendingReservation.partialState.TheirCommitTx = theirCommitTx
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
+	pendingReservation.ourContribution.RevocationKey = ourRevokeKey
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
@@ -904,10 +897,10 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	// Additionally, we can now also record the redeem script of the
 	// funding transaction.
 	// TODO(roasbeef): switch to proper pubkey derivation
-	ourKey := pendingReservation.partialState.OurMultiSigKey.PubKey()
+	ourKey := pendingReservation.partialState.OurMultiSigKey
 	theirKey := theirContribution.MultiSigKey
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, _, err := genFundingPkScript(ourKey.SerializeCompressed(),
+	redeemScript, _, err := genFundingPkScript(ourKey.PubKey().SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
@@ -915,16 +908,24 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	}
 	pendingReservation.partialState.FundingRedeemScript = redeemScript
 
-	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the pre-image so we can't add it
-	// to the chain).
-	e := elkrem.NewElkremReceiver(63)
-	// TODO(roasbeef): this is incorrect!! fix before lnstate integration
-	var zero wire.ShaHash
-	if err := e.AddNext(&zero); err != nil {
+	// Now that we know their commitment key, we can create the revocation
+	// key for our version of the initial commitment transaction.
+	elkremRoot := deriveElkremRoot(ourKey, theirKey)
+	elkremSender := elkrem.NewElkremSender(elkremRoot)
+	firstPreimage, err := elkremSender.AtIndex(0)
+	if err != nil {
 		req.err <- err
 		return
 	}
+	pendingReservation.partialState.LocalElkrem = elkremSender
+	theirCommitKey := theirContribution.CommitKey
+	ourRevokeKey := deriveRevocationPubkey(theirCommitKey, firstPreimage[:])
+
+	// Initialize an empty sha-chain for them, tracking the current pending
+	// revocation hash (we don't yet know the pre-image so we can't add it
+	// to the chain).
+	remoteElkrem := &elkrem.ElkremReceiver{}
+	pendingReservation.partialState.RemoteElkrem = remoteElkrem
 
 	// Record the counterpaty's remaining contributions to the channel,
 	// converting their delivery address into a public key script.
@@ -935,10 +936,9 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	}
 	pendingReservation.partialState.RemoteCsvDelay = theirContribution.CsvDelay
 	pendingReservation.partialState.TheirDeliveryScript = deliveryScript
-	pendingReservation.partialState.RemoteElkrem = &e
 	pendingReservation.partialState.TheirCommitKey = theirContribution.CommitKey
 	pendingReservation.partialState.TheirMultiSigKey = theirContribution.MultiSigKey
-	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationHash
+	pendingReservation.ourContribution.RevocationKey = ourRevokeKey
 
 	req.err <- nil
 	return
@@ -1115,6 +1115,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	defer pendingReservation.Unlock()
 
 	pendingReservation.partialState.FundingOutpoint = req.fundingOutpoint
+	pendingReservation.partialState.TheirCurrentRevocation = req.revokeKey
 	pendingReservation.partialState.ChanID = req.fundingOutpoint
 	fundingTxIn := wire.NewTxIn(req.fundingOutpoint, nil, nil)
 
@@ -1126,15 +1127,15 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	ourBalance := pendingReservation.ourContribution.FundingAmount
 	theirBalance := pendingReservation.theirContribution.FundingAmount
 	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		pendingReservation.ourContribution.RevocationHash[:],
+		pendingReservation.ourContribution.RevocationKey,
 		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		pendingReservation.theirContribution.RevocationHash[:],
-		pendingReservation.theirContribution.CsvDelay, theirBalance, ourBalance)
+		req.revokeKey, pendingReservation.theirContribution.CsvDelay,
+		theirBalance, ourBalance)
 	if err != nil {
 		req.err <- err
 		return

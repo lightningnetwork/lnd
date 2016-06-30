@@ -133,9 +133,9 @@ type OpenChannel struct {
 	RemoteCsvDelay uint32
 
 	// Current revocation for their commitment transaction. However, since
-	// this is the hash, and not the pre-image, we can't yet verify that
-	// it's actually in the chain.
-	TheirCurrentRevocation [32]byte
+	// this the derived public key, we don't yet have the pre-image so we
+	// aren't yet able to verify that it's actually in the hash chain.
+	TheirCurrentRevocation *btcec.PublicKey
 	LocalElkrem            *elkrem.ElkremSender
 	RemoteElkrem           *elkrem.ElkremReceiver
 
@@ -1024,15 +1024,14 @@ func putChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 
 	var b bytes.Buffer
 
-	if _, err := b.Write(channel.TheirCurrentRevocation[:]); err != nil {
+	revKey := channel.TheirCurrentRevocation.SerializeCompressed()
+	if err := wire.WriteVarBytes(&b, 0, revKey); err != nil {
 		return err
 	}
 
-	// TODO(roasbeef): no longer need to store any sender data
-	senderBytes, err := channel.LocalElkrem.ToBytes()
-	if err != nil {
-		return err
-	}
+	// TODO(roasbeef): shouldn't be storing on disk, should re-derive as
+	// needed
+	senderBytes := channel.LocalElkrem.ToBytes()
 	if err := wire.WriteVarBytes(&b, 0, senderBytes); err != nil {
 		return err
 	}
@@ -1066,19 +1065,25 @@ func fetchChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 
 	elkremStateBytes := bytes.NewReader(nodeChanBucket.Get(elkremKey))
 
-	if _, err := elkremStateBytes.Read(channel.TheirCurrentRevocation[:]); err != nil {
+	revKeyBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
+	if err != nil {
+		return err
+	}
+	channel.TheirCurrentRevocation, err = btcec.ParsePubKey(revKeyBytes, btcec.S256())
+	if err != nil {
 		return err
 	}
 
+	// TODO(roasbeef): should be rederiving on fly, or encrypting on disk.
 	senderBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
 	if err != nil {
 		return err
 	}
-	localE, err := elkrem.ElkremSenderFromBytes(senderBytes)
+	elkremRoot, err := wire.NewShaHash(senderBytes)
 	if err != nil {
 		return err
 	}
-	channel.LocalElkrem = &localE
+	channel.LocalElkrem = elkrem.NewElkremSender(*elkremRoot)
 
 	reciverBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
 	if err != nil {
@@ -1088,7 +1093,7 @@ func fetchChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	if err != nil {
 		return err
 	}
-	channel.RemoteElkrem = &remoteE
+	channel.RemoteElkrem = remoteE
 
 	return nil
 }

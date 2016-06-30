@@ -127,8 +127,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 
 	// Simulate 1000 channel updates via progression of the elkrem
 	// revocation trees.
-	sender := elkrem.NewElkremSender(32, key)
-	receiver := elkrem.NewElkremReceiver(32)
+	sender := elkrem.NewElkremSender(key)
+	receiver := &elkrem.ElkremReceiver{}
 	for i := 0; i < 1000; i++ {
 		preImage, err := sender.AtIndex(uint64(i))
 		if err != nil {
@@ -151,13 +151,13 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		TheirBalance:           btcutil.Amount(9000),
 		TheirCommitTx:          testTx,
 		OurCommitTx:            testTx,
-		LocalElkrem:            &sender,
-		RemoteElkrem:           &receiver,
+		LocalElkrem:            sender,
+		RemoteElkrem:           receiver,
 		FundingOutpoint:        testOutpoint,
 		OurMultiSigKey:         privKey,
 		TheirMultiSigKey:       privKey.PubKey(),
 		FundingRedeemScript:    script,
-		TheirCurrentRevocation: rev,
+		TheirCurrentRevocation: privKey.PubKey(),
 		OurDeliveryScript:      script,
 		TheirDeliveryScript:    script,
 		LocalCsvDelay:          5,
@@ -287,6 +287,25 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 
 	if state.CreationTime.Unix() != newState.CreationTime.Unix() {
 		t.Fatalf("creation time doesn't match")
+	}
+
+	// The local and remote elkrems should be identical.
+	if !bytes.Equal(state.LocalElkrem.ToBytes(), newState.LocalElkrem.ToBytes()) {
+		t.Fatalf("local elkrems don't match")
+	}
+	oldRemoteElkrem, err := state.RemoteElkrem.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize old remote elkrem: %v", err)
+	}
+	newRemoteElkrem, err := newState.RemoteElkrem.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize new remote elkrem: %v", err)
+	}
+	if !bytes.Equal(oldRemoteElkrem, newRemoteElkrem) {
+		t.Fatalf("remote elkrems don't match")
+	}
+	if !newState.TheirCurrentRevocation.IsEqual(state.TheirCurrentRevocation) {
+		t.Fatalf("revocation keys don't match")
 	}
 
 	// Finally to wrap up the test, delete the state of the channel within

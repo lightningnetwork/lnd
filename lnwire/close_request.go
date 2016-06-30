@@ -128,7 +128,7 @@ func (c *CloseRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CloseRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t\t%d\n", c.ChannelPoint) +
+		fmt.Sprintf("ChannelPoint:\t\t%v\n", c.ChannelPoint) +
 		fmt.Sprintf("CloseSig\t\t%x\n", serializedSig) +
 		fmt.Sprintf("Fee:\t\t\t%d\n", c.Fee) +
 		fmt.Sprintf("--- End CloseRequest ---\n")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -17,6 +18,7 @@ import (
 // This piggybacking allows Alice to send the next CommitSignature message
 // modifying Bob's commitment transaction without first asking for a revocation
 // hash initially.
+// TODO(roasbeef): update docs everywhere
 type CommitRevocation struct {
 	// ChannelPoint uniquely identifies to which currently active channel this
 	// CommitRevocation applies to.
@@ -24,12 +26,25 @@ type CommitRevocation struct {
 
 	// Revocation is the pre-image to the revocation hash of the now prior
 	// commitment transaction.
-	Revocation [20]byte
+	//
+	// If the received revocation is the all zeroes hash ('0' * 32), then
+	// this CommitRevocation is being sent in order to build up the
+	// sender's initial revocation window (IRW). In this case, the
+	// CommitRevocation should be added to the receiver's queue of unused
+	// revocations to be used to construct future commitment transactions.
+	Revocation [32]byte
 
-	// NextRevocationHash is the next revocation hash to use to create the
-	// next commitment transaction which is to be created upon receipt of a
-	// CommitSignature message.
-	NextRevocationHash [20]byte
+	// NextRevocationKey is the next revocation key which should be added
+	// to the queue of unused revocation keys for the remote peer. This key
+	// will be used within the revocation clause for any new commitment
+	// transactions created for the remote peer.
+	NextRevocationKey *btcec.PublicKey
+
+	// NextRevocationHash is the next revocation hash which should be added
+	// to the queue on unused revocation hashes for the remote peer. This
+	// revocation hash will be used within any HTLC's included within this
+	// next commitment transaction.
+	NextRevocationHash [32]byte
 }
 
 // NewCommitRevocation creates a new CommitRevocation message.
@@ -47,12 +62,14 @@ var _ Message = (*CommitRevocation)(nil)
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint (8)
-	// NextRevocationHash (20)
-	// Revocation (20)
+	// Revocation (32)
+	// NextRevocationKey (33)
+	// NextRevocationHash (32)
 	err := readElements(r,
 		&c.ChannelPoint,
-		&c.NextRevocationHash,
 		&c.Revocation,
+		&c.NextRevocationKey,
+		&c.NextRevocationHash,
 	)
 	if err != nil {
 		return err
@@ -68,8 +85,9 @@ func (c *CommitRevocation) Decode(r io.Reader, pver uint32) error {
 func (c *CommitRevocation) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelPoint,
-		c.NextRevocationHash,
 		c.Revocation,
+		c.NextRevocationKey,
+		c.NextRevocationHash,
 	)
 	if err != nil {
 		return err
@@ -91,8 +109,8 @@ func (c *CommitRevocation) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitRevocation) MaxPayloadLength(uint32) uint32 {
-	// 36 + 20 + 20
-	return 76
+	// 36 + 32 + 33 + 32
+	return 133
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -107,6 +125,7 @@ func (c *CommitRevocation) Validate() error {
 // String returns the string representation of the target CommitRevocation.
 //
 // This is part of the lnwire.Message interface.
+// TODO(roasbeef): remote all String() methods...spew should be used instead.
 func (c *CommitRevocation) String() string {
 	return fmt.Sprintf("\n--- Begin CommitRevocation ---\n") +
 		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +

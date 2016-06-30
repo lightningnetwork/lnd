@@ -7,13 +7,11 @@ import (
 )
 
 func TestCommitRevocationEncodeDecode(t *testing.T) {
-	copy(revocationHash[:], revocationHashBytes)
-	copy(nextHop[:], nextHopBytes)
-
 	cr := &CommitRevocation{
 		ChannelPoint:       outpoint1,
-		Revocation:         revocationHash,
-		NextRevocationHash: nextHop,
+		Revocation:         revHash,
+		NextRevocationKey:  pubKey,
+		NextRevocationHash: revHash,
 	}
 
 	// Next encode the CR message into an empty bytes buffer.

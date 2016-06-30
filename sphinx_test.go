@@ -33,11 +33,17 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 		route[i] = nodes[i].onionKey.PubKey()
 	}
 
+	var hopPayloads [][]byte
+	for i := 0; i < len(nodes); i++ {
+		payload := bytes.Repeat([]byte{byte('A' + i)}, hopPayloadSize)
+		hopPayloads = append(hopPayloads, payload)
+	}
+
 	// Generate a forwarding message to route to the final node via the
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
-	dest := append([]byte("roasbeef"), bytes.Repeat([]byte{0}, securityParameter-8)...)
-	fwdMsg, err := NewOnionPacket(route, dest, []byte("testing"))
+	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
+	fwdMsg, err := NewOnionPacket(route, sessionKey, []byte("testing"), hopPayloads)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -47,7 +53,6 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	dest := append([]byte("roasbeef"), bytes.Repeat([]byte{0}, securityParameter-8)...)
 	nodes, fwdMsg, err := newTestRoute(numMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
@@ -68,23 +73,14 @@ func TestSphinxCorrectness(t *testing.T) {
 		// recognize that it's the exit node.
 		if i == len(nodes)-1 {
 			if processAction.Action != ExitNode {
-				t.Fatalf("Processing error, node %v is the last hop in"+
+				t.Fatalf("Processing error, node %v is the last hop in "+
 					"the path, yet it doesn't recognize so", i)
 			}
 
-			// The original destination address and message should
-			// now be fully decrypted.
-			if !bytes.Equal(dest, processAction.DestAddr) {
-				t.Fatalf("Destination address parsed incorrectly at final destination!"+
-					" Should be %v, is instead %v",
-					hex.EncodeToString(dest),
-					hex.EncodeToString(processAction.DestAddr))
-			}
-
-			if !bytes.HasPrefix(processAction.DestMsg, []byte("testing")) {
+			if !bytes.HasPrefix(processAction.Packet.Msg[:], []byte("testing")) {
 				t.Fatalf("Final message parsed incorrectly at final destination!"+
 					"Should be %v, is instead %v",
-					[]byte("testing"), processAction.DestMsg)
+					[]byte("testing"), processAction.Packet.Msg)
 			}
 
 		} else {

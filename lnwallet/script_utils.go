@@ -2,8 +2,11 @@ package lnwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
+
+	"golang.org/x/crypto/hkdf"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
@@ -345,6 +348,7 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 //     OP_ENDIF
 //     <sender key> OP_CHECKSIG
 // OP_ENDIF
+// TODO(roasbeef): rename these to sender vs receiver?
 func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
 
@@ -707,7 +711,7 @@ func deriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 // a previously revoked commitment transaction.
 //
 // The private key is derived as follwos:
-//   revokePriv := commitPriv + revokePrimge mod N
+//   revokePriv := commitPriv + revokePreimage mod N
 //
 // Where N is the order of the sub-group.
 func deriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
@@ -729,4 +733,30 @@ func deriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 
 	privRevoke, _ := btcec.PrivKeyFromBytes(btcec.S256(), revokePriv.Bytes())
 	return privRevoke
+}
+
+// deriveElkremRoot derives an elkrem root unique to a channel given the
+// private key for our public key in the 2-of-2 multi-sig, and the remote
+// node's multi-sig public key. The root is derived using the HKDF[1][2]
+// instantiated with sha-256. The secret data used is our multi-sig private
+// key, with the salt being the remote node's public key.
+//
+// [1]: https://eprint.iacr.org/2010/264.pdf
+// [2]: https://tools.ietf.org/html/rfc5869
+func deriveElkremRoot(localMultiSigKey *btcec.PrivateKey,
+	remoteMultiSigKey *btcec.PublicKey) wire.ShaHash {
+
+	secret := localMultiSigKey.Serialize()
+	salt := remoteMultiSigKey.SerializeCompressed()
+	info := []byte("elkrem")
+
+	rootReader := hkdf.New(sha256.New, secret, salt, info)
+
+	// It's safe to ignore the error her as we know for sure that we won't
+	// be draining the HKDF past its available entropy horizon.
+	// TODO(roasbeef): revisit...
+	var elkremRoot wire.ShaHash
+	rootReader.Read(elkremRoot[:])
+
+	return elkremRoot
 }

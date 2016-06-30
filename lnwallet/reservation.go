@@ -16,35 +16,37 @@ import (
 // funding transactions, and finally a signature for the other party's version
 // of the commitment transaction.
 type ChannelContribution struct {
-	// Amount of funds contributed to the funding transaction.
+	// FundingOutpoint is the amount of funds contributed to the funding
+	// transaction.
 	FundingAmount btcutil.Amount
 
 	// Inputs to the funding transaction.
 	Inputs []*wire.TxIn
 
-	// Outputs to be used in the case that the total value of the fund
-	// ing inputs is greater than the total potential channel capacity.
+	// ChangeOutputs are the Outputs to be used in the case that the total
+	// value of the fund ing inputs is greater than the total potential
+	// channel capacity.
 	ChangeOutputs []*wire.TxOut
 
-	// The key to be used for the funding transaction's P2SH multi-sig
-	// 2-of-2 output.
+	// MultiSigKey is the the key to be used for the funding transaction's
+	// P2SH multi-sig 2-of-2 output.
+	// TODO(roasbeef): replace with CDP
 	MultiSigKey *btcec.PublicKey
 
-	// The key to be used for this party's version of the commitment
-	// transaction.
-	// TODO(roasbeef): replace with CDP
+	// CommitKey is the key to be used for this party's version of the
+	// commitment transaction.
 	CommitKey *btcec.PublicKey
 
-	// Address to be used for delivery of cleared channel funds in the scenario
-	// of a cooperative channel closure.
+	// DeliveryAddress is the address to be used for delivery of cleared
+	// channel funds in the scenario of a cooperative channel closure.
 	DeliveryAddress btcutil.Address
 
-	// Hash to be used as the revocation for the initial version of this
-	// party's commitment transaction.
-	RevocationHash [32]byte
+	// RevocationKey is the key to be used in the revocation clause for the
+	// initial version of this party's commitment transaction.
+	RevocationKey *btcec.PublicKey
 
-	// The delay (in blocks) to be used for the pay-to-self output in this
-	// party's version of the commitment transaction.
+	// CsvDelay The delay (in blocks) to be used for the pay-to-self output
+	// in this party's version of the commitment transaction.
 	CsvDelay uint32
 }
 
@@ -274,12 +276,13 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScr
 // the .OurSignatures() method. As this method should only be called as a
 // response to a single funder channel, only a commitment signature will be
 // populated.
-func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoint,
-	commitSig []byte) error {
+func (r *ChannelReservation) CompleteReservationSingle(revocationKey *btcec.PublicKey,
+	fundingPoint *wire.OutPoint, commitSig []byte) error {
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addSingleFunderSigsMsg{
 		pendingFundingID:   r.reservationID,
+		revokeKey:          revocationKey,
 		fundingOutpoint:    fundingPoint,
 		theirCommitmentSig: commitSig,
 		err:                errChan,

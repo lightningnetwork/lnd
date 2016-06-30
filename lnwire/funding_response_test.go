@@ -21,7 +21,7 @@ func TestFundingResponseEncodeDecode(t *testing.T) {
 		MinDepth:               uint32(6),
 		LockTime:               uint32(4320), // 30 block-days
 		FeePayer:               uint8(1),
-		RevocationHash:         revocationHash,
+		RevocationHash:         revHash,
 		Pubkey:                 pubKey,
 		CommitSig:              commitSig,
 		DeliveryPkScript:       deliveryPkScript,

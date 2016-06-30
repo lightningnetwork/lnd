@@ -169,7 +169,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
-	case [][20]byte:
+	case [][32]byte:
 		// First write out the number of elements in the slice.
 		sliceSize := len(e)
 		if err := writeElement(w, uint16(sliceSize)); err != nil {
@@ -182,7 +182,7 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 		}
-	case [20]byte:
+	case [32]byte:
 		// TODO(roasbeef): should be factor out to caller logic...
 		if _, err := w.Write(e[:]); err != nil {
 			return err
@@ -408,7 +408,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = sig
-	case *[][20]byte:
+	case *[][32]byte:
 		// How many to read
 		var sliceSize uint16
 		err = readElement(r, &sliceSize)
@@ -416,10 +416,10 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		data := make([][20]byte, 0, sliceSize)
+		data := make([][32]byte, 0, sliceSize)
 		// Append the actual
 		for i := uint16(0); i < sliceSize; i++ {
-			var element [20]byte
+			var element [32]byte
 			err = readElement(r, &element)
 			if err != nil {
 				return err
@@ -427,7 +427,7 @@ func readElement(r io.Reader, element interface{}) error {
 			data = append(data, element)
 		}
 		*e = data
-	case *[20]byte:
+	case *[32]byte:
 		if _, err = io.ReadFull(r, e[:]); err != nil {
 			return err
 		}

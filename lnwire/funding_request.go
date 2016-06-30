@@ -46,7 +46,7 @@ type FundingRequest struct {
 	// 2: channel responder
 	FeePayer uint8
 
-	RevocationHash   [20]byte
+	RevocationHash   [32]byte
 	Pubkey           *btcec.PublicKey
 	DeliveryPkScript PkScript // *MUST* be either P2PKH or P2SH
 	ChangePkScript   PkScript // *MUST* be either P2PKH or P2SH

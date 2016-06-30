@@ -21,17 +21,18 @@ type HTLCSettleRequest struct {
 
 	// HTLCKey denotes the exact HTLC stage within the receiving node's
 	// commitment transaction to be removed.
+	// TODO(roasbeef): rename to LogIndex
 	HTLCKey HTLCKey
 
 	// RedemptionProofs are the R-value preimages required to fully settle
 	// an HTLC. The number of preimages in the slice will depend on the
 	// specific ContractType of the referenced HTLC.
-	RedemptionProofs [][20]byte
+	RedemptionProofs [][32]byte
 }
 
 // NewHTLCSettleRequest returns a new empty HTLCSettleRequest.
 func NewHTLCSettleRequest(chanPoint *wire.OutPoint, key HTLCKey,
-	redemptionProofs [][20]byte) *HTLCSettleRequest {
+	redemptionProofs [][32]byte) *HTLCSettleRequest {
 
 	return &HTLCSettleRequest{
 		ChannelPoint:     chanPoint,
@@ -51,7 +52,7 @@ var _ Message = (*HTLCSettleRequest)(nil)
 func (c *HTLCSettleRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint(8)
 	// HTLCKey(8)
-	// RedemptionProofs(N*20)
+	// RedemptionProofs(N*32)
 	err := readElements(r,
 		&c.ChannelPoint,
 		&c.HTLCKey,
@@ -94,8 +95,8 @@ func (c *HTLCSettleRequest) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
-	// 36 + 8 + (21 * 15)
-	return 359
+	// 36 + 8 + (32 * 15)
+	return 524
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

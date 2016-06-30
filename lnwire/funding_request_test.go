@@ -9,8 +9,6 @@ import (
 )
 
 func TestFundingRequestEncodeDecode(t *testing.T) {
-	copy(revocationHash[:], revocationHashBytes)
-
 	// funding request
 	fr := &FundingRequest{
 		ReservationID:          uint64(12345678),
@@ -23,7 +21,7 @@ func TestFundingRequestEncodeDecode(t *testing.T) {
 		FeePayer:               uint8(0),
 		PaymentAmount:          btcutil.Amount(1234567),
 		MinDepth:               uint32(6),
-		RevocationHash:         revocationHash,
+		RevocationHash:         revHash,
 		Pubkey:                 pubKey,
 		DeliveryPkScript:       deliveryPkScript,
 		ChangePkScript:         changePkScript,

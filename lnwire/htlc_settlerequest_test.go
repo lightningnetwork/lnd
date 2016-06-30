@@ -7,8 +7,8 @@ import (
 )
 
 func TestHTLCSettleRequestEncodeDecode(t *testing.T) {
-	redemptionProofs := make([][20]byte, 1)
-	copy(redemptionProofs[0][:], bytes.Repeat([]byte{0x09}, 20))
+	redemptionProofs := make([][32]byte, 1)
+	redemptionProofs[0] = revHash
 
 	// First create a new HTLCSR message.
 	settleReq := NewHTLCSettleRequest(outpoint1, HTLCKey(23), redemptionProofs)

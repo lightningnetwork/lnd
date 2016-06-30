@@ -7,8 +7,8 @@ import (
 )
 
 func TestHTLCAddRequestEncodeDecode(t *testing.T) {
-	redemptionHashes := make([][20]byte, 1)
-	copy(redemptionHashes[0][:], bytes.Repeat([]byte{0x09}, 20))
+	redemptionHashes := make([][32]byte, 1)
+	redemptionHashes[0] = revHash
 
 	// First create a new HTLCAR message.
 	addReq := &HTLCAddRequest{

@@ -45,7 +45,7 @@ type HTLCAddRequest struct {
 	// number of pre-images for each of the listed hashes. For regular HTLC's
 	// this slice only has one hash. However, for "multi-sig" HTLC's, the
 	// length of this slice should be N.
-	RedemptionHashes [][20]byte
+	RedemptionHashes [][32]byte
 
 	// OnionBlob is the raw serialized mix header used to route an HTLC in
 	// a privacy-preserving manner. The mix header is defined currently to
@@ -78,7 +78,7 @@ func (c *HTLCAddRequest) Decode(r io.Reader, pver uint32) error {
 	// Expiry(4)
 	// Amount(4)
 	// ContractType(1)
-	// RedemptionHashes (numOfHashes * 20 + numOfHashes)
+	// RedemptionHashes (numOfHashes * 32 + numOfHashes)
 	// OnionBlog
 	err := readElements(r,
 		&c.ChannelPoint,

@@ -28,17 +28,25 @@ type SingleFundingComplete struct {
 	// CommitSignature is Alice's signature for Bob's version of the
 	// commitment transaction.
 	CommitSignature *btcec.Signature
+
+	// RevocationKey is the initial key to be used for the revocation
+	// clause within the self-output of the initiators's commitment
+	// transaction. Once an initial new state is created, the initiator
+	// will send a pre-image which will allow the initiator to sweep the
+	// initiator's funds if the violate the contract.
+	RevocationKey *btcec.PublicKey
 }
 
 // NewSingleFundingComplete creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingComplete(chanID uint64, fundingPoint *wire.OutPoint,
-	commitSig *btcec.Signature) *SingleFundingComplete {
+	commitSig *btcec.Signature, revokeKey *btcec.PublicKey) *SingleFundingComplete {
 
 	return &SingleFundingComplete{
 		ChannelID:       chanID,
 		FundingOutPoint: fundingPoint,
 		CommitSignature: commitSig,
+		RevocationKey:   revokeKey,
 	}
 }
 
@@ -50,11 +58,13 @@ func NewSingleFundingComplete(chanID uint64, fundingPoint *wire.OutPoint,
 func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 	// ChannelID (8)
 	// FundingOutPoint (36)
-	// Commitment Signature (73)
+	// CommitmentSignature (73)
+	// RevocationKey (33)
 	err := readElements(r,
 		&s.ChannelID,
 		&s.FundingOutPoint,
-		&s.CommitSignature)
+		&s.CommitSignature,
+		&s.RevocationKey)
 	if err != nil {
 		return err
 	}
@@ -71,10 +81,12 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 	// ChannelID (8)
 	// FundingOutPoint (36)
 	// Commitment Signature (73)
+	// RevocationKey (33)
 	err := writeElements(w,
 		s.ChannelID,
 		s.FundingOutPoint,
-		s.CommitSignature)
+		s.CommitSignature,
+		s.RevocationKey)
 	if err != nil {
 		return err
 	}
@@ -92,13 +104,12 @@ func (s *SingleFundingComplete) Command() uint32 {
 
 // MaxPayloadLength returns the maximum allowed payload length for a
 // SingleFundingComplete. This is calculated by summing the max length of all
-// the fields within a SingleFundingResponse. To enforce a maximum
-// DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 36 + 73 = 117
+// the fields within a SingleFundingResponse. Therefore, the final breakdown
+// is: 8 + 36 + 73 = 150
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) MaxPayloadLength(uint32) uint32 {
-	return 117
+	return 150
 }
 
 // Validate examines each populated field within the SingleFundingComplete for
@@ -115,6 +126,8 @@ func (s *SingleFundingComplete) Validate() error {
 		return fmt.Errorf("commitment signature must be non-nil")
 	}
 
+	// TODO(roasbeef): fin validation
+
 	// We're good!
 	return nil
 }
@@ -123,9 +136,15 @@ func (s *SingleFundingComplete) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) String() string {
+	var rk []byte
+	if s.RevocationKey != nil {
+		rk = s.RevocationKey.SerializeCompressed()
+	}
+
 	return fmt.Sprintf("\n--- Begin SingleFundingComplete ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", s.ChannelID) +
 		fmt.Sprintf("FundingOutPoint:\t\t\t%x\n", s.FundingOutPoint) +
 		fmt.Sprintf("CommitSignature\t\t\t\t%x\n", s.CommitSignature) +
+		fmt.Sprintf("RevocationKey\t\t\t\t%x\n", rk) +
 		fmt.Sprintf("--- End SingleFundingComplete ---\n")
 }

@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 
@@ -63,12 +62,6 @@ type SingleFundingRequest struct {
 	// an odd y-coordinate.
 	ChannelDerivationPoint *btcec.PublicKey
 
-	// RevocationHash is the initial revocation hash to be used for the
-	// initiator's commitment transaction to derive their revocation public
-	// key as: P + G*revocationHash, where P is the initiator's channel
-	// public key.
-	RevocationHash [20]byte
-
 	// DeliveryPkScript defines the public key script that the initiator
 	// would like to use to receive their balance in the case of a
 	// cooperative close. Only the following script templates are
@@ -81,7 +74,7 @@ type SingleFundingRequest struct {
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
 func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
-	cdp *btcec.PublicKey, revocation [20]byte, deliveryScript PkScript) *SingleFundingRequest {
+	cdp *btcec.PublicKey, deliveryScript PkScript) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
 		ChannelID:              chanID,
@@ -92,7 +85,6 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 		CsvDelay:               delay,
 		CommitmentKey:          ck,
 		ChannelDerivationPoint: cdp,
-		RevocationHash:         revocation,
 		DeliveryPkScript:       deliveryScript,
 	}
 }
@@ -107,10 +99,10 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 	// ChannelType (1)
 	// CoinType	(8)
 	// FeePerKb (8)
-	// FundingAmount (8)
-	// CsvDelay (4)
-	// Channel Derivation Point (32)
-	// Revocation Hash (20)
+	// PaymentAmount (8)
+	// Delay (4)
+	// Pubkey (33)
+	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
 	err := readElements(r,
 		&c.ChannelID,
@@ -121,7 +113,6 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.CsvDelay,
 		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
-		&c.RevocationHash,
 		&c.DeliveryPkScript)
 	if err != nil {
 		return err
@@ -141,9 +132,9 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 	// CoinType	(8)
 	// FeePerKb (8)
 	// PaymentAmount (8)
-	// LockTime (4)
-	// Revocation Hash (20)
-	// Pubkey (32)
+	// Delay (4)
+	// Pubkey (33)
+	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
 	err := writeElements(w,
 		c.ChannelID,
@@ -154,7 +145,6 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.CsvDelay,
 		c.CommitmentKey,
 		c.ChannelDerivationPoint,
-		c.RevocationHash,
 		c.DeliveryPkScript)
 	if err != nil {
 		return err
@@ -175,11 +165,11 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 20 + 25 = 114.
+// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 = 158.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 148
+	return 158
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -212,12 +202,6 @@ func (c *SingleFundingRequest) Validate() error {
 	//"y-coordinate")
 	//}
 
-	// The revocation hash MUST be non-zero.
-	var zeroHash [20]byte
-	if bytes.Equal(c.RevocationHash[:], zeroHash[:]) {
-		return fmt.Errorf("Initial revocation hash must be non-zero")
-	}
-
 	// The delivery pkScript must be amongst the supported script
 	// templates.
 	if !isValidPkScript(c.DeliveryPkScript) {
@@ -249,7 +233,6 @@ func (c *SingleFundingRequest) String() string {
 		fmt.Sprintf("FundingAmount:\t\t\t%s\n", c.FundingAmount.String()) +
 		fmt.Sprintf("CsvDelay\t\t\t%d\n", c.CsvDelay) +
 		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", serializedPubkey) +
-		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
 		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("--- End SingleFundingRequest ---\n")
 }

@@ -8,7 +8,7 @@ import (
 
 func TestSingleFundingCompleteWire(t *testing.T) {
 	// First create a new SFC message.
-	sfc := NewSingleFundingComplete(22, outpoint1, commitSig1)
+	sfc := NewSingleFundingComplete(22, outpoint1, commitSig1, pubKey)
 
 	// Next encode the SFC message into an empty bytes buffer.
 	var b bytes.Buffer

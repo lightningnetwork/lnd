@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 
@@ -17,28 +16,29 @@ type SingleFundingResponse struct {
 	// the initiated single funder workflow.
 	ChannelID uint64
 
-	// RevocationHash is the initial revocation hash to be used for the
-	// responders's commitment transaction to derive their revocation public
-	// key as: P + G*revocationHash, where P is the initiator's channel
-	// public key.
-	RevocationHash [20]byte
+	// ChannelDerivationPoint is an secp256k1 point which will be used to
+	// derive the public key the responder will use for the half of the
+	// 2-of-2 multi-sig. Using the channel derivation point (CDP), and the
+	// responder's identity public key (A), the channel public key is
+	// computed as: C = A + CDP. In order to be valid all CDP's MUST have
+	// an odd y-coordinate.
+	ChannelDerivationPoint *btcec.PublicKey
 
 	// CommitmentKey is key the responder to the funding workflow wishes to
 	// use within their versino of the commitment transaction for any
 	// delayed (CSV) or immediate outputs to them.
 	CommitmentKey *btcec.PublicKey
 
+	// RevocationKey is the initial key to be used for the revocation
+	// clause within the self-output of the responder's commitment
+	// transaction. Once an initial new state is created, the responder
+	// will send a pre-image which will allow the initiator to sweep the
+	// responder's funds if the violate the contract.
+	RevocationKey *btcec.PublicKey
+
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
 	CsvDelay uint32
-
-	// ChannelDerivationPoint is an secp256k1 point which will be used to
-	// derive the public key the responder will use for the half of the
-	// 2-of-2 multi-sig. Using the channel derivation point (CDP), and the
-	// initiators identity public key (A), the channel public key is
-	// computed as: C = A + CDP. In order to be valid all CDP's MUST have
-	// an odd y-coordinate.
-	ChannelDerivationPoint *btcec.PublicKey
 
 	// DeliveryPkScript defines the public key script that the initiator
 	// would like to use to receive their balance in the case of a
@@ -49,19 +49,22 @@ type SingleFundingResponse struct {
 
 // NewSingleFundingResponse creates, and returns a new empty
 // SingleFundingResponse.
-func NewSingleFundingResponse(chanID uint64, revocation [20]byte,
-	ck, cdp *btcec.PublicKey, delay uint32,
-	deliveryScript PkScript) *SingleFundingResponse {
+func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
+	delay uint32, deliveryScript PkScript) *SingleFundingResponse {
 
 	return &SingleFundingResponse{
 		ChannelID:              chanID,
-		RevocationHash:         revocation,
-		CommitmentKey:          ck,
-		CsvDelay:               delay,
 		ChannelDerivationPoint: cdp,
+		CommitmentKey:          ck,
+		RevocationKey:          rk,
+		CsvDelay:               delay,
 		DeliveryPkScript:       deliveryScript,
 	}
 }
+
+// A compile time check to ensure SingleFundingResponse implements the
+// lnwire.Message interface.
+var _ Message = (*SingleFundingResponse)(nil)
 
 // Decode deserializes the serialized SingleFundingResponse stored in the passed
 // io.Reader into the target SingleFundingResponse using the deserialization
@@ -70,14 +73,16 @@ func NewSingleFundingResponse(chanID uint64, revocation [20]byte,
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	// ChannelID (8)
-	// Revocation Hash (20)
-	// Pubkey (32)
+	// ChannelDerivationPoint (33)
+	// CommitmentKey (33)
+	// RevocationKey (33)
+	// CsvDelay (4)
 	// DeliveryPkScript (final delivery)
 	err := readElements(r,
 		&c.ChannelID,
-		&c.RevocationHash,
-		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
+		&c.CommitmentKey,
+		&c.RevocationKey,
 		&c.CsvDelay,
 		&c.DeliveryPkScript)
 	if err != nil {
@@ -94,14 +99,16 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 	// ChannelID (8)
-	// Revocation Hash (20)
-	// Channel Derivation Point (32)
+	// ChannelDerivationPoint (33)
+	// CommitmentKey (33)
+	// RevocationKey (33)
+	// CsvDelay (4)
 	// DeliveryPkScript (final delivery)
 	err := writeElements(w,
 		c.ChannelID,
-		c.RevocationHash,
-		c.CommitmentKey,
 		c.ChannelDerivationPoint,
+		c.CommitmentKey,
+		c.RevocationKey,
 		c.CsvDelay,
 		c.DeliveryPkScript)
 	if err != nil {
@@ -123,11 +130,11 @@ func (c *SingleFundingResponse) Command() uint32 {
 // SingleFundingResponse. This is calculated by summing the max length of all
 // the fields within a SingleFundingResponse. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 20 + 33 + 33 + 4 + 25 = 123
+// Therefore, the final breakdown is: 8 + (33 * 3) + 8 + 25
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
-	return 123
+	return 140
 }
 
 // Validate examines each populated field within the SingleFundingResponse for
@@ -136,11 +143,6 @@ func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Validate() error {
-	var zeroHash [20]byte
-	if bytes.Equal(zeroHash[:], c.RevocationHash[:]) {
-		return fmt.Errorf("revocation has must be non-zero")
-	}
-
 	// The channel derivation point must be non-nil, and have an odd
 	// y-coordinate.
 	if c.ChannelDerivationPoint == nil {
@@ -166,15 +168,25 @@ func (c *SingleFundingResponse) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) String() string {
-	var serializedPubkey []byte
-	if &c.ChannelDerivationPoint != nil && c.ChannelDerivationPoint.X != nil {
-		serializedPubkey = c.ChannelDerivationPoint.SerializeCompressed()
+	var cdp []byte
+	var ck []byte
+	var rk []byte
+	if &c.ChannelDerivationPoint != nil {
+		cdp = c.ChannelDerivationPoint.SerializeCompressed()
+	}
+	if &c.CommitmentKey != nil {
+		ck = c.CommitmentKey.SerializeCompressed()
+	}
+	if &c.RevocationKey != nil {
+		rk = c.RevocationKey.SerializeCompressed()
 	}
 
 	return fmt.Sprintf("\n--- Begin SingleFundingResponse ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("RevocationHash\t\t\t%x\n", c.RevocationHash) +
-		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", serializedPubkey) +
+		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", cdp) +
+		fmt.Sprintf("CommitmentKey\t\t\t\t%x\n", ck) +
+		fmt.Sprintf("RevocationKey\t\t\t\t%x\n", rk) +
+		fmt.Sprintf("CsvDelay\t\t%d\n", c.CsvDelay) +
 		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
 		fmt.Sprintf("--- End SingleFundingResponse ---\n")
 }

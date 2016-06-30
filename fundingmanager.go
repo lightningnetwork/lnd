@@ -250,7 +250,6 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		MultiSigKey:     msg.ChannelDerivationPoint,
 		CommitKey:       msg.CommitmentKey,
 		DeliveryAddress: addrs[0],
-		RevocationHash:  msg.RevocationHash,
 		CsvDelay:        delay,
 	}
 	if err := reservation.ProcessSingleContribution(contribution); err != nil {
@@ -269,7 +268,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		return
 	}
 	fundingResp := lnwire.NewSingleFundingResponse(msg.ChannelID,
-		ourContribution.RevocationHash, ourContribution.CommitKey,
+		ourContribution.RevocationKey, ourContribution.CommitKey,
 		ourContribution.MultiSigKey, ourContribution.CsvDelay,
 		deliveryScript)
 
@@ -309,7 +308,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		MultiSigKey:     msg.ChannelDerivationPoint,
 		CommitKey:       msg.CommitmentKey,
 		DeliveryAddress: addrs[0],
-		RevocationHash:  msg.RevocationHash,
+		RevocationKey:   msg.RevocationKey,
 		CsvDelay:        msg.CsvDelay,
 	}
 	if err := resCtx.reservation.ProcessContribution(contribution); err != nil {
@@ -334,8 +333,9 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%v)",
 		outPoint, msg.ChannelID)
 
+	revocationKey := resCtx.reservation.OurContribution().RevocationKey
 	fundingComplete := lnwire.NewSingleFundingComplete(msg.ChannelID,
-		outPoint, commitSig)
+		outPoint, commitSig, revocationKey)
 	sourcePeer.queueMsg(fundingComplete, nil)
 }
 
@@ -370,7 +370,8 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// sighash type used implicitly within this type of channel for
 	// commitment transactions.
 	commitSig = append(commitSig, byte(txscript.SigHashAll))
-	if err := resCtx.reservation.CompleteReservationSingle(fundingOut, commitSig); err != nil {
+	revokeKey := fmsg.msg.RevocationKey
+	if err := resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut, commitSig); err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
 		return
@@ -598,7 +599,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		contribution.CsvDelay,
 		contribution.CommitKey,
 		contribution.MultiSigKey,
-		contribution.RevocationHash,
 		deliveryScript,
 	)
 	msg.peer.queueMsg(fundingReq, nil)

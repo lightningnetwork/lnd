@@ -705,7 +705,7 @@ func createNewCommitmentTxns(fundingTxIn *wire.TxIn, state *channeldb.OpenChanne
 // relative block delay or revocation event, and the other paying the the
 // counter-party within the channel, which can be spent immediately.
 func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
-	revokeHash []byte, csvTimeout uint32, amountToSelf,
+	revokeKey *btcec.PublicKey, csvTimeout uint32, amountToSelf,
 	amountToThem btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
@@ -713,7 +713,6 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	revokeKey := deriveRevocationPubkey(theirKey, revokeHash)
 	ourRedeemScript, err := commitScriptToSelf(csvTimeout, selfKey,
 		revokeKey)
 	if err != nil {

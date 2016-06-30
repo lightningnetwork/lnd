@@ -40,7 +40,8 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		bobsPrivKey)
 	channelBalance := btcutil.Amount(1 * 10e8)
 	csvTimeout := uint32(5)
-	revocationHash := testHdSeed[:]
+	revocationPreimage := testHdSeed[:]
+	revokePubKey := deriveRevocationPubkey(bobKeyPub, revocationPreimage)
 
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
@@ -50,7 +51,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
 	commitmentTx, err := createCommitTx(fakeFundingTxIn, aliceKeyPub,
-		bobKeyPub, revocationHash, csvTimeout, channelBalance, channelBalance)
+		bobKeyPub, revokePubKey, csvTimeout, channelBalance, channelBalance)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
 	}
@@ -72,7 +73,6 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	revokePubKey := deriveRevocationPubkey(bobKeyPub, revocationHash)
 	delayScript, err := commitScriptToSelf(csvTimeout, aliceKeyPub, revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v")
@@ -82,7 +82,6 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate delay commit spend witness :%v")
 	}
-
 	sweepTx.TxIn[0].Witness = aliceWitnessSpend
 	vm, err := txscript.NewEngine(delayOutput.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
@@ -97,13 +96,12 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when alice broadcasts this commitmen
 	// transaction after it's been revoked.
-	revokePrivKey := deriveRevocationPrivKey(bobKeyPriv, revocationHash)
+	revokePrivKey := deriveRevocationPrivKey(bobKeyPriv, revocationPreimage)
 	bobWitnessSpend, err := commitSpendRevoke(delayScript, channelBalance,
 		revokePrivKey, sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
 	}
-
 	sweepTx.TxIn[0].Witness = bobWitnessSpend
 	vm, err = txscript.NewEngine(delayOutput.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
@@ -126,7 +124,6 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)
 	}
-
 	sweepTx.TxIn[0].Witness = bobRegularSpend
 	vm, err = txscript.NewEngine(regularOutput.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,

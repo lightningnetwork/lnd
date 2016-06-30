@@ -121,3 +121,10 @@ func ElkremReceiverFromBytes(b []byte) (*ElkremReceiver, error) {
 	return &e, nil
 }
 
+// ToBytes returns the root of the elkrem sender tree as a byte slice. This
+// function is in place to allow one to export the root of the tree. However,
+// node that if one uses a deterministic procedure to generate the root, then
+// serialization isn't necessary as it can simply be re-derived on the fly.
+func (e *ElkremSender) ToBytes() []byte {
+	return e.root[:]
+}

@@ -115,11 +115,10 @@ type OpenChannel struct {
 	OurBalance   btcutil.Amount
 	TheirBalance btcutil.Amount
 
-	// Commitment transactions for both sides (they're asymmetric). Our
-	// commitment transaction includes a valid sigScript, and is ready for
-	// broadcast.
-	TheirCommitTx *wire.MsgTx
-	OurCommitTx   *wire.MsgTx
+	// Our current commitment transaction along with their signature for
+	// our commitment transaction.
+	OurCommitTx  *wire.MsgTx
+	OurCommitSig []byte
 
 	// The outpoint of the final funding transaction.
 	FundingOutpoint *wire.OutPoint
@@ -150,7 +149,7 @@ type OpenChannel struct {
 	TotalNetFees          uint64    // TODO(roasbeef): total fees paid too?
 	CreationTime          time.Time // TODO(roasbeef): last update time?
 
-	// isPrevState denotes if this instane of an OpenChannel is a previous,
+	// isPrevState denotes if this instance of an OpenChannel is a previous,
 	// revoked channel state. If so, then the FullSynv, and UpdateState
 	// methods are disabled in order to prevent overiding the latest channel
 	// state.
@@ -845,11 +844,11 @@ func putChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error 
 
 	var b bytes.Buffer
 
-	if err := channel.TheirCommitTx.Serialize(&b); err != nil {
+	if err := channel.OurCommitTx.Serialize(&b); err != nil {
 		return err
 	}
 
-	if err := channel.OurCommitTx.Serialize(&b); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, channel.OurCommitSig); err != nil {
 		return err
 	}
 
@@ -875,7 +874,8 @@ func deleteChanCommitTxns(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 
 func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var bc bytes.Buffer
-	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+	var err error
+	if err = writeOutpoint(&bc, channel.ChanID); err != nil {
 		return err
 	}
 	txnsKey := make([]byte, len(commitTxnsKey)+bc.Len())
@@ -884,13 +884,13 @@ func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 
 	txnBytes := bytes.NewReader(nodeChanBucket.Get(txnsKey))
 
-	channel.TheirCommitTx = wire.NewMsgTx()
-	if err := channel.TheirCommitTx.Deserialize(txnBytes); err != nil {
+	channel.OurCommitTx = wire.NewMsgTx()
+	if err = channel.OurCommitTx.Deserialize(txnBytes); err != nil {
 		return err
 	}
 
-	channel.OurCommitTx = wire.NewMsgTx()
-	if err := channel.OurCommitTx.Deserialize(txnBytes); err != nil {
+	channel.OurCommitSig, err = wire.ReadVarBytes(txnBytes, 0, 80, "")
+	if err != nil {
 		return err
 	}
 

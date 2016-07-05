@@ -141,33 +141,34 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 
 	state := OpenChannel{
-		TheirLNID:              key,
-		ChanID:                 id,
-		MinFeePerKb:            btcutil.Amount(5000),
-		OurCommitKey:           privKey,
-		TheirCommitKey:         pubKey,
-		Capacity:               btcutil.Amount(10000),
-		OurBalance:             btcutil.Amount(3000),
-		TheirBalance:           btcutil.Amount(9000),
-		TheirCommitTx:          testTx,
-		OurCommitTx:            testTx,
-		LocalElkrem:            sender,
-		RemoteElkrem:           receiver,
-		FundingOutpoint:        testOutpoint,
-		OurMultiSigKey:         privKey,
-		TheirMultiSigKey:       privKey.PubKey(),
-		FundingRedeemScript:    script,
-		TheirCurrentRevocation: privKey.PubKey(),
-		OurDeliveryScript:      script,
-		TheirDeliveryScript:    script,
-		LocalCsvDelay:          5,
-		RemoteCsvDelay:         9,
-		NumUpdates:             1,
-		TotalSatoshisSent:      8,
-		TotalSatoshisReceived:  2,
-		TotalNetFees:           9,
-		CreationTime:           time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
-		Db:                     cdb,
+		TheirLNID:                  key,
+		ChanID:                     id,
+		MinFeePerKb:                btcutil.Amount(5000),
+		OurCommitKey:               privKey,
+		TheirCommitKey:             pubKey,
+		Capacity:                   btcutil.Amount(10000),
+		OurBalance:                 btcutil.Amount(3000),
+		TheirBalance:               btcutil.Amount(9000),
+		OurCommitTx:                testTx,
+		OurCommitSig:               bytes.Repeat([]byte{1}, 71),
+		LocalElkrem:                sender,
+		RemoteElkrem:               receiver,
+		FundingOutpoint:            testOutpoint,
+		OurMultiSigKey:             privKey,
+		TheirMultiSigKey:           privKey.PubKey(),
+		FundingRedeemScript:        script,
+		TheirCurrentRevocation:     privKey.PubKey(),
+		TheirCurrentRevocationHash: key,
+		OurDeliveryScript:          script,
+		TheirDeliveryScript:        script,
+		LocalCsvDelay:              5,
+		RemoteCsvDelay:             9,
+		NumUpdates:                 1,
+		TotalSatoshisSent:          8,
+		TotalSatoshisReceived:      2,
+		TotalNetFees:               9,
+		CreationTime:               time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
+		Db:                         cdb,
 	}
 
 	if err := state.FullSync(); err != nil {
@@ -215,19 +216,6 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 
 	var b1, b2 bytes.Buffer
-	if err := state.TheirCommitTx.Serialize(&b1); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if err := newState.TheirCommitTx.Serialize(&b2); err != nil {
-		t.Fatalf("unable to serialize transaction")
-	}
-	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("theirCommitTx doesn't match")
-	}
-
-	b1.Reset()
-	b2.Reset()
-
 	if err := state.OurCommitTx.Serialize(&b1); err != nil {
 		t.Fatalf("unable to serialize transaction")
 	}
@@ -237,9 +225,9 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
 		t.Fatalf("ourCommitTx doesn't match")
 	}
-
-	b1.Reset()
-	b2.Reset()
+	if !bytes.Equal(newState.OurCommitSig, state.OurCommitSig) {
+		t.Fatalf("commit sigs don't match")
+	}
 
 	// TODO(roasbeef): replace with a single equal?
 	if !reflect.DeepEqual(state.FundingOutpoint, newState.FundingOutpoint) {

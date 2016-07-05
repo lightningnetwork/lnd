@@ -295,6 +295,9 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if !newState.TheirCurrentRevocation.IsEqual(state.TheirCurrentRevocation) {
 		t.Fatalf("revocation keys don't match")
 	}
+	if !bytes.Equal(newState.TheirCurrentRevocationHash[:], state.TheirCurrentRevocationHash[:]) {
+		t.Fatalf("revocation hashes don't match")
+	}
 
 	// Finally to wrap up the test, delete the state of the channel within
 	// the database. This involves "closing" the channel which removes all

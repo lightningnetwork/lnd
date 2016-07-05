@@ -134,9 +134,10 @@ type OpenChannel struct {
 	// Current revocation for their commitment transaction. However, since
 	// this the derived public key, we don't yet have the pre-image so we
 	// aren't yet able to verify that it's actually in the hash chain.
-	TheirCurrentRevocation *btcec.PublicKey
-	LocalElkrem            *elkrem.ElkremSender
-	RemoteElkrem           *elkrem.ElkremReceiver
+	TheirCurrentRevocation     *btcec.PublicKey
+	TheirCurrentRevocationHash [32]byte
+	LocalElkrem                *elkrem.ElkremSender
+	RemoteElkrem               *elkrem.ElkremReceiver
 
 	// The pkScript for both sides to be used for final delivery in the case
 	// of a cooperative close.
@@ -1029,6 +1030,10 @@ func putChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
+	if _, err := b.Write(channel.TheirCurrentRevocationHash[:]); err != nil {
+		return err
+	}
+
 	// TODO(roasbeef): shouldn't be storing on disk, should re-derive as
 	// needed
 	senderBytes := channel.LocalElkrem.ToBytes()
@@ -1071,6 +1076,10 @@ func fetchChanEklremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 	channel.TheirCurrentRevocation, err = btcec.ParsePubKey(revKeyBytes, btcec.S256())
 	if err != nil {
+		return err
+	}
+
+	if _, err := elkremStateBytes.Read(channel.TheirCurrentRevocationHash[:]); err != nil {
 		return err
 	}
 

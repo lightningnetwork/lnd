@@ -853,7 +853,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.ChanID = fundingOutpoint
 	pendingReservation.partialState.TheirCommitKey = theirCommitKey
 	pendingReservation.partialState.TheirMultiSigKey = theirContribution.MultiSigKey
-	pendingReservation.partialState.TheirCommitTx = theirCommitTx
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
 	pendingReservation.ourContribution.RevocationKey = ourRevokeKey
 
@@ -1050,7 +1049,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Finally, create an instance of a Script VM, and ensure that the
 	// Script executes succesfully.
-	// TODO(roasbeef): remove afterwards, should *never* be hot...
 	commitTx.TxIn[0].Witness = witness
 	vm, err := txscript.NewEngine(p2wsh,
 		commitTx, 0, txscript.StandardVerifyFlags, nil,
@@ -1063,6 +1061,11 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
 		return
 	}
+
+	// Strip and store the signature to ensure that our commitment
+	// transaction doesn't stay hot.
+	commitTx.TxIn[0].Witness = nil
+	pendingReservation.partialState.OurCommitSig = theirCommitSig
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
@@ -1147,7 +1150,6 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	txsort.InPlaceSort(ourCommitTx)
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
 	txsort.InPlaceSort(theirCommitTx)
-	pendingReservation.partialState.TheirCommitTx = theirCommitTx
 
 	// Verify that their signature of valid for our current commitment
 	// transaction. Re-generate both the redeemScript and p2sh output. We
@@ -1184,7 +1186,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// Finally, create an instance of a Script VM, and ensure that the
 	// Script executes succesfully.
-	ourCommitTx.TxIn[0].Witness = witness // TODO(roasbeef): don't stay hot!!
+	ourCommitTx.TxIn[0].Witness = witness
+	// TODO(roasbeef): replace engine with plain sighash check
 	vm, err := txscript.NewEngine(p2wsh,
 		ourCommitTx, 0, txscript.StandardVerifyFlags, nil,
 		nil, channelValue)
@@ -1196,6 +1199,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		req.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
 		return
 	}
+
+	// Strip and store the signature to ensure that our commitment
+	// transaction doesn't stay hot.
+	ourCommitTx.TxIn[0].Witness = nil
+	pendingReservation.partialState.OurCommitSig = req.theirCommitmentSig
 
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,

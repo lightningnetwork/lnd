@@ -49,7 +49,6 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 
 	// Attempt to resolve the IP address, this handles parsing IPv6 zones,
 	// and such.
-	fmt.Println("host: ", idHost[1])
 	ipAddr, err := net.ResolveTCPAddr("tcp", idHost[1])
 	if err != nil {
 		return nil, err

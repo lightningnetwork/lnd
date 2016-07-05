@@ -682,7 +682,7 @@ func commitSpendNoDelay(commitScript []byte, outputAmt btcutil.Amount,
 // The derivation is performed as follows:
 //
 //   revokeKey := commitKey + revokePoint
-//             := G*k + G+h
+//             := G*k + G*h
 //             := G * (k+h)
 //
 // Therefore, once we divulge the revocation pre-image, the remote peer is able to

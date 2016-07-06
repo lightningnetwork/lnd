@@ -245,6 +245,36 @@ func (r *rpcServer) CloseChannel(ctx context.Context,
 	return &lnrpc.CloseChannelResponse{resp}, nil
 }
 
+// GetInfo serves a request to the "getinfo" RPC call. This call returns
+// general information concerning the lightning node including it's LN ID,
+// identity address, and information concerning the number of open+pending
+// channels.
+func (r *rpcServer) GetInfo(ctx context.Context,
+	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
+
+	var activeChannels uint32
+	serverPeers := r.server.Peers()
+	for _, serverPeer := range serverPeers {
+		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
+	}
+
+	pendingChannels := r.server.fundingMgr.NumPendingChannels()
+
+	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
+	idAddr, err := btcutil.NewAddressPubKeyHash(btcutil.Hash160(idPub), activeNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.GetInfoResponse{
+		LightningId:        hex.EncodeToString(r.server.lightningID[:]),
+		IdentityAddress:    idAddr.String(),
+		NumPendingChannels: pendingChannels,
+		NumActiveChannels:  activeChannels,
+		NumPeers:           uint32(len(serverPeers)),
+	}, nil
+}
+
 // ListPeers returns a verbose listing of all currently active peers.
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {

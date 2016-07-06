@@ -113,6 +113,10 @@ type fundingManager struct {
 	// related to funding workflow from outside peers.
 	fundingMsgs chan interface{}
 
+	// queries is a channel which receives requests to query the internal
+	// state of the funding manager.
+	queries chan interface{}
+
 	// fundingRequests is a channel used to recieve channel initiation
 	// requests from a local sub-system within the daemon.
 	fundingRequests chan *initFundingMsg
@@ -129,6 +133,7 @@ func newFundingManager(w *lnwallet.LightningWallet) *fundingManager {
 		wallet:             w,
 		fundingMsgs:        make(chan interface{}, msgBufferSize),
 		fundingRequests:    make(chan *initFundingMsg, msgBufferSize),
+		queries:            make(chan interface{}, 1),
 		quit:               make(chan struct{}),
 	}
 }
@@ -164,6 +169,21 @@ func (f *fundingManager) Stop() error {
 	return nil
 }
 
+type numPendingReq struct {
+	resp chan uint32
+}
+
+// NumPendingChannels returns the number of pending channels currently
+// progressing through the reservation workflow.
+func (f *fundingManager) NumPendingChannels() uint32 {
+	resp := make(chan uint32, 1)
+
+	req := &numPendingReq{resp}
+	f.queries <- req
+
+	return <-resp
+}
+
 // reservationCoordinator is the primary goroutine tasked with progressing the
 // funding workflow between the wallet, and any outside peers or local callers.
 //
@@ -187,6 +207,15 @@ out:
 			}
 		case req := <-f.fundingRequests:
 			f.handleInitFundingMsg(req)
+		case req := <-f.queries:
+			switch msg := req.(type) {
+			case *numPendingReq:
+				var numPending uint32
+				for _, peerChannels := range f.activeReservations {
+					numPending += uint32(len(peerChannels))
+				}
+				msg.resp <- numPending
+			}
 		case <-f.quit:
 			break out
 		}

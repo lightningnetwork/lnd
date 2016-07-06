@@ -331,3 +331,23 @@ func walletBalance(ctx *cli.Context) error {
 	printRespJson(resp)
 	return nil
 }
+
+var GetInfoCommand = cli.Command{
+	Name:        "getinfo",
+	Description: "returns basic information related to the active daemon",
+	Action:      getInfo,
+}
+
+func getInfo(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.GetInfoRequest{}
+	resp, err := client.GetInfo(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}

@@ -57,6 +57,7 @@ func main() {
 		ListPeersCommand,
 		WalletBalanceCommand,
 		ShellCommand,
+		GetInfoCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

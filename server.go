@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -28,6 +29,10 @@ type server struct {
 	// identityPriv is the private key used to authenticate any incoming
 	// connections.
 	identityPriv *btcec.PrivateKey
+
+	// lightningID is the sha256 of the public key corresponding to our
+	// long-term identity private key.
+	lightningID [32]byte
 
 	listeners []net.Listener
 	peers     map[int32]*peer
@@ -69,11 +74,13 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 		}
 	}
 
+	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
 		chanDB:       chanDB,
 		fundingMgr:   newFundingManager(wallet),
 		lnwallet:     wallet,
 		identityPriv: privKey,
+		lightningID:  fastsha256.Sum256(serializedPubKey),
 		listeners:    listeners,
 		peers:        make(map[int32]*peer),
 		chanIndex:    make(map[wire.OutPoint]*peer),

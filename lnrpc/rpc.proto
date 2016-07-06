@@ -10,6 +10,7 @@ service Lightning {
 
     rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
     rpc ListPeers(ListPeersRequest) returns (ListPeersResponse);
+    rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
 
     rpc OpenChannel(OpenChannelRequest) returns (OpenChannelResponse);
     rpc CloseChannel(CloseChannelRequest) returns (CloseChannelResponse);
@@ -107,6 +108,17 @@ message Peer {
 message ListPeersRequest {}
 message ListPeersResponse {
     repeated Peer peers = 1;
+}
+
+message GetInfoRequest{}
+message GetInfoResponse {
+    string lightning_id = 1;
+    string identity_address = 2;
+
+    uint32 num_pending_channels = 3;
+    uint32 num_active_channels = 4;
+
+    uint32 num_peers = 5;
 }
 
 message OpenChannelRequest {

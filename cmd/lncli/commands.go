@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -191,6 +192,10 @@ var OpenChannelCommand = cli.Command{
 			Usage: "the number of confirmations required before the " +
 				"channel is considered 'open'",
 		},
+		cli.BoolFlag{
+			Name:  "block",
+			Usage: "block and wait until the channel is fully open",
+		},
 	},
 	Action: openChannel,
 }
@@ -207,23 +212,38 @@ func openChannel(ctx *cli.Context) error {
 		NumConfs:            uint32(ctx.Int("num_confs")),
 	}
 
-	resp, err := client.OpenChannel(ctxb, req)
+	stream, err := client.OpenChannel(ctxb, req)
 	if err != nil {
 		return err
 	}
 
-	txid, err := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
-	if err != nil {
-		return err
+	if !ctx.Bool("block") {
+		return nil
 	}
 
-	index := resp.ChannelPoint.OutputIndex
-	printRespJson(struct {
-		ChannelPoint string `json:"channel_point"`
-	}{
-		ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
-	},
-	)
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		txid, err := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
+		if err != nil {
+			return err
+		}
+
+		index := resp.ChannelPoint.OutputIndex
+		printRespJson(struct {
+			ChannelPoint string `json:"channel_point"`
+		}{
+			ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
+		},
+		)
+
+	}
+
 	return nil
 }
 
@@ -253,6 +273,10 @@ var CloseChannelCommand = cli.Command{
 			Usage: "after the time limit has passed, attempted an " +
 				"uncooperative closure",
 		},
+		cli.BoolFlag{
+			Name:  "block",
+			Usage: "block until the channel is closed",
+		},
 	},
 	Action: closeChannel,
 }
@@ -273,12 +297,25 @@ func closeChannel(ctx *cli.Context) error {
 		},
 	}
 
-	resp, err := client.CloseChannel(ctxb, req)
+	stream, err := client.CloseChannel(ctxb, req)
 	if err != nil {
 		return err
 	}
 
-	printRespJson(resp)
+	if !ctx.Bool("block") {
+		return nil
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		printRespJson(resp)
+	}
+
 	return nil
 }
 

@@ -14,6 +14,7 @@ service Lightning {
 
     rpc OpenChannel(OpenChannelRequest) returns (stream ChannelOpenUpdate);
     rpc CloseChannel(CloseChannelRequest) returns (stream ChannelCloseUpdate);
+    rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
 }
 
 message ChannelPoint {
@@ -167,7 +168,31 @@ message OpenStatusUpdate {
     }
 }
 
+enum ChannelStatus {
+    ALL = 0;
+    OPENING = 1;
+    CLOSING = 2;
 }
+message PendingChannelRequest {
+    ChannelStatus status = 1;
+}
+message PendingChannelResponse {
+    message PendingChannel {
+        int32 peer_id = 1;
+
+        string lightning_id = 2;
+        string channel_point = 3;
+
+        int64 capacity = 4;
+        int64 local_balance = 5;
+        int64 remote_balance = 6;
+
+        string closing_txid = 7;
+
+        ChannelStatus status = 8;
+    }
+
+    repeated PendingChannel pending_channels = 1;
 }
 
 message WalletBalanceRequest {

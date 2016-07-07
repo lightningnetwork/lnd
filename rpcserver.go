@@ -381,3 +381,40 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 	return &lnrpc.WalletBalanceResponse{balance}, nil
 }
+
+// PendingChannels returns a list of all the channels that are currently
+// considered "pending". A channel is pending if it has finished the funding
+// workflow and is waiting for confirmations for the funding txn, or is in the
+// process of closure, either initiated cooperatively or non-coopertively.
+func (r *rpcServer) PendingChannels(ctx context.Context,
+	in *lnrpc.PendingChannelRequest) (*lnrpc.PendingChannelResponse, error) {
+
+	both := in.Status == lnrpc.ChannelStatus_ALL
+	includeOpen := (in.Status == lnrpc.ChannelStatus_OPENING) || both
+	includeClose := (in.Status == lnrpc.ChannelStatus_CLOSING) || both
+	rpcsLog.Debugf("[pendingchannels] %v", in.Status)
+
+	var pendingChannels []*lnrpc.PendingChannelResponse_PendingChannel
+	if includeOpen {
+		pendingOpenChans := r.server.fundingMgr.PendingChannels()
+		for _, pendingOpen := range pendingOpenChans {
+			// TODO(roasbeef): add confirmation progress
+			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
+				PeerId:        pendingOpen.peerId,
+				LightningId:   hex.EncodeToString(pendingOpen.lightningID[:]),
+				ChannelPoint:  pendingOpen.channelPoint.String(),
+				Capacity:      int64(pendingOpen.capacity),
+				LocalBalance:  int64(pendingOpen.localBalance),
+				RemoteBalance: int64(pendingOpen.remoteBalance),
+				Status:        lnrpc.ChannelStatus_OPENING,
+			}
+			pendingChannels = append(pendingChannels, pendingChan)
+		}
+	}
+	if includeClose {
+	}
+
+	return &lnrpc.PendingChannelResponse{
+		PendingChannels: pendingChannels,
+	}, nil
+}

@@ -188,8 +188,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 
 // OpenChannel attempts to open a singly funded channel specified in the
 // request to a remote peer.
-func (r *rpcServer) OpenChannel(ctx context.Context,
-	in *lnrpc.OpenChannelRequest) (*lnrpc.OpenChannelResponse, error) {
+func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
+	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
@@ -199,50 +199,73 @@ func (r *rpcServer) OpenChannel(ctx context.Context,
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
 	target := in.TargetPeerId
 	numConfs := in.NumConfs
-	resp, err := r.server.OpenChannel(target, localFundingAmt,
+	respChan, errChan := r.server.OpenChannel(target, localFundingAmt,
 		remoteFundingAmt, numConfs)
-	if err != nil {
+	if err := <-errChan; err != nil {
 		rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
 			target, err)
-		return nil, err
+		return err
 	}
 
+	var outpoint *wire.OutPoint
+	select {
+	case resp := <-respChan:
+		outpoint = resp.chanPoint
+		openUpdate := &lnrpc.ChannelOpenUpdate{
+			&lnrpc.ChannelPoint{
+				FundingTxid: outpoint.Hash[:],
+				OutputIndex: outpoint.Index,
+			},
+		}
+		if err := updateStream.Send(openUpdate); err != nil {
+			return err
+		}
+	case <-r.quit:
+		return nil
+	}
 	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
-		in.TargetPeerId, resp)
-
-	return &lnrpc.OpenChannelResponse{
-		&lnrpc.ChannelPoint{
-			FundingTxid: resp.Hash[:],
-			OutputIndex: resp.Index,
-		},
-	}, nil
+		in.TargetPeerId, outpoint)
+	return nil
 }
 
 // CloseChannel attempts to close an active channel identified by its channel
 // point. The actions of this method can additionally be augmented to attempt
 // a force close after a timeout period in the case of an inactive peer.
-func (r *rpcServer) CloseChannel(ctx context.Context,
-	in *lnrpc.CloseChannelRequest) (*lnrpc.CloseChannelResponse, error) {
+func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
+	updateStream lnrpc.Lightning_CloseChannelServer) error {
 
 	index := in.ChannelPoint.OutputIndex
 	txid, err := wire.NewShaHash(in.ChannelPoint.FundingTxid)
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
-		return nil, err
+		return err
 	}
 	targetChannelPoint := wire.NewOutPoint(txid, index)
 
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	resp, err := r.server.CloseChannel(targetChannelPoint)
-	if err != nil {
+	respChan, errChan := r.server.CloseChannel(targetChannelPoint)
+	if err := <-errChan; err != nil {
 		rpcsLog.Errorf("Unable to close ChannelPoint(%v): %v",
 			targetChannelPoint, err)
-		return nil, err
+		return err
 	}
 
-	return &lnrpc.CloseChannelResponse{resp}, nil
+	select {
+	case resp := <-respChan:
+		closeUpdate := &lnrpc.ChannelCloseUpdate{
+			ClosingTxid: resp.txid[:],
+			Success:     resp.success,
+		}
+		if err := updateStream.Send(closeUpdate); err != nil {
+			return err
+		}
+	case <-r.quit:
+		return nil
+	}
+
+	return nil
 }
 
 // GetInfo serves a request to the "getinfo" RPC call. This call returns

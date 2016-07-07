@@ -555,11 +555,12 @@ func (p *peer) handleLocalClose(req *closeChanReq) {
 
 			success = true
 		case <-p.quit:
+			return
 		}
 
 		// Respond to the local sub-system which requested the channel
 		// closure.
-		req.resp <- &closeChanResp{success}
+		req.resp <- &closeChanResp{txid, success}
 		req.err <- nil
 	}()
 }

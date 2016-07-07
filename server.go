@@ -256,6 +256,7 @@ type closeChanReq struct {
 // closeChanResp is the response to a closeChanReq is simply houses a boolean
 // value indicating if the channel coopertive channel closure was succesful or not.
 type closeChanResp struct {
+	txid    *wire.ShaHash
 	success bool
 }
 
@@ -437,7 +438,7 @@ func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
 func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
-	numConfs uint32) (*wire.OutPoint, error) {
+	numConfs uint32) (chan *openChanResp, chan error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *openChanResp, 1)
@@ -451,17 +452,14 @@ func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
 		resp: respChan,
 		err:  errChan,
 	}
+	// TODO(roasbeef): hook in "progress" channel
 
-	if err := <-errChan; err != nil {
-		return nil, err
-	}
-
-	return (<-respChan).chanPoint, nil
+	return respChan, errChan
 }
 
 // CloseChannel attempts to close the channel identified by the specified
 // outpoint in a coopertaive manner.
-func (s *server) CloseChannel(channelPoint *wire.OutPoint) (bool, error) {
+func (s *server) CloseChannel(channelPoint *wire.OutPoint) (chan *closeChanResp, chan error) {
 	errChan := make(chan error, 1)
 	respChan := make(chan *closeChanResp, 1)
 
@@ -472,11 +470,7 @@ func (s *server) CloseChannel(channelPoint *wire.OutPoint) (bool, error) {
 		err:  errChan,
 	}
 
-	if err := <-errChan; err != nil {
-		return false, err
-	}
-
-	return (<-respChan).success, nil
+	return respChan, errChan
 }
 
 // Peers returns a slice of all active peers.

@@ -12,9 +12,8 @@ service Lightning {
     rpc ListPeers(ListPeersRequest) returns (ListPeersResponse);
     rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
 
-    rpc OpenChannel(OpenChannelRequest) returns (OpenChannelResponse);
-    rpc CloseChannel(CloseChannelRequest) returns (CloseChannelResponse);
-
+    rpc OpenChannel(OpenChannelRequest) returns (stream ChannelOpenUpdate);
+    rpc CloseChannel(CloseChannelRequest) returns (stream ChannelCloseUpdate);
 }
 
 message ChannelPoint {
@@ -121,6 +120,35 @@ message GetInfoResponse {
     uint32 num_peers = 5;
 }
 
+message ConfirmationUpdate {
+    bytes block_sha = 1;
+    int32 block_height = 2;
+
+    uint32 num_confs_left = 3;
+}
+
+message ChannelOpenUpdate {
+   ChannelPoint channel_point = 1;
+}
+
+message ChannelCloseUpdate {
+    bytes closing_txid = 1;
+
+    bool success = 2;
+}
+
+message CloseChannelRequest {
+    ChannelPoint channel_point = 1;
+    int64 time_limit = 2;
+    bool allow_force_close = 3;
+}
+message CloseStatusUpdate {
+    oneof update {
+        ConfirmationUpdate confirmation = 1;
+        ChannelCloseUpdate chan_close = 2;
+    }
+}
+
 message OpenChannelRequest {
     int32 target_peer_id = 1;
     LightningAddress target_node = 2;
@@ -132,17 +160,14 @@ message OpenChannelRequest {
 
     uint32 num_confs = 6;
 }
-message OpenChannelResponse {
-    ChannelPoint channel_point = 1;
+message OpenStatusUpdate {
+    oneof update {
+        ConfirmationUpdate confirmation = 1;
+        ChannelOpenUpdate chan_open = 2;
+    }
 }
 
-message CloseChannelRequest {
-    ChannelPoint channel_point = 1;
-    int64 time_limit = 2;
-    bool allow_force_close = 3;
 }
-message CloseChannelResponse {
-    bool success = 1;
 }
 
 message WalletBalanceRequest {

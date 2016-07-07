@@ -58,6 +58,7 @@ func main() {
 		WalletBalanceCommand,
 		ShellCommand,
 		GetInfoCommand,
+		PendingChannelsCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

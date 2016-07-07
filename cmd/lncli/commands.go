@@ -388,3 +388,52 @@ func getInfo(ctx *cli.Context) error {
 	printRespJson(resp)
 	return nil
 }
+
+var PendingChannelsCommand = cli.Command{
+	Name:        "pendingchannels",
+	Description: "display information pertaining to pending channels",
+	Usage:       "pendingchannels --status=[all|opening|closing]",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "open, o",
+			Usage: "display the status of new pending channels",
+		},
+		cli.BoolFlag{
+			Name:  "close, c",
+			Usage: "display the status of channels being closed",
+		},
+		cli.BoolFlag{
+			Name: "all, a",
+			Usage: "display the status of channels in the " +
+				"process of being opened or closed",
+		},
+	},
+	Action: pendingChannels,
+}
+
+func pendingChannels(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	var channelStatus lnrpc.ChannelStatus
+	switch {
+	case ctx.Bool("all"):
+		channelStatus = lnrpc.ChannelStatus_ALL
+	case ctx.Bool("open"):
+		channelStatus = lnrpc.ChannelStatus_OPENING
+	case ctx.Bool("close"):
+		channelStatus = lnrpc.ChannelStatus_CLOSING
+	default:
+		channelStatus = lnrpc.ChannelStatus_ALL
+	}
+
+	req := &lnrpc.PendingChannelRequest{channelStatus}
+	resp, err := client.PendingChannels(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+
+	return nil
+}

@@ -37,9 +37,6 @@ type server struct {
 	listeners []net.Listener
 	peers     map[int32]*peer
 
-	chanIndexMtx sync.RWMutex
-	chanIndex    map[wire.OutPoint]*peer
-
 	rpcServer *rpcServer
 	// TODO(roasbeef): add chan notifier also
 	lnwallet *lnwallet.LightningWallet
@@ -47,6 +44,8 @@ type server struct {
 	// TODO(roasbeef): add to constructor
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
+
+	htlcSwitch *htlcSwitch
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -78,12 +77,12 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 	s := &server{
 		chanDB:       chanDB,
 		fundingMgr:   newFundingManager(wallet),
+		htlcSwitch:   newHtlcSwitch(),
 		lnwallet:     wallet,
 		identityPriv: privKey,
 		lightningID:  fastsha256.Sum256(serializedPubKey),
 		listeners:    listeners,
 		peers:        make(map[int32]*peer),
-		chanIndex:    make(map[wire.OutPoint]*peer),
 		newPeers:     make(chan *peer, 100),
 		donePeers:    make(chan *peer, 100),
 		queries:      make(chan interface{}),
@@ -110,6 +109,7 @@ func (s *server) Start() {
 	}
 
 	s.fundingMgr.Start()
+	s.htlcSwitch.Start()
 
 	s.wg.Add(2)
 	go s.peerManager()
@@ -244,22 +244,6 @@ type openChanResp struct {
 	chanPoint *wire.OutPoint
 }
 
-// closeChanReq represents a request to close a particular channel specified
-// by its outpoint.
-type closeChanReq struct {
-	chanPoint *wire.OutPoint
-
-	resp chan *closeChanResp
-	err  chan error
-}
-
-// closeChanResp is the response to a closeChanReq is simply houses a boolean
-// value indicating if the channel coopertive channel closure was succesful or not.
-type closeChanResp struct {
-	txid    *wire.ShaHash
-	success bool
-}
-
 // queryHandler is a a goroutine dedicated to handling an queries or requests
 // to mutate the server's global state.
 //
@@ -278,8 +262,6 @@ out:
 				s.handleListPeers(msg)
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
-			case *closeChanReq:
-				s.handleCloseChanReq(msg)
 			}
 		case <-s.quit:
 			break out
@@ -403,26 +385,6 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	}()
 }
 
-// handleCloseChanReq sends a message to the peer responsible for the target
-// channel point, instructing it to initiate a cooperative channel closure.
-func (s *server) handleCloseChanReq(req *closeChanReq) {
-	s.chanIndexMtx.RLock()
-	key := wire.OutPoint{
-		Hash:  req.chanPoint.Hash,
-		Index: req.chanPoint.Index,
-	}
-	targetPeer, ok := s.chanIndex[key]
-	s.chanIndexMtx.RUnlock()
-
-	if !ok {
-		req.resp <- nil
-		req.err <- fmt.Errorf("channel point %v not found", key)
-		return
-	}
-
-	targetPeer.localCloseChanReqs <- req
-}
-
 // ConnectToPeer requests that the server connect to a Lightning Network peer
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.
@@ -453,22 +415,6 @@ func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
 		err:  errChan,
 	}
 	// TODO(roasbeef): hook in "progress" channel
-
-	return respChan, errChan
-}
-
-// CloseChannel attempts to close the channel identified by the specified
-// outpoint in a coopertaive manner.
-func (s *server) CloseChannel(channelPoint *wire.OutPoint) (chan *closeChanResp, chan error) {
-	errChan := make(chan error, 1)
-	respChan := make(chan *closeChanResp, 1)
-
-	s.queries <- &closeChanReq{
-		chanPoint: channelPoint,
-
-		resp: respChan,
-		err:  errChan,
-	}
 
 	return respChan, errChan
 }

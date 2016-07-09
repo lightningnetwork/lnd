@@ -245,7 +245,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	respChan, errChan := r.server.CloseChannel(targetChannelPoint)
+	respChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
 	if err := <-errChan; err != nil {
 		rpcsLog.Errorf("Unable to close ChannelPoint(%v): %v",
 			targetChannelPoint, err)

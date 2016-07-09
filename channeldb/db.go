@@ -150,8 +150,8 @@ func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
-		if openChannelBucket == nil {
-			return fmt.Errorf("open channel bucket does not exist")
+		if openChanBucket == nil {
+			return nil
 		}
 
 		// Within this top level bucket, fetch the bucket dedicated to storing

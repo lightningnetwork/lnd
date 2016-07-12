@@ -171,6 +171,7 @@ type OpenChannel struct {
 // order to encrypt sensitive information.
 func (c *OpenChannel) FullSync() error {
 	return c.Db.store.Update(func(tx *bolt.Tx) error {
+		// TODO(roasbeef): add helper funcs to create scoped update
 		// First fetch the top level bucket which stores all data related to
 		// current, active channels.
 		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
@@ -773,7 +774,7 @@ func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	}
 	commitKey := make([]byte, len(commitKeys)+bc.Len())
 	copy(commitKey[:3], commitKeys)
-	copy(commitKeys[3:], bc.Bytes())
+	copy(commitKey[3:], bc.Bytes())
 
 	var b bytes.Buffer
 
@@ -796,7 +797,7 @@ func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 func deleteChanCommitKeys(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 	commitKey := make([]byte, len(commitKeys)+len(chanID))
 	copy(commitKey[:3], commitKeys)
-	copy(commitKeys[3:], chanID)
+	copy(commitKey[3:], chanID)
 	return nodeChanBucket.Delete(commitKey)
 }
 
@@ -811,7 +812,7 @@ func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 	}
 	commitKey := make([]byte, len(commitKeys)+bc.Len())
 	copy(commitKey[:3], commitKeys)
-	copy(commitKeys[3:], bc.Bytes())
+	copy(commitKey[3:], bc.Bytes())
 
 	var err error
 	keyBytes := nodeChanBucket.Get(commitKey)

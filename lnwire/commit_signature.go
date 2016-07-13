@@ -101,8 +101,8 @@ func (c *CommitSignature) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSignature) MaxPayloadLength(uint32) uint32 {
-	// 36 + 8 + 73
-	return 117
+	// 36 + 8 + 8 + 73
+	return 125
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

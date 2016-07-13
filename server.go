@@ -116,8 +116,7 @@ func (s *server) Start() {
 	s.fundingMgr.Start()
 	s.htlcSwitch.Start()
 
-	s.wg.Add(2)
-	go s.peerManager()
+	s.wg.Add(1)
 	go s.queryHandler()
 }
 
@@ -154,28 +153,6 @@ func (s *server) WaitForShutdown() {
 	s.wg.Wait()
 }
 
-// peerManager handles any requests to modify the server's internal state of
-// all active peers. Additionally, any queries directed at peers will be
-// handled by this goroutine.
-//
-// NOTE: This MUST be run as a goroutine.
-func (s *server) peerManager() {
-out:
-	for {
-		select {
-		// New peers.
-		case p := <-s.newPeers:
-			s.addPeer(p)
-		// Finished peers.
-		case p := <-s.donePeers:
-			s.removePeer(p)
-		case <-s.quit:
-			break out
-		}
-	}
-	s.wg.Done()
-}
-
 // addPeer adds the passed peer to the server's global state of all active
 // peers.
 func (s *server) addPeer(p *peer) {
@@ -195,6 +172,8 @@ func (s *server) addPeer(p *peer) {
 // removePeer removes the passed peer from the server's state of all active
 // peers.
 func (s *server) removePeer(p *peer) {
+	srvrLog.Debugf("removing peer %v", p)
+
 	if p == nil {
 		return
 	}
@@ -249,15 +228,23 @@ type openChanResp struct {
 	chanPoint *wire.OutPoint
 }
 
-// queryHandler is a a goroutine dedicated to handling an queries or requests
-// to mutate the server's global state.
+// peerManager handles any requests to modify the server's internal state of
+// all active peers, or query/mutate the server's global state. Additionally,
+// any queries directed at peers will be handled by this goroutine.
 //
 // NOTE: This MUST be run as a goroutine.
 func (s *server) queryHandler() {
-	// TODO(roabeef): consolidate with peerManager
 out:
 	for {
 		select {
+		// New peers.
+		case p := <-s.newPeers:
+			s.addPeer(p)
+
+		// Finished peers.
+		case p := <-s.donePeers:
+			s.removePeer(p)
+
 		case query := <-s.queries:
 			// TODO(roasbeef): make all goroutines?
 			switch msg := query.(type) {
@@ -342,6 +329,7 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 		peer, err := newPeer(conn, s, activeNetParams.Net, false)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer %v", err)
+			conn.Close()
 			msg.resp <- -1
 			msg.err <- err
 			return
@@ -454,6 +442,7 @@ func (s *server) listener(l net.Listener) {
 		peer, err := newPeer(conn, s, activeNetParams.Net, true)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer: %v", err)
+			conn.Close()
 			continue
 		}
 

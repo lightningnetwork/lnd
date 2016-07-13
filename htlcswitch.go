@@ -219,18 +219,31 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 	hswcLog.Infof("unregistering active link, interface=%v, chan_point=%v",
 		hex.EncodeToString(req.chanInterface[:]), req.chanPoint)
 
-	delete(h.chanIndex, *req.chanPoint)
-
 	chanInterface := req.chanInterface
 	links := h.interfaces[chanInterface]
-	for i := 0; i < len(links); i++ {
-		chanLink := links[i]
-		if chanLink.chanPoint == req.chanPoint {
-			copy(links[i:], links[i+1:])
-			links[len(links)-1] = nil
-			links = links[:len(links)-1]
 
-			break
+	// A request with a nil channel point indicates that all the current
+	// links for this channel should be cleared.
+	if req.chanPoint == nil {
+		hswcLog.Infof("purging all active links for interface %v",
+			hex.EncodeToString(chanInterface[:]))
+
+		for _, link := range links {
+			delete(h.chanIndex, *link.chanPoint)
+		}
+		links = nil
+	} else {
+		delete(h.chanIndex, *req.chanPoint)
+
+		for i := 0; i < len(links); i++ {
+			chanLink := links[i]
+			if chanLink.chanPoint == req.chanPoint {
+				copy(links[i:], links[i+1:])
+				links[len(links)-1] = nil
+				links = links[:len(links)-1]
+
+				break
+			}
 		}
 	}
 

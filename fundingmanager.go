@@ -310,7 +310,9 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
 	reservation, err := f.wallet.InitChannelReservation(amt, 0, fmsg.peer.lightningID, 1, delay)
 	if err != nil {
+		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
+		fmsg.peer.Disconnect()
 		return
 	}
 
@@ -343,6 +345,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	}
 	if err := reservation.ProcessSingleContribution(contribution); err != nil {
 		fndgLog.Errorf("unable to add contribution reservation: %v", err)
+		fmsg.peer.Disconnect()
 		return
 	}
 
@@ -403,6 +406,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	if err := resCtx.reservation.ProcessContribution(contribution); err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
 			sourcePeer, err)
+		fmsg.peer.Disconnect()
 		return
 	}
 
@@ -465,6 +469,7 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	if err := resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut, commitSig); err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
+		fmsg.peer.Disconnect()
 		return
 	}
 
@@ -514,6 +519,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	commitSig := append(fmsg.msg.CommitSignature.Serialize(), byte(txscript.SigHashAll))
 	if err := resCtx.reservation.CompleteReservation(nil, commitSig); err != nil {
 		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
+		fmsg.peer.Disconnect()
 		return
 	}
 
@@ -594,6 +600,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	openChan, err := resCtx.reservation.FinalizeReservation()
 	if err != nil {
 		fndgLog.Errorf("unable to finalize reservation: %v", err)
+		fmsg.peer.Disconnect()
 		return
 	}
 

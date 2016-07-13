@@ -15,6 +15,19 @@ service Lightning {
     rpc OpenChannel(OpenChannelRequest) returns (stream ChannelOpenUpdate);
     rpc CloseChannel(CloseChannelRequest) returns (stream ChannelCloseUpdate);
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
+
+    rpc SendPayment(stream SendRequest) returns (stream SendResponse);
+}
+
+message SendRequest {
+    bytes dest = 1;
+    int64 amt = 2;
+    bytes payment_hash = 3;
+
+    bool fast_send = 4;
+}
+message SendResponse{
+    // TODO(roasbeef): info about route? stats?
 }
 
 message ChannelPoint {

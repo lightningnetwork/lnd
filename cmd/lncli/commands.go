@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -429,6 +430,66 @@ func pendingChannels(ctx *cli.Context) error {
 
 	req := &lnrpc.PendingChannelRequest{channelStatus}
 	resp, err := client.PendingChannels(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+
+	return nil
+}
+
+var SendPaymentCommand = cli.Command{
+	Name:        "sendpayment",
+	Description: "send a payment over lightning",
+	Usage:       "sendpayment --dest=[node_id] --amt=[in_satoshis]",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "dest, d",
+			Usage: "lightning address of the payment recipient",
+		},
+		cli.IntFlag{ // TODO(roasbeef): float64?
+			Name:  "amt, a",
+			Usage: "number of satoshis to send",
+		},
+		cli.StringFlag{
+			Name:  "payment_hash, r",
+			Usage: "the hash to use within the payment's HTLC",
+		},
+		cli.BoolFlag{
+			Name: "fast, f",
+			Usage: "skip the HTLC trickle logic, immediately creating a " +
+				"new commitment",
+		},
+	},
+	Action: sendPaymentCommand,
+}
+
+func sendPaymentCommand(ctx *cli.Context) error {
+	client := getClient(ctx)
+
+	destAddr, err := hex.DecodeString(ctx.String("dest"))
+	if err != nil {
+		return err
+	}
+	// TODO(roasbeef): remove debug payment hash
+	req := &lnrpc.SendRequest{
+		Dest:     destAddr,
+		Amt:      int64(ctx.Int("amt")),
+		FastSend: ctx.Bool("fast"),
+	}
+
+	paymentStream, err := client.SendPayment(context.Background())
+	if err != nil {
+		return err
+	}
+
+	if err := paymentStream.Send(req); err != nil {
+		return err
+	}
+	paymentStream.CloseSend()
+
+	resp, err := paymentStream.Recv()
 	if err != nil {
 		return err
 	}

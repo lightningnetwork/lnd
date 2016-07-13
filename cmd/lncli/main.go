@@ -59,6 +59,7 @@ func main() {
 		ShellCommand,
 		GetInfoCommand,
 		PendingChannelsCommand,
+		SendPaymentCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

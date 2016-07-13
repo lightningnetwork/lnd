@@ -204,6 +204,34 @@ func (c *OpenChannel) FullSync() error {
 	})
 }
 
+// SyncRevocation writes to disk the current revocation state of the channel.
+// The revocation state is defined as the current elkrem receiver, and the
+// latest unrevoked key+hash for the remote party.
+func (c *OpenChannel) SyncRevocation() error {
+	return c.Db.store.Update(func(tx *bolt.Tx) error {
+		// First fetch the top level bucket which stores all data related to
+		// current, active channels.
+		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		// Within this top level bucket, fetch the bucket dedicated to storing
+		// open channel data specific to the remote node.
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(c.TheirLNID[:])
+		if err != nil {
+			return err
+		}
+
+		// Sync the current elkrem state to disk.
+		if err := putChanEklremState(nodeChanBucket, c); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
 // CloseChannel closes a previously active lightning channel. Closing a channel
 // entails deleting all saved state within the database concerning this
 // channel, as well as created a small channel summary for record keeping

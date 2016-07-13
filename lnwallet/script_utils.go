@@ -348,7 +348,8 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 //     OP_ENDIF
 //     <sender key> OP_CHECKSIG
 // OP_ENDIF
-// TODO(roasbeef): rename these to sender vs receiver?
+// TODO(roasbeef): go back to revocation keys in the HTLC outputs?
+//  * also could combine pre-image with their key?
 func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
 

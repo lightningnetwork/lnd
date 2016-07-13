@@ -329,13 +329,10 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// HTLC once he learns of the preimage.
 	var preimage [32]byte
 	copy(preimage[:], paymentPreimage)
-	wireSettleMsg := &lnwire.HTLCSettleRequest{
-		RedemptionProofs: [][32]byte{preimage},
-	}
-	if err := bobChannel.SettleHTLC(wireSettleMsg, false); err != nil {
+	if _, err := bobChannel.SettleHTLC(preimage, false); err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
-	if err := aliceChannel.SettleHTLC(wireSettleMsg, true); err != nil {
+	if _, err := aliceChannel.SettleHTLC(preimage, true); err != nil {
 		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
 	}
 	bobSig2, aliceIndex2, err := bobChannel.SignNextCommitment()

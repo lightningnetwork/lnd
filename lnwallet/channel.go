@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -144,6 +145,7 @@ type PaymentDescriptor struct {
 	// isForwarded denotes if an incoming HTLC has been forwarded to any
 	// possible upstream peers in the route.
 	isForwarded bool
+	settled     bool
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -331,24 +333,15 @@ type LightningChannel struct {
 	// commitment. The log is compacted once a revocation is received.
 	stateUpdateLog *list.List
 
-	// entriesByHash is an index into the above log. This index is used to
+	// logIndex is an index into the above log. This index is used to
 	// remove Add state updates, once a timeout/settle is received.
-	entriesByHash map[PaymentHash]*list.Element
-
-	// Payment's which we've requested.
-	// TODO(roasbeef): move into InvoiceRegistry
-	unfufilledPayments map[PaymentHash]*PaymentRequest
+	logIndex map[uint32]*list.Element
 
 	fundingTxIn  *wire.TxIn
 	fundingP2WSH []byte
 
-	// TODO(roasbeef): Stores all previous R values + timeouts for each
-	// commitment update, plus some other meta-data...Or just use OP_RETURN
-	// to help out?
-	// currently going for: nSequence/nLockTime overloading
 	channelDB *channeldb.DB
 
-	// TODO(roasbeef): create and embed 'Service' interface w/ below?
 	started  int32
 	shutdown int32
 
@@ -374,8 +367,7 @@ func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 		channelState:         state,
 		revocationWindowEdge: state.NumUpdates,
 		stateUpdateLog:       list.New(),
-		entriesByHash:        make(map[PaymentHash]*list.Element),
-		unfufilledPayments:   make(map[PaymentHash]*PaymentRequest),
+		logIndex:             make(map[uint32]*list.Element),
 		channelDB:            chanDB,
 	}
 
@@ -701,6 +693,13 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 		return nil, 0, err
 	}
 
+	log.Tracef("ChannelPoint(%v): extending remote chain to height %v",
+		lc.channelState.ChanID, newCommitView.height)
+	log.Tracef("ChannelPoint(%v): remote chain: our_balance=%v, "+
+		"their_balance=%v, commit_tx: %v", lc.channelState.ChanID,
+		newCommitView.ourBalance, newCommitView.theirBalance,
+		spew.Sdump(newCommitView.txn))
+
 	// Sign their version of the new commitment transaction.
 	hashCache := txscript.NewTxSigHashes(newCommitView.txn)
 	sig, err := txscript.RawTxInWitnessSignature(newCommitView.txn,
@@ -762,6 +761,13 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 		return err
 	}
 
+	log.Tracef("ChannelPoint(%v): extending local chain to height %v",
+		lc.channelState.ChanID, localCommitmentView.height)
+	log.Tracef("ChannelPoint(%v): local chain: our_balance=%v, "+
+		"their_balance=%v, commit_tx: %v", lc.channelState.ChanID,
+		localCommitmentView.ourBalance, localCommitmentView.theirBalance,
+		spew.Sdump(localCommitmentView.txn))
+
 	// Construct the sighash of the commitment transaction corresponding to
 	// this newly proposed state update.
 	localCommitTx := localCommitmentView.txn
@@ -820,6 +826,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 		revocationEdge[:])
 	revocationMsg.NextRevocationHash = fastsha256.Sum256(revocationEdge[:])
 
+	log.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v, window_edge=%v",
+		lc.channelState.ChanID, lc.localCommitChain.tail().height,
+		lc.currentHeight+1, lc.revocationWindowEdge)
+
 	// Advance our tail, as we've revoked our previous state.
 	lc.localCommitChain.advanceTail()
 
@@ -832,6 +842,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 	lc.channelState.TheirBalance = tail.theirBalance
 	lc.channelState.OurCommitSig = tail.sig
 	lc.channelState.NumUpdates++
+
+	log.Tracef("ChannelPoint(%v): state transition accepted: "+
+		"our_balance=%v, their_balance=%v", lc.channelState.ChanID,
+		tail.ourBalance, tail.theirBalance)
 
 	// TODO(roasbeef): use RecordChannelDelta once fin
 	if err := lc.channelState.FullSync(); err != nil {
@@ -920,6 +934,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	// Now that we've verified the revocation update the state of the HTLC
 	// log as we may be able to prune portions of it now, and update their
 	// balance.
+	// TODO(roasbeef): move this out to another func?
+	//  * .CompactLog()
 	var next *list.Element
 	var htlcsToForward []*PaymentDescriptor
 	for e := lc.stateUpdateLog.Front(); e != nil; e = next {
@@ -933,8 +949,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 			if remoteChainTail >= htlc.removeCommitHeightRemote &&
 				localChainTail >= htlc.removeCommitHeightLocal {
 				parentLink := htlc.parent
-				addHTLC := parentLink.Value.(*PaymentDescriptor)
-				delete(lc.entriesByHash, addHTLC.RHash)
 				lc.stateUpdateLog.Remove(e)
 				lc.stateUpdateLog.Remove(parentLink)
 			}
@@ -1003,9 +1017,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest, incoming bool) 
 	}
 
 	pd.Index = index
-	pdLink := lc.stateUpdateLog.PushBack(pd)
-	// TODO(roabeef): this should be by HTLC key instead
-	lc.entriesByHash[pd.RHash] = pdLink
+	lc.stateUpdateLog.PushBack(pd)
 
 	return nil
 }
@@ -1015,22 +1027,34 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest, incoming bool) 
 // be false, when receiving a settlement to a previously outgoing HTLC, then
 // the value of incoming should be true. If the settlement fails due to an
 // invalid preimage, then an error is returned.
-func (lc *LightningChannel) SettleHTLC(msg *lnwire.HTLCSettleRequest, incoming bool) error {
-	preImage := msg.RedemptionProofs[0]
+func (lc *LightningChannel) SettleHTLC(preimage [32]byte, incoming bool) (uint32, error) {
+	var targetHTLC *list.Element
 
-	paymentHash := PaymentHash(fastsha256.Sum256(preImage[:]))
-	htlc, ok := lc.entriesByHash[paymentHash]
-	if !ok {
-		return fmt.Errorf("unknown payment hash")
+	// TODO(roasbeef): optimize
+	paymentHash := fastsha256.Sum256(preimage[:])
+	for e := lc.stateUpdateLog.Back(); e != nil; e = e.Next() {
+		htlc := e.Value.(*PaymentDescriptor)
+		if htlc.entryType != Add {
+			continue
+		}
+
+		if bytes.Equal(htlc.RHash[:], paymentHash[:]) && !htlc.settled {
+			htlc.settled = true
+			targetHTLC = e
+			break
+		}
+	}
+	if targetHTLC == nil {
+		return 0, fmt.Errorf("invalid payment hash")
 	}
 
-	parentPd := htlc.Value.(*PaymentDescriptor)
+	parentPd := targetHTLC.Value.(*PaymentDescriptor)
 
 	// TODO(roasbeef): maybe make the log entries an interface?
 	pd := &PaymentDescriptor{}
 	pd.IsIncoming = parentPd.IsIncoming
 	pd.Amount = parentPd.Amount
-	pd.parent = htlc
+	pd.parent = targetHTLC
 	pd.entryType = Settle
 
 	var index uint32
@@ -1045,7 +1069,7 @@ func (lc *LightningChannel) SettleHTLC(msg *lnwire.HTLCSettleRequest, incoming b
 	pd.Index = index
 	lc.stateUpdateLog.PushBack(pd)
 
-	return nil
+	return targetHTLC.Value.(*PaymentDescriptor).Index, nil
 }
 
 // TimeoutHTLC...
@@ -1278,6 +1302,7 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx := wire.NewMsgTx()
 	commitTx.Version = 2
 	commitTx.AddTxIn(fundingOutput)
+	// TODO(roasbeef): don't make 0 BTC output...
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
 	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
 

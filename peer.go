@@ -769,6 +769,7 @@ out:
 					peerLog.Errorf("unable to update "+
 						"commitment: %v", err)
 				}
+				state.sigPending = true
 			}
 		case msg, ok := <-upstreamLink:
 			// If the upstream message link is closed, this signals
@@ -890,6 +891,7 @@ out:
 						"commitment: %v", err)
 					continue
 				}
+				state.sigPending = true
 				state.htlcsToSettle = nil
 			}
 		case <-p.quit:
@@ -920,8 +922,6 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 		LogIndex:     uint64(logIndexTheirs),
 	}
 	p.queueMsg(commitSig, nil)
-
-	state.sigPending = true
 
 	return nil
 }

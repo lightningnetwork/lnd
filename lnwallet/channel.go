@@ -25,12 +25,18 @@ var (
 )
 
 const (
-	// MaxPendingPayments
+	// MaxPendingPayments is the max number of pending HTLC's permitted on
+	// a channel.
 	// TODO(roasbeef): make not random value + enforce
+	//  * should be tuned to account for max tx "cost"
 	MaxPendingPayments = 100
 
-	// InitialRevocationWindow...
-	InitialRevocationWindow = 16
+	// InitialRevocationWindow is the number of unrevoked commitment
+	// transactions allowed within the commitment chain. This value allows
+	// a greater degree of desynchronization by allowing either parties to
+	// extend the other's commitment chain non-interactively, and also
+	// serves as a flow control mechanism to a degree.
+	InitialRevocationWindow = 4
 )
 
 // channelState is an enum like type which represents the current state of a

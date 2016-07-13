@@ -46,6 +46,7 @@ type server struct {
 	chanDB     *channeldb.DB
 
 	htlcSwitch *htlcSwitch
+	invoices   *invoiceRegistry
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -78,6 +79,7 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 		chanDB:       chanDB,
 		fundingMgr:   newFundingManager(wallet),
 		htlcSwitch:   newHtlcSwitch(),
+		invoices:     newInvoiceRegistry(),
 		lnwallet:     wallet,
 		identityPriv: privKey,
 		lightningID:  fastsha256.Sum256(serializedPubKey),
@@ -88,6 +90,9 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 		queries:      make(chan interface{}),
 		quit:         make(chan struct{}),
 	}
+
+	// TODO(roasbeef): remove
+	s.invoices.addInvoice(1000*1e8, *debugPre)
 
 	s.rpcServer = newRpcServer(s)
 

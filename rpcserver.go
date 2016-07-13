@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 
 	"sync"
 	"sync/atomic"
 
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -417,4 +419,54 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	return &lnrpc.PendingChannelResponse{
 		PendingChannels: pendingChannels,
 	}, nil
+}
+
+// SendPayment dispatches a bi-directional streaming RPC for sending payments
+// through the Lightning Network. A single RPC invocation creates a persistent
+// bi-directional stream allowing clients to rapidly send payments through the
+// Lightning Network with a single persistent connection.
+func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
+	for {
+		// Receive the next pending payment within the stream sent by
+		// the client. If we read the EOF sentinel, then the client has
+		// closed the stream, and we can exit normally.
+		nextPayment, err := paymentStream.Recv()
+		if err == io.EOF {
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		// Craft an HTLC packet to send to the routing sub-system. The
+		// meta-data within this packet will be used to route the
+		// payment through the network.
+		htlcAdd := &lnwire.HTLCAddRequest{
+			Amount:           lnwire.CreditsAmount(nextPayment.Amt),
+			RedemptionHashes: [][32]byte{debugHash},
+		}
+		destAddr, err := wire.NewShaHash(nextPayment.Dest)
+		if err != nil {
+			return err
+		}
+		htlcPkt := &htlcPacket{
+			dest: *destAddr,
+			msg:  htlcAdd,
+		}
+
+		// Finally, send this next packet to the routing layer in order
+		// to complete the next payment.
+		// TODO(roasbeef): this should go through the L3 router once
+		// multi-hop is in place.
+		if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): proper responses
+		resp := &lnrpc.SendResponse{}
+		if err := paymentStream.Send(resp); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

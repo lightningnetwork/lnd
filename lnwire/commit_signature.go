@@ -130,7 +130,8 @@ func (c *CommitSignature) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
+		fmt.Sprintf("LogIndex:\t\t%v\n", c.LogIndex) +
 		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
 		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
 		fmt.Sprintf("--- End CommitSignature ---\n")

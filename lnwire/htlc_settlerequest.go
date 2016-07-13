@@ -119,7 +119,7 @@ func (c *HTLCSettleRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCSettleRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
 		fmt.Sprintf("RedemptionHashes:") +
 		redemptionProofs +

@@ -158,7 +158,7 @@ func (c *HTLCAddRequest) String() string {
 	}
 
 	return fmt.Sprintf("\n--- Begin HTLCAddRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
+		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
 		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
 		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
 		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +

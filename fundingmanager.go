@@ -406,8 +406,6 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		return
 	}
 
-	// TODO(roasbeef): create new chan barrier
-
 	// Now that we have their contribution, we can extract, then send over
 	// both the funding out point and our signature for their version of
 	// the commitment transaction to the remote peer.
@@ -418,6 +416,10 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		fndgLog.Errorf("Unable to parse signature: %v", err)
 		return
 	}
+
+	// Register a new barrier for this channel to properly synchronize with
+	// the peer's readHandler once the channel is open.
+	fmsg.peer.barrierInits <- *outPoint
 
 	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%v)",
 		outPoint, msg.ChannelID)
@@ -477,7 +479,10 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 		return
 	}
 
-	// TODO(roasbeef): create new chan barrier
+	// Register a new barrier for this channel to properly synchronize with
+	// the peer's readHandler once the channel is open.
+	fmsg.peer.barrierInits <- *fundingOut
+
 	fndgLog.Infof("sending signComplete for pendingID(%v) over ChannelPoint(%v)",
 		fmsg.msg.ChannelID, fundingOut)
 

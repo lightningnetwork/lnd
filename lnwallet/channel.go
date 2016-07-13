@@ -838,6 +838,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 		return nil, err
 	}
 
+	revocationMsg.ChannelPoint = lc.channelState.ChanID
 	return revocationMsg, nil
 }
 
@@ -896,6 +897,19 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	lc.usedRevocations = lc.usedRevocations[1:]
 	lc.revocationWindow = append(lc.revocationWindow, revMsg)
 
+	log.Tracef("ChannelPoint(%v): remote party accepted state transition, "+
+		"revoked height %v, now at %v", lc.channelState.ChanID,
+		lc.remoteCommitChain.tail().height,
+		lc.remoteCommitChain.tail().height+1)
+
+	// At this point, the revocation has been accepted, and we've rotated
+	// the current revocation key+hash for the remote party. Therefore we
+	// sync now to ensure the elkrem receiver state is consistent with the
+	// current commitment height.
+	if err := lc.channelState.SyncRevocation(); err != nil {
+		return nil, err
+	}
+
 	// Since they revoked the current lowest height in their commitment
 	// chain, we can advance their chain by a single commitment.
 	lc.remoteCommitChain.advanceTail()
@@ -950,6 +964,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 	// InitialRevocationWindow
 
 	revMsg := &lnwire.CommitRevocation{}
+	revMsg.ChannelPoint = lc.channelState.ChanID
 
 	nextHeight := lc.revocationWindowEdge + 1
 	revocation, err := lc.channelState.LocalElkrem.AtIndex(nextHeight)
@@ -1224,20 +1239,6 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	defer lc.stateMtx.RUnlock()
 
 	return lc.channelState.Snapshot()
-}
-
-// RequestPayment...
-func (lc *LightningChannel) RequestPayment(amount btcutil.Amount) error {
-	// Validate amount
-	return nil
-}
-
-// PaymentRequest...
-// TODO(roasbeef): serialization (bip 70, QR code, etc)
-//  * routing handled by upper layer
-type PaymentRequest struct {
-	PaymentPreImage [32]byte
-	Value           btcutil.Amount
 }
 
 // createCommitTx creates a commitment transaction, spending from specified

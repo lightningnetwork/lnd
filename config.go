@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	flags "github.com/btcsuite/go-flags"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -33,10 +32,6 @@ var (
 	defaultConfigFile = filepath.Join(lndHomeDir, defaultConfigFilename)
 	defaultDataDir    = filepath.Join(lndHomeDir, defaultDataDirname)
 	defaultLogDir     = filepath.Join(lndHomeDir, defaultLogDirname)
-
-	// activeNetParams is a pointer to the parameters specific to the
-	// currently active bitcoin network.
-	activeNetParams = &chaincfg.SegNet4Params
 
 	btcdHomeDir        = btcutil.AppDataDir("btcd", false)
 	defaultRPCKeyFile  = filepath.Join(btcdHomeDir, "rpc.key")
@@ -154,15 +149,11 @@ func loadConfig() (*config, error) {
 	numNets := 0
 	if cfg.TestNet3 {
 		numNets++
-		activeNetParams = &chaincfg.TestNet3Params
-	}
-	if cfg.SegNet {
-		numNets++
-		activeNetParams = &chaincfg.SegNet4Params
+		activeNetParams = testNetParams
 	}
 	if cfg.SimNet {
 		numNets++
-		activeNetParams = &chaincfg.SimNetParams
+		activeNetParams = simNetParams
 	}
 	if numNets > 1 {
 		str := "%s: The testnet, segnet, and simnet params can't be " +

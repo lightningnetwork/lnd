@@ -331,7 +331,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	// With our portion of the reservation initialied, process the
 	// initiators contribution to the channel.
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
 	if err != nil {
 		fndgLog.Errorf("Unable to extract addresses from script: %v", err)
 		return
@@ -390,7 +390,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	// contribution. At this point, we can process their contribution which
 	// allows us to construct and sign both the commitment transaction, and
 	// the funding transaction.
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
 	if err != nil {
 		fndgLog.Errorf("Unable to extract addresses from script: %v", err)
 		return

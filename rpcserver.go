@@ -71,7 +71,7 @@ func (r *rpcServer) Stop() error {
 func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 	outputs := make([]*wire.TxOut, 0, len(addrPairs))
 	for addr, amt := range addrPairs {
-		addr, err := btcutil.DecodeAddress(addr, activeNetParams)
+		addr, err := btcutil.DecodeAddress(addr, activeNetParams.Params)
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +286,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	pendingChannels := r.server.fundingMgr.NumPendingChannels()
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
-	idAddr, err := btcutil.NewAddressPubKeyHash(btcutil.Hash160(idPub), activeNetParams)
+	idAddr, err := btcutil.NewAddressPubKeyHash(btcutil.Hash160(idPub), activeNetParams.Params)
 	if err != nil {
 		return nil, err
 	}

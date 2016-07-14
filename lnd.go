@@ -40,7 +40,7 @@ func lndMain() error {
 	ltndLog.Infof("Version %s", version())
 
 	if loadedConfig.SPVMode == true {
-		shell(loadedConfig.SPVHostAdr, activeNetParams)
+		shell(loadedConfig.SPVHostAdr, activeNetParams.Params)
 		return err
 	}
 
@@ -57,7 +57,7 @@ func lndMain() error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams)
+	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams.Params)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
 		return err
@@ -82,11 +82,11 @@ func lndMain() error {
 	config := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
-		RpcHost:     loadedConfig.RPCHost,
+		RpcHost:     fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort),
 		RpcUser:     loadedConfig.RPCUser,
 		RpcPass:     loadedConfig.RPCPass,
 		CACert:      cert,
-		NetParams:   activeNetParams,
+		NetParams:   activeNetParams.Params,
 	}
 	wallet, err := lnwallet.NewLightningWallet(config, chanDB)
 	if err != nil {
@@ -151,6 +151,7 @@ func main() {
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	if err := lndMain(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }

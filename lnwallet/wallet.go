@@ -1277,7 +1277,16 @@ func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation)
 	// or the wallet signals a shutdown.
 out:
 	select {
-	case <-confNtfn.Confirmed:
+	case _, ok := <-confNtfn.Confirmed:
+		// Reading a falsey value for the second parameter indicates that
+		// the notifier is in the process of shutting down. Therefore, we
+		// don't count this as the signal that the funding transaction has
+		// been confirmed.
+		if !ok {
+			res.chanOpen <- nil
+			return
+		}
+
 		break out
 	case <-l.quit:
 		res.chanOpen <- nil

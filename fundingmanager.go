@@ -11,8 +11,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
-	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt/graph"
-	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt"
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 const (

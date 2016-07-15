@@ -17,10 +17,10 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"github.com/roasbeef/btcwallet/waddrmgr"
-	"mkl/golang/query/routing"
-	routingmessages "mkl/golang/query/routing/messages"
-	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt/graph"
-	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt"
+	"github.com/BitfuryLightning/tools/routing"
+	routingmessages "github.com/BitfuryLightning/tools/routing/messages"
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 // server is the main server of the Lightning Network Daemon. The server

@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
-	routingmessages "mkl/golang/query/routing/messages"
+	routingmessages "github.com/BitfuryLightning/tools/routing/messages"
 )
 
 // MessageHeaderSize is the number of bytes in a lightning message header.

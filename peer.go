@@ -19,7 +19,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 
 	// ROUTING ADDED
-	"mkl/golang/query/routing/messages"
+	"github.com/BitfuryLightning/tools/routing/messages"
 )
 
 var (

@@ -44,6 +44,14 @@ const (
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
 
+	// Commands for routing
+	CmdNeighborHelloMessage        = uint32(3000)
+	CmdNeighborUpdMessage          = uint32(3010)
+	CmdNeighborAckMessage          = uint32(3020)
+	CmdNeighborRstMessage          = uint32(3030)
+	CmdRoutingTableRequestMessage  = uint32(3040)
+	CmdRoutingTableTransferMessage = uint32(3050)
+
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
 )
@@ -94,6 +102,18 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CommitRevocation{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
+	case CmdNeighborHelloMessage:
+		msg = &NeighborHelloMessage{}
+	case CmdNeighborUpdMessage:
+		msg = &NeighborUpdMessage{}
+	case CmdNeighborAckMessage:
+		msg = &NeighborAckMessage{}
+	case CmdNeighborRstMessage:
+		msg = &NeighborRstMessage{}
+	case CmdRoutingTableRequestMessage:
+		msg = &RoutingTableRequestMessage{}
+	case CmdRoutingTableTransferMessage:
+		msg = &RoutingTableTransferMessage{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

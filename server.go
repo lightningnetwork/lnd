@@ -11,10 +11,14 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"github.com/BitfuryLightning/tools/routing"
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
@@ -47,6 +51,9 @@ type server struct {
 
 	htlcSwitch *htlcSwitch
 	invoices   *invoiceRegistry
+
+	// ROUTING ADDED
+	routingMgr *routing.RoutingManager
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -94,6 +101,10 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 	// TODO(roasbeef): remove
 	s.invoices.addInvoice(1000*1e8, *debugPre)
 
+	// Create a new routing manager with ourself as the sole node within
+	// the graph.
+	s.routingMgr = routing.NewRoutingManager(graph.NewID(s.lightningID), nil)
+
 	s.rpcServer = newRpcServer(s)
 
 	return s, nil
@@ -115,6 +126,7 @@ func (s *server) Start() {
 
 	s.fundingMgr.Start()
 	s.htlcSwitch.Start()
+	s.routingMgr.Start()
 
 	s.wg.Add(1)
 	go s.queryHandler()
@@ -140,6 +152,9 @@ func (s *server) Stop() error {
 	s.rpcServer.Stop()
 	s.lnwallet.Shutdown()
 	s.fundingMgr.Stop()
+
+	// ROUTING ADDED
+	s.routingMgr.Stop()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)
@@ -254,6 +269,24 @@ out:
 				s.handleListPeers(msg)
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
+			}
+		case msg := <-s.routingMgr.ChOut:
+			msg1 := msg.(lnwire.RoutingMessage)
+			receiverID := msg1.GetReceiverID().ToByte32()
+			var targetPeer *peer
+			for _, peer := range s.peers { // TODO: threadsafe api
+				// We found the the target
+				if peer.lightningID == receiverID {
+					targetPeer = peer
+					break
+				}
+			}
+			if targetPeer != nil {
+				fndgLog.Info("Peer found. Sending message")
+				done := make(chan struct{}, 1)
+				targetPeer.queueMsg(msg.(lnwire.Message), done)
+			} else {
+				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
 			}
 		case <-s.quit:
 			break out
@@ -372,7 +405,18 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	go func() {
 		// TODO(roasbeef): server semaphore to restrict num goroutines
 		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
-
+		if err == nil {
+			// ROUTING ADDED
+			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
+			s.routingMgr.AddChannel(
+				graph.NewID(s.lightningID),
+				graph.NewID([32]byte(targetPeer.lightningID)),
+				graph.NewEdgeID(fundingID.String()),
+				&rt.ChannelInfo{
+					Cpt: capacity,
+				},
+			)
+		}
 		req.resp <- &openChanResp{fundingID}
 		req.err <- err
 	}()

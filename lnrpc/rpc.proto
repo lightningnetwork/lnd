@@ -17,6 +17,7 @@ service Lightning {
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
 
     rpc SendPayment(stream SendRequest) returns (stream SendResponse);
+    rpc ShowRoutingTable(ShowRoutingTableRequest) returns (ShowRoutingTableResponse);
 }
 
 message SendRequest {
@@ -213,4 +214,11 @@ message WalletBalanceRequest {
 }
 message WalletBalanceResponse {
     double balance = 1;
+}
+
+message ShowRoutingTableRequest {
+}
+
+message ShowRoutingTableResponse {
+    string rt = 1;
 }

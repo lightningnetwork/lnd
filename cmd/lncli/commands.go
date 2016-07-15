@@ -503,3 +503,23 @@ func sendPaymentCommand(ctx *cli.Context) error {
 
 	return nil
 }
+
+var ShowRoutingTableCommand = cli.Command{
+	Name:        "showroutingtable",
+	Description: "shows routing table for a node",
+	Action:      showRoutingTable,
+}
+
+func showRoutingTable(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.ShowRoutingTableRequest{}
+	resp, err := client.ShowRoutingTable(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}

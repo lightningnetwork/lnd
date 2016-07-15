@@ -21,7 +21,7 @@ const (
 	defaultRPCPort        = 10009
 	defaultSPVMode        = false
 	defaultPeerPort       = 10011
-	defaultRPCHost        = "localhost:18334"
+	defaultRPCHost        = "localhost"
 	defaultRPCUser        = "user"
 	defaultRPCPass        = "passwd"
 	defaultSPVHostAdr     = "localhost:18333"

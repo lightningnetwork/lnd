@@ -17,6 +17,9 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+
+	// ROUTING ADDED
+	"mkl/golang/query/routing/messages"
 )
 
 var (
@@ -368,6 +371,10 @@ out:
 		case *lnwire.CommitSignature:
 			isChanUpate = true
 			targetChan = msg.ChannelPoint
+		// ROUTING ADDED
+		case *messages.NeighborAckMessage, *messages.NeighborHelloMessage, *messages.NeighborRstMessage, *messages.NeighborUpdMessage, *messages.RoutingTableRequestMessage, *messages.RoutingTableTransferMessage:
+			p.server.routingMgr.ChIn <- msg
+			// TODO(mkl): determine sender and receiver of message
 		}
 
 		if isChanUpate {

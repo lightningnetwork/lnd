@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
@@ -16,6 +17,10 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"github.com/roasbeef/btcwallet/waddrmgr"
+	"mkl/golang/query/routing"
+	routingmessages "mkl/golang/query/routing/messages"
+	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt/graph"
+	"gitlab.xdev.re/evgeniy.scherbina/tmp/rt"
 )
 
 // server is the main server of the Lightning Network Daemon. The server
@@ -47,6 +52,9 @@ type server struct {
 
 	htlcSwitch *htlcSwitch
 	invoices   *invoiceRegistry
+
+	// ROUTING ADDED
+	routingMgr *routing.RoutingManager
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -91,8 +99,13 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 		quit:         make(chan struct{}),
 	}
 
+
 	// TODO(roasbeef): remove
 	s.invoices.addInvoice(1000*1e8, *debugPre)
+
+	// ROUTING ADDED
+	s.routingMgr = routing.NewRoutingManager(graph.NewID(s.lightningID), nil)
+
 
 	s.rpcServer = newRpcServer(s)
 
@@ -116,8 +129,52 @@ func (s *server) Start() {
 	s.fundingMgr.Start()
 	s.htlcSwitch.Start()
 
+	// ROUTING ADDED
+	s.routingMgr.Start()
+
 	s.wg.Add(1)
 	go s.queryHandler()
+
+	// ROUTING ADDED
+	s.wg.Add(1)
+	go s.routingOutHandler()
+}
+
+// ROUTING ADDED
+// Handles outgoing routing messages
+// Determines correct peer and forward message to it
+func (s *server) routingOutHandler(){
+	// TODO (mkl) Add copying
+	out:
+	for {
+		select {
+		// Find required peer
+		case msg :=<- s.routingMgr.ChOut:
+			msg1 := msg.(routingmessages.Message)
+			receiverID := msg1.GetReceiverID().ToByte32()
+			var targetPeer *peer
+			for _, peer := range s.peers { // TODO: threadsafe api
+				// We found the the target
+				if peer.lightningID == receiverID {
+					targetPeer = peer
+					break
+				}
+			}
+			if targetPeer != nil{
+				fmt.Println("Peer found. Sending message")
+				msg2 := outgoinMsg{
+					msg: msg.(lnwire.Message),
+					sentChan: make(chan struct{}, 1),
+				}
+				targetPeer.outgoingQueue <- msg2
+			} else {
+				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
+			}
+		case <-s.quit:
+			break out
+		}
+	}
+	s.wg.Done()
 }
 
 // Stop gracefully shutsdown the main daemon server. This function will signal
@@ -140,6 +197,9 @@ func (s *server) Stop() error {
 	s.rpcServer.Stop()
 	s.lnwallet.Shutdown()
 	s.fundingMgr.Stop()
+
+	// ROUTING ADDED
+	s.routingMgr.Stop()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)
@@ -372,7 +432,17 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	go func() {
 		// TODO(roasbeef): server semaphore to restrict num goroutines
 		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
-
+		if err == nil {
+			// ROUTING ADDED
+			fmt.Println("****** targetPeer", targetPeer)
+			fmt.Println("****** targetPeer.lightningID", targetPeer.lightningID)
+			s.routingMgr.AddChannel(
+				graph.NewID(s.lightningID),
+				graph.NewID([32]byte(targetPeer.lightningID)),
+				&rt.ChannelInfo{float64(req.localFundingAmt + req.remoteFundingAmt)},
+			)
+			fmt.Println("Added channel to routing table")
+		}
 		req.resp <- &openChanResp{fundingID}
 		req.err <- err
 	}()

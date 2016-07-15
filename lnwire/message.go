@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
+	routingmessages "mkl/golang/query/routing/messages"
 )
 
 // MessageHeaderSize is the number of bytes in a lightning message header.
@@ -70,6 +71,7 @@ type Message interface {
 // based on the command ID.
 func makeEmptyMessage(command uint32) (Message, error) {
 	var msg Message
+	var err error
 
 	switch command {
 	case CmdFundingRequest:
@@ -109,7 +111,12 @@ func makeEmptyMessage(command uint32) (Message, error) {
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
 	default:
-		return nil, fmt.Errorf("unhandled command [%d]", command)
+		// TODO(mkl): maybe it is better to put messages directly here.
+		// ROUTING ADDED
+		msg, err = routingmessages.MakeEmptyMessage(command)
+		if err != nil {
+			return nil, fmt.Errorf("unhandled command [%d]", command)
+		}
 	}
 
 	return msg, nil

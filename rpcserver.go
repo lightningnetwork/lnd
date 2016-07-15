@@ -470,3 +470,12 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 	return nil
 }
+
+func (r *rpcServer) ShowRoutingTable(ctx context.Context,
+	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
+	rpcsLog.Debugf("[ShowRoutingTable]")
+	// TODO (mkl): implement it as a thread-safe method of RoutingManager. Try to not use RT.String() directly
+	return &lnrpc.ShowRoutingTableResponse{
+		Rt: r.server.routingMgr.RT.String(),
+	}, nil
+}

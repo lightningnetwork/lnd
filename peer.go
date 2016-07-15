@@ -17,6 +17,9 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+
+	// ROUTING ADDED
+	"mkl/golang/query/routing/messages"
 )
 
 var (
@@ -326,6 +329,10 @@ out:
 			p.server.fundingMgr.processFundingOpenProof(msg, p)
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
+		// ROUTING ADDED
+		case *messages.NeighborAckMessage, *messages.NeighborHelloMessage, *messages.NeighborRstMessage, *messages.NeighborUpdMessage, *messages.RoutingTableRequestMessage, *messages.RoutingTableTransferMessage:
+			p.server.routingMgr.ChIn <- msg
+			// TODO(mkl): determine sender and receiver of message
 		}
 	}
 

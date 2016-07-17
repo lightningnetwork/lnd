@@ -28,7 +28,7 @@ type link struct {
 
 	availableBandwidth btcutil.Amount
 
-	linkChan chan lnwire.Message
+	linkChan chan *htlcPacket
 
 	peer *peer
 
@@ -39,9 +39,12 @@ type link struct {
 // settles an active HTLC. The dest field denotes the name of the interface to
 // forward this htlcPacket on.
 type htlcPacket struct {
+	src  wire.ShaHash
 	dest wire.ShaHash
 
 	msg lnwire.Message
+
+	err chan error
 }
 
 // HtlcSwitch is a central messaging bus for all incoming/outgoing HTLC's.
@@ -115,22 +118,29 @@ func (h *htlcSwitch) Stop() error {
 // an error is returned. Additionally, if the interface cannot be found, an
 // alternative error is returned.
 func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) error {
-	// TODO(roasbeef): hook in errors
+	htlcPkt.err = make(chan error, 1)
+
 	h.outgoingPayments <- htlcPkt
-	return nil
+
+	return <-htlcPkt.err
 }
 
 // htlcForwarder is responsible for optimally forwarding (and possibly
 // fragmenting) incoming/outgoing HTLC's amongst all active interfaces and
 // their links.
 func (h *htlcSwitch) htlcForwarder() {
+	// TODO(roasbeef): track pending payments here instead of within each peer?
+	// Examine settles/timeouts from htl cplex. Add src to htlcPacket, key by
+	// (src, htlcKey).
 out:
 	for {
 		select {
 		case htlcPkt := <-h.outgoingPayments:
 			chanInterface, ok := h.interfaces[htlcPkt.dest]
 			if !ok {
-				hswcLog.Errorf("unable to locate link %x", htlcPkt.dest[:])
+				err := fmt.Errorf("unable to locate link %x", htlcPkt.dest[:])
+				hswcLog.Errorf(err.Error())
+				htlcPkt.err <- err
 				continue
 			}
 
@@ -146,7 +156,7 @@ out:
 						link.chanPoint, amt, htlcPkt.dest[:])
 
 					wireMsg.ChannelPoint = link.chanPoint
-					link.linkChan <- wireMsg
+					link.linkChan <- htlcPkt
 					// TODO(roasbeef): update link info on
 					// timeout/settle
 					link.availableBandwidth -= amt
@@ -156,6 +166,8 @@ out:
 			if wireMsg.ChannelPoint == nil {
 				hswcLog.Errorf("unable to send payment, " +
 					"insufficient capacity")
+				htlcPkt.err <- fmt.Errorf("insufficient capacity")
+				continue
 			}
 		case <-h.htlcPlex:
 		case <-h.quit:
@@ -278,15 +290,18 @@ type registerLinkMsg struct {
 	peer     *peer
 	linkInfo *channeldb.ChannelSnapshot
 
-	linkChan chan lnwire.Message
+	linkChan chan *htlcPacket
 
 	done chan struct{}
 }
 
 // RegisterLink requests the htlcSwitch to register a new active link. The new
-// link encapsulates an active channel.
+// link encapsulates an active channel. The htlc plex channel is returned. The
+// plex channel allows the switch to properly de-multiplex incoming/outgoing
+// HTLC messages forwarding them to their proper destination in the multi-hop
+// settings.
 func (h *htlcSwitch) RegisterLink(p *peer, linkInfo *channeldb.ChannelSnapshot,
-	linkChan chan lnwire.Message) chan *htlcPacket {
+	linkChan chan *htlcPacket) chan *htlcPacket {
 
 	done := make(chan struct{}, 1)
 	req := &registerLinkMsg{p, linkInfo, linkChan, done}

@@ -64,15 +64,13 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
-	// Read btcd's for lnwallet's convenience.
+	// Read btcd's rpc cert for lnwallet's convenience.
 	f, err := os.Open(loadedConfig.RPCCert)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		return err
 	}
 	cert, err := ioutil.ReadAll(f)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		return err
 	}
 	defer f.Close()

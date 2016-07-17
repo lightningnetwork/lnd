@@ -142,14 +142,15 @@ type peer struct {
 
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
-func newPeer(conn net.Conn, server *server, net wire.BitcoinNet, inbound bool) (*peer, error) {
-	nodePub := conn.(*lndc.LNDConn).RemotePub
+func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool) (*peer, error) {
+	lndcConn := conn.(*lndc.LNDConn)
+	nodePub := lndcConn.RemotePub
 
 	p := &peer{
 		conn:        conn,
 		lightningID: wire.ShaHash(fastsha256.Sum256(nodePub.SerializeCompressed())),
 		id:          atomic.AddInt32(&numNodes, 1),
-		chainNet:    net,
+		chainNet:    btcNet,
 		inbound:     inbound,
 
 		server: server,
@@ -172,6 +173,15 @@ func newPeer(conn net.Conn, server *server, net wire.BitcoinNet, inbound bool) (
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
+	}
+
+	// TODO(roasbeef): re-write after lnaddr revamp, shouldn't need to use
+	// type assertions
+	var err error
+	tcpAddr := lndcConn.Conn.(*net.TCPConn).RemoteAddr().(*net.TCPAddr)
+	p.lightningAddr, err = lndc.NewLnAdr(tcpAddr, nodePub, activeNetParams.Params)
+	if err != nil {
+		return nil, err
 	}
 
 	// Initiate the pending channel identifier properly depending on if this

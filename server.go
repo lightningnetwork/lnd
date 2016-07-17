@@ -283,13 +283,13 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 	// Ensure we're not already connected to this
 	// peer.
 	for _, peer := range s.peers {
-		if peer.lightningAddr.String() ==
-			addr.String() {
+		if peer.lightningAddr.String() == addr.String() {
 			msg.err <- fmt.Errorf(
 				"already connected to peer: %v",
 				peer.lightningAddr,
 			)
 			msg.resp <- -1
+			return
 		}
 	}
 

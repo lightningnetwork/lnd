@@ -25,22 +25,30 @@ type LNAdr struct {
 	name        string // human readable name?  Not a thing yet.
 	host        string // internet host this ID is reachable at. also not a thing
 	endorsement []byte // a sig confirming the name?  Not implemented
+
+	net *chaincfg.Params
 }
 
-// String...
-func (l *LNAdr) String() string {
-	var encodedId []byte
-	if l.PubKey == nil {
-		encodedId = l.Base58Adr.ScriptAddress()
-	} else {
-		encodedId = l.PubKey.SerializeCompressed()
+// newLnAdr....
+func NewLnAdr(addr *net.TCPAddr, pubkey *btcec.PublicKey,
+	net *chaincfg.Params) (*LNAdr, error) {
+
+	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
+	pkh, err := btcutil.NewAddressPubKeyHash(hash160, net)
+	if err != nil {
+		return nil, err
 	}
 
-	return fmt.Sprintf("%v@%v", hex.EncodeToString(encodedId), l.NetAddr)
+	return &LNAdr{
+		PubKey:    pubkey,
+		Base58Adr: pkh,
+		NetAddr:   addr,
+		net:       net,
+	}, nil
 }
 
 // newLnAddr...
-func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
+func LnAddrFromString(encodedAddr string, netParams *chaincfg.Params) (*LNAdr, error) {
 	// The format of an lnaddr is "<pubkey or pkh>@host"
 	idHost := strings.Split(encodedAddr, "@")
 	if len(idHost) != 2 {
@@ -54,7 +62,7 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 		return nil, err
 	}
 
-	addr := &LNAdr{NetAddr: ipAddr}
+	addr := &LNAdr{NetAddr: ipAddr, net: netParams}
 
 	idLen := len(idHost[0])
 	switch {
@@ -73,14 +81,14 @@ func LnAddrFromString(encodedAddr string) (*LNAdr, error) {
 		// got pubey, populate address from pubkey
 		pkh := btcutil.Hash160(addr.PubKey.SerializeCompressed())
 		addr.Base58Adr, err = btcutil.NewAddressPubKeyHash(pkh,
-			&chaincfg.TestNet3Params)
+			netParams)
 		if err != nil {
 			return nil, err
 		}
 	// Is the ID a string encoded bitcoin address?
 	case idLen > 33 && idLen < 37:
 		addr.Base58Adr, err = btcutil.DecodeAddress(idHost[0],
-			&chaincfg.TestNet3Params)
+			netParams)
 		if err != nil {
 			return nil, err
 		}
@@ -166,4 +174,18 @@ func (l *LNAdr) Deserialize(s []byte) error {
 	}
 
 	return nil
+}
+
+// String...
+func (l *LNAdr) String() string {
+	var encodedId []byte
+	if l.Base58Adr != nil {
+		encodedId = l.Base58Adr.ScriptAddress()
+	} else {
+		pubKey := l.PubKey.SerializeCompressed()
+		pkh, _ := btcutil.NewAddressPubKeyHash(pubKey, l.net)
+		encodedId = pkh.ScriptAddress()
+	}
+
+	return fmt.Sprintf("%v@%v", hex.EncodeToString(encodedId), l.NetAddr)
 }

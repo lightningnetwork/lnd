@@ -172,7 +172,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	idAtHost := fmt.Sprintf("%v@%v", in.Addr.PubKeyHash, in.Addr.Host)
 	rpcsLog.Debugf("[connectpeer] peer=%v", idAtHost)
 
-	peerAddr, err := lndc.LnAddrFromString(idAtHost)
+	peerAddr, err := lndc.LnAddrFromString(idAtHost, activeNetParams.Params)
 	if err != nil {
 		rpcsLog.Errorf("(connectpeer): error parsing ln addr: %v", err)
 		return nil, err

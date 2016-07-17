@@ -1,0 +1,21 @@
+version: '2'
+services:
+    btcd:
+        container_name: btcd
+        build: btcd/
+        ports:
+            # TODO(roasbeef): switch to testnet after fixing peer discovery.
+            - "28901:28901"
+        volumes:
+            - shared-volume:/data
+    lnd:
+        container_name: lnd
+        build: lnd/
+        ports:
+            - "10009:10009"
+        volumes:
+            - shared-volume:/data
+        links:
+            - btcd
+volumes:
+  shared-volume: {}

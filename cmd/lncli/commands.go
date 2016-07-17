@@ -152,6 +152,10 @@ func connectPeer(ctx *cli.Context) error {
 
 	targetAddress := ctx.Args().Get(0)
 	splitAddr := strings.Split(targetAddress, "@")
+	if len(splitAddr) != 2 {
+		return fmt.Errorf("target address expected in format: lnid@host:port")
+	}
+
 	addr := &lnrpc.LightningAddress{
 		PubKeyHash: splitAddr[0],
 		Host:       splitAddr[1],

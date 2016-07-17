@@ -113,6 +113,12 @@ type PaymentDescriptor struct {
 	// remote party added, or one that we added locally.
 	Index uint32
 
+	// ParentIndex is the index of the log entry that this HTLC update
+	// settles or times out. If IsIncoming is false, then this refers to an
+	// index within our local log, otherwise this refers to an entry int he
+	// remote peer's log.
+	ParentIndex uint32
+
 	// Payload is an opaque blob which is used to complete multi-hop routing.
 	Payload []byte
 
@@ -135,7 +141,7 @@ type PaymentDescriptor struct {
 	addCommitHeightRemote uint64
 	addCommitHeightLocal  uint64
 
-	/// removeCommitHeight[Remote|Local] encodes the height of the
+	// removeCommitHeight[Remote|Local] encodes the height of the
 	//commitment which removed the parent pointer of this PaymentDescriptor
 	//either due to a timeout or a settle. Once both these heights are
 	//above the tail of both chains, the log entries can safely be removed.
@@ -942,25 +948,32 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 		next = e.Next()
 		htlc := e.Value.(*PaymentDescriptor)
 
-		if htlc.entryType != Add {
-			// If this entry is either a timeout or settle, then we
-			// can remove it from our log once the update it locked
-			// into both of our chains.
-			if remoteChainTail >= htlc.removeCommitHeightRemote &&
-				localChainTail >= htlc.removeCommitHeightLocal {
-				parentLink := htlc.parent
-				lc.stateUpdateLog.Remove(e)
-				lc.stateUpdateLog.Remove(parentLink)
+		if htlc.isForwarded {
+			continue
+		}
+
+		// If this entry is either a timeout or settle, then we
+		// can remove it from our log once the update it locked
+		// into both of our chains.
+		if htlc.entryType != Add &&
+			remoteChainTail >= htlc.removeCommitHeightRemote &&
+			localChainTail >= htlc.removeCommitHeightLocal {
+
+			parentLink := htlc.parent
+			lc.stateUpdateLog.Remove(e)
+			lc.stateUpdateLog.Remove(parentLink)
+
+			if !htlc.IsIncoming {
+				htlc.ParentIndex = parentLink.Value.(*PaymentDescriptor).Index
+				htlcsToForward = append(htlcsToForward, htlc)
 			}
-		} else if !htlc.isForwarded {
+		} else if remoteChainTail >= htlc.addCommitHeightRemote &&
+			localChainTail >= htlc.addCommitHeightLocal {
+
 			// Once an HTLC has been fully locked into both of our
 			// chains, then we can safely forward it to the next
 			// hop.
-			// TODO(roasbeef): only incoming htcls?
-			//  * re-visit once multi-hop from jcp
-			if remoteChainTail >= htlc.addCommitHeightRemote &&
-				localChainTail >= htlc.addCommitHeightLocal {
-
+			if htlc.IsIncoming {
 				htlc.isForwarded = true
 				htlcsToForward = append(htlcsToForward, htlc)
 			}

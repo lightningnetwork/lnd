@@ -2,7 +2,6 @@ package lnwallet
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -355,13 +354,17 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 	if htlcs, err := bobChannel.ReceiveRevocation(aliceRevocation2); err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
-	} else {
-		fmt.Println("bob forward htlcs: %v", htlcs)
+	} else if len(htlcs) != 0 {
+		t.Fatalf("bob shouldn't forward any HTLC's after outgoing settle, "+
+			"instead can forward: %v", spew.Sdump(htlcs))
 	}
 	if htlcs, err := aliceChannel.ReceiveRevocation(bobRevocation2); err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
-	} else {
-		fmt.Println("alice forward htlcs: %v", spew.Sdump(htlcs))
+	} else if len(htlcs) != 1 {
+		// Alice should now be able to forward the settlement HTLC to
+		// any down stream peers.
+		t.Fatalf("alice should be able to forward a single HTLC, "+
+			"instead can forward %v: %v", len(htlcs), spew.Sdump(htlcs))
 	}
 
 	// At this point, bob should have 6BTC settled, with Alice still having
@@ -415,4 +418,8 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("bob's log not updated, should be empty, has %v entries "+
 			"instead", bobLogLen)
 	}
+}
+
+func TestCooperativeChannelClosure(t *testing.T) {
+	// * add validation of their sig
 }

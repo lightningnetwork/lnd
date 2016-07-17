@@ -225,15 +225,11 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 
 	// First Alice adds the outgoing HTLC to her local channel's state
 	// update log.
-	if err := aliceChannel.AddHTLC(htlc, false); err != nil {
-		t.Fatalf("unable to add htlc to alice's channel: %v", err)
-	}
+	aliceChannel.AddHTLC(htlc, false)
 
 	// Then Alice sends this wire message over to Bob who also adds this
 	// htlc to his local state update log.
-	if err := bobChannel.AddHTLC(htlc, true); err != nil {
-		t.Fatalf("unable to add htlc bob's channel: %v", err)
-	}
+	bobChannel.AddHTLC(htlc, true)
 
 	// Next alice commits this change by sending a signature message.
 	aliceSig, bobLogIndex, err := aliceChannel.SignNextCommitment()

@@ -998,7 +998,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 
 // AddPayment adds a new HTLC to either the local or remote HTLC log depending
 // on the value of 'incoming'.
-func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest, incoming bool) error {
+func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest, incoming bool) uint32 {
 	pd := &PaymentDescriptor{
 		entryType:  Add,
 		RHash:      PaymentHash(htlc.RedemptionHashes[0]),
@@ -1019,7 +1019,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest, incoming bool) 
 	pd.Index = index
 	lc.stateUpdateLog.PushBack(pd)
 
-	return nil
+	return index
 }
 
 // SettleHTLC attempts to settle an existing outstanding HTLC with an htlc

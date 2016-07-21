@@ -223,12 +223,10 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// First Alice adds the outgoing HTLC to her local channel's state
-	// update log.
-	aliceChannel.AddHTLC(htlc, false)
-
-	// Then Alice sends this wire message over to Bob who also adds this
-	// htlc to his local state update log.
-	bobChannel.AddHTLC(htlc, true)
+	// update log. Then Alice sends this wire message over to Bob who also
+	// adds this htlc to his local state update log.
+	aliceChannel.AddHTLC(htlc)
+	bobChannel.ReceiveHTLC(htlc)
 
 	// Next alice commits this change by sending a signature message.
 	aliceSig, bobLogIndex, err := aliceChannel.SignNextCommitment()
@@ -324,10 +322,11 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// HTLC once he learns of the preimage.
 	var preimage [32]byte
 	copy(preimage[:], paymentPreimage)
-	if _, err := bobChannel.SettleHTLC(preimage, false); err != nil {
+	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
-	if _, err := aliceChannel.SettleHTLC(preimage, true); err != nil {
+	if err := aliceChannel.ReceiveHTLCSettle(preimage, settleIndex); err != nil {
 		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
 	}
 	bobSig2, aliceIndex2, err := bobChannel.SignNextCommitment()
@@ -408,15 +407,37 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// The logs of both sides should now be cleared since the entry adding
 	// the HTLC should have been removed once both sides recieve the
 	// revocation.
-	aliceLogLen := aliceChannel.stateUpdateLog.Len()
-	if aliceLogLen != 0 {
-		t.Fatalf("alice's log not updated, should be empty, has %v entries "+
-			"instead", aliceLogLen)
+	if aliceChannel.ourUpdateLog.Len() != 0 {
+		t.Fatalf("alice's local not updated, should be empty, has %v entries "+
+			"instead", aliceChannel.ourUpdateLog.Len())
 	}
-	bobLogLen := bobChannel.stateUpdateLog.Len()
-	if bobLogLen != 0 {
-		t.Fatalf("bob's log not updated, should be empty, has %v entries "+
-			"instead", bobLogLen)
+	if aliceChannel.theirUpdateLog.Len() != 0 {
+		t.Fatalf("alice's remote not updated, should be empty, has %v entries "+
+			"instead", aliceChannel.theirUpdateLog.Len())
+	}
+	if len(aliceChannel.ourLogIndex) != 0 {
+		t.Fatalf("alice's local log index not cleared, should be empty but "+
+			"has %v entries", len(aliceChannel.ourLogIndex))
+	}
+	if len(aliceChannel.theirLogIndex) != 0 {
+		t.Fatalf("alice's remote log index not cleared, should be empty but "+
+			"has %v entries", len(aliceChannel.theirLogIndex))
+	}
+	if bobChannel.ourUpdateLog.Len() != 0 {
+		t.Fatalf("bob's local log not updated, should be empty, has %v entries "+
+			"instead", bobChannel.ourUpdateLog.Len())
+	}
+	if bobChannel.theirUpdateLog.Len() != 0 {
+		t.Fatalf("bob's remote log not updated, should be empty, has %v entries "+
+			"instead", bobChannel.theirUpdateLog.Len())
+	}
+	if len(bobChannel.ourLogIndex) != 0 {
+		t.Fatalf("bob's local log index not cleared, should be empty but "+
+			"has %v entries", len(bobChannel.ourLogIndex))
+	}
+	if len(bobChannel.theirLogIndex) != 0 {
+		t.Fatalf("bob's remote log index not cleared, should be empty but "+
+			"has %v entries", len(bobChannel.theirLogIndex))
 	}
 }
 

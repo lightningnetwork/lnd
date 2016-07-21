@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -15,7 +16,7 @@ import (
 const (
 	// htlcQueueSize...
 	// buffer bloat ;)
-	htlcQueueSize = 20
+	htlcQueueSize = 50
 )
 
 // link represents a an active channel capable of forwarding HTLC's. Each
@@ -35,7 +36,7 @@ type link struct {
 	chanPoint *wire.OutPoint
 }
 
-// htlcPacket is a wrapper around an lnwire message which adds, timesout, or
+// htlcPacket is a wrapper around an lnwire message which adds, times out, or
 // settles an active HTLC. The dest field denotes the name of the interface to
 // forward this htlcPacket on.
 type htlcPacket struct {
@@ -43,6 +44,7 @@ type htlcPacket struct {
 	dest wire.ShaHash
 
 	msg lnwire.Message
+	amt btcutil.Amount
 
 	err chan error
 }
@@ -72,6 +74,8 @@ type htlcSwitch struct {
 
 	// TODO(roasbeef): messaging chan to/from upper layer (routing - L3)
 
+	// TODO(roasbeef): sampler to log sat/sec and tx/sec
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -83,7 +87,7 @@ func newHtlcSwitch() *htlcSwitch {
 		interfaces:       make(map[wire.ShaHash][]*link),
 		linkControl:      make(chan interface{}),
 		htlcPlex:         make(chan *htlcPacket, htlcQueueSize),
-		outgoingPayments: make(chan *htlcPacket, 20),
+		outgoingPayments: make(chan *htlcPacket, htlcQueueSize),
 	}
 }
 
@@ -132,6 +136,11 @@ func (h *htlcSwitch) htlcForwarder() {
 	// TODO(roasbeef): track pending payments here instead of within each peer?
 	// Examine settles/timeouts from htl cplex. Add src to htlcPacket, key by
 	// (src, htlcKey).
+
+	// TODO(roasbeef): cleared vs settled distinction
+	var numUpdates uint64
+	var satSent, satRecv btcutil.Amount
+	logTicker := time.NewTicker(10 * time.Second)
 out:
 	for {
 		select {
@@ -146,20 +155,20 @@ out:
 
 			wireMsg := htlcPkt.msg.(*lnwire.HTLCAddRequest)
 			amt := btcutil.Amount(wireMsg.Amount)
-			hswcLog.Debugf("attempting to send %v to %v", amt,
-				hex.EncodeToString(htlcPkt.dest[:]))
 
 			for _, link := range chanInterface {
 				// TODO(roasbeef): implement HTLC fragmentation
 				if link.availableBandwidth >= amt {
-					hswcLog.Debugf("selected %v for payment of %v to %x",
-						link.chanPoint, amt, htlcPkt.dest[:])
+					hswcLog.Tracef("Sending %v to %x", amt,
+						htlcPkt.dest[:])
 
+					// TODO(roasbeef): peer downstream should set chanPoint
 					wireMsg.ChannelPoint = link.chanPoint
 					link.linkChan <- htlcPkt
 					// TODO(roasbeef): update link info on
 					// timeout/settle
 					link.availableBandwidth -= amt
+					break
 				}
 			}
 
@@ -169,7 +178,28 @@ out:
 				htlcPkt.err <- fmt.Errorf("insufficient capacity")
 				continue
 			}
-		case <-h.htlcPlex:
+		case pkt := <-h.htlcPlex:
+			numUpdates += 1
+			// TODO(roasbeef): properly account with cleared vs settled
+			switch pkt.msg.(type) {
+			case *lnwire.HTLCAddRequest:
+				satRecv += pkt.amt
+			case *lnwire.HTLCSettleRequest:
+				satSent += pkt.amt
+			}
+		case <-logTicker.C:
+			if numUpdates == 0 {
+				continue
+			}
+
+			hswcLog.Infof("Sent %v satoshis, received %v satoshi in "+
+				"the last 10 seconds (%v tx/sec)",
+				satSent.ToUnit(btcutil.AmountSatoshi),
+				satRecv.ToUnit(btcutil.AmountSatoshi),
+				float64(numUpdates)/10)
+			satSent = 0
+			satRecv = 0
+			numUpdates = 0
 		case <-h.quit:
 			break out
 		}

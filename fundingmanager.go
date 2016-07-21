@@ -299,6 +299,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	amt := msg.FundingAmount
 	delay := msg.CsvDelay
 
+	// TODO(roasbeef): error if funding flow already ongoing
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%v) "+
 		"from peerID(%v)", amt, delay, msg.ChannelID, fmsg.peer.id)
 

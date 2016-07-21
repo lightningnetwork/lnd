@@ -491,12 +491,13 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	if err := paymentStream.Send(req); err != nil {
 		return err
 	}
-	paymentStream.CloseSend()
 
 	resp, err := paymentStream.Recv()
 	if err != nil {
 		return err
 	}
+
+	paymentStream.CloseSend()
 
 	printRespJson(resp)
 

@@ -821,6 +821,18 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	return nil
 }
 
+// PendingUpdates returns a boolean value reflecting if there are any pending
+// updates which need to be committed. The state machine has pending updates if
+// the local log index on the local and remote chain tip aren't identical. This
+// indicates that either we have pending updates they need to commit, or vice
+// versa.
+func (lc *LightningChannel) PendingUpdates() bool {
+	fullySynced := (lc.localCommitChain.tip().ourMessageIndex ==
+		lc.remoteCommitChain.tip().ourMessageIndex)
+
+	return !fullySynced
+}
+
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
 // transaction in the local commitment chain. As a result the edge of our
 // revocation window is extended by one, and the tail of our local commitment

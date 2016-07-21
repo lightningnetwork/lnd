@@ -426,45 +426,57 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
+	errChan := make(chan error, 1)
 	for {
-		// Receive the next pending payment within the stream sent by
-		// the client. If we read the EOF sentinel, then the client has
-		// closed the stream, and we can exit normally.
-		nextPayment, err := paymentStream.Recv()
-		if err == io.EOF {
-			return nil
-		} else if err != nil {
+		select {
+		case err := <-errChan:
 			return err
-		}
+		default:
+			// Receive the next pending payment within the stream sent by
+			// the client. If we read the EOF sentinel, then the client has
+			// closed the stream, and we can exit normally.
+			nextPayment, err := paymentStream.Recv()
+			if err == io.EOF {
+				return nil
+			} else if err != nil {
+				return err
+			}
 
-		// Craft an HTLC packet to send to the routing sub-system. The
-		// meta-data within this packet will be used to route the
-		// payment through the network.
-		htlcAdd := &lnwire.HTLCAddRequest{
-			Amount:           lnwire.CreditsAmount(nextPayment.Amt),
-			RedemptionHashes: [][32]byte{debugHash},
-		}
-		destAddr, err := wire.NewShaHash(nextPayment.Dest)
-		if err != nil {
-			return err
-		}
-		htlcPkt := &htlcPacket{
-			dest: *destAddr,
-			msg:  htlcAdd,
-		}
+			// Craft an HTLC packet to send to the routing sub-system. The
+			// meta-data within this packet will be used to route the
+			// payment through the network.
+			htlcAdd := &lnwire.HTLCAddRequest{
+				Amount:           lnwire.CreditsAmount(nextPayment.Amt),
+				RedemptionHashes: [][32]byte{debugHash},
+			}
+			destAddr, err := wire.NewShaHash(nextPayment.Dest)
+			if err != nil {
+				return err
+			}
+			htlcPkt := &htlcPacket{
+				dest: *destAddr,
+				msg:  htlcAdd,
+			}
 
-		// Finally, send this next packet to the routing layer in order
-		// to complete the next payment.
-		// TODO(roasbeef): this should go through the L3 router once
-		// multi-hop is in place.
-		if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
-			return err
-		}
+			// TODO(roasbeef): semaphore to limit num outstanding
+			// goroutines.
+			go func() {
+				// Finally, send this next packet to the routing layer in order
+				// to complete the next payment.
+				// TODO(roasbeef): this should go through the L3 router once
+				// multi-hop is in place.
+				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
+					errChan <- err
+					return
+				}
 
-		// TODO(roasbeef): proper responses
-		resp := &lnrpc.SendResponse{}
-		if err := paymentStream.Send(resp); err != nil {
-			return err
+				// TODO(roasbeef): proper responses
+				resp := &lnrpc.SendResponse{}
+				if err := paymentStream.Send(resp); err != nil {
+					errChan <- err
+					return
+				}
+			}()
 		}
 	}
 

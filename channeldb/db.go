@@ -77,11 +77,17 @@ func (d *DB) RegisterCryptoSystem(ed EncryptorDecryptor) {
 // operation is fully atomic.
 func (d *DB) Wipe() error {
 	return d.store.Update(func(tx *bolt.Tx) error {
-		if err := tx.DeleteBucket(openChannelBucket); err != nil {
+		err := tx.DeleteBucket(openChannelBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
 		}
 
-		return tx.DeleteBucket(closedChannelBucket)
+		err = tx.DeleteBucket(closedChannelBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+
+		return nil
 	})
 }
 

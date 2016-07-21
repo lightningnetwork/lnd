@@ -231,12 +231,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
-		downstreamLink := make(chan *htlcPacket)
+		downstreamLink := make(chan *htlcPacket, 10)
 		plexChan := p.server.htlcSwitch.RegisterLink(p,
 			dbChan.Snapshot(), downstreamLink)
 
 		// TODO(roasbeef): buffer?
-		upstreamLink := make(chan lnwire.Message)
+		upstreamLink := make(chan lnwire.Message, 10)
 		p.htlcManagers[chanPoint] = upstreamLink
 		p.wg.Add(1)
 		go p.htlcManager(lnChan, plexChan, downstreamLink, upstreamLink)
@@ -579,14 +579,14 @@ out:
 			// Now that the channel is open, notify the Htlc
 			// Switch of a new active link.
 			chanSnapShot := newChan.StateSnapshot()
-			downstreamLink := make(chan *htlcPacket)
+			downstreamLink := make(chan *htlcPacket, 10)
 			plexChan := p.server.htlcSwitch.RegisterLink(p,
 				chanSnapShot, downstreamLink)
 
 			// With the channel registered to the HtlcSwitch spawn
 			// a goroutine to handle commitment updates for this
 			// new channel.
-			upstreamLink := make(chan lnwire.Message)
+			upstreamLink := make(chan lnwire.Message, 10)
 			p.htlcManagers[chanPoint] = upstreamLink
 			p.wg.Add(1)
 			go p.htlcManager(newChan, plexChan, downstreamLink, upstreamLink)

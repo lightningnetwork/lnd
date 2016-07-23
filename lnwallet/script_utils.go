@@ -135,7 +135,7 @@ func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 //    SENDR: <sig> 0
 //    RECVR: <sig> <preimage> 0 1
 //    REVOK: <sig  <preimage> 1 1
-//     * reciever revoke
+//     * receiver revoke
 //
 // OP_IF
 //     //Receiver

@@ -1,0 +1,51 @@
+package: github.com/lightningnetwork/lnd
+import:
+- package: github.com/boltdb/bolt
+  version: ^1.2.1
+- package: github.com/btcsuite/btclog
+- package: github.com/btcsuite/fastsha256
+- package: github.com/btcsuite/go-flags
+- package: github.com/btcsuite/seelog
+  version: ^2.1.0
+- package: github.com/codahale/chacha20poly1305
+- package: github.com/codegangsta/cli
+  version: ^1.18.0
+- package: github.com/davecgh/go-spew
+  subpackages:
+  - spew
+- package: github.com/golang/protobuf
+  subpackages:
+  - proto
+- package: github.com/howeyc/gopass
+- package: github.com/roasbeef/btcd
+  subpackages:
+  - blockchain
+  - btcec
+  - btcjson
+  - chaincfg
+  - txscript
+  - wire
+- package: github.com/roasbeef/btcrpcclient
+- package: github.com/roasbeef/btcutil
+  subpackages:
+  - bloom
+  - coinset
+  - hdkeychain
+  - txsort
+- package: github.com/roasbeef/btcwallet
+  subpackages:
+  - chain
+  - waddrmgr
+  - wallet
+  - walletdb/bdb
+- package: golang.org/x/crypto
+  subpackages:
+  - hkdf
+  - nacl/secretbox
+  - ripemd160
+  - scrypt
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: google.golang.org/grpc
+  version: ^1.0.0

@@ -1,0 +1,122 @@
+hash: 923d0c97dcf347038ea004dfec2089fc8e3309764992f47f2b2d4cee666c03ea
+updated: 2016-07-22T13:59:43.839868155-07:00
+imports:
+- name: github.com/boltdb/bolt
+  version: dfb21201d9270c1082d5fb0f07f500311ff72f18
+- name: github.com/btcsuite/bolt
+  version: 38b9bbfde72d4b62b6a038a3adfca64c44da0133
+- name: github.com/btcsuite/btclog
+  version: f96df2375f37300305f329b8e5258764b4f19a7f
+- name: github.com/btcsuite/fastsha256
+  version: 302ad4db268b46f9ebda3078f6f7397f96047735
+- name: github.com/btcsuite/go-flags
+  version: 6c288d648c1cc1befcb90cb5511dcacf64ae8e61
+- name: github.com/btcsuite/go-socks
+  version: cfe8b59e565c1a5bd4e2005d77cd9aa8b2e14524
+  subpackages:
+  - socks
+- name: github.com/btcsuite/golangcrypto
+  version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
+  subpackages:
+  - ripemd160
+  - nacl/secretbox
+  - scrypt
+  - ssh/terminal
+  - poly1305
+  - salsa20/salsa
+  - pbkdf2
+- name: github.com/btcsuite/seelog
+  version: ae8891d029dd3c269dcfd6f261ad23e761acd99f
+- name: github.com/btcsuite/websocket
+  version: 31079b6807923eb23992c421b114992b95131b55
+- name: github.com/codahale/chacha20
+  version: ec07b4f69a3f70b1dd2a8ad77230deb1ba5d6953
+- name: github.com/codahale/chacha20poly1305
+  version: f8a5c48301822c3d7dd26d78e68ea2968db0ab20
+- name: github.com/codegangsta/cli
+  version: 1efa31f08b9333f1bd4882d61f9d668a70cd902e
+- name: github.com/davecgh/go-spew
+  version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
+  subpackages:
+  - spew
+- name: github.com/golang/protobuf
+  version: 874264fbbb43f4d91e999fecb4b40143ed611400
+  subpackages:
+  - proto
+- name: github.com/howeyc/gopass
+  version: 66487b23f2880ba32e185121d2cd51a338ea069a
+- name: github.com/roasbeef/btcd
+  version: baea7691cc3c59480703fe1a3fb5595c838c963c
+  subpackages:
+  - blockchain
+  - btcec
+  - btcjson
+  - chaincfg
+  - txscript
+  - wire
+  - rpctest
+  - database
+- name: github.com/roasbeef/btcrpcclient
+  version: 2c6c5c5671f6e86d42b84da30cafcd80e3313b41
+- name: github.com/roasbeef/btcutil
+  version: 94511fbe6c9bf8ecddb82ccfe8f326e45a4559b0
+  subpackages:
+  - bloom
+  - coinset
+  - hdkeychain
+  - txsort
+  - base58
+- name: github.com/roasbeef/btcwallet
+  version: d7d402cc4135a53230ce068dcc51252c58a11a3d
+  subpackages:
+  - chain
+  - waddrmgr
+  - wallet
+  - walletdb/bdb
+  - internal/zero
+  - snacl
+  - walletdb
+  - wtxmgr
+  - internal/prompt
+  - wallet/txauthor
+  - wallet/txrules
+  - internal/legacy/keystore
+  - internal/helpers
+  - wallet/internal/txsizes
+  - internal/legacy/rename
+- name: golang.org/x/crypto
+  version: 911fafb28f4ee7c7bd483539a6c96190bbbccc3f
+  subpackages:
+  - hkdf
+  - nacl/secretbox
+  - ripemd160
+  - scrypt
+  - poly1305
+  - salsa20/salsa
+  - pbkdf2
+  - ssh/terminal
+- name: golang.org/x/net
+  version: 4d38db76854b199960801a1734443fd02870d7e1
+  subpackages:
+  - context
+  - http2
+  - trace
+  - http2/hpack
+  - lex/httplex
+  - internal/timeseries
+- name: golang.org/x/sys
+  version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
+  subpackages:
+  - unix
+- name: google.golang.org/grpc
+  version: 13edeeffdea7a41d5aad96c28deb4c7bd01a9397
+  subpackages:
+  - codes
+  - credentials
+  - grpclog
+  - internal
+  - metadata
+  - naming
+  - transport
+  - peer
+testImports: []

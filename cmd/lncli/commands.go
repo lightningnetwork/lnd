@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Roasbeef/btcd/wire"
 	"github.com/codegangsta/cli"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/roasbeef/btcd/wire"
 	"golang.org/x/net/context"
 )
 

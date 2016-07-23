@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Roasbeef/btcutil/txsort"
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcutil/txsort"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/rpctest"

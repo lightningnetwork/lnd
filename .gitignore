@@ -44,3 +44,5 @@ test_wal/*
 *.hex
 *.db
 *.bin
+
+vendor

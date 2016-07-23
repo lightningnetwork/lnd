@@ -10,11 +10,33 @@ Don't try to port it to mainnet or an altcoin and use it today!  No really.  Lig
 
 ## Installation
 
-* If necessary, install Go according to the installation instructions here: http://golang.org/doc/install. It is recommended to add `$GOPATH/bin` to your `PATH` at this point.
-* Run the following command to obtain and install lnd, lncli, lnshell and all dependencies:
+* In order to build form source, the following build dependancies are required: 
+  * **Go 1.5 or 1.6**
+      
+    Installation instructions can be found here: http://golang.org/doc/install. It is recommended to add `$GOPATH/bin` to your `PATH` at this point.
+    **Note:** If you are building with Go 1.5, then you'll need to enable the vendor experiment by setting the `GO15VENDOREXPERIMENT` environment variable to `1`. If you're using Go 1.5, then it is safe to skip this step. 
+  * **Glide**
+    
+    This project uses `Glide` to manage depdnancies as well as to provide *reproducable builds*. 
+    To install `Glide`, execute the following command (assumes you already have Go properly installed): 
+        
+      `$ go get -u github.com/Masterminds/glide`
+
+With the prelimnary steps completed, to install `lnd`, `lncli`, and all related depenancies run the following commands: 
 
 ```
-go get -u -v github.com/lightningnetwork/lnd/...
+$ git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
+$ cd $GOPATH/src/github.com/lightningnetwork/lnd
+$ glide install
+$ go install . ./cmd/...
+```
+
+## Updating
+To update your version of `lnd` to the latest version run the following commands: 
+```
+$ cd $GOPATH/src/github.com/lightningnetwork/lnd
+$ git pull && glide install
+$ go install . ./cmd/...
 ```
 
 ## Packages and Utilities

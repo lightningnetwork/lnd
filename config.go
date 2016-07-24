@@ -21,7 +21,7 @@ const (
 	defaultRPCPort        = 10009
 	defaultSPVMode        = false
 	defaultPeerPort       = 10011
-	defaultRPCHost        = "localhost:18334"
+	defaultRPCHost        = "localhost"
 	defaultRPCUser        = "user"
 	defaultRPCPass        = "passwd"
 	defaultSPVHostAdr     = "localhost:18333"
@@ -59,7 +59,7 @@ type config struct {
 	PeerPort int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
 	RPCPort  int    `long:"rpcport" description:"The port for the rpc server"`
 	SPVMode  bool   `long:"spv" description:"assert to enter spv wallet mode"`
-	RPCHost  string `long:"btcdhost" description:"The btcd rpc listening address. "`
+	RPCHost  string `long:"btcdhost" description:"The btcd rpc listening address."`
 	RPCUser  string `short:"u" long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass  string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 

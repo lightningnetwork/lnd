@@ -10,14 +10,12 @@ func ReceiverSerdesTest(t *testing.T, rcv *ElkremReceiver) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("rcv2 has len %d\n", len(rcv.s))
-	t.Logf("Serialized receiver; %d bytes, hex:\n%x\n", len(b), b)
 
 	rcv2, err := ElkremReceiverFromBytes(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("rcv2 has len %d\n", len(rcv2.s))
+
 	b2, err := rcv2.ToBytes()
 	if err != nil {
 		t.Fatal(err)

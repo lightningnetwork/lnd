@@ -131,7 +131,10 @@ func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) error {
 
 // htlcForwarder is responsible for optimally forwarding (and possibly
 // fragmenting) incoming/outgoing HTLC's amongst all active interfaces and
-// their links.
+// their links. The duties of the forwarder are similar to that of a network
+// switch, in that it facilitates multi-hop payments by acting as a central
+// messaging bus. Each active channel is modeled as networked device with
+// meta-data such as the available payment bandwidth, and total link capacity.
 func (h *htlcSwitch) htlcForwarder() {
 	// TODO(roasbeef): track pending payments here instead of within each peer?
 	// Examine settles/timeouts from htl cplex. Add src to htlcPacket, key by
@@ -145,9 +148,10 @@ out:
 	for {
 		select {
 		case htlcPkt := <-h.outgoingPayments:
-			chanInterface, ok := h.interfaces[htlcPkt.dest]
+			dest := htlcPkt.dest
+			chanInterface, ok := h.interfaces[dest]
 			if !ok {
-				err := fmt.Errorf("unable to locate link %x", htlcPkt.dest[:])
+				err := fmt.Errorf("Unable to locate link %x", dest)
 				hswcLog.Errorf(err.Error())
 				htlcPkt.err <- err
 				continue
@@ -156,28 +160,39 @@ out:
 			wireMsg := htlcPkt.msg.(*lnwire.HTLCAddRequest)
 			amt := btcutil.Amount(wireMsg.Amount)
 
+			// Handle this send request in a distinct goroutine in
+			// order to avoid a possible deadlock between the htlc
+			// switch and channel's htlc manager.
+			var sent bool
 			for _, link := range chanInterface {
 				// TODO(roasbeef): implement HTLC fragmentation
-				if link.availableBandwidth >= amt {
-					hswcLog.Tracef("Sending %v to %x", amt,
-						htlcPkt.dest[:])
-
-					// TODO(roasbeef): peer downstream should set chanPoint
-					wireMsg.ChannelPoint = link.chanPoint
-					link.linkChan <- htlcPkt
-					// TODO(roasbeef): update link info on
-					// timeout/settle
-					link.availableBandwidth -= amt
-					break
+				//  * avoid full channel depletion at higher
+				//    level (here) instead of within state
+				//    machine?
+				if link.availableBandwidth < amt {
+					continue
 				}
+
+				hswcLog.Tracef("Sending %v to %x", amt, dest)
+
+				// TODO(roasbeef): peer downstream should set chanPoint
+				wireMsg.ChannelPoint = link.chanPoint
+				go func() {
+					link.linkChan <- htlcPkt
+				}()
+
+				// TODO(roasbeef): update link info on
+				// timeout/settle
+				link.availableBandwidth -= amt
+				sent = true
 			}
 
-			if wireMsg.ChannelPoint == nil {
-				hswcLog.Errorf("unable to send payment, " +
-					"insufficient capacity")
-				htlcPkt.err <- fmt.Errorf("insufficient capacity")
+			if sent {
 				continue
 			}
+
+			hswcLog.Errorf("Unable to send payment, insufficient capacity")
+			htlcPkt.err <- fmt.Errorf("Insufficient capacity")
 		case pkt := <-h.htlcPlex:
 			numUpdates += 1
 			// TODO(roasbeef): properly account with cleared vs settled
@@ -187,6 +202,9 @@ out:
 			case *lnwire.HTLCSettleRequest:
 				satSent += pkt.amt
 			}
+
+			// TODO(roasbeef): parse dest/src, forward on outgoing
+			// link to complete multi-hop payments.
 		case <-logTicker.C:
 			if numUpdates == 0 {
 				continue

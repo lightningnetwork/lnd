@@ -1,4 +1,12 @@
 language: go
-
 go:
-        - tip
+  - 1.5.4
+  - 1.6.3
+sudo: false
+install:
+  - go get -v github.com/roasbeef/btcd # Required for the rpc test package.
+  - go get -v github.com/Masterminds/glide
+  - glide install
+script:
+  - export PATH=$PATH:$HOME/gopath/bin
+  - export GO15VENDOREXPERIMENT=1

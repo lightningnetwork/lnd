@@ -101,9 +101,6 @@ func (l *Listener) createCipherConn(lnConn *LNDConn) (*btcec.PrivateKey, error) 
 
 	lnConn.chachaStream, err = chacha20poly1305.New(sessionKey[:])
 
-	// display private key for debug only
-	fmt.Printf("made session key %x\n", sessionKey)
-
 	lnConn.remoteNonceInt = 1 << 63
 	lnConn.myNonceInt = 0
 
@@ -122,11 +119,9 @@ func (l *Listener) authenticateConnection(
 	slice := make([]byte, 73)
 	n, err := lnConn.Conn.Read(slice)
 	if err != nil {
-		fmt.Printf("Read error: %s\n", err.Error())
 		return err
 	}
 
-	fmt.Printf("read %d bytes\n", n)
 	authmsg := slice[:n]
 	if len(authmsg) != 53 && len(authmsg) != 73 {
 		return fmt.Errorf("got auth message of %d bytes, "+

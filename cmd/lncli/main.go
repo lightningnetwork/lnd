@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/codegangsta/cli"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/urfave/cli"
 
 	"google.golang.org/grpc"
 )

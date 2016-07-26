@@ -8,8 +8,6 @@ import:
 - package: github.com/btcsuite/seelog
   version: ^2.1.0
 - package: github.com/codahale/chacha20poly1305
-- package: github.com/codegangsta/cli
-  version: ^1.18.0
 - package: github.com/davecgh/go-spew
   subpackages:
   - spew
@@ -38,6 +36,8 @@ import:
   - waddrmgr
   - wallet
   - walletdb/bdb
+- package: github.com/urfave/cli
+  version: ^1.18.0
 - package: golang.org/x/crypto
   subpackages:
   - hkdf

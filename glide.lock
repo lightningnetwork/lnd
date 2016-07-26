@@ -1,5 +1,5 @@
-hash: 923d0c97dcf347038ea004dfec2089fc8e3309764992f47f2b2d4cee666c03ea
-updated: 2016-07-22T13:59:43.839868155-07:00
+hash: c830766cab9e452ee12d57e983d999375d2c2cdadb4f5bed4e7806b1ecd4ca9d
+updated: 2016-07-26T10:40:18.856395-07:00
 imports:
 - name: github.com/boltdb/bolt
   version: dfb21201d9270c1082d5fb0f07f500311ff72f18
@@ -33,8 +33,6 @@ imports:
   version: ec07b4f69a3f70b1dd2a8ad77230deb1ba5d6953
 - name: github.com/codahale/chacha20poly1305
   version: f8a5c48301822c3d7dd26d78e68ea2968db0ab20
-- name: github.com/codegangsta/cli
-  version: 1efa31f08b9333f1bd4882d61f9d668a70cd902e
 - name: github.com/davecgh/go-spew
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
@@ -84,8 +82,10 @@ imports:
   - internal/helpers
   - wallet/internal/txsizes
   - internal/legacy/rename
+- name: github.com/urfave/cli
+  version: 1efa31f08b9333f1bd4882d61f9d668a70cd902e
 - name: golang.org/x/crypto
-  version: 911fafb28f4ee7c7bd483539a6c96190bbbccc3f
+  version: bc89c496413265e715159bdc8478ee9a92fdc265
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -96,7 +96,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 4d38db76854b199960801a1734443fd02870d7e1
+  version: 9f2c271364b418388d150f9c12ecbf12794095c1
   subpackages:
   - context
   - http2

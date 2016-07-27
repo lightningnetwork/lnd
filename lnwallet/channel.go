@@ -1421,9 +1421,14 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx := wire.NewMsgTx()
 	commitTx.Version = 2
 	commitTx.AddTxIn(fundingOutput)
-	// TODO(roasbeef): don't make 0 BTC output...
-	commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
-	commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
+
+	// Avoid creating zero value outputs within the commitment transaction.
+	if amountToSelf != 0 {
+		commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
+	}
+	if amountToThem != 0 {
+		commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
+	}
 
 	return commitTx, nil
 }

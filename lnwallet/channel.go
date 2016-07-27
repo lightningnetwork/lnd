@@ -712,9 +712,9 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 		return nil, 0, err
 	}
 
-	log.Tracef("ChannelPoint(%v): extending remote chain to height %v",
+	walletLog.Tracef("ChannelPoint(%v): extending remote chain to height %v",
 		lc.channelState.ChanID, newCommitView.height)
-	log.Tracef("ChannelPoint(%v): remote chain: our_balance=%v, "+
+	walletLog.Tracef("ChannelPoint(%v): remote chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v", lc.channelState.ChanID,
 		newCommitView.ourBalance, newCommitView.theirBalance,
 		newLogClosure(func() string {
@@ -782,9 +782,9 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 		return err
 	}
 
-	log.Tracef("ChannelPoint(%v): extending local chain to height %v",
+	walletLog.Tracef("ChannelPoint(%v): extending local chain to height %v",
 		lc.channelState.ChanID, localCommitmentView.height)
-	log.Tracef("ChannelPoint(%v): local chain: our_balance=%v, "+
+	walletLog.Tracef("ChannelPoint(%v): local chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v", lc.channelState.ChanID,
 		localCommitmentView.ourBalance, localCommitmentView.theirBalance,
 		newLogClosure(func() string {
@@ -861,7 +861,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 		revocationEdge[:])
 	revocationMsg.NextRevocationHash = fastsha256.Sum256(revocationEdge[:])
 
-	log.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v, window_edge=%v",
+	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v, window_edge=%v",
 		lc.channelState.ChanID, lc.localCommitChain.tail().height,
 		lc.currentHeight+1, lc.revocationWindowEdge)
 
@@ -878,7 +878,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 	lc.channelState.OurCommitSig = tail.sig
 	lc.channelState.NumUpdates++
 
-	log.Tracef("ChannelPoint(%v): state transition accepted: "+
+	walletLog.Tracef("ChannelPoint(%v): state transition accepted: "+
 		"our_balance=%v, their_balance=%v", lc.channelState.ChanID,
 		tail.ourBalance, tail.theirBalance)
 
@@ -946,7 +946,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	lc.usedRevocations = lc.usedRevocations[1:]
 	lc.revocationWindow = append(lc.revocationWindow, revMsg)
 
-	log.Tracef("ChannelPoint(%v): remote party accepted state transition, "+
+	walletLog.Tracef("ChannelPoint(%v): remote party accepted state transition, "+
 		"revoked height %v, now at %v", lc.channelState.ChanID,
 		lc.remoteCommitChain.tail().height,
 		lc.remoteCommitChain.tail().height+1)

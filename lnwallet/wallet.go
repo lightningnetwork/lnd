@@ -333,7 +333,7 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, er
 		if err := cdb.PutIdKey(idPubkeyHash); err != nil {
 			return nil, err
 		}
-		log.Infof("stored identity key pubkey hash in channeldb")
+		walletLog.Infof("stored identity key pubkey hash in channeldb")
 	}
 
 	// Create a special websockets rpc client for btcd which will be used
@@ -362,7 +362,6 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, er
 		return nil, err
 	}
 
-	// TODO(roasbeef): logging
 	return &LightningWallet{
 		ChainNotifier: chainNotifier,
 		rpc:           rpcc,
@@ -1075,7 +1074,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	//  * also record location of change address so can use AddCredit
 	l.limboMtx.Unlock()
 
-	log.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
+	walletLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
 		pendingReservation.partialState.FundingOutpoint,
 		spew.Sdump(fundingTx))
 
@@ -1188,9 +1187,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// Script executes succesfully.
 	ourCommitTx.TxIn[0].Witness = witness
 	// TODO(roasbeef): replace engine with plain sighash check
-	vm, err := txscript.NewEngine(p2wsh,
-		ourCommitTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, channelValue)
+	vm, err := txscript.NewEngine(p2wsh, ourCommitTx, 0,
+		txscript.StandardVerifyFlags, nil, nil, channelValue)
 	if err != nil {
 		req.err <- err
 		return
@@ -1270,7 +1268,7 @@ func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation)
 	numConfs := uint32(res.numConfsToOpen)
 	confNtfn, _ := l.ChainNotifier.RegisterConfirmationsNtfn(&txid, numConfs)
 
-	log.Infof("Waiting for funding tx (txid: %v) to reach %v confirmations",
+	walletLog.Infof("Waiting for funding tx (txid: %v) to reach %v confirmations",
 		txid, numConfs)
 
 	// Wait until the specified number of confirmations has been reached,

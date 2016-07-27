@@ -50,7 +50,7 @@ type channelState uint8
 const (
 	// channelPending indicates this channel is still going through the
 	// funding workflow, and isn't yet open.
-	channelPending channelState = 1
+	channelPending channelState = iota
 
 	// channelOpen represents an open, active channel capable of
 	// sending/receiving HTLCs.

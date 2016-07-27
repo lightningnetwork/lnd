@@ -442,5 +442,46 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 }
 
 func TestCooperativeChannelClosure(t *testing.T) {
-	// * add validation of their sig
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First we test the channel initiator requesting a cooperative close.
+	sig, txid, err := aliceChannel.InitCooperativeClose()
+	if err != nil {
+		t.Fatalf("unable to initiate alice cooperative close: %v", err)
+	}
+	closeTx, err := bobChannel.CompleteCooperativeClose(sig)
+	if err != nil {
+		t.Fatalf("unable to complete alice cooperative close: %v", err)
+	}
+	bobCloseSha := closeTx.TxSha()
+	if !bobCloseSha.IsEqual(txid) {
+		t.Fatalf("alice's transactions doesn't match: %x vs %x",
+			bobCloseSha[:], txid[:])
+	}
+
+	aliceChannel.status = channelOpen
+	bobChannel.status = channelOpen
+
+	// Next we test the channel recipient requesting a cooperative closure.
+	// First we test the channel initiator requesting a cooperative close.
+	sig, txid, err = bobChannel.InitCooperativeClose()
+	if err != nil {
+		t.Fatalf("unable to initiate bob cooperative close: %v", err)
+	}
+	closeTx, err = aliceChannel.CompleteCooperativeClose(sig)
+	if err != nil {
+		t.Fatalf("unable to complete bob cooperative close: %v", err)
+	}
+	aliceCloseSha := closeTx.TxSha()
+	if !aliceCloseSha.IsEqual(txid) {
+		t.Fatalf("bob's closure transactions don't match: %x vs %x",
+			aliceCloseSha[:], txid[:])
+	}
 }

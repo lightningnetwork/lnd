@@ -228,7 +228,7 @@ type openChanResp struct {
 	chanPoint *wire.OutPoint
 }
 
-// peerManager handles any requests to modify the server's internal state of
+// queryHandler handles any requests to modify the server's internal state of
 // all active peers, or query/mutate the server's global state. Additionally,
 // any queries directed at peers will be handled by this goroutine.
 //

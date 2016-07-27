@@ -1275,7 +1275,7 @@ func (lc *LightningChannel) ForceClose() error {
 // settle any inflight.
 func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error) {
 	lc.Lock()
-	defer lc.Unlock() // TODO(roasbeef): coarser graiend locking
+	defer lc.Unlock()
 
 	// If we're already closing the channel, then ignore this request.
 	if lc.status == channelClosing || lc.status == channelClosed {
@@ -1317,7 +1317,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 // a signed+valid closure transaction to the network.
 func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.MsgTx, error) {
 	lc.Lock()
-	defer lc.Unlock() // TODO(roasbeef): coarser graiend locking
+	defer lc.Unlock()
 
 	// If we're already closing the channel, then ignore this request.
 	if lc.status == channelClosing || lc.status == channelClosed {
@@ -1339,9 +1339,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	// the 2-of-2 multi-sig needed to redeem the funding output.
 	redeemScript := lc.channelState.FundingRedeemScript
 	hashCache := txscript.NewTxSigHashes(closeTx)
+	capacity := int64(lc.channelState.Capacity)
 	closeSig, err := txscript.RawTxInWitnessSignature(closeTx,
-		hashCache, 0, int64(lc.channelState.Capacity),
-		redeemScript, txscript.SigHashAll,
+		hashCache, 0, capacity, redeemScript, txscript.SigHashAll,
 		lc.channelState.OurMultiSigKey)
 	if err != nil {
 		return nil, err
@@ -1355,7 +1355,16 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 		theirKey, remoteSig)
 	closeTx.TxIn[0].Witness = witness
 
-	// TODO(roasbeef): VALIDATE
+	// Validate the finalized transaction to ensure the output script is
+	// properly met, and that the remote peer supplied a valid signature.
+	vm, err := txscript.NewEngine(lc.fundingP2WSH, closeTx, 0,
+		txscript.StandardVerifyFlags, nil, hashCache, capacity)
+	if err != nil {
+		return nil, err
+	}
+	if err := vm.Execute(); err != nil {
+		return nil, err
+	}
 
 	return closeTx, nil
 }

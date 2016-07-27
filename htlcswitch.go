@@ -173,7 +173,7 @@ out:
 					continue
 				}
 
-				hswcLog.Tracef("Sending %v to %x", amt, dest)
+				hswcLog.Tracef("Sending %v to %x", amt, dest[:])
 
 				// TODO(roasbeef): peer downstream should set chanPoint
 				wireMsg.ChannelPoint = link.chanPoint

@@ -1,4 +1,5 @@
 # lnd - Lightning Network Daemon
+[![Build Status](https://travis-ci.org/lightningnetwork/lnd.svg?branch=master)](https://travis-ci.org/lightningnetwork/lnd)
 
 This repo is preliminary work on a lightning network peer-to-peer node and wallet.
 

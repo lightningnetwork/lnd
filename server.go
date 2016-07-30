@@ -18,7 +18,6 @@ import (
 
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	"github.com/BitfuryLightning/tools/routing"
-	routingmessages "github.com/BitfuryLightning/tools/routing/messages"
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
 )
@@ -135,47 +134,8 @@ func (s *server) Start() {
 	s.wg.Add(1)
 	go s.queryHandler()
 
-	// ROUTING ADDED
-	s.wg.Add(1)
-	go s.routingOutHandler()
 }
 
-// ROUTING ADDED
-// Handles outgoing routing messages
-// Determines correct peer and forward message to it
-func (s *server) routingOutHandler(){
-	// TODO (mkl) Add copying
-	out:
-	for {
-		select {
-		// Find required peer
-		case msg :=<- s.routingMgr.ChOut:
-			msg1 := msg.(routingmessages.Message)
-			receiverID := msg1.GetReceiverID().ToByte32()
-			var targetPeer *peer
-			for _, peer := range s.peers { // TODO: threadsafe api
-				// We found the the target
-				if peer.lightningID == receiverID {
-					targetPeer = peer
-					break
-				}
-			}
-			if targetPeer != nil{
-				fmt.Println("Peer found. Sending message")
-				msg2 := outgoinMsg{
-					msg: msg.(lnwire.Message),
-					sentChan: make(chan struct{}, 1),
-				}
-				targetPeer.outgoingQueue <- msg2
-			} else {
-				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
-			}
-		case <-s.quit:
-			break out
-		}
-	}
-	s.wg.Done()
-}
 
 // Stop gracefully shutsdown the main daemon server. This function will signal
 // any active goroutines, or helper objects to exit, then blocks until they've
@@ -315,6 +275,24 @@ out:
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
 			}
+		case msg :=<- s.routingMgr.ChOut:
+			msg1 := msg.(lnwire.RoutingMessage)
+			receiverID := msg1.GetReceiverID().ToByte32()
+			var targetPeer *peer
+			for _, peer := range s.peers { // TODO: threadsafe api
+				// We found the the target
+				if peer.lightningID == receiverID {
+					targetPeer = peer
+					break
+				}
+			}
+			if targetPeer != nil{
+				fndgLog.Info("Peer found. Sending message")
+				done := make(chan struct{}, 1)
+				targetPeer.queueMsg(msg.(lnwire.Message), done)
+			} else {
+				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
+			}
 		case <-s.quit:
 			break out
 		}
@@ -434,14 +412,15 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
 		if err == nil {
 			// ROUTING ADDED
-			fmt.Println("****** targetPeer", targetPeer)
-			fmt.Println("****** targetPeer.lightningID", targetPeer.lightningID)
+			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
 			s.routingMgr.AddChannel(
 				graph.NewID(s.lightningID),
 				graph.NewID([32]byte(targetPeer.lightningID)),
-				&rt.ChannelInfo{float64(req.localFundingAmt + req.remoteFundingAmt)},
+				graph.NewEdgeID(fundingID.String()),
+				&rt.ChannelInfo{
+					Cpt: capacity,
+				},
 			)
-			fmt.Println("Added channel to routing table")
 		}
 		req.resp <- &openChanResp{fundingID}
 		req.err <- err

@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
-	routingmessages "github.com/BitfuryLightning/tools/routing/messages"
 )
 
 // MessageHeaderSize is the number of bytes in a lightning message header.
@@ -51,6 +50,14 @@ const (
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
 
+	// Commands for routing
+	CmdNeighborHelloMessage        = uint32(3000)
+	CmdNeighborUpdMessage          = uint32(3010)
+	CmdNeighborAckMessage          = uint32(3020)
+	CmdNeighborRstMessage          = uint32(3030)
+	CmdRoutingTableRequestMessage  = uint32(3040)
+	CmdRoutingTableTransferMessage = uint32(3050)
+
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
 )
@@ -71,7 +78,6 @@ type Message interface {
 // based on the command ID.
 func makeEmptyMessage(command uint32) (Message, error) {
 	var msg Message
-	var err error
 
 	switch command {
 	case CmdFundingRequest:
@@ -110,13 +116,20 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CommitRevocation{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
+	case CmdNeighborHelloMessage:
+		msg = &NeighborHelloMessage{}
+	case CmdNeighborUpdMessage:
+		msg = &NeighborUpdMessage{}
+	case CmdNeighborAckMessage:
+		msg = &NeighborAckMessage{}
+	case CmdNeighborRstMessage:
+		msg = &NeighborRstMessage{}
+	case CmdRoutingTableRequestMessage:
+		msg = &RoutingTableRequestMessage{}
+	case CmdRoutingTableTransferMessage:
+		msg = &RoutingTableTransferMessage{}
 	default:
-		// TODO(mkl): maybe it is better to put messages directly here.
-		// ROUTING ADDED
-		msg, err = routingmessages.MakeEmptyMessage(command)
-		if err != nil {
-			return nil, fmt.Errorf("unhandled command [%d]", command)
-		}
+		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}
 
 	return msg, nil

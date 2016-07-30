@@ -18,8 +18,6 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 
-	// ROUTING ADDED
-	"github.com/BitfuryLightning/tools/routing/messages"
 )
 
 var (
@@ -372,7 +370,12 @@ out:
 			isChanUpate = true
 			targetChan = msg.ChannelPoint
 		// ROUTING ADDED
-		case *messages.NeighborAckMessage, *messages.NeighborHelloMessage, *messages.NeighborRstMessage, *messages.NeighborUpdMessage, *messages.RoutingTableRequestMessage, *messages.RoutingTableTransferMessage:
+		case *lnwire.NeighborAckMessage,
+		*lnwire.NeighborHelloMessage,
+		*lnwire.NeighborRstMessage,
+		*lnwire.NeighborUpdMessage,
+		*lnwire.RoutingTableRequestMessage,
+		*lnwire.RoutingTableTransferMessage:
 			p.server.routingMgr.ChIn <- msg
 			// TODO(mkl): determine sender and receiver of message
 		}

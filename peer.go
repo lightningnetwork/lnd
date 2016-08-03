@@ -235,7 +235,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		plexChan := p.server.htlcSwitch.RegisterLink(p,
 			dbChan.Snapshot(), downstreamLink)
 
-		// TODO(roasbeef): buffer?
 		upstreamLink := make(chan lnwire.Message, 10)
 		p.htlcManagers[chanPoint] = upstreamLink
 		p.wg.Add(1)
@@ -983,6 +982,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		if state.numUnAcked > 0 {
 			state.numUnAcked -= 1
+			// TODO(roasbeef): only start if numUnacked == 0?
 			state.logCommitTimer = time.Tick(300 * time.Millisecond)
 		} else {
 			if _, err := p.updateCommitTx(state); err != nil {
@@ -1012,16 +1012,24 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			return
 		}
 
+		// We perform the HTLC forwarding to the switch in a distinct
+		// goroutine in order not to block the post-processing of
+		// HTLC's that are eligble for forwarding.
+		go func() {
+			for _, htlc := range htlcsToForward {
+				// Send this fully activated HTLC to the htlc switch to
+				// continue the chained clear/settle.
+				state.switchChan <- p.logEntryToHtlcPkt(htlc)
+			}
+
+		}()
+
 		// If any of the htlc's eligible for forwarding are pending
 		// settling or timeing out previous outgoing payments, then we
 		// can them from the pending set, and signal the requster (if
 		// existing) that the payment has been fully fulfilled.
 		numSettled := 0
 		for _, htlc := range htlcsToForward {
-			// Send this fully activated HTLC to the htlc switch to
-			// continue the chained clear/settle.
-			state.switchChan <- p.logEntryToHtlcPkt(htlc)
-
 			if p, ok := state.clearedHTCLs[htlc.ParentIndex]; ok {
 				p.err <- nil
 				delete(state.clearedHTCLs, htlc.ParentIndex)

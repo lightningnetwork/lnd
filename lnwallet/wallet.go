@@ -9,8 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntfs"
-	"github.com/lightningnetwork/lnd/chainntfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcjson"
@@ -18,7 +17,6 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcutil/coinset"
 	"github.com/roasbeef/btcutil/txsort"
@@ -234,8 +232,7 @@ type LightningWallet struct {
 	// Used by in order to obtain notifications about funding transaction
 	// reaching a specified confirmation depth, and to catch
 	// counterparty's broadcasting revoked commitment states.
-	// TODO(roasbeef): needs to be stripped out from wallet
-	ChainNotifier chainntnfs.ChainNotifier
+	chainNotifier chainntnfs.ChainNotifier
 
 	// The core wallet, all non Lightning Network specific interaction is
 	// proxied to the internal wallet.
@@ -279,7 +276,12 @@ type LightningWallet struct {
 // NewLightningWallet creates/opens and initializes a LightningWallet instance.
 // If the wallet has never been created (according to the passed dataDir), first-time
 // setup is executed.
-func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, error) {
+//
+// NOTE: The passed channeldb, and ChainNotifier should already be fully
+// initialized/started before being passed as a function arugment.
+func NewLightningWallet(config *Config, cdb *channeldb.DB,
+	notifier chainntnfs.ChainNotifier) (*LightningWallet, error) {
+
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(config.DataDir, config.NetParams)
 
@@ -344,26 +346,8 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB) (*LightningWallet, er
 		return nil, err
 	}
 
-	// Using the same authentication info, create a config for a second
-	// rpcclient which will be used by the current default chain
-	// notifier implemenation.
-	rpcConfig := &btcrpcclient.ConnConfig{
-		Host:                 config.RpcHost,
-		Endpoint:             "ws",
-		User:                 config.RpcUser,
-		Pass:                 config.RpcPass,
-		Certificates:         config.CACert,
-		DisableTLS:           false,
-		DisableConnectOnNew:  true,
-		DisableAutoReconnect: false,
-	}
-	chainNotifier, err := btcdnotify.NewBtcdNotifier(rpcConfig)
-	if err != nil {
-		return nil, err
-	}
-
 	return &LightningWallet{
-		ChainNotifier: chainNotifier,
+		chainNotifier: notifier,
 		rpc:           rpcc,
 		Wallet:        wallet,
 		channelDB:     cdb,
@@ -393,17 +377,8 @@ func (l *LightningWallet) Startup() error {
 	}
 	l.Start()
 
-	// Start the notification server. This is used so channel managment
-	// goroutines can be notified when a funding transaction reaches a
-	// sufficient number of confirmations, or when the input for the funding
-	// transaction is spent in an attempt at an uncooperative close by the
-	// counter party.
-	if err := l.ChainNotifier.Start(); err != nil {
-		return err
-	}
-
-	// Pass the rpc client into the wallet so it can sync up to the current
-	// main chain.
+	// Pass the rpc client into the wallet so it can sync up to the
+	// current main chain.
 	l.SynchronizeRPC(l.rpc)
 
 	l.wg.Add(1)
@@ -425,8 +400,6 @@ func (l *LightningWallet) Shutdown() error {
 	l.WaitForShutdown()
 
 	l.rpc.Shutdown()
-
-	l.ChainNotifier.Stop()
 
 	close(l.quit)
 	l.wg.Wait()
@@ -1251,7 +1224,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l, l.ChainNotifier, l.channelDB,
+	channel, _ := NewLightningChannel(l, l.chainNotifier, l.channelDB,
 		res.partialState)
 
 	res.chanOpen <- channel
@@ -1266,7 +1239,7 @@ func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation)
 	// transaction reaches `numConfs` confirmations.
 	txid := res.fundingTx.TxSha()
 	numConfs := uint32(res.numConfsToOpen)
-	confNtfn, _ := l.ChainNotifier.RegisterConfirmationsNtfn(&txid, numConfs)
+	confNtfn, _ := l.chainNotifier.RegisterConfirmationsNtfn(&txid, numConfs)
 
 	walletLog.Infof("Waiting for funding tx (txid: %v) to reach %v confirmations",
 		txid, numConfs)
@@ -1293,7 +1266,7 @@ out:
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l, l.ChainNotifier, l.channelDB,
+	channel, _ := NewLightningChannel(l, l.chainNotifier, l.channelDB,
 		res.partialState)
 	res.chanOpen <- channel
 }

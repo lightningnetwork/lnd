@@ -1,6 +1,11 @@
 package chainntnfs
 
-import "github.com/roasbeef/btcd/wire"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/roasbeef/btcd/wire"
+)
 
 // ChainNotifier represents a trusted source to receive notifications concerning
 // targeted events on the Bitcoin blockchain. The interface specification is
@@ -103,4 +108,75 @@ type BlockEpoch struct {
 // connected to the main-chain.
 type BlockEpochEvent struct {
 	Epochs chan *BlockEpoch // MUST be buffered.
+}
+
+// NotifierDriver represents a "driver" for a particular interface. A driver is
+// indentified by a globally unique string identifier along with a 'New()'
+// method which is responsible for initializing a particular ChainNotifier
+// concrete implementation.
+type NotifierDriver struct {
+	// NotifierType is a string which uniquely identifes the ChainNotifier
+	// that this driver, drives.
+	NotifierType string
+
+	// New creates a new instance of a concrete ChainNotifier
+	// implementation given a variadic set up arguments. The function takes
+	// a varidaic number of interface paramters in order to provide
+	// initialization flexibility, thereby accomodating several potential
+	// ChainNotifier implementations.
+	New func(args ...interface{}) (ChainNotifier, error)
+}
+
+var (
+	notifiers   = make(map[string]*NotifierDriver)
+	registerMtx sync.Mutex
+)
+
+// RegisteredNotifiers returns a slice of all currently registered notifiers.
+//
+// NOTE: This function is safe for concurrent access.
+func RegisteredNotifiers() []*NotifierDriver {
+	registerMtx.Lock()
+	defer registerMtx.Unlock()
+
+	drivers := make([]*NotifierDriver, 0, len(notifiers))
+	for _, driver := range notifiers {
+		drivers = append(drivers, driver)
+	}
+
+	return drivers
+}
+
+// RegisterNotifier registers a NotifierDriver which is capable of driving a
+// concrete ChainNotifier interface. In the case that this driver has already
+// been registered, an error is returned.
+//
+// NOTE: This function is safe for concurrent access.
+func RegisterNotifier(driver *NotifierDriver) error {
+	registerMtx.Lock()
+	defer registerMtx.Unlock()
+
+	if _, ok := notifiers[driver.NotifierType]; ok {
+		return fmt.Errorf("notifier already registered")
+	}
+
+	notifiers[driver.NotifierType] = driver
+
+	return nil
+}
+
+// SupportedNotifiers returns a slice of strings that represent the database
+// drivers that have been registered and are therefore supported.
+//
+// NOTE: This function is safe for concurrent access.
+func SupportedNotifiers() []string {
+	registerMtx.Lock()
+	defer registerMtx.Unlock()
+
+	supportedNotifiers := make([]string, 0, len(notifiers))
+	for driverName := range notifiers {
+		supportedNotifiers = append(supportedNotifiers, driverName)
+	}
+
+	return supportedNotifiers
 }

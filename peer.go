@@ -17,6 +17,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+
 )
 
 var (
@@ -377,6 +378,15 @@ out:
 		case *lnwire.CommitSignature:
 			isChanUpate = true
 			targetChan = msg.ChannelPoint
+		// ROUTING ADDED
+		case *lnwire.NeighborAckMessage,
+		*lnwire.NeighborHelloMessage,
+		*lnwire.NeighborRstMessage,
+		*lnwire.NeighborUpdMessage,
+		*lnwire.RoutingTableRequestMessage,
+		*lnwire.RoutingTableTransferMessage:
+			p.server.routingMgr.ChIn <- msg
+			// TODO(mkl): determine sender and receiver of message
 		}
 
 		if isChanUpate {

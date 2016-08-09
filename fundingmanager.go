@@ -10,6 +10,9 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 const (
@@ -614,6 +617,16 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerID(%v) is now open",
 		resCtx.reservation.FundingOutpoint, fmsg.peer.id)
 
+	// ROUTING ADDED
+	capacity := float64(resCtx.reservation.OurContribution().FundingAmount + resCtx.reservation.TheirContribution().FundingAmount)
+	fmsg.peer.server.routingMgr.AddChannel(
+		graph.NewID(fmsg.peer.server.lightningID),
+		graph.NewID([32]byte(fmsg.peer.lightningID)),
+		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
+		&rt.ChannelInfo{
+			Cpt:capacity,
+		},
+	)
 	fmsg.peer.newChannels <- openChan
 }
 

@@ -60,6 +60,7 @@ func main() {
 		GetInfoCommand,
 		PendingChannelsCommand,
 		SendPaymentCommand,
+		ShowRoutingTableCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

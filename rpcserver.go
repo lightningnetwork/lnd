@@ -482,3 +482,12 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 	return nil
 }
+
+func (r *rpcServer) ShowRoutingTable(ctx context.Context,
+	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
+	rpcsLog.Debugf("[ShowRoutingTable]")
+	rtCopy := r.server.routingMgr.GetRTCopy()
+	return &lnrpc.ShowRoutingTableResponse{
+		Rt: rtCopy.String(),
+	}, nil
+}

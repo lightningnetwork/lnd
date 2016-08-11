@@ -5,10 +5,11 @@
 package lnwire
 
 import (
-	"io"
-	"github.com/BitfuryLightning/tools/rt"
 	"encoding/gob"
 	"fmt"
+	"io"
+
+	"github.com/BitfuryLightning/tools/rt"
 )
 
 type RoutingTableTransferMessage struct {
@@ -20,7 +21,7 @@ func (msg *RoutingTableTransferMessage) String() string {
 	return fmt.Sprintf("RoutingTableTransferMessage{%v %v %v}", msg.SenderID, msg.ReceiverID, msg.RT)
 }
 
-func (msg *RoutingTableTransferMessage) Decode(r io.Reader, pver uint32) error{
+func (msg *RoutingTableTransferMessage) Decode(r io.Reader, pver uint32) error {
 	decoder := gob.NewDecoder(r)
 	rt1 := rt.NewRoutingTable()
 	err := decoder.Decode(rt1.G)
@@ -28,24 +29,24 @@ func (msg *RoutingTableTransferMessage) Decode(r io.Reader, pver uint32) error{
 	return err
 }
 
-func (msg *RoutingTableTransferMessage) Encode(w io.Writer, pver uint32) error{
+func (msg *RoutingTableTransferMessage) Encode(w io.Writer, pver uint32) error {
 	encoder := gob.NewEncoder(w)
 	err := encoder.Encode(msg.RT.G)
 	return err
 }
 
-func (msg *RoutingTableTransferMessage) Command() uint32{
+func (msg *RoutingTableTransferMessage) Command() uint32 {
 	return CmdRoutingTableTransferMessage
 }
 
-func (msg *RoutingTableTransferMessage) MaxPayloadLength(uint32) uint32{
+func (msg *RoutingTableTransferMessage) MaxPayloadLength(uint32) uint32 {
 	// TODO: Insert some estimations
 	return 1000000
 }
 
-func (msg *RoutingTableTransferMessage) Validate() error{
+func (msg *RoutingTableTransferMessage) Validate() error {
 	// TODO: Add validation
 	return nil
 }
 
-var _  Message = (*RoutingTableTransferMessage)(nil)
+var _ Message = (*RoutingTableTransferMessage)(nil)

@@ -8,20 +8,27 @@ import (
 	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
+// RoutingMessageBase is the base struct for all routing messages within the
+// lnwire package.
 type RoutingMessageBase struct {
+	// SenderID is the ID of the sender of the routing message.
 	SenderID graph.ID
+
+	// ReceiverID is the ID of the receiver of the routig message.
 	ReceiverID graph.ID
 }
 
-func (msg RoutingMessageBase) GetReceiverID() graph.ID{
+// GetReceiverID returns the ID of the receiver of routing message.
+func (msg RoutingMessageBase) GetReceiverID() graph.ID {
 	return msg.ReceiverID
 }
 
-func (msg RoutingMessageBase) GetSenderID() graph.ID{
+// GetSenderID returns the ID of the sender of the routing message.
+func (msg RoutingMessageBase) GetSenderID() graph.ID {
 	return msg.SenderID
 }
 
-// Interface for all routing messages. All messages have sender and receiver
+// RoutingMessageBase is a shared interface for all routing messages.
 type RoutingMessage interface {
 	GetSenderID() graph.ID
 	GetReceiverID() graph.ID

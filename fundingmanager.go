@@ -617,14 +617,14 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerID(%v) is now open",
 		resCtx.reservation.FundingOutpoint, fmsg.peer.id)
 
-	// ROUTING ADDED
-	capacity := float64(resCtx.reservation.OurContribution().FundingAmount + resCtx.reservation.TheirContribution().FundingAmount)
+	capacity := float64(resCtx.reservation.OurContribution().FundingAmount +
+		resCtx.reservation.TheirContribution().FundingAmount)
 	fmsg.peer.server.routingMgr.AddChannel(
 		graph.NewID(fmsg.peer.server.lightningID),
 		graph.NewID([32]byte(fmsg.peer.lightningID)),
 		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
 		&rt.ChannelInfo{
-			Cpt:capacity,
+			Cpt: capacity,
 		},
 	)
 	fmsg.peer.newChannels <- openChan

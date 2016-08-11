@@ -52,7 +52,6 @@ type server struct {
 	htlcSwitch *htlcSwitch
 	invoices   *invoiceRegistry
 
-	// ROUTING ADDED
 	routingMgr *routing.RoutingManager
 
 	newPeers  chan *peer
@@ -148,12 +147,9 @@ func (s *server) Stop() error {
 		}
 	}
 
-	// Shutdown the wallet, funding manager, and the rpc server.
 	s.rpcServer.Stop()
 	s.lnwallet.Shutdown()
 	s.fundingMgr.Stop()
-
-	// ROUTING ADDED
 	s.routingMgr.Stop()
 
 	// Signal all the lingering goroutines to quit.
@@ -406,7 +402,6 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 		// TODO(roasbeef): server semaphore to restrict num goroutines
 		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
 		if err == nil {
-			// ROUTING ADDED
 			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
 			s.routingMgr.AddChannel(
 				graph.NewID(s.lightningID),

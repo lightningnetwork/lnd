@@ -1,6 +1,14 @@
-hash: c830766cab9e452ee12d57e983d999375d2c2cdadb4f5bed4e7806b1ecd4ca9d
-updated: 2016-07-26T10:40:18.856395-07:00
+hash: 02d4ee92f22da78cae1ef93beb72f1814e12714ec4b76bc1d009769990084f83
+updated: 2016-08-11T11:35:40.811837309-07:00
 imports:
+- name: github.com/BitfuryLightning/tools
+  version: 5559e9eeb613446747dd43026ab60f63ad6eeb05
+  subpackages:
+  - routing
+  - rt
+  - rt/graph
+  - pbuffer
+  - pqueue
 - name: github.com/boltdb/bolt
   version: dfb21201d9270c1082d5fb0f07f500311ff72f18
 - name: github.com/btcsuite/bolt
@@ -38,11 +46,11 @@ imports:
   subpackages:
   - spew
 - name: github.com/golang/protobuf
-  version: 874264fbbb43f4d91e999fecb4b40143ed611400
+  version: 2c1988e8c18d14b142c0b472624f71647cf39adb
   subpackages:
   - proto
 - name: github.com/howeyc/gopass
-  version: 66487b23f2880ba32e185121d2cd51a338ea069a
+  version: b63a7d07e65df376d14e2d72907a93d4847dffe4
 - name: github.com/roasbeef/btcd
   version: baea7691cc3c59480703fe1a3fb5595c838c963c
   subpackages:
@@ -71,9 +79,9 @@ imports:
   - waddrmgr
   - wallet
   - walletdb/bdb
+  - walletdb
   - internal/zero
   - snacl
-  - walletdb
   - wtxmgr
   - internal/prompt
   - wallet/txauthor
@@ -85,7 +93,7 @@ imports:
 - name: github.com/urfave/cli
   version: 1efa31f08b9333f1bd4882d61f9d668a70cd902e
 - name: golang.org/x/crypto
-  version: bc89c496413265e715159bdc8478ee9a92fdc265
+  version: 595bbbd7f5f308415a544d3c55743c91427c8d99
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -96,7 +104,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 9f2c271364b418388d150f9c12ecbf12794095c1
+  version: 075e191f18186a8ff2becaf64478e30f4545cdad
   subpackages:
   - context
   - http2

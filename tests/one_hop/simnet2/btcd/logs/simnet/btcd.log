@@ -1,0 +1,373 @@
+03:43:40 2016-08-11 [INF] BTCD: Version 0.12.0-beta
+03:43:40 2016-08-11 [INF] BTCD: Loading block database from 'data/simnet/blocks_ffldb'
+03:43:40 2016-08-11 [INF] BTCD: Block database loaded
+03:43:40 2016-08-11 [INF] CHAN: Chain state (height 0, hash 683e86bd5c6d110d91b94b97137ba6bfe02dbbdb8e3dff722a669b5d69d77af6, totaltx 1, work 2)
+03:43:40 2016-08-11 [INF] SRVR: Server listening on 0.0.0.0:18555
+03:43:40 2016-08-11 [INF] SRVR: Server listening on [::]:18555
+03:43:40 2016-08-11 [INF] AMGR: Loaded 0 addresses from file 'data/simnet/peers.json'
+03:43:40 2016-08-11 [INF] RPCS: RPC server listening on 127.0.0.1:18556
+03:43:40 2016-08-11 [INF] RPCS: RPC server listening on [::1]:18556
+03:44:14 2016-08-11 [INF] RPCS: New websocket client [::1]:50139
+03:44:25 2016-08-11 [INF] BTCD: Received signal (interrupt).  Shutting down...
+03:44:25 2016-08-11 [INF] BTCD: Gracefully shutting down the server...
+03:44:25 2016-08-11 [WRN] SRVR: Server shutting down
+03:44:25 2016-08-11 [WRN] RPCS: RPC server shutting down
+03:44:25 2016-08-11 [ERR] RPCS: Websocket receive error from [::1]:50139: read tcp6 [::1]:18556->[::1]:50139: use of closed network connection
+03:44:25 2016-08-11 [INF] RPCS: RPC server shutdown complete
+03:44:25 2016-08-11 [INF] BMGR: Block manager shutting down
+03:44:25 2016-08-11 [INF] AMGR: Address manager shutting down
+03:44:25 2016-08-11 [INF] RPCS: Disconnected websocket client [::1]:50139
+03:44:25 2016-08-11 [INF] BTCD: Gracefully shutting down the database...
+03:44:25 2016-08-11 [INF] SRVR: Server shutdown complete
+03:44:25 2016-08-11 [INF] BTCD: Shutdown complete
+03:44:35 2016-08-11 [INF] BTCD: Version 0.12.0-beta
+03:44:35 2016-08-11 [INF] BTCD: Loading block database from 'data/simnet/blocks_ffldb'
+03:44:35 2016-08-11 [INF] BTCD: Block database loaded
+03:44:35 2016-08-11 [INF] CHAN: Chain state (height 0, hash 683e86bd5c6d110d91b94b97137ba6bfe02dbbdb8e3dff722a669b5d69d77af6, totaltx 1, work 2)
+03:44:35 2016-08-11 [INF] SRVR: Server listening on 0.0.0.0:18555
+03:44:35 2016-08-11 [INF] SRVR: Server listening on [::]:18555
+03:44:35 2016-08-11 [INF] RPCS: RPC server listening on 127.0.0.1:18556
+03:44:35 2016-08-11 [INF] RPCS: RPC server listening on [::1]:18556
+03:44:35 2016-08-11 [INF] AMGR: Loaded 0 addresses from file 'data/simnet/peers.json'
+03:45:16 2016-08-11 [INF] RPCS: New websocket client [::1]:50144
+03:45:16 2016-08-11 [INF] RPCS: Beginning rescan for 2 addresses
+03:45:16 2016-08-11 [INF] RPCS: Finished rescan
+03:45:21 2016-08-11 [INF] CHAN: block 0feab7365bd6a5c11b4d8b95f6e9b04db5c66058a95637501f7152d333b53890 took 24.711µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3566c48fa679afb61764a22d22515df9e3b9bbe45e52305a5b4afe30ff9317b4 took 2.051µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3566c48fa679afb61764a22d22515df9e3b9bbe45e52305a5b4afe30ff9317b4, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a273a67e37d26a3d6e2c033c1e7ec2d9900cae647688acec3130b4b69ebebae0 took 26ns to verify
+03:45:21 2016-08-11 [INF] CHAN: block 09ed376d7550e2581a70e3bf9ddd17acdc4dc76cbca4839bb22882ae4d326688 took 2.181µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 09ed376d7550e2581a70e3bf9ddd17acdc4dc76cbca4839bb22882ae4d326688, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 856e1bfc742237258873d7dda5d31a63b40f8846d5c0b27f0356e0bf7ec71c9f took 1.821µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4860a55fc8a9a718bace33eb3caabe5e417ed54ccdf0e8c563eabe7aca0f0c98 took 1.8µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4860a55fc8a9a718bace33eb3caabe5e417ed54ccdf0e8c563eabe7aca0f0c98, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7303754cbd9893a1ca4cdebb22d16501113e3a1437407a0d9b4eb3bb65c97cc2 took 2.213µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4f09a68a82b212a5c4aae8c7e3b9ac40b2a6f6dd8873a7ecf3208ced0c467fac took 23.428µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4f09a68a82b212a5c4aae8c7e3b9ac40b2a6f6dd8873a7ecf3208ced0c467fac, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 1ae2663d10e61f41cb442635bdfea28b0f0715a6f9b7460a8880059c01f17be2 took 2.259µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 7d242837be37dbd7fa9a960eded59e624290728a912f492cb94918732a1cd2d4 took 1.951µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 7d242837be37dbd7fa9a960eded59e624290728a912f492cb94918732a1cd2d4, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 3d2053a0255457d949e4ec0deadc3ab0e30c450ea989040be7eee169a6f48b48 took 1.824µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 68f03b86aae7e9e12ea4d7ad58b7e564185e160ab49d91db622364979b09dc35 took 2µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 68f03b86aae7e9e12ea4d7ad58b7e564185e160ab49d91db622364979b09dc35, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 8df5b916a868f239b8f21e8631edd91beeebe9d74c44b5784ddbab40004de729 took 12.511µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 455d255d5eedbf3f756fca11ab9b20f3f3aad2a985667bfa3e56c6281f309f7d took 1.986µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 455d255d5eedbf3f756fca11ab9b20f3f3aad2a985667bfa3e56c6281f309f7d, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 96e6f56dcd24d3b5b31c116f3d67431968c3b823c894b3e24e9b38e075a45739 took 1.823µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 78f1b501be8419200483509d1648ac45c866bf9b8fe5adac1ec5496af1e812d0 took 59.614µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 78f1b501be8419200483509d1648ac45c866bf9b8fe5adac1ec5496af1e812d0, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block c74cf7db3fe8d53ba020aac710bd3be3e6895e1476a56820135a3a47a269b072 took 2.003µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4d4d0ed6bab375318ba7d5612bc6fa8d372d7a88c355683ea3033e41168899a3 took 155.741µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4d4d0ed6bab375318ba7d5612bc6fa8d372d7a88c355683ea3033e41168899a3, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0bbc77701c6a37633867b608546b229ccd449fcc245f10e51b432831a14253fd took 2.076µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 6e4b7dd34d175db6af27cbbb727c917943c2782e6733ca2cdd1a4903e44c32d7 took 1.949µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 6e4b7dd34d175db6af27cbbb727c917943c2782e6733ca2cdd1a4903e44c32d7, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block f38b6d3f3eb5058a736efeb053c72bb1bea037bc20ef90613b397c32397cc62b took 22.891µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 00398c4fa0a1dd88b8816801c1e7e3ba4dfb8f430a8ab26acec16beb607b03be took 311ns to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 00398c4fa0a1dd88b8816801c1e7e3ba4dfb8f430a8ab26acec16beb607b03be, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0efb89d64e1426382e73ed9b83c58718daa50db54c8b16e0d2af93a576842643 took 1.853µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 0ce32e1773c4607df71d6f09db7b5634e5ebff3dd86a273a6e1f6501d1333f1f took 2.28µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 0ce32e1773c4607df71d6f09db7b5634e5ebff3dd86a273a6e1f6501d1333f1f, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 3882f55137fe721ae389826e0b687fe0cce7b3057d8c45908eb33b894323849a took 1.809µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 0c8d7135d1d72e98df68bb8c7f6026a3d231565bbb622ad3b19158bda5a36df8 took 1.944µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 0c8d7135d1d72e98df68bb8c7f6026a3d231565bbb622ad3b19158bda5a36df8, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 265e75f48550a2016ca2b3692bc4bf03b475acb194cd8a79cf77ba6bc43cc6ee took 11.248µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 13dc2c8f3488bc1cab35b5de48dd8f3fee2f0752b33fc8e59d54b401069ed98c took 2.035µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 13dc2c8f3488bc1cab35b5de48dd8f3fee2f0752b33fc8e59d54b401069ed98c, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block ac78352d99435393abfba422f5f10b57869fe7c8f0609b5ff1892d0d1fdeadb2 took 12.632µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3fb693587b28f1ff0831d36d2d73ddd6a3b3c703b39b5faab31db12d736b9a04 took 23.028µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3fb693587b28f1ff0831d36d2d73ddd6a3b3c703b39b5faab31db12d736b9a04, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 2cc910731d9a2217722f824fa48f56d69dc33d85d1271a3332955a151c37d9bf took 51.127µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 27843943b2975664b9c75c6662a386eea591cf8779dac8df4a28614f507f13e6 took 2.071µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 27843943b2975664b9c75c6662a386eea591cf8779dac8df4a28614f507f13e6, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 6ea079da307824074f97d40b1a26281176c6b8adf81508262567ed1e9081995a took 1.704µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1495f47ef896191c4c780365e2328aa9b42006dd0d424f617ad0498bc44b086a took 1.634µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1495f47ef896191c4c780365e2328aa9b42006dd0d424f617ad0498bc44b086a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0be35c4b77bf51922a0524c0083b9338ad48401ca64b8c34854d33af298bcfac took 2.773µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 36f622c751fe4a52ba50c340d6d03fd5338682dbc7b331bd675bfbe6855047c5 took 2.802µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 36f622c751fe4a52ba50c340d6d03fd5338682dbc7b331bd675bfbe6855047c5, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7cf5d41b786f62818bd156efa9820029df3a59e98a412b00d4086143e03325c9 took 48.344µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 532c98a32bf73b5727d7ad0b48d6c3616704ac75b8480df538a10ea163cd74dc took 1.904924ms to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 532c98a32bf73b5727d7ad0b48d6c3616704ac75b8480df538a10ea163cd74dc, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0e9dac08738b1d677012901bac47237347fb5c68662a4e4bca7df81da73c91c5 took 2.606µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 55171d071ab94234393e7363f9864a15c434217815a3996d7ae35309c7aa2f48 took 1.966µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 55171d071ab94234393e7363f9864a15c434217815a3996d7ae35309c7aa2f48, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 9ba786d2ac97bed2733022e7932d37fab9bb7ffa6028ba08154165cdace4b9ff took 1.88µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 389b836a4170c1429794ac1b20b4a816f19e9f2067b775eb2edf739ced478bdd took 2.086µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 389b836a4170c1429794ac1b20b4a816f19e9f2067b775eb2edf739ced478bdd, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 2fe0d681406fd364197eec0a72deb6681519f6fe5c70c4af756eff6255d19915 took 1.977µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3ebc2b4aaac34e53a6aab4e71670db3e411c8572ccfbbee5184760252cf7e645 took 1.724µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3ebc2b4aaac34e53a6aab4e71670db3e411c8572ccfbbee5184760252cf7e645, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 40e4a67743578bd8c58d92a797bde7e2d85f209fe8ea5ae98520e046bc8742bf took 1.785µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 60d1f7b45f8f020b7cc6c93a6da1871d70b7aaa4f2792ef3d9437158ccff2ef2 took 1.833µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 60d1f7b45f8f020b7cc6c93a6da1871d70b7aaa4f2792ef3d9437158ccff2ef2, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block ad30a61441d523b9354532e176038cdf156ae461592095041d835e23cf366eaf took 2.045µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2d32d9d927557f1ee48b436a6fa798e8e9cfe0a03c3995fed72276ca11737e5a took 1.74µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2d32d9d927557f1ee48b436a6fa798e8e9cfe0a03c3995fed72276ca11737e5a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 34ec90bec481cacfa6fc760e8ce24619497494dc6f16117f528175248f1fd4f1 took 2.027µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3c90031791f0e7e2f8a5f6c10cae11f851e815d6303ee2ab37afbe924fa1fdd7 took 1.708µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3c90031791f0e7e2f8a5f6c10cae11f851e815d6303ee2ab37afbe924fa1fdd7, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7146db80e95f043b74e076fa32c3225030c4e17f422225190ea0dd4419a58b7c took 1.663µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 26b5fa79c5aa0178c4209e70f8f8db6452fbff7181efc51912abb1f14cb43dff took 1.755µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 26b5fa79c5aa0178c4209e70f8f8db6452fbff7181efc51912abb1f14cb43dff, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block ded04a05c9605fba48a760958fdd8c16a1c18acc40abdf2ceb124788d6ae2448 took 1.797µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4258ebf702b987ae34aee2f32da2234ffac455ecf273dff1838ee4b9cb81f30b took 1.946µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4258ebf702b987ae34aee2f32da2234ffac455ecf273dff1838ee4b9cb81f30b, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 90d5944a0368762825ffcd1077d5b9518eff68a449f0022f66cca796871c7f2a took 2.025µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 211e1d1cc601e8e59763a90b1e54062b8fb1aa31c171d5c5dfec908a5e87eb8f took 1.776µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 211e1d1cc601e8e59763a90b1e54062b8fb1aa31c171d5c5dfec908a5e87eb8f, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 27b0efcd3de40cff4d86800f3c8493f360b567a2ab0568c325b30f5faf1c3317 took 1.446µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 0e2b11a18eba91536fb132e9f92401c323ce6b41d7abb38e335c2875515b154c took 1.379µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 0e2b11a18eba91536fb132e9f92401c323ce6b41d7abb38e335c2875515b154c, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block fe9361acefd3c372b45319b5b4d5ab57f84fdea6c177c8b783a4846c1f5b0411 took 1.211µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 29e755c48a0c95aa498a8137bb016bc8d2eff1c436bb2a42f64f2bc78c242174 took 1.542µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 29e755c48a0c95aa498a8137bb016bc8d2eff1c436bb2a42f64f2bc78c242174, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 2a4d3d1a188087f8c45b24320e61ac9da251d4824ddf95ece7ec7664a10344f3 took 1.017µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5dfa2850fd798240f86339c702171203a678b6af3e53325ee197008cc9b21e48 took 24.613µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5dfa2850fd798240f86339c702171203a678b6af3e53325ee197008cc9b21e48, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 823fb23ead5a52b15550c7f2aa9ef4514a2ff8b701802d8563a9cac9757a60aa took 22.809µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4e779d2139de5689efa6ee2bb5346c9e0734af6f6a6acc9122c2ab882bf292f7 took 22.972µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4e779d2139de5689efa6ee2bb5346c9e0734af6f6a6acc9122c2ab882bf292f7, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block f47935eaefc273c0a8f8054372c7c69b2ce9db1db30d8bf3673be68bc859fedd took 1.777µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 509ed9d5d2824ec1192542076acdf17586015972d0a4978655adccb1c50cfcb5 took 209.899µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 509ed9d5d2824ec1192542076acdf17586015972d0a4978655adccb1c50cfcb5, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block f13ec055e60b06df49b46117c3373f9c902e712c660b80746b86a2b1102dc779 took 1.771µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 6d96866ebc72cb03e41aa3c8334b447151b101641ab414c55e4c6c0715f64955 took 253.858µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 6d96866ebc72cb03e41aa3c8334b447151b101641ab414c55e4c6c0715f64955, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block ac50e673c2b0772977abd97f05d1507ba49891eb61f7e14ce09e845233c22d24 took 2.235µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5a79fcb850fba2cc947d03fbfc717b2aaa5b6fc1b8c5eaf844a708b1cd5a5ae5 took 139.684µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5a79fcb850fba2cc947d03fbfc717b2aaa5b6fc1b8c5eaf844a708b1cd5a5ae5, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 6fa6a82a5a5bdde28dcbfeba96893948c7cbcc60b9faa3c4043323c6e76297ba took 2.24µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2759725a903a0d7399c88cc7721c66d7d06e02f526044b345c3b31b68d74f97c took 1.958µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2759725a903a0d7399c88cc7721c66d7d06e02f526044b345c3b31b68d74f97c, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block cf59fc4a08325bccf7f9f4935b017607f9d96eaa50a26e0c6e98ee64177e37a8 took 1.745µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 6d728962c52ed7fd8d7468fcbc66a0c2331c3d12e544fac285cfad939608bb90 took 1.706µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 6d728962c52ed7fd8d7468fcbc66a0c2331c3d12e544fac285cfad939608bb90, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 6f213739e6d6375c1d4003926d9020a695bcc3c26758cc84639ccbfb86bee4ff took 1.857µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 440e7815241a4a93bf41e290d5cda79b44d6104b38d6e5298f508e8efc41e1aa took 3.325µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 440e7815241a4a93bf41e290d5cda79b44d6104b38d6e5298f508e8efc41e1aa, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 89e861580aa5d3f674841a75953733a878208ee43ca8a32dd541f73f71cad24d took 2.527µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 395dc600e6c17253a7ca4f8cdc3ee1ff366de2403a14b707dd45d7a2e1154c8d took 2.219µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 395dc600e6c17253a7ca4f8cdc3ee1ff366de2403a14b707dd45d7a2e1154c8d, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a786aea06b3ea9b68fac2b15bcc03461699b5214721cbf2a6628868149ef6c21 took 1.896µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4307663bb0d6ed20d68eba196590472ef178fb089be2d90fec6e8d955d963a25 took 1.657µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4307663bb0d6ed20d68eba196590472ef178fb089be2d90fec6e8d955d963a25, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 002d0a60fa65d73658f1ac2ff1f5d7a50902aad22e65d19f3b1e4252534e3240 took 24.918µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 53987a1fa1e3d1202cc1021a027c1bfd8415334dfd3f696d06248cb6c2e6fed2 took 31.831µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 53987a1fa1e3d1202cc1021a027c1bfd8415334dfd3f696d06248cb6c2e6fed2, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 37c8f92c3afdecfff09960ac5284861f0fb54237de827545fcfecb1f5827fdd4 took 23.97µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4cdefc9da19aacef9836637f7a3aa3f6d822f658a3f6e932947e3d8641436c51 took 1.662µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4cdefc9da19aacef9836637f7a3aa3f6d822f658a3f6e932947e3d8641436c51, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 9b4ab8a565fb87ff6b68e19fff8a7d7d079a64146d90a9704de1247153072226 took 1.929µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4c89667b3c5bfc14b4d31b50028cb0afde1fd0e9cd2444cf29538d1df1a9fbd1 took 8.525µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4c89667b3c5bfc14b4d31b50028cb0afde1fd0e9cd2444cf29538d1df1a9fbd1, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block eddc5dcffc170460741e13040f55cc472337bea425bbb35576f338f37993ebe3 took 168.534µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3e89a4353f1ba5db6611ae414a612c250f0d1066eaa2ce07d7ff842571dd546e took 3.178µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3e89a4353f1ba5db6611ae414a612c250f0d1066eaa2ce07d7ff842571dd546e, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block dc49b99e4cf05b49b578a362438d84b51c916060d1cd0dafda76a48f19d302b0 took 2.917µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2ba2590a92a2c213295ee4c83b5fb512e81f5413617f2b9d9269aa7285b3044b took 3.314µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2ba2590a92a2c213295ee4c83b5fb512e81f5413617f2b9d9269aa7285b3044b, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block db903f49c9a9f6b0270f66ad151f28079da274a9e77fecbe54e30cc118a8309f took 3.461µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 40cdcf93606c383eaa2b650d2fadd89ee46dce9ee6138b3205373b72f92c0361 took 2.544µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 40cdcf93606c383eaa2b650d2fadd89ee46dce9ee6138b3205373b72f92c0361, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block c176b13cc3378e73753e5c92c607f0380f2c8188251b913389c526f9ab4116ea took 5.298µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2716d68d551f1d9d4ef2adcba9cf551afd2f419d1272835ff1a0329c3abfa805 took 1.753µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2716d68d551f1d9d4ef2adcba9cf551afd2f419d1272835ff1a0329c3abfa805, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 8453071b004a66c32a8b0d760d0774a3dea98f7dbc304311330318a399ef083d took 2.141µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 363e8a6d209214885538a351488dbcba951cb7040b24c0558bed5c44f7492e04 took 1.668µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 363e8a6d209214885538a351488dbcba951cb7040b24c0558bed5c44f7492e04, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 95a25fee5ce70ebdc064ccaabed69c3d8ea457937d0a28129cc6fc52b70547e5 took 2.085µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5595ecac21488608fbfcc5769bb409563dc11cb0cadb4e400e91d3d18018d0bf took 2.054µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5595ecac21488608fbfcc5769bb409563dc11cb0cadb4e400e91d3d18018d0bf, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block e4d1a66c93cc212cc6160ef900a34b8136a462e67bdf50ac26ac7ac61ccae62e took 1.797µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 43920d0d4f33f96da13b2d48814e5f688a1f8be730600dd99c455e4fb02b1412 took 1.895µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 43920d0d4f33f96da13b2d48814e5f688a1f8be730600dd99c455e4fb02b1412, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a3170d2b56b0d78852460bddc70b10ec8c6d0d3bba66fb43d67a157a28b27608 took 2.136µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2ac2e8d678cadeacfeb398d2c53affa4af5a163f1a661d944883f42dda067679 took 1.887µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2ac2e8d678cadeacfeb398d2c53affa4af5a163f1a661d944883f42dda067679, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 6ac05639b372fcbacd46c05bf955006975e6266f580130abf556298283fab525 took 1.667µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1effc36d5a645a6fa9ff9ffc13946ea142d28786913d549e1fc24941c221bb6f took 2.191µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1effc36d5a645a6fa9ff9ffc13946ea142d28786913d549e1fc24941c221bb6f, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block e7b798e7028a4a83a3c9eaeb5285621d3236fb3e07fc026ea097de3fa6b11582 took 2.088µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 52d1ab9061294a4816dbb9226589978361b61ae04b27627c8e99977e34e59913 took 2.03µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 52d1ab9061294a4816dbb9226589978361b61ae04b27627c8e99977e34e59913, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a7de29d4118da67f5eb964e4be430f0aa5fe92a7d79f5b57a4ac6269b3c594dc took 1.698µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4ee34fdd17bf6c6537fd77bff11d13d159f1e33973c91dbcd8d100c1a0a90664 took 1.648µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4ee34fdd17bf6c6537fd77bff11d13d159f1e33973c91dbcd8d100c1a0a90664, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block e82b1aba48e1820c9f8f309b8513c0305c5d274dbc3dd9b3122a02e3b861df97 took 2.033µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2162ff4a8a86d813e159080820ea98cf5ac744622c414cfdd1aaf99c52b8dd47 took 1.856µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2162ff4a8a86d813e159080820ea98cf5ac744622c414cfdd1aaf99c52b8dd47, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 295efb104beabd36a3472fdae5a7865939be46bf6cc175d041b9d0d908536d8c took 1.737µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 4602ca6004fa883f8793547d434f5351f5e68e8932a18aad36dd4b7a68a8cae0 took 1.884µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 4602ca6004fa883f8793547d434f5351f5e68e8932a18aad36dd4b7a68a8cae0, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block af964969b30b79047bad416932fe4f14a4137ef51c19e35397a32cb6cc9b6ac0 took 2.163µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3fdfc79b800d6e15950dcd7913edfcc624a1263f6e81b21ff3051f17ac6a6e18 took 1.846µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3fdfc79b800d6e15950dcd7913edfcc624a1263f6e81b21ff3051f17ac6a6e18, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 3f59a0afd5370b12953642c0885eec3e9fd4521fd50704fef3f3ff3ccfff6445 took 1.807µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 18ade8534e04b04c7ea599c918fdbad9cafeca83645a2da960cf2326f84df558 took 2.267µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 18ade8534e04b04c7ea599c918fdbad9cafeca83645a2da960cf2326f84df558, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 9831f8437c02eabcc8e27bfa07467f7c292ccb4bd268f1bcf6137e7fb0b3b4fa took 1.737µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 27c961d788aea41172fac03c8e4758554fbc2a170337c9086a4a6ed342ccb177 took 1.938µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 27c961d788aea41172fac03c8e4758554fbc2a170337c9086a4a6ed342ccb177, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7e0a31836acd85e94579702d2fb46048bb2ac8731c451c404b39662baf31b48f took 2.008µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 15cf21a97beab0d57da1a7a2ecafed33b734380325d960538ee7e7c62d236d66 took 1.542µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 15cf21a97beab0d57da1a7a2ecafed33b734380325d960538ee7e7c62d236d66, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 58e44c9a49cfada458f8d500151d77c0439c5e1f8207b85bd58d2873756ab257 took 1.649µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 22b163bdf19d930a8c6f576671a3cbbb313f2afcbec29e651c719a5cab2bea97 took 1.832µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 22b163bdf19d930a8c6f576671a3cbbb313f2afcbec29e651c719a5cab2bea97, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block fe48c659f4e4737b81eee6fe35c324ce7c5cdce7204066951e50f0912e241fb9 took 2.054µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 47da9aa67f05b916927af7e5b84bb4edfc871317d42f5be3129e1fac09c451c6 took 1.681µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 47da9aa67f05b916927af7e5b84bb4edfc871317d42f5be3129e1fac09c451c6, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 1924b5a53400c0050399fa7f2ecd67292daf78df9b76acdaa96c6e7c0fc2d835 took 1.606µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 49de5fe7216a4855b607dd3b3f137675232be4fd820efc1a5b3d2dad224576af took 1.852µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 49de5fe7216a4855b607dd3b3f137675232be4fd820efc1a5b3d2dad224576af, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 2fc1adfc32b988d65e54c21669954d7e71a16cc3a6a84947510715311610f60f took 1.904µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 68634039e884840f1cb73f174ee69ae33b5f83e0ab75692782c0cee10b6d8c28 took 1.709µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 68634039e884840f1cb73f174ee69ae33b5f83e0ab75692782c0cee10b6d8c28, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 08260f2a9216a575c7d4dfe15922873336bb4f2798099a1b549f8477c6e0a181 took 2.019µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 3259d7c6e06deea6d17e057036bdb39ef6c6e6ec669ef49493b6eaef8e004449 took 1.885µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 3259d7c6e06deea6d17e057036bdb39ef6c6e6ec669ef49493b6eaef8e004449, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 23ebc34e9c83758d6050b6e437076dac8fb28fcfc4a40dbee5b738dd3629d43f took 2.042µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5fade8289b879389851107f69ac20cb1fc9aceb3b8e8efe6a1d54e67e1112cd4 took 1.919µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5fade8289b879389851107f69ac20cb1fc9aceb3b8e8efe6a1d54e67e1112cd4, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 5492a8e481dddfce076f17610e41c0e4a48d9a5b8276fd8f0c2559fb0c656b86 took 1.859µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 6f13e7ae4362858cf5334f4157941967514ddd212fe7bc4f74c8acb7c6d534f1 took 1.829µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 6f13e7ae4362858cf5334f4157941967514ddd212fe7bc4f74c8acb7c6d534f1, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 821ccd85cc8b16ad4c7198d1fd40e4087af4779c86a4a697b2fa1faa968e3709 took 2.191µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 14ee8ccfdfede58bb5aed461dcde5c5cdbec9ed0783d45ef2550aee71d8d8006 took 2.255µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 14ee8ccfdfede58bb5aed461dcde5c5cdbec9ed0783d45ef2550aee71d8d8006, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 2e4bef3eb31e5a3c415b87d3ff858b1a5c3c1524e9a3f84ef1326f9d66a35a8d took 2.119µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 417b6a5fe6e5ccc7c2363bbf553ab0ad5418ad3e0f53e637ff401ae378523c30 took 2.114µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 417b6a5fe6e5ccc7c2363bbf553ab0ad5418ad3e0f53e637ff401ae378523c30, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 661e3b136461bafb19a3a81605e06695c3fdb53afd0672e09a1829434c99149e took 2.376µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 069bee26f530e9f09e9a1dec8cd8f7ae6f7c46a2694dc35ec8a3f55143f1abfc took 1.832µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 069bee26f530e9f09e9a1dec8cd8f7ae6f7c46a2694dc35ec8a3f55143f1abfc, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a51a26dc97e73591a44857acff848862ed3d87559f4b9f6f269965582580d671 took 1.962µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 678fffcd456d72e58c8e16a1916b1a803615b521ac31dfbfaaf0eba0e117cdea took 1.949µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 678fffcd456d72e58c8e16a1916b1a803615b521ac31dfbfaaf0eba0e117cdea, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block c613b5ecb71f28f40aab7d1eff85df341ea691757391f4388c9086bcfce0ed01 took 1.635µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 73389d306f94844f3eda8e3dd77e492622b16a0ffea8dd6e95f47f1b2af625fb took 1.742µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 73389d306f94844f3eda8e3dd77e492622b16a0ffea8dd6e95f47f1b2af625fb, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 4df90f016b61a4deaf4b0a97da6800727ce176b768afd70747492f514a5ab921 took 2.86µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1da8613ccaed47f26d9bf79e175ca3ba8ccafbd85f81eda0f3a575463019662e took 156.333µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1da8613ccaed47f26d9bf79e175ca3ba8ccafbd85f81eda0f3a575463019662e, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 768a095a0c1b01548c38dcb505fef4e651834b542bf4ec409fb942d8c6d067a0 took 2.627µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5a46c0fb0d22bf618ed499ea4cf334131503500f61411a3e0a23973d4cc7b72c took 2.804µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5a46c0fb0d22bf618ed499ea4cf334131503500f61411a3e0a23973d4cc7b72c, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 3a31ddbdbdccdcfcc09d6a913fd484cbad6df21766a866651cf110c9457e5a32 took 2.553µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 664bdf59757946f733ad0075fefadcc8803ea73a545f9fb29fa6ddf4d990ef33 took 2.566µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 664bdf59757946f733ad0075fefadcc8803ea73a545f9fb29fa6ddf4d990ef33, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block d897351755e1e6d1ef7c5e76ab053ea1d980a4ad749ac71ed913b6913bc0cb80 took 2.443µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2ed55fc7ab7109d47a5b4ce2e6348458419924c8ddacdcf73191ad42a846b32a took 2.617µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2ed55fc7ab7109d47a5b4ce2e6348458419924c8ddacdcf73191ad42a846b32a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 92a03cd0cdb6d3b14f943647434070974dba45ba5b2fdfd3389bd33cddfe5c26 took 2.49µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1995b1949a7aea6dc054812688ea7e93b303208e5f2069b367dfa81e646294ff took 2.47µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1995b1949a7aea6dc054812688ea7e93b303208e5f2069b367dfa81e646294ff, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 5e5ad24e0e60d8762102e58cf3082449f81bc3d43d30912cfe27a5be577abf6d took 5.839µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 34d46e22d6c5ef2c2236cbc9ccbe6c28f40b2fc835ff3e89a53d2965c3a3524a took 3.162µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 34d46e22d6c5ef2c2236cbc9ccbe6c28f40b2fc835ff3e89a53d2965c3a3524a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 73fc3bcff99f3b31dfaf2c427cbc694c87e00abcc1234169c8bbb4ce19c9679f took 2.736µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 264f3bb1b2aea6ab6c32ede5a379b97f3f66d19ef1d5ca3626ce30347d47de53 took 2.591µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 264f3bb1b2aea6ab6c32ede5a379b97f3f66d19ef1d5ca3626ce30347d47de53, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0c9b3996d025a4f660ee38e4fb4168962a9b2ea56f82ec6d3df0650fbcd49767 took 2.793µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 16fffc3dbf2f989be43f4dfa83e68c14edf5c3a204459a8eb4dc10614cfc685d took 2.584µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 16fffc3dbf2f989be43f4dfa83e68c14edf5c3a204459a8eb4dc10614cfc685d, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a5ff2411b545b9fc1da6e87f3d99886c82362154bd6b961d0cd40493f6cf31a6 took 2.997µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 11844cc462e4a479522ef26ee567b2ca6ec94b19214031e0f2c56ef34d364d97 took 2.467µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 11844cc462e4a479522ef26ee567b2ca6ec94b19214031e0f2c56ef34d364d97, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 48e1fd0b77ca65926a1609b25e3d8d2aa41a865ed360beba2cb915e456e5c20c took 1.655µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 66a61c187792e48087c1d5c7e5871b8d38f09d86e7d22d39328690e90e92a7dc took 1.564µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 66a61c187792e48087c1d5c7e5871b8d38f09d86e7d22d39328690e90e92a7dc, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 8e4e94f3fb38f23c0e25dccc02d8f8aab56e9374cfea73e356683f22bc031268 took 2.074µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 276dffd4c0e8aed0a965ce4fbed01a2ffdcdc69485f0ece752fd76a34b746f4d took 1.625µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 276dffd4c0e8aed0a965ce4fbed01a2ffdcdc69485f0ece752fd76a34b746f4d, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block ed87400cdb7fd071574024f4810425c4367c66bd48fc2e2641b8b7f68a30cae6 took 124.474µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1726b4acf08dcba60321994cb208193ece76fda6b8c7c805e7b478adb148092a took 2.201µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1726b4acf08dcba60321994cb208193ece76fda6b8c7c805e7b478adb148092a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a333207d4f200fb0d2285554b60cc014f819fb8b8bfa9e79268f1e47a493a3be took 1.777µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 71cd885de75abb0c7bdc6ca9216692a7c5d91d5fb5507617047c2598e46326a9 took 2.198µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 71cd885de75abb0c7bdc6ca9216692a7c5d91d5fb5507617047c2598e46326a9, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 9433e672001f1c8876f2fc11df15e6a7ab9787a792db3e810d1ab12e04a917ef took 1.763µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 69df37d22eabd2b9a1977a70c858fda0d79ac620f9223babe365fd269203eb8a took 1.807µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 69df37d22eabd2b9a1977a70c858fda0d79ac620f9223babe365fd269203eb8a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 164a02ed26a2e6105283fa5ad212ec90f4d5a817a8c9d30d1a3bf84df8b27896 took 1.823µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5cf571664d8be546b60d8aa5e102553a5f345ab31eee558c39895e3be142b98b took 1.814µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5cf571664d8be546b60d8aa5e102553a5f345ab31eee558c39895e3be142b98b, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7337523f824ae9c07d9a5d3c1e3ccb00d00b61633b487342a6f879f7193adebf took 2.636µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 5505fda883b33e23f3df6702ec18efbc7d7bf9e852590f47488878c98233e8dc took 1.936µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 5505fda883b33e23f3df6702ec18efbc7d7bf9e852590f47488878c98233e8dc, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 52ef18f4d6e251475a7389d01f5226e7fc75bf285fb1953fe3ff8655193d7857 took 2.152µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 096a2e15d45300b5c8e49a58668de05b15d3da40e2a6753a41f4946b51549a43 took 2.072µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 096a2e15d45300b5c8e49a58668de05b15d3da40e2a6753a41f4946b51549a43, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block da18617eb22b524f796a4aa8aa67e9e779d809e83c8d5c36c60305d6549a93b7 took 2.056µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 36197906d426d210dc86c6fe46f23e91a5ba9a79801cebad4fa1e0fd40b7a286 took 1.8µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 36197906d426d210dc86c6fe46f23e91a5ba9a79801cebad4fa1e0fd40b7a286, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 7cb29837538f49b740bb217b9bba4bd9790dcfac4c669cbb98feadbeebf50b64 took 1.933µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 06c8f0e47370b7417d8759ed7de12cf12007ebd9537ed8f92d1f90252f082a5c took 1.783µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 06c8f0e47370b7417d8759ed7de12cf12007ebd9537ed8f92d1f90252f082a5c, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a52bb063f2bf03fe9fabf34fced5e71d5c1d8157491e5be3933271ad01ff233f took 1.741µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 78f4e1aa87179d8e184827f97bfcd4e3275d13b9bbcfacedb9ab6086ba3e4c89 took 1.709µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 78f4e1aa87179d8e184827f97bfcd4e3275d13b9bbcfacedb9ab6086ba3e4c89, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 11b2dba4c08cc4e05d348bbf0580f00ceef555dfa0df7a0260382d4d1d8667cd took 1.977µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 21d853a37b59fb1b30538ef29758f0a1befc9d54577462975f738b9efed03aae took 1.792µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 21d853a37b59fb1b30538ef29758f0a1befc9d54577462975f738b9efed03aae, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 79958231b5f693dc4c21cd4215a854f12171472ca577f6978395943812a08b13 took 1.832µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 09aedd6a15872022b4542b5556ca5d1cc292ae03f34aebd64a6b01037a7321e8 took 1.839µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 09aedd6a15872022b4542b5556ca5d1cc292ae03f34aebd64a6b01037a7321e8, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 0dcba9bce7f02a9d9dca3978e222831e2ed4fbf425214da09b927142a23e14d5 took 1.882µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1b168303257879fd87689dfe766653ec1f8523fdb40e6b0f33d04b8bd879a83f took 2.371µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1b168303257879fd87689dfe766653ec1f8523fdb40e6b0f33d04b8bd879a83f, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 5745bab9f3e94e8965ff38a0f3fde88b6e68104af39558ddaf047e3d4aa03e3d took 2.325µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 2b001c6aa03d58a67b8a01b111133dd5fcaa420247b9969f52859d705fa0834a took 68.581µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 2b001c6aa03d58a67b8a01b111133dd5fcaa420247b9969f52859d705fa0834a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block a134aa884ab91c247a53df54e5c7803b6ec66cc798fbcd850e09eb503c09f23e took 1.853µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 62020adb541cd75eb59d1850a9cf28607fa21a34acca942a9bad22b534976f5d took 2.055µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 62020adb541cd75eb59d1850a9cf28607fa21a34acca942a9bad22b534976f5d, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block 639745ec38b73686b48c8340286660ce0415267468898f6cf1d5e3b3b59d5373 took 95.271µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 69a25c5f36a47024b7e423b5e5590b30d46824046a344c4dd41df687cf744d54 took 1.9µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 69a25c5f36a47024b7e423b5e5590b30d46824046a344c4dd41df687cf744d54, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block adf875122c5aef3d977b02c8914d1ab2654ea0b83a16ee236fd4ccc16c60e86e took 2.758µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 1ec1343d3d755fcae28bbc9832a6c5d4a39b04aa81a2bf07914cea7fd002778a took 1.854µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 1ec1343d3d755fcae28bbc9832a6c5d4a39b04aa81a2bf07914cea7fd002778a, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block d8dd0fe249b5f619ca7049089aff57c60608e078a35d5774f7c929b9822cef77 took 2.171µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 02e6813130635c8c691810525177d5ca46d73e61d48b82c5c19068528b60beff took 1.994µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 02e6813130635c8c691810525177d5ca46d73e61d48b82c5c19068528b60beff, amount 50 BTC)
+03:45:21 2016-08-11 [INF] CHAN: block d68c8e74c0277d0f168e99c0c9a906123ba8e8dc88d725ff92268c5c37fd6802 took 1.896µs to verify
+03:45:21 2016-08-11 [INF] CHAN: block 66964bd0ecbd1721a1f68d52976e3dad35fa92e3be5fd29b1675a13be6aad1dd took 2.02µs to verify
+03:45:21 2016-08-11 [INF] MINR: Block submitted via CPU miner accepted (hash 66964bd0ecbd1721a1f68d52976e3dad35fa92e3be5fd29b1675a13be6aad1dd, amount 50 BTC)
+03:45:42 2016-08-11 [INF] BTCD: Received signal (interrupt).  Shutting down...
+03:45:42 2016-08-11 [INF] BTCD: Gracefully shutting down the server...
+03:45:42 2016-08-11 [WRN] SRVR: Server shutting down
+03:45:42 2016-08-11 [WRN] RPCS: RPC server shutting down
+03:45:42 2016-08-11 [ERR] RPCS: Websocket receive error from [::1]:50144: read tcp6 [::1]:18556->[::1]:50144: use of closed network connection
+03:45:42 2016-08-11 [INF] RPCS: RPC server shutdown complete
+03:45:42 2016-08-11 [INF] BMGR: Block manager shutting down
+03:45:42 2016-08-11 [INF] AMGR: Address manager shutting down
+03:45:42 2016-08-11 [INF] RPCS: Disconnected websocket client [::1]:50144
+03:45:42 2016-08-11 [INF] BTCD: Gracefully shutting down the database...
+03:45:42 2016-08-11 [INF] SRVR: Server shutdown complete
+03:45:42 2016-08-11 [INF] BTCD: Shutdown complete
+04:07:12 2016-08-11 [INF] BTCD: Version 0.12.0-beta
+04:07:12 2016-08-11 [INF] BTCD: Loading block database from 'data/simnet/blocks_ffldb'
+04:07:12 2016-08-11 [INF] BTCD: Block database loaded
+04:07:12 2016-08-11 [WRN] SRVR: Can't listen on :18555: listen tcp4 :18555: bind: address already in use
+04:07:12 2016-08-11 [WRN] SRVR: Can't listen on :18555: listen tcp6 :18555: bind: address already in use
+04:07:12 2016-08-11 [ERR] BTCD: Unable to start server on [:18555]: no valid listen address
+04:07:13 2016-08-11 [INF] BTCD: Version 0.12.0-beta
+04:07:13 2016-08-11 [INF] BTCD: Loading block database from 'data/simnet/blocks_ffldb'
+04:07:13 2016-08-11 [INF] BTCD: Block database loaded
+04:07:13 2016-08-11 [WRN] SRVR: Can't listen on :18555: listen tcp4 :18555: bind: address already in use
+04:07:13 2016-08-11 [WRN] SRVR: Can't listen on :18555: listen tcp6 :18555: bind: address already in use
+04:07:13 2016-08-11 [ERR] BTCD: Unable to start server on [:18555]: no valid listen address
+04:07:26 2016-08-11 [INF] BTCD: Version 0.12.0-beta
+04:07:26 2016-08-11 [INF] BTCD: Loading block database from 'data/simnet/blocks_ffldb'
+04:07:26 2016-08-11 [INF] BTCD: Block database loaded
+04:07:26 2016-08-11 [INF] CHAN: Chain state (height 101, hash 66964bd0ecbd1721a1f68d52976e3dad35fa92e3be5fd29b1675a13be6aad1dd, totaltx 102, work 204)
+04:07:26 2016-08-11 [INF] RPCS: RPC server listening on 127.0.0.1:18556
+04:07:26 2016-08-11 [INF] SRVR: Server listening on [::]:18555
+04:07:26 2016-08-11 [INF] SRVR: Server listening on 0.0.0.0:18555
+04:07:26 2016-08-11 [INF] RPCS: RPC server listening on [::1]:18556
+04:07:26 2016-08-11 [INF] AMGR: Loaded 0 addresses from file 'data/simnet/peers.json'
+04:07:32 2016-08-11 [INF] RPCS: New websocket client [::1]:50168
+04:07:32 2016-08-11 [INF] RPCS: Beginning rescan for 2 addresses
+04:07:32 2016-08-11 [INF] RPCS: Finished rescan

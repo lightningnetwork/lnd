@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 	"sync/atomic"
 
@@ -12,17 +11,14 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/elkrem"
-	"github.com/roasbeef/btcd/btcjson"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcutil/hdkeychain"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/coinset"
 	"github.com/roasbeef/btcutil/txsort"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	btcwallet "github.com/roasbeef/btcwallet/wallet"
 )
 
 const (
@@ -33,6 +29,13 @@ const (
 	// elkremRootIndex is the top level HD key index from which secrets
 	// used to generate elkrem roots should be derived from.
 	elkremRootIndex = hdkeychain.HardenedKeyStart + 1
+
+	// identityKeyIndex is the top level HD key index which is used to
+	// generate/rotate identity keys.
+	//
+	// TODO(roasbeef): should instead be child to make room for future
+	// rotations, etc.
+	identityKeyIndex = hdkeychain.HardenedKeyStart + 2
 )
 
 var (
@@ -221,7 +224,7 @@ type channelOpenMsg struct {
 type LightningWallet struct {
 	// This mutex is to be held when generating external keys to be used
 	// as multi-sig, and commitment keys within the channel.
-	KeyGenMtx sync.RWMutex
+	keyGenMtx sync.RWMutex
 
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
@@ -231,25 +234,27 @@ type LightningWallet struct {
 	// A wrapper around a namespace within boltdb reserved for ln-based
 	// wallet meta-data. See the 'channeldb' package for further
 	// information.
-	channelDB *channeldb.DB
+	ChannelDB *channeldb.DB
 
 	// Used by in order to obtain notifications about funding transaction
 	// reaching a specified confirmation depth, and to catch
 	// counterparty's broadcasting revoked commitment states.
 	chainNotifier chainntnfs.ChainNotifier
 
-	// The core wallet, all non Lightning Network specific interaction is
-	// proxied to the internal wallet.
-	*btcwallet.Wallet
+	// wallet is the the core wallet, all non Lightning Network specific
+	// interaction is proxied to the internal wallet.
+	WalletController
 
-	// An active RPC connection to a full-node. In the case of a btcd node,
-	// websockets are used for notifications. If using Bitcoin Core,
-	// notifications are either generated via long-polling or the usage of
-	// ZeroMQ.
-	// TODO(roasbeef): make into interface need: getrawtransaction + gettxout
-	//  * getrawtransaction -> verify proof of channel links
-	//  * gettxout -> verify inputs to funding tx exist and are unspent
-	rpc *chain.RPCClient
+	// Signer is the wallet's current Signer implementation. This Signer is
+	// used to generate signature for all inputs to potential funding
+	// transactions, as well as for spends from the funding transaction to
+	// update the commitment state.
+	Signer Signer
+
+	// chainIO is an instance of the BlockChainIO interface. chainIO is
+	// used to lookup the existance of outputs within the utxo set.
+	chainIO BlockChainIO
+
 	// rootKey is the root HD key dervied from a WalletController private
 	// key. This rootKey is used to derive all LN specific secrets.
 	rootKey *hdkeychain.ExtendedKey
@@ -269,7 +274,12 @@ type LightningWallet struct {
 	// TODO(roasbeef): zombie garbage collection routine to solve
 	// lost-object/starvation problem/attack.
 
-	cfg *Config
+	// lockedOutPoints is a set of the currently locked outpoint. This
+	// information is kept in order to provide an easy way to unlock all
+	// the currently locked outpoints.
+	lockedOutPoints map[wire.OutPoint]struct{}
+
+	netParams *chaincfg.Params
 
 	started  int32
 	shutdown int32
@@ -286,21 +296,12 @@ type LightningWallet struct {
 //
 // NOTE: The passed channeldb, and ChainNotifier should already be fully
 // initialized/started before being passed as a function arugment.
-func NewLightningWallet(config *Config, cdb *channeldb.DB,
-	notifier chainntnfs.ChainNotifier) (*LightningWallet, error) {
+func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
+	wallet WalletController, signer Signer, bio BlockChainIO,
+	netParams *chaincfg.Params) (*LightningWallet, error) {
 
-	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(config.DataDir, config.NetParams)
+	// TODO(roasbeef): need a another wallet level config
 
-	var pubPass []byte
-	if config.PublicPass == nil {
-		pubPass = defaultPubPassphrase
-	} else {
-		pubPass = config.PublicPass
-	}
-
-	loader := btcwallet.NewLoader(config.NetParams, netDir)
-	walletExists, err := loader.WalletExists()
 	// Fetch the root derivation key from the wallet's HD chain. We'll use
 	// this to generate specific Lightning related secrets on the fly.
 	rootKey, err := wallet.FetchRootKey()
@@ -308,68 +309,25 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB,
 		return nil, err
 	}
 
-	var createID bool
-	var wallet *btcwallet.Wallet
-	if !walletExists {
-		// Wallet has never been created, perform initial set up.
-		wallet, err = loader.CreateNewWallet(pubPass, config.PrivatePass,
-			config.HdSeed)
-		if err != nil {
-			return nil, err
-		}
-
-		createID = true
-	} else {
-		// Wallet has been created and been initialized at this point, open it
-		// along with all the required DB namepsaces, and the DB itself.
-		wallet, err = loader.OpenExistingWallet(pubPass, false)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if err := wallet.Manager.Unlock(config.PrivatePass); err != nil {
-		return nil, err
-	}
-
-	// If we just created the wallet, then reserve, and store a key for
-	// our ID within the Lightning Network.
-	if createID {
-		account := uint32(waddrmgr.DefaultAccountNum)
-		adrs, err := wallet.Manager.NextInternalAddresses(account, 1, waddrmgr.WitnessPubKey)
-		if err != nil {
-			return nil, err
-		}
-
-		idPubkeyHash := adrs[0].Address().ScriptAddress()
-		if err := cdb.PutIdKey(idPubkeyHash); err != nil {
-			return nil, err
-		}
-		walletLog.Infof("stored identity key pubkey hash in channeldb")
-	}
-
-	// Create a special websockets rpc client for btcd which will be used
-	// by the wallet for notifications, calls, etc.
-	rpcc, err := chain.NewRPCClient(config.NetParams, config.RpcHost,
-		config.RpcUser, config.RpcPass, config.CACert, false, 20)
+	// TODO(roasbeef): always re-derive on the fly?
+	rootKeyRaw := rootKey.Serialize()
+	rootMasterKey, err := hdkeychain.NewMaster(rootKeyRaw, netParams)
 	if err != nil {
 		return nil, err
 	}
 
 	return &LightningWallet{
-		chainNotifier: notifier,
-		rpc:           rpcc,
-		Wallet:        wallet,
-		channelDB:     cdb,
-		msgChan:       make(chan interface{}, msgBufferSize),
-		// TODO(roasbeef): make this atomic.Uint32 instead? Which is
-		// faster, locks or CAS? I'm guessing CAS because assembly:
-		//  * https://golang.org/src/sync/atomic/asm_amd64.s
-		nextFundingID: 0,
-		cfg:           config,
-		fundingLimbo:  make(map[uint64]*ChannelReservation),
-		quit:          make(chan struct{}),
 		rootKey:          rootMasterKey,
+		chainNotifier:    notifier,
+		Signer:           signer,
+		WalletController: wallet,
+		chainIO:          bio,
+		ChannelDB:        cdb,
+		msgChan:          make(chan interface{}, msgBufferSize),
+		nextFundingID:    0,
+		fundingLimbo:     make(map[uint64]*ChannelReservation),
+		lockedOutPoints:  make(map[wire.OutPoint]struct{}),
+		quit:             make(chan struct{}),
 	}, nil
 }
 
@@ -381,16 +339,10 @@ func (l *LightningWallet) Startup() error {
 		return nil
 	}
 
-	// Establish an RPC connection in additino to starting the goroutines
-	// in the underlying wallet.
-	if err := l.rpc.Start(); err != nil {
+	// Start the underlying wallet controller.
+	if err := l.Start(); err != nil {
 		return err
 	}
-	l.Start()
-
-	// Pass the rpc client into the wallet so it can sync up to the
-	// current main chain.
-	l.SynchronizeRPC(l.rpc)
 
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?
@@ -407,14 +359,57 @@ func (l *LightningWallet) Shutdown() error {
 
 	// Signal the underlying wallet controller to shutdown, waiting until
 	// all active goroutines have been shutdown.
-	l.Stop()
-	l.WaitForShutdown()
-
-	l.rpc.Shutdown()
+	if err := l.Stop(); err != nil {
+		return err
+	}
 
 	close(l.quit)
 	l.wg.Wait()
 	return nil
+}
+
+// LockOutpoints returns a list of all currently locked outpoint.
+func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
+	outPoints := make([]*wire.OutPoint, 0, len(l.lockedOutPoints))
+	for outPoint := range l.lockedOutPoints {
+		outPoints = append(outPoints, &outPoint)
+	}
+
+	return outPoints
+}
+
+// ResetReservations reset the volatile wallet state which trakcs all currently
+// active reservations.
+func (l *LightningWallet) ResetReservations() {
+	l.nextFundingID = 0
+	l.fundingLimbo = make(map[uint64]*ChannelReservation)
+
+	for outpoint := range l.lockedOutPoints {
+		l.UnlockOutpoint(outpoint)
+	}
+	l.lockedOutPoints = make(map[wire.OutPoint]struct{})
+}
+
+// ActiveReservations returns a slice of all the currently active
+// (non-cancalled) reservations.
+func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
+	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
+	for _, reservation := range l.fundingLimbo {
+		reservations = append(reservations, reservation)
+	}
+
+	return reservations
+}
+
+// GetIdentitykey returns the identity private key of the wallet.
+// TODO(roasbeef): should be moved elsewhere
+func (l *LightningWallet) GetIdentitykey() (*btcec.PrivateKey, error) {
+	identityKey, err := l.rootKey.Child(identityKeyIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return identityKey.ECPrivKey()
 }
 
 // requestHandler is the primary goroutine(s) resposible for handling, and
@@ -489,16 +484,9 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
-	// Create a limbo and record entry for this newly pending funding request.
-	l.limboMtx.Lock()
-
-	id := l.nextFundingID
-	reservation := newChannelReservation(req.capacity, req.fundingAmount,
+	id := atomic.AddUint64(&l.nextFundingID, 1)
+	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
 		req.minFeeRate, l, id, req.numConfs)
-	l.nextFundingID++
-	l.fundingLimbo[id] = reservation
-
-	l.limboMtx.Unlock()
 
 	// Grab the mutex on the ChannelReservation to ensure thead-safety
 	reservation.Lock()
@@ -526,27 +514,26 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// Grab two fresh keys from our HD chain, one will be used for the
 	// multi-sig funding transaction, and the other for the commitment
 	// transaction.
-	multiSigKey, err := l.getNextRawKey()
+	multiSigKey, err := l.NewRawKey()
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	commitKey, err := l.getNextRawKey()
+	commitKey, err := l.NewRawKey()
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
 		return
 	}
 	reservation.partialState.OurMultiSigKey = multiSigKey
-	ourContribution.MultiSigKey = multiSigKey.PubKey()
+	ourContribution.MultiSigKey = multiSigKey
 	reservation.partialState.OurCommitKey = commitKey
-	ourContribution.CommitKey = commitKey.PubKey()
+	ourContribution.CommitKey = commitKey
 
 	// Generate a fresh address to be used in the case of a cooperative
 	// channel close.
-	deliveryAddress, err := l.NewAddress(waddrmgr.DefaultAccountNum,
-		waddrmgr.WitnessPubKey)
+	deliveryAddress, err := l.NewAddress(WitnessPubKey, false)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -560,6 +547,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 	reservation.partialState.OurDeliveryScript = deliveryScript
 	ourContribution.DeliveryAddress = deliveryAddress
+
+	// Create a limbo and record entry for this newly pending funding
+	// request.
+	l.limboMtx.Lock()
+	l.fundingLimbo[id] = reservation
+	l.limboMtx.Unlock()
 
 	// Funding reservation request succesfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
@@ -591,6 +584,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// Mark all previously locked outpoints as usuable for future funding
 	// requests.
 	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
+		delete(l.lockedOutPoints, unusedInput.PreviousOutPoint)
 		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
@@ -652,28 +646,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, multiSigOut, err := genFundingPkScript(ourKey.PubKey().SerializeCompressed(),
+	redeemScript, multiSigOut, err := GenFundingPkScript(ourKey.SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	pendingReservation.partialState.FundingRedeemScript = redeemScript
-
-	// Register intent for notifications related to the funding output.
-	// This'll allow us to properly track the number of confirmations the
-	// funding tx has once it has been broadcasted.
-	// TODO(roasbeef): remove
-	lastBlock := l.Manager.SyncedTo()
-	scriptAddr, err := l.Manager.ImportScript(redeemScript, &lastBlock)
-	if err != nil {
-		req.err <- err
-		return
-	}
-	if err := l.rpc.NotifyReceived([]btcutil.Address{scriptAddr.Address()}); err != nil {
-		req.err <- err
-		return
-	}
 
 	// Sort the transaction. Since both side agree to a cannonical
 	// ordering, by sorting we no longer need to send the entire
@@ -684,81 +663,30 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
 	pendingReservation.ourFundingInputScripts = make([]*InputScript, 0, len(ourContribution.Inputs))
-	hashCache := txscript.NewTxSigHashes(fundingTx)
+	signDesc := SignDescriptor{
+		HashType:  txscript.SigHashAll,
+		SigHashes: txscript.NewTxSigHashes(fundingTx),
+	}
 	for i, txIn := range fundingTx.TxIn {
-		// Does the wallet know about the txin?
-		txDetail, _ := l.TxStore.TxDetails(&txIn.PreviousOutPoint.Hash)
-		if txDetail == nil {
+		info, err := l.FetchInputInfo(&txIn.PreviousOutPoint)
+		if err == ErrNotMine {
 			continue
-		}
-
-		// Is this our txin?
-		prevIndex := txIn.PreviousOutPoint.Index
-		prevOut := txDetail.TxRecord.MsgTx.TxOut[prevIndex]
-		_, addrs, _, _ := txscript.ExtractPkScriptAddrs(prevOut.PkScript, l.cfg.NetParams)
-		apkh := addrs[0]
-
-		ai, err := l.Manager.Address(apkh)
-		if err != nil {
-			req.err <- fmt.Errorf("cannot get address info: %v", err)
-			return
-		}
-		pka := ai.(waddrmgr.ManagedPubKeyAddress)
-		privKey, err := pka.PrivKey()
-		if err != nil {
-			req.err <- fmt.Errorf("cannot get private key: %v", err)
+		} else if err != nil {
+			req.err <- err
 			return
 		}
 
-		var witnessProgram []byte
-		inputScript := &InputScript{}
+		signDesc.Output = info
+		signDesc.InputIndex = i
 
-		// If we're spending p2wkh output nested within a p2sh output,
-		// then we'll need to attach a sigScript in addition to witness
-		// data.
-		if pka.IsNestedWitness() {
-			pubKey := privKey.PubKey()
-			pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
-
-			// Next, we'll generate a valid sigScript that'll allow us to spend
-			// the p2sh output. The sigScript will contain only a single push of
-			// the p2wkh witness program corresponding to the matching public key
-			// of this address.
-			p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubKeyHash,
-				l.cfg.NetParams)
-			if err != nil {
-				req.err <- fmt.Errorf("unable to create p2wkh addr: %v", err)
-				return
-			}
-			witnessProgram, err = txscript.PayToAddrScript(p2wkhAddr)
-			if err != nil {
-				req.err <- fmt.Errorf("unable to create witness program: %v", err)
-				return
-			}
-			bldr := txscript.NewScriptBuilder()
-			bldr.AddData(witnessProgram)
-			sigScript, err := bldr.Script()
-			if err != nil {
-				req.err <- fmt.Errorf("unable to create scriptsig: %v", err)
-				return
-			}
-			txIn.SignatureScript = sigScript
-			inputScript.ScriptSig = sigScript
-		} else {
-			witnessProgram = prevOut.PkScript
-		}
-
-		// Generate a valid witness stack for the input.
-		inputValue := prevOut.Value
-		witnessScript, err := txscript.WitnessScript(fundingTx, hashCache, i,
-			inputValue, witnessProgram, txscript.SigHashAll, privKey, true)
+		inputScript, err := l.Signer.ComputeInputScript(fundingTx, &signDesc)
 		if err != nil {
-			req.err <- fmt.Errorf("cannot create witnessscript: %s", err)
+			req.err <- err
 			return
 		}
-		txIn.Witness = witnessScript
-		inputScript.Witness = witnessScript
 
+		txIn.SignatureScript = inputScript.ScriptSig
+		txIn.Witness = inputScript.Witness
 		pendingReservation.ourFundingInputScripts = append(
 			pendingReservation.ourFundingInputScripts,
 			inputScript,
@@ -766,10 +694,10 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// Locate the index of the multi-sig outpoint in order to record it
-	// since the outputs are cannonically sorted. If this is a sigle funder
+	// since the outputs are cannonically sorted. If this is a single funder
 	// workflow, then we'll also need to send this to the remote node.
 	fundingTxID := fundingTx.TxSha()
-	_, multiSigIndex := findScriptOutputIndex(fundingTx, multiSigOut.PkScript)
+	_, multiSigIndex := FindScriptOutputIndex(fundingTx, multiSigOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = fundingOutpoint
 
@@ -799,7 +727,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 	theirCommitKey := theirContribution.CommitKey
-	ourRevokeKey := deriveRevocationPubkey(theirCommitKey, firstPreimage[:])
+	ourRevokeKey := DeriveRevocationPubkey(theirCommitKey, firstPreimage[:])
 
 	// Create the txIn to our commitment transaction; required to construct
 	// the commitment transactions.
@@ -811,14 +739,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	ourBalance := ourContribution.FundingAmount
 	theirBalance := theirContribution.FundingAmount
 	ourCommitKey := ourContribution.CommitKey
-	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		ourRevokeKey, ourContribution.CsvDelay,
 		ourBalance, theirBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
 		theirContribution.RevocationKey, theirContribution.CsvDelay,
 		theirBalance, ourBalance)
 	if err != nil {
@@ -849,10 +777,15 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	hashCache = txscript.NewTxSigHashes(theirCommitTx)
-	channelBalance := pendingReservation.partialState.Capacity
-	sigTheirCommit, err := txscript.RawTxInWitnessSignature(theirCommitTx, hashCache, 0,
-		int64(channelBalance), redeemScript, txscript.SigHashAll, ourKey)
+	signDesc = SignDescriptor{
+		RedeemScript: redeemScript,
+		PubKey:       ourKey,
+		Output:       multiSigOut,
+		HashType:     txscript.SigHashAll,
+		SigHashes:    txscript.NewTxSigHashes(theirCommitTx),
+		InputIndex:   0,
+	}
+	sigTheirCommit, err := l.Signer.SignOutputRaw(theirCommitTx, &signDesc)
 	if err != nil {
 		req.err <- err
 		return
@@ -890,7 +823,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	ourKey := pendingReservation.partialState.OurMultiSigKey
 	theirKey := theirContribution.MultiSigKey
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, _, err := genFundingPkScript(ourKey.PubKey().SerializeCompressed(),
+	redeemScript, _, err := GenFundingPkScript(ourKey.SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
@@ -915,7 +848,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	}
 	pendingReservation.partialState.LocalElkrem = elkremSender
 	theirCommitKey := theirContribution.CommitKey
-	ourRevokeKey := deriveRevocationPubkey(theirCommitKey, firstPreimage[:])
+	ourRevokeKey := DeriveRevocationPubkey(theirCommitKey, firstPreimage[:])
 
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the pre-image so we can't add it
@@ -976,25 +909,16 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
-			output, err := l.rpc.GetTxOut(&prevOut.Hash, prevOut.Index, false)
+			output, err := l.chainIO.GetUtxo(&prevOut.Hash, prevOut.Index)
 			if output == nil {
 				msg.err <- fmt.Errorf("input to funding tx does not exist: %v", err)
 				return
 			}
 
-			pkScript, err := hex.DecodeString(output.ScriptPubKey.Hex)
-			if err != nil {
-				msg.err <- err
-				return
-			}
-			// Sadly, gettxout returns the output value in BTC
-			// instead of satoshis.
-			inputValue := int64(output.Value) * 1e8
-
 			// Ensure that the witness+sigScript combo is valid.
-			vm, err := txscript.NewEngine(pkScript,
+			vm, err := txscript.NewEngine(output.PkScript,
 				fundingTx, i, txscript.StandardVerifyFlags, nil,
-				fundingHashCache, inputValue)
+				fundingHashCache, output.Value)
 			if err != nil {
 				// TODO(roasbeef): cancel at this stage if invalid sigs?
 				msg.err <- fmt.Errorf("cannot create script engine: %s", err)
@@ -1014,54 +938,37 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	pendingReservation.theirCommitmentSig = msg.theirCommitmentSig
 	commitTx := pendingReservation.partialState.OurCommitTx
 	theirKey := pendingReservation.theirContribution.MultiSigKey
-	ourKey := pendingReservation.partialState.OurMultiSigKey
 
 	// Re-generate both the redeemScript and p2sh output. We sign the
 	// redeemScript script, but include the p2sh output as the subscript
 	// for verification.
 	redeemScript := pendingReservation.partialState.FundingRedeemScript
-	p2wsh, err := witnessScriptHash(redeemScript)
-	if err != nil {
-		msg.err <- err
-		return
-	}
-
-	// First, we sign our copy of the commitment transaction ourselves.
-	channelValue := int64(pendingReservation.partialState.Capacity)
-	hashCache := txscript.NewTxSigHashes(commitTx)
-	ourCommitSig, err := txscript.RawTxInWitnessSignature(commitTx, hashCache, 0,
-		channelValue, redeemScript, txscript.SigHashAll, ourKey)
-	if err != nil {
-		msg.err <- err
-		return
-	}
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
 	theirCommitSig := msg.theirCommitmentSig
-	ourKeySer := ourKey.PubKey().SerializeCompressed()
-	theirKeySer := theirKey.SerializeCompressed()
-	witness := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
-		theirKeySer, theirCommitSig)
-
-	// Finally, create an instance of a Script VM, and ensure that the
-	// Script executes succesfully.
-	commitTx.TxIn[0].Witness = witness
-	vm, err := txscript.NewEngine(p2wsh,
-		commitTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, channelValue)
+	channelValue := int64(pendingReservation.partialState.Capacity)
+	hashCache := txscript.NewTxSigHashes(commitTx)
+	sigHash, err := txscript.CalcWitnessSigHash(redeemScript, hashCache,
+		txscript.SigHashAll, commitTx, 0, channelValue)
 	if err != nil {
-		msg.err <- err
-		return
-	}
-	if err := vm.Execute(); err != nil {
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
 		return
 	}
 
-	// Strip and store the signature to ensure that our commitment
-	// transaction doesn't stay hot.
-	commitTx.TxIn[0].Witness = nil
+	walletLog.Infof("sighash verify: %v", hex.EncodeToString(sigHash))
+	walletLog.Infof("initer verifying tx: %v", spew.Sdump(commitTx))
+
+	// Verify that we've received a valid signature from the remote party
+	// for our version of the commitment transaction.
+	sig, err := btcec.ParseSignature(theirCommitSig, btcec.S256())
+	if err != nil {
+		msg.err <- err
+		return
+	} else if !sig.Verify(sigHash, theirKey) {
+		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
+		return
+	}
 	pendingReservation.partialState.OurCommitSig = theirCommitSig
 
 	// Funding complete, this entry can be removed from limbo.
@@ -1126,14 +1033,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	theirCommitKey := pendingReservation.theirContribution.CommitKey
 	ourBalance := pendingReservation.ourContribution.FundingAmount
 	theirBalance := pendingReservation.theirContribution.FundingAmount
-	ourCommitTx, err := createCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		pendingReservation.ourContribution.RevocationKey,
 		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	theirCommitTx, err := createCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
 		req.revokeKey, pendingReservation.theirContribution.CsvDelay,
 		theirBalance, ourBalance)
 	if err != nil {
@@ -1148,65 +1055,51 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
 	txsort.InPlaceSort(theirCommitTx)
 
-	// Verify that their signature of valid for our current commitment
-	// transaction. Re-generate both the redeemScript and p2sh output. We
-	// sign the redeemScript script, but include the p2sh output as the
-	// subscript for verification.
-	// TODO(roasbeef): replace with regular sighash calculation once the PR
-	// is merged.
 	redeemScript := pendingReservation.partialState.FundingRedeemScript
-	p2wsh, err := witnessScriptHash(redeemScript)
-	if err != nil {
-		req.err <- err
-		return
-	}
-	// TODO(roasbeef): remove all duplication after merge.
-
-	// First, we sign our copy of the commitment transaction ourselves.
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)
 	theirKey := pendingReservation.theirContribution.MultiSigKey
 	ourKey := pendingReservation.partialState.OurMultiSigKey
-	ourCommitSig, err := txscript.RawTxInWitnessSignature(ourCommitTx, hashCache, 0,
-		channelValue, redeemScript, txscript.SigHashAll, ourKey)
+
+	sigHash, err := txscript.CalcWitnessSigHash(redeemScript, hashCache,
+		txscript.SigHashAll, ourCommitTx, 0, channelValue)
 	if err != nil {
 		req.err <- err
 		return
 	}
 
-	// Next, create the spending scriptSig, and then verify that the script
-	// is complete, allowing us to spend from the funding transaction.
-	ourKeySer := ourKey.PubKey().SerializeCompressed()
-	theirKeySer := theirKey.SerializeCompressed()
-	witness := spendMultiSig(redeemScript, ourKeySer, ourCommitSig,
-		theirKeySer, req.theirCommitmentSig)
-
-	// Finally, create an instance of a Script VM, and ensure that the
-	// Script executes succesfully.
-	ourCommitTx.TxIn[0].Witness = witness
-	// TODO(roasbeef): replace engine with plain sighash check
-	vm, err := txscript.NewEngine(p2wsh, ourCommitTx, 0,
-		txscript.StandardVerifyFlags, nil, nil, channelValue)
+	// Verify that we've received a valid signature from the remote party
+	// for our version of the commitment transaction.
+	sig, err := btcec.ParseSignature(req.theirCommitmentSig, btcec.S256())
 	if err != nil {
 		req.err <- err
 		return
-	}
-	if err := vm.Execute(); err != nil {
-		req.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
+	} else if !sig.Verify(sigHash, theirKey) {
+		req.err <- fmt.Errorf("counterparty's commitment signature is invalid")
 		return
 	}
-
-	// Strip and store the signature to ensure that our commitment
-	// transaction doesn't stay hot.
-	ourCommitTx.TxIn[0].Witness = nil
 	pendingReservation.partialState.OurCommitSig = req.theirCommitmentSig
 
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	hashCache = txscript.NewTxSigHashes(theirCommitTx)
-	sigTheirCommit, err := txscript.RawTxInWitnessSignature(theirCommitTx, hashCache, 0,
-		channelValue, redeemScript, txscript.SigHashAll, ourKey)
+	p2wsh, err := witnessScriptHash(redeemScript)
+	if err != nil {
+		req.err <- err
+		return
+	}
+	signDesc := SignDescriptor{
+		RedeemScript: redeemScript,
+		PubKey:       ourKey,
+		Output: &wire.TxOut{
+			PkScript: p2wsh,
+			Value:    channelValue,
+		},
+		HashType:   txscript.SigHashAll,
+		SigHashes:  txscript.NewTxSigHashes(theirCommitTx),
+		InputIndex: 0,
+	}
+	sigTheirCommit, err := l.Signer.SignOutputRaw(theirCommitTx, &signDesc)
 	if err != nil {
 		req.err <- err
 		return
@@ -1249,8 +1142,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l, l.chainNotifier, l.channelDB,
-		res.partialState)
+	channel, _ := NewLightningChannel(l.Signer, l, l.chainNotifier, res.partialState)
 
 	res.chanOpen <- channel
 	req.err <- nil
@@ -1291,59 +1183,9 @@ out:
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l, l.chainNotifier, l.channelDB,
+	channel, _ := NewLightningChannel(l.Signer, l, l.chainNotifier,
 		res.partialState)
 	res.chanOpen <- channel
-}
-
-// getNextRawKey retrieves the next key within our HD key-chain for use within
-// as a multi-sig key within the funding transaction, or within the commitment
-// transaction's outputs.
-// TODO(roasbeef): on shutdown, write state of pending keys, then read back?
-func (l *LightningWallet) getNextRawKey() (*btcec.PrivateKey, error) {
-	l.KeyGenMtx.Lock()
-	defer l.KeyGenMtx.Unlock()
-
-	nextAddr, err := l.Manager.NextExternalAddresses(waddrmgr.DefaultAccountNum,
-		1, waddrmgr.WitnessPubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
-
-	return pkAddr.PrivKey()
-}
-
-// ListUnspentWitness returns a slice of all the unspent outputs the wallet
-// controls which pay to witness programs either directly or indirectly.
-func (l *LightningWallet) ListUnspentWitness(minConfs int32) ([]*btcjson.ListUnspentResult, error) {
-	// First, grab all the unfiltered currently unspent outputs.
-	maxConfs := int32(math.MaxInt32)
-	unspentOutputs, err := l.ListUnspent(minConfs, maxConfs, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Next, we'll run through all the regular outputs, only saving those
-	// which are p2wkh outputs or a p2wsh output nested within a p2sh output.
-	witnessOutputs := make([]*btcjson.ListUnspentResult, 0, len(unspentOutputs))
-	for _, output := range unspentOutputs {
-		pkScript, err := hex.DecodeString(output.ScriptPubKey)
-		if err != nil {
-			return nil, err
-		}
-
-		// TODO(roasbeef): this assumes all p2sh outputs returned by
-		// the wallet are nested p2sh...
-		if txscript.IsPayToWitnessPubKeyHash(pkScript) ||
-			txscript.IsPayToScriptHash(pkScript) {
-			witnessOutputs = append(witnessOutputs, output)
-		}
-
-	}
-
-	return witnessOutputs, nil
 }
 
 // selectCoinsAndChange performs coin selection in order to obtain witness

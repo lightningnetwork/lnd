@@ -88,7 +88,6 @@ type InputScript struct {
 //       as a signature to our version of the commitment transaction.
 //     * We then verify the validity of all signatures before considering the
 //       channel "open".
-// TODO(roasbeef): update with single funder description
 type ChannelReservation struct {
 	// This mutex MUST be held when either reading or modifying any of the
 	// fields below.
@@ -131,11 +130,11 @@ type ChannelReservation struct {
 	wallet *LightningWallet
 }
 
-// newChannelReservation creates a new channel reservation. This function is
+// NewChannelReservation creates a new channel reservation. This function is
 // used only internally by lnwallet. In order to concurrent safety, the creation
 // of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func newChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
+func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
 	wallet *LightningWallet, id uint64, numConfs uint16) *ChannelReservation {
 	var ourBalance btcutil.Amount
 	var theirBalance btcutil.Amount
@@ -160,7 +159,7 @@ func newChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 			OurBalance:   ourBalance,
 			TheirBalance: theirBalance,
 			MinFeePerKb:  minFeeRate,
-			Db:           wallet.channelDB,
+			Db:           wallet.ChannelDB,
 		},
 		numConfsToOpen: numConfs,
 		reservationID:  id,
@@ -315,6 +314,26 @@ func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 	return r.fundingTx
 }
 
+// FundingRedeemScript returns the fully populated funding redeem script.
+//
+// NOTE: This method will only return a non-nil value after either
+// ProcesContribution or ProcessSingleContribution have been executed and
+// returned without error.
+func (r *ChannelReservation) FundingRedeemScript() []byte {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.FundingRedeemScript
+}
+
+// LocalCommitTx returns the commitment transaction for the local node involved
+// in this funding reservation.
+func (r *ChannelReservation) LocalCommitTx() *wire.MsgTx {
+	r.RLock()
+	defer r.RUnlock()
+
+	return r.partialState.OurCommitTx
+}
+
 // FundingOutpoint returns the outpoint of the funding transaction.
 //
 // NOTE: The pointer returned will only be set once the .ProcesContribution()
@@ -346,6 +365,7 @@ func (r *ChannelReservation) Cancel() error {
 // transaction for this pending payment channel obtains the configured number
 // of confirmations. Once confirmations have been obtained, a fully initialized
 // LightningChannel instance is returned, allowing for channel updates.
+//
 // NOTE: If this method is called before .CompleteReservation(), it will block
 // indefinitely.
 func (r *ChannelReservation) DispatchChan() <-chan *LightningChannel {

@@ -58,9 +58,9 @@ func genMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	return bldr.Script()
 }
 
-// genFundingPkScript creates a redeem script, and its matching p2wsh
+// GenFundingPkScript creates a redeem script, and its matching p2wsh
 // output for the funding transaction.
-func genFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) {
+func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, error) {
 	// As a sanity check, ensure that the passed amount is above zero.
 	if amt <= 0 {
 		return nil, nil, fmt.Errorf("can't create FundTx script with " +
@@ -85,7 +85,7 @@ func genFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 
 // spendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
 // multi-sig output.
-func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
+func SpendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	witness := make([][]byte, 4)
 
 	// When spending a p2wsh multi-sig script, rather than an OP_0, we add
@@ -114,7 +114,8 @@ func spendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 // matching 'script'. Additionally, a boolean is returned indicating if
 // a matching output was found at all.
 // NOTE: The search stops after the first matching script is found.
-func findScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
+// TODO(roasbeef): shouldn't be public?
+func FindScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	found := false
 	index := uint32(0)
 	for i, txOut := range tx.TxOut {
@@ -670,7 +671,7 @@ func commitSpendNoDelay(commitScript []byte, outputAmt btcutil.Amount,
 	return wire.TxWitness(witness), nil
 }
 
-// deriveRevocationPubkey derives the revocation public key given the
+// DeriveRevocationPubkey derives the revocation public key given the
 // counter-party's commitment key, and revocation pre-image derived via a
 // pseudo-random-function. In the event that we (for some reason) broadcast a
 // revoked commitment transaction, then if the other party knows the revocation
@@ -689,7 +690,7 @@ func commitSpendNoDelay(commitScript []byte, outputAmt btcutil.Amount,
 //   revokePriv := commitPriv + revokePreimge mod N
 //
 // Where N is the order of the sub-group.
-func deriveRevocationPubkey(commitPubKey *btcec.PublicKey,
+func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 	revokePreimage []byte) *btcec.PublicKey {
 
 	// First we need to convert the revocation hash into a point on the
@@ -703,7 +704,7 @@ func deriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 	return &btcec.PublicKey{X: revokeX, Y: revokeY}
 }
 
-// deriveRevocationPrivKey derives the revocation private key given a node's
+// DeriveRevocationPrivKey derives the revocation private key given a node's
 // commitment private key, and the pre-image to a previously seen revocation
 // hash. Using this derived private key, a node is able to claim the output
 // within the commitment transaction of a node in the case that they broadcast
@@ -713,7 +714,7 @@ func deriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 //   revokePriv := commitPriv + revokePreimage mod N
 //
 // Where N is the order of the sub-group.
-func deriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
+func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 	revokePreimage []byte) *btcec.PrivateKey {
 
 	// Convert the revocation pre-image into a scalar value so we can

@@ -1,5 +1,5 @@
-hash: 348cab6c25a05211caed34dc711bd1cb5a51800bc87d3609127ff9271b206c42
-updated: 2016-09-02T08:34:25.843272647-04:00
+hash: d11bb1bf4ed6df842559ffff8fcf859509382395ba38fc29a0de546526ecbcd4
+updated: 2016-09-08T12:08:13.98576317-07:00
 imports:
 - name: github.com/awalterschulze/gographviz
   version: cafbade2d58068c3992f12afe46742195c673d2b
@@ -51,7 +51,7 @@ imports:
 - name: github.com/codahale/chacha20poly1305
   version: f8a5c48301822c3d7dd26d78e68ea2968db0ab20
 - name: github.com/davecgh/go-spew
-  version: 6cf5744a041a0022271cefed95ba843f6d87fd51
+  version: 6d212800a42e8ab5c146b8ace3490ee17e5225f9
   subpackages:
   - spew
 - name: github.com/golang/protobuf
@@ -82,7 +82,7 @@ imports:
   - txsort
   - base58
 - name: github.com/roasbeef/btcwallet
-  version: d7d402cc4135a53230ce068dcc51252c58a11a3d
+  version: 1fd2d6224698e14591d06f2a10b24e86494cc19f
   subpackages:
   - chain
   - waddrmgr
@@ -102,7 +102,7 @@ imports:
 - name: github.com/urfave/cli
   version: a14d7d367bc02b1f57d88de97926727f2d936387
 - name: golang.org/x/crypto
-  version: f160b6bf95857cd862817875dd958be022e587c4
+  version: 9e590154d2353f3f5e1b24da7275686040dcf491
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -113,7 +113,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 1358eff22f0dd0c54fc521042cc607f6ff4b531a
+  version: 9313baa13d9262e49d07b20ed57dceafcd7240cc
   subpackages:
   - context
   - http2
@@ -122,7 +122,7 @@ imports:
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/sys
-  version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
+  version: 30de6d19a3bd89a5f38ae4028e23aaa5582648af
   subpackages:
   - unix
 - name: google.golang.org/grpc

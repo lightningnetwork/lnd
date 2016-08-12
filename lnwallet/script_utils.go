@@ -743,12 +743,13 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 //
 // [1]: https://eprint.iacr.org/2010/264.pdf
 // [2]: https://tools.ietf.org/html/rfc5869
-func deriveElkremRoot(localMultiSigKey *btcec.PrivateKey,
+func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
+	localMultiSigKey *btcec.PublicKey,
 	remoteMultiSigKey *btcec.PublicKey) wire.ShaHash {
 
-	secret := localMultiSigKey.Serialize()
-	salt := remoteMultiSigKey.SerializeCompressed()
-	info := []byte("elkrem")
+	secret := elkremDerivationRoot.Serialize()
+	salt := localMultiSigKey.SerializeCompressed()
+	info := remoteMultiSigKey.SerializeCompressed()
 
 	rootReader := hkdf.New(sha256.New, secret, salt, info)
 

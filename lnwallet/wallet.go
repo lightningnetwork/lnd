@@ -29,6 +29,10 @@ const (
 	// The size of the buffered queue of requests to the wallet from the
 	// outside word.
 	msgBufferSize = 100
+
+	// elkremRootIndex is the top level HD key index from which secrets
+	// used to generate elkrem roots should be derived from.
+	elkremRootIndex = hdkeychain.HardenedKeyStart + 1
 )
 
 var (
@@ -246,6 +250,9 @@ type LightningWallet struct {
 	//  * getrawtransaction -> verify proof of channel links
 	//  * gettxout -> verify inputs to funding tx exist and are unspent
 	rpc *chain.RPCClient
+	// rootKey is the root HD key dervied from a WalletController private
+	// key. This rootKey is used to derive all LN specific secrets.
+	rootKey *hdkeychain.ExtendedKey
 
 	// All messages to the wallet are to be sent accross this channel.
 	msgChan chan interface{}
@@ -294,6 +301,9 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB,
 
 	loader := btcwallet.NewLoader(config.NetParams, netDir)
 	walletExists, err := loader.WalletExists()
+	// Fetch the root derivation key from the wallet's HD chain. We'll use
+	// this to generate specific Lightning related secrets on the fly.
+	rootKey, err := wallet.FetchRootKey()
 	if err != nil {
 		return nil, err
 	}
@@ -359,6 +369,7 @@ func NewLightningWallet(config *Config, cdb *channeldb.DB,
 		cfg:           config,
 		fundingLimbo:  make(map[uint64]*ChannelReservation),
 		quit:          make(chan struct{}),
+		rootKey:          rootMasterKey,
 	}, nil
 }
 
@@ -769,11 +780,17 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.RemoteElkrem = e
 	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationKey
 
+	masterElkremRoot, err := l.deriveMasterElkremRoot()
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// Now that we have their commitment key, we can create the revocation
 	// key for the first version of our commitment transaction. To do so,
 	// we'll first create our elkrem root, then grab the first pre-iamge
 	// from it.
-	elkremRoot := deriveElkremRoot(ourKey, theirKey)
+	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
 	elkremSender := elkrem.NewElkremSender(elkremRoot)
 	pendingReservation.partialState.LocalElkrem = elkremSender
 	firstPreimage, err := elkremSender.AtIndex(0)
@@ -881,9 +898,15 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	}
 	pendingReservation.partialState.FundingRedeemScript = redeemScript
 
+	masterElkremRoot, err := l.deriveMasterElkremRoot()
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// Now that we know their commitment key, we can create the revocation
 	// key for our version of the initial commitment transaction.
-	elkremRoot := deriveElkremRoot(ourKey, theirKey)
+	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
 	elkremSender := elkrem.NewElkremSender(elkremRoot)
 	firstPreimage, err := elkremSender.AtIndex(0)
 	if err != nil {
@@ -1394,16 +1417,18 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	return nil
 }
 
-type WaddrmgrEncryptorDecryptor struct {
-	M *waddrmgr.Manager
+// deriveMasterElkremRoot derives the private key which serves as the master
+// elkrem root. This master secret is used as the secret input to a HKDF to
+// generate elkrem secrets based on random, but public data.
+func (l *LightningWallet) deriveMasterElkremRoot() (*btcec.PrivateKey, error) {
+	masterElkremRoot, err := l.rootKey.Child(elkremRootIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return masterElkremRoot.ECPrivKey()
 }
 
-func (w *WaddrmgrEncryptorDecryptor) Encrypt(p []byte) ([]byte, error) {
-	return w.M.Encrypt(waddrmgr.CKTPrivate, p)
-}
-
-func (w *WaddrmgrEncryptorDecryptor) Decrypt(c []byte) ([]byte, error) {
-	return w.M.Decrypt(waddrmgr.CKTPrivate, c)
 // selectInputs selects a slice of inputs necessary to meet the specified
 // selection amount. If input selectino is unable to suceed to to insuffcient
 // funds, a non-nil error is returned. Additionally, the total amount of the
@@ -1440,8 +1465,6 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.Ou
 	return satSelected, selectedUtxos, nil
 }
 
-func (w *WaddrmgrEncryptorDecryptor) OverheadSize() uint32 {
-	return 24
 // coinSelect attemps to select a sufficient amount of coins, including a
 // change output to fund amt satoshis, adhearing to the specified fee rate. The
 // specified fee rate should be expressed in sat/byte for coin selection to

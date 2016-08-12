@@ -106,7 +106,7 @@ type OpenChannel struct {
 	//ReserveAmount btcutil.Amount
 
 	// Keys for both sides to be used for the commitment transactions.
-	OurCommitKey   *btcec.PrivateKey
+	OurCommitKey   *btcec.PublicKey
 	TheirCommitKey *btcec.PublicKey
 
 	// Tracking total channel capacity, and the amount of funds allocated
@@ -123,7 +123,7 @@ type OpenChannel struct {
 	// The outpoint of the final funding transaction.
 	FundingOutpoint *wire.OutPoint
 
-	OurMultiSigKey      *btcec.PrivateKey
+	OurMultiSigKey      *btcec.PublicKey
 	TheirMultiSigKey    *btcec.PublicKey
 	FundingRedeemScript []byte
 
@@ -809,12 +809,7 @@ func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error 
 		return err
 	}
 
-	encryptedPriv, err := ed.Encrypt(channel.OurCommitKey.Serialize())
-	if err != nil {
-		return err
-	}
-
-	if _, err := b.Write(encryptedPriv); err != nil {
+	if _, err := b.Write(channel.OurCommitKey.SerializeCompressed()); err != nil {
 		return err
 	}
 
@@ -848,12 +843,7 @@ func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 		return err
 	}
 
-	decryptedPriv, err := ed.Decrypt(keyBytes[33:])
-	if err != nil {
-		return err
-	}
-
-	channel.OurCommitKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
+	channel.OurCommitKey, err = btcec.ParsePubKey(keyBytes[33:], btcec.S256())
 	if err != nil {
 		return err
 	}
@@ -952,11 +942,8 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
-	encryptedPriv, err := ed.Encrypt(channel.OurMultiSigKey.Serialize())
-	if err != nil {
-		return err
-	}
-	if err := wire.WriteVarBytes(&b, 0, encryptedPriv); err != nil {
+	ourSerKey := channel.OurMultiSigKey.SerializeCompressed()
+	if err := wire.WriteVarBytes(&b, 0, ourSerKey); err != nil {
 		return err
 	}
 	theirSerKey := channel.TheirMultiSigKey.SerializeCompressed()
@@ -1002,17 +989,16 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 		return err
 	}
 
-	encryptedPrivBytes, err := wire.ReadVarBytes(infoBytes, 0, 100, "")
+	ourKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 34, "")
 	if err != nil {
 		return err
 	}
-	decryptedPriv, err := ed.Decrypt(encryptedPrivBytes)
+	channel.OurMultiSigKey, err = btcec.ParsePubKey(ourKeyBytes, btcec.S256())
 	if err != nil {
 		return err
 	}
-	channel.OurMultiSigKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
 
-	theirKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 33, "")
+	theirKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 34, "")
 	if err != nil {
 		return err
 	}

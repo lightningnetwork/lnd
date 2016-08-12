@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"fmt"
 	"encoding/json"
+	"strings"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcd/chaincfg"
+	"strconv"
 )
 
 type LndNodeDesc struct {
@@ -573,6 +575,7 @@ func (sim *SimNet)GetLightningBalance(n int) int{
 				} `json:"channels"`
 			  } `json:"peers"`
 	}
+	log.Println(stdOut)
 	err = json.Unmarshal([]byte(stdOut), &data)
 	if err != nil {
 		log.Fatalln("Error parsing data", err)
@@ -584,6 +587,59 @@ func (sim *SimNet)GetLightningBalance(n int) int{
 		}
 	}
 	return total
+}
+
+func (sim *SimNet) GetFundingOutput(node, peer, channel int) (string, int){
+	if ! (0 <= node && node < len(sim.lndNodesDesc)){
+		log.Fatalf("Incorrect node number")
+	}
+	stdOut, stdErr, err := ExecWithTimeout(
+		"lncli",
+		1*time.Second, "",
+		"--rpcserver", sim.lndNodesDesc[node].RpcAddress(),
+		"listpeers",
+	)
+	if err != nil {
+		log.Fatalf("Error calling listpeers: %v Output: %v %v", err, stdOut, stdErr)
+	}
+	var data struct {
+		Peers []struct {
+				Channels []struct{
+					LocalBalance int `json:"local_balance"`
+					RemoteBalance int `json:"remote_balance"`
+					ChannelPoint string `json:"channel_point"`
+				} `json:"channels"`
+			  } `json:"peers"`
+	}
+	err = json.Unmarshal([]byte(stdOut), &data)
+	if err != nil {
+		log.Fatalln("Error parsing data", err)
+	}
+	outPoint := data.Peers[peer].Channels[channel].ChannelPoint
+	split := strings.Split(outPoint, ":")
+	if len(split) != 2 {
+		log.Fatalf("Incorrect format of output point, got %v, want tx:n", outPoint)
+	}
+	n, err := strconv.Atoi(split[1])
+	if err != nil {
+		log.Fatalf("Can't convert to int %v", err)
+	}
+	return split[0], n
+}
+
+func (sim *SimNet) CloseChannelFromFirstToSecond(){
+	txFund, nFund := sim.GetFundingOutput(0, 0, 0)
+	log.Println("Funding transaction", txFund, nFund)
+	stdOut, stdErr, err := ExecWithTimeout(
+		"lncli",
+		1*time.Second, "",
+		"--rpcserver", sim.lndNodesDesc[0].RpcAddress(),
+		"closechannel", txFund, strconv.Itoa(nFund), "1000", "0",
+	)
+	if err != nil {
+		log.Fatalf("Error calling closechannel: %v Output: %v %v", err, stdOut, stdErr)
+	}
+	log.Println("closechannel:", stdOut)
 }
 
 func main(){
@@ -641,16 +697,35 @@ func main(){
 		}
 	}
 
-	sim.SendMoneyBetweenNodes(1, 0, 100)
-	// I guess there should be direct call for Lightning balances
-	// For now version using listpeers
-	expectedBalances = []int{100000000-1000+100, 1000-100, 0}
-	for i:=0; i< 3; i++{
-		balance := sim.GetLightningBalance(i)
-		if expectedBalances[i] != balance{
-			log.Printf("Lightning balance of node %v is %v, want %v", i, balance, expectedBalances[i])
-		}
+//	sim.SendMoneyBetweenNodes(1, 0, 100)
+//	// I guess there should be direct call for Lightning balances
+//	// For now version using listpeers
+//	expectedBalances = []int{100000000-1000+100, 1000-100, 0}
+//	for i:=0; i< 3; i++{
+//		balance := sim.GetLightningBalance(i)
+//		if expectedBalances[i] != balance{
+//			log.Printf("Lightning balance of node %v is %v, want %v", i, balance, expectedBalances[i])
+//		}
+//	}
+
+	sim.CloseChannelFromFirstToSecond()
+	time.Sleep(1*time.Second)
+	sim.ShowListPeers(0)
+	sim.GenerateBlocks(1)
+	bestHash, _, err = sim.btcdClient.GetBestBlock()
+	if err != nil {
+		log.Fatalf("Can't get best block hash: %v", err)
 	}
+	bestBlock, err = sim.btcdClient.GetBlock(bestHash)
+	if err != nil{
+		log.Fatalf("Can't get best block: %v", err)
+	}
+	if len(bestBlock.Transactions()) != 2{
+		log.Fatalf("After closing channel blockchain should have funding transaction."+
+		" So block should have 2 transactions. Got %v", len(bestBlock.Transactions()))
+	}
+
+
 	sim.StopWallet()
 	sim.StopBTCD()
 	sim.RemoveTemp()

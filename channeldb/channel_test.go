@@ -78,23 +78,6 @@ var (
 	}
 )
 
-type MockEncryptorDecryptor struct {
-}
-
-func (m *MockEncryptorDecryptor) Encrypt(n []byte) ([]byte, error) {
-	return n, nil
-}
-
-func (m *MockEncryptorDecryptor) Decrypt(n []byte) ([]byte, error) {
-	return n, nil
-}
-
-func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
-	return 0
-}
-
-var _ EncryptorDecryptor = (*MockEncryptorDecryptor)(nil)
-
 func TestOpenChannelPutGetDelete(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
@@ -111,7 +94,6 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
-	cdb.RegisterCryptoSystem(&MockEncryptorDecryptor{})
 	defer cdb.Close()
 
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])

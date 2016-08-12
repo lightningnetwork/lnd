@@ -469,7 +469,6 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// Append a sighash type of SigHashAll to the signature as it's the
 	// sighash type used implicitly within this type of channel for
 	// commitment transactions.
-	commitSig = append(commitSig, byte(txscript.SigHashAll))
 	revokeKey := fmsg.msg.RevocationKey
 	if err := resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut, commitSig); err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
@@ -521,7 +520,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
 	// the state to disk as we can now open the channel.
-	commitSig := append(fmsg.msg.CommitSignature.Serialize(), byte(txscript.SigHashAll))
+	commitSig := fmsg.msg.CommitSignature.Serialize()
 	if err := resCtx.reservation.CompleteReservation(nil, commitSig); err != nil {
 		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
 		fmsg.peer.Disconnect()

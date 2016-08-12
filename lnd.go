@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/roasbeef/btcrpcclient"
 )
 
@@ -116,9 +117,8 @@ func lndMain() error {
 		return err
 	}
 
-	// Create, and start the lnwallet, which handles the core payment
-	// channel logic, and exposes control via proxy state machines.
-	walletConfig := &lnwallet.Config{
+	// TODO(roasbeef): paarse config here select chosen WalletController
+	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
 		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
@@ -127,7 +127,18 @@ func lndMain() error {
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
-	wallet, err := lnwallet.NewLightningWallet(walletConfig, chanDB, notifier)
+	wc, err := btcwallet.New(walletConfig)
+	if err != nil {
+		fmt.Printf("unable to create wallet controller: %v\n", err)
+		return err
+	}
+	signer := wc
+	bio := wc
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	wallet, err := lnwallet.NewLightningWallet(chanDB, notifier,
+		wc, signer, bio, activeNetParams.Params)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return err
@@ -137,9 +148,6 @@ func lndMain() error {
 		return err
 	}
 	ltndLog.Info("LightningWallet opened")
-
-	ec := &lnwallet.WaddrmgrEncryptorDecryptor{wallet.Manager}
-	chanDB.RegisterCryptoSystem(ec)
 
 	// Set up the core server which will listen for incoming peer
 	// connections.

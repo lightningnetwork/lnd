@@ -502,7 +502,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		if err := l.selectCoinsAndChange(req.fundingAmount,
+		// TODO(roasbeef): consult model for proper fee rate
+		feeRate := uint64(10)
+		if err := l.selectCoinsAndChange(feeRate, req.fundingAmount,
 			ourContribution); err != nil {
 			req.err <- err
 			req.resp <- nil
@@ -1327,7 +1329,7 @@ func (l *LightningWallet) ListUnspentWitness(minConfs int32) ([]*btcjson.ListUns
 // the passed contribution's inputs. If necessary, a change address will also be
 // generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
-func (l *LightningWallet) selectCoinsAndChange(numCoins btcutil.Amount,
+func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amount,
 	contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
@@ -1337,22 +1339,10 @@ func (l *LightningWallet) selectCoinsAndChange(numCoins btcutil.Amount,
 	// when we encounter an error condition.
 	l.coinSelectMtx.Lock()
 
-	// TODO(roasbeef): check if balance is insufficient, if so then select
-	// on two channels, one is a time.After that will bail out with
-	// insuffcient funds, the other is a notification that the balance has
-	// been updated make(chan struct{}, 1).
-
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
 	// TODO(roasbeef): make num confs a configuration paramter
-	unspentOutputs, err := l.ListUnspentWitness(1)
-	if err != nil {
-		l.coinSelectMtx.Unlock()
-		return err
-	}
-
-	// Convert the outputs to coins for coin selection below.
-	coins, err := outputsToCoins(unspentOutputs)
+	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
 		l.coinSelectMtx.Unlock()
 		return err
@@ -1360,17 +1350,8 @@ func (l *LightningWallet) selectCoinsAndChange(numCoins btcutil.Amount,
 
 	// Peform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount requirements.
-	//
-	// TODO(roasbeef): Should extend coinset with optimal coin selection
-	// heuristics for our use case.
-	// NOTE: this current selection assumes "priority" is still a thing.
-	selector := &coinset.MaxValueAgeCoinSelector{
-		MaxInputs:       10,
-		MinChangeAmount: 10000,
-	}
-	// TODO(roasbeef): don't hardcode fee...
-	totalWithFee := numCoins + 10000
-	selectedCoins, err := selector.CoinSelect(totalWithFee, coins)
+	// TODO(roasbeef): take in sat/byte
+	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
 	if err != nil {
 		l.coinSelectMtx.Unlock()
 		return err
@@ -1379,42 +1360,37 @@ func (l *LightningWallet) selectCoinsAndChange(numCoins btcutil.Amount,
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins.Coins()))
-	for i, coin := range selectedCoins.Coins() {
-		txout := wire.NewOutPoint(coin.Hash(), coin.Index())
-		l.LockOutpoint(*txout)
+	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
+	for i, coin := range selectedCoins {
+		l.lockedOutPoints[*coin] = struct{}{}
+		l.LockOutpoint(*coin)
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
-		outPoint := wire.NewOutPoint(coin.Hash(), coin.Index())
-		contribution.Inputs[i] = wire.NewTxIn(outPoint, nil, nil)
+		contribution.Inputs[i] = wire.NewTxIn(coin, nil, nil)
+	}
+
+	// Record any change output(s) generated as a result of the coin
+	// selection.
+	if changeAmt != 0 {
+		changeAddr, err := l.NewAddress(WitnessPubKey, true)
+		if err != nil {
+			return err
+		}
+		changeScript, err := txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return err
+		}
+
+		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
+		contribution.ChangeOutputs[0] = &wire.TxOut{
+			Value:    int64(changeAmt),
+			PkScript: changeScript,
+		}
 	}
 
 	l.coinSelectMtx.Unlock()
 
-	// Create some possibly neccessary change outputs.
-	selectedTotalValue := coinset.NewCoinSet(selectedCoins.Coins()).TotalValue()
-	if selectedTotalValue > totalWithFee {
-		// Change is necessary. Query for an available change address to
-		// send the remainder to.
-		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
-		changeAddr, err := l.NewChangeAddress(waddrmgr.DefaultAccountNum,
-			waddrmgr.WitnessPubKey)
-		if err != nil {
-			return err
-		}
-
-		changeAddrScript, err := txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			return err
-		}
-
-		changeAmount := selectedTotalValue - totalWithFee
-		contribution.ChangeOutputs[0] = wire.NewTxOut(int64(changeAmount),
-			changeAddrScript)
-	}
-
-	// TODO(roasbeef): re-calculate fees here to minFeePerKB, may need more inputs
 	return nil
 }
 
@@ -1428,8 +1404,107 @@ func (w *WaddrmgrEncryptorDecryptor) Encrypt(p []byte) ([]byte, error) {
 
 func (w *WaddrmgrEncryptorDecryptor) Decrypt(c []byte) ([]byte, error) {
 	return w.M.Decrypt(waddrmgr.CKTPrivate, c)
+// selectInputs selects a slice of inputs necessary to meet the specified
+// selection amount. If input selectino is unable to suceed to to insuffcient
+// funds, a non-nil error is returned. Additionally, the total amount of the
+// selected coins are returned in order for the caller to properly handle
+// change+fees.
+func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.OutPoint, error) {
+	var (
+		selectedUtxos []*wire.OutPoint
+		satSelected   btcutil.Amount
+	)
+
+	i := 0
+	for satSelected < amt {
+		// If we're about to go past the number of available coins,
+		// then exit with an error.
+		if i > len(coins)-1 {
+			return 0, nil, ErrInsufficientFunds
+		}
+
+		// Otherwise, collect this new coin as it may be used for final
+		// coin selection.
+		coin := coins[i]
+		utxo := &wire.OutPoint{
+			Hash:  coin.Hash,
+			Index: coin.Index,
+		}
+
+		selectedUtxos = append(selectedUtxos, utxo)
+		satSelected += coin.Value
+
+		i++
+	}
+
+	return satSelected, selectedUtxos, nil
 }
 
 func (w *WaddrmgrEncryptorDecryptor) OverheadSize() uint32 {
 	return 24
+// coinSelect attemps to select a sufficient amount of coins, including a
+// change output to fund amt satoshis, adhearing to the specified fee rate. The
+// specified fee rate should be expressed in sat/byte for coin selection to
+// function properly.
+func coinSelect(feeRate uint64, amt btcutil.Amount,
+	coins []*Utxo) ([]*wire.OutPoint, btcutil.Amount, error) {
+
+	const (
+		// txOverhead is the overhead of a transaction residing within
+		// the version number and lock time.
+		txOverhead = 8
+
+		// p2wkhSpendSize an estimate of the number of bytes it takes
+		// to spend a p2wkh output.
+		//
+		// (p2wkh witness) + txid + index + varint script size + sequence
+		// TODO(roasbeef): div by 3 due to witness size?
+		p2wkhSpendSize = (1 + 73 + 1 + 33) + 32 + 4 + 1 + 4
+
+		// p2wkhOutputSize is an estimate of the size of a regualr
+		// p2wkh output.
+		//
+		// 8 (output) + 1 (var int script) + 22 (p2wkh output)
+		p2wkhOutputSize = 8 + 1 + 22
+
+		// p2wkhOutputSize is an estimate of the p2wsh funding uotput.
+		p2wshOutputSize = 8 + 1 + 34
+	)
+
+	var estimatedSize int
+
+	amtNeeded := amt
+	for {
+		// First perform an initial round of coin selection to estimate
+		// the required fee.
+		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Based on the selected coins, estimate the size of the final
+		// fully signed transaction.
+		estimatedSize = ((len(selectedUtxos) * p2wkhSpendSize) +
+			p2wshOutputSize + txOverhead)
+
+		// The difference bteween the selected amount and the amount
+		// requested will be used to pay fees, and generate a change
+		// output with the remaining.
+		overShootAmt := totalSat - amtNeeded
+
+		// Based on the estimated size and fee rate, if the excess
+		// amount isn't enough to pay fees, then increase the requested
+		// coin amount by the estimate required fee, performing another
+		// round of coin selection.
+		requiredFee := btcutil.Amount(uint64(estimatedSize) * feeRate)
+		if overShootAmt < requiredFee {
+			amtNeeded += requiredFee
+			continue
+		}
+
+		// If the fee is sufficient, then calculate the size of the change output.
+		changeAmt := overShootAmt - requiredFee
+
+		return selectedUtxos, changeAmt, nil
+	}
 }

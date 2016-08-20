@@ -512,7 +512,19 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
 	rpcsLog.Debugf("[ShowRoutingTable]")
 	rtCopy := r.server.routingMgr.GetRTCopy()
+	channels := make([]*lnrpc.RTChannel, 0)
+	for _, channel := range rtCopy.AllChannels() {
+		channels = append(channels,
+			&lnrpc.RTChannel{
+				Id1:      channel.Id1.String(),
+				Id2:      channel.Id2.String(),
+				EdgeID:   channel.EdgeID.String(),
+				Capacity: channel.Info.Capacity(),
+				Weight:   channel.Info.Weight(),
+			},
+		)
+	}
 	return &lnrpc.ShowRoutingTableResponse{
-		Rt: rtCopy.String(),
+		Channels: channels,
 	}, nil
 }

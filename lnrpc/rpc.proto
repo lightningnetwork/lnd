@@ -222,9 +222,17 @@ message WalletBalanceResponse {
     double balance = 1;
 }
 
+message RTChannel {
+    string id1 = 1;
+    string id2 = 2;
+    string edgeID = 3;
+    double capacity = 4;
+    double weight = 5;
+}
+
 message ShowRoutingTableRequest {
 }
 
 message ShowRoutingTableResponse {
-    string rt = 1;
+    repeated RTChannel channels = 1;
 }

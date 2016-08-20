@@ -5,7 +5,6 @@
 package lnwire
 
 import (
-	"encoding/gob"
 	"fmt"
 	"io"
 
@@ -18,16 +17,13 @@ type NeighborHelloMessage struct {
 }
 
 func (msg *NeighborHelloMessage) Decode(r io.Reader, pver uint32) error {
-	decoder := gob.NewDecoder(r)
-	rt1 := rt.NewRoutingTable()
-	err := decoder.Decode(rt1.G)
+	rt1, err := rt.UnmarshallRoutingTable(r)
 	msg.RT = rt1
 	return err
 }
 
 func (msg *NeighborHelloMessage) Encode(w io.Writer, pver uint32) error {
-	encoder := gob.NewEncoder(w)
-	err := encoder.Encode(msg.RT.G)
+	err := msg.RT.Marshall(w)
 	return err
 }
 

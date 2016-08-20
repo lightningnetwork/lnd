@@ -13,6 +13,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph/prefix_tree"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -507,6 +509,13 @@ func sendPaymentCommand(ctx *cli.Context) error {
 var ShowRoutingTableCommand = cli.Command{
 	Name:        "showroutingtable",
 	Description: "shows routing table for a node",
+	Usage:       "showroutingtable [--table]",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "table",
+			Usage: "Show the routing table in table format. Print only a few first symbols of id",
+		},
+	},
 	Action:      showRoutingTable,
 }
 
@@ -519,7 +528,80 @@ func showRoutingTable(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-
-	printRespJson(resp)
+	buff := bytes.NewBuffer([]byte(resp.Rt))
+	r, err := rt.UnmarshallRoutingTable(buff)
+	if err != nil {
+		fmt.Println("Can't unmarshall routing table")
+		return err
+	}
+	if ctx.Bool("table") {
+		printRTAsTable(r)
+	} else {
+		printRTAsJSON(r)
+	}
 	return nil
+}
+
+// Prints routing table in human readable table format
+func printRTAsTable(r *rt.RoutingTable){
+	tmpl := "%10v %10v %10v %10v\n"
+	fmt.Printf(tmpl, "ID1", "ID2", "Capacity", "Weight")
+	// Generate prefix tree for shortcuts
+	tree := prefix_tree.NewPrefixTree()
+	for _, node := range r.Nodes(){
+		tree.Add( hex.EncodeToString([]byte(node.String())))
+	}
+	edges := r.G.GetUndirectedEdges()
+	minLen := 6
+	for _, edge := range(edges){
+		info := edge.Info().(*rt.ChannelInfo)
+		sourceHex := hex.EncodeToString([]byte(edge.Source().String()))
+		source := getShortcut(tree, sourceHex, minLen)
+		targetHex := hex.EncodeToString([]byte(edge.Target().String()))
+		target := getShortcut(tree, targetHex, minLen)
+		fmt.Printf(tmpl, source, target, info.Cpt, info.Wgt)
+	}
+}
+
+func getShortcut(tree prefix_tree.PrefixTree, s string, minLen int) string {
+	s1, err := tree.Shortcut(s)
+	if err != nil || s == s1 {
+		return s
+	}
+	if len(s1) < minLen && minLen < len(s) {
+		s1 = s[:minLen]
+	}
+	shortcut := fmt.Sprintf("%v...", s1)
+	if len(shortcut) >= len(s){
+		shortcut = s
+	}
+	return shortcut
+}
+
+func printRTAsJSON(r *rt.RoutingTable){
+	type  ChannelDesc struct {
+		ID1 string `json:"lightning_id1"`
+		ID2 string `json:"lightning_id2"`
+		Capacity float64 `json:"capacity"`
+		Weight float64 `json:"weight"`
+	}
+	var channels struct{
+		Channels []ChannelDesc `json:"channels"`
+	}
+	edges := r.G.GetUndirectedEdges()
+	channels.Channels = make([]ChannelDesc, 0, len(edges))
+	for _, edge := range(edges){
+		info := edge.Info().(*rt.ChannelInfo)
+		sourceHex := hex.EncodeToString([]byte(edge.Source().String()))
+		targetHex := hex.EncodeToString([]byte(edge.Target().String()))
+		channels.Channels = append(channels.Channels,
+			ChannelDesc{
+				ID1: sourceHex,
+				ID2: targetHex,
+				Weight: info.Weight(),
+				Capacity: info.Capacity(),
+			},
+		)
+	}
+	printRespJson(channels)
 }

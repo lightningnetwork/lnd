@@ -41,4 +41,3 @@ func TestNeighborAckMessageReadWrite(t *testing.T){
                t.Fatalf("Can't convert to *NeighborAckMessage")
        }
 }
-

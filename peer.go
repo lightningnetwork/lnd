@@ -384,7 +384,6 @@ out:
 			*lnwire.NeighborUpdMessage,
 			*lnwire.RoutingTableRequestMessage,
 			*lnwire.RoutingTableTransferMessage:
-			// Convert to base routing message and set sender and receiver
 			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		}
 
@@ -463,7 +462,7 @@ out:
 			}
 
 			if err := p.writeMessage(outMsg.msg); err != nil {
-				peerLog.Errorf("unable to write message: %v", err)
+				peerLog.Errorf("unable to write message: %v. Message: %v", err, outMsg.msg)
 				p.Disconnect()
 				break out
 			}

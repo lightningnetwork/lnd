@@ -426,6 +426,60 @@ func (sim *SimNet) TestConnect(){
 	}
 }
 
+// Tries to connect second LND node to third. And do some operations.
+func (sim *SimNet) TestConnect2(){
+	stdOut, stdErr, err := ExecWithTimeout(
+		"lncli",
+		1*time.Second, "",
+		"--rpcserver", sim.lndNodesDesc[0].RpcAddress(),
+		"connect", sim.lndNodesDesc[2].ConnectionAddress(),
+	)
+	if err != nil {
+		log.Fatalf("Can't connect node to other node: %v. Error output %v", err, stdErr)
+	}
+	var connectionInfo struct{
+		PeerId int `json:"peer_id"`
+	}
+	err = json.Unmarshal([]byte(stdOut), &connectionInfo)
+	if err != nil {
+		log.Fatalf("Can't parse output of 'lncli connect': %v", err)
+	}
+	log.Print("Node 1 connect to node 3. peer_id:", connectionInfo.PeerId)
+
+	// Check if first node knows about the second
+	stdOut, stdErr, err = ExecWithTimeout("lncli", 1*time.Second, "", "--rpcserver", sim.lndNodesDesc[0].RpcAddress(), "listpeers")
+	if err != nil {
+		log.Fatalf("Can't listpeers for node 0: %v. Error output %v", err, stdErr)
+	} else {
+		var data struct {
+			Peers [] *struct {
+				LightningId string `json:"lightning_id"`
+				PeerId int `json:"peer_id"`
+				Address string `json:"address"`
+
+			} `json:"peers"`
+		}
+		err := json.Unmarshal([]byte(stdOut), &data)
+		if err != nil {
+			log.Fatalf("Can't parse output of listpeers command")
+		}
+		if len(data.Peers) != 2{
+			log.Fatalf("Incorrect reported by listpeers number of peers")
+		}
+//		if data.Peers[1].LightningId != sim.lndNodesDesc[2].LightningId{
+//			log.Fatalf("Incorrect reported by listpeers lightning_id of peer. Get %v, want %v", data.Peers[0].LightningId, sim.lndNodesDesc[1].LightningId)
+//		}
+//		if data.Peers[1].PeerId != 2 {
+//			log.Fatalf("Incorrect reported by listpeers peer_id of peer. Get %v, want %v", data.Peers[1].PeerId, 2)
+//		}
+//		expectedAddr := fmt.Sprintf("%v:%v", sim.lndNodesDesc[2].Host, sim.lndNodesDesc[2].PeerPort)
+//		if data.Peers[1].Address != expectedAddr {
+//			log.Fatalf("Incorrect reported by listpeers lightning_id of peer. Get %v, want %v", data.Peers[1].Address, expectedAddr)
+//		}
+	}
+}
+
+
 func (sim *SimNet) SendInitialMoneyFirstNode(){
 	stdOut, _, err := ExecWithTimeout("lncli", 1*time.Second, "", "--rpcserver", sim.lndNodesDesc[0].RpcAddress(), "newaddress", "p2wkh")
 	if err != nil {
@@ -503,7 +557,20 @@ func (sim *SimNet)OpenChannelFromFirstToSecond(){
 		"openchannel", "--peer_id=1", "--local_amt=100000000", "--remote_amt=0", "--num_confs=1",
 	)
 	if err != nil {
-		log.Fatalf("Can't open channel %v. Output: %v %v. Node 2 output: %v %v", err, stdOut, stdErr, sim.lndCmds[1].Stdout, sim.lndCmds[1].Stderr)
+		log.Fatalf("Can't open channel %v. Output: %v %v", err, stdOut, stdErr)
+	}
+	log.Println("OPenchannel", stdOut, stdErr, err)
+}
+
+func (sim *SimNet)OpenChannelFromFirstToThird(){
+	stdOut, stdErr, err := ExecWithTimeout(
+		"lncli",
+		1*time.Second, "",
+		"--rpcserver", sim.lndNodesDesc[0].RpcAddress(),
+		"openchannel", "--peer_id=2", "--local_amt=100000000", "--remote_amt=0", "--num_confs=1",
+	)
+	if err != nil {
+		log.Fatalf("Can't open channel %v. Output: %v %v", err, stdOut, stdErr)
 	}
 	log.Println("OPenchannel", stdOut, stdErr, err)
 }
@@ -516,7 +583,7 @@ func (sim *SimNet)SendMoneyBetweenNodes(from, to, amount uint){
 		"sendpayment", "--dest="+sim.lndNodesDesc[to].LightningId,  fmt.Sprintf("--amt=%v", amount),
 	)
 	if err!=nil{
-		log.Fatalf("Can't send payment from %v to %v: %v. Output %v %v. Receiving node output", from, to, err, stdOut, stdErr, sim.lndCmds[to].Stdout, sim.lndCmds[to].Stderr)
+		log.Fatalf("Can't send payment from %v to %v: %v. Output %v %v. Receiving node output %v %v", from, to, err, stdOut, stdErr, sim.lndCmds[to].Stdout, sim.lndCmds[to].Stderr)
 	}
 	log.Println("Sendpayment", stdOut, stdErr, err)
 }
@@ -535,6 +602,22 @@ func (sim *SimNet)ShowListPeers(n int){
 		log.Fatalf("Error calling listpeers: %v Output: %v %v", err, stdOut, stdErr)
 	}
 	log.Printf("listpeers %v: %v", n, stdOut)
+}
+
+func (sim *SimNet)ShowRoutingTable(n int){
+	if ! (0 <= n && n < len(sim.lndNodesDesc)){
+		log.Fatalf("Incorrect node number")
+	}
+	stdOut, stdErr, err := ExecWithTimeout(
+		"lncli",
+		1*time.Second, "",
+		"--rpcserver", sim.lndNodesDesc[n].RpcAddress(),
+		"showroutingtable",
+	)
+	if err != nil {
+		log.Fatalf("Error calling listpeers: %v Output: %v %v", err, stdOut, stdErr)
+	}
+	log.Printf("showroutingtable %v: %v", n, stdOut)
 }
 
 func (sim *SimNet)ShowPendingChannels(n int){
@@ -659,6 +742,7 @@ func main(){
 
 	sim.StartAllLnd()
 	sim.TestConnect()
+	sim.TestConnect2()
 	sim.SendInitialMoneyFirstNode()
 	sim.GenerateBlocks(10)
 	time.Sleep(1*time.Second)
@@ -677,6 +761,22 @@ func main(){
 		log.Fatalf("Can't get best block hash: %v", err)
 	}
 	bestBlock, err := sim.btcdClient.GetBlock(bestHash)
+	if err != nil{
+		log.Fatalf("Can't get best block: %v", err)
+	}
+	if len(bestBlock.Transactions()) != 2{
+		log.Fatalf("After opening channel blockchain should have funding transaction."+
+		" So block should have 2 transactions. Got %v", len(bestBlock.Transactions()))
+	}
+	time.Sleep(2*time.Second)
+	sim.OpenChannelFromFirstToThird()
+	time.Sleep(1*time.Second)
+	sim.GenerateBlocks(1)
+	bestHash, _, err = sim.btcdClient.GetBestBlock()
+	if err != nil {
+		log.Fatalf("Can't get best block hash: %v", err)
+	}
+	bestBlock, err = sim.btcdClient.GetBlock(bestHash)
 	if err != nil{
 		log.Fatalf("Can't get best block: %v", err)
 	}
@@ -720,12 +820,15 @@ func main(){
 	if err != nil{
 		log.Fatalf("Can't get best block: %v", err)
 	}
-	fmt.Println("****************************")
-	fmt.Println(sim.lndCmds[0].Stdout, sim.lndCmds[0].Stderr)
-	fmt.Println("****************************")
-	fmt.Println(sim.lndCmds[1].Stdout, sim.lndCmds[1].Stderr)
-	fmt.Println("*****************************")
-	if len(bestBlock.Transactions()) != 2{
+//	fmt.Println("****************************")
+//	fmt.Println(sim.lndCmds[0].Stdout, sim.lndCmds[0].Stderr)
+//	fmt.Println("****************************")
+//	fmt.Println(sim.lndCmds[1].Stdout, sim.lndCmds[1].Stderr)
+//	fmt.Println("*****************************")
+	sim.ShowRoutingTable(0)
+	sim.ShowRoutingTable(1)
+	sim.ShowRoutingTable(2)
+	if len(bestBlock.Transactions()) != 2 {
 		log.Fatalf("After closing channel blockchain should have funding transaction."+
 		" So block should have 2 transactions. Got %v", len(bestBlock.Transactions()))
 	}

@@ -634,7 +634,9 @@ func (sim *SimNet) CloseChannelFromFirstToSecond(){
 		"lncli",
 		1*time.Second, "",
 		"--rpcserver", sim.lndNodesDesc[0].RpcAddress(),
-		"closechannel", txFund, strconv.Itoa(nFund), "1000", "0",
+		"closechannel",
+		"--funding_txid", txFund,
+		"--output_index", strconv.Itoa(nFund),
 	)
 	if err != nil {
 		log.Fatalf("Error calling closechannel: %v Output: %v %v", err, stdOut, stdErr)
@@ -725,6 +727,7 @@ func main(){
 	fmt.Println("****************************")
 	fmt.Println(sim.lndCmds[1].Stdout, sim.lndCmds[1].Stderr)
 	fmt.Println("*****************************")
+	fmt.Println("transactions:", bestBlock.Transactions())
 	if len(bestBlock.Transactions()) != 2{
 		log.Fatalf("After closing channel blockchain should have funding transaction."+
 		" So block should have 2 transactions. Got %v", len(bestBlock.Transactions()))

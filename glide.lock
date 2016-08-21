@@ -1,22 +1,31 @@
-hash: 02d4ee92f22da78cae1ef93beb72f1814e12714ec4b76bc1d009769990084f83
-updated: 2016-08-11T11:35:40.811837309-07:00
+hash: 348cab6c25a05211caed34dc711bd1cb5a51800bc87d3609127ff9271b206c42
+updated: 2016-09-02T08:34:25.843272647-04:00
 imports:
+- name: github.com/awalterschulze/gographviz
+  version: cafbade2d58068c3992f12afe46742195c673d2b
+  subpackages:
+  - ast
+  - parser
+  - scanner
+  - token
 - name: github.com/BitfuryLightning/tools
-  version: 5559e9eeb613446747dd43026ab60f63ad6eeb05
+  version: b36ae00916b800503504455f7afeb3159bd5ee35
   subpackages:
   - routing
   - rt
   - rt/graph
+  - prefix_tree
+  - rt/visualizer
   - pbuffer
   - pqueue
 - name: github.com/boltdb/bolt
-  version: dfb21201d9270c1082d5fb0f07f500311ff72f18
+  version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/bolt
-  version: 38b9bbfde72d4b62b6a038a3adfca64c44da0133
+  version: da4838c39653ed69caa78c99ca68001a89eb973f
 - name: github.com/btcsuite/btclog
-  version: f96df2375f37300305f329b8e5258764b4f19a7f
+  version: 73889fb79bd687870312b6e40effcecffbd57d30
 - name: github.com/btcsuite/fastsha256
-  version: 302ad4db268b46f9ebda3078f6f7397f96047735
+  version: 637e656429416087660c84436a2a035d69d54e2e
 - name: github.com/btcsuite/go-flags
   version: 6c288d648c1cc1befcb90cb5511dcacf64ae8e61
 - name: github.com/btcsuite/go-socks
@@ -42,15 +51,15 @@ imports:
 - name: github.com/codahale/chacha20poly1305
   version: f8a5c48301822c3d7dd26d78e68ea2968db0ab20
 - name: github.com/davecgh/go-spew
-  version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
+  version: 6cf5744a041a0022271cefed95ba843f6d87fd51
   subpackages:
   - spew
 - name: github.com/golang/protobuf
-  version: 2c1988e8c18d14b142c0b472624f71647cf39adb
+  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
   subpackages:
   - proto
 - name: github.com/howeyc/gopass
-  version: b63a7d07e65df376d14e2d72907a93d4847dffe4
+  version: 3ca23474a7c7203e0a0a070fd33508f6efdb9b3d
 - name: github.com/roasbeef/btcd
   version: baea7691cc3c59480703fe1a3fb5595c838c963c
   subpackages:
@@ -79,9 +88,9 @@ imports:
   - waddrmgr
   - wallet
   - walletdb/bdb
-  - walletdb
   - internal/zero
   - snacl
+  - walletdb
   - wtxmgr
   - internal/prompt
   - wallet/txauthor
@@ -91,9 +100,9 @@ imports:
   - wallet/internal/txsizes
   - internal/legacy/rename
 - name: github.com/urfave/cli
-  version: 1efa31f08b9333f1bd4882d61f9d668a70cd902e
+  version: a14d7d367bc02b1f57d88de97926727f2d936387
 - name: golang.org/x/crypto
-  version: 595bbbd7f5f308415a544d3c55743c91427c8d99
+  version: f160b6bf95857cd862817875dd958be022e587c4
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -104,7 +113,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 075e191f18186a8ff2becaf64478e30f4545cdad
+  version: 1358eff22f0dd0c54fc521042cc607f6ff4b531a
   subpackages:
   - context
   - http2
@@ -117,11 +126,11 @@ imports:
   subpackages:
   - unix
 - name: google.golang.org/grpc
-  version: 13edeeffdea7a41d5aad96c28deb4c7bd01a9397
+  version: 0032a855ba5c8a3c8e0d71c2deef354b70af1584
   subpackages:
+  - grpclog
   - codes
   - credentials
-  - grpclog
   - internal
   - metadata
   - naming

@@ -1,6 +1,7 @@
 package: github.com/lightningnetwork/lnd
 import:
 - package: github.com/BitfuryLightning/tools
+  version: ^0.0.2
   subpackages:
   - routing
   - rt

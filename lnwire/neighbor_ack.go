@@ -7,6 +7,7 @@ package lnwire
 import (
 	"fmt"
 	"io"
+	"bytes"
 )
 
 type NeighborAckMessage struct {
@@ -27,12 +28,21 @@ func (msg *NeighborAckMessage) Encode(w io.Writer, pver uint32) error {
 }
 
 func (msg *NeighborAckMessage) Decode(r io.Reader, pver uint32) error {
+	buff := make([]byte, 18)
+	_, err := r.Read(buff)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(buff, []byte("NeighborAckMessage")) {
+		fmt.Errorf("Can't decode NeighborAckMessage message")
+	}
 	return nil
 }
 
 func (msg *NeighborAckMessage) MaxPayloadLength(uint32) uint32 {
-	// Some random number. Transmission functions work bad if it is 0
-	return 100
+	// Length of the string "NeighborAckMessage" used in Encode
+	// Transmission functions work bad if it is 0
+	return 18
 
 }
 

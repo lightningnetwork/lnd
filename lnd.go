@@ -91,10 +91,12 @@ func lndMain() error {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return err
 	}
+	/*
 	if err := wallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
 		return err
 	}
+	*/
 	ltndLog.Info("LightningWallet opened")
 
 	ec := &lnwallet.WaddrmgrEncryptorDecryptor{wallet.Manager}

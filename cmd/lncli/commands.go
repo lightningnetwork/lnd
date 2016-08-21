@@ -518,6 +518,10 @@ var ShowRoutingTableCommand = cli.Command{
 			Name:  "human",
 			Usage: "Simplify output to human readable form. Output lightning_id partially. Only work with --table option.",
 		},
+		cli.BoolFlag{
+			Name:  "dot",
+			Usage: "graph representation by dot(graphviz) language",
+		},
 	},
 
 	Action: showRoutingTable,
@@ -548,12 +552,22 @@ func showRoutingTable(ctx *cli.Context) error {
 		fmt.Println("Can't unmarshall routing table")
 		return err
 	}
-	if ctx.Bool("table") {
+	if ctx.Bool("dot") {
+		printRTByDotLanguage(r)
+	} else if ctx.Bool("table") {
 		printRTAsTable(r, ctx.Bool("human"))
 	} else {
 		printRTAsJSON(r)
 	}
 	return nil
+}
+
+func printRTByDotLanguage(r *rt.RoutingTable){
+	dot, err := r.G.Visualize(nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(dot)
 }
 
 // Prints routing table in human readable table format

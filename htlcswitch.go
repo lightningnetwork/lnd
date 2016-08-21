@@ -169,6 +169,7 @@ out:
 				//  * avoid full channel depletion at higher
 				//    level (here) instead of within state
 				//    machine?
+				hswcLog.Tracef("link.availableBandwidth=%v, amt=%v", link.availableBandwidth, amt)
 				if link.availableBandwidth < amt {
 					continue
 				}
@@ -196,10 +197,15 @@ out:
 		case pkt := <-h.htlcPlex:
 			numUpdates += 1
 			// TODO(roasbeef): properly account with cleared vs settled
+			hswcLog.Debugf("Message from h.htlcPlex chan received: %v", pkt)
 			switch pkt.msg.(type) {
 			case *lnwire.HTLCAddRequest:
+				msg2 := pkt.msg.(*lnwire.HTLCAddRequest)
+				hswcLog.Debugf("Message from h.htlcPlex received of type *lnwire.HTLCAddRequest, %v", msg2.ChannelPoint)
 				satRecv += pkt.amt
 			case *lnwire.HTLCSettleRequest:
+				msg2 := pkt.msg.(*lnwire.HTLCSettleRequest)
+				hswcLog.Debugf("Message from h.htlcPlex received of type *lnwire.HTLCSettleRequest, %v", msg2.ChannelPoint)
 				satSent += pkt.amt
 			}
 

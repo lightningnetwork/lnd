@@ -516,7 +516,10 @@ func (sim *SimNet)SendMoneyBetweenNodes(from, to, amount uint){
 		"sendpayment", "--dest="+sim.lndNodesDesc[to].LightningId,  fmt.Sprintf("--amt=%v", amount),
 	)
 	if err!=nil{
-		log.Fatalf("Can't send payment from %v to %v: %v. Output %v %v. Receiving node output", from, to, err, stdOut, stdErr, sim.lndCmds[to].Stdout, sim.lndCmds[to].Stderr)
+		log.Fatalf("Can't send payment from %v to %v: %v. Output %v %v." +
+		"\n Sending node output\n %v %v " +
+		"\n ***************************************" +
+		"\nReceiving node output\n %v %v", from, to, err, stdOut, stdErr, sim.lndCmds[from].Stdout, sim.lndCmds[from].Stderr, sim.lndCmds[to].Stdout, sim.lndCmds[to].Stderr)
 	}
 	log.Println("Sendpayment", stdOut, stdErr, err)
 }
@@ -699,16 +702,16 @@ func main(){
 		}
 	}
 
-//	sim.SendMoneyBetweenNodes(1, 0, 100)
-//	// I guess there should be direct call for Lightning balances
-//	// For now version using listpeers
-//	expectedBalances = []int{100000000-1000+100, 1000-100, 0}
-//	for i:=0; i< 3; i++{
-//		balance := sim.GetLightningBalance(i)
-//		if expectedBalances[i] != balance{
-//			log.Printf("Lightning balance of node %v is %v, want %v", i, balance, expectedBalances[i])
-//		}
-//	}
+	sim.SendMoneyBetweenNodes(1, 0, 100)
+	// I guess there should be direct call for Lightning balances
+	// For now version using listpeers
+	expectedBalances = []int{100000000-1000+100, 1000-100, 0}
+	for i:=0; i< 3; i++{
+		balance := sim.GetLightningBalance(i)
+		if expectedBalances[i] != balance{
+			log.Printf("Lightning balance of node %v is %v, want %v", i, balance, expectedBalances[i])
+		}
+	}
 
 	sim.CloseChannelFromFirstToSecond()
 	time.Sleep(1*time.Second)

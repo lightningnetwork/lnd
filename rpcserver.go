@@ -465,13 +465,14 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// to complete the next payment.
 				// TODO(roasbeef): this should go through the L3 router once
 				// multi-hop is in place.
+				resp := &lnrpc.SendResponse{}
 				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 					errChan <- err
-					return
+					resp.Error = err.Error()
 				}
 
 				// TODO(roasbeef): proper responses
-				resp := &lnrpc.SendResponse{}
+
 				if err := paymentStream.Send(resp); err != nil {
 					errChan <- err
 					return

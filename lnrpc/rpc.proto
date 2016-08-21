@@ -28,6 +28,7 @@ message SendRequest {
     bool fast_send = 4;
 }
 message SendResponse{
+    string error = 1;
     // TODO(roasbeef): info about route? stats?
 }
 

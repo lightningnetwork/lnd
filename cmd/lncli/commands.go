@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"log"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -514,13 +517,13 @@ var ShowRoutingTableCommand = cli.Command{
 			Name:  "table",
 			Usage: "Show the routing table in table format. Print only a few first symbols of id",
 		},
-		cli.BoolFlag{
-			Name:  "human",
-			Usage: "Simplify output to human readable form. Output lightning_id partially. Only work with --table option.",
+		cli.StringFlag{
+			Name:  "type",
+			Usage: "type of graph representation(dot(graphviz), png, svg, pdf, jpg)",
 		},
-		cli.BoolFlag{
-			Name:  "dot",
-			Usage: "graph representation by dot(graphviz) language",
+		cli.StringFlag{
+			Name:  "viz",
+			Usage: "path of output file",
 		},
 	},
 
@@ -552,8 +555,28 @@ func showRoutingTable(ctx *cli.Context) error {
 		fmt.Println("Can't unmarshall routing table")
 		return err
 	}
-	if ctx.Bool("dot") {
-		printRTByDotLanguage(r)
+	ext  := ctx.String("type")
+	path := ctx.String("viz")
+	if ext != "" || path != "" {
+		home := "img/home"
+		if ext == "" {
+			ext = filepath.Ext(path)
+		} 
+		if path == "" {
+			path = home + "." + ext 
+		}
+		switch ext {
+		case "dot": 
+			printRTByDotLanguage(r, path)
+		case "png":
+			fallthrough
+		case "svg":
+			fallthrough
+		case "pdf":
+			fallthrough
+		case "jpg":
+			printRTByImage(r, path, ext)
+		}
 	} else if ctx.Bool("table") {
 		printRTAsTable(r, ctx.Bool("human"))
 	} else {
@@ -562,12 +585,30 @@ func showRoutingTable(ctx *cli.Context) error {
 	return nil
 }
 
-func printRTByDotLanguage(r *rt.RoutingTable){
+func printRTByDotLanguage(r *rt.RoutingTable, path string){
+	handle, err := os.Create(path)
+	if err != nil {
+		log.Fatal(err)
+	}
 	dot, err := r.G.Visualize(nil, nil)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	fmt.Println(dot)
+	handle.Write([]byte(dot))
+}
+
+func printRTByImage(r *rt.RoutingTable, path string, ext string) {
+	tmpFile := "img/__tmp__.dot"
+	printRTByDotLanguage(r, tmpFile)
+	if _, err := exec.Command("neato", "-Tpng", "-o" + path, tmpFile).Output(); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := exec.Command("open", path).Output(); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := exec.Command("rm", tmpFile).Output(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // Prints routing table in human readable table format

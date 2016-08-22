@@ -560,7 +560,7 @@ func showRoutingTable(ctx *cli.Context) error {
 	if ext != "" || path != "" {
 		home := "img/home"
 		if ext == "" {
-			ext = filepath.Ext(path)
+			ext = filepath.Ext(path)[1:]
 		} 
 		if path == "" {
 			path = home + "." + ext 

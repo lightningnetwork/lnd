@@ -517,12 +517,12 @@ var ShowRoutingTableCommand = cli.Command{
 			Usage: "Show the routing table in table format. Print only a few first symbols of id",
 		},
 		cli.BoolFlag{
-			Name:	"human",
-			Usage:  "Simplify output to human readable form. Output not all lightning_id but a few first symbols. Only work with --table option.",
+			Name:  "human",
+			Usage: "Simplify output to human readable form. Output lightning_id partially. Only work with --table option.",
 		},
 	},
 
-	Action:      showRoutingTable,
+	Action: showRoutingTable,
 }
 
 func showRoutingTable(ctx *cli.Context) error {
@@ -559,7 +559,7 @@ func showRoutingTable(ctx *cli.Context) error {
 }
 
 // Prints routing table in human readable table format
-func printRTAsTable(r *rt.RoutingTable, humanForm bool){
+func printRTAsTable(r *rt.RoutingTable, humanForm bool) {
 	// Minimum length of data part to which name can be shortened
 	var minLen int
 	var tmpl string
@@ -576,11 +576,11 @@ func printRTAsTable(r *rt.RoutingTable, humanForm bool){
 	if humanForm {
 		// Generate prefix tree for shortcuts
 		lightningIdTree = prefix_tree.NewPrefixTree()
-		for _, node := range r.Nodes(){
+		for _, node := range r.Nodes() {
 			lightningIdTree.Add(hex.EncodeToString([]byte(node.String())))
 		}
 		edgeIdTree = prefix_tree.NewPrefixTree()
-		for _, channel := range channels{
+		for _, channel := range channels {
 			edgeIdTree.Add(channel.EdgeID.String())
 		}
 	}
@@ -611,34 +611,34 @@ func getShortcut(tree prefix_tree.PrefixTree, s string, minLen int) string {
 		s1 = s[:minLen]
 	}
 	shortcut := fmt.Sprintf("%v...", s1)
-	if len(shortcut) >= len(s){
+	if len(shortcut) >= len(s) {
 		shortcut = s
 	}
 	return shortcut
 }
 
-func printRTAsJSON(r *rt.RoutingTable){
-	type  ChannelDesc struct {
-		ID1 string `json:"lightning_id1"`
-		ID2 string `json:"lightning_id2"`
-		EdgeId string `json:"edge_id"`
+func printRTAsJSON(r *rt.RoutingTable) {
+	type ChannelDesc struct {
+		ID1      string  `json:"lightning_id1"`
+		ID2      string  `json:"lightning_id2"`
+		EdgeId   string  `json:"edge_id"`
 		Capacity float64 `json:"capacity"`
-		Weight float64 `json:"weight"`
+		Weight   float64 `json:"weight"`
 	}
-	var channels struct{
+	var channels struct {
 		Channels []ChannelDesc `json:"channels"`
 	}
 	channelsRaw := r.AllChannels()
 	channels.Channels = make([]ChannelDesc, 0, len(channelsRaw))
-	for _, channelRaw := range(channelsRaw) {
+	for _, channelRaw := range channelsRaw {
 		sourceHex := hex.EncodeToString([]byte(channelRaw.Id1.String()))
 		targetHex := hex.EncodeToString([]byte(channelRaw.Id2.String()))
 		channels.Channels = append(channels.Channels,
 			ChannelDesc{
-				ID1: sourceHex,
-				ID2: targetHex,
-				EdgeId: channelRaw.EdgeID.String(),
-				Weight: channelRaw.Info.Weight(),
+				ID1:      sourceHex,
+				ID2:      targetHex,
+				EdgeId:   channelRaw.EdgeID.String(),
+				Weight:   channelRaw.Info.Weight(),
 				Capacity: channelRaw.Info.Capacity(),
 			},
 		)

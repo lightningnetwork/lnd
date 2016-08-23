@@ -19,6 +19,7 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 var (
@@ -385,9 +386,8 @@ out:
 			*lnwire.NeighborUpdMessage,
 			*lnwire.RoutingTableRequestMessage,
 			*lnwire.RoutingTableTransferMessage:
-
-			// TODO(mkl): determine sender and receiver of message
-			p.server.routingMgr.ChIn <- msg
+			// Convert to base routing message and set sender and receiver
+			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		}
 
 		if isChanUpate {

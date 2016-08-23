@@ -585,10 +585,9 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			// finding.
 			chanInfo := openChan.StateSnapshot()
 			capacity := float64(chanInfo.Capacity)
-			fmsg.peer.server.routingMgr.AddChannel(
-				graph.NewID(fmsg.peer.server.lightningID),
+			fmsg.peer.server.routingMgr.OpenChannel(
 				graph.NewID(chanInfo.RemoteID),
-				graph.NewEdgeID(fundingPoint.Hash.String()),
+				graph.NewEdgeID(fundingPoint.String()),
 				&rt.ChannelInfo{
 					Cpt: capacity,
 				},
@@ -657,8 +656,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// Notify the L3 routing manager of the newly active channel link.
 	capacity := float64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
-	fmsg.peer.server.routingMgr.AddChannel(
-		graph.NewID(fmsg.peer.server.lightningID),
+	fmsg.peer.server.routingMgr.OpenChannel(
 		graph.NewID([32]byte(fmsg.peer.lightningID)),
 		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
 		&rt.ChannelInfo{

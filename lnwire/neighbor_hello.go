@@ -12,7 +12,6 @@ import (
 )
 
 type NeighborHelloMessage struct {
-	RoutingMessageBase
 	RT *rt.RoutingTable
 }
 
@@ -42,7 +41,7 @@ func (msg *NeighborHelloMessage) Validate() error {
 }
 
 func (msg *NeighborHelloMessage) String() string {
-	return fmt.Sprintf("NeighborHelloMessage{%v %v %v}", msg.SenderID, msg.ReceiverID, msg.RT)
+	return fmt.Sprintf("NeighborHelloMessage{%v}", msg.RT)
 }
 
 var _ Message = (*NeighborHelloMessage)(nil)

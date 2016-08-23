@@ -15,6 +15,7 @@ import (
 	"golang.org/x/net/context"
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph/prefix_tree"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -515,7 +516,12 @@ var ShowRoutingTableCommand = cli.Command{
 			Name:  "table",
 			Usage: "Show the routing table in table format. Print only a few first symbols of id",
 		},
+		cli.BoolFlag{
+			Name:	"human",
+			Usage:  "Simplify output to human readable form. Output not all lightning_id but a few first symbols. Only work with --table option.",
+		},
 	},
+
 	Action:      showRoutingTable,
 }
 
@@ -528,14 +534,24 @@ func showRoutingTable(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	buff := bytes.NewBuffer([]byte(resp.Rt))
-	r, err := rt.UnmarshallRoutingTable(buff)
+	// TODO(mkl): maybe it is better to print output directly omitting
+	// conversion to RoutingTable. This part is not performance critical so
+	// I think it is ok because it enables code reuse
+	r := rt.NewRoutingTable()
+	for _, channel := range resp.Channels {
+		r.AddChannel(
+			graph.NewID(channel.Id1),
+			graph.NewID(channel.Id2),
+			graph.NewEdgeID(channel.EdgeID),
+			&rt.ChannelInfo{channel.Capacity, channel.Weight},
+		)
+	}
 	if err != nil {
 		fmt.Println("Can't unmarshall routing table")
 		return err
 	}
 	if ctx.Bool("table") {
-		printRTAsTable(r)
+		printRTAsTable(r, ctx.Bool("human"))
 	} else {
 		printRTAsJSON(r)
 	}
@@ -543,23 +559,46 @@ func showRoutingTable(ctx *cli.Context) error {
 }
 
 // Prints routing table in human readable table format
-func printRTAsTable(r *rt.RoutingTable){
-	tmpl := "%10v %10v %10v %10v\n"
-	fmt.Printf(tmpl, "ID1", "ID2", "Capacity", "Weight")
-	// Generate prefix tree for shortcuts
-	tree := prefix_tree.NewPrefixTree()
-	for _, node := range r.Nodes(){
-		tree.Add( hex.EncodeToString([]byte(node.String())))
+func printRTAsTable(r *rt.RoutingTable, humanForm bool){
+	// Minimum length of data part to which name can be shortened
+	var minLen int
+	var tmpl string
+	var lightningIdTree, edgeIdTree prefix_tree.PrefixTree
+	if humanForm {
+		tmpl = "%-10v %-10v %-10v %-10v %-10v\n"
+		minLen = 6
+	} else {
+		tmpl = "%-64v %-64v %-66v %-10v %-10v\n"
+		minLen = 100
 	}
-	edges := r.G.GetUndirectedEdges()
-	minLen := 6
-	for _, edge := range(edges){
-		info := edge.Info().(*rt.ChannelInfo)
-		sourceHex := hex.EncodeToString([]byte(edge.Source().String()))
-		source := getShortcut(tree, sourceHex, minLen)
-		targetHex := hex.EncodeToString([]byte(edge.Target().String()))
-		target := getShortcut(tree, targetHex, minLen)
-		fmt.Printf(tmpl, source, target, info.Cpt, info.Wgt)
+	fmt.Printf(tmpl, "ID1", "ID2", "EdgeID", "Capacity", "Weight")
+	channels := r.AllChannels()
+	if humanForm {
+		// Generate prefix tree for shortcuts
+		lightningIdTree = prefix_tree.NewPrefixTree()
+		for _, node := range r.Nodes(){
+			lightningIdTree.Add(hex.EncodeToString([]byte(node.String())))
+		}
+		edgeIdTree = prefix_tree.NewPrefixTree()
+		for _, channel := range channels{
+			edgeIdTree.Add(channel.EdgeID.String())
+		}
+	}
+	for _, channel := range channels {
+		var source, target, edgeId string
+		sourceHex := hex.EncodeToString([]byte(channel.Id1.String()))
+		targetHex := hex.EncodeToString([]byte(channel.Id2.String()))
+		edgeIdRaw := channel.EdgeID.String()
+		if humanForm {
+			source = getShortcut(lightningIdTree, sourceHex, minLen)
+			target = getShortcut(lightningIdTree, targetHex, minLen)
+			edgeId = getShortcut(edgeIdTree, edgeIdRaw, minLen)
+		} else {
+			source = sourceHex
+			target = targetHex
+			edgeId = edgeIdRaw
+		}
+		fmt.Printf(tmpl, source, target, edgeId, channel.Info.Cpt, channel.Info.Wgt)
 	}
 }
 
@@ -582,24 +621,25 @@ func printRTAsJSON(r *rt.RoutingTable){
 	type  ChannelDesc struct {
 		ID1 string `json:"lightning_id1"`
 		ID2 string `json:"lightning_id2"`
+		EdgeId string `json:"edge_id"`
 		Capacity float64 `json:"capacity"`
 		Weight float64 `json:"weight"`
 	}
 	var channels struct{
 		Channels []ChannelDesc `json:"channels"`
 	}
-	edges := r.G.GetUndirectedEdges()
-	channels.Channels = make([]ChannelDesc, 0, len(edges))
-	for _, edge := range(edges){
-		info := edge.Info().(*rt.ChannelInfo)
-		sourceHex := hex.EncodeToString([]byte(edge.Source().String()))
-		targetHex := hex.EncodeToString([]byte(edge.Target().String()))
+	channelsRaw := r.AllChannels()
+	channels.Channels = make([]ChannelDesc, 0, len(channelsRaw))
+	for _, channelRaw := range(channelsRaw) {
+		sourceHex := hex.EncodeToString([]byte(channelRaw.Id1.String()))
+		targetHex := hex.EncodeToString([]byte(channelRaw.Id2.String()))
 		channels.Channels = append(channels.Channels,
 			ChannelDesc{
 				ID1: sourceHex,
 				ID2: targetHex,
-				Weight: info.Weight(),
-				Capacity: info.Capacity(),
+				EdgeId: channelRaw.EdgeID.String(),
+				Weight: channelRaw.Info.Weight(),
+				Capacity: channelRaw.Info.Capacity(),
 			},
 		)
 	}

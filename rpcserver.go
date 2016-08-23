@@ -16,7 +16,6 @@ import (
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	"golang.org/x/net/context"
-	"bytes"
 )
 
 var (
@@ -488,9 +487,19 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
 	rpcsLog.Debugf("[ShowRoutingTable]")
 	rtCopy := r.server.routingMgr.GetRTCopy()
-	buff := new(bytes.Buffer)
-	err := rtCopy.Marshall(buff)
+	channels := make([]*lnrpc.RTChannel, 0)
+	for _, channel := range rtCopy.AllChannels() {
+		channels = append(channels,
+			&lnrpc.RTChannel{
+				Id1:      channel.Id1.String(),
+				Id2:      channel.Id2.String(),
+				EdgeID:   channel.EdgeID.String(),
+				Capacity: channel.Info.Capacity(),
+				Weight:   channel.Info.Weight(),
+			},
+		)
+	}
 	return &lnrpc.ShowRoutingTableResponse{
-		Rt: buff.String(),
-	}, err
+		Channels: channels,
+	}, nil
 }

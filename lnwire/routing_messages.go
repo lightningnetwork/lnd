@@ -19,17 +19,32 @@ type RoutingMessageBase struct {
 }
 
 // GetReceiverID returns the ID of the receiver of routing message.
-func (msg RoutingMessageBase) GetReceiverID() graph.ID {
+func (msg *RoutingMessageBase) GetReceiverID() graph.ID {
 	return msg.ReceiverID
 }
 
 // GetSenderID returns the ID of the sender of the routing message.
-func (msg RoutingMessageBase) GetSenderID() graph.ID {
+func (msg *RoutingMessageBase) GetSenderID() graph.ID {
 	return msg.SenderID
 }
+
+// SetSenderID set the ID of the sender of the routing message
+func (msg *RoutingMessageBase) SetSenderID(senderID graph.ID){
+       msg.SenderID = senderID
+}
+
+// SetReceiverID set the ID of the receiver of the routing message
+func (msg *RoutingMessageBase) SetReceiverID(receiverID graph.ID){
+       msg.ReceiverID = receiverID
+}
+
 
 // RoutingMessageBase is a shared interface for all routing messages.
 type RoutingMessage interface {
 	GetSenderID() graph.ID
 	GetReceiverID() graph.ID
+	SetSenderID(graph.ID)
+	SetReceiverID(graph.ID)
 }
+
+var _ RoutingMessage = (*RoutingMessageBase)(nil)

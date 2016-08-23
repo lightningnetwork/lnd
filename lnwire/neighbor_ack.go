@@ -22,6 +22,8 @@ func (msg *NeighborAckMessage) Command() uint32 {
 }
 
 func (msg *NeighborAckMessage) Encode(w io.Writer, pver uint32) error {
+    // Transmission function work incorrect with empty messages so write some random string to make message not empty
+    w.Write([]byte("NeighborAckMessage"))
 	return nil
 }
 
@@ -30,7 +32,9 @@ func (msg *NeighborAckMessage) Decode(r io.Reader, pver uint32) error {
 }
 
 func (msg *NeighborAckMessage) MaxPayloadLength(uint32) uint32 {
-	return 0
+	// Some random number. Transmission functions work bad if it is 0
+	return 100
+
 }
 
 func (msg *NeighborAckMessage) Validate() error {

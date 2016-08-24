@@ -385,10 +385,7 @@ out:
 			*lnwire.RoutingTableRequestMessage,
 			*lnwire.RoutingTableTransferMessage:
 			// Convert to base routing message and set sender and receiver
-			msg2 := msg.(lnwire.RoutingMessage)
-			msg2.SetSenderID(graph.NewID(([32]byte)(p.lightningID)))
-			msg2.SetReceiverID(graph.NewID(([32]byte)(p.server.lightningID)))
-			p.server.routingMgr.ChIn <- msg
+			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		}
 
 		if isChanUpate {

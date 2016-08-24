@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -267,8 +266,11 @@ out:
 				s.handleOpenChanReq(msg)
 			}
 		case msg := <-s.routingMgr.ChOut:
-			msg1 := msg.(lnwire.RoutingMessage)
-			receiverID := msg1.GetReceiverID().ToByte32()
+			msg1 := msg.(*routing.RoutingMessage)
+			if msg1.ReceiverID == nil{
+				peerLog.Critical("msg1.GetReceiverID() == nil")
+			}
+			receiverID := msg1.ReceiverID.ToByte32()
 			var targetPeer *peer
 			for _, peer := range s.peers { // TODO: threadsafe api
 				// We found the the target
@@ -280,7 +282,7 @@ out:
 			if targetPeer != nil {
 				fndgLog.Info("Peer found. Sending message")
 				done := make(chan struct{}, 1)
-				targetPeer.queueMsg(msg.(lnwire.Message), done)
+				targetPeer.queueMsg(msg1.Msg, done)
 			} else {
 				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
 			}
@@ -403,8 +405,7 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
 		if err == nil {
 			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
-			s.routingMgr.AddChannel(
-				graph.NewID(s.lightningID),
+			s.routingMgr.OpenChannel(
 				graph.NewID([32]byte(targetPeer.lightningID)),
 				graph.NewEdgeID(fundingID.String()),
 				&rt.ChannelInfo{

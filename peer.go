@@ -17,6 +17,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -776,8 +777,7 @@ type pendingPayment struct {
 type commitmentState struct {
 	// htlcsToSettle is a list of preimages which allow us to settle one or
 	// many of the pending HTLC's we've received from the upstream peer.
-	// TODO(roasbeef): should send sig to settle once preimage is known.
-	htlcsToSettle map[uint32][32]byte
+	htlcsToSettle map[uint32]invoice
 
 	// TODO(roasbeef): use once trickle+batch logic is in
 	pendingBatch []*pendingPayment
@@ -839,7 +839,7 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		channel:       channel,
 		chanPoint:     channel.ChannelPoint(),
 		clearedHTCLs:  make(map[uint32]*pendingPayment),
-		htlcsToSettle: make(map[uint32][32]byte),
+		htlcsToSettle: make(map[uint32]invoice),
 		switchChan:    htlcPlex,
 	}
 
@@ -964,8 +964,9 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			// TODO(roasbeef): check value
 			//  * onion layer strip should also be before invoice lookup
 			//  * also can immediately send the settle msg
-			pre := invoice.paymentPreimage
-			state.htlcsToSettle[index] = pre
+			invCopy := *invoice
+			invCopy.value = btcutil.Amount(htlcPkt.Amount)
+			state.htlcsToSettle[index] = invCopy
 		}
 	case *lnwire.HTLCSettleRequest:
 		// TODO(roasbeef): this assumes no "multi-sig"
@@ -1024,10 +1025,12 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// We perform the HTLC forwarding to the switch in a distinct
 		// goroutine in order not to block the post-processing of
 		// HTLC's that are eligble for forwarding.
+		// TODO(roasbeef): no need to forward if have settled any of
+		// these.
 		go func() {
 			for _, htlc := range htlcsToForward {
-				// Send this fully activated HTLC to the htlc switch to
-				// continue the chained clear/settle.
+				// Send this fully activated HTLC to the htlc
+				// switch to continue the chained clear/settle.
 				state.switchChan <- p.logEntryToHtlcPkt(htlc)
 			}
 
@@ -1037,6 +1040,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// settling or timeing out previous outgoing payments, then we
 		// can them from the pending set, and signal the requster (if
 		// existing) that the payment has been fully fulfilled.
+		var bandwidthUpdate btcutil.Amount
 		numSettled := 0
 		for _, htlc := range htlcsToForward {
 			if p, ok := state.clearedHTCLs[htlc.ParentIndex]; ok {
@@ -1052,7 +1056,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 			// If we can't immediately settle this HTLC, then we
 			// can halt processing here.
-			preimage, ok := state.htlcsToSettle[htlc.Index]
+			invoice, ok := state.htlcsToSettle[htlc.Index]
 			if !ok {
 				continue
 			}
@@ -1060,7 +1064,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			// Otherwise, we settle this HTLC within our local
 			// state update log, then send the update entry to the
 			// remote party.
-			logIndex, err := state.channel.SettleHTLC(preimage)
+			logIndex, err := state.channel.SettleHTLC(invoice.paymentPreimage)
 			if err != nil {
 				peerLog.Errorf("unable to settle htlc: %v", err)
 				p.Disconnect()
@@ -1070,16 +1074,26 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			settleMsg := &lnwire.HTLCSettleRequest{
 				ChannelPoint:     state.chanPoint,
 				HTLCKey:          lnwire.HTLCKey(logIndex),
-				RedemptionProofs: [][32]byte{preimage},
+				RedemptionProofs: [][32]byte{invoice.paymentPreimage},
 			}
 			p.queueMsg(settleMsg, nil)
 			delete(state.htlcsToSettle, htlc.Index)
+
+			bandwidthUpdate += invoice.value
 
 			numSettled++
 		}
 
 		if numSettled == 0 {
 			return
+		}
+
+		// Send an update to the htlc switch of our newly available
+		// payment bandwidth.
+		// TODO(roasbeef): ideally should wait for next state update.
+		if bandwidthUpdate != 0 {
+			p.server.htlcSwitch.UpdateLink(state.chanPoint,
+				bandwidthUpdate)
 		}
 
 		// With all the settle updates added to the local and remote

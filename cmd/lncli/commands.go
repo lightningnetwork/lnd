@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"log"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -561,38 +560,46 @@ func showRoutingTable(ctx *cli.Context) error {
 		fmt.Println("Can't unmarshall routing table")
 		return err
 	}
-	ext  := ctx.String("type")
-	path := ctx.String("viz")
-	if ext != "" || path != "" {
-		home := "home"
-		if ext == "" {
-			ext = filepath.Ext(path)[1:]
-		} 
-		if path == "" {
-			path = home + "." + ext 
+
+	typ := ctx.String("type")
+	viz := ctx.String("viz")
+	if typ != "" || viz != "" {
+		TempFile, err  := ioutil.TempFile("", "") 
+		if err != nil {
+			return err
 		}
-		switch ext {
-		case "dot":
-			file, err := os.Create(path)
+		var ImageFile *os.File
+		// if the type is not specified explicitly parse the filename
+		if typ == "" {
+			typ = filepath.Ext(viz)[1:]
+		} 
+		// if the filename is not specified explicitly use any
+		if viz == "" {
+			ImageFile, err = ioutil.TempFile("", "")
+			if err != nil {
+				return err
+			} 
+			// TODO(evg): rewrite
+			os.Rename(ImageFile.Name(), ImageFile.Name() + "." + typ)
+		} else {
+			ImageFile, err = os.Create(viz)
 			if err != nil {
 				return err
 			}
-			printRTByDotLanguage(r, file)
-		case "png":
-			fallthrough
-		case "svg":
-			fallthrough
-		case "pdf":
-			fallthrough
-		case "jpg":
-			printRTByImage(r, path, ext)
-			if ctx.Bool("open") {
-				if _, err := exec.Command("open", path).Output(); err != nil {
-					log.Fatal(err)
-				}
-
+		}
+		if _, ok := visualizer.SupportedFormats()[typ]; ok {
+			// create description graph by dot language
+			writeToTempFile(r, TempFile)
+			// create graph image
+			if err := writeToImageFile(TempFile, ImageFile); err != nil {
+				return err
 			}
-		default:
+			if ctx.Bool("open") {
+				if _, err := exec.Command("open", ImageFile.Name()).Output(); err != nil {
+					return err
+				}
+			}
+		} else {
 			fmt.Println("Unsupported format, use dot, png, svg, pdf, jpg")
 		}
 	} else if ctx.Bool("table") {
@@ -603,7 +610,7 @@ func showRoutingTable(ctx *cli.Context) error {
 	return nil
 }
 
-func printRTByDotLanguage(r *rt.RoutingTable, file *os.File) {
+func writeToTempFile(r *rt.RoutingTable, file *os.File) {
 	viz := visualizer.New(r.G, nil, nil, nil)
 	viz.ApplyToNode = func(s string) string { return hex.EncodeToString([]byte(s)) }
 	viz.ApplyToEdge = func(info interface{}) string { 
@@ -617,18 +624,14 @@ func printRTByDotLanguage(r *rt.RoutingTable, file *os.File) {
 	file.Write([]byte(dot))	
 }
 
-func printRTByImage(r *rt.RoutingTable, path string, ext string) {
-	file, err := ioutil.TempFile("", "")
-	if err != nil {
-		log.Fatal(err)
+func writeToImageFile(TempFile *os.File, ImageFile *os.File) error {
+	if _, err := exec.Command("neato", "-Tpng", "-o" + ImageFile.Name(), TempFile.Name()).Output(); err != nil {
+		return err
 	}
-	printRTByDotLanguage(r, file)
-	if _, err := exec.Command("neato", "-Tpng", "-o" + path, file.Name()).Output(); err != nil {
-		log.Fatal(err)
+	if err := os.Remove(TempFile.Name()); err != nil {
+		return err
 	}
-	if err := os.Remove(file.Name()); err != nil {
-		log.Fatal(err)
-	}
+	return nil
 }
 
 // Prints routing table in human readable table format

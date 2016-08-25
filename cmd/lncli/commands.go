@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph/prefix_tree"
 	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/BitfuryLightning/tools/rt/visualizer"
 	"errors"
 )
 
@@ -525,6 +527,10 @@ var ShowRoutingTableCommand = cli.Command{
 			Name:  "viz",
 			Usage: "path of output file",
 		},
+		cli.BoolFlag{
+			Name:  "open",
+			Usage: "open generated file automatically",
+		},
 	},
 
 	Action: showRoutingTable,
@@ -558,7 +564,7 @@ func showRoutingTable(ctx *cli.Context) error {
 	ext  := ctx.String("type")
 	path := ctx.String("viz")
 	if ext != "" || path != "" {
-		home := "img/home"
+		home := "home"
 		if ext == "" {
 			ext = filepath.Ext(path)[1:]
 		} 
@@ -566,8 +572,12 @@ func showRoutingTable(ctx *cli.Context) error {
 			path = home + "." + ext 
 		}
 		switch ext {
-		case "dot": 
-			printRTByDotLanguage(r, path)
+		case "dot":
+			file, err := os.Create(path)
+			if err != nil {
+				return err
+			}
+			printRTByDotLanguage(r, file)
 		case "png":
 			fallthrough
 		case "svg":
@@ -576,6 +586,14 @@ func showRoutingTable(ctx *cli.Context) error {
 			fallthrough
 		case "jpg":
 			printRTByImage(r, path, ext)
+			if ctx.Bool("open") {
+				if _, err := exec.Command("open", path).Output(); err != nil {
+					log.Fatal(err)
+				}
+
+			}
+		default:
+			fmt.Println("Unsupported format, use dot, png, svg, pdf, jpg")
 		}
 	} else if ctx.Bool("table") {
 		printRTAsTable(r, ctx.Bool("human"))
@@ -585,28 +603,30 @@ func showRoutingTable(ctx *cli.Context) error {
 	return nil
 }
 
-func printRTByDotLanguage(r *rt.RoutingTable, path string){
-	handle, err := os.Create(path)
-	if err != nil {
-		log.Fatal(err)
+func printRTByDotLanguage(r *rt.RoutingTable, file *os.File) {
+	viz := visualizer.New(r.G, nil, nil, nil)
+	viz.ApplyToNode = func(s string) string { return hex.EncodeToString([]byte(s)) }
+	viz.ApplyToEdge = func(info interface{}) string { 
+		if info, ok := info.(*rt.ChannelInfo); ok {
+			return fmt.Sprintf(`"%v"`, info.Capacity())
+		}
+		return "nil"
 	}
-	dot, err := r.G.Visualize(nil, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	handle.Write([]byte(dot))
+	viz.BuildPrefixTree()
+	dot := viz.Draw()
+	file.Write([]byte(dot))	
 }
 
 func printRTByImage(r *rt.RoutingTable, path string, ext string) {
-	tmpFile := "img/__tmp__.dot"
-	printRTByDotLanguage(r, tmpFile)
-	if _, err := exec.Command("neato", "-Tpng", "-o" + path, tmpFile).Output(); err != nil {
+	file, err := ioutil.TempFile("", "")
+	if err != nil {
 		log.Fatal(err)
 	}
-	if _, err := exec.Command("open", path).Output(); err != nil {
+	printRTByDotLanguage(r, file)
+	if _, err := exec.Command("neato", "-Tpng", "-o" + path, file.Name()).Output(); err != nil {
 		log.Fatal(err)
 	}
-	if _, err := exec.Command("rm", tmpFile).Output(); err != nil {
+	if err := os.Remove(file.Name()); err != nil {
 		log.Fatal(err)
 	}
 }

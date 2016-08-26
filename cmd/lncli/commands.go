@@ -17,7 +17,7 @@ import (
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 	"github.com/BitfuryLightning/tools/rt"
-	"github.com/BitfuryLightning/tools/rt/graph/prefix_tree"
+	"github.com/BitfuryLightning/tools/prefix_tree"
 	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/BitfuryLightning/tools/rt/visualizer"
 	"errors"
@@ -518,17 +518,21 @@ var ShowRoutingTableCommand = cli.Command{
 			Name:  "table",
 			Usage: "Show the routing table in table format. Print only a few first symbols of id",
 		},
+		cli.BoolFlag{
+			Name:  "human",
+			Usage: "Simplify output to human readable form. Output lightning_id partially. Only work with --table option.",
+		},
 		cli.StringFlag{
 			Name:  "type",
-			Usage: "type of graph representation(dot(graphviz), png, svg, pdf, jpg)",
+			Usage: "type of graph representation(dot(graphviz), png, svg, pdf, jpg). Usage of this option supresses textual output",
 		},
 		cli.StringFlag{
 			Name:  "viz",
-			Usage: "path of output file",
+			Usage: "path of output file. Usage of this option supresses textual output",
 		},
 		cli.BoolFlag{
 			Name:  "open",
-			Usage: "open generated file automatically",
+			Usage: "open generated file automatically. Uses command line \"open\" command",
 		},
 	},
 

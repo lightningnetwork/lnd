@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -524,15 +523,15 @@ var ShowRoutingTableCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name:  "type",
-			Usage: "type of graph representation(dot(graphviz), png, svg, pdf, jpg). Usage of this option supresses textual output",
+			Usage: "Type of image file. Use one of: http://www.graphviz.org/content/output-formats. Usage of this option supresses textual output",
 		},
 		cli.StringFlag{
 			Name:  "viz",
-			Usage: "path of output file. Usage of this option supresses textual output",
+			Usage: "Specifies where to save the generated file. If don't specified use os.TempDir Usage of this option supresses textual output",
 		},
 		cli.BoolFlag{
 			Name:  "open",
-			Usage: "open generated file automatically. Uses command line \"open\" command",
+			Usage: "Open generated file automatically. Uses command line \"open\" command",
 		},
 	},
 
@@ -577,34 +576,29 @@ func showRoutingTable(ctx *cli.Context) error {
 		if typ == "" {
 			typ = filepath.Ext(viz)[1:]
 		} 
-		// if the filename is not specified explicitly use any
+		// if the filename is not specified explicitly use tempfile
 		if viz == "" {
-			ImageFile, err = ioutil.TempFile("", "")
+			ImageFile, err = TempFileWithSuffix("", "rt_", "."+typ)
 			if err != nil {
 				return err
-			} 
-			// TODO(evg): rewrite
-			os.Rename(ImageFile.Name(), ImageFile.Name() + "." + typ)
+			}
 		} else {
 			ImageFile, err = os.Create(viz)
 			if err != nil {
 				return err
 			}
 		}
-		if _, ok := visualizer.SupportedFormats()[typ]; ok {
-			// create description graph by dot language
-			writeToTempFile(r, TempFile)
-			// create graph image
-			if err := writeToImageFile(TempFile, ImageFile); err != nil {
+		if _, ok := visualizer.SupportedFormatsAsMap()[typ]; !ok {
+			fmt.Printf("Format: '%v' not recognized. Use one of: %v\n", typ, visualizer.SupportedFormats())
+			return nil
+		}
+		// generate description graph by dot language
+		writeToTempFile(r, TempFile)
+		writeToImageFile(TempFile, ImageFile)
+		if ctx.Bool("open") {
+			if err := visualizer.Open(ImageFile); err != nil {
 				return err
 			}
-			if ctx.Bool("open") {
-				if _, err := exec.Command("open", ImageFile.Name()).Output(); err != nil {
-					return err
-				}
-			}
-		} else {
-			fmt.Println("Unsupported format, use dot, png, svg, pdf, jpg")
 		}
 	} else if ctx.Bool("table") {
 		printRTAsTable(r, ctx.Bool("human"))
@@ -623,19 +617,29 @@ func writeToTempFile(r *rt.RoutingTable, file *os.File) {
 		}
 		return "nil"
 	}
+	// need to call method if plan to use shortcut, autocomplete, etc
 	viz.BuildPrefixTree()
+	viz.EnableShortcut(true)
 	dot := viz.Draw()
-	file.Write([]byte(dot))	
+	file.Write([]byte(dot))
+	file.Sync()
 }
 
-func writeToImageFile(TempFile *os.File, ImageFile *os.File) error {
-	if _, err := exec.Command("neato", "-Tpng", "-o" + ImageFile.Name(), TempFile.Name()).Output(); err != nil {
-		return err
+func writeToImageFile(TempFile, ImageFile *os.File) {
+	visualizer.Run("neato", TempFile, ImageFile)
+	TempFile.Close()
+	os.Remove(TempFile.Name())
+	ImageFile.Close()
+}
+
+// get around a bug in the standard library, add suffix param
+func TempFileWithSuffix(dir, prefix, suffix string) (f *os.File, err error) {
+	f, err = ioutil.TempFile(dir, prefix)
+	if err != nil {
+		return nil, err
 	}
-	if err := os.Remove(TempFile.Name()); err != nil {
-		return err
-	}
-	return nil
+	err = os.Rename(f.Name(), f.Name()+suffix)
+	return
 }
 
 // Prints routing table in human readable table format

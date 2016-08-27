@@ -638,7 +638,8 @@ func TempFileWithSuffix(dir, prefix, suffix string) (f *os.File, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = os.Rename(f.Name(), f.Name()+suffix)
+	defer os.Remove(f.Name())
+	f, err = os.Create(f.Name()+suffix)
 	return
 }
 

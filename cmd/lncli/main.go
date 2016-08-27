@@ -56,6 +56,7 @@ func main() {
 		CloseChannelCommand,
 		ListPeersCommand,
 		WalletBalanceCommand,
+		ChannelBalanceCommand,
 		ShellCommand,
 		GetInfoCommand,
 		PendingChannelsCommand,

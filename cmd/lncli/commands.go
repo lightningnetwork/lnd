@@ -374,6 +374,27 @@ func walletBalance(ctx *cli.Context) error {
 	return nil
 }
 
+var ChannelBalanceCommand = cli.Command{
+	Name:        "channelbalance",
+	Description: "",
+	Usage:       "",
+	Action: channelBalance,
+}
+
+func channelBalance(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.ChannelBalanceRequest{}
+	resp, err := client.ChannelBalance(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}
+
 var GetInfoCommand = cli.Command{
 	Name:        "getinfo",
 	Description: "returns basic information related to the active daemon",

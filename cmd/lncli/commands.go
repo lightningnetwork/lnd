@@ -547,6 +547,7 @@ func showRoutingTable(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
 	// TODO(mkl): maybe it is better to print output directly omitting
 	// conversion to RoutingTable. This part is not performance critical so
 	// I think it is ok because it enables code reuse
@@ -559,10 +560,13 @@ func showRoutingTable(ctx *cli.Context) error {
 			&rt.ChannelInfo{channel.Capacity, channel.Weight},
 		)
 	}
+
+	req2 := &lnrpc.GetInfoRequest{}
+	resp2, err := client.GetInfo(ctxb, req2)
 	if err != nil {
-		fmt.Println("Can't unmarshall routing table")
 		return err
 	}
+	self, _ := hex.DecodeString(resp2.LightningId)
 
 	typ := ctx.String("type")
 	viz := ctx.String("viz")
@@ -593,7 +597,7 @@ func showRoutingTable(ctx *cli.Context) error {
 			return nil
 		}
 		// generate description graph by dot language
-		writeToTempFile(r, TempFile)
+		writeToTempFile(r, TempFile, self)
 		writeToImageFile(TempFile, ImageFile)
 		if ctx.Bool("open") {
 			if err := visualizer.Open(ImageFile); err != nil {
@@ -608,8 +612,9 @@ func showRoutingTable(ctx *cli.Context) error {
 	return nil
 }
 
-func writeToTempFile(r *rt.RoutingTable, file *os.File) {
-	viz := visualizer.New(r.G, nil, nil, nil)
+func writeToTempFile(r *rt.RoutingTable, file *os.File, self []byte) {
+	slc := []graph.ID{graph.NewID(string(self))}
+	viz := visualizer.New(r.G, slc, nil, nil)
 	viz.ApplyToNode = func(s string) string { return hex.EncodeToString([]byte(s)) }
 	viz.ApplyToEdge = func(info interface{}) string { 
 		if info, ok := info.(*rt.ChannelInfo); ok {

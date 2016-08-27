@@ -46,3 +46,4 @@ test_wal/*
 *.bin
 
 vendor
+*.idea

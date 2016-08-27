@@ -4,6 +4,8 @@ package lnrpc;
 
 service Lightning {
     rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
+    rpc ChannelBalance(ChannelBalanceRequest) returns (ChannelBalanceResponse);
+
     rpc SendMany(SendManyRequest) returns (SendManyResponse);
     rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse);
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
@@ -213,6 +215,12 @@ message WalletBalanceRequest {
     bool witness_only = 1;
 }
 message WalletBalanceResponse {
+    double balance = 1;
+}
+
+message ChannelBalanceRequest {
+}
+message ChannelBalanceResponse {
     double balance = 1;
 }
 

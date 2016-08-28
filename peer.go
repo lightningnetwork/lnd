@@ -17,6 +17,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/BitfuryLightning/tools/rt/graph"
 )
 
 var (
@@ -383,9 +384,7 @@ out:
 			*lnwire.NeighborUpdMessage,
 			*lnwire.RoutingTableRequestMessage,
 			*lnwire.RoutingTableTransferMessage:
-
-			// TODO(mkl): determine sender and receiver of message
-			p.server.routingMgr.ChIn <- msg
+			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		}
 
 		if isChanUpate {
@@ -463,7 +462,7 @@ out:
 			}
 
 			if err := p.writeMessage(outMsg.msg); err != nil {
-				peerLog.Errorf("unable to write message: %v", err)
+				peerLog.Errorf("unable to write message: %v. Message: %v", err, outMsg.msg)
 				p.Disconnect()
 				break out
 			}

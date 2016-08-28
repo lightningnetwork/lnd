@@ -619,8 +619,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	capacity := float64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
-	fmsg.peer.server.routingMgr.AddChannel(
-		graph.NewID(fmsg.peer.server.lightningID),
+	fmsg.peer.server.routingMgr.OpenChannel(
 		graph.NewID([32]byte(fmsg.peer.lightningID)),
 		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
 		&rt.ChannelInfo{

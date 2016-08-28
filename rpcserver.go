@@ -465,13 +465,14 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// to complete the next payment.
 				// TODO(roasbeef): this should go through the L3 router once
 				// multi-hop is in place.
+				resp := &lnrpc.SendResponse{}
 				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 					errChan <- err
-					return
+					resp.Error = err.Error()
 				}
 
 				// TODO(roasbeef): proper responses
-				resp := &lnrpc.SendResponse{}
+
 				if err := paymentStream.Send(resp); err != nil {
 					errChan <- err
 					return
@@ -487,7 +488,19 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
 	rpcsLog.Debugf("[ShowRoutingTable]")
 	rtCopy := r.server.routingMgr.GetRTCopy()
+	channels := make([]*lnrpc.RTChannel, 0)
+	for _, channel := range rtCopy.AllChannels() {
+		channels = append(channels,
+			&lnrpc.RTChannel{
+				Id1:      channel.Id1.String(),
+				Id2:      channel.Id2.String(),
+				EdgeID:   channel.EdgeID.String(),
+				Capacity: channel.Info.Capacity(),
+				Weight:   channel.Info.Weight(),
+			},
+		)
+	}
 	return &lnrpc.ShowRoutingTableResponse{
-		Rt: rtCopy.String(),
+		Channels: channels,
 	}, nil
 }

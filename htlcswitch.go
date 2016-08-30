@@ -240,6 +240,8 @@ out:
 				h.handleRegisterLink(req)
 			case *unregisterLinkMsg:
 				h.handleUnregisterLink(req)
+			case *linkInfoUpdateMsg:
+				h.handleLinkUpdate(req)
 			}
 		case <-h.quit:
 			break out
@@ -333,6 +335,16 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 	targetLink.peer.localCloseChanReqs <- req
 }
 
+// handleLinkUpdate processes the link info update message by adjusting the
+// channels available bandwidth by the delta specified within the message.
+func (h *htlcSwitch) handleLinkUpdate(req *linkInfoUpdateMsg) {
+	link := h.chanIndex[*req.targetLink]
+	link.availableBandwidth += req.bandwidthDelta
+
+	hswcLog.Tracef("adjusting bandwidth of link %v by %v", req.targetLink,
+		req.bandwidthDelta)
+}
+
 // registerLinkMsg is message which requests a new link to be registered.
 type registerLinkMsg struct {
 	peer     *peer
@@ -405,4 +417,20 @@ func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint) (chan *closeLinkResp, c
 	h.linkControl <- &closeLinkReq{chanPoint, respChan, errChan}
 
 	return respChan, errChan
+}
+
+// linkInfoUpdateMsg encapsulates a request for the htlc switch to update the
+// meta-data related to the target link.
+type linkInfoUpdateMsg struct {
+	targetLink *wire.OutPoint
+
+	bandwidthDelta btcutil.Amount
+}
+
+// UpdateLink sends a message to the switch to update the available bandwidth
+// within the link by the passed satoshi delta. This function may be used when
+// re-anchoring to boost the capacity of a channel, or once a peer settles an
+// HTLC invoice.
+func (h *htlcSwitch) UpdateLink(chanPoint *wire.OutPoint, bandwidthDelta btcutil.Amount) {
+	h.linkControl <- &linkInfoUpdateMsg{chanPoint, bandwidthDelta}
 }

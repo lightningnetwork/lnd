@@ -522,10 +522,8 @@ func receiverHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 //  * (Compatibility)
 func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	if !isSeconds {
-		// The locktime is to be expressed in confirmations. Apply the
-		// mask to restrict the number of confirmations to 65,535 or
-		// 1.25 years.
-		return SequenceLockTimeMask & locktime
+		// The locktime is to be expressed in confirmations.
+		return locktime
 	}
 
 	// Set the 22nd bit which indicates the lock time is in seconds, then

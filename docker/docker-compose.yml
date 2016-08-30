@@ -1,20 +1,27 @@
 version: '2'
 services:
     btcd:
-        container_name: btcd
-        build: btcd/
-        ports:
-            # TODO(roasbeef): switch to testnet after fixing peer discovery.
-            - "28901:28901"
+        environment:
+            - RPCUSER=devuser
+            - RPCPASS=devpass
+        build: 
+            context: btcd/
+        expose:
+            - "18336"
         volumes:
-            - shared-volume:/data
+            - shared-volume:/rpc
     lnd:
-        container_name: lnd
-        build: lnd/
-        ports:
-            - "10009:10009"
+        environment:
+            - RPCUSER=devuser
+            - RPCPASS=devpass
+        build: 
+            context: ../
+            dockerfile: docker/lnd/Dockerfile
+        expose:
+            - "10009"
+            - "10011"
         volumes:
-            - shared-volume:/data
+            - shared-volume:/rpc
         links:
             - btcd
 volumes:

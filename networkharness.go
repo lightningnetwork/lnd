@@ -230,6 +230,9 @@ type networkHarness struct {
 // running instance of btcd's rpctest harness. Any extra command line flags
 // which should be passed to create lnd instance should be formatted properly
 // in the lndArgs slice (--arg=value).
+// TODO(roasbeef): add option to use golang's build library to a binary of the
+// current repo. This'll save developers from having to manually `go install`
+// within the repo each time before changes.
 func newNetworkHarness(r *rpctest.Harness, lndArgs []string) (*networkHarness, error) {
 	var err error
 

@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/net/context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/rpctest"

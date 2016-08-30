@@ -63,6 +63,7 @@ type config struct {
 	RPCPass  string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 
 	RPCCert    string `long:"rpccert" description:"File containing btcd's certificate file"`
+	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of btcd's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
 	SPVHostAdr string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
 	TestNet3   bool   `long:"testnet" description:"Use the test network"`
 	SimNet     bool   `long:"simnet" description:"Use the simulation test network"`

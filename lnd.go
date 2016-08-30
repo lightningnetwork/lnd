@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -64,26 +65,44 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
-	// Read btcd's rpc cert for lnwallet's convenience.
-	f, err := os.Open(loadedConfig.RPCCert)
+	// Next load btcd's TLS cert for the RPC connection. If a raw cert was
+	// specified in the config, then we'll se that directly. Otherwise, we
+	// attempt to read the cert from the path specified in the config.
+	var rpcCert []byte
+	if loadedConfig.RawRPCCert != "" {
+		rpcCert, err = hex.DecodeString(loadedConfig.RawRPCCert)
+		if err != nil {
+			return err
+		}
+	} else {
+		certFile, err := os.Open(loadedConfig.RPCCert)
+		if err != nil {
+			return err
+		}
+		rpcCert, err = ioutil.ReadAll(certFile)
+		if err != nil {
+			return err
+		}
+		if err := certFile.Close(); err != nil {
+			return err
+		}
+	}
+
+	rpcIP, err := net.LookupHost(loadedConfig.RPCHost)
 	if err != nil {
+		fmt.Printf("unable to resolve rpc host: %v", err)
 		return err
 	}
-	cert, err := ioutil.ReadAll(f)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
 
 	// Create, and start the lnwallet, which handles the core payment channel
 	// logic, and exposes control via proxy state machines.
 	config := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
-		RpcHost:     fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort),
+		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
 		RpcUser:     loadedConfig.RPCUser,
 		RpcPass:     loadedConfig.RPCPass,
-		CACert:      cert,
+		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
 	wallet, err := lnwallet.NewLightningWallet(config, chanDB)

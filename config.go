@@ -34,7 +34,6 @@ var (
 	defaultLogDir     = filepath.Join(lndHomeDir, defaultLogDirname)
 
 	btcdHomeDir        = btcutil.AppDataDir("btcd", false)
-	defaultRPCKeyFile  = filepath.Join(btcdHomeDir, "rpc.key")
 	defaultRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
 )
 
@@ -64,7 +63,6 @@ type config struct {
 	RPCPass  string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 
 	RPCCert    string `long:"rpccert" description:"File containing btcd's certificate file"`
-	RPCKey     string `long:"rpckey" description:"File containing btcd's certificate key"`
 	SPVHostAdr string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
 	TestNet3   bool   `long:"testnet" description:"Use the test network"`
 	SimNet     bool   `long:"simnet" description:"Use the simulation test network"`
@@ -92,7 +90,6 @@ func loadConfig() (*config, error) {
 		RPCUser:    defaultRPCUser,
 		RPCPass:    defaultRPCPass,
 		RPCCert:    defaultRPCCertFile,
-		RPCKey:     defaultRPCKeyFile,
 		SPVHostAdr: defaultSPVHostAdr,
 	}
 

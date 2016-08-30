@@ -7,6 +7,7 @@ install:
   - go get -v github.com/roasbeef/btcd # Required for the rpc test package.
   - go get -v github.com/Masterminds/glide
   - glide install
+  - go install -v . # Required for the integration tests.
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - go test -v $(go list ./... | grep -v '/vendor/')

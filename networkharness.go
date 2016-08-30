@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -284,20 +285,40 @@ func (n *networkHarness) SetUp() error {
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
-	var err error
-	if err := n.aliceNode.start(); err != nil {
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		var err error
+		defer wg.Done()
+		if err = n.aliceNode.start(); err != nil {
+			errChan <- err
+			return
+		}
+		n.AliceClient, err = initRpcClient(n.aliceNode.rpcAddr)
+		if err != nil {
+			errChan <- err
+			return
+		}
+	}()
+	go func() {
+		var err error
+		defer wg.Done()
+		if err = n.bobNode.start(); err != nil {
+			errChan <- err
+			return
+		}
+		n.BobClient, err = initRpcClient(n.bobNode.rpcAddr)
+		if err != nil {
+			errChan <- err
+			return
+		}
+	}()
+	wg.Wait()
+	select {
+	case err := <-errChan:
 		return err
-	}
-	if err := n.bobNode.start(); err != nil {
-		return err
-	}
-	n.AliceClient, err = initRpcClient(n.aliceNode.rpcAddr)
-	if err != nil {
-		return nil
-	}
-	n.BobClient, err = initRpcClient(n.bobNode.rpcAddr)
-	if err != nil {
-		return nil
+	default:
 	}
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
@@ -351,6 +372,30 @@ func (n *networkHarness) SetUp() error {
 		return err
 	}
 
+	// Now block until both wallets have fully synced up.
+	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10).ToBTC()
+	balReq := &lnrpc.WalletBalanceRequest{}
+	balanceTicker := time.Tick(time.Millisecond * 100)
+out:
+	for {
+		select {
+		case <-balanceTicker:
+			aliceResp, err := n.AliceClient.WalletBalance(ctxb, balReq)
+			if err != nil {
+				return err
+			}
+			bobResp, err := n.BobClient.WalletBalance(ctxb, balReq)
+			if err != nil {
+				return err
+			}
+
+			if aliceResp.Balance == expectedBalance &&
+				bobResp.Balance == expectedBalance {
+				break out
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -371,7 +416,7 @@ func initRpcClient(serverAddr string) (lnrpc.LightningClient, error) {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
-		grpc.WithTimeout(time.Second * 10),
+		grpc.WithTimeout(time.Second * 20),
 	}
 	conn, err := grpc.Dial(serverAddr, opts...)
 	if err != nil {

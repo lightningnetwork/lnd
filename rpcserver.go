@@ -201,30 +201,43 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
 	target := in.TargetPeerId
 	numConfs := in.NumConfs
-	respChan, errChan := r.server.OpenChannel(target, localFundingAmt,
+	updateChan, errChan := r.server.OpenChannel(target, localFundingAmt,
 		remoteFundingAmt, numConfs)
-	if err := <-errChan; err != nil {
-		rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
-			target, err)
-		return err
+
+	var outpoint wire.OutPoint
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
+				target, err)
+			return err
+		case fundingUpdate := <-updateChan:
+			rpcsLog.Tracef("[openchannel] sending update: %v",
+				fundingUpdate)
+			if err := updateStream.Send(fundingUpdate); err != nil {
+				return err
+			}
+
+			// If a final channel open update is being sent, then
+			// we can break out of our recv loop as we no longer
+			// need to process any further updates.
+			switch update := fundingUpdate.Update.(type) {
+			case *lnrpc.OpenStatusUpdate_ChanOpen:
+				chanPoint := update.ChanOpen.ChannelPoint
+				h, _ := wire.NewShaHash(chanPoint.FundingTxid)
+				outpoint = wire.OutPoint{
+					Hash:  *h,
+					Index: chanPoint.OutputIndex,
+				}
+
+				break out
+			}
+		case <-r.quit:
+			return nil
+		}
 	}
 
-	var outpoint *wire.OutPoint
-	select {
-	case resp := <-respChan:
-		outpoint = resp.chanPoint
-		openUpdate := &lnrpc.ChannelOpenUpdate{
-			&lnrpc.ChannelPoint{
-				FundingTxid: outpoint.Hash[:],
-				OutputIndex: outpoint.Index,
-			},
-		}
-		if err := updateStream.Send(openUpdate); err != nil {
-			return err
-		}
-	case <-r.quit:
-		return nil
-	}
 	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
 		in.TargetPeerId, outpoint)
 	return nil
@@ -247,24 +260,33 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	respChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
-	if err := <-errChan; err != nil {
-		rpcsLog.Errorf("Unable to close ChannelPoint(%v): %v",
-			targetChannelPoint, err)
-		return err
-	}
+	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
 
-	select {
-	case resp := <-respChan:
-		closeUpdate := &lnrpc.ChannelCloseUpdate{
-			ClosingTxid: resp.txid[:],
-			Success:     resp.success,
-		}
-		if err := updateStream.Send(closeUpdate); err != nil {
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("[closechannel] unable to close "+
+				"ChannelPoint(%v): %v", targetChannelPoint, err)
 			return err
+		case closingUpdate := <-updateChan:
+			if err := updateStream.Send(closingUpdate); err != nil {
+				return err
+			}
+
+			// If a final channel closing updates is being sent,
+			// then we can break out of our dispatch loop as we no
+			// longer need to process any further updates.
+			switch closeUpdate := closingUpdate.Update.(type) {
+			case *lnrpc.CloseStatusUpdate_ChanClose:
+				h, _ := wire.NewShaHash(closeUpdate.ChanClose.ClosingTxid)
+				rpcsLog.Errorf("[closechannel] close completed: "+
+					"txid(%v)", h)
+				break out
+			}
+		case <-r.quit:
+			return nil
 		}
-	case <-r.quit:
-		return nil
 	}
 
 	return nil
@@ -350,6 +372,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.
 // TODO(roasbeef): split into total and confirmed/unconfirmed
+// TODO(roasbeef): add async hooks into wallet balance changes
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 

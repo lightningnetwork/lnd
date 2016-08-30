@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -325,7 +326,6 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 	targetLink, ok := h.chanIndex[*req.chanPoint]
 	if !ok {
-		req.resp <- nil
 		req.err <- fmt.Errorf("channel point %v not found", req.chanPoint)
 		return
 	}
@@ -396,27 +396,20 @@ func (h *htlcSwitch) UnregisterLink(chanInterface [32]byte, chanPoint *wire.OutP
 type closeLinkReq struct {
 	chanPoint *wire.OutPoint
 
-	resp chan *closeLinkResp
-	err  chan error
-}
-
-// closeChanResp is the response to a closeChanReq is simply houses a boolean
-// value indicating if the channel coopertive channel closure was succesful or not.
-type closeLinkResp struct {
-	txid    *wire.ShaHash
-	success bool
+	updates chan *lnrpc.CloseStatusUpdate
+	err     chan error
 }
 
 // CloseLink closes an active link targetted by it's channel point. Closing the
 // link initiates a cooperative channel closure.
 // TODO(roabeef): bool flag for timeout/force
-func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint) (chan *closeLinkResp, chan error) {
-	respChan := make(chan *closeLinkResp, 1)
+func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint) (chan *lnrpc.CloseStatusUpdate, chan error) {
+	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
 	errChan := make(chan error, 1)
 
-	h.linkControl <- &closeLinkReq{chanPoint, respChan, errChan}
+	h.linkControl <- &closeLinkReq{chanPoint, updateChan, errChan}
 
-	return respChan, errChan
+	return updateChan, errChan
 }
 
 // linkInfoUpdateMsg encapsulates a request for the htlc switch to update the

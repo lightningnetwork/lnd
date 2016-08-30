@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -32,8 +33,8 @@ type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peer        *peer
 
-	resp chan *wire.OutPoint
-	err  chan error
+	updates chan *lnrpc.OpenStatusUpdate
+	err     chan error
 }
 
 // initFundingMsg is sent by an outside sub-system to the funding manager in
@@ -43,9 +44,6 @@ type reservationWithCtx struct {
 // the workflow.
 type initFundingMsg struct {
 	peer *peer
-	err  chan error
-	resp chan *wire.OutPoint
-
 	*openChanReq
 }
 
@@ -397,6 +395,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
 	if err != nil {
 		fndgLog.Errorf("Unable to extract addresses from script: %v", err)
+		resCtx.err <- err
 		return
 	}
 	contribution := &lnwallet.ChannelContribution{
@@ -411,6 +410,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
 			sourcePeer, err)
 		fmsg.peer.Disconnect()
+		resCtx.err <- err
 		return
 	}
 
@@ -422,6 +422,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	commitSig, err := btcec.ParseSignature(sig, btcec.S256())
 	if err != nil {
 		fndgLog.Errorf("Unable to parse signature: %v", err)
+		resCtx.err <- err
 		return
 	}
 
@@ -524,6 +525,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	if err := resCtx.reservation.CompleteReservation(nil, commitSig); err != nil {
 		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
 		fmsg.peer.Disconnect()
+		resCtx.err <- err
 		return
 	}
 
@@ -531,16 +533,27 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	fndgLog.Infof("Finalizing pendingID(%v) over ChannelPoint(%v), "+
 		"waiting for channel open on-chain", chanID, fundingPoint)
 
+	// Send an update to the upstream client that the negotiation process
+	// is over.
+	// TODO(roasbeef): add abstraction over updates to accomdate
+	// long-polling, or SSE, etc.
+	resCtx.updates <- &lnrpc.OpenStatusUpdate{
+		Update: &lnrpc.OpenStatusUpdate_ChanPending{
+			ChanPending: &lnrpc.PendingUpdate{
+				Txid: fundingPoint.Hash[:],
+			},
+		},
+	}
+
 	// Spawn a goroutine which will send the newly open channel to the
 	// source peer once the channel is open. A channel is considered "open"
 	// once it reaches a sufficient number of confirmations.
+	// TODO(roasbeef): semaphore to limit active chan open goroutines
 	go func() {
-		// TODO(roasbeef): semaphore to limit active chan open goroutines
 		select {
 		// TODO(roasbeef): need to persist pending broadcast channels,
 		// send chan open proof during scan of blocks mined while down.
 		case openChan := <-resCtx.reservation.DispatchChan():
-
 			// This reservation is no longer pending as the funding
 			// transaction has been fully confirmed.
 			f.resMtx.Lock()
@@ -567,9 +580,33 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			fundingOpen := lnwire.NewSingleFundingOpenProof(chanID, spvProof)
 			fmsg.peer.queueMsg(fundingOpen, nil)
 
-			// Finally, respond to the original caller (if any).
-			resCtx.err <- nil
-			resCtx.resp <- resCtx.reservation.FundingOutpoint()
+			// Register the new link wtith the L3 routing manager
+			// so this new channel can be utilized during path
+			// finding.
+			chanInfo := openChan.StateSnapshot()
+			capacity := float64(chanInfo.Capacity)
+			fmsg.peer.server.routingMgr.AddChannel(
+				graph.NewID(fmsg.peer.server.lightningID),
+				graph.NewID(chanInfo.RemoteID),
+				graph.NewEdgeID(fundingPoint.Hash.String()),
+				&rt.ChannelInfo{
+					Cpt: capacity,
+				},
+			)
+
+			// Finally give the caller a final update notifying
+			// them that the channel is now open.
+			// TODO(roasbeef): helper funcs for proto construction
+			resCtx.updates <- &lnrpc.OpenStatusUpdate{
+				Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+					ChanOpen: &lnrpc.ChannelOpenUpdate{
+						ChannelPoint: &lnrpc.ChannelPoint{
+							FundingTxid: fundingPoint.Hash[:],
+							OutputIndex: fundingPoint.Index,
+						},
+					},
+				},
+			}
 			return
 		case <-f.quit:
 			return
@@ -617,6 +654,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerID(%v) is now open",
 		resCtx.reservation.FundingOutpoint, fmsg.peer.id)
 
+	// Notify the L3 routing manager of the newly active channel link.
 	capacity := float64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
 	fmsg.peer.server.routingMgr.AddChannel(
@@ -627,23 +665,19 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 			Cpt: capacity,
 		},
 	)
+
+	// Finally, notify the target peer of the newly open channel.
 	fmsg.peer.newChannels <- openChan
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it
 // to initiate a single funder workflow with the source peer.
 // TODO(roasbeef): re-visit blocking nature..
-func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq) (*wire.OutPoint, error) {
-	errChan := make(chan error, 1)
-	respChan := make(chan *wire.OutPoint, 1)
+func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq) {
 	f.fundingRequests <- &initFundingMsg{
 		peer:        targetPeer,
-		resp:        respChan,
-		err:         errChan,
 		openChanReq: req,
 	}
-
-	return <-respChan, <-errChan
 }
 
 // handleInitFundingMsg creates a channel reservation within the daemon's
@@ -667,7 +701,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	reservation, err := f.wallet.InitChannelReservation(capacity, localAmt,
 		nodeID, uint16(numConfs), 4)
 	if err != nil {
-		msg.resp <- nil
 		msg.err <- err
 		return
 	}
@@ -689,8 +722,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	f.activeReservations[msg.peer.id][chanID] = &reservationWithCtx{
 		reservation: reservation,
 		peer:        msg.peer,
+		updates:     msg.updates,
 		err:         msg.err,
-		resp:        msg.resp,
 	}
 	f.resMtx.Unlock()
 
@@ -700,7 +733,6 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	deliveryScript, err := txscript.PayToAddrScript(contribution.DeliveryAddress)
 	if err != nil {
 		fndgLog.Errorf("Unable to convert address to pkscript: %v", err)
-		msg.resp <- nil
 		msg.err <- err
 		return
 	}

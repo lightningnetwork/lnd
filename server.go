@@ -10,14 +10,13 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/BitfuryLightning/tools/routing"
-	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 )
@@ -229,14 +228,8 @@ type openChanReq struct {
 
 	numConfs uint32
 
-	resp chan *openChanResp
-	err  chan error
-}
-
-// openChanResp is the response to an openChanReq, it contains the channel
-// point, or outpoint of the broadcast funding transaction.
-type openChanResp struct {
-	chanPoint *wire.OutPoint
+	updates chan *lnrpc.OpenStatusUpdate
+	err     chan error
 }
 
 // queryHandler handles any requests to modify the server's internal state of
@@ -389,7 +382,6 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	}
 
 	if targetPeer == nil {
-		req.resp <- nil
 		req.err <- fmt.Errorf("unable to find peer %v", target)
 		return
 	}
@@ -398,23 +390,8 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	// manager. This allows the server to continue handling queries instead of
 	// blocking on this request which is exporeted as a synchronous request to
 	// the outside world.
-	go func() {
-		// TODO(roasbeef): server semaphore to restrict num goroutines
-		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
-		if err == nil {
-			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
-			s.routingMgr.AddChannel(
-				graph.NewID(s.lightningID),
-				graph.NewID([32]byte(targetPeer.lightningID)),
-				graph.NewEdgeID(fundingID.String()),
-				&rt.ChannelInfo{
-					Cpt: capacity,
-				},
-			)
-		}
-		req.resp <- &openChanResp{fundingID}
-		req.err <- err
-	}()
+	// TODO(roasbeef): server semaphore to restrict num goroutines
+	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 }
 
 // ConnectToPeer requests that the server connect to a Lightning Network peer
@@ -432,10 +409,10 @@ func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
 func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
-	numConfs uint32) (chan *openChanResp, chan error) {
+	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
-	respChan := make(chan *openChanResp, 1)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 
 	s.queries <- &openChanReq{
 		targetNodeID:     nodeID,
@@ -443,12 +420,11 @@ func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
 		remoteFundingAmt: remoteAmt,
 		numConfs:         numConfs,
 
-		resp: respChan,
-		err:  errChan,
+		updates: updateChan,
+		err:     errChan,
 	}
-	// TODO(roasbeef): hook in "progress" channel
 
-	return respChan, errChan
+	return updateChan, errChan
 }
 
 // Peers returns a slice of all active peers.

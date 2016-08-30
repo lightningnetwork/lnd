@@ -12,6 +12,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -639,7 +640,6 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	// when the remote node broadcasts the fully signed closing transaction.
 	sig, txid, err := channel.InitCooperativeClose()
 	if err != nil {
-		req.resp <- nil
 		req.err <- err
 		return
 	}
@@ -653,12 +653,20 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	// TODO(roasbeef): remove encoding redundancy
 	closeSig, err := btcec.ParseSignature(sig, btcec.S256())
 	if err != nil {
-		req.resp <- nil
 		req.err <- err
 		return
 	}
 	closeReq := lnwire.NewCloseRequest(chanPoint, closeSig)
 	p.queueMsg(closeReq, nil)
+
+	// Update the caller w.r.t the current pending state of this request.
+	req.updates <- &lnrpc.CloseStatusUpdate{
+		Update: &lnrpc.CloseStatusUpdate_ClosePending{
+			ClosePending: &lnrpc.PendingUpdate{
+				Txid: txid[:],
+			},
+		},
+	}
 
 	// Finally, launch a goroutine which will request to be notified by the
 	// ChainNotifier once the closure transaction obtains a single
@@ -666,9 +674,12 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	go func() {
 		// TODO(roasbeef): add param for num needed confs
 		notifier := p.server.lnwallet.ChainNotifier
-		confNtfn, _ := notifier.RegisterConfirmationsNtfn(txid, 1)
+		confNtfn, err := notifier.RegisterConfirmationsNtfn(txid, 1)
+		if err != nil {
+			req.err <- err
+			return
+		}
 
-		var success bool
 		select {
 		case height, ok := <-confNtfn.Confirmed:
 			// In the case that the ChainNotifier is shutting
@@ -683,17 +694,24 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 			// active indexes, and the database state.
 			peerLog.Infof("ChannelPoint(%v) is now "+
 				"closed at height %v", key, height)
-			wipeChannel(p, channel)
-
-			success = true
+			if err := wipeChannel(p, channel); err != nil {
+				req.err <- err
+				return
+			}
 		case <-p.quit:
 			return
 		}
 
 		// Respond to the local sub-system which requested the channel
 		// closure.
-		req.resp <- &closeLinkResp{txid, success}
-		req.err <- nil
+		req.updates <- &lnrpc.CloseStatusUpdate{
+			Update: &lnrpc.CloseStatusUpdate_ChanClose{
+				ChanClose: &lnrpc.ChannelCloseUpdate{
+					ClosingTxid: txid[:],
+					Success:     true,
+				},
+			},
+		}
 	}()
 }
 
@@ -741,7 +759,7 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 
 // wipeChannel removes the passed channel from all indexes associated with the
 // peer, and deletes the channel from the database.
-func wipeChannel(p *peer, channel *lnwallet.LightningChannel) {
+func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	chanID := channel.ChannelPoint()
 
 	delete(p.activeChannels, *chanID)
@@ -756,7 +774,10 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) {
 	if err := channel.DeleteState(); err != nil {
 		peerLog.Errorf("Unable to delete ChannelPoint(%v) "+
 			"from db %v", chanID, err)
+		return err
 	}
+
+	return nil
 }
 
 // pendingPayment represents a pending HTLC which has yet to be settled by the

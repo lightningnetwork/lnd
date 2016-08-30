@@ -12,8 +12,8 @@ service Lightning {
     rpc ListPeers(ListPeersRequest) returns (ListPeersResponse);
     rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
 
-    rpc OpenChannel(OpenChannelRequest) returns (stream ChannelOpenUpdate);
-    rpc CloseChannel(CloseChannelRequest) returns (stream ChannelCloseUpdate);
+    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate);
+    rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate);
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
 
     rpc SendPayment(stream SendRequest) returns (stream SendResponse);
@@ -159,9 +159,14 @@ message CloseChannelRequest {
 }
 message CloseStatusUpdate {
     oneof update {
-        ConfirmationUpdate confirmation = 1;
-        ChannelCloseUpdate chan_close = 2;
+        PendingUpdate close_pending = 1;
+        ConfirmationUpdate confirmation = 2;
+        ChannelCloseUpdate chan_close = 3;
     }
+}
+
+message PendingUpdate {
+    bytes txid = 1;
 }
 
 message OpenChannelRequest {
@@ -177,8 +182,9 @@ message OpenChannelRequest {
 }
 message OpenStatusUpdate {
     oneof update {
-        ConfirmationUpdate confirmation = 1;
-        ChannelOpenUpdate chan_open = 2;
+        PendingUpdate chan_pending = 1;
+        ConfirmationUpdate confirmation = 2;
+        ChannelOpenUpdate chan_open = 3;
     }
 }
 

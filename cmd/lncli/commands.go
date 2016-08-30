@@ -234,19 +234,22 @@ func openChannel(ctx *cli.Context) error {
 			return err
 		}
 
-		txid, err := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
-		if err != nil {
-			return err
+		switch update := resp.Update.(type) {
+		case *lnrpc.OpenStatusUpdate_ChanOpen:
+			channelPoint := update.ChanOpen.ChannelPoint
+			txid, err := wire.NewShaHash(channelPoint.FundingTxid)
+			if err != nil {
+				return err
+			}
+
+			index := channelPoint.OutputIndex
+			printRespJson(struct {
+				ChannelPoint string `json:"channel_point"`
+			}{
+				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
+			},
+			)
 		}
-
-		index := resp.ChannelPoint.OutputIndex
-		printRespJson(struct {
-			ChannelPoint string `json:"channel_point"`
-		}{
-			ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
-		},
-		)
-
 	}
 
 	return nil
@@ -318,7 +321,22 @@ func closeChannel(ctx *cli.Context) error {
 		} else if err != nil {
 			return err
 		}
-		printRespJson(resp)
+
+		switch update := resp.Update.(type) {
+		case *lnrpc.CloseStatusUpdate_ChanClose:
+			closingHash := update.ChanClose.ClosingTxid
+			txid, err := wire.NewShaHash(closingHash)
+			if err != nil {
+				return err
+			}
+
+			printRespJson(struct {
+				ClosingTXID string `json:"closing_txid"`
+			}{
+				ClosingTXID: txid.String(),
+			})
+		}
+
 	}
 
 	return nil

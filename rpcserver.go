@@ -270,6 +270,8 @@ out:
 				"ChannelPoint(%v): %v", targetChannelPoint, err)
 			return err
 		case closingUpdate := <-updateChan:
+			rpcsLog.Tracef("[closechannel] sending update: %v",
+				closingUpdate)
 			if err := updateStream.Send(closingUpdate); err != nil {
 				return err
 			}

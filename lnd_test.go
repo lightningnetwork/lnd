@@ -154,10 +154,22 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}()
 
+	// First create the network harness to gain access to its
+	// 'OnTxAccepted' call back.
+	lightningNetwork, err = newNetworkHarness(nil)
+	if err != nil {
+		t.Fatalf("unable to create lightning network harness: %v", err)
+	}
+	defer lightningNetwork.TearDownAll()
+
+	handlers := &btcrpcclient.NotificationHandlers{
+		OnTxAccepted: lightningNetwork.OnTxAccepted,
+	}
+
 	// First create an intance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
 	// drive blockchain related events within the network.
-	btcdHarness, err = rpctest.New(harnessNetParams, nil, nil)
+	btcdHarness, err = rpctest.New(harnessNetParams, handlers, nil)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -165,15 +177,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err = btcdHarness.SetUp(true, 50); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
-
-	// With the btcd harness created, create an instance of the lightning
-	// network harness as it depends on the btcd harness to script network
-	// activity.
-	lightningNetwork, err = newNetworkHarness(btcdHarness, nil)
-	if err != nil {
-		t.Fatalf("unable to create lightning network harness: %v", err)
+	if err := btcdHarness.Node.NotifyNewTransactions(false); err != nil {
+		t.Fatalf("unable to request transaction notifications: %v", err)
 	}
-	defer lightningNetwork.TearDownAll()
+
+	// With the btcd harness created, we can now complete the
+	// initialization of the network.
+	if err := lightningNetwork.InitializeSeedNodes(btcdHarness); err != nil {
+		t.Fatalf("unable to initialize seed nodes: %v", err)
+	}
 	if err = lightningNetwork.SetUp(); err != nil {
 		t.Fatalf("unable to set up test lightning network: %v", err)
 	}

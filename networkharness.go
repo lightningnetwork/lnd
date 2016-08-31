@@ -226,6 +226,9 @@ type networkHarness struct {
 
 	AliceClient lnrpc.LightningClient
 	BobClient   lnrpc.LightningClient
+
+	seenTxns      chan wire.ShaHash
+	watchRequests chan *watchRequest
 }
 
 // newNetworkHarness creates a new network test harness given an already
@@ -235,32 +238,35 @@ type networkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This'll save developers from having to manually `go install`
 // within the repo each time before changes.
-func newNetworkHarness(r *rpctest.Harness, lndArgs []string) (*networkHarness, error) {
-	var err error
+func newNetworkHarness(lndArgs []string) (*networkHarness, error) {
+	return &networkHarness{
+		activeNodes:   make(map[int]*lightningNode),
+		seenTxns:      make(chan wire.ShaHash),
+		watchRequests: make(chan *watchRequest),
+	}, nil
+}
 
+func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness) error {
 	nodeConfig := r.RPCConfig()
 
-	testNet := &networkHarness{
-		rpcConfig: nodeConfig,
-		netParams: r.ActiveNet,
-		Miner:     r,
+	n.netParams = r.ActiveNet
+	n.Miner = r
+	n.rpcConfig = nodeConfig
 
-		activeNodes: make(map[int]*lightningNode),
-	}
-
-	testNet.aliceNode, err = newLightningNode(&nodeConfig, nil)
+	var err error
+	n.aliceNode, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	testNet.bobNode, err = newLightningNode(&nodeConfig, nil)
+	n.bobNode, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	testNet.activeNodes[testNet.aliceNode.nodeId] = testNet.aliceNode
-	testNet.activeNodes[testNet.bobNode.nodeId] = testNet.bobNode
+	n.activeNodes[n.aliceNode.nodeId] = n.aliceNode
+	n.activeNodes[n.bobNode.nodeId] = n.bobNode
 
-	return testNet, nil
+	return err
 }
 
 // fakeLogger is a fake grpclog.Logger implementation. This is used to stop
@@ -396,7 +402,71 @@ out:
 		}
 	}
 
+	go n.networkWatcher()
+
 	return nil
+}
+
+// watchRequest encapsulates a request to the harness' network watcher to
+// dispatch a notification once a transaction with the target txid is seen
+// within the test network.
+type watchRequest struct {
+	txid      wire.ShaHash
+	eventChan chan struct{}
+}
+
+// networkWatcher is a goroutine which accepts async notification requests for
+// the broadcast of a target transaction, and then dispatches the transaction
+// once its seen on the network.
+func (n *networkHarness) networkWatcher() {
+	seenTxns := make(map[wire.ShaHash]struct{})
+	clients := make(map[wire.ShaHash][]chan struct{})
+
+	for {
+
+		select {
+		case req := <-n.watchRequests:
+			// If we've already seen this transaction, then
+			// immediately dispatch the request. Otherwise, append
+			// to the list of clients who are watching for the
+			// broadcast of this transaction.
+			if _, ok := seenTxns[req.txid]; ok {
+				close(req.eventChan)
+			} else {
+				clients[req.txid] = append(clients[req.txid], req.eventChan)
+			}
+		case txid := <-n.seenTxns:
+
+			// If there isn't a registered notification for this
+			// transaction then ignore it.
+			txClients, ok := clients[txid]
+			if !ok {
+				continue
+			}
+
+			// Otherwise, dispatch the notification to all clients,
+			// cleaning up the now un-needed state.
+			for _, client := range txClients {
+				close(client)
+			}
+			delete(clients, txid)
+		}
+	}
+}
+
+func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amount btcutil.Amount) {
+	go func() {
+		n.seenTxns <- *hash
+	}()
+}
+
+// WaitForTxBroadcast blocks until the target txid is seen on the network.
+func (n *networkHarness) WaitForTxBroadcast(txid wire.ShaHash) {
+	eventChan := make(chan struct{})
+
+	n.watchRequests <- &watchRequest{txid, eventChan}
+
+	<-eventChan
 }
 
 // TearDownAll tears down all active nodes within the test lightning network.

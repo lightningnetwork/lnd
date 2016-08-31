@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"runtime/debug"
-	"strings"
 	"testing"
 
 	"golang.org/x/net/context"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
@@ -33,36 +31,20 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 // Bob, then immediately closes the channel after asserting some expected post
 // conditions. Finally, the chain itelf is checked to ensure the closing
 // transaction was mined.
-// TODO(roasbeef): abstract blocking calls to async events to methods within
-// the networkHarness.
 func testBasicChannelFunding(net *networkHarness, t *testing.T) {
-	// First establish a channel between Alice and Bob.
 	ctxb := context.Background()
-	openReq := &lnrpc.OpenChannelRequest{
-		// TODO(roasbeef): should pass actual id instead, will fail if
-		// more connections added for Alice.
-		TargetPeerId:        1,
-		LocalFundingAmount:  btcutil.SatoshiPerBitcoin / 2,
-		RemoteFundingAmount: 0,
-		NumConfs:            1,
-	}
-	respStream, err := net.AliceClient.OpenChannel(ctxb, openReq)
+
+	// First establish a channel ween with a capacity of 0.5 BTC between
+	// Alice and Bob.
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	chanOpenUpdate, err := net.OpenChannel(ctxb, net.AliceClient, net.BobClient, chanAmt, 1)
 	if err != nil {
-		t.Fatalf("unable to open channel between alice and bob: %v", err)
+		t.Fatalf("unable to open channel: %v", err)
 	}
 
-	// Consume the "channel pending" update. This allows us to synchronize
-	// the node's state with the actions below.
-	resp, err := respStream.Recv()
-	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
-	}
-	if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
-		t.Fatalf("expected channel pending update, instead got %v", resp)
-	}
-
-	// Mine a block, the funding txid should be included, and both nodes should
-	// be aware of the channel.
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the newly mined block.
 	blockHash, err := net.Miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -71,80 +53,29 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get block: %v", err)
 	}
-	if len(block.Transactions()) < 2 {
-		t.Fatalf("funding transaction not included")
-	}
-
-	// Next, consume the "channel open" update to reveal the proper
-	// outpoint for the final funding transaction.
-	resp, err = respStream.Recv()
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
+		t.Fatalf("error while waiting for channeel open: %v", err)
 	}
-	fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
-	if !ok {
-		t.Fatalf("expected channel open update, instead got %v", resp)
+	fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
 	}
-	fundingChanPoint := fundingResp.ChanOpen.ChannelPoint
-	fundingTxID, _ := wire.NewShaHash(fundingChanPoint.FundingTxid)
 	assertTxInBlock(block, fundingTxID, t)
-
-	// TODO(roasbeef): remove and use "listchannels" command after
-	// implemented.
-	req := &lnrpc.ListPeersRequest{}
-	alicePeerInfo, err := net.AliceClient.ListPeers(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to list alice peers: %v", err)
-	}
-	bobPeerInfo, err := net.BobClient.ListPeers(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to list bob peers: %v", err)
-	}
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	aliceChannels := alicePeerInfo.Peers[0].Channels
-	if len(aliceChannels) < 1 {
-		t.Fatalf("alice should have an active channel, instead have %v",
-			len(aliceChannels))
-	}
-	bobChannels := bobPeerInfo.Peers[0].Channels
-	if len(bobChannels) < 1 {
-		t.Fatalf("bob should have an active channel, instead have %v",
-			len(bobChannels))
-	}
-	aliceTxID := alicePeerInfo.Peers[0].Channels[0].ChannelPoint
-	bobTxID := bobPeerInfo.Peers[0].Channels[0].ChannelPoint
-	fundingTxIDStr := fundingTxID.String()
-	if !strings.Contains(bobTxID, fundingTxIDStr) {
-		t.Fatalf("alice's channel not found")
-	}
-	if !strings.Contains(aliceTxID, fundingTxIDStr) {
-		t.Fatalf("bob's channel not found")
+	err = net.AssertChannelExists(ctxb, net.AliceClient, net.BobClient,
+		fundingChanPoint)
+	if err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
 	// Initiate a close from Alice's side.
-	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: fundingChanPoint,
-	}
-	closeRespStream, err := net.AliceClient.CloseChannel(ctxb, closeReq)
+	closeUpdates, err := net.CloseChannel(ctxb, net.AliceClient, fundingChanPoint, false)
 	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
+		t.Fatalf("unable to clsoe channel: %v", err)
 	}
-
-	// Consume the "channel close" update in order to wait for the closing
-	// transaction to be broadcast, then wait for the closing tx to be seen
-	// within the network.
-	closeResp, err := closeRespStream.Recv()
-	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
-	}
-	pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
-	if !ok {
-		t.Fatalf("expected close pending update, got %v", pendingClose)
-	}
-	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
-	net.WaitForTxBroadcast(*closeTxid)
 
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
@@ -157,16 +88,12 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get block: %v", err)
 	}
-	closeResp, err = closeRespStream.Recv()
+
+	closingTxid, err := net.WaitForChannelClose(closeUpdates)
 	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
+		t.Fatalf("error while waiting for channel close: %v", err)
 	}
-	closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
-	if !ok {
-		t.Fatalf("expected channel open update, instead got %v", resp)
-	}
-	closingTxID, _ := wire.NewShaHash(closeFin.ChanClose.ClosingTxid)
-	assertTxInBlock(block, closingTxID, t)
+	assertTxInBlock(block, closingTxid, t)
 }
 
 var lndTestCases = map[string]lndTestCase{

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -402,7 +403,20 @@ out:
 		}
 	}
 
+	// Now that the initial test network has been initialized, launch the
+	// network wather.
 	go n.networkWatcher()
+
+	return nil
+}
+
+// TearDownAll tears down all active nodes within the test lightning network.
+func (n *networkHarness) TearDownAll() error {
+	for _, node := range n.activeNodes {
+		if err := node.shutdown(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -454,7 +468,9 @@ func (n *networkHarness) networkWatcher() {
 	}
 }
 
-func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amount btcutil.Amount) {
+// OnTxAccepted is a callback to be called each time a new transaction has been
+// broadcast on the network.
+func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
 	go func() {
 		n.seenTxns <- *hash
 	}()
@@ -469,12 +485,145 @@ func (n *networkHarness) WaitForTxBroadcast(txid wire.ShaHash) {
 	<-eventChan
 }
 
-// TearDownAll tears down all active nodes within the test lightning network.
-func (n *networkHarness) TearDownAll() error {
-	for _, node := range n.activeNodes {
-		if err := node.shutdown(); err != nil {
-			return err
-		}
+// OpenChannel attemps to open a channel between srcNode and destNode with the
+// passed channel funding paramters.
+func (n *networkHarness) OpenChannel(ctx context.Context,
+	srcNode, destNode lnrpc.LightningClient, amt btcutil.Amount,
+	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
+
+	// TODO(roasbeef): should pass actual id instead, will fail if more
+	// connections added for Alice.
+	openReq := &lnrpc.OpenChannelRequest{
+		TargetPeerId:        1,
+		LocalFundingAmount:  int64(amt),
+		RemoteFundingAmount: 0,
+		NumConfs:            1,
+	}
+	respStream, err := srcNode.OpenChannel(ctx, openReq)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open channel between "+
+			"alice and bob: %v", err)
+	}
+
+	// Consume the "channel pending" update. This waits until the node
+	// notifies us that the final message in the channel funding workflow
+	// has been sent to the remote node.
+	resp, err := respStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+		return nil, fmt.Errorf("expected channel pending update, "+
+			"instead got %v", resp)
+	}
+
+	return respStream, nil
+}
+
+// WaitForChannelOpen waits for a notification that a channel is open by
+// consuming a message from the past open channel stream.
+func (n *networkHarness) WaitForChannelOpen(openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
+	resp, err := openChanStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+	if !ok {
+		return nil, fmt.Errorf("expected channel open update, instead got %v", resp)
+	}
+
+	return fundingResp.ChanOpen.ChannelPoint, nil
+}
+
+// CloseChannel close channel attempts to close the channel indicated by the
+// passed channel point, initiated by the passed lnNode.
+func (n *networkHarness) CloseChannel(ctx context.Context,
+	lnNode lnrpc.LightningClient, cp *lnrpc.ChannelPoint,
+	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
+
+	closeReq := &lnrpc.CloseChannelRequest{
+		ChannelPoint:    cp,
+		AllowForceClose: force,
+	}
+	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
+	if err != nil {
+		return nil, fmt.Errorf("unable to close channel: %v", err)
+	}
+
+	// Consume the "channel close" update in order to wait for the closing
+	// transaction to be broadcast, then wait for the closing tx to be seen
+	// within the network.
+	closeResp, err := closeRespStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+	if !ok {
+		return nil, fmt.Errorf("expected close pending update, got %v", pendingClose)
+	}
+	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	n.WaitForTxBroadcast(*closeTxid)
+
+	return closeRespStream, nil
+}
+
+// WaitForChannelClose waits for a notification from the passed channel close
+// stream that the node has deemed the channel has been fully closed.
+func (n *networkHarness) WaitForChannelClose(closeChanStream lnrpc.Lightning_CloseChannelClient) (*wire.ShaHash, error) {
+	// TODO(roasbeef): use passed ctx to set a deadline on amount of time to
+	// wait.
+	closeResp, err := closeChanStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
+	if !ok {
+		return nil, fmt.Errorf("expected channel open update, instead got %v", closeFin)
+	}
+
+	return wire.NewShaHash(closeFin.ChanClose.ClosingTxid)
+}
+
+// AssertChannelExists asserts that an active channel identified by
+// channelPoint exists between nodeA and nodeB.
+func (n *networkHarness) AssertChannelExists(ctx context.Context, nodeA, nodeB lnrpc.LightningClient,
+	channelPoint *lnrpc.ChannelPoint) error {
+
+	// TODO(roasbeef): remove and use "listchannels" command after
+	// implemented. Also make logic below more generic after addition of
+	// the RPC.
+	req := &lnrpc.ListPeersRequest{}
+	alicePeerInfo, err := nodeA.ListPeers(ctx, req)
+	if err != nil {
+		return fmt.Errorf("unable to list nodeA peers: %v", err)
+	}
+	bobPeerInfo, err := nodeB.ListPeers(ctx, req)
+	if err != nil {
+		return fmt.Errorf("unable to list nodeB peers: %v", err)
+	}
+	aliceChannels := alicePeerInfo.Peers[0].Channels
+	if len(aliceChannels) < 1 {
+		return fmt.Errorf("alice should have an active channel, instead have %v",
+			len(aliceChannels))
+	}
+	bobChannels := bobPeerInfo.Peers[0].Channels
+	if len(bobChannels) < 1 {
+		return fmt.Errorf("bob should have an active channel, instead have %v",
+			len(bobChannels))
+	}
+
+	txid, err := wire.NewShaHash(channelPoint.FundingTxid)
+	if err != nil {
+		return err
+	}
+
+	aliceTxID := alicePeerInfo.Peers[0].Channels[0].ChannelPoint
+	bobTxID := bobPeerInfo.Peers[0].Channels[0].ChannelPoint
+	if !strings.Contains(bobTxID, txid.String()) {
+		return fmt.Errorf("alice's channel not found")
+	}
+	if !strings.Contains(aliceTxID, txid.String()) {
+		return fmt.Errorf("bob's channel not found")
 	}
 
 	return nil

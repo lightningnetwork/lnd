@@ -6,13 +6,13 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
-	"time"
 
 	"golang.org/x/net/context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -33,10 +33,11 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 // Bob, then immediately closes the channel after asserting some expected post
 // conditions. Finally, the chain itelf is checked to ensure the closing
 // transaction was mined.
+// TODO(roasbeef): abstract blocking calls to async events to methods within
+// the networkHarness.
 func testBasicChannelFunding(net *networkHarness, t *testing.T) {
-	ctxb := context.Background()
-
 	// First establish a channel between Alice and Bob.
+	ctxb := context.Background()
 	openReq := &lnrpc.OpenChannelRequest{
 		// TODO(roasbeef): should pass actual id instead, will fail if
 		// more connections added for Alice.
@@ -45,23 +46,26 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 		RemoteFundingAmount: 0,
 		NumConfs:            1,
 	}
-	time.Sleep(time.Millisecond * 500)
 	respStream, err := net.AliceClient.OpenChannel(ctxb, openReq)
 	if err != nil {
 		t.Fatalf("unable to open channel between alice and bob: %v", err)
 	}
 
-	// Mine a block, the funding txid should be included, and both nodes should
-	// be aware of the channel.
-	// TODO(roasbeef): replace sleep with something more robust
-	time.Sleep(time.Second * 1)
-	blockHash, err := net.Miner.Node.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	// Consume the "channel pending" update. This allows us to synchronize
+	// the node's state with the actions below.
 	resp, err := respStream.Recv()
 	if err != nil {
 		t.Fatalf("unable to read rpc resp: %v", err)
+	}
+	if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+		t.Fatalf("expected channel pending update, instead got %v", resp)
+	}
+
+	// Mine a block, the funding txid should be included, and both nodes should
+	// be aware of the channel.
+	blockHash, err := net.Miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
 	}
 	block, err := net.Miner.Node.GetBlock(blockHash[0])
 	if err != nil {
@@ -71,8 +75,18 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 		t.Fatalf("funding transaction not included")
 	}
 
-	fundingTxID, _ := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
-	fundingTxIDStr := fundingTxID.String()
+	// Next, consume the "channel open" update to reveal the proper
+	// outpoint for the final funding transaction.
+	resp, err = respStream.Recv()
+	if err != nil {
+		t.Fatalf("unable to read rpc resp: %v", err)
+	}
+	fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+	if !ok {
+		t.Fatalf("expected channel open update, instead got %v", resp)
+	}
+	fundingChanPoint := fundingResp.ChanOpen.ChannelPoint
+	fundingTxID, _ := wire.NewShaHash(fundingChanPoint.FundingTxid)
 	assertTxInBlock(block, fundingTxID, t)
 
 	// TODO(roasbeef): remove and use "listchannels" command after
@@ -89,8 +103,19 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
+	aliceChannels := alicePeerInfo.Peers[0].Channels
+	if len(aliceChannels) < 1 {
+		t.Fatalf("alice should have an active channel, instead have %v",
+			len(aliceChannels))
+	}
+	bobChannels := bobPeerInfo.Peers[0].Channels
+	if len(bobChannels) < 1 {
+		t.Fatalf("bob should have an active channel, instead have %v",
+			len(bobChannels))
+	}
 	aliceTxID := alicePeerInfo.Peers[0].Channels[0].ChannelPoint
 	bobTxID := bobPeerInfo.Peers[0].Channels[0].ChannelPoint
+	fundingTxIDStr := fundingTxID.String()
 	if !strings.Contains(bobTxID, fundingTxIDStr) {
 		t.Fatalf("alice's channel not found")
 	}
@@ -98,17 +123,32 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 		t.Fatalf("bob's channel not found")
 	}
 
-	// Initiate a close from Alice's side. After mining a block, the closing
-	// transaction should be included, and both nodes should have forgotten
-	// about the channel.
+	// Initiate a close from Alice's side.
 	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: resp.ChannelPoint,
+		ChannelPoint: fundingChanPoint,
 	}
 	closeRespStream, err := net.AliceClient.CloseChannel(ctxb, closeReq)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
-	time.Sleep(time.Second * 1)
+
+	// Consume the "channel close" update in order to wait for the closing
+	// transaction to be broadcast, then wait for the closing tx to be seen
+	// within the network.
+	closeResp, err := closeRespStream.Recv()
+	if err != nil {
+		t.Fatalf("unable to read rpc resp: %v", err)
+	}
+	pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+	if !ok {
+		t.Fatalf("expected close pending update, got %v", pendingClose)
+	}
+	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	net.WaitForTxBroadcast(*closeTxid)
+
+	// Finally, generate a single block, wait for the final close status
+	// update, then ensure that the closing transaction was included in the
+	// block.
 	blockHash, err = net.Miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -117,12 +157,15 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get block: %v", err)
 	}
-	closeResp, err := closeRespStream.Recv()
+	closeResp, err = closeRespStream.Recv()
 	if err != nil {
 		t.Fatalf("unable to read rpc resp: %v", err)
 	}
-
-	closingTxID, _ := wire.NewShaHash(closeResp.ClosingTxid)
+	closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
+	if !ok {
+		t.Fatalf("expected channel open update, instead got %v", resp)
+	}
+	closingTxID, _ := wire.NewShaHash(closeFin.ChanClose.ClosingTxid)
 	assertTxInBlock(block, closingTxID, t)
 }
 

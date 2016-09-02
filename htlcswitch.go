@@ -89,6 +89,7 @@ func newHtlcSwitch() *htlcSwitch {
 		linkControl:      make(chan interface{}),
 		htlcPlex:         make(chan *htlcPacket, htlcQueueSize),
 		outgoingPayments: make(chan *htlcPacket, htlcQueueSize),
+		quit:             make(chan struct{}),
 	}
 }
 

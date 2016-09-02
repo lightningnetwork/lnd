@@ -13,9 +13,9 @@ import (
 // such as: uspv, btcwallet, Bitcoin Core, Electrum, etc. This interface then
 // serves as a "base wallet", with Lightning Network awareness taking place at
 // a "higher" level of abstraction. Essentially, an overlay wallet.
-// Implementors of this interface must closely adhere to the documented behavior
-// of all interface methods in order to ensure identical behavior accross all
-// concrete implementations.
+// Implementors of this interface must closely adhere to the documented
+// behavior of all interface methods in order to ensure identical behavior
+// across all concrete implementations.
 type WalletController interface {
 	// ConfirmedBalance returns the sum of all the wallet's unspent outputs
 	// that have at least confs confirmations. If confs is set to zero,

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -40,9 +41,9 @@ type server struct {
 	listeners []net.Listener
 	peers     map[int32]*peer
 
-	rpcServer *rpcServer
-	// TODO(roasbeef): add chan notifier also
-	lnwallet *lnwallet.LightningWallet
+	rpcServer     *rpcServer
+	chainNotifier chainntnfs.ChainNotifier
+	lnwallet      *lnwallet.LightningWallet
 
 	// TODO(roasbeef): add to constructor
 	fundingMgr *fundingManager
@@ -63,8 +64,8 @@ type server struct {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
-	chanDB *channeldb.DB) (*server, error) {
+func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
+	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
 
 	privKey, err := getIdentityPrivKey(chanDB, wallet)
 	if err != nil {
@@ -81,19 +82,20 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
-		chanDB:       chanDB,
-		fundingMgr:   newFundingManager(wallet),
-		htlcSwitch:   newHtlcSwitch(),
-		invoices:     newInvoiceRegistry(),
-		lnwallet:     wallet,
-		identityPriv: privKey,
-		lightningID:  fastsha256.Sum256(serializedPubKey),
-		listeners:    listeners,
-		peers:        make(map[int32]*peer),
-		newPeers:     make(chan *peer, 100),
-		donePeers:    make(chan *peer, 100),
-		queries:      make(chan interface{}),
-		quit:         make(chan struct{}),
+		chainNotifier: notifier,
+		chanDB:        chanDB,
+		fundingMgr:    newFundingManager(wallet),
+		htlcSwitch:    newHtlcSwitch(),
+		invoices:      newInvoiceRegistry(),
+		lnwallet:      wallet,
+		identityPriv:  privKey,
+		lightningID:   fastsha256.Sum256(serializedPubKey),
+		listeners:     listeners,
+		peers:         make(map[int32]*peer),
+		newPeers:      make(chan *peer, 100),
+		donePeers:     make(chan *peer, 100),
+		queries:       make(chan interface{}),
+		quit:          make(chan struct{}),
 	}
 
 	// TODO(roasbeef): remove
@@ -110,10 +112,10 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
-func (s *server) Start() {
+func (s *server) Start() error {
 	// Already running?
 	if atomic.AddInt32(&s.started, 1) != 1 {
-		return
+		return nil
 	}
 
 	// Start all the listeners.
@@ -122,12 +124,30 @@ func (s *server) Start() {
 		go s.listener(l)
 	}
 
-	s.fundingMgr.Start()
-	s.htlcSwitch.Start()
+	// Start the notification server. This is used so channel managment
+	// goroutines can be notified when a funding transaction reaches a
+	// sufficient number of confirmations, or when the input for the
+	// funding transaction is spent in an attempt at an uncooperative
+	// close by the counter party.
+	if err := s.chainNotifier.Start(); err != nil {
+		return err
+	}
+
+	if err := s.rpcServer.Start(); err != nil {
+		return err
+	}
+	if err := s.fundingMgr.Start(); err != nil {
+		return err
+	}
+	if err := s.htlcSwitch.Start(); err != nil {
+		return err
+	}
 	s.routingMgr.Start()
 
 	s.wg.Add(1)
 	go s.queryHandler()
+
+	return nil
 }
 
 // Stop gracefully shutsdown the main daemon server. This function will signal
@@ -146,10 +166,14 @@ func (s *server) Stop() error {
 		}
 	}
 
+	// Shutdown the wallet, funding manager, and the rpc server.
+	s.chainNotifier.Stop()
 	s.rpcServer.Stop()
-	s.lnwallet.Shutdown()
 	s.fundingMgr.Stop()
 	s.routingMgr.Stop()
+	s.htlcSwitch.Stop()
+
+	s.lnwallet.Shutdown()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)

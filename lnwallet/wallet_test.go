@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil/txsort"
@@ -338,7 +339,15 @@ func createTestWallet(miningNode *rpctest.Harness, netParams *chaincfg.Params) (
 		return "", nil, err
 	}
 
-	wallet, err := NewLightningWallet(config, cdb)
+	chainNotifier, err := btcdnotify.New(&rpcConfig)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := chainNotifier.Start(); err != nil {
+		return "", nil, err
+	}
+
+	wallet, err := NewLightningWallet(config, cdb, chainNotifier)
 	if err != nil {
 		return "", nil, err
 	}

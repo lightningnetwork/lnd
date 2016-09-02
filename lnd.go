@@ -14,9 +14,11 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcrpcclient"
 )
 
 var (
@@ -94,9 +96,29 @@ func lndMain() error {
 		return err
 	}
 
-	// Create, and start the lnwallet, which handles the core payment channel
-	// logic, and exposes control via proxy state machines.
-	config := &lnwallet.Config{
+	btcdHost := fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort)
+	btcdUser := loadedConfig.RPCUser
+	btcdPass := loadedConfig.RPCPass
+
+	// TODO(roasbeef): parse config here and select chosen notifier instead
+	rpcConfig := &btcrpcclient.ConnConfig{
+		Host:                 btcdHost,
+		Endpoint:             "ws",
+		User:                 btcdUser,
+		Pass:                 btcdPass,
+		Certificates:         rpcCert,
+		DisableTLS:           false,
+		DisableConnectOnNew:  true,
+		DisableAutoReconnect: false,
+	}
+	notifier, err := btcdnotify.New(rpcConfig)
+	if err != nil {
+		return err
+	}
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	walletConfig := &lnwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
 		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
@@ -105,7 +127,7 @@ func lndMain() error {
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
-	wallet, err := lnwallet.NewLightningWallet(config, chanDB)
+	wallet, err := lnwallet.NewLightningWallet(walletConfig, chanDB, notifier)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return err
@@ -124,12 +146,15 @@ func lndMain() error {
 	defaultListenAddrs := []string{
 		net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort)),
 	}
-	server, err := newServer(defaultListenAddrs, wallet, chanDB)
+	server, err := newServer(defaultListenAddrs, notifier, wallet, chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err
 	}
-	server.Start()
+	if err := server.Start(); err != nil {
+		srvrLog.Errorf("unable to create to start: %v\n", err)
+		return err
+	}
 
 	addInterruptHandler(func() {
 		ltndLog.Infof("Gracefully shutting down the server...")

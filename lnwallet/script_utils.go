@@ -178,7 +178,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// Alternatively, the receiver can place a 0 as the second item of the
 	// witness stack if they wish to claim the HTLC with the proper
 	// pre-image as normal. In order to prevent an over-sized pre-image
-	// attack (which can create undesirable redemption asymmerties, we
+	// attack (which can create undesirable redemption asymmerties), we
 	// strongly require that all HTLC pre-images are exactly 32 bytes.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddOp(txscript.OP_SIZE)

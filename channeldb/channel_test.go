@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -76,35 +77,44 @@ var (
 		Hash:  key,
 		Index: 0,
 	}
+	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 )
 
-func TestOpenChannelPutGetDelete(t *testing.T) {
+// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
+// callback which cleans up the created temporary directories is also returned
+// and intended to be executed after the test completes.
+func makeTestDB() (*DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	// TODO(roasbeef): move initial set up to something within testing.Main
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
-		t.Fatalf("unable to create temp dir: %v")
+		return nil, nil, err
 	}
-	defer os.RemoveAll(tempDirName)
 
 	// Next, create channeldb for the first time, also setting a mock
 	// EncryptorDecryptor implementation for testing purposes.
 	cdb, err := Open(tempDirName, netParams)
 	if err != nil {
-		t.Fatalf("unable to create channeldb: %v", err)
+		return nil, nil, err
 	}
-	defer cdb.Close()
 
-	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	cleanUp := func() {
+		os.RemoveAll(tempDirName)
+		cdb.Close()
+	}
+
+	return cdb, cleanUp, nil
+}
+
+func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	addr, err := btcutil.NewAddressPubKey(pubKey.SerializeCompressed(), netParams)
 	if err != nil {
-		t.Fatalf("unable to create delivery address")
+		return nil, err
 	}
 
 	script, err := txscript.MultiSigScript([]*btcutil.AddressPubKey{addr, addr}, 2)
 	if err != nil {
-		t.Fatalf("unable to create redeemScript")
+		return nil, err
 	}
 
 	// Simulate 1000 channel updates via progression of the elkrem
@@ -114,15 +124,15 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		preImage, err := sender.AtIndex(uint64(i))
 		if err != nil {
-			t.Fatalf("unable to progress elkrem sender: %v", err)
+			return nil, err
 		}
 
 		if receiver.AddNext(preImage); err != nil {
-			t.Fatalf("unable to progress elkrem receiver: %v", err)
+			return nil, err
 		}
 	}
 
-	state := OpenChannel{
+	return &OpenChannel{
 		TheirLNID:                  key,
 		ChanID:                     id,
 		MinFeePerKb:                btcutil.Amount(5000),
@@ -145,14 +155,26 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		TheirDeliveryScript:        script,
 		LocalCsvDelay:              5,
 		RemoteCsvDelay:             9,
-		NumUpdates:                 1,
+		NumUpdates:                 0,
 		TotalSatoshisSent:          8,
 		TotalSatoshisReceived:      2,
 		TotalNetFees:               9,
 		CreationTime:               time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
 		Db:                         cdb,
-	}
+	}, nil
+}
 
+func TestOpenChannelPutGetDelete(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("uanble to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	state, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
 	if err := state.FullSync(); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
@@ -302,5 +324,121 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 }
 
-func TestOpenChannelEncodeDecodeCorruption(t *testing.T) {
+func TestChannelStateUpdateLog(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("uanble to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// First create a minimal channel, then perform a full sync in order to
+	// persist the data.
+	channel, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+	if err := channel.FullSync(); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
+	}
+
+	// Add some HTLC's which were added during this new state transition.
+	// Half of the HTLC's are incoming, while the other half are outgoing.
+	var htlcs []*HTLC
+	for i := uint32(0); i < 10; i++ {
+		var incoming bool
+		if i > 5 {
+			incoming = true
+		}
+		htlc := &HTLC{
+			Incoming:          incoming,
+			Amt:               50000,
+			RHash:             key,
+			RefundTimeout:     i,
+			RevocationTimeout: i + 2,
+		}
+		htlcs = append(htlcs, htlc)
+	}
+
+	// Create a new channel delta which includes the above HTLC's, some
+	// balance updates, and an increment of the current commitment height.
+	// Additionally, modify the signature and commitment transaction.
+	newSequence := uint32(129498)
+	newSig := bytes.Repeat([]byte{3}, 71)
+	delta := &ChannelDelta{
+		RevocationHash: key,
+		RevocationKey:  pubKey,
+		LocalBalance:   btcutil.Amount(1e8),
+		RemoteBalance:  btcutil.Amount(1e8),
+		Htlcs:          htlcs,
+		UpdateNum:      1,
+	}
+	channel.OurCommitTx.TxIn[0].Sequence = newSequence
+	channel.OurCommitSig = newSig
+	if err := channel.RecordChannelDelta(delta); err != nil {
+		t.Fatalf("unable to record channel delta: %v", err)
+	}
+
+	// The balances, new update, and the changes to the fake commitment
+	// transaction along with the modified signature should all have been
+	// updated.
+	nodeID := wire.ShaHash(channel.TheirLNID)
+	updatedChannel, err := cdb.FetchOpenChannels(&nodeID)
+	if err != nil {
+		t.Fatalf("unable to fetch updated channel: %v", err)
+	}
+	if !bytes.Equal(updatedChannel[0].OurCommitSig, newSig) {
+		t.Fatalf("sigs don't match %x vs %x",
+			updatedChannel[0].OurCommitSig, newSig)
+	}
+	if updatedChannel[0].OurCommitTx.TxIn[0].Sequence != newSequence {
+		t.Fatalf("sequence numbers don't match: %v vs %v",
+			updatedChannel[0].OurCommitTx.TxIn[0].Sequence, newSequence)
+	}
+	if updatedChannel[0].OurBalance != delta.LocalBalance {
+		t.Fatalf("local balances don't match: %v vs %v",
+			updatedChannel[0].OurBalance, delta.LocalBalance)
+	}
+	if updatedChannel[0].TheirBalance != delta.RemoteBalance {
+		t.Fatalf("remote balances don't match: %v vs %v",
+			updatedChannel[0].TheirBalance, delta.RemoteBalance)
+	}
+	if updatedChannel[0].NumUpdates != uint64(delta.UpdateNum) {
+		t.Fatalf("update # doesn't match: %v vs %v",
+			updatedChannel[0].NumUpdates, delta.UpdateNum)
+	}
+
+	// We should be able to fetch the channel delta created above by it's
+	// update number with all the state properly reconstructed.
+	diskDelta, err := channel.FindPreviousState(uint64(delta.UpdateNum))
+	if err != nil {
+		t.Fatalf("unable to fetch past delta: %v", err)
+	}
+
+	// The two deltas (the original vs the on-disk version) should
+	// identical, and all HTLC data should properly be retained.
+	if !bytes.Equal(delta.RevocationHash[:], diskDelta.RevocationHash[:]) {
+		t.Fatalf("revocation hashes don't match")
+	}
+	if !bytes.Equal(delta.RevocationKey.SerializeCompressed(),
+		diskDelta.RevocationKey.SerializeCompressed()) {
+		t.Fatalf("revocation keys don't match")
+	}
+	if delta.LocalBalance != diskDelta.LocalBalance {
+		t.Fatalf("local balances don't match")
+	}
+	if delta.RemoteBalance != diskDelta.RemoteBalance {
+		t.Fatalf("remote balances don't match")
+	}
+	if delta.UpdateNum != diskDelta.UpdateNum {
+		t.Fatalf("update number doesn't match")
+	}
+	for i := 0; i < len(delta.Htlcs); i++ {
+		originalHTLC := delta.Htlcs[i]
+		diskHTLC := diskDelta.Htlcs[i]
+		if !reflect.DeepEqual(originalHTLC, diskHTLC) {
+			t.Fatalf("htlc's dont match: %v vs %v",
+				spew.Sdump(originalHTLC),
+				spew.Sdump(diskHTLC))
+		}
+	}
 }

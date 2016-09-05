@@ -367,12 +367,10 @@ func TestChannelStateUpdateLog(t *testing.T) {
 	newTx := channel.OurCommitTx.Copy()
 	newTx.TxIn[0].Sequence = newSequence
 	delta := &ChannelDelta{
-		RevocationHash: key,
-		RevocationKey:  pubKey,
-		LocalBalance:   btcutil.Amount(1e8),
-		RemoteBalance:  btcutil.Amount(1e8),
-		Htlcs:          htlcs,
-		UpdateNum:      1,
+		LocalBalance:  btcutil.Amount(1e8),
+		RemoteBalance: btcutil.Amount(1e8),
+		Htlcs:         htlcs,
+		UpdateNum:     1,
 	}
 	if err := channel.RecordChannelDelta(newTx, newSig, delta); err != nil {
 		t.Fatalf("unable to record channel delta: %v", err)
@@ -416,13 +414,6 @@ func TestChannelStateUpdateLog(t *testing.T) {
 
 	// The two deltas (the original vs the on-disk version) should
 	// identical, and all HTLC data should properly be retained.
-	if !bytes.Equal(delta.RevocationHash[:], diskDelta.RevocationHash[:]) {
-		t.Fatalf("revocation hashes don't match")
-	}
-	if !bytes.Equal(delta.RevocationKey.SerializeCompressed(),
-		diskDelta.RevocationKey.SerializeCompressed()) {
-		t.Fatalf("revocation keys don't match")
-	}
 	if delta.LocalBalance != diskDelta.LocalBalance {
 		t.Fatalf("local balances don't match")
 	}

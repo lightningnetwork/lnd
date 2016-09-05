@@ -255,19 +255,12 @@ type HTLC struct {
 // ChannelDelta is a snapshot of the commitment state at a particular point in
 // the commitment chain. With each state transition, a snapshot of the current
 // state along with all non-settled HTLC's are recorded.
-// TODO(roasbeef): should only need the key instead of hash after refactor
-// within state machine.
-//  * won't actually be needed if it's a past state?
 type ChannelDelta struct {
-	RevocationHash [32]byte
-	RevocationKey  *btcec.PublicKey
-
 	LocalBalance  btcutil.Amount
 	RemoteBalance btcutil.Amount
+	UpdateNum     uint32
 
 	Htlcs []*HTLC
-
-	UpdateNum uint32
 }
 
 // RecordChannelDelta records the new state transition within an on-disk
@@ -1340,14 +1333,6 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 }
 
 func serializeChannelDelta(w io.Writer, delta *ChannelDelta) error {
-	if _, err := w.Write(delta.RevocationHash[:]); err != nil {
-		return err
-	}
-	serializeKey := delta.RevocationKey.SerializeCompressed()
-	if _, err := w.Write(serializeKey); err != nil {
-		return err
-	}
-
 	// TODO(roasbeef): could use compression here to reduce on-disk space.
 	var scratch [8]byte
 	byteOrder.PutUint64(scratch[:], uint64(delta.LocalBalance))
@@ -1381,21 +1366,9 @@ func deserializeChannelDelta(r io.Reader) (*ChannelDelta, error) {
 	var (
 		err     error
 		scratch [8]byte
-		key     [33]byte
 	)
 
 	delta := &ChannelDelta{}
-	if _, err = r.Read(delta.RevocationHash[:]); err != nil {
-		return nil, err
-	}
-
-	if _, err = r.Read(key[:]); err != nil {
-		return nil, err
-	}
-	delta.RevocationKey, err = btcec.ParsePubKey(key[:], btcec.S256())
-	if err != nil {
-		return nil, err
-	}
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err

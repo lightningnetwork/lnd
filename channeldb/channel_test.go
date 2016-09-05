@@ -364,6 +364,8 @@ func TestChannelStateUpdateLog(t *testing.T) {
 	// Additionally, modify the signature and commitment transaction.
 	newSequence := uint32(129498)
 	newSig := bytes.Repeat([]byte{3}, 71)
+	newTx := channel.OurCommitTx.Copy()
+	newTx.TxIn[0].Sequence = newSequence
 	delta := &ChannelDelta{
 		RevocationHash: key,
 		RevocationKey:  pubKey,
@@ -372,9 +374,7 @@ func TestChannelStateUpdateLog(t *testing.T) {
 		Htlcs:          htlcs,
 		UpdateNum:      1,
 	}
-	channel.OurCommitTx.TxIn[0].Sequence = newSequence
-	channel.OurCommitSig = newSig
-	if err := channel.RecordChannelDelta(delta); err != nil {
+	if err := channel.RecordChannelDelta(newTx, newSig, delta); err != nil {
 		t.Fatalf("unable to record channel delta: %v", err)
 	}
 

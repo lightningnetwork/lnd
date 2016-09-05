@@ -274,7 +274,9 @@ type ChannelDelta struct {
 // append-only log which records all state transitions. Additionally, the
 // internal balances and update counter of the target OpenChannel are updated
 // accordingly based on the passed delta.
-func (c *OpenChannel) RecordChannelDelta(delta *ChannelDelta) error {
+func (c *OpenChannel) RecordChannelDelta(newCommitment *wire.MsgTx,
+	newSig []byte, delta *ChannelDelta) error {
+
 	return c.Db.store.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
 		if err != nil {
@@ -287,8 +289,11 @@ func (c *OpenChannel) RecordChannelDelta(delta *ChannelDelta) error {
 			return ErrNoActiveChannels
 		}
 
+		// TODO(roasbeef): revisit in-line mutation
+		c.OurCommitTx = newCommitment
 		c.OurBalance = delta.LocalBalance
 		c.TheirBalance = delta.RemoteBalance
+		c.OurCommitSig = newSig
 		c.NumUpdates = uint64(delta.UpdateNum)
 
 		// First we'll write out the current latest dynamic channel

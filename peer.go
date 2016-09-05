@@ -20,6 +20,8 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/BitfuryLightning/tools/rt/graph"
+	"encoding/hex"
 )
 
 var (
@@ -345,7 +347,7 @@ out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, _, err := p.readNextMessage()
 		if err != nil {
-			peerLog.Infof("unable to read message: %v", err)
+			peerLog.Infof("unable to read message: %v from peer: %v", err, hex.EncodeToString(p.lightningID[:]))
 			break out
 		}
 
@@ -388,6 +390,12 @@ out:
 			*lnwire.RoutingTableTransferMessage:
 			// Convert to base routing message and set sender and receiver
 			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
+		case *lnwire.PaymentInitiation,
+			*lnwire.PaymentInitiationConfirmation:
+			p.server.paymentManager.chPaymentIn <- &PaymentPacket{
+				src: p.lightningID,
+				msg: msg,
+			}
 		}
 
 		if isChanUpate {
@@ -1038,6 +1046,29 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 
 			state.numUnAcked += 1
 		}
+	case *lnwire.HTLCSettleRequest:
+		logIndex, amount, err := state.channel.SettleHTLC(htlc.RedemptionProofs[0])
+		if err != nil{
+			peerLog.Errorf("Trying settling not existing HTLC: %v", htlc)
+			return
+		}
+		settleMsg := &lnwire.HTLCSettleRequest{
+			ChannelPoint:     state.chanPoint,
+			HTLCKey:          lnwire.HTLCKey(logIndex),
+			RedemptionProofs: [][32]byte{htlc.RedemptionProofs[0]},
+		}
+
+		p.queueMsg(settleMsg, nil)
+		peerLog.Infof("Increasing link capacity %v by %v", state.chanPoint, amount)
+		p.server.htlcSwitch.UpdateLink(state.chanPoint, amount)
+
+		if sent, err := p.updateCommitTx(state); err != nil {
+			peerLog.Errorf("unable to update commitment: %v", err)
+			return
+		} else if sent{
+			// TODO(mkl): maybe state.numUnAcked += 1
+			state.numUnAcked += 1
+		}
 	}
 }
 
@@ -1116,7 +1147,6 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			p.Disconnect()
 			return
 		}
-
 		// We perform the HTLC forwarding to the switch in a distinct
 		// goroutine in order not to block the post-processing of
 		// HTLC's that are eligble for forwarding.
@@ -1126,7 +1156,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			for _, htlc := range htlcsToForward {
 				// Send this fully activated HTLC to the htlc
 				// switch to continue the chained clear/settle.
-				state.switchChan <- p.logEntryToHtlcPkt(htlc)
+				state.switchChan <- p.logEntryToHtlcPkt(htlc, state.chanPoint)
 			}
 
 		}()
@@ -1142,30 +1172,27 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 				p.err <- nil
 				delete(state.clearedHTCLs, htlc.ParentIndex)
 			}
-
 			// TODO(roasbeef): rework log entries to a shared
 			// interface.
 			if htlc.EntryType != lnwallet.Add {
 				continue
 			}
-
 			// If we can't immediately settle this HTLC, then we
 			// can halt processing here.
 			invoice, ok := state.htlcsToSettle[htlc.Index]
 			if !ok {
+				peerLog.Infof("We cannot handle invoice for htlc.Index=%v", htlc.Index)
 				continue
 			}
-
 			// Otherwise, we settle this HTLC within our local
 			// state update log, then send the update entry to the
 			// remote party.
-			logIndex, err := state.channel.SettleHTLC(invoice.paymentPreimage)
+			logIndex, _, err := state.channel.SettleHTLC(invoice.paymentPreimage)
 			if err != nil {
 				peerLog.Errorf("unable to settle htlc: %v", err)
 				p.Disconnect()
 				continue
 			}
-
 			settleMsg := &lnwire.HTLCSettleRequest{
 				ChannelPoint:     state.chanPoint,
 				HTLCKey:          lnwire.HTLCKey(logIndex),
@@ -1178,7 +1205,6 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 			numSettled++
 		}
-
 		if numSettled == 0 {
 			return
 		}
@@ -1247,7 +1273,7 @@ func (p *peer) updateCommitTx(state *commitmentState) (bool, error) {
 // log entry the corresponding htlcPacket with src/dest set along with the
 // proper wire message. This helepr method is provided in order to aide an
 // htlcManager in forwarding packets to the htlcSwitch.
-func (p *peer) logEntryToHtlcPkt(pd *lnwallet.PaymentDescriptor) *htlcPacket {
+func (p *peer) logEntryToHtlcPkt(pd *lnwallet.PaymentDescriptor, chanPoint *wire.OutPoint) *htlcPacket {
 	pkt := &htlcPacket{}
 
 	// TODO(roasbeef): alter after switch to log entry interface
@@ -1258,11 +1284,14 @@ func (p *peer) logEntryToHtlcPkt(pd *lnwallet.PaymentDescriptor) *htlcPacket {
 		msg = &lnwire.HTLCAddRequest{
 			Amount:           lnwire.CreditsAmount(pd.Amount),
 			RedemptionHashes: [][32]byte{pd.RHash},
+			OnionBlob:        pd.Payload,
+			ChannelPoint:     chanPoint,
 		}
 	case lnwallet.Settle:
 		// TODO(roasbeef): thread through preimage
 		msg = &lnwire.HTLCSettleRequest{
 			HTLCKey: lnwire.HTLCKey(pd.ParentIndex),
+			RedemptionProofs: [][32]byte{pd.PreImage},
 		}
 	}
 

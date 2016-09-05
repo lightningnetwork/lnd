@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/BitfuryLightning/tools/rt/visualizer"
+	"strconv"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -865,4 +866,106 @@ func printRTAsJSON(r *rt.RoutingTable) {
 		)
 	}
 	printRespJson(channels)
+}
+
+var SendMultihopPayment = cli.Command{
+	Name: "sendmultihop",
+	Usage: "send a multihop payment",
+	Action: sendMultihopPayment,
+}
+
+func sendMultihopPayment(ctx *cli.Context) error {
+	if len(ctx.Args()) < 2 {
+		fmt.Println("Usage: amount ID1 ID2 ...")
+		return nil
+	}
+	amount, err := strconv.ParseInt(ctx.Args()[0], 10, 64)
+	if amount <= 0 {
+		return fmt.Errorf("Amount should be positive. Got %v", amount)
+	}
+	if err != nil {
+		return err
+	}
+	path := make([]string, 0)
+	for i:=1; i<len(ctx.Args()); i++ {
+		p, err := hex.DecodeString(ctx.Args()[i])
+		if err != nil {
+			return err
+		}
+		if len(p) != 32 {
+			return fmt.Errorf("Size of LightningID should be 32 bytes, got %v", len(p))
+		}
+		path = append(path, string(p))
+	}
+	ctxb := context.Background()
+	client := getClient(ctx)
+	req := &lnrpc.MultihopPaymentRequest{
+		Amount: amount,
+		LightningIDs: path,
+	}
+	_, err = client.SendMultihopPayment(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+
+var FindPathCommand = cli.Command{
+	Name: "findpath",
+	Description: "finds path from node to some other node",
+	Usage: "findpath DESTINATION",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "destination",
+			Usage: "lightningID of destination",
+		},
+		cli.IntFlag{
+			Name: "maxpath",
+			Usage: "maximal number of paths to find",
+			Value: 10,
+		},
+	},
+	Action: findPath,
+}
+
+func findPath(ctx *cli.Context) error {
+	// TODO(roasbeef): add deadline to context
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	destID, err := hex.DecodeString(ctx.String("destination"))
+	if err != nil{
+		return err
+	}
+	if len(destID) != 32 {
+		return fmt.Errorf("Incorrect size of LightningID, got %v, want %v", len(destID), 32)
+	}
+	req := &lnrpc.FindPathRequest{
+		TargetID: string(destID),
+		NumberOfPaths: int32(ctx.Int("maxpath")),
+	}
+
+	resp, err := client.FindPath(ctxb, req)
+	if err != nil {
+		return err
+	}
+	// We need to convert byte-strings into hex-encoded string
+	type PathResult struct {
+		Path []string `json:"path"`
+	}
+	var convResp struct {
+		Paths []PathResult `json:"paths"`
+	}
+	convResp.Paths = make([]PathResult, len(resp.Paths))
+	for i := 0; i< len(resp.Paths); i++{
+		convPath := make([]string, len(resp.Paths[i].Path))
+		for j:=0; j<len(resp.Paths[i].Path); j++ {
+			convPath[j] = hex.EncodeToString([]byte(resp.Paths[i].Path[j]))
+		}
+		convResp.Paths[i].Path = convPath
+	}
+	printRespJson(convResp)
+	return nil
 }

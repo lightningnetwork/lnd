@@ -65,8 +65,11 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	err = net.AssertChannelExists(ctxb, net.AliceClient, net.BobClient,
-		fundingChanPoint)
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: fundingChanPoint.OutputIndex,
+	}
+	err = net.AssertChannelExists(ctxb, net.AliceClient, &chanPoint)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}

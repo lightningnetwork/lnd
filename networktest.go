@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -585,48 +584,25 @@ func (n *networkHarness) WaitForChannelClose(closeChanStream lnrpc.Lightning_Clo
 }
 
 // AssertChannelExists asserts that an active channel identified by
-// channelPoint exists between nodeA and nodeB.
-func (n *networkHarness) AssertChannelExists(ctx context.Context, nodeA, nodeB lnrpc.LightningClient,
-	channelPoint *lnrpc.ChannelPoint) error {
+// channelPoint is known to exist from the point-of-view of node..
+func (n *networkHarness) AssertChannelExists(ctx context.Context,
+	node lnrpc.LightningClient, chanPoint *wire.OutPoint) error {
 
-	// TODO(roasbeef): remove and use "listchannels" command after
-	// implemented. Also make logic below more generic after addition of
-	// the RPC.
 	req := &lnrpc.ListPeersRequest{}
-	alicePeerInfo, err := nodeA.ListPeers(ctx, req)
+	peerInfo, err := node.ListPeers(ctx, req)
 	if err != nil {
 		return fmt.Errorf("unable to list nodeA peers: %v", err)
 	}
-	bobPeerInfo, err := nodeB.ListPeers(ctx, req)
-	if err != nil {
-		return fmt.Errorf("unable to list nodeB peers: %v", err)
-	}
-	aliceChannels := alicePeerInfo.Peers[0].Channels
-	if len(aliceChannels) < 1 {
-		return fmt.Errorf("alice should have an active channel, instead have %v",
-			len(aliceChannels))
-	}
-	bobChannels := bobPeerInfo.Peers[0].Channels
-	if len(bobChannels) < 1 {
-		return fmt.Errorf("bob should have an active channel, instead have %v",
-			len(bobChannels))
+
+	for _, peer := range peerInfo.Peers {
+		for _, channel := range peer.Channels {
+			if channel.ChannelPoint == chanPoint.String() {
+				return nil
+			}
+		}
 	}
 
-	txid, err := wire.NewShaHash(channelPoint.FundingTxid)
-	if err != nil {
-		return err
-	}
-
-	aliceTxID := alicePeerInfo.Peers[0].Channels[0].ChannelPoint
-	bobTxID := bobPeerInfo.Peers[0].Channels[0].ChannelPoint
-	if !strings.Contains(bobTxID, txid.String()) {
-		return fmt.Errorf("alice's channel not found")
-	}
-	if !strings.Contains(aliceTxID, txid.String()) {
-		return fmt.Errorf("bob's channel not found")
-	}
-
-	return nil
+	return fmt.Errorf("channel not found")
 }
 
 // initRpcClient attempts to make an rpc connection, then create a gRPC client

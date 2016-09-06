@@ -10,4 +10,4 @@ install:
   - go install -v . # Required for the integration tests.
 script:
   - export PATH=$PATH:$HOME/gopath/bin
-  - go test -v $(go list ./... | grep -v '/vendor/')
+  - go test -p 1 -v $(go list ./... | grep -v '/vendor/')

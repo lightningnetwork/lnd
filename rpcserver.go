@@ -382,7 +382,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
-	return &lnrpc.WalletBalanceResponse{float64(balance)}, nil
+	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently

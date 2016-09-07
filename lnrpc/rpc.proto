@@ -222,9 +222,17 @@ message WalletBalanceResponse {
     double balance = 1;
 }
 
+message RoutingTableLink {
+    string id1 = 1;
+    string id2 = 2;
+    string outpoint = 3;
+    int64 capacity = 4;
+    double weight = 5;
+}
+
 message ShowRoutingTableRequest {
 }
 
 message ShowRoutingTableResponse {
-    string rt = 1;
+    repeated RoutingTableLink channels = 1;
 }

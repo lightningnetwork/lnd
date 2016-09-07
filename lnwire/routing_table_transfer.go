@@ -13,12 +13,11 @@ import (
 )
 
 type RoutingTableTransferMessage struct {
-	RoutingMessageBase
 	RT *rt.RoutingTable
 }
 
 func (msg *RoutingTableTransferMessage) String() string {
-	return fmt.Sprintf("RoutingTableTransferMessage{%v %v %v}", msg.SenderID, msg.ReceiverID, msg.RT)
+	return fmt.Sprintf("RoutingTableTransferMessage{%v %v %v}", msg.RT)
 }
 
 func (msg *RoutingTableTransferMessage) Decode(r io.Reader, pver uint32) error {

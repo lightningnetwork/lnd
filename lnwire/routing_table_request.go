@@ -10,11 +10,10 @@ import (
 )
 
 type RoutingTableRequestMessage struct {
-	RoutingMessageBase
 }
 
 func (msg *RoutingTableRequestMessage) String() string {
-	return fmt.Sprintf("RoutingTableRequestMessage{%v %v}", msg.SenderID, msg.ReceiverID)
+	return fmt.Sprintf("RoutingTableRequestMessage{}")
 }
 
 func (msg *RoutingTableRequestMessage) Command() uint32 {

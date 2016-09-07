@@ -5,7 +5,6 @@
 package lnwire
 
 import (
-	"encoding/gob"
 	"fmt"
 	"io"
 
@@ -13,21 +12,17 @@ import (
 )
 
 type NeighborHelloMessage struct {
-	RoutingMessageBase
 	RT *rt.RoutingTable
 }
 
 func (msg *NeighborHelloMessage) Decode(r io.Reader, pver uint32) error {
-	decoder := gob.NewDecoder(r)
-	rt1 := rt.NewRoutingTable()
-	err := decoder.Decode(rt1.G)
+	rt1, err := rt.UnmarshallRoutingTable(r)
 	msg.RT = rt1
 	return err
 }
 
 func (msg *NeighborHelloMessage) Encode(w io.Writer, pver uint32) error {
-	encoder := gob.NewEncoder(w)
-	err := encoder.Encode(msg.RT.G)
+	err := msg.RT.Marshall(w)
 	return err
 }
 
@@ -46,7 +41,7 @@ func (msg *NeighborHelloMessage) Validate() error {
 }
 
 func (msg *NeighborHelloMessage) String() string {
-	return fmt.Sprintf("NeighborHelloMessage{%v %v %v}", msg.SenderID, msg.ReceiverID, msg.RT)
+	return fmt.Sprintf("NeighborHelloMessage{%v}", msg.RT)
 }
 
 var _ Message = (*NeighborHelloMessage)(nil)

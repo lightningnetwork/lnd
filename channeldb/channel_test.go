@@ -171,9 +171,20 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// Create the test channel state, then add an additional fake HTLC
+	// before syncing to disk.
 	state, err := createTestChannelState(cdb)
 	if err != nil {
 		t.Fatalf("unable to create channel state: %v", err)
+	}
+	state.Htlcs = []*HTLC{
+		&HTLC{
+			Incoming:        true,
+			Amt:             10,
+			RHash:           key,
+			RefundTimeout:   1,
+			RevocationDelay: 2,
+		},
 	}
 	if err := state.FullSync(); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
@@ -302,6 +313,10 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if !bytes.Equal(newState.TheirCurrentRevocationHash[:], state.TheirCurrentRevocationHash[:]) {
 		t.Fatalf("revocation hashes don't match")
 	}
+	if !reflect.DeepEqual(state.Htlcs[0], newState.Htlcs[0]) {
+		t.Fatalf("htlcs don't match: %v vs %v", spew.Sdump(state.Htlcs[0]),
+			spew.Sdump(newState.Htlcs[0]))
+	}
 
 	// Finally to wrap up the test, delete the state of the channel within
 	// the database. This involves "closing" the channel which removes all
@@ -324,7 +339,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 }
 
-func TestChannelStateUpdateLog(t *testing.T) {
+func TestChannelStateTransition(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
 		t.Fatalf("uanble to make test database: %v", err)
@@ -350,11 +365,11 @@ func TestChannelStateUpdateLog(t *testing.T) {
 			incoming = true
 		}
 		htlc := &HTLC{
-			Incoming:          incoming,
-			Amt:               50000,
-			RHash:             key,
-			RefundTimeout:     i,
-			RevocationTimeout: i + 2,
+			Incoming:        incoming,
+			Amt:             50000,
+			RHash:           key,
+			RefundTimeout:   i,
+			RevocationDelay: i + 2,
 		}
 		htlcs = append(htlcs, htlc)
 	}
@@ -372,13 +387,15 @@ func TestChannelStateUpdateLog(t *testing.T) {
 		Htlcs:         htlcs,
 		UpdateNum:     1,
 	}
-	if err := channel.RecordChannelDelta(newTx, newSig, delta); err != nil {
-		t.Fatalf("unable to record channel delta: %v", err)
+
+	// First update the local node's broadcastable state.
+	if err := channel.UpdateCommitment(newTx, newSig, delta); err != nil {
+		t.Fatalf("unable to update commitment: %v", err)
 	}
 
-	// The balances, new update, and the changes to the fake commitment
-	// transaction along with the modified signature should all have been
-	// updated.
+	// The balances, new update, the HTLC's and the changes to the fake
+	// commitment transaction along with the modified signature should all
+	// have been updated.
 	nodeID := wire.ShaHash(channel.TheirLNID)
 	updatedChannel, err := cdb.FetchOpenChannels(&nodeID)
 	if err != nil {
@@ -403,6 +420,25 @@ func TestChannelStateUpdateLog(t *testing.T) {
 	if updatedChannel[0].NumUpdates != uint64(delta.UpdateNum) {
 		t.Fatalf("update # doesn't match: %v vs %v",
 			updatedChannel[0].NumUpdates, delta.UpdateNum)
+	}
+	for i := 0; i < len(updatedChannel[0].Htlcs); i++ {
+		originalHTLC := updatedChannel[0].Htlcs[i]
+		diskHTLC := channel.Htlcs[i]
+		if !reflect.DeepEqual(originalHTLC, diskHTLC) {
+			t.Fatalf("htlc's dont match: %v vs %v",
+				spew.Sdump(originalHTLC),
+				spew.Sdump(diskHTLC))
+		}
+	}
+
+	// Next, write to the log which tracks the necessary revocation state
+	// needed to rectify any fishy behavior by the remote party. Modify the
+	// current uncollapsed revocation state to simulate a state transition
+	// by the remote party.
+	newRevocation := bytes.Repeat([]byte{9}, 32)
+	copy(channel.TheirCurrentRevocationHash[:], newRevocation)
+	if err := channel.AppendToRevocationLog(delta); err != nil {
+		t.Fatalf("unable to append to revocation log: %v", err)
 	}
 
 	// We should be able to fetch the channel delta created above by it's
@@ -431,5 +467,14 @@ func TestChannelStateUpdateLog(t *testing.T) {
 				spew.Sdump(originalHTLC),
 				spew.Sdump(diskHTLC))
 		}
+	}
+	// The revocation state stored on-disk should now also be identical.
+	updatedChannel, err = cdb.FetchOpenChannels(&nodeID)
+	if err != nil {
+		t.Fatalf("unable to fetch updated channel: %v", err)
+	}
+	if !bytes.Equal(updatedChannel[0].TheirCurrentRevocationHash[:],
+		newRevocation) {
+		t.Fatalf("revocation state wasn't synced!")
 	}
 }

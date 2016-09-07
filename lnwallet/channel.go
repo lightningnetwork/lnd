@@ -183,6 +183,47 @@ type commitment struct {
 	// indexes.
 	ourBalance   btcutil.Amount
 	theirBalance btcutil.Amount
+
+	// htlcs is the set of HTLC's which remain uncleared within this
+	// commitment.
+	outgoingHTLCs []*PaymentDescriptor
+	incomingHTLCs []*PaymentDescriptor
+}
+
+// toChannelDelta converts the target commitment into a format suitable to be
+// written to disk after an accepted state transition.
+// TODO(roasbeef): properly fill in refund timeouts
+func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
+	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
+	delta := &channeldb.ChannelDelta{
+		LocalBalance:  c.ourBalance,
+		RemoteBalance: c.theirBalance,
+		UpdateNum:     uint32(c.height),
+		Htlcs:         make([]*channeldb.HTLC, 0, numHtlcs),
+	}
+
+	for _, htlc := range c.outgoingHTLCs {
+		h := &channeldb.HTLC{
+			Incoming:        false,
+			Amt:             htlc.Amount,
+			RHash:           htlc.RHash,
+			RefundTimeout:   htlc.Timeout,
+			RevocationDelay: 0,
+		}
+		delta.Htlcs = append(delta.Htlcs, h)
+	}
+	for _, htlc := range c.incomingHTLCs {
+		h := &channeldb.HTLC{
+			Incoming:        true,
+			Amt:             htlc.Amount,
+			RHash:           htlc.RHash,
+			RefundTimeout:   htlc.Timeout,
+			RevocationDelay: 0,
+		}
+		delta.Htlcs = append(delta.Htlcs, h)
+	}
+
+	return delta, nil
 }
 
 // commitmentChain represents a chain of unrevoked commitments. The tail of the
@@ -386,6 +427,8 @@ func NewLightningChannel(signer Signer, wallet *LightningWallet,
 
 	// Initialize both of our chains the current un-revoked commitment for
 	// each side.
+	// TODO(roasbeef): add chnneldb.RevocationLogTail method, then init
+	// their commitment from that
 	initialCommitment := &commitment{
 		height:            lc.currentHeight,
 		ourBalance:        state.OurBalance,
@@ -395,6 +438,12 @@ func NewLightningChannel(signer Signer, wallet *LightningWallet,
 	}
 	lc.localCommitChain.addCommitment(initialCommitment)
 	lc.remoteCommitChain.addCommitment(initialCommitment)
+
+	// If we're restarting from a channel with history, then restore the
+	// update in-memory update logs to that of the prior state.
+	if lc.currentHeight != 0 {
+		lc.restoreStateLogs()
+	}
 
 	// TODO(roasbeef): do a NotifySpent for the funding input, and
 	// NotifyReceived for all commitment outputs.
@@ -418,6 +467,54 @@ func NewLightningChannel(signer Signer, wallet *LightningWallet,
 	}
 
 	return lc, nil
+}
+
+// restoreStateLogs runs through the current locked-in HTLC's from the point of
+// view of the channel and insert corresponding log entries (both local and
+// remote) for each HTLC read from disk. This method is required sync the
+// in-memory state of the state machine with that read from persistent storage.
+func (lc *LightningChannel) restoreStateLogs() error {
+	var pastHeight uint64
+	if lc.currentHeight > 0 {
+		pastHeight = lc.currentHeight - 1
+	}
+
+	var ourCounter, theirCounter uint32
+	for _, htlc := range lc.channelState.Htlcs {
+		// TODO(roasbeef): set isForwarded to false for all? need to
+		// persist state w.r.t to if forwarded or not, or can
+		// inadvertenly trigger replays
+		pd := &PaymentDescriptor{
+			RHash:                 htlc.RHash,
+			Timeout:               htlc.RefundTimeout,
+			Amount:                htlc.Amt,
+			EntryType:             Add,
+			addCommitHeightRemote: pastHeight,
+			addCommitHeightLocal:  pastHeight,
+		}
+
+		if !htlc.Incoming {
+			pd.Index = ourCounter
+			lc.ourLogIndex[pd.Index] = lc.ourUpdateLog.PushBack(pd)
+
+			ourCounter++
+		} else {
+			pd.Index = theirCounter
+			lc.theirLogIndex[pd.Index] = lc.theirUpdateLog.PushBack(pd)
+
+			theirCounter++
+		}
+	}
+
+	lc.ourLogCounter = ourCounter
+	lc.theirLogCounter = theirCounter
+
+	lc.localCommitChain.tail().ourMessageIndex = ourCounter
+	lc.localCommitChain.tail().theirMessageIndex = theirCounter
+	lc.remoteCommitChain.tail().ourMessageIndex = ourCounter
+	lc.remoteCommitChain.tail().theirMessageIndex = theirCounter
+
+	return nil
 }
 
 type htlcView struct {
@@ -547,6 +644,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		ourMessageIndex:   ourLogIndex,
 		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
+		outgoingHTLCs:     filteredHTLCView.ourUpdates,
+		incomingHTLCs:     filteredHTLCView.theirUpdates,
 	}, nil
 }
 
@@ -886,25 +985,24 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 
 	// Advance our tail, as we've revoked our previous state.
 	lc.localCommitChain.advanceTail()
-
 	lc.currentHeight++
 
+	// Additionally, generate a channel delta for this state transition for
+	// persistent storage.
 	// TODO(roasbeef): update sent/received.
 	tail := lc.localCommitChain.tail()
-	lc.channelState.OurCommitTx = tail.txn
-	lc.channelState.OurBalance = tail.ourBalance
-	lc.channelState.TheirBalance = tail.theirBalance
-	lc.channelState.OurCommitSig = tail.sig
-	lc.channelState.NumUpdates++
+	delta, err := tail.toChannelDelta()
+	if err != nil {
+		return nil, err
+	}
+	err = lc.channelState.UpdateCommitment(tail.txn, tail.sig, delta)
+	if err != nil {
+		return nil, err
+	}
 
 	walletLog.Tracef("ChannelPoint(%v): state transition accepted: "+
 		"our_balance=%v, their_balance=%v", lc.channelState.ChanID,
 		tail.ourBalance, tail.theirBalance)
-
-	// TODO(roasbeef): use RecordChannelDelta once fin
-	if err := lc.channelState.FullSync(); err != nil {
-		return nil, err
-	}
 
 	revocationMsg.ChannelPoint = lc.channelState.ChanID
 	return revocationMsg, nil
@@ -974,7 +1072,12 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	// the current revocation key+hash for the remote party. Therefore we
 	// sync now to ensure the elkrem receiver state is consistent with the
 	// current commitment height.
-	if err := lc.channelState.SyncRevocation(); err != nil {
+	tail := lc.remoteCommitChain.tail()
+	delta, err := tail.toChannelDelta()
+	if err != nil {
+		return nil, err
+	}
+	if err := lc.channelState.AppendToRevocationLog(delta); err != nil {
 		return nil, err
 	}
 
@@ -1097,6 +1200,8 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 
 // AddHTLC adds an HTLC to the state machine's local update log. This method
 // should be called when preparing to send an outgoing HTLC.
+// TODO(roasbeef): check for duplicates below? edge case during restart w/ HTLC
+// persistence
 func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 	pd := &PaymentDescriptor{
 		EntryType: Add,

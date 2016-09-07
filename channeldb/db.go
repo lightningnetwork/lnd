@@ -155,7 +155,14 @@ func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
 		// item in the inner chan ID bucket. This bucket acts as an
 		// index for all channels we currently have open with this node.
 		nodeChanIDBucket := nodeChanBucket.Bucket(chanIDBucket[:])
+		if nodeChanIDBucket == nil {
+			return nil
+		}
 		err := nodeChanIDBucket.ForEach(func(k, v []byte) error {
+			if k == nil {
+				return nil
+			}
+
 			outBytes := bytes.NewReader(k)
 			chanID := &wire.OutPoint{}
 			if err := readOutpoint(outBytes, chanID); err != nil {

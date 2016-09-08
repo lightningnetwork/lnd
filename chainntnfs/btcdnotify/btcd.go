@@ -2,7 +2,6 @@ package btcdnotify
 
 import (
 	"container/heap"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,8 +34,11 @@ type BtcdNotifier struct {
 	// TODO(roasbeef): make map point to slices? Would allow for multiple
 	// clients to listen for same spend. Would we ever need this?
 	spendNotifications map[wire.OutPoint]*spendNotification
-	confNotifications  map[wire.ShaHash]*confirmationsNotification
-	confHeap           *confirmationHeap
+
+	confNotifications map[wire.ShaHash]*confirmationsNotification
+	confHeap          *confirmationHeap
+
+	blockEpochClients []chan *chainntnfs.BlockEpoch
 
 	connectedBlockHashes    chan *blockNtfn
 	disconnectedBlockHashes chan *blockNtfn
@@ -173,27 +175,38 @@ out:
 		case registerMsg := <-b.notificationRegistry:
 			switch msg := registerMsg.(type) {
 			case *spendNotification:
+				chainntnfs.Log.Infof("New spend subscription: "+
+					"utxo=%v", msg.targetOutpoint)
 				b.spendNotifications[*msg.targetOutpoint] = msg
 			case *confirmationsNotification:
 				chainntnfs.Log.Infof("New confirmations "+
 					"subscription: txid=%v, numconfs=%v",
 					*msg.txid, msg.numConfirmations)
 				b.confNotifications[*msg.txid] = msg
+			case *blockEpochRegistration:
+				chainntnfs.Log.Infof("New block epoch subscription")
+				b.blockEpochClients = append(b.blockEpochClients,
+					msg.epochChan)
 			}
 		case staleBlockHash := <-b.disconnectedBlockHashes:
 			// TODO(roasbeef): re-orgs
 			//  * second channel to notify of confirmation decrementing
 			//    re-org?
 			//  * notify of negative confirmations
-			fmt.Println(staleBlockHash)
+			chainntnfs.Log.Warnf("Block disconnected from main "+
+				"chain: %v", staleBlockHash)
 		case connectedBlock := <-b.connectedBlockHashes:
 			newBlock, err := b.chainConn.GetBlock(connectedBlock.sha)
 			if err != nil {
+				chainntnfs.Log.Errorf("Unable to get block: %v", err)
 				continue
 			}
 
 			chainntnfs.Log.Infof("New block: height=%v, sha=%v",
 				connectedBlock.height, connectedBlock.sha)
+
+			go b.notifyBlockEpochs(connectedBlock.height,
+				connectedBlock.sha)
 
 			newHeight := connectedBlock.height
 			for _, tx := range newBlock.Transactions() {
@@ -241,6 +254,25 @@ out:
 		}
 	}
 	b.wg.Done()
+}
+
+// notifyBlockEpochs notifies all registered block epoch clients of the newly
+// connected block to the main chain.
+func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *wire.ShaHash) {
+	epoch := &chainntnfs.BlockEpoch{
+		Height: newHeight,
+		Hash:   newSha,
+	}
+
+	// TODO(roasbeef): spwan a new goroutine for each client instead?
+	for _, epochChan := range b.blockEpochClients {
+		// Attempt a non-blocking send. If the buffered channel is
+		// full, then we no-op and move onto the next client.
+		select {
+		case epochChan <- epoch:
+		default:
+		}
+	}
 }
 
 // notifyConfs examines the current confirmation heap, sending off any
@@ -369,10 +401,23 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	}, nil
 }
 
+// blockEpochRegistration represents a client's intent to receive a
+// notification with each newly connected block.
+type blockEpochRegistration struct {
+	epochChan chan *chainntnfs.BlockEpoch
+}
+
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
 // caller to receive notificationsm, of each new block connected to the main
 // chain.
-func (b *BtcdNotifier) RegisterBlockEpochNtfn(targetHeight int32) (*chainntnfs.BlockEpochEvent, error) {
-	// TODO(roasbeef): implement
-	return nil, nil
+func (b *BtcdNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+	registration := &blockEpochRegistration{
+		epochChan: make(chan *chainntnfs.BlockEpoch, 20),
+	}
+
+	b.notificationRegistry <- registration
+
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: registration.epochChan,
+	}, nil
 }

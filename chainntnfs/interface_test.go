@@ -2,6 +2,8 @@ package chainntnfs_test
 
 import (
 	"bytes"
+	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -281,11 +283,60 @@ func testSpendNotification(miner *rpctest.Harness,
 	}
 }
 
+func testBlockEpochNotification(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	// We'd like to test the case of multiple registered clients receiving
+	// block epoch notifications.
+
+	const numBlocks = 10
+	const numClients = 5
+	var wg sync.WaitGroup
+
+	// Create numClients clients which will listen for block notifications. We
+	// expect each client to receive 10 notifications for each of the ten
+	// blocks we generate below. So we'll use a WaitGroup to synchronize the
+	// test.
+	for i := 0; i < numClients; i++ {
+		epochClient, err := notifier.RegisterBlockEpochNtfn()
+		if err != nil {
+			t.Fatalf("unable to register for epoch notification")
+		}
+
+		wg.Add(numBlocks)
+		go func() {
+			for i := 0; i < numBlocks; i++ {
+				<-epochClient.Epochs
+				wg.Done()
+			}
+		}()
+	}
+
+	epochsSent := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(epochsSent)
+	}()
+
+	// Now generate 10 blocks, the clients above should each receive 10
+	// notifications, thereby unblocking the goroutine above.
+	if _, err := miner.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	select {
+	case <-epochsSent:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("all notifications not sent")
+	}
+}
+
 var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T){
 	testSingleConfirmationNotification,
 	testMultiConfirmationNotification,
 	testBatchConfirmationNotification,
 	testSpendNotification,
+	testBlockEpochNotification,
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests
@@ -315,6 +366,7 @@ func TestInterfaces(t *testing.T) {
 
 	rpcConfig := miner.RPCConfig()
 
+	log.Printf("Running %v ChainNotifier interface tests\n", len(ntfnTests))
 	var notifier chainntnfs.ChainNotifier
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType

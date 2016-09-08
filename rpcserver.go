@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -96,7 +97,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*wire.ShaHash
 		return nil, err
 	}
 
-	return r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
+	return r.server.lnwallet.SendOutputs(outputs)
 }
 
 // SendCoins executes a request to send coins to a particular address. Unlike
@@ -136,23 +137,19 @@ func (r *rpcServer) SendMany(ctx context.Context,
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
-	r.server.lnwallet.KeyGenMtx.Lock()
-	defer r.server.lnwallet.KeyGenMtx.Unlock()
-
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
-	var addrType waddrmgr.AddressType
+	var addrType lnwallet.AddressType
 	switch in.Type {
 	case lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH:
-		addrType = waddrmgr.WitnessPubKey
+		addrType = lnwallet.WitnessPubKey
 	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
-		addrType = waddrmgr.NestedWitnessPubKey
+		addrType = lnwallet.NestedWitnessPubKey
 	case lnrpc.NewAddressRequest_PUBKEY_HASH:
-		addrType = waddrmgr.PubKeyHash
+		addrType = lnwallet.PubKeyHash
 	}
 
-	addr, err := r.server.lnwallet.NewAddress(defaultAccount,
-		addrType)
+	addr, err := r.server.lnwallet.NewAddress(addrType, false)
 	if err != nil {
 		return nil, err
 	}
@@ -378,35 +375,14 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
-	var balance float64
-
-	if in.WitnessOnly {
-		witnessOutputs, err := r.server.lnwallet.ListUnspentWitness(1)
-		if err != nil {
-			return nil, err
-		}
-
-		// We need to convert from BTC to satoshi here otherwise, and
-		// incorrect sum will be returned.
-		var outputSum btcutil.Amount
-		for _, witnessOutput := range witnessOutputs {
-			outputSum += btcutil.Amount(witnessOutput.Amount * 1e8)
-		}
-
-		balance = outputSum.ToBTC()
-	} else {
-		// TODO(roasbeef): make num confs a param
-		outputSum, err := r.server.lnwallet.CalculateBalance(1)
-		if err != nil {
-			return nil, err
-		}
-
-		balance = outputSum.ToBTC()
+	balance, err := r.server.lnwallet.ConfirmedBalance(1, in.WitnessOnly)
+	if err != nil {
+		return nil, err
 	}
 
 	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
-	return &lnrpc.WalletBalanceResponse{balance}, nil
+	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently

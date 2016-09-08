@@ -13,27 +13,64 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
-// MockEncryptorDecryptor is a mock implementation of EncryptorDecryptor that
-// simply returns the passed bytes without encrypting or decrypting. This is
-// used for testing purposes to be able to create a channldb instance which
-// doesn't use encryption.
-type MockEncryptorDecryptor struct {
+var (
+	privPass = []byte("private-test")
+
+	// For simplicity a single priv key controls all of our test outputs.
+	testWalletPrivKey = []byte{
+		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
+		0x1a, 0x1f, 0xc3, 0x32, 0x8f, 0xa7, 0x63, 0xa9,
+		0x26, 0x97, 0x23, 0xc8, 0xdb, 0x8f, 0xac, 0x4f,
+		0x93, 0xaf, 0x71, 0xdb, 0x18, 0x6d, 0x6e, 0x90,
+	}
+
+	// We're alice :)
+	bobsPrivKey = []byte{
+		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+		0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+		0xd, 0xe7, 0x95, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
+	}
+
+	// Use a hard-coded HD seed.
+	testHdSeed = [32]byte{
+		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
+		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
+		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
+		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
+	}
+
+	// The number of confirmations required to consider any created channel
+	// open.
+	numReqConfs = uint16(1)
+)
+
+type mockSigner struct {
+	key *btcec.PrivateKey
 }
 
-func (m *MockEncryptorDecryptor) Encrypt(n []byte) ([]byte, error) {
-	return n, nil
+func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
+	amt := signDesc.Output.Value
+	redeemScript := signDesc.RedeemScript
+	privKey := m.key
+
+	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
+		signDesc.InputIndex, amt, redeemScript, txscript.SigHashAll, privKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig[:len(sig)-1], nil
 }
 
-func (m *MockEncryptorDecryptor) Decrypt(n []byte) ([]byte, error) {
-	return n, nil
-}
-
-func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
-	return 0
+// ComputeInputScript...
+func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error) {
+	return nil, nil
 }
 
 // createTestChannels creates two test channels funded with 10 BTC, with 5 BTC
@@ -49,7 +86,7 @@ func createTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 
-	redeemScript, _, err := genFundingPkScript(aliceKeyPub.SerializeCompressed(),
+	redeemScript, _, err := GenFundingPkScript(aliceKeyPub.SerializeCompressed(),
 		bobKeyPub.SerializeCompressed(), int64(channelCapacity))
 	if err != nil {
 		return nil, nil, nil, err
@@ -61,26 +98,26 @@ func createTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	bobElkrem := elkrem.NewElkremSender(deriveElkremRoot(bobKeyPriv, aliceKeyPub))
+	bobElkrem := elkrem.NewElkremSender(deriveElkremRoot(bobKeyPriv, bobKeyPub, aliceKeyPub))
 	bobFirstRevoke, err := bobElkrem.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobRevokeKey := deriveRevocationPubkey(aliceKeyPub, bobFirstRevoke[:])
+	bobRevokeKey := DeriveRevocationPubkey(aliceKeyPub, bobFirstRevoke[:])
 
-	aliceElkrem := elkrem.NewElkremSender(deriveElkremRoot(aliceKeyPriv, bobKeyPub))
+	aliceElkrem := elkrem.NewElkremSender(deriveElkremRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub))
 	aliceFirstRevoke, err := aliceElkrem.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	aliceRevokeKey := deriveRevocationPubkey(bobKeyPub, aliceFirstRevoke[:])
+	aliceRevokeKey := DeriveRevocationPubkey(bobKeyPub, aliceFirstRevoke[:])
 
-	aliceCommitTx, err := createCommitTx(fundingTxIn, aliceKeyPub,
+	aliceCommitTx, err := CreateCommitTx(fundingTxIn, aliceKeyPub,
 		bobKeyPub, aliceRevokeKey, csvTimeoutAlice, channelBal, channelBal)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobCommitTx, err := createCommitTx(fundingTxIn, bobKeyPub,
+	bobCommitTx, err := CreateCommitTx(fundingTxIn, bobKeyPub,
 		aliceKeyPub, bobRevokeKey, csvTimeoutBob, channelBal, channelBal)
 	if err != nil {
 		return nil, nil, nil, err
@@ -91,25 +128,24 @@ func createTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	dbAlice.RegisterCryptoSystem(&MockEncryptorDecryptor{})
+
 	bobPath, err := ioutil.TempDir("", "bobdb")
 	dbBob, err := channeldb.Open(bobPath, &chaincfg.TestNet3Params)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	dbBob.RegisterCryptoSystem(&MockEncryptorDecryptor{})
 
 	aliceChannelState := &channeldb.OpenChannel{
 		TheirLNID:              testHdSeed,
 		ChanID:                 prevOut,
-		OurCommitKey:           aliceKeyPriv,
+		OurCommitKey:           aliceKeyPub,
 		TheirCommitKey:         bobKeyPub,
 		Capacity:               channelCapacity,
 		OurBalance:             channelBal,
 		TheirBalance:           channelBal,
 		OurCommitTx:            aliceCommitTx,
 		FundingOutpoint:        prevOut,
-		OurMultiSigKey:         aliceKeyPriv,
+		OurMultiSigKey:         aliceKeyPub,
 		TheirMultiSigKey:       bobKeyPub,
 		FundingRedeemScript:    redeemScript,
 		LocalCsvDelay:          csvTimeoutAlice,
@@ -122,14 +158,14 @@ func createTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	bobChannelState := &channeldb.OpenChannel{
 		TheirLNID:              testHdSeed,
 		ChanID:                 prevOut,
-		OurCommitKey:           bobKeyPriv,
+		OurCommitKey:           bobKeyPub,
 		TheirCommitKey:         aliceKeyPub,
 		Capacity:               channelCapacity,
 		OurBalance:             channelBal,
 		TheirBalance:           channelBal,
 		OurCommitTx:            bobCommitTx,
 		FundingOutpoint:        prevOut,
-		OurMultiSigKey:         bobKeyPriv,
+		OurMultiSigKey:         bobKeyPub,
 		TheirMultiSigKey:       aliceKeyPub,
 		FundingRedeemScript:    redeemScript,
 		LocalCsvDelay:          csvTimeoutBob,
@@ -145,11 +181,14 @@ func createTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		os.RemoveAll(alicePath)
 	}
 
-	channelAlice, err := NewLightningChannel(nil, nil, dbAlice, aliceChannelState)
+	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{bobKeyPriv}
+
+	channelAlice, err := NewLightningChannel(aliceSigner, nil, nil, aliceChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(nil, nil, dbBob, bobChannelState)
+	channelBob, err := NewLightningChannel(bobSigner, nil, nil, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -456,7 +495,8 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to initiate alice cooperative close: %v", err)
 	}
-	closeTx, err := bobChannel.CompleteCooperativeClose(sig)
+	finalSig := append(sig, byte(txscript.SigHashAll))
+	closeTx, err := bobChannel.CompleteCooperativeClose(finalSig)
 	if err != nil {
 		t.Fatalf("unable to complete alice cooperative close: %v", err)
 	}
@@ -475,7 +515,8 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to initiate bob cooperative close: %v", err)
 	}
-	closeTx, err = aliceChannel.CompleteCooperativeClose(sig)
+	finalSig = append(sig, byte(txscript.SigHashAll))
+	closeTx, err = aliceChannel.CompleteCooperativeClose(finalSig)
 	if err != nil {
 		t.Fatalf("unable to complete bob cooperative close: %v", err)
 	}

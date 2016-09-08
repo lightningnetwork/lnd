@@ -274,6 +274,9 @@ type LightningChannel struct {
 	// wallet can add back.
 	lnwallet *LightningWallet
 
+	signer   Signer
+	signDesc *SignDescriptor
+
 	channelEvents chainntnfs.ChainNotifier
 
 	sync.RWMutex
@@ -281,7 +284,8 @@ type LightningChannel struct {
 	ourLogCounter   uint32
 	theirLogCounter uint32
 
-	status channelState
+	status   channelState
+	Capacity btcutil.Amount
 
 	// currentHeight is the current height of our local commitment chain.
 	// This is also the same as the number of updates to the channel we've
@@ -337,10 +341,12 @@ type LightningChannel struct {
 	ourLogIndex   map[uint32]*list.Element
 	theirLogIndex map[uint32]*list.Element
 
-	fundingTxIn  *wire.TxIn
-	fundingP2WSH []byte
+	LocalDeliveryScript  []byte
+	RemoteDeliveryScript []byte
 
-	channelDB *channeldb.DB
+	FundingRedeemScript []byte
+	fundingTxIn         *wire.TxIn
+	fundingP2WSH        []byte
 
 	started  int32
 	shutdown int32
@@ -354,11 +360,13 @@ type LightningChannel struct {
 // and the current settled channel state. Throughout state transitions, then
 // channel will automatically persist pertinent state to the database in an
 // efficient manner.
-func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifier,
-	chanDB *channeldb.DB, state *channeldb.OpenChannel) (*LightningChannel, error) {
+func NewLightningChannel(signer Signer, wallet *LightningWallet,
+	events chainntnfs.ChainNotifier,
+	state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	// TODO(roasbeef): remove events+wallet
 	lc := &LightningChannel{
+		signer:               signer,
 		lnwallet:             wallet,
 		channelEvents:        events,
 		currentHeight:        state.NumUpdates,
@@ -370,7 +378,10 @@ func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 		theirUpdateLog:       list.New(),
 		ourLogIndex:          make(map[uint32]*list.Element),
 		theirLogIndex:        make(map[uint32]*list.Element),
-		channelDB:            chanDB,
+		Capacity:             state.Capacity,
+		LocalDeliveryScript:  state.OurDeliveryScript,
+		RemoteDeliveryScript: state.TheirDeliveryScript,
+		FundingRedeemScript:  state.FundingRedeemScript,
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for
@@ -394,6 +405,17 @@ func NewLightningChannel(wallet *LightningWallet, events chainntnfs.ChainNotifie
 	}
 	lc.fundingTxIn = wire.NewTxIn(state.FundingOutpoint, nil, nil)
 	lc.fundingP2WSH = fundingPkScript
+
+	lc.signDesc = &SignDescriptor{
+		PubKey:       lc.channelState.OurMultiSigKey,
+		RedeemScript: lc.channelState.FundingRedeemScript,
+		Output: &wire.TxOut{
+			PkScript: lc.fundingP2WSH,
+			Value:    int64(lc.channelState.Capacity),
+		},
+		HashType:   txscript.SigHashAll,
+		InputIndex: 0,
+	}
 
 	return lc, nil
 }
@@ -480,12 +502,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	var delayBalance, p2wkhBalance btcutil.Amount
 	if remoteChain {
 		selfKey = lc.channelState.TheirCommitKey
-		remoteKey = lc.channelState.OurCommitKey.PubKey()
+		remoteKey = lc.channelState.OurCommitKey
 		delay = lc.channelState.RemoteCsvDelay
 		delayBalance = theirBalance
 		p2wkhBalance = ourBalance
 	} else {
-		selfKey = lc.channelState.OurCommitKey.PubKey()
+		selfKey = lc.channelState.OurCommitKey
 		remoteKey = lc.channelState.TheirCommitKey
 		delay = lc.channelState.LocalCsvDelay
 		delayBalance = ourBalance
@@ -495,7 +517,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLC's.
 	ourCommitTx := !remoteChain
-	commitTx, err := createCommitTx(lc.fundingTxIn, selfKey, remoteKey,
+	commitTx, err := CreateCommitTx(lc.fundingTxIn, selfKey, remoteKey,
 		revocationKey, delay, delayBalance, p2wkhBalance)
 	if err != nil {
 		return nil, err
@@ -722,11 +744,8 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 		}))
 
 	// Sign their version of the new commitment transaction.
-	hashCache := txscript.NewTxSigHashes(newCommitView.txn)
-	sig, err := txscript.RawTxInWitnessSignature(newCommitView.txn,
-		hashCache, 0, int64(lc.channelState.Capacity),
-		lc.channelState.FundingRedeemScript, txscript.SigHashAll,
-		lc.channelState.OurMultiSigKey)
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(newCommitView.txn)
+	sig, err := lc.signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -744,7 +763,7 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 
 	// Strip off the sighash flag on the signature in order to send it over
 	// the wire.
-	return sig[:len(sig)], lc.theirLogCounter, nil
+	return sig, lc.theirLogCounter, nil
 }
 
 // ReceiveNewCommitment processs a signature for a new commitment state sent by
@@ -770,7 +789,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	if err != nil {
 		return err
 	}
-	revocationKey := deriveRevocationPubkey(theirCommitKey, revocation[:])
+	revocationKey := DeriveRevocationPubkey(theirCommitKey, revocation[:])
 	revocationHash := fastsha256.Sum256(revocation[:])
 
 	// With the revocation information calculated, construct the new
@@ -857,7 +876,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 	if err != nil {
 		return nil, err
 	}
-	revocationMsg.NextRevocationKey = deriveRevocationPubkey(theirCommitKey,
+	revocationMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
 		revocationEdge[:])
 	revocationMsg.NextRevocationHash = fastsha256.Sum256(revocationEdge[:])
 
@@ -921,8 +940,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	// Verify that the revocation public key we can derive using this
 	// pre-image and our private key is identical to the revocation key we
 	// were given for their current (prior) commitment transaction.
-	revocationPriv := deriveRevocationPrivKey(ourCommitKey, pendingRevocation[:])
-	if !revocationPriv.PubKey().IsEqual(currentRevocationKey) {
+	revocationPub := DeriveRevocationPubkey(ourCommitKey, pendingRevocation[:])
+	if !revocationPub.IsEqual(currentRevocationKey) {
 		return nil, fmt.Errorf("revocation key mismatch")
 	}
 
@@ -1067,7 +1086,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 	}
 
 	theirCommitKey := lc.channelState.TheirCommitKey
-	revMsg.NextRevocationKey = deriveRevocationPubkey(theirCommitKey,
+	revMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
 		revocation[:])
 	revMsg.NextRevocationHash = fastsha256.Sum256(revocation[:])
 
@@ -1201,7 +1220,7 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	paymentDesc *PaymentDescriptor, revocation [32]byte, delay uint32,
 	isIncoming bool) error {
 
-	localKey := lc.channelState.OurCommitKey.PubKey()
+	localKey := lc.channelState.OurCommitKey
 	remoteKey := lc.channelState.TheirCommitKey
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
@@ -1288,7 +1307,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 	lc.status = channelClosing
 
 	// TODO(roasbeef): assumes initiator pays fees
-	closeTx := createCooperativeCloseTx(lc.fundingTxIn,
+	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		true)
@@ -1298,11 +1317,8 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 	// initiator we'll simply send our signature over the the remote party,
 	// using the generated txid to be notified once the closure transaction
 	// has been confirmed.
-	hashCache := txscript.NewTxSigHashes(closeTx)
-	closeSig, err := txscript.RawTxInWitnessSignature(closeTx,
-		hashCache, 0, int64(lc.channelState.Capacity),
-		lc.channelState.FundingRedeemScript, txscript.SigHashAll,
-		lc.channelState.OurMultiSigKey)
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
+	closeSig, err := lc.signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1315,6 +1331,9 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 // remote node initating a cooperative channel closure. A fully signed closure
 // transaction is returned. It is the duty of the responding node to broadcast
 // a signed+valid closure transaction to the network.
+//
+// NOTE: The passed remote sig is expected to the a fully complete signature
+// including the proper sighash byte.
 func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.MsgTx, error) {
 	lc.Lock()
 	defer lc.Unlock()
@@ -1330,35 +1349,34 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
-	closeTx := createCooperativeCloseTx(lc.fundingTxIn,
+	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		false)
 
 	// With the transaction created, we can finally generate our half of
 	// the 2-of-2 multi-sig needed to redeem the funding output.
-	redeemScript := lc.channelState.FundingRedeemScript
 	hashCache := txscript.NewTxSigHashes(closeTx)
-	capacity := int64(lc.channelState.Capacity)
-	closeSig, err := txscript.RawTxInWitnessSignature(closeTx,
-		hashCache, 0, capacity, redeemScript, txscript.SigHashAll,
-		lc.channelState.OurMultiSigKey)
+	lc.signDesc.SigHashes = hashCache
+	closeSig, err := lc.signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
 		return nil, err
 	}
 
 	// Finally, construct the witness stack minding the order of the
 	// pubkeys+sigs on the stack.
-	ourKey := lc.channelState.OurMultiSigKey.PubKey().SerializeCompressed()
+	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
 	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
-	witness := spendMultiSig(redeemScript, ourKey, closeSig,
+	ourSig := append(closeSig, byte(txscript.SigHashAll))
+	witness := SpendMultiSig(lc.signDesc.RedeemScript, ourKey, ourSig,
 		theirKey, remoteSig)
 	closeTx.TxIn[0].Witness = witness
 
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
 	vm, err := txscript.NewEngine(lc.fundingP2WSH, closeTx, 0,
-		txscript.StandardVerifyFlags, nil, hashCache, capacity)
+		txscript.StandardVerifyFlags, nil, hashCache,
+		int64(lc.channelState.Capacity))
 	if err != nil {
 		return nil, err
 	}
@@ -1376,7 +1394,8 @@ func (lc *LightningChannel) DeleteState() error {
 	return lc.channelState.CloseChannel()
 }
 
-// StateSnapshot returns a snapshot b
+// StateSnapshot returns a snapshot of the current fully committed state within
+// the channel.
 func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	lc.stateMtx.RLock()
 	defer lc.stateMtx.RUnlock()
@@ -1384,12 +1403,12 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	return lc.channelState.Snapshot()
 }
 
-// createCommitTx creates a commitment transaction, spending from specified
+// CreateCommitTx creates a commitment transaction, spending from specified
 // funding output. The commitment transaction contains two outputs: one paying
 // to the "owner" of the commitment transaction which can be spent after a
 // relative block delay or revocation event, and the other paying the the
 // counter-party within the channel, which can be spent immediately.
-func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
+func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
 	revokeKey *btcec.PublicKey, csvTimeout uint32, amountToSelf,
 	amountToThem btcutil.Amount) (*wire.MsgTx, error) {
 
@@ -1433,13 +1452,13 @@ func createCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	return commitTx, nil
 }
 
-// createCooperativeCloseTx creates a transaction which if signed by both
+// CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
 // constructing the channel is the initiator of the closure. Currently it is
 // expected that the initiator pays the transaction fees for the closing
 // transaction in full.
-func createCooperativeCloseTx(fundingTxIn *wire.TxIn,
+func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte,
 	initiator bool) *wire.MsgTx {

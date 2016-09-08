@@ -18,7 +18,6 @@ import (
 
 	"github.com/BitfuryLightning/tools/routing"
 	"github.com/BitfuryLightning/tools/rt/graph"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 // server is the main server of the Lightning Network Daemon. The server
@@ -66,7 +65,7 @@ type server struct {
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
 
-	privKey, err := getIdentityPrivKey(chanDB, wallet)
+	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
 		return nil, err
 	}
@@ -492,34 +491,4 @@ func (s *server) listener(l net.Listener) {
 	}
 
 	s.wg.Done()
-}
-
-// getIdentityPrivKey gets the identity private key out of the wallet DB.
-func getIdentityPrivKey(c *channeldb.DB,
-	w *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
-
-	// First retrieve the current identity address for this peer.
-	adr, err := c.GetIdAdr()
-	if err != nil {
-		return nil, err
-	}
-
-	// Using the ID address, request the private key coresponding to the
-	// address from the wallet's address manager.
-	adr2, err := w.Manager.Address(adr)
-	if err != nil {
-		return nil, err
-	}
-
-	serializedKey := adr2.(waddrmgr.ManagedPubKeyAddress).PubKey().SerializeCompressed()
-	keyEncoded := hex.EncodeToString(serializedKey)
-	ltndLog.Infof("identity address: %v", adr)
-	ltndLog.Infof("identity pubkey retrieved: %v", keyEncoded)
-
-	priv, err := adr2.(waddrmgr.ManagedPubKeyAddress).PrivKey()
-	if err != nil {
-		return nil, err
-	}
-
-	return priv, nil
 }

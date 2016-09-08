@@ -503,45 +503,18 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	wallet *lnwallet.LightningWallet, t *testing.T) {
 
-	// Create two channels, both asking for 8 BTC each, totalling 16
-	// BTC.
-	// TODO(roasbeef): tests for concurrent funding.
-	//  * also func for below
+	// Create a single channel asking for 16 BTC total.
 	fundingAmount := btcutil.Amount(8 * 1e8)
-	chanReservation1, err := wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testHdSeed, numReqConfs, 4)
+	_, err := wallet.InitChannelReservation(fundingAmount, fundingAmount,
+		testHdSeed, numReqConfs, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
-	chanReservation2, err := wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testHdSeed, numReqConfs, 4)
-	if err != nil {
-		t.Fatalf("unable to initialize funding reservation 2: %v", err)
-	}
 
-	ourContribution1 := chanReservation1.OurContribution()
-	if len(ourContribution1.Inputs) != 3 {
-		t.Fatalf("outputs for funding tx not properly selected, has %v "+
-			"outputs should have 3", len(ourContribution1.Inputs))
-	}
-	if len(ourContribution1.ChangeOutputs) != 1 {
-		t.Fatalf("funding transaction should have one change output, instead has %v",
-			len(ourContribution1.ChangeOutputs))
-	}
-	ourContribution2 := chanReservation2.OurContribution()
-	if len(ourContribution2.Inputs) != 3 {
-		t.Fatalf("outputs for funding tx not properly selected, have %v "+
-			"outputs should have 3", len(ourContribution2.Inputs))
-	}
-	if len(ourContribution2.ChangeOutputs) != 1 {
-		t.Fatalf("funding transaction should have one change, instead has %v",
-			len(ourContribution2.ChangeOutputs))
-	}
-
-	// Now attempt to reserve funds for another channel, this time requesting
-	// 90 BTC. We only have around 24BTC worth of outpoints that aren't locked, so
-	// this should fail.
-	amt := btcutil.Amount(90 * 1e8)
+	// Now attempt to reserve funds for another channel, this time
+	// requesting 900 BTC. We only have around 64BTC worth of outpoints
+	// that aren't locked, so this should fail.
+	amt := btcutil.Amount(900 * 1e8)
 	failedReservation, err := wallet.InitChannelReservation(amt, amt,
 		testHdSeed, numReqConfs, 4)
 	if err == nil {
@@ -566,13 +539,6 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 
-	// There should be 12 locked outpoints.
-	lockedOutPoints := wallet.LockedOutpoints()
-	if len(lockedOutPoints) != 12 {
-		t.Fatalf("two outpoints should now be locked, instead %v are",
-			len(lockedOutPoints))
-	}
-
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = wallet.InitChannelReservation(fundingAmount,
 		fundingAmount, testHdSeed, numReqConfs, 4)
@@ -587,7 +553,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	}
 
 	// Those outpoints should no longer be locked.
-	lockedOutPoints = wallet.LockedOutpoints()
+	lockedOutPoints := wallet.LockedOutpoints()
 	if len(lockedOutPoints) != 0 {
 		t.Fatalf("outpoints still locked")
 	}
@@ -680,9 +646,8 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	// partial funding transaction (missing bob's sigs).
 	theirContribution := chanReservation.TheirContribution()
 	ourFundingSigs, ourCommitSig := chanReservation.OurSignatures()
-	if len(ourFundingSigs) != 2 {
-		t.Fatalf("only %v of our sigs present, should have 2",
-			len(ourFundingSigs))
+	if ourFundingSigs == nil {
+		t.Fatalf("funding sigs not found")
 	}
 	if ourCommitSig == nil {
 		t.Fatalf("commitment sig not found")
@@ -913,11 +878,6 @@ var walletTests = []func(miner *rpctest.Harness, w *lnwallet.LightningWallet, te
 	testFundingTransactionLockedOutputs,
 	testFundingCancellationNotEnoughFunds,
 	testFundingReservationInvalidCounterpartySigs,
-	testFundingTransactionLockedOutputs,
-	// TODO(roasbeef):
-	// * test for non-existant output given in funding tx
-	// * channel open after confirmations
-	// * channel update stuff
 }
 
 type testLnWallet struct {

@@ -106,7 +106,7 @@ type OpenChannel struct {
 	//ReserveAmount btcutil.Amount
 
 	// Keys for both sides to be used for the commitment transactions.
-	OurCommitKey   *btcec.PrivateKey
+	OurCommitKey   *btcec.PublicKey
 	TheirCommitKey *btcec.PublicKey
 
 	// Tracking total channel capacity, and the amount of funds allocated
@@ -123,7 +123,7 @@ type OpenChannel struct {
 	// The outpoint of the final funding transaction.
 	FundingOutpoint *wire.OutPoint
 
-	OurMultiSigKey      *btcec.PrivateKey
+	OurMultiSigKey      *btcec.PublicKey
 	TheirMultiSigKey    *btcec.PublicKey
 	FundingRedeemScript []byte
 
@@ -200,7 +200,7 @@ func (c *OpenChannel) FullSync() error {
 			chanIDBucket.Put(b.Bytes(), nil)
 		}
 
-		return putOpenChannel(chanBucket, nodeChanBucket, c, c.Db.cryptoSystem)
+		return putOpenChannel(chanBucket, nodeChanBucket, c)
 	})
 }
 
@@ -362,7 +362,7 @@ func putClosedChannelSummary(tx *bolt.Tx, chanID []byte) error {
 // putChannel serializes, and stores the current state of the channel in its
 // entirety.
 func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
-	channel *OpenChannel, encryptor EncryptorDecryptor) error {
+	channel *OpenChannel) error {
 
 	// First write out all the "common" fields using the field's prefix
 	// appened with the channel's ID. These fields go into a top-level bucket
@@ -387,13 +387,13 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChannelIDs(nodeChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanCommitKeys(nodeChanBucket, channel, encryptor); err != nil {
+	if err := putChanCommitKeys(nodeChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanCommitTxns(nodeChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanFundingInfo(nodeChanBucket, channel, encryptor); err != nil {
+	if err := putChanFundingInfo(nodeChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanEklremState(nodeChanBucket, channel); err != nil {
@@ -411,7 +411,7 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 // An EncryptorDecryptor is required to decrypt sensitive information stored
 // within the database.
 func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
-	chanID *wire.OutPoint, decryptor EncryptorDecryptor) (*OpenChannel, error) {
+	chanID *wire.OutPoint) (*OpenChannel, error) {
 
 	channel := &OpenChannel{
 		ChanID: chanID,
@@ -421,13 +421,13 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := fetchChannelIDs(nodeChanBucket, channel); err != nil {
 		return nil, err
 	}
-	if err := fetchChanCommitKeys(nodeChanBucket, channel, decryptor); err != nil {
+	if err := fetchChanCommitKeys(nodeChanBucket, channel); err != nil {
 		return nil, err
 	}
 	if err := fetchChanCommitTxns(nodeChanBucket, channel); err != nil {
 		return nil, err
 	}
-	if err := fetchChanFundingInfo(nodeChanBucket, channel, decryptor); err != nil {
+	if err := fetchChanFundingInfo(nodeChanBucket, channel); err != nil {
 		return nil, err
 	}
 	if err := fetchChanEklremState(nodeChanBucket, channel); err != nil {
@@ -791,8 +791,7 @@ func fetchChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	return nil
 }
 
-func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
-	ed EncryptorDecryptor) error {
+func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// Construct the key which stores the commitment keys: ckk || channelID.
 	// TODO(roasbeef): factor into func
@@ -810,12 +809,7 @@ func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	encryptedPriv, err := ed.Encrypt(channel.OurCommitKey.Serialize())
-	if err != nil {
-		return err
-	}
-
-	if _, err := b.Write(encryptedPriv); err != nil {
+	if _, err := b.Write(channel.OurCommitKey.SerializeCompressed()); err != nil {
 		return err
 	}
 
@@ -829,8 +823,7 @@ func deleteChanCommitKeys(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 	return nodeChanBucket.Delete(commitKey)
 }
 
-func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
-	ed EncryptorDecryptor) error {
+func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	// Construct the key which stores the commitment keys: ckk || channelID.
 	// TODO(roasbeef): factor into func
@@ -850,12 +843,7 @@ func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	decryptedPriv, err := ed.Decrypt(keyBytes[33:])
-	if err != nil {
-		return err
-	}
-
-	channel.OurCommitKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
+	channel.OurCommitKey, err = btcec.ParsePubKey(keyBytes[33:], btcec.S256())
 	if err != nil {
 		return err
 	}
@@ -939,9 +927,7 @@ func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 	return nil
 }
 
-func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
-	ed EncryptorDecryptor) error {
-
+func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var bc bytes.Buffer
 	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
 		return err
@@ -956,11 +942,8 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	encryptedPriv, err := ed.Encrypt(channel.OurMultiSigKey.Serialize())
-	if err != nil {
-		return err
-	}
-	if err := wire.WriteVarBytes(&b, 0, encryptedPriv); err != nil {
+	ourSerKey := channel.OurMultiSigKey.SerializeCompressed()
+	if err := wire.WriteVarBytes(&b, 0, ourSerKey); err != nil {
 		return err
 	}
 	theirSerKey := channel.TheirMultiSigKey.SerializeCompressed()
@@ -989,9 +972,7 @@ func deleteChanFundingInfo(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 	return nodeChanBucket.Delete(fundTxnKey)
 }
 
-func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
-	ed EncryptorDecryptor) error {
-
+func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
@@ -1008,17 +989,16 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel,
 		return err
 	}
 
-	encryptedPrivBytes, err := wire.ReadVarBytes(infoBytes, 0, 100, "")
+	ourKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 34, "")
 	if err != nil {
 		return err
 	}
-	decryptedPriv, err := ed.Decrypt(encryptedPrivBytes)
+	channel.OurMultiSigKey, err = btcec.ParsePubKey(ourKeyBytes, btcec.S256())
 	if err != nil {
 		return err
 	}
-	channel.OurMultiSigKey, _ = btcec.PrivKeyFromBytes(btcec.S256(), decryptedPriv)
 
-	theirKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 33, "")
+	theirKeyBytes, err := wire.ReadVarBytes(infoBytes, 0, 34, "")
 	if err != nil {
 		return err
 	}

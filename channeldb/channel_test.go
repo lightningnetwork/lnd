@@ -78,23 +78,6 @@ var (
 	}
 )
 
-type MockEncryptorDecryptor struct {
-}
-
-func (m *MockEncryptorDecryptor) Encrypt(n []byte) ([]byte, error) {
-	return n, nil
-}
-
-func (m *MockEncryptorDecryptor) Decrypt(n []byte) ([]byte, error) {
-	return n, nil
-}
-
-func (m *MockEncryptorDecryptor) OverheadSize() uint32 {
-	return 0
-}
-
-var _ EncryptorDecryptor = (*MockEncryptorDecryptor)(nil)
-
 func TestOpenChannelPutGetDelete(t *testing.T) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
@@ -111,7 +94,6 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create channeldb: %v", err)
 	}
-	cdb.RegisterCryptoSystem(&MockEncryptorDecryptor{})
 	defer cdb.Close()
 
 	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
@@ -144,7 +126,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		TheirLNID:                  key,
 		ChanID:                     id,
 		MinFeePerKb:                btcutil.Amount(5000),
-		OurCommitKey:               privKey,
+		OurCommitKey:               privKey.PubKey(),
 		TheirCommitKey:             pubKey,
 		Capacity:                   btcutil.Amount(10000),
 		OurBalance:                 btcutil.Amount(3000),
@@ -154,7 +136,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		LocalElkrem:                sender,
 		RemoteElkrem:               receiver,
 		FundingOutpoint:            testOutpoint,
-		OurMultiSigKey:             privKey,
+		OurMultiSigKey:             privKey.PubKey(),
 		TheirMultiSigKey:           privKey.PubKey(),
 		FundingRedeemScript:        script,
 		TheirCurrentRevocation:     privKey.PubKey(),
@@ -195,8 +177,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("fee/kb doens't match")
 	}
 
-	if !bytes.Equal(state.OurCommitKey.Serialize(),
-		newState.OurCommitKey.Serialize()) {
+	if !bytes.Equal(state.OurCommitKey.SerializeCompressed(),
+		newState.OurCommitKey.SerializeCompressed()) {
 		t.Fatalf("our commit key dont't match")
 	}
 	if !bytes.Equal(state.TheirCommitKey.SerializeCompressed(),
@@ -234,8 +216,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("funding outpoint doesn't match")
 	}
 
-	if !bytes.Equal(state.OurMultiSigKey.Serialize(),
-		newState.OurMultiSigKey.Serialize()) {
+	if !bytes.Equal(state.OurMultiSigKey.SerializeCompressed(),
+		newState.OurMultiSigKey.SerializeCompressed()) {
 		t.Fatalf("our multisig key doesn't match")
 	}
 	if !bytes.Equal(state.TheirMultiSigKey.SerializeCompressed(),

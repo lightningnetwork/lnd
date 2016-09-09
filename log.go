@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
-	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )

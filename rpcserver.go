@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -96,7 +97,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*wire.ShaHash
 		return nil, err
 	}
 
-	return r.server.lnwallet.SendOutputs(outputs, defaultAccount, 1)
+	return r.server.lnwallet.SendOutputs(outputs)
 }
 
 // SendCoins executes a request to send coins to a particular address. Unlike
@@ -136,23 +137,19 @@ func (r *rpcServer) SendMany(ctx context.Context,
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
-	r.server.lnwallet.KeyGenMtx.Lock()
-	defer r.server.lnwallet.KeyGenMtx.Unlock()
-
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
-	var addrType waddrmgr.AddressType
+	var addrType lnwallet.AddressType
 	switch in.Type {
 	case lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH:
-		addrType = waddrmgr.WitnessPubKey
+		addrType = lnwallet.WitnessPubKey
 	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
-		addrType = waddrmgr.NestedWitnessPubKey
+		addrType = lnwallet.NestedWitnessPubKey
 	case lnrpc.NewAddressRequest_PUBKEY_HASH:
-		addrType = waddrmgr.PubKeyHash
+		addrType = lnwallet.PubKeyHash
 	}
 
-	addr, err := r.server.lnwallet.NewAddress(defaultAccount,
-		addrType)
+	addr, err := r.server.lnwallet.NewAddress(addrType, false)
 	if err != nil {
 		return nil, err
 	}
@@ -201,30 +198,43 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
 	target := in.TargetPeerId
 	numConfs := in.NumConfs
-	respChan, errChan := r.server.OpenChannel(target, localFundingAmt,
+	updateChan, errChan := r.server.OpenChannel(target, localFundingAmt,
 		remoteFundingAmt, numConfs)
-	if err := <-errChan; err != nil {
-		rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
-			target, err)
-		return err
+
+	var outpoint wire.OutPoint
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
+				target, err)
+			return err
+		case fundingUpdate := <-updateChan:
+			rpcsLog.Tracef("[openchannel] sending update: %v",
+				fundingUpdate)
+			if err := updateStream.Send(fundingUpdate); err != nil {
+				return err
+			}
+
+			// If a final channel open update is being sent, then
+			// we can break out of our recv loop as we no longer
+			// need to process any further updates.
+			switch update := fundingUpdate.Update.(type) {
+			case *lnrpc.OpenStatusUpdate_ChanOpen:
+				chanPoint := update.ChanOpen.ChannelPoint
+				h, _ := wire.NewShaHash(chanPoint.FundingTxid)
+				outpoint = wire.OutPoint{
+					Hash:  *h,
+					Index: chanPoint.OutputIndex,
+				}
+
+				break out
+			}
+		case <-r.quit:
+			return nil
+		}
 	}
 
-	var outpoint *wire.OutPoint
-	select {
-	case resp := <-respChan:
-		outpoint = resp.chanPoint
-		openUpdate := &lnrpc.ChannelOpenUpdate{
-			&lnrpc.ChannelPoint{
-				FundingTxid: outpoint.Hash[:],
-				OutputIndex: outpoint.Index,
-			},
-		}
-		if err := updateStream.Send(openUpdate); err != nil {
-			return err
-		}
-	case <-r.quit:
-		return nil
-	}
 	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
 		in.TargetPeerId, outpoint)
 	return nil
@@ -247,24 +257,35 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	respChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
-	if err := <-errChan; err != nil {
-		rpcsLog.Errorf("Unable to close ChannelPoint(%v): %v",
-			targetChannelPoint, err)
-		return err
-	}
+	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
 
-	select {
-	case resp := <-respChan:
-		closeUpdate := &lnrpc.ChannelCloseUpdate{
-			ClosingTxid: resp.txid[:],
-			Success:     resp.success,
-		}
-		if err := updateStream.Send(closeUpdate); err != nil {
+out:
+	for {
+		select {
+		case err := <-errChan:
+			rpcsLog.Errorf("[closechannel] unable to close "+
+				"ChannelPoint(%v): %v", targetChannelPoint, err)
 			return err
+		case closingUpdate := <-updateChan:
+			rpcsLog.Tracef("[closechannel] sending update: %v",
+				closingUpdate)
+			if err := updateStream.Send(closingUpdate); err != nil {
+				return err
+			}
+
+			// If a final channel closing updates is being sent,
+			// then we can break out of our dispatch loop as we no
+			// longer need to process any further updates.
+			switch closeUpdate := closingUpdate.Update.(type) {
+			case *lnrpc.CloseStatusUpdate_ChanClose:
+				h, _ := wire.NewShaHash(closeUpdate.ChanClose.ClosingTxid)
+				rpcsLog.Errorf("[closechannel] close completed: "+
+					"txid(%v)", h)
+				break out
+			}
+		case <-r.quit:
+			return nil
 		}
-	case <-r.quit:
-		return nil
 	}
 
 	return nil
@@ -350,38 +371,18 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.
 // TODO(roasbeef): split into total and confirmed/unconfirmed
+// TODO(roasbeef): add async hooks into wallet balance changes
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
-	var balance float64
-
-	if in.WitnessOnly {
-		witnessOutputs, err := r.server.lnwallet.ListUnspentWitness(1)
-		if err != nil {
-			return nil, err
-		}
-
-		// We need to convert from BTC to satoshi here otherwise, and
-		// incorrect sum will be returned.
-		var outputSum btcutil.Amount
-		for _, witnessOutput := range witnessOutputs {
-			outputSum += btcutil.Amount(witnessOutput.Amount * 1e8)
-		}
-
-		balance = outputSum.ToBTC()
-	} else {
-		// TODO(roasbeef): make num confs a param
-		outputSum, err := r.server.lnwallet.CalculateBalance(1)
-		if err != nil {
-			return nil, err
-		}
-
-		balance = outputSum.ToBTC()
+	balance, err := r.server.lnwallet.ConfirmedBalance(1, in.WitnessOnly)
+	if err != nil {
+		return nil, err
 	}
 
 	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
-	return &lnrpc.WalletBalanceResponse{balance}, nil
+	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
 }
 
 
@@ -493,7 +494,19 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
 	rpcsLog.Debugf("[ShowRoutingTable]")
 	rtCopy := r.server.routingMgr.GetRTCopy()
+	channels := make([]*lnrpc.RoutingTableLink, 0)
+	for _, channel := range rtCopy.AllChannels() {
+		channels = append(channels,
+			&lnrpc.RoutingTableLink{
+				Id1:       channel.Id1.String(),
+				Id2:       channel.Id2.String(),
+				Outpoint:  channel.EdgeID.String(),
+				Capacity:  channel.Info.Capacity(),
+				Weight:    channel.Info.Weight(),
+			},
+		)
+	}
 	return &lnrpc.ShowRoutingTableResponse{
-		Rt: rtCopy.String(),
+		Channels: channels,
 	}, nil
 }

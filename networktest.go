@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -12,7 +11,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
+
+	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
@@ -224,6 +226,9 @@ type networkHarness struct {
 
 	AliceClient lnrpc.LightningClient
 	BobClient   lnrpc.LightningClient
+
+	seenTxns      chan wire.ShaHash
+	watchRequests chan *watchRequest
 }
 
 // newNetworkHarness creates a new network test harness given an already
@@ -233,32 +238,35 @@ type networkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This'll save developers from having to manually `go install`
 // within the repo each time before changes.
-func newNetworkHarness(r *rpctest.Harness, lndArgs []string) (*networkHarness, error) {
-	var err error
+func newNetworkHarness(lndArgs []string) (*networkHarness, error) {
+	return &networkHarness{
+		activeNodes:   make(map[int]*lightningNode),
+		seenTxns:      make(chan wire.ShaHash),
+		watchRequests: make(chan *watchRequest),
+	}, nil
+}
 
+func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness) error {
 	nodeConfig := r.RPCConfig()
 
-	testNet := &networkHarness{
-		rpcConfig: nodeConfig,
-		netParams: r.ActiveNet,
-		Miner:     r,
+	n.netParams = r.ActiveNet
+	n.Miner = r
+	n.rpcConfig = nodeConfig
 
-		activeNodes: make(map[int]*lightningNode),
-	}
-
-	testNet.aliceNode, err = newLightningNode(&nodeConfig, nil)
+	var err error
+	n.aliceNode, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	testNet.bobNode, err = newLightningNode(&nodeConfig, nil)
+	n.bobNode, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	testNet.activeNodes[testNet.aliceNode.nodeId] = testNet.aliceNode
-	testNet.activeNodes[testNet.bobNode.nodeId] = testNet.bobNode
+	n.activeNodes[n.aliceNode.nodeId] = n.aliceNode
+	n.activeNodes[n.bobNode.nodeId] = n.bobNode
 
-	return testNet, nil
+	return err
 }
 
 // fakeLogger is a fake grpclog.Logger implementation. This is used to stop
@@ -283,20 +291,40 @@ func (n *networkHarness) SetUp() error {
 
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
-	var err error
-	if err := n.aliceNode.start(); err != nil {
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		var err error
+		defer wg.Done()
+		if err = n.aliceNode.start(); err != nil {
+			errChan <- err
+			return
+		}
+		n.AliceClient, err = initRpcClient(n.aliceNode.rpcAddr)
+		if err != nil {
+			errChan <- err
+			return
+		}
+	}()
+	go func() {
+		var err error
+		defer wg.Done()
+		if err = n.bobNode.start(); err != nil {
+			errChan <- err
+			return
+		}
+		n.BobClient, err = initRpcClient(n.bobNode.rpcAddr)
+		if err != nil {
+			errChan <- err
+			return
+		}
+	}()
+	wg.Wait()
+	select {
+	case err := <-errChan:
 		return err
-	}
-	if err := n.bobNode.start(); err != nil {
-		return err
-	}
-	n.AliceClient, err = initRpcClient(n.aliceNode.rpcAddr)
-	if err != nil {
-		return nil
-	}
-	n.BobClient, err = initRpcClient(n.bobNode.rpcAddr)
-	if err != nil {
-		return nil
+	default:
 	}
 
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
@@ -350,6 +378,34 @@ func (n *networkHarness) SetUp() error {
 		return err
 	}
 
+	// Now block until both wallets have fully synced up.
+	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10).ToBTC()
+	balReq := &lnrpc.WalletBalanceRequest{}
+	balanceTicker := time.Tick(time.Millisecond * 100)
+out:
+	for {
+		select {
+		case <-balanceTicker:
+			aliceResp, err := n.AliceClient.WalletBalance(ctxb, balReq)
+			if err != nil {
+				return err
+			}
+			bobResp, err := n.BobClient.WalletBalance(ctxb, balReq)
+			if err != nil {
+				return err
+			}
+
+			if aliceResp.Balance == expectedBalance &&
+				bobResp.Balance == expectedBalance {
+				break out
+			}
+		}
+	}
+
+	// Now that the initial test network has been initialized, launch the
+	// network wather.
+	go n.networkWatcher()
+
 	return nil
 }
 
@@ -364,13 +420,198 @@ func (n *networkHarness) TearDownAll() error {
 	return nil
 }
 
+// watchRequest encapsulates a request to the harness' network watcher to
+// dispatch a notification once a transaction with the target txid is seen
+// within the test network.
+type watchRequest struct {
+	txid      wire.ShaHash
+	eventChan chan struct{}
+}
+
+// networkWatcher is a goroutine which accepts async notification requests for
+// the broadcast of a target transaction, and then dispatches the transaction
+// once its seen on the network.
+func (n *networkHarness) networkWatcher() {
+	seenTxns := make(map[wire.ShaHash]struct{})
+	clients := make(map[wire.ShaHash][]chan struct{})
+
+	for {
+
+		select {
+		case req := <-n.watchRequests:
+			// If we've already seen this transaction, then
+			// immediately dispatch the request. Otherwise, append
+			// to the list of clients who are watching for the
+			// broadcast of this transaction.
+			if _, ok := seenTxns[req.txid]; ok {
+				close(req.eventChan)
+			} else {
+				clients[req.txid] = append(clients[req.txid], req.eventChan)
+			}
+		case txid := <-n.seenTxns:
+
+			// If there isn't a registered notification for this
+			// transaction then ignore it.
+			txClients, ok := clients[txid]
+			if !ok {
+				continue
+			}
+
+			// Otherwise, dispatch the notification to all clients,
+			// cleaning up the now un-needed state.
+			for _, client := range txClients {
+				close(client)
+			}
+			delete(clients, txid)
+		}
+	}
+}
+
+// OnTxAccepted is a callback to be called each time a new transaction has been
+// broadcast on the network.
+func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
+	go func() {
+		n.seenTxns <- *hash
+	}()
+}
+
+// WaitForTxBroadcast blocks until the target txid is seen on the network.
+func (n *networkHarness) WaitForTxBroadcast(txid wire.ShaHash) {
+	eventChan := make(chan struct{})
+
+	n.watchRequests <- &watchRequest{txid, eventChan}
+
+	<-eventChan
+}
+
+// OpenChannel attemps to open a channel between srcNode and destNode with the
+// passed channel funding paramters.
+func (n *networkHarness) OpenChannel(ctx context.Context,
+	srcNode, destNode lnrpc.LightningClient, amt btcutil.Amount,
+	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
+
+	// TODO(roasbeef): should pass actual id instead, will fail if more
+	// connections added for Alice.
+	openReq := &lnrpc.OpenChannelRequest{
+		TargetPeerId:        1,
+		LocalFundingAmount:  int64(amt),
+		RemoteFundingAmount: 0,
+		NumConfs:            1,
+	}
+	respStream, err := srcNode.OpenChannel(ctx, openReq)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open channel between "+
+			"alice and bob: %v", err)
+	}
+
+	// Consume the "channel pending" update. This waits until the node
+	// notifies us that the final message in the channel funding workflow
+	// has been sent to the remote node.
+	resp, err := respStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+		return nil, fmt.Errorf("expected channel pending update, "+
+			"instead got %v", resp)
+	}
+
+	return respStream, nil
+}
+
+// WaitForChannelOpen waits for a notification that a channel is open by
+// consuming a message from the past open channel stream.
+func (n *networkHarness) WaitForChannelOpen(openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
+	resp, err := openChanStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+	if !ok {
+		return nil, fmt.Errorf("expected channel open update, instead got %v", resp)
+	}
+
+	return fundingResp.ChanOpen.ChannelPoint, nil
+}
+
+// CloseChannel close channel attempts to close the channel indicated by the
+// passed channel point, initiated by the passed lnNode.
+func (n *networkHarness) CloseChannel(ctx context.Context,
+	lnNode lnrpc.LightningClient, cp *lnrpc.ChannelPoint,
+	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
+
+	closeReq := &lnrpc.CloseChannelRequest{
+		ChannelPoint:    cp,
+		AllowForceClose: force,
+	}
+	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
+	if err != nil {
+		return nil, fmt.Errorf("unable to close channel: %v", err)
+	}
+
+	// Consume the "channel close" update in order to wait for the closing
+	// transaction to be broadcast, then wait for the closing tx to be seen
+	// within the network.
+	closeResp, err := closeRespStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+	if !ok {
+		return nil, fmt.Errorf("expected close pending update, got %v", pendingClose)
+	}
+	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	n.WaitForTxBroadcast(*closeTxid)
+
+	return closeRespStream, nil
+}
+
+// WaitForChannelClose waits for a notification from the passed channel close
+// stream that the node has deemed the channel has been fully closed.
+func (n *networkHarness) WaitForChannelClose(closeChanStream lnrpc.Lightning_CloseChannelClient) (*wire.ShaHash, error) {
+	// TODO(roasbeef): use passed ctx to set a deadline on amount of time to
+	// wait.
+	closeResp, err := closeChanStream.Recv()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
+	}
+	closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
+	if !ok {
+		return nil, fmt.Errorf("expected channel open update, instead got %v", closeFin)
+	}
+
+	return wire.NewShaHash(closeFin.ChanClose.ClosingTxid)
+}
+
+// AssertChannelExists asserts that an active channel identified by
+// channelPoint is known to exist from the point-of-view of node..
+func (n *networkHarness) AssertChannelExists(ctx context.Context,
+	node lnrpc.LightningClient, chanPoint *wire.OutPoint) error {
+
+	req := &lnrpc.ListPeersRequest{}
+	peerInfo, err := node.ListPeers(ctx, req)
+	if err != nil {
+		return fmt.Errorf("unable to list nodeA peers: %v", err)
+	}
+
+	for _, peer := range peerInfo.Peers {
+		for _, channel := range peer.Channels {
+			if channel.ChannelPoint == chanPoint.String() {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("channel not found")
+}
+
 // initRpcClient attempts to make an rpc connection, then create a gRPC client
 // connected to the specified server address.
 func initRpcClient(serverAddr string) (lnrpc.LightningClient, error) {
 	opts := []grpc.DialOption{
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
-		grpc.WithTimeout(time.Second * 10),
+		grpc.WithTimeout(time.Second * 20),
 	}
 	conn, err := grpc.Dial(serverAddr, opts...)
 	if err != nil {

@@ -8,18 +8,16 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/BitfuryLightning/tools/routing"
-	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
-	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 // server is the main server of the Lightning Network Daemon. The server
@@ -41,9 +39,9 @@ type server struct {
 	listeners []net.Listener
 	peers     map[int32]*peer
 
-	rpcServer *rpcServer
-	// TODO(roasbeef): add chan notifier also
-	lnwallet *lnwallet.LightningWallet
+	rpcServer     *rpcServer
+	chainNotifier chainntnfs.ChainNotifier
+	lnwallet      *lnwallet.LightningWallet
 
 	// TODO(roasbeef): add to constructor
 	fundingMgr *fundingManager
@@ -64,10 +62,10 @@ type server struct {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
-	chanDB *channeldb.DB) (*server, error) {
+func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
+	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
 
-	privKey, err := getIdentityPrivKey(chanDB, wallet)
+	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
 		return nil, err
 	}
@@ -82,19 +80,20 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
-		chanDB:       chanDB,
-		fundingMgr:   newFundingManager(wallet),
-		htlcSwitch:   newHtlcSwitch(),
-		invoices:     newInvoiceRegistry(),
-		lnwallet:     wallet,
-		identityPriv: privKey,
-		lightningID:  fastsha256.Sum256(serializedPubKey),
-		listeners:    listeners,
-		peers:        make(map[int32]*peer),
-		newPeers:     make(chan *peer, 100),
-		donePeers:    make(chan *peer, 100),
-		queries:      make(chan interface{}),
-		quit:         make(chan struct{}),
+		chainNotifier: notifier,
+		chanDB:        chanDB,
+		fundingMgr:    newFundingManager(wallet),
+		htlcSwitch:    newHtlcSwitch(),
+		invoices:      newInvoiceRegistry(),
+		lnwallet:      wallet,
+		identityPriv:  privKey,
+		lightningID:   fastsha256.Sum256(serializedPubKey),
+		listeners:     listeners,
+		peers:         make(map[int32]*peer),
+		newPeers:      make(chan *peer, 100),
+		donePeers:     make(chan *peer, 100),
+		queries:       make(chan interface{}),
+		quit:          make(chan struct{}),
 	}
 
 	// TODO(roasbeef): remove
@@ -111,10 +110,10 @@ func newServer(listenAddrs []string, wallet *lnwallet.LightningWallet,
 
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
-func (s *server) Start() {
+func (s *server) Start() error {
 	// Already running?
 	if atomic.AddInt32(&s.started, 1) != 1 {
-		return
+		return nil
 	}
 
 	// Start all the listeners.
@@ -123,12 +122,30 @@ func (s *server) Start() {
 		go s.listener(l)
 	}
 
-	s.fundingMgr.Start()
-	s.htlcSwitch.Start()
+	// Start the notification server. This is used so channel managment
+	// goroutines can be notified when a funding transaction reaches a
+	// sufficient number of confirmations, or when the input for the
+	// funding transaction is spent in an attempt at an uncooperative
+	// close by the counter party.
+	if err := s.chainNotifier.Start(); err != nil {
+		return err
+	}
+
+	if err := s.rpcServer.Start(); err != nil {
+		return err
+	}
+	if err := s.fundingMgr.Start(); err != nil {
+		return err
+	}
+	if err := s.htlcSwitch.Start(); err != nil {
+		return err
+	}
 	s.routingMgr.Start()
 
 	s.wg.Add(1)
 	go s.queryHandler()
+
+	return nil
 }
 
 // Stop gracefully shutsdown the main daemon server. This function will signal
@@ -147,10 +164,14 @@ func (s *server) Stop() error {
 		}
 	}
 
+	// Shutdown the wallet, funding manager, and the rpc server.
+	s.chainNotifier.Stop()
 	s.rpcServer.Stop()
-	s.lnwallet.Shutdown()
 	s.fundingMgr.Stop()
 	s.routingMgr.Stop()
+	s.htlcSwitch.Stop()
+
+	s.lnwallet.Shutdown()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)
@@ -229,14 +250,8 @@ type openChanReq struct {
 
 	numConfs uint32
 
-	resp chan *openChanResp
-	err  chan error
-}
-
-// openChanResp is the response to an openChanReq, it contains the channel
-// point, or outpoint of the broadcast funding transaction.
-type openChanResp struct {
-	chanPoint *wire.OutPoint
+	updates chan *lnrpc.OpenStatusUpdate
+	err     chan error
 }
 
 // queryHandler handles any requests to modify the server's internal state of
@@ -267,8 +282,11 @@ out:
 				s.handleOpenChanReq(msg)
 			}
 		case msg := <-s.routingMgr.ChOut:
-			msg1 := msg.(lnwire.RoutingMessage)
-			receiverID := msg1.GetReceiverID().ToByte32()
+			msg1 := msg.(*routing.RoutingMessage)
+			if msg1.ReceiverID == nil{
+				peerLog.Critical("msg1.GetReceiverID() == nil")
+			}
+			receiverID := msg1.ReceiverID.ToByte32()
 			var targetPeer *peer
 			for _, peer := range s.peers { // TODO: threadsafe api
 				// We found the the target
@@ -280,7 +298,7 @@ out:
 			if targetPeer != nil {
 				fndgLog.Info("Peer found. Sending message")
 				done := make(chan struct{}, 1)
-				targetPeer.queueMsg(msg.(lnwire.Message), done)
+				targetPeer.queueMsg(msg1.Msg, done)
 			} else {
 				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
 			}
@@ -389,7 +407,6 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	}
 
 	if targetPeer == nil {
-		req.resp <- nil
 		req.err <- fmt.Errorf("unable to find peer %v", target)
 		return
 	}
@@ -398,23 +415,8 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	// manager. This allows the server to continue handling queries instead of
 	// blocking on this request which is exporeted as a synchronous request to
 	// the outside world.
-	go func() {
-		// TODO(roasbeef): server semaphore to restrict num goroutines
-		fundingID, err := s.fundingMgr.initFundingWorkflow(targetPeer, req)
-		if err == nil {
-			capacity := float64(req.localFundingAmt + req.remoteFundingAmt)
-			s.routingMgr.AddChannel(
-				graph.NewID(s.lightningID),
-				graph.NewID([32]byte(targetPeer.lightningID)),
-				graph.NewEdgeID(fundingID.String()),
-				&rt.ChannelInfo{
-					Cpt: capacity,
-				},
-			)
-		}
-		req.resp <- &openChanResp{fundingID}
-		req.err <- err
-	}()
+	// TODO(roasbeef): server semaphore to restrict num goroutines
+	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 }
 
 // ConnectToPeer requests that the server connect to a Lightning Network peer
@@ -432,10 +434,10 @@ func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
 func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
-	numConfs uint32) (chan *openChanResp, chan error) {
+	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
-	respChan := make(chan *openChanResp, 1)
+	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 
 	s.queries <- &openChanReq{
 		targetNodeID:     nodeID,
@@ -443,12 +445,11 @@ func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
 		remoteFundingAmt: remoteAmt,
 		numConfs:         numConfs,
 
-		resp: respChan,
-		err:  errChan,
+		updates: updateChan,
+		err:     errChan,
 	}
-	// TODO(roasbeef): hook in "progress" channel
 
-	return respChan, errChan
+	return updateChan, errChan
 }
 
 // Peers returns a slice of all active peers.
@@ -490,34 +491,4 @@ func (s *server) listener(l net.Listener) {
 	}
 
 	s.wg.Done()
-}
-
-// getIdentityPrivKey gets the identity private key out of the wallet DB.
-func getIdentityPrivKey(c *channeldb.DB,
-	w *lnwallet.LightningWallet) (*btcec.PrivateKey, error) {
-
-	// First retrieve the current identity address for this peer.
-	adr, err := c.GetIdAdr()
-	if err != nil {
-		return nil, err
-	}
-
-	// Using the ID address, request the private key coresponding to the
-	// address from the wallet's address manager.
-	adr2, err := w.Manager.Address(adr)
-	if err != nil {
-		return nil, err
-	}
-
-	serializedKey := adr2.(waddrmgr.ManagedPubKeyAddress).PubKey().SerializeCompressed()
-	keyEncoded := hex.EncodeToString(serializedKey)
-	ltndLog.Infof("identity address: %v", adr)
-	ltndLog.Infof("identity pubkey retrieved: %v", keyEncoded)
-
-	priv, err := adr2.(waddrmgr.ManagedPubKeyAddress).PrivKey()
-	if err != nil {
-		return nil, err
-	}
-
-	return priv, nil
 }

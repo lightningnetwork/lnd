@@ -2,16 +2,15 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"runtime/debug"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
+	"golang.org/x/net/context"
+
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -35,79 +34,55 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
 
-	// First establish a channel between Alice and Bob.
-	openReq := &lnrpc.OpenChannelRequest{
-		// TODO(roasbeef): should pass actual id instead, will fail if
-		// more connections added for Alice.
-		TargetPeerId:        1,
-		LocalFundingAmount:  btcutil.SatoshiPerBitcoin / 2,
-		RemoteFundingAmount: 0,
-		NumConfs:            1,
-	}
-	time.Sleep(time.Millisecond * 500)
-	respStream, err := net.AliceClient.OpenChannel(ctxb, openReq)
+	// First establish a channel ween with a capacity of 0.5 BTC between
+	// Alice and Bob.
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	chanOpenUpdate, err := net.OpenChannel(ctxb, net.AliceClient, net.BobClient, chanAmt, 1)
 	if err != nil {
-		t.Fatalf("unable to open channel between alice and bob: %v", err)
+		t.Fatalf("unable to open channel: %v", err)
 	}
 
-	// Mine a block, the funding txid should be included, and both nodes should
-	// be aware of the channel.
-	// TODO(roasbeef): replace sleep with something more robust
-	time.Sleep(time.Second * 1)
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the newly mined block.
 	blockHash, err := net.Miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
-	}
-	resp, err := respStream.Recv()
-	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
 	}
 	block, err := net.Miner.Node.GetBlock(blockHash[0])
 	if err != nil {
 		t.Fatalf("unable to get block: %v", err)
 	}
-	if len(block.Transactions()) < 2 {
-		t.Fatalf("funding transaction not included")
+	fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
+	if err != nil {
+		t.Fatalf("error while waiting for channeel open: %v", err)
 	}
-
-	fundingTxID, _ := wire.NewShaHash(resp.ChannelPoint.FundingTxid)
-	fundingTxIDStr := fundingTxID.String()
+	fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
 	assertTxInBlock(block, fundingTxID, t)
-
-	// TODO(roasbeef): remove and use "listchannels" command after
-	// implemented.
-	req := &lnrpc.ListPeersRequest{}
-	alicePeerInfo, err := net.AliceClient.ListPeers(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to list alice peers: %v", err)
-	}
-	bobPeerInfo, err := net.BobClient.ListPeers(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to list bob peers: %v", err)
-	}
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
-	aliceTxID := alicePeerInfo.Peers[0].Channels[0].ChannelPoint
-	bobTxID := bobPeerInfo.Peers[0].Channels[0].ChannelPoint
-	if !strings.Contains(bobTxID, fundingTxIDStr) {
-		t.Fatalf("alice's channel not found")
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: fundingChanPoint.OutputIndex,
 	}
-	if !strings.Contains(aliceTxID, fundingTxIDStr) {
-		t.Fatalf("bob's channel not found")
+	err = net.AssertChannelExists(ctxb, net.AliceClient, &chanPoint)
+	if err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
-	// Initiate a close from Alice's side. After mining a block, the closing
-	// transaction should be included, and both nodes should have forgotten
-	// about the channel.
-	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: resp.ChannelPoint,
-	}
-	closeRespStream, err := net.AliceClient.CloseChannel(ctxb, closeReq)
+	// Initiate a close from Alice's side.
+	closeUpdates, err := net.CloseChannel(ctxb, net.AliceClient, fundingChanPoint, false)
 	if err != nil {
-		t.Fatalf("unable to close channel: %v", err)
+		t.Fatalf("unable to clsoe channel: %v", err)
 	}
-	time.Sleep(time.Second * 1)
+
+	// Finally, generate a single block, wait for the final close status
+	// update, then ensure that the closing transaction was included in the
+	// block.
 	blockHash, err = net.Miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -116,13 +91,12 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get block: %v", err)
 	}
-	closeResp, err := closeRespStream.Recv()
-	if err != nil {
-		t.Fatalf("unable to read rpc resp: %v", err)
-	}
 
-	closingTxID, _ := wire.NewShaHash(closeResp.ClosingTxid)
-	assertTxInBlock(block, closingTxID, t)
+	closingTxid, err := net.WaitForChannelClose(closeUpdates)
+	if err != nil {
+		t.Fatalf("error while waiting for channel close: %v", err)
+	}
+	assertTxInBlock(block, closingTxid, t)
 }
 
 var lndTestCases = map[string]lndTestCase{
@@ -153,10 +127,22 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}()
 
+	// First create the network harness to gain access to its
+	// 'OnTxAccepted' call back.
+	lightningNetwork, err = newNetworkHarness(nil)
+	if err != nil {
+		t.Fatalf("unable to create lightning network harness: %v", err)
+	}
+	defer lightningNetwork.TearDownAll()
+
+	handlers := &btcrpcclient.NotificationHandlers{
+		OnTxAccepted: lightningNetwork.OnTxAccepted,
+	}
+
 	// First create an intance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
 	// drive blockchain related events within the network.
-	btcdHarness, err = rpctest.New(harnessNetParams, nil, nil)
+	btcdHarness, err = rpctest.New(harnessNetParams, handlers, nil)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -164,15 +150,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err = btcdHarness.SetUp(true, 50); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
-
-	// With the btcd harness created, create an instance of the lightning
-	// network harness as it depends on the btcd harness to script network
-	// activity.
-	lightningNetwork, err = newNetworkHarness(btcdHarness, nil)
-	if err != nil {
-		t.Fatalf("unable to create lightning network harness: %v", err)
+	if err := btcdHarness.Node.NotifyNewTransactions(false); err != nil {
+		t.Fatalf("unable to request transaction notifications: %v", err)
 	}
-	defer lightningNetwork.TearDownAll()
+
+	// With the btcd harness created, we can now complete the
+	// initialization of the network.
+	if err := lightningNetwork.InitializeSeedNodes(btcdHarness); err != nil {
+		t.Fatalf("unable to initialize seed nodes: %v", err)
+	}
 	if err = lightningNetwork.SetUp(); err != nil {
 		t.Fatalf("unable to set up test lightning network: %v", err)
 	}

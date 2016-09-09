@@ -13,7 +13,6 @@ import (
 )
 
 type NeighborUpdMessage struct {
-	RoutingMessageBase
 	DiffBuff *rt.DifferenceBuffer
 }
 
@@ -46,7 +45,7 @@ func (msg *NeighborUpdMessage) Validate() error {
 }
 
 func (msg *NeighborUpdMessage) String() string {
-	return fmt.Sprintf("NeighborUpdMessage{%v %v %v}", msg.SenderID, msg.ReceiverID, *msg.DiffBuff)
+	return fmt.Sprintf("NeighborUpdMessage{%v}", *msg.DiffBuff)
 }
 
 var _ Message = (*NeighborUpdMessage)(nil)

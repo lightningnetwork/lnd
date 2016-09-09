@@ -1,6 +1,7 @@
 package: github.com/lightningnetwork/lnd
 import:
 - package: github.com/BitfuryLightning/tools
+  version: ^0.0.2
   subpackages:
   - routing
   - rt
@@ -36,6 +37,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
+  version: master
   subpackages:
   - chain
   - waddrmgr

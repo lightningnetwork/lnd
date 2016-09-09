@@ -10,11 +10,10 @@ import (
 )
 
 type NeighborRstMessage struct {
-	RoutingMessageBase
 }
 
 func (msg *NeighborRstMessage) String() string {
-	return fmt.Sprintf("NeighborRstMessage{%v %v}", msg.SenderID, msg.ReceiverID)
+	return fmt.Sprintf("NeighborRstMessage{}")
 }
 
 func (msg *NeighborRstMessage) Command() uint32 {

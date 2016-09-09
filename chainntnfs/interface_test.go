@@ -1,11 +1,13 @@
-package btcdnotify
+package chainntnfs_test
 
 import (
 	"bytes"
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/rpctest"
@@ -181,7 +183,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
 	// We'd like to test the spend notifiations for all
-	// chainntnfs.ChainNotifier concrete implemenations.
+	// ChainNotifier concrete implemenations.
 	//
 	// To do so, we first create a new output to our test target
 	// address.
@@ -286,15 +288,22 @@ var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	testSpendNotification,
 }
 
-// TODO(roasbeef): make test generic across all interfaces?
-//  * indeed!
-//  * requires interface implementation registration
-func TestBtcdNotifier(t *testing.T) {
-
+// TestInterfaces tests all registered interfaces with a unified set of tests
+// which excersie each of the required methods found within the ChainNotifier
+// interface.
+//
+// NOTE: In the future, when additional implementations of the ChainNotifier
+// interface have been implemented, in order to ensure the new concrete
+// implementation is automatically tested, two steps must be undertaken. First,
+// one needs add a "non-captured" (_) import from the new sub-package. This
+// import should trigger an init() method within the package which registeres
+// the interface. Second, an additional case in the switch within the main loop
+// below needs to be added which properly initializes the interface.
+func TestInterfaces(t *testing.T) {
 	// Initialize the harness around a btcd node which will serve as our
-	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
-	// up this node with a chain length of 125, so we have plentyyy of BTC
-	// to play around with.
+	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
+	// this node with a chain length of 125, so we have plentyyy of BTC to
+	// play around with.
 	miner, err := rpctest.New(netParams, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
@@ -304,17 +313,30 @@ func TestBtcdNotifier(t *testing.T) {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
 
-	nodeConfig := miner.RPCConfig()
-	notifier, err := NewBtcdNotifier(&nodeConfig)
-	if err != nil {
-		t.Fatalf("unable to create notifier: %v", err)
-	}
-	if err := notifier.Start(); err != nil {
-		t.Fatalf("unable to start notifier: %v", err)
-	}
-	defer notifier.Stop()
+	rpcConfig := miner.RPCConfig()
 
-	for _, ntfnTest := range ntfnTests {
-		ntfnTest(miner, notifier, t)
+	var notifier chainntnfs.ChainNotifier
+	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
+		notifierType := notifierDriver.NotifierType
+
+		switch notifierType {
+		case "btcd":
+			notifier, err = notifierDriver.New(&rpcConfig)
+			if err != nil {
+				t.Fatalf("unable to create %v notifier: %v",
+					notifierType, err)
+			}
+		}
+
+		if err := notifier.Start(); err != nil {
+			t.Fatalf("unable to start notifier %v: %v",
+				notifierType, err)
+		}
+
+		for _, ntfnTest := range ntfnTests {
+			ntfnTest(miner, notifier, t)
+		}
+
+		notifier.Stop()
 	}
 }

@@ -41,7 +41,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	channelBalance := btcutil.Amount(1 * 10e8)
 	csvTimeout := uint32(5)
 	revocationPreimage := testHdSeed[:]
-	revokePubKey := deriveRevocationPubkey(bobKeyPub, revocationPreimage)
+	revokePubKey := DeriveRevocationPubkey(bobKeyPub, revocationPreimage)
 
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
@@ -50,7 +50,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	commitmentTx, err := createCommitTx(fakeFundingTxIn, aliceKeyPub,
+	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceKeyPub,
 		bobKeyPub, revokePubKey, csvTimeout, channelBalance, channelBalance)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
@@ -96,7 +96,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when alice broadcasts this commitmen
 	// transaction after it's been revoked.
-	revokePrivKey := deriveRevocationPrivKey(bobKeyPriv, revocationPreimage)
+	revokePrivKey := DeriveRevocationPrivKey(bobKeyPriv, revocationPreimage)
 	bobWitnessSpend, err := commitSpendRevoke(delayScript, channelBalance,
 		revokePrivKey, sweepTx)
 	if err != nil {
@@ -144,9 +144,9 @@ func TestRevocationKeyDerivation(t *testing.T) {
 
 	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
 
-	revocationPub := deriveRevocationPubkey(pub, revocationPreimage)
+	revocationPub := DeriveRevocationPubkey(pub, revocationPreimage)
 
-	revocationPriv := deriveRevocationPrivKey(priv, revocationPreimage)
+	revocationPriv := DeriveRevocationPrivKey(priv, revocationPreimage)
 	x, y := btcec.S256().ScalarBaseMult(revocationPriv.D.Bytes())
 	derivedRevPub := &btcec.PublicKey{
 		Curve: btcec.S256(),

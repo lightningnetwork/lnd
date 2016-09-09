@@ -7,11 +7,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/chainntfs"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcjson"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+)
+
+const (
+
+	// notifierType uniquely identifies this concrete implementation of the
+	// ChainNotifier interface.
+	notifierType = "btcd"
 )
 
 // BtcdNotifier implements the ChainNotifier interface using btcd's websockets
@@ -42,10 +49,10 @@ type BtcdNotifier struct {
 // Ensure BtcdNotifier implements the ChainNotifier interface at compile time.
 var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 
-// NewBtcdNotifier returns a new BtcdNotifier instance. This function assumes
-// the btcd node detailed in the passed configuration is already running, and
+// New returns a new BtcdNotifier instance. This function assumes the btcd node
+// detailed in the passed configuration is already running, and
 // willing to accept new websockets clients.
-func NewBtcdNotifier(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
+func New(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 	notifier := &BtcdNotifier{
 		notificationRegistry: make(chan interface{}),
 
@@ -66,8 +73,8 @@ func NewBtcdNotifier(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
-	// Disable connecting to btcd within the btcrpcclient.New method. We defer
-	// establishing the connection to our .Start() method.
+	// Disable connecting to btcd within the btcrpcclient.New method. We
+	// defer establishing the connection to our .Start() method.
 	config.DisableConnectOnNew = true
 	config.DisableAutoReconnect = false
 	chainConn, err := btcrpcclient.New(config, ntfnCallbacks)

@@ -1,17 +1,21 @@
 package btcdnotify
 
-// confEntry...
+// confEntry represents an entry in the min-confirmation heap. .
 type confEntry struct {
 	*confirmationsNotification
 
 	triggerHeight uint32
 }
 
-// confirmationHeap...
+// confirmationHeap is a list of confEntries sorted according to nearest
+// "confirmation" height.Each entry within the min-confirmation heap is sorted
+// according to the smallest dleta from the current blockheight to the
+// triggerHeight of the next entry confirmationHeap
 type confirmationHeap struct {
 	items []*confEntry
 }
 
+// newConfirmationHeap returns a new confirmationHeap with zero items.
 func newConfirmationHeap() *confirmationHeap {
 	var confItems []*confEntry
 	return &confirmationHeap{confItems}

@@ -2,6 +2,7 @@ package chainntnfs_test
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"sync"
 	"testing"
@@ -55,7 +56,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 
 	txid, err := getTestTxId(miner)
 	if err != nil {
-		t.Fatalf("unable to create test addr: %v", err)
+		t.Fatalf("unable to create test tx: %v", err)
 	}
 
 	// Now that we have a txid, register a confirmation notiication with
@@ -331,10 +332,62 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 	}
 }
 
+func testMultiClientConfirmationNotification(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	// TODO(roasbeef): test various conf targets w/ same txid
+
+	// We'd like to test the case of a multiple clients registered to
+	// receive a confirmation notification for the same transaction.
+
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	const numConfsClients = 5
+	const numConfs = 1
+
+	// Register for a conf notification for the above generated txid with
+	// numConfsClients distinct clients.
+	for i := 0; i < numConfsClients; i++ {
+		confClient, err := notifier.RegisterConfirmationsNtfn(txid, numConfs)
+		if err != nil {
+			t.Fatalf("unable to register for confirmation: %v", err)
+		}
+
+		wg.Add(1)
+		go func() {
+			<-confClient.Confirmed
+			fmt.Println(i)
+			wg.Done()
+		}()
+	}
+
+	confsSent := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(confsSent)
+	}()
+
+	// Finally, generate a single block which should trigger the unblocking
+	// of all numConfsClients blocked on the channel read above.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	select {
+	case <-confsSent:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("all confirmation notifications not sent")
+	}
+}
+
 var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T){
 	testSingleConfirmationNotification,
 	testMultiConfirmationNotification,
 	testBatchConfirmationNotification,
+	testMultiClientConfirmationNotification,
 	testSpendNotification,
 	testBlockEpochNotification,
 }

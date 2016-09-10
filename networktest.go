@@ -68,7 +68,8 @@ func generateListeningPorts() (int, int) {
 }
 
 // lightningNode represents an instance of lnd running within our test network
-// harness.
+// harness. Each lightningNode instance also fully embedds an RPC client in
+// order to programatically drive the node.
 type lightningNode struct {
 	cfg *config
 
@@ -82,6 +83,8 @@ type lightningNode struct {
 	pidFile string
 
 	extraArgs []string
+
+	lnrpc.LightningClient
 }
 
 // newLightningNode creates a new test lightning node instance from the passed
@@ -166,6 +169,18 @@ func (l *lightningNode) start() error {
 		return err
 	}
 
+	opts := []grpc.DialOption{
+		grpc.WithInsecure(),
+		grpc.WithBlock(),
+		grpc.WithTimeout(time.Second * 20),
+	}
+	conn, err := grpc.Dial(l.rpcAddr, opts...)
+	if err != nil {
+		return nil
+	}
+
+	l.LightningClient = lnrpc.NewLightningClient(conn)
+
 	return nil
 }
 
@@ -221,11 +236,10 @@ type networkHarness struct {
 
 	activeNodes map[int]*lightningNode
 
-	aliceNode *lightningNode
-	bobNode   *lightningNode
-
-	AliceClient lnrpc.LightningClient
-	BobClient   lnrpc.LightningClient
+	// Alice and Bob are the initial seeder nodes that are automatically
+	// created to be the initial participants of the test network.
+	Alice *lightningNode
+	Bob   *lightningNode
 
 	seenTxns      chan wire.ShaHash
 	watchRequests chan *watchRequest
@@ -254,17 +268,17 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness) error {
 	n.rpcConfig = nodeConfig
 
 	var err error
-	n.aliceNode, err = newLightningNode(&nodeConfig, nil)
+	n.Alice, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
 		return err
 	}
-	n.bobNode, err = newLightningNode(&nodeConfig, nil)
+	n.Bob, err = newLightningNode(&nodeConfig, nil)
 	if err != nil {
 		return err
 	}
 
-	n.activeNodes[n.aliceNode.nodeId] = n.aliceNode
-	n.activeNodes[n.bobNode.nodeId] = n.bobNode
+	n.activeNodes[n.Alice.nodeId] = n.Alice
+	n.activeNodes[n.Bob.nodeId] = n.Bob
 
 	return err
 }
@@ -297,12 +311,7 @@ func (n *networkHarness) SetUp() error {
 	go func() {
 		var err error
 		defer wg.Done()
-		if err = n.aliceNode.start(); err != nil {
-			errChan <- err
-			return
-		}
-		n.AliceClient, err = initRpcClient(n.aliceNode.rpcAddr)
-		if err != nil {
+		if err = n.Alice.start(); err != nil {
 			errChan <- err
 			return
 		}
@@ -310,12 +319,7 @@ func (n *networkHarness) SetUp() error {
 	go func() {
 		var err error
 		defer wg.Done()
-		if err = n.bobNode.start(); err != nil {
-			errChan <- err
-			return
-		}
-		n.BobClient, err = initRpcClient(n.bobNode.rpcAddr)
-		if err != nil {
+		if err = n.Bob.start(); err != nil {
 			errChan <- err
 			return
 		}
@@ -331,7 +335,7 @@ func (n *networkHarness) SetUp() error {
 	// each.
 	ctxb := context.Background()
 	addrReq := &lnrpc.NewAddressRequest{lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH}
-	clients := []lnrpc.LightningClient{n.AliceClient, n.BobClient}
+	clients := []lnrpc.LightningClient{n.Alice, n.Bob}
 	for _, client := range clients {
 		for i := 0; i < 10; i++ {
 			resp, err := client.NewAddress(ctxb, addrReq)
@@ -364,17 +368,17 @@ func (n *networkHarness) SetUp() error {
 	}
 
 	// Finally, make a connection between both of the nodes.
-	bobInfo, err := n.BobClient.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
+	bobInfo, err := n.Bob.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
 	}
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			PubKeyHash: bobInfo.IdentityAddress,
-			Host:       n.bobNode.p2pAddr,
+			Host:       n.Bob.p2pAddr,
 		},
 	}
-	if _, err := n.AliceClient.ConnectPeer(ctxb, req); err != nil {
+	if _, err := n.Alice.ConnectPeer(ctxb, req); err != nil {
 		return err
 	}
 
@@ -386,11 +390,11 @@ out:
 	for {
 		select {
 		case <-balanceTicker:
-			aliceResp, err := n.AliceClient.WalletBalance(ctxb, balReq)
+			aliceResp, err := n.Alice.WalletBalance(ctxb, balReq)
 			if err != nil {
 				return err
 			}
-			bobResp, err := n.BobClient.WalletBalance(ctxb, balReq)
+			bobResp, err := n.Bob.WalletBalance(ctxb, balReq)
 			if err != nil {
 				return err
 			}
@@ -487,7 +491,7 @@ func (n *networkHarness) WaitForTxBroadcast(txid wire.ShaHash) {
 // OpenChannel attemps to open a channel between srcNode and destNode with the
 // passed channel funding paramters.
 func (n *networkHarness) OpenChannel(ctx context.Context,
-	srcNode, destNode lnrpc.LightningClient, amt btcutil.Amount,
+	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	// TODO(roasbeef): should pass actual id instead, will fail if more
@@ -537,7 +541,7 @@ func (n *networkHarness) WaitForChannelOpen(openChanStream lnrpc.Lightning_OpenC
 // CloseChannel close channel attempts to close the channel indicated by the
 // passed channel point, initiated by the passed lnNode.
 func (n *networkHarness) CloseChannel(ctx context.Context,
-	lnNode lnrpc.LightningClient, cp *lnrpc.ChannelPoint,
+	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
 
 	closeReq := &lnrpc.CloseChannelRequest{
@@ -586,7 +590,7 @@ func (n *networkHarness) WaitForChannelClose(closeChanStream lnrpc.Lightning_Clo
 // AssertChannelExists asserts that an active channel identified by
 // channelPoint is known to exist from the point-of-view of node..
 func (n *networkHarness) AssertChannelExists(ctx context.Context,
-	node lnrpc.LightningClient, chanPoint *wire.OutPoint) error {
+	node *lightningNode, chanPoint *wire.OutPoint) error {
 
 	req := &lnrpc.ListPeersRequest{}
 	peerInfo, err := node.ListPeers(ctx, req)
@@ -605,18 +609,21 @@ func (n *networkHarness) AssertChannelExists(ctx context.Context,
 	return fmt.Errorf("channel not found")
 }
 
-// initRpcClient attempts to make an rpc connection, then create a gRPC client
-// connected to the specified server address.
-func initRpcClient(serverAddr string) (lnrpc.LightningClient, error) {
-	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
-		grpc.WithBlock(),
-		grpc.WithTimeout(time.Second * 20),
-	}
-	conn, err := grpc.Dial(serverAddr, opts...)
+// DumpLogs reads the current logs generated by the passed node, and returns
+// the logs as a single string. This function is useful for examining the logs
+// of a particular node in the case of a test failure.
+func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
+	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.cfg.LogDir)
+	f, err := os.Open(logFile)
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	defer f.Close()
+
+	logs, err := ioutil.ReadAll(f)
+	if err != nil {
+		return "", err
 	}
 
-	return lnrpc.NewLightningClient(conn), nil
+	return string(logs), nil
 }

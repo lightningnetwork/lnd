@@ -37,7 +37,7 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	// First establish a channel ween with a capacity of 0.5 BTC between
 	// Alice and Bob.
 	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
-	chanOpenUpdate, err := net.OpenChannel(ctxb, net.AliceClient, net.BobClient, chanAmt, 1)
+	chanOpenUpdate, err := net.OpenChannel(ctxb, net.Alice, net.Bob, chanAmt, 1)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -69,13 +69,13 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 		Hash:  *fundingTxID,
 		Index: fundingChanPoint.OutputIndex,
 	}
-	err = net.AssertChannelExists(ctxb, net.AliceClient, &chanPoint)
+	err = net.AssertChannelExists(ctxb, net.Alice, &chanPoint)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
 	// Initiate a close from Alice's side.
-	closeUpdates, err := net.CloseChannel(ctxb, net.AliceClient, fundingChanPoint, false)
+	closeUpdates, err := net.CloseChannel(ctxb, net.Alice, fundingChanPoint, false)
 	if err != nil {
 		t.Fatalf("unable to clsoe channel: %v", err)
 	}

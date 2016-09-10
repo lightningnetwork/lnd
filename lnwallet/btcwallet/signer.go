@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -71,18 +72,33 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 	return nil, fmt.Errorf("address not found")
 }
 
+// fetchPrivKey attempts to retrieve the raw private key coresponding to the
+// passed public key.
+// TODO(roasbeef): alternatively can extract all the data pushes within the
+// script, then attempt to match keys one by one
+func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error) {
+	hash160 := btcutil.Hash160(pub.SerializeCompressed())
+	addr, err := btcutil.NewAddressWitnessPubKeyHash(hash160, b.netParams)
+	if err != nil {
+		return nil, err
+	}
+
+	walletddr, err := b.wallet.Manager.Address(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return walletddr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+}
+
 // SignOutputRaw generates a signature for the passed transaction according to
 // the data within the passed SignDescriptor.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescriptor) ([]byte, error) {
 	redeemScript := signDesc.RedeemScript
-	walletAddr, err := b.fetchOutputAddr(redeemScript)
-	if err != nil {
-		return nil, err
-	}
 
-	privKey, err := walletAddr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+	privKey, err := b.fetchPrivKey(signDesc.PubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +117,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescrip
 // ComputeInputScript generates a complete InputIndex for the passed
 // transaction with the signature as defined within the passed SignDescriptor.
 // This method is capable of generating the proper input script for both
-// regular p2wkh output and p2wkh outputs nested within a regualr p2sh output.
+// regular p2wkh output and p2wkh outputs nested within a regular p2sh output.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
@@ -161,6 +177,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	}
 
 	// Generate a valid witness stack for the input.
+	// TODO(roasbeef): adhere to passed HashType
 	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, witnessProgram,
 		txscript.SigHashAll, privKey, true)

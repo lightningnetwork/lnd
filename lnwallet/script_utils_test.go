@@ -68,6 +68,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("unable to create target output: %v")
 	}
 	sweepTx := wire.NewMsgTx()
+	sweepTx.Version = 2
 	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{commitmentTx.TxSha(), 0}, nil, nil))
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: targetOutput,
@@ -79,6 +80,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v")
 	}
+	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
 		RedeemScript: delayScript,
 		SigHashes:    txscript.NewTxSigHashes(sweepTx),
@@ -89,14 +91,14 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		InputIndex: 0,
 	}
 	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
-		signDesc, csvTimeout, sweepTx)
+		signDesc, sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate delay commit spend witness :%v")
 	}
 	sweepTx.TxIn[0].Witness = aliceWitnessSpend
 	vm, err := txscript.NewEngine(delayOutput.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		signDesc.SigHashes, int64(channelBalance))
+		nil, int64(channelBalance))
 	if err != nil {
 		t.Fatalf("unable to create engine: %v", err)
 	}

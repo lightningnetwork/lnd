@@ -594,21 +594,20 @@ func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
-// funds back to themselves after an absolute block timeout.
+// funds back to themselves after a relative block timeout.  In order to
+// properly spend the transaction, the target input's sequence number should be
+// set accordingly based off of the target relative block timeout within the
+// redeem script.  Additionally, OP_CSV requires that the version of the
+// transaction spending a pkscript with OP_CSV within it *must* be >= 2.
 func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
-	blockTimeout uint32, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	inputIndex := signDesc.InputIndex
-
-	// In order to properly spend the transaction, we need to set the
-	// sequence number. We do this by convering the relative block delay
-	// into a sequence number value able to be interpeted by
-	// OP_CHECKSEQUENCEVERIFY.
-	sweepTx.TxIn[inputIndex].Sequence = lockTimeToSequence(false, blockTimeout)
-
-	// Additionally, OP_CSV requires that the version of the transaction
-	// spending a pkscript with OP_CSV within it *must* be >= 2.
-	sweepTx.Version = 2
+	// Ensure the transaction version supports the validation of sequence
+	// locks and CSV semantics.
+	if sweepTx.Version < 2 {
+		return nil, fmt.Errorf("version of passed transaction MUST "+
+			"be >= 2, not %v", sweepTx.Version)
+	}
 
 	// With the sequence number in place, we're now able to properly sign
 	// off on the sweep transaction.

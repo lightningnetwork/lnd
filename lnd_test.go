@@ -12,6 +12,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 type lndTestCase func(net *networkHarness, t *testing.T)
@@ -26,10 +27,10 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 	t.Fatalf("funding tx was not included in block")
 }
 
-// testBasicChannelFunding performs a test excercising expected behavior from a
+// testBasicChannelFunding performs a test exercising expected behavior from a
 // basic funding workflow. The test creates a new channel between Alice and
 // Bob, then immediately closes the channel after asserting some expected post
-// conditions. Finally, the chain itelf is checked to ensure the closing
+// conditions. Finally, the chain itself is checked to ensure the closing
 // transaction was mined.
 func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
@@ -99,12 +100,107 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	assertTxInBlock(block, closingTxid, t)
 }
 
+func testChannelBalance(net *networkHarness, t *testing.T) {
+	ctxb := context.Background()
+
+	openChannel := func(alice lnrpc.LightningClient, bob lnrpc.LightningClient, amount float64) *lnrpc.ChannelPoint {
+		// First establish a channel ween with a capacity of 0.5 BTC between
+		// Alice and Bob.
+		chanAmt := btcutil.Amount(amount)
+		chanOpenUpdate, err := net.OpenChannel(ctxb, alice, bob, chanAmt, 1)
+		if err != nil {
+			t.Fatalf("unable to open channel: %v", err)
+		}
+
+		// Mine a block, then wait for Alice's node to notify us that the
+		// channel has been opened. The funding transaction should be found
+		// within the newly mined block.
+		blockHash, err := net.Miner.Node.Generate(1)
+		if err != nil {
+			t.Fatalf("unable to generate block: %v", err)
+		}
+		block, err := net.Miner.Node.GetBlock(blockHash[0])
+		if err != nil {
+			t.Fatalf("unable to get block: %v", err)
+		}
+		fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
+		if err != nil {
+			t.Fatalf("error while waiting for channeel open: %v", err)
+		}
+		fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+		if err != nil {
+			t.Fatalf("unable to create sha hash: %v", err)
+		}
+		assertTxInBlock(block, fundingTxID, t)
+
+		// The channel should be listed in the peer information returned by
+		// both peers.
+		chanPoint := wire.OutPoint{
+			Hash:  *fundingTxID,
+			Index: fundingChanPoint.OutputIndex,
+		}
+		err = net.AssertChannelExists(ctxb, net.AliceClient, &chanPoint)
+		if err != nil {
+			t.Fatalf("unable to assert channel existence: %v", err)
+		}
+
+		return fundingChanPoint
+	}
+
+	closeChannel := func(node lnrpc.LightningClient, fundingChanPoint *lnrpc.ChannelPoint) {
+		// Initiate a close
+		closeUpdates, err := net.CloseChannel(ctxb, node, fundingChanPoint, false)
+		if err != nil {
+			t.Fatalf("unable to clsoe channel: %v", err)
+		}
+
+		// Finally, generate a single block, wait for the final close status
+		// update, then ensure that the closing transaction was included in the
+		// block.
+		blockHash, err := net.Miner.Node.Generate(1)
+		if err != nil {
+			t.Fatalf("unable to generate block: %v", err)
+		}
+		block, err := net.Miner.Node.GetBlock(blockHash[0])
+		if err != nil {
+			t.Fatalf("unable to get block: %v", err)
+		}
+
+		closingTxid, err := net.WaitForChannelClose(closeUpdates)
+		if err != nil {
+			t.Fatalf("error while waiting for channel close: %v", err)
+		}
+		assertTxInBlock(block, closingTxid, t)
+
+	}
+
+	checkChannelBalance := func (node lnrpc.LightningClient, amount float64) {
+		response, err := node.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
+		if err != nil {
+			t.Fatalf("unable to get channel balance: %v", err)
+		}
+
+		if response.Balance != amount {
+			t.Fatalf("channel balance wrong: %v != %v", response.Balance, amount)
+		}
+	}
+
+	amount := btcutil.SatoshiPerBitcoin / 2
+	chanPoint := openChannel(net.AliceClient, net.BobClient, amount)
+
+	checkChannelBalance(net.BobClient, amount)
+	checkChannelBalance(net.AliceClient, amount)
+
+	closeChannel(net.AliceClient, chanPoint)
+}
+
 var lndTestCases = map[string]lndTestCase{
 	"basic funding flow": testBasicChannelFunding,
+	"channel balance": testChannelBalance,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
-// programatically driven network of lnd nodes.
+// programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
 	var btcdHarness *rpctest.Harness
 	var lightningNetwork *networkHarness
@@ -139,7 +235,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		OnTxAccepted: lightningNetwork.OnTxAccepted,
 	}
 
-	// First create an intance of the btcd's rpctest.Harness. This will be
+	// First create an instance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
 	// drive blockchain related events within the network.
 	btcdHarness, err = rpctest.New(harnessNetParams, handlers, nil)

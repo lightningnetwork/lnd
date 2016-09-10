@@ -401,8 +401,7 @@ func walletBalance(ctx *cli.Context) error {
 
 var ChannelBalanceCommand = cli.Command{
 	Name:        "channelbalance",
-	Description: "",
-	Usage:       "",
+	Description: "obtaining channel snapshots from all the peers and tallying the total available channel capacity within each channel",
 	Action: channelBalance,
 }
 

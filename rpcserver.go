@@ -388,7 +388,15 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
-	return nil, nil
+
+	var balance btcutil.Amount
+	for _, peer := range r.server.Peers() {
+		for _, snapshot := range peer.ChannelSnapshots() {
+			balance += snapshot.Capacity
+		}
+	}
+
+	return &lnrpc.ChannelBalanceResponse{Balance: float64(balance)}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently

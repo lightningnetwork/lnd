@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BitfuryLightning/tools/prefix_tree"
+	"github.com/BitfuryLightning/tools/rt"
+	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
-	"github.com/BitfuryLightning/tools/rt"
-	"github.com/BitfuryLightning/tools/prefix_tree"
-	"github.com/BitfuryLightning/tools/rt/graph"
 
 	"github.com/BitfuryLightning/tools/rt/visualizer"
 )
@@ -285,7 +285,7 @@ var CloseChannelCommand = cli.Command{
 		},
 		cli.BoolFlag{
 			Name: "force",
-			Usage: "after the time limit has passed, attempted an " +
+			Usage: "after the time limit has passed, attempt an " +
 				"uncooperative closure",
 		},
 		cli.BoolFlag{
@@ -305,11 +305,13 @@ func closeChannel(ctx *cli.Context) error {
 		return err
 	}
 
+	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
 			FundingTxid: txid[:],
 			OutputIndex: uint32(ctx.Int("output_index")),
 		},
+		Force: ctx.Bool("force"),
 	}
 
 	stream, err := client.CloseChannel(ctxb, req)
@@ -535,8 +537,8 @@ var ShowRoutingTableCommand = cli.Command{
 	Usage:       "showroutingtable text|image",
 	Subcommands: []cli.Command{
 		{
-			Name: "text",
-			Usage: "[--table|--human]",
+			Name:        "text",
+			Usage:       "[--table|--human]",
 			Description: "Show routing table in textual format. By default in JSON",
 			Flags: []cli.Flag{
 				cli.BoolFlag{
@@ -551,8 +553,8 @@ var ShowRoutingTableCommand = cli.Command{
 			Action: showRoutingTableAsText,
 		},
 		{
-			Name: "image",
-			Usage: "[--type <IMAGE_TYPE>] [--dest OUTPUT_FILE] [--open]",
+			Name:        "image",
+			Usage:       "[--type <IMAGE_TYPE>] [--dest OUTPUT_FILE] [--open]",
 			Description: "Create image with graphical representation of routing table",
 			Flags: []cli.Flag{
 				cli.StringFlag{
@@ -597,11 +599,11 @@ func showRoutingTableAsText(ctx *cli.Context) error {
 	client := getClient(ctx)
 
 	r, err := getRoutingTable(ctxb, client)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
-	if ctx.Bool("table") && ctx.Bool("human"){
+	if ctx.Bool("table") && ctx.Bool("human") {
 		return fmt.Errorf("--table and --human cannot be used at the same time")
 	}
 
@@ -620,7 +622,7 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 	client := getClient(ctx)
 
 	r, err := getRoutingTable(ctxb, client)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -640,7 +642,7 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 		return fmt.Errorf("One or both of --type or --dest should be specified")
 	}
 
-	tempFile, err  := ioutil.TempFile("", "")
+	tempFile, err := ioutil.TempFile("", "")
 	if err != nil {
 		return err
 	}
@@ -651,7 +653,7 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 	}
 	// if the filename is not specified explicitly use tempfile
 	if imgDest == "" {
-		imageFile, err = TempFileWithSuffix("", "rt_", "."+ imgType)
+		imageFile, err = TempFileWithSuffix("", "rt_", "."+imgType)
 		if err != nil {
 			return err
 		}
@@ -686,7 +688,7 @@ func writeToTempFile(r *rt.RoutingTable, file *os.File, self []byte) error {
 	slc := []graph.ID{graph.NewID(string(self))}
 	viz := visualizer.New(r.G, slc, nil, nil)
 	viz.ApplyToNode = func(s string) string { return hex.EncodeToString([]byte(s)) }
-	viz.ApplyToEdge = func(info interface{}) string { 
+	viz.ApplyToEdge = func(info interface{}) string {
 		if info, ok := info.(*rt.ChannelInfo); ok {
 			return fmt.Sprintf(`"%v"`, info.Capacity())
 		}
@@ -734,7 +736,7 @@ func TempFileWithSuffix(dir, prefix, suffix string) (*os.File, error) {
 		return nil, err
 	}
 	defer os.Remove(f.Name())
-	f, err = os.Create(f.Name()+suffix)
+	f, err = os.Create(f.Name() + suffix)
 	return f, err
 }
 

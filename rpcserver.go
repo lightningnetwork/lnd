@@ -246,6 +246,7 @@ out:
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	updateStream lnrpc.Lightning_CloseChannelServer) error {
 
+	force := in.Force
 	index := in.ChannelPoint.OutputIndex
 	txid, err := wire.NewShaHash(in.ChannelPoint.FundingTxid)
 	if err != nil {
@@ -257,7 +258,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint)
+	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint, force)
 
 out:
 	for {
@@ -279,7 +280,7 @@ out:
 			switch closeUpdate := closingUpdate.Update.(type) {
 			case *lnrpc.CloseStatusUpdate_ChanClose:
 				h, _ := wire.NewShaHash(closeUpdate.ChanClose.ClosingTxid)
-				rpcsLog.Errorf("[closechannel] close completed: "+
+				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
 				break out
 			}
@@ -492,11 +493,11 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	for _, channel := range rtCopy.AllChannels() {
 		channels = append(channels,
 			&lnrpc.RoutingTableLink{
-				Id1:       channel.Id1.String(),
-				Id2:       channel.Id2.String(),
-				Outpoint:  channel.EdgeID.String(),
-				Capacity:  channel.Info.Capacity(),
-				Weight:    channel.Info.Weight(),
+				Id1:      channel.Id1.String(),
+				Id2:      channel.Id2.String(),
+				Outpoint: channel.EdgeID.String(),
+				Capacity: channel.Info.Capacity(),
+				Weight:   channel.Info.Weight(),
 			},
 		)
 	}

@@ -55,6 +55,8 @@ type server struct {
 
 	routingMgr *routing.RoutingManager
 
+	utxoNursery *utxoNursery
+
 	newPeers  chan *peer
 	donePeers chan *peer
 	queries   chan interface{}
@@ -104,6 +106,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// TODO(roasbeef): remove
 	s.invoices.addInvoice(1000*1e8, *debugPre)
 
+	s.utxoNursery = newUtxoNursery(notifier, wallet)
+
 	// Create a new routing manager with ourself as the sole node within
 	// the graph.
 	s.routingMgr = routing.NewRoutingManager(graph.NewID(s.lightningID), nil)
@@ -145,6 +149,9 @@ func (s *server) Start() error {
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
+	if err := s.utxoNursery.Start(); err != nil {
+		return err
+	}
 	s.routingMgr.Start()
 
 	s.wg.Add(1)
@@ -175,6 +182,7 @@ func (s *server) Stop() error {
 	s.fundingMgr.Stop()
 	s.routingMgr.Stop()
 	s.htlcSwitch.Stop()
+	s.utxoNursery.Stop()
 
 	s.lnwallet.Shutdown()
 

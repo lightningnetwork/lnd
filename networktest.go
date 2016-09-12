@@ -545,8 +545,8 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
 
 	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint:    cp,
-		AllowForceClose: force,
+		ChannelPoint: cp,
+		Force:        force,
 	}
 	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
 	if err != nil {

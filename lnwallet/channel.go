@@ -310,13 +310,10 @@ func (s *commitmentChain) tail() *commitment {
 //
 // See the individual comments within the above methods for further details.
 type LightningChannel struct {
-	// TODO(roasbeef): temporarily replace wallet with either goroutine or
-	// BlockChainIO interface? Later once all signing is done through
-	// wallet can add back.
-	lnwallet *LightningWallet
-
 	signer   Signer
 	signDesc *SignDescriptor
+
+	bio BlockChainIO
 
 	channelEvents chainntnfs.ChainNotifier
 
@@ -389,6 +386,16 @@ type LightningChannel struct {
 	fundingTxIn         *wire.TxIn
 	fundingP2WSH        []byte
 
+	// ForceCloseSignal is a channel that is closed to indicate that a
+	// local system has initiated a force close by broadcasting the current
+	// commitment transaction directly on-chain.
+	ForceCloseSignal chan struct{}
+
+	// UnilateralCloseSignal is a channel that is closed to indicate that
+	// the remote party has performed a unilateral close by broadcasting
+	// their version of the commitment transaction on-chain.
+	UnilateralCloseSignal chan struct{}
+
 	started  int32
 	shutdown int32
 
@@ -397,38 +404,40 @@ type LightningChannel struct {
 }
 
 // NewLightningChannel creates a new, active payment channel given an
-// implementation of the wallet controller, chain notifier, channel database,
-// and the current settled channel state. Throughout state transitions, then
-// channel will automatically persist pertinent state to the database in an
-// efficient manner.
-func NewLightningChannel(signer Signer, wallet *LightningWallet,
+// implementation of the chain notifier, channel database, and the current
+// settled channel state. Throughout state transitions, then channel will
+// automatically persist pertinent state to the database in an efficient
+// manner.
+func NewLightningChannel(signer Signer, bio BlockChainIO,
 	events chainntnfs.ChainNotifier,
 	state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	// TODO(roasbeef): remove events+wallet
 	lc := &LightningChannel{
-		signer:               signer,
-		lnwallet:             wallet,
-		channelEvents:        events,
-		currentHeight:        state.NumUpdates,
-		remoteCommitChain:    newCommitmentChain(state.NumUpdates),
-		localCommitChain:     newCommitmentChain(state.NumUpdates),
-		channelState:         state,
-		revocationWindowEdge: state.NumUpdates,
-		ourUpdateLog:         list.New(),
-		theirUpdateLog:       list.New(),
-		ourLogIndex:          make(map[uint32]*list.Element),
-		theirLogIndex:        make(map[uint32]*list.Element),
-		Capacity:             state.Capacity,
-		LocalDeliveryScript:  state.OurDeliveryScript,
-		RemoteDeliveryScript: state.TheirDeliveryScript,
-		FundingRedeemScript:  state.FundingRedeemScript,
+		signer:                signer,
+		bio:                   bio,
+		channelEvents:         events,
+		currentHeight:         state.NumUpdates,
+		remoteCommitChain:     newCommitmentChain(state.NumUpdates),
+		localCommitChain:      newCommitmentChain(state.NumUpdates),
+		channelState:          state,
+		revocationWindowEdge:  state.NumUpdates,
+		ourUpdateLog:          list.New(),
+		theirUpdateLog:        list.New(),
+		ourLogIndex:           make(map[uint32]*list.Element),
+		theirLogIndex:         make(map[uint32]*list.Element),
+		Capacity:              state.Capacity,
+		LocalDeliveryScript:   state.OurDeliveryScript,
+		RemoteDeliveryScript:  state.TheirDeliveryScript,
+		FundingRedeemScript:   state.FundingRedeemScript,
+		ForceCloseSignal:      make(chan struct{}),
+		UnilateralCloseSignal: make(chan struct{}),
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for
 	// each side.
 	// TODO(roasbeef): add chnneldb.RevocationLogTail method, then init
-	// their commitment from that
+	// their commitment from that as we may be de-synced
 	initialCommitment := &commitment{
 		height:            lc.currentHeight,
 		ourBalance:        state.OurBalance,
@@ -445,16 +454,15 @@ func NewLightningChannel(signer Signer, wallet *LightningWallet,
 		lc.restoreStateLogs()
 	}
 
-	// TODO(roasbeef): do a NotifySpent for the funding input, and
-	// NotifyReceived for all commitment outputs.
-
+	// Create the sign descriptor which we'll be using very frequently to
+	// request a signature for the 2-of-2 multi-sig from the signer in
+	// order to complete channel state transitions.
 	fundingPkScript, err := witnessScriptHash(state.FundingRedeemScript)
 	if err != nil {
 		return nil, err
 	}
 	lc.fundingTxIn = wire.NewTxIn(state.FundingOutpoint, nil, nil)
 	lc.fundingP2WSH = fundingPkScript
-
 	lc.signDesc = &SignDescriptor{
 		PubKey:       lc.channelState.OurMultiSigKey,
 		RedeemScript: lc.channelState.FundingRedeemScript,
@@ -465,6 +473,38 @@ func NewLightningChannel(signer Signer, wallet *LightningWallet,
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
+
+	// Register for a notification to be dispatched if the funding outpoint
+	// has been spent. This indicates that either us or the remote party
+	// has broadcasted a commitment transaction on-chain.
+	fundingOut := &lc.fundingTxIn.PreviousOutPoint
+	channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef) move into the peer's htlcManager?
+	//  * if not, send the SpendDetail over the channel instead of just
+	//    closing it
+	go func() {
+		// If the daemon is shutting down, then this notification channel
+		// will be closed, so check the second read-value to avoid a false
+		// positive.
+		if _, ok := <-channelCloseNtfn.Spend; !ok {
+			return
+		}
+
+		// If the channel's doesn't already indicate that a commitment
+		// transaction has been broadcast on-chain, then this means the
+		// remote party broadcasted their commitment transaction.
+		// TODO(roasbeef): wait for a conf?
+		lc.Lock()
+		if lc.status != channelDispute {
+			close(lc.UnilateralCloseSignal)
+			lc.status = channelDispute
+		}
+		lc.Unlock()
+	}()
 
 	return lc, nil
 }
@@ -1379,9 +1419,135 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	return nil
 }
 
-// ForceClose...
-func (lc *LightningChannel) ForceClose() error {
-	return nil
+// ForceCloseSummary describes the final commitment state before the channel is
+// locked-down to initiate a force closure by broadcasting the latest state
+// on-chain. The summary includes all the information required to claim all
+// rightfully owned outputs.
+// TODO(roasbeef): generalize, add HTLC info, revocatio info, etc.
+type ForceCloseSummary struct {
+	// CloseTx is the transaction which closed the channel on-chain. If we
+	// initiate the force close, then this'll be our latest commitment
+	// state. Otherwise, this'll be the state that the remote peer
+	// broadcasted on-chain.
+	CloseTx *wire.MsgTx
+
+	// SelfOutpoint is the output created by the above close tx which is
+	// spendable by us after a relative time delay.
+	SelfOutpoint wire.OutPoint
+
+	// SelfOutputMaturity is the relative maturity period before the above
+	// output can be claimed.
+	SelfOutputMaturity uint32
+
+	// SelfOutputSignDesc is a fully populated sign descriptor capable of
+	// generating a valid signature to swee the self output.
+	SelfOutputSignDesc *SignDescriptor
+}
+
+// ForceClose executes a unilateral closure of the transaction at the current
+// lowest commitment height of the channel. Following a force closure, all
+// state transitions, or modifications to the state update logs will be
+// rejected. Additionally, this function also returns a ForceCloseSummary which
+// includes the necessary details required to sweep all the time-locked within
+// the commitment transaction.
+//
+// TODO(roasbeef): all methods need to abort if in dispute state
+// TODO(roasbeef): method to generate CloseSummaries for when the remote peer
+// does a unilateral close
+func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Set the channel state to indicate that the channel is now in a
+	// contested state.
+	lc.status = channelDispute
+
+	// Fetch the current commitment transaction, along with their signature
+	// for the transaction.
+	commitTx := lc.channelState.OurCommitTx
+	theirSig := append(lc.channelState.OurCommitSig, byte(txscript.SigHashAll))
+
+	// With this, we then generate the full witness so the caller can
+	// broadcast a fully signed transaction.
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
+	ourSigRaw, err := lc.signer.SignOutputRaw(commitTx, lc.signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	ourSig := append(ourSigRaw, byte(txscript.SigHashAll))
+
+	// With the final signature generated, create the witness stack
+	// required to spend from the multi-sig output.
+	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
+	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
+	witness := SpendMultiSig(lc.FundingRedeemScript, ourKey, ourSig,
+		theirKey, theirSig)
+	commitTx.TxIn[0].Witness = witness
+
+	// Locate the output index of the delayed commitment output back to us.
+	// We'll return the details of this output to the caller so they can
+	// sweep it once it's mature.
+	// TODO(roasbeef): also return HTLC info, assumes only p2wsh is commit
+	// tx
+	var delayIndex uint32
+	var delayScript []byte
+	for i, txOut := range commitTx.TxOut {
+		if !txscript.IsPayToWitnessScriptHash(txOut.PkScript) {
+			continue
+		}
+
+		delayIndex = uint32(i)
+		delayScript = txOut.PkScript
+	}
+
+	csvTimeout := lc.channelState.LocalCsvDelay
+	selfKey := lc.channelState.OurCommitKey
+
+	// Re-derive the original pkScript for out to-self output within the
+	// commitment transaction. We'll need this for the created sign
+	// descriptor.
+	elkrem := lc.channelState.LocalElkrem
+	unusedRevocation, err := elkrem.AtIndex(lc.currentHeight)
+	if err != nil {
+		return nil, err
+	}
+	revokeKey := DeriveRevocationPubkey(lc.channelState.TheirCommitKey,
+		unusedRevocation[:])
+	selfScript, err := commitScriptToSelf(csvTimeout, selfKey, revokeKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the necessary information gatehred above, create a new sign
+	// descriptor which is capable of generating the signature the caller
+	// needs to sweep this output. The hash cache, and input index are not
+	// set as the caller will decide these values once sweeping the output.
+	selfSignDesc := &SignDescriptor{
+		PubKey:       selfKey,
+		RedeemScript: selfScript,
+		Output: &wire.TxOut{
+			PkScript: delayScript,
+			Value:    int64(lc.channelState.OurBalance),
+		},
+		HashType: txscript.SigHashAll,
+	}
+
+	// Finally, close the channel force close signal which notifies any
+	// subscribers that the channel has now been forcibly closed. This
+	// allows callers to begin to carry out any post channel closure
+	// activities.
+	close(lc.ForceCloseSignal)
+
+	return &ForceCloseSummary{
+		CloseTx: commitTx,
+		SelfOutpoint: wire.OutPoint{
+			Hash:  commitTx.TxSha(),
+			Index: delayIndex,
+		},
+		SelfOutputMaturity: csvTimeout,
+		SelfOutputSignDesc: selfSignDesc,
+	}, nil
 }
 
 // InitCooperativeClose initiates a cooperative closure of an active lightning

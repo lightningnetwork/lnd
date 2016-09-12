@@ -219,7 +219,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		chanID := dbChan.ChanID
 		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
-			p.server.lnwallet, p.server.chainNotifier, dbChan)
+			p.server.bio, p.server.chainNotifier, dbChan)
 		if err != nil {
 			return err
 		}

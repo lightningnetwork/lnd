@@ -130,6 +130,7 @@ type WalletController interface {
 // to date data possible.
 //
 // TODO(roasbeef): move to diff package perhaps?
+// TODO(roasbeef): move publish txn here?
 type BlockChainIO interface {
 	// GetCurrentHeight returns the current height of the valid most-work
 	// chain the implementation is aware of.

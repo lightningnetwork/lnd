@@ -282,6 +282,8 @@ type HTLC struct {
 	// sweep the funds on-chain in the case of a unilateral channel
 	// closure.
 	RevocationDelay uint32
+
+	// TODO(roasbeef): add output index?
 }
 
 // Copy returns a full copy of the target HTLC.

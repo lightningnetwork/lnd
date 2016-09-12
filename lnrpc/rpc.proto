@@ -155,7 +155,7 @@ message ChannelCloseUpdate {
 message CloseChannelRequest {
     ChannelPoint channel_point = 1;
     int64 time_limit = 2;
-    bool allow_force_close = 3;
+    bool force = 3;
 }
 message CloseStatusUpdate {
     oneof update {

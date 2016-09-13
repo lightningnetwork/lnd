@@ -171,7 +171,7 @@ message PendingUpdate {
 
 message OpenChannelRequest {
     int32 target_peer_id = 1;
-    LightningAddress target_node = 2;
+    bytes target_node = 2;
 
     int64 local_funding_amount = 3;
     int64 remote_funding_amount = 4;

@@ -505,7 +505,7 @@ func (f *fundingManager) processFundingSignComplete(msg *lnwire.SingleFundingSig
 	f.fundingMsgs <- &fundingSignCompleteMsg{msg, peer}
 }
 
-// handleFundingSignComplete processes the final message recieved in a single
+// handleFundingSignComplete processes the final message received in a single
 // funder workflow. Once this message is processed, the funding transaction is
 // broadcast. Once the funding transaction reaches a sufficient number of
 // confirmations, a message is sent to the responding peer along with an SPV
@@ -562,7 +562,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			fndgLog.Infof("ChannelPoint(%v) with peerID(%v) is now active",
 				fundingPoint, fmsg.peer.id)
 
-			// Now that the channel is open, we need to notifiy a
+			// Now that the channel is open, we need to notify a
 			// number of parties of this event.
 
 			// First we send the newly opened channel to the source
@@ -579,7 +579,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			fundingOpen := lnwire.NewSingleFundingOpenProof(chanID, spvProof)
 			fmsg.peer.queueMsg(fundingOpen, nil)
 
-			// Register the new link wtith the L3 routing manager
+			// Register the new link with the L3 routing manager
 			// so this new channel can be utilized during path
 			// finding.
 			chanInfo := openChan.StateSnapshot()

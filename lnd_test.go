@@ -13,6 +13,7 @@ import (
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"time"
 )
 
 type lndTestCase func(net *networkHarness, t *testing.T)
@@ -103,11 +104,8 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 func testChannelBalance(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
 
-	openChannel := func(alice lnrpc.LightningClient, bob lnrpc.LightningClient, amount float64) *lnrpc.ChannelPoint {
-		// First establish a channel ween with a capacity of 0.5 BTC between
-		// Alice and Bob.
-		chanAmt := btcutil.Amount(amount)
-		chanOpenUpdate, err := net.OpenChannel(ctxb, alice, bob, chanAmt, 1)
+	openChannel := func(alice *lightningNode, bob *lightningNode, amount btcutil.Amount) *lnrpc.ChannelPoint {
+		chanOpenUpdate, err := net.OpenChannel(ctxb, alice, bob, amount, 1)
 		if err != nil {
 			t.Fatalf("unable to open channel: %v", err)
 		}
@@ -139,7 +137,7 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 			Hash:  *fundingTxID,
 			Index: fundingChanPoint.OutputIndex,
 		}
-		err = net.AssertChannelExists(ctxb, net.AliceClient, &chanPoint)
+		err = net.AssertChannelExists(ctxb, alice, &chanPoint)
 		if err != nil {
 			t.Fatalf("unable to assert channel existence: %v", err)
 		}
@@ -147,8 +145,7 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 		return fundingChanPoint
 	}
 
-	closeChannel := func(node lnrpc.LightningClient, fundingChanPoint *lnrpc.ChannelPoint) {
-		// Initiate a close
+	closeChannel := func(node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint) {
 		closeUpdates, err := net.CloseChannel(ctxb, node, fundingChanPoint, false)
 		if err != nil {
 			t.Fatalf("unable to clsoe channel: %v", err)
@@ -174,24 +171,28 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 
 	}
 
-	checkChannelBalance := func (node lnrpc.LightningClient, amount float64) {
+	checkChannelBalance := func (node lnrpc.LightningClient, amount btcutil.Amount) {
 		response, err := node.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
 		if err != nil {
 			t.Fatalf("unable to get channel balance: %v", err)
 		}
 
-		if response.Balance != amount {
+		if btcutil.Amount(response.Balance) != amount {
 			t.Fatalf("channel balance wrong: %v != %v", response.Balance, amount)
 		}
 	}
 
-	amount := btcutil.SatoshiPerBitcoin / 2
-	chanPoint := openChannel(net.AliceClient, net.BobClient, amount)
+	amount := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	chanPoint := openChannel(net.Alice, net.Bob, amount)
 
-	checkChannelBalance(net.BobClient, amount)
-	checkChannelBalance(net.AliceClient, amount)
+	checkChannelBalance(net.Alice, amount)
 
-	closeChannel(net.AliceClient, chanPoint)
+	// Because we wait for Alice channel open notification it might happen that Bob haven't
+	// added newly created channel in the list of active channels, so lets wait for a second.
+	time.Sleep(time.Second)
+	checkChannelBalance(net.Bob, amount)
+
+	closeChannel(net.Alice, chanPoint)
 }
 
 var lndTestCases = map[string]lndTestCase{
@@ -225,7 +226,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// First create the network harness to gain access to its
 	// 'OnTxAccepted' call back.
-	lightningNetwork, err = newNetworkHarness(nil)
+	lightningNetwork, err = newNetworkHarness()
 	if err != nil {
 		t.Fatalf("unable to create lightning network harness: %v", err)
 	}
@@ -251,8 +252,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	}
 
 	// With the btcd harness created, we can now complete the
-	// initialization of the network.
-	if err := lightningNetwork.InitializeSeedNodes(btcdHarness); err != nil {
+	// initialization of the network. args - list of lnd arguments, example: "--debuglevel=debug"
+	args := []string{}
+
+	if err := lightningNetwork.InitializeSeedNodes(btcdHarness, args); err != nil {
 		t.Fatalf("unable to initialize seed nodes: %v", err)
 	}
 	if err = lightningNetwork.SetUp(); err != nil {

@@ -823,7 +823,11 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
 	p.server.htlcSwitch.UnregisterLink(p.lightningID, chanID)
-	htlcWireLink := p.htlcManagers[*chanID]
+	htlcWireLink, ok := p.htlcManagers[*chanID]
+	if !ok {
+		return nil
+	}
+
 	delete(p.htlcManagers, *chanID)
 	close(htlcWireLink)
 
@@ -925,6 +929,7 @@ out:
 	for {
 		select {
 		case <-channel.UnilateralCloseSignal:
+			// TODO(roasbeef): eliminate false positive via local close
 			peerLog.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				state.chanPoint)
 			if err := wipeChannel(p, channel); err != nil {

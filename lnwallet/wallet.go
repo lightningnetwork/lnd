@@ -36,6 +36,8 @@ const (
 	// TODO(roasbeef): should instead be child to make room for future
 	// rotations, etc.
 	identityKeyIndex = hdkeychain.HardenedKeyStart + 2
+
+	commitFee = 5000
 )
 
 var (
@@ -485,7 +487,8 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
 	id := atomic.AddUint64(&l.nextFundingID, 1)
-	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
+	totalCapacity := req.capacity + commitFee
+	reservation := NewChannelReservation(totalCapacity, req.fundingAmount,
 		req.minFeeRate, l, id, req.numConfs)
 
 	// Grab the mutex on the ChannelReservation to ensure thead-safety
@@ -501,10 +504,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		// TODO(roasbeef): consult model for proper fee rate
+		// TODO(roasbeef): consult model for proper fee rate on funding
+		// tx
 		feeRate := uint64(10)
-		if err := l.selectCoinsAndChange(feeRate, req.fundingAmount,
-			ourContribution); err != nil {
+		amt := req.fundingAmount + commitFee
+		err := l.selectCoinsAndChange(feeRate, amt, ourContribution)
+		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
@@ -1190,35 +1195,32 @@ out:
 
 // selectCoinsAndChange performs coin selection in order to obtain witness
 // outputs which sum to at least 'numCoins' amount of satoshis. If coin
-// selection is succesful/possible, then the selected coins are available within
-// the passed contribution's inputs. If necessary, a change address will also be
-// generated.
+// selection is succesful/possible, then the selected coins are available
+// within the passed contribution's inputs. If necessary, a change address will
+// also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
 func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amount,
 	contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
-	// performing coin selection in order to avoid inadvertent double spends
-	// accross funding transactions.
-	// NOTE: We don't use defer her so we can properly release the lock
-	// when we encounter an error condition.
+	// performing coin selection in order to avoid inadvertent double
+	// spends accross funding transactions.
 	l.coinSelectMtx.Lock()
+	defer l.coinSelectMtx.Unlock()
 
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
 	// TODO(roasbeef): make num confs a configuration paramter
 	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
-		l.coinSelectMtx.Unlock()
 		return err
 	}
 
 	// Peform coin selection over our available, unlocked unspent outputs
-	// in order to find enough coins to meet the funding amount requirements.
-	// TODO(roasbeef): take in sat/byte
+	// in order to find enough coins to meet the funding amount
+	// requirements.
 	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
 	if err != nil {
-		l.coinSelectMtx.Unlock()
 		return err
 	}
 
@@ -1253,8 +1255,6 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 			PkScript: changeScript,
 		}
 	}
-
-	l.coinSelectMtx.Unlock()
 
 	return nil
 }

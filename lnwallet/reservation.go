@@ -141,10 +141,16 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 
 	if fundingAmt == 0 {
 		ourBalance = 0
-		theirBalance = capacity
+		theirBalance = capacity - commitFee
 	} else {
-		ourBalance = fundingAmt
-		theirBalance = capacity - fundingAmt
+		// TODO(roasbeef): need to rework fee structure in general and
+		// also when we "unlock" dual funder within the daemon
+		if capacity == fundingAmt+commitFee { // Single funder
+			ourBalance = capacity - commitFee
+		} else {
+			ourBalance = fundingAmt - commitFee
+		}
+		theirBalance = capacity - fundingAmt - commitFee
 	}
 
 	return &ChannelReservation{

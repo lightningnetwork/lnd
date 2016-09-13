@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -68,9 +69,31 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 
 	return sig[:len(sig)-1], nil
 }
-
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error) {
 	return nil, nil
+}
+
+type mockNotfier struct {
+}
+
+func (m *mockNotfier) RegisterConfirmationsNtfn(txid *wire.ShaHash, numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
+	return nil, nil
+}
+func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
+	return nil, nil
+}
+
+func (m *mockNotfier) Start() error {
+	return nil
+}
+
+func (m *mockNotfier) Stop() error {
+	return nil
+}
+func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
+	return &chainntnfs.SpendEvent{
+		Spend: make(chan *chainntnfs.SpendDetail),
+	}, nil
 }
 
 // initRevocationWindows simulates a new channel being opened within the p2p
@@ -254,11 +277,13 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
-	channelAlice, err := NewLightningChannel(aliceSigner, nil, nil, aliceChannelState)
+	notifier := &mockNotfier{}
+
+	channelAlice, err := NewLightningChannel(aliceSigner, nil, notifier, aliceChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(bobSigner, nil, nil, bobChannelState)
+	channelBob, err := NewLightningChannel(bobSigner, nil, notifier, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -672,11 +697,12 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
-	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer, nil, nil, aliceChannels[0])
+	notifier := aliceChannel.channelEvents
+	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer, nil, notifier, aliceChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	bobChannelNew, err := NewLightningChannel(bobChannel.signer, nil, nil, bobChannels[0])
+	bobChannelNew, err := NewLightningChannel(bobChannel.signer, nil, notifier, bobChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}

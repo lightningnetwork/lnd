@@ -173,12 +173,14 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 
 	checkChannelBalance := func (node lnrpc.LightningClient, amount btcutil.Amount) {
 		response, err := node.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
+		balance := btcutil.Amount(response.Balance)
+
 		if err != nil {
 			t.Fatalf("unable to get channel balance: %v", err)
 		}
 
-		if btcutil.Amount(response.Balance) != amount {
-			t.Fatalf("channel balance wrong: %v != %v", response.Balance, amount)
+		if balance != amount {
+			t.Fatalf("channel balance wrong: %v != %v", balance, amount)
 		}
 	}
 

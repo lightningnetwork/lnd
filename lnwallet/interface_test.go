@@ -430,6 +430,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 		t.Fatalf("bob's revocaiton key not found")
 	}
 
+	// TODO(roasbeef): account for current hard-coded commit fee,
+	// need to remove bob all together
+	chanCapacity := int64(10e8 + 5000)
 	// Alice responds with her output, change addr, multi-sig key and signatures.
 	// Bob then responds with his signatures.
 	bobsSigs, err := bobNode.signFundingTx(fundingTx)
@@ -439,7 +442,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	commitSig, err := bobNode.signCommitTx(
 		chanReservation.LocalCommitTx(),
 		chanReservation.FundingRedeemScript(),
-		10e8)
+		chanCapacity)
 	if err != nil {
 		t.Fatalf("bob is unable to sign alice's commit tx: %v", err)
 	}
@@ -690,7 +693,9 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	bobCommitSig, err := bobNode.signCommitTx(
 		chanReservation.LocalCommitTx(),
 		chanReservation.FundingRedeemScript(),
-		int64(fundingAmt))
+		// TODO(roasbeef): account for current hard-coded fee, need to
+		// remove bobNode entirely
+		int64(fundingAmt)+5000)
 	if err != nil {
 		t.Fatalf("bob is unable to sign alice's commit tx: %v", err)
 	}
@@ -804,7 +809,8 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	fundingRedeemScript, multiOut, err := lnwallet.GenFundingPkScript(
 		ourContribution.MultiSigKey.SerializeCompressed(),
 		bobContribution.MultiSigKey.SerializeCompressed(),
-		int64(capacity))
+		// TODO(roasbeef): account for hard-coded fee, remove bob node
+		int64(capacity)+5000)
 	if err != nil {
 		t.Fatalf("unable to generate multi-sig output: %v", err)
 	}
@@ -837,7 +843,8 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	}
 	txsort.InPlaceSort(aliceCommitTx)
 	bobCommitSig, err := bobNode.signCommitTx(aliceCommitTx,
-		fundingRedeemScript, int64(capacity))
+		// TODO(roasbeef): account for hard-coded fee, remove bob node
+		fundingRedeemScript, int64(capacity)+5000)
 	if err != nil {
 		t.Fatalf("unable to sign alice's commit tx: %v", err)
 	}

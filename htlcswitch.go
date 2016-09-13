@@ -63,7 +63,13 @@ type htlcSwitch struct {
 	started  int32 // atomic
 	shutdown int32 // atomic
 
-	chanIndex  map[wire.OutPoint]*link
+	// chanIndex maps a channel's outpoint to a link which contains
+	// additional information about the channel, and additionally houses a
+	// pointer to the peer mangaing the channel.
+	chanIndex map[wire.OutPoint]*link
+
+	// interfaces maps a node's ID to the set of links (active channels) we
+	// currently have open with that peer.
 	interfaces map[wire.ShaHash][]*link
 
 	// TODO(roasbeef): msgs for dynamic link quality
@@ -395,20 +401,29 @@ func (h *htlcSwitch) UnregisterLink(chanInterface [32]byte, chanPoint *wire.OutP
 // closeChanReq represents a request to close a particular channel specified
 // by its outpoint.
 type closeLinkReq struct {
-	chanPoint *wire.OutPoint
+	chanPoint  *wire.OutPoint
+	forceClose bool
 
 	updates chan *lnrpc.CloseStatusUpdate
 	err     chan error
 }
 
 // CloseLink closes an active link targetted by it's channel point. Closing the
-// link initiates a cooperative channel closure.
-// TODO(roabeef): bool flag for timeout/force
-func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint) (chan *lnrpc.CloseStatusUpdate, chan error) {
+// link initiates a cooperative channel closure iff forceClose is false. If
+// forceClose is true, then a unilateral channel closure is executed.
+// TODO(roabeef): bool flag for timeout
+func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint,
+	forceClose bool) (chan *lnrpc.CloseStatusUpdate, chan error) {
+
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
 	errChan := make(chan error, 1)
 
-	h.linkControl <- &closeLinkReq{chanPoint, updateChan, errChan}
+	h.linkControl <- &closeLinkReq{
+		chanPoint:  chanPoint,
+		forceClose: forceClose,
+		updates:    updateChan,
+		err:        errChan,
+	}
 
 	return updateChan, errChan
 }

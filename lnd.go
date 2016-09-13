@@ -154,7 +154,7 @@ func lndMain() error {
 	defaultListenAddrs := []string{
 		net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort)),
 	}
-	server, err := newServer(defaultListenAddrs, notifier, wallet, chanDB)
+	server, err := newServer(defaultListenAddrs, notifier, bio, wallet, chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

@@ -43,6 +43,8 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	revocationPreimage := testHdSeed[:]
 	revokePubKey := DeriveRevocationPubkey(bobKeyPub, revocationPreimage)
 
+	aliceSelfOutputSigner := &mockSigner{aliceKeyPriv}
+
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
 	// identical with the roles reversed.
@@ -66,6 +68,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("unable to create target output: %v")
 	}
 	sweepTx := wire.NewMsgTx()
+	sweepTx.Version = 2
 	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{commitmentTx.TxSha(), 0}, nil, nil))
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: targetOutput,
@@ -77,8 +80,18 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v")
 	}
-	aliceWitnessSpend, err := commitSpendTimeout(delayScript, channelBalance,
-		csvTimeout, aliceKeyPriv, sweepTx)
+	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
+	signDesc := &SignDescriptor{
+		RedeemScript: delayScript,
+		SigHashes:    txscript.NewTxSigHashes(sweepTx),
+		Output: &wire.TxOut{
+			Value: int64(channelBalance),
+		},
+		HashType:   txscript.SigHashAll,
+		InputIndex: 0,
+	}
+	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
+		signDesc, sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate delay commit spend witness :%v")
 	}

@@ -39,9 +39,12 @@ type server struct {
 	listeners []net.Listener
 	peers     map[int32]*peer
 
-	rpcServer     *rpcServer
+	rpcServer *rpcServer
+
 	chainNotifier chainntnfs.ChainNotifier
-	lnwallet      *lnwallet.LightningWallet
+
+	bio      lnwallet.BlockChainIO
+	lnwallet *lnwallet.LightningWallet
 
 	// TODO(roasbeef): add to constructor
 	fundingMgr *fundingManager
@@ -51,6 +54,8 @@ type server struct {
 	invoices   *invoiceRegistry
 
 	routingMgr *routing.RoutingManager
+
+	utxoNursery *utxoNursery
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -63,7 +68,8 @@ type server struct {
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
-	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
+	bio lnwallet.BlockChainIO, wallet *lnwallet.LightningWallet,
+	chanDB *channeldb.DB) (*server, error) {
 
 	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
@@ -80,6 +86,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
+		bio:           bio,
 		chainNotifier: notifier,
 		chanDB:        chanDB,
 		fundingMgr:    newFundingManager(wallet),
@@ -98,6 +105,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// TODO(roasbeef): remove
 	s.invoices.addInvoice(1000*1e8, *debugPre)
+
+	s.utxoNursery = newUtxoNursery(notifier, wallet)
 
 	// Create a new routing manager with ourself as the sole node within
 	// the graph.
@@ -140,6 +149,9 @@ func (s *server) Start() error {
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
+	if err := s.utxoNursery.Start(); err != nil {
+		return err
+	}
 	s.routingMgr.Start()
 
 	s.wg.Add(1)
@@ -170,6 +182,7 @@ func (s *server) Stop() error {
 	s.fundingMgr.Stop()
 	s.routingMgr.Stop()
 	s.htlcSwitch.Stop()
+	s.utxoNursery.Stop()
 
 	s.lnwallet.Shutdown()
 
@@ -283,7 +296,7 @@ out:
 			}
 		case msg := <-s.routingMgr.ChOut:
 			msg1 := msg.(*routing.RoutingMessage)
-			if msg1.ReceiverID == nil{
+			if msg1.ReceiverID == nil {
 				peerLog.Critical("msg1.GetReceiverID() == nil")
 			}
 			receiverID := msg1.ReceiverID.ToByte32()

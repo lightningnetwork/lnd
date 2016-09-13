@@ -15,6 +15,8 @@ import (
 //
 // Concrete implementations of ChainNotifier should be able to support multiple
 // concurrent client requests, as well as multiple concurrent notification events.
+// TODO(roasbeef): all events should have a Cancel() method to free up the
+// resource
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations. The returned ConfirmationEvent
@@ -36,7 +38,7 @@ type ChainNotifier interface {
 	// new block connected to the tip of the main chain. The returned
 	// BlockEpochEvent struct contains a channel which will be sent upon
 	// for each new block discovered.
-	RegisterBlockEpochNtfn(targetHeight int32) (*BlockEpochEvent, error)
+	RegisterBlockEpochNtfn() (*BlockEpochEvent, error)
 
 	// Start the ChainNotifier. Once started, the implementation should be
 	// ready, and able to receive notification registrations from clients.
@@ -48,10 +50,6 @@ type ChainNotifier interface {
 	// by closing the related channels on the *Event's.
 	Stop() error
 }
-
-// TODO(roasbeef): ln channels should request spend ntfns for counterparty's
-// inputs to funding tx also, consider channel closed if funding tx re-org'd
-// out and inputs double spent.
 
 // TODO(roasbeef): all chans should be receive only.
 

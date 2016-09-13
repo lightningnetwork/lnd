@@ -26,6 +26,7 @@ var (
 	ntfnLog    = btclog.Disabled
 	chdbLog    = btclog.Disabled
 	hswcLog    = btclog.Disabled
+	utxnLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -39,6 +40,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"CHDB": chdbLog,
 	"FNDG": fndgLog,
 	"HSWC": hswcLog,
+	"UTXN": utxnLog,
 }
 
 // useLogger updates the logger references for subsystemID to logger.  Invalid
@@ -79,6 +81,8 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "HSWC":
 		hswcLog = logger
+	case "UTXN":
+		utxnLog = logger
 	}
 }
 

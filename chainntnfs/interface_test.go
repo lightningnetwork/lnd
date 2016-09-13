@@ -2,6 +2,9 @@ package chainntnfs_test
 
 import (
 	"bytes"
+	"fmt"
+	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,7 +56,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 
 	txid, err := getTestTxId(miner)
 	if err != nil {
-		t.Fatalf("unable to create test addr: %v", err)
+		t.Fatalf("unable to create test tx: %v", err)
 	}
 
 	// Now that we have a txid, register a confirmation notiication with
@@ -281,11 +284,112 @@ func testSpendNotification(miner *rpctest.Harness,
 	}
 }
 
+func testBlockEpochNotification(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	// We'd like to test the case of multiple registered clients receiving
+	// block epoch notifications.
+
+	const numBlocks = 10
+	const numClients = 5
+	var wg sync.WaitGroup
+
+	// Create numClients clients which will listen for block notifications. We
+	// expect each client to receive 10 notifications for each of the ten
+	// blocks we generate below. So we'll use a WaitGroup to synchronize the
+	// test.
+	for i := 0; i < numClients; i++ {
+		epochClient, err := notifier.RegisterBlockEpochNtfn()
+		if err != nil {
+			t.Fatalf("unable to register for epoch notification")
+		}
+
+		wg.Add(numBlocks)
+		go func() {
+			for i := 0; i < numBlocks; i++ {
+				<-epochClient.Epochs
+				wg.Done()
+			}
+		}()
+	}
+
+	epochsSent := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(epochsSent)
+	}()
+
+	// Now generate 10 blocks, the clients above should each receive 10
+	// notifications, thereby unblocking the goroutine above.
+	if _, err := miner.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	select {
+	case <-epochsSent:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("all notifications not sent")
+	}
+}
+
+func testMultiClientConfirmationNotification(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+	// TODO(roasbeef): test various conf targets w/ same txid
+
+	// We'd like to test the case of a multiple clients registered to
+	// receive a confirmation notification for the same transaction.
+
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	const numConfsClients = 5
+	const numConfs = 1
+
+	// Register for a conf notification for the above generated txid with
+	// numConfsClients distinct clients.
+	for i := 0; i < numConfsClients; i++ {
+		confClient, err := notifier.RegisterConfirmationsNtfn(txid, numConfs)
+		if err != nil {
+			t.Fatalf("unable to register for confirmation: %v", err)
+		}
+
+		wg.Add(1)
+		go func() {
+			<-confClient.Confirmed
+			fmt.Println(i)
+			wg.Done()
+		}()
+	}
+
+	confsSent := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(confsSent)
+	}()
+
+	// Finally, generate a single block which should trigger the unblocking
+	// of all numConfsClients blocked on the channel read above.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	select {
+	case <-confsSent:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("all confirmation notifications not sent")
+	}
+}
+
 var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T){
 	testSingleConfirmationNotification,
 	testMultiConfirmationNotification,
 	testBatchConfirmationNotification,
+	testMultiClientConfirmationNotification,
 	testSpendNotification,
+	testBlockEpochNotification,
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests
@@ -315,6 +419,7 @@ func TestInterfaces(t *testing.T) {
 
 	rpcConfig := miner.RPCConfig()
 
+	log.Printf("Running %v ChainNotifier interface tests\n", len(ntfnTests))
 	var notifier chainntnfs.ChainNotifier
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType

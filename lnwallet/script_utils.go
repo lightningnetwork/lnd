@@ -83,7 +83,7 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	return redeemScript, wire.NewTxOut(amt, pkScript), nil
 }
 
-// spendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
+// SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
 // multi-sig output.
 func SpendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	witness := make([][]byte, 4)
@@ -178,7 +178,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// Alternatively, the receiver can place a 0 as the second item of the
 	// witness stack if they wish to claim the HTLC with the proper
 	// pre-image as normal. In order to prevent an over-sized pre-image
-	// attack (which can create undesirable redemption asymmerties, we
+	// attack (which can create undesirable redemption asymmerties), we
 	// strongly require that all HTLC pre-images are exactly 32 bytes.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddOp(txscript.OP_SIZE)
@@ -592,29 +592,26 @@ func commitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	return builder.Script()
 }
 
-// commitSpendTimeout constructs a valid witness allowing the owner of a
+// CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
-// funds back to themselves after an absolute block timeout.
-func commitSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
-	blockTimeout uint32, selfKey *btcec.PrivateKey,
+// funds back to themselves after a relative block timeout.  In order to
+// properly spend the transaction, the target input's sequence number should be
+// set accordingly based off of the target relative block timeout within the
+// redeem script.  Additionally, OP_CSV requires that the version of the
+// transaction spending a pkscript with OP_CSV within it *must* be >= 2.
+func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// In order to properly spend the transaction, we need to set the
-	// sequence number. We do this by convering the relative block delay
-	// into a sequence number value able to be interpeted by
-	// OP_CHECKSEQUENCEVERIFY.
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, blockTimeout)
-
-	// Additionally, OP_CSV requires that the version of the transaction
-	// spending a pkscript with OP_CSV within it *must* be >= 2.
-	sweepTx.Version = 2
+	// Ensure the transaction version supports the validation of sequence
+	// locks and CSV semantics.
+	if sweepTx.Version < 2 {
+		return nil, fmt.Errorf("version of passed transaction MUST "+
+			"be >= 2, not %v", sweepTx.Version)
+	}
 
 	// With the sequence number in place, we're now able to properly sign
 	// off on the sweep transaction.
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-	sweepSig, err := txscript.RawTxInWitnessSignature(
-		sweepTx, hashCache, 0, int64(outputAmt), commitScript,
-		txscript.SigHashAll, selfKey)
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -622,9 +619,9 @@ func commitSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 	// Place a zero as the first item in the evaluated witness stack to
 	// force script execution to the timeout spend clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = sweepSig
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[1] = []byte{0}
-	witnessStack[2] = commitScript
+	witnessStack[2] = signDesc.RedeemScript
 
 	return witnessStack, nil
 }

@@ -7,4 +7,5 @@ var (
 
 	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
 	ErrChannelNoExist   = fmt.Errorf("this channel does not exist")
+	ErrNoPastDeltas     = fmt.Errorf("channel has no recorded deltas")
 )

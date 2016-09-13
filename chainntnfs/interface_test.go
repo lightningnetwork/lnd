@@ -2,7 +2,6 @@ package chainntnfs_test
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"sync"
 	"testing"
@@ -359,7 +358,6 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 		wg.Add(1)
 		go func() {
 			<-confClient.Confirmed
-			fmt.Println(i)
 			wg.Done()
 		}()
 	}

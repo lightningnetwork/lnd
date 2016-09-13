@@ -182,14 +182,19 @@ func connectPeer(ctx *cli.Context) error {
 var OpenChannelCommand = cli.Command{
 	Name: "openchannel",
 	Description: "Attempt to open a new channel to an existing peer, " +
-		"blocking until the channel is 'open'. Once the channel is " +
-		"open, a channelPoint (txid:vout) of the funding output is " +
-		"returned.",
+		"optionally blocking until the channel is 'open'. Once the " +
+		"channel is open, a channelPoint (txid:vout) of the funding " +
+		"output is returned. NOTE: peer_id and lightning_id are " +
+		"mutually exclusive, only one should be used, not both.",
 	Usage: "openchannel --peer_id=X --local_amt=N --remote_amt=N --num_confs=N",
 	Flags: []cli.Flag{
 		cli.IntFlag{
 			Name:  "peer_id",
-			Usage: "the id of the peer to open a channel with",
+			Usage: "the relative id of the peer to open a channel with",
+		},
+		cli.StringFlag{
+			Name:  "lightning_id",
+			Usage: "the lightning id of the target peer",
 		},
 		cli.IntFlag{
 			Name:  "local_amt",
@@ -217,11 +222,25 @@ func openChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
+	if ctx.Int("peer_id") != 0 && ctx.String("lightning_id") != "" {
+		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
+			"at the same time, only one can be specified")
+	}
+
 	req := &lnrpc.OpenChannelRequest{
-		TargetPeerId:        int32(ctx.Int("peer_id")),
 		LocalFundingAmount:  int64(ctx.Int("local_amt")),
 		RemoteFundingAmount: int64(ctx.Int("remote_amt")),
 		NumConfs:            uint32(ctx.Int("num_confs")),
+	}
+
+	if ctx.Int("peer_id") != 0 {
+		req.TargetPeerId = int32(ctx.Int("peer_id"))
+	} else {
+		lnID, err := hex.DecodeString(ctx.String("lightning_id"))
+		if err != nil {
+			return fmt.Errorf("unable to decode lightning id: %v", err)
+		}
+		req.TargetNode = lnID
 	}
 
 	stream, err := client.OpenChannel(ctxb, req)

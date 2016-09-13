@@ -157,7 +157,6 @@ func (b *BtcdNotifier) onBlockConnected(hash *wire.ShaHash, height int32, t time
 
 // onBlockDisconnected implements on OnBlockDisconnected callback for btcrpcclient.
 func (b *BtcdNotifier) onBlockDisconnected(hash *wire.ShaHash, height int32, t time.Time) {
-	b.onBlockDisconnected(hash, height, t)
 }
 
 // onRedeemingTx implements on OnRedeemingTx callback for btcrpcclient.
@@ -248,6 +247,9 @@ out:
 						SpenderInputIndex: uint32(i),
 					}
 
+					chainntnfs.Log.Infof("Dispatching "+
+						"spend notification for "+
+						"outpoint=%v", ntfn.targetOutpoint)
 					ntfn.spendChan <- spendDetails
 					delete(b.spendNotifications, prevOut)
 				}

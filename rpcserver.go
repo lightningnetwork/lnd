@@ -397,7 +397,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		}
 	}
 
-	return &lnrpc.ChannelBalanceResponse{Balance: float64(balance)}, nil
+	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil
 }
 
 // PendingChannels returns a list of all the channels that are currently

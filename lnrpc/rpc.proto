@@ -227,7 +227,7 @@ message WalletBalanceResponse {
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
-    double balance = 1;
+    int64 balance = 1;
 }
 
 message RoutingTableLink {

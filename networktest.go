@@ -79,6 +79,11 @@ type lightningNode struct {
 
 	nodeId int
 
+	// LightningId is the ID, or the sha256 of the node's identity public
+	// key. This field will only be populated once the node itself has been
+	// started via the start() method.
+	LightningID [32]byte
+
 	cmd     *exec.Cmd
 	pidFile string
 
@@ -180,6 +185,18 @@ func (l *lightningNode) start() error {
 	}
 
 	l.LightningClient = lnrpc.NewLightningClient(conn)
+
+	// Obtain the lnid of this node for quick identification purposes.
+	ctxb := context.Background()
+	info, err := l.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return nil
+	}
+	lnID, err := hex.DecodeString(info.LightningId)
+	if err != nil {
+		return err
+	}
+	copy(l.LightningID[:], lnID)
 
 	return nil
 }
@@ -494,13 +511,10 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
-	// TODO(roasbeef): should pass actual id instead, will fail if more
-	// connections added for Alice.
 	openReq := &lnrpc.OpenChannelRequest{
-		TargetPeerId:        1,
-		LocalFundingAmount:  int64(amt),
-		RemoteFundingAmount: 0,
-		NumConfs:            1,
+		TargetNode:         destNode.LightningID[:],
+		LocalFundingAmount: int64(amt),
+		NumConfs:           numConfs,
 	}
 	respStream, err := srcNode.OpenChannel(ctx, openReq)
 	if err != nil {

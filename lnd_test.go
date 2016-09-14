@@ -28,8 +28,8 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 	t.Fatalf("funding tx was not included in block")
 }
 
-
-func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) (func(*lightningNode, *lightningNode, btcutil.Amount) *lnrpc.ChannelPoint, func(*lightningNode, *lnrpc.ChannelPoint)) {
+func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) (func(*lightningNode,
+*lightningNode, btcutil.Amount) *lnrpc.ChannelPoint, func(*lightningNode, *lnrpc.ChannelPoint)) {
 
 	openChannel := func(alice *lightningNode, bob *lightningNode, amount btcutil.Amount) *lnrpc.ChannelPoint {
 		chanOpenUpdate, err := net.OpenChannel(ctxb, alice, bob, amount, 1)
@@ -121,8 +121,8 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	closeChannel(net.Alice, chanPoint)
 }
 
-// Creates a new channel between Alice and  Bob, then checks channel balance
-// to be equal specified amount.
+// testChannelBalance creates a new channel between Alice and  Bob, then
+// checks channel balance to be equal amount specified while creation of channel.
 func testChannelBalance(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
 
@@ -145,8 +145,9 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 
 	checkChannelBalance(net.Alice, amount)
 
-	// Because we wait for Alice channel open notification it might happen that Bob haven't
-	// added newly created channel in the list of active channels, so lets wait for a second.
+	// Because we wait for Alice channel open notification it might happen
+	// that Bob haven't added newly created channel in the list of active
+	// channels, so lets wait for a second.
 	time.Sleep(time.Second)
 	checkChannelBalance(net.Bob, amount)
 

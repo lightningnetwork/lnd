@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -248,11 +249,11 @@ type listPeersMsg struct {
 }
 
 // openChanReq is a message sent to the server in order to request the
-// initiation of a channel funding workflow to the peer with the specified
-// node ID.
+// initiation of a channel funding workflow to the peer with either the specified
+// relative peer ID, or a global lightning  ID.
 type openChanReq struct {
-	targetNodeID int32
-	targetNode   *lndc.LNAdr
+	targetPeerID int32
+	targetNodeID [32]byte
 
 	// TODO(roasbeef): make enums in lnwire
 	channelType uint8
@@ -409,18 +410,19 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 func (s *server) handleOpenChanReq(req *openChanReq) {
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.
-	target := req.targetNodeID
 	var targetPeer *peer
 	for _, peer := range s.peers { // TODO(roasbeef): threadsafe api
 		// We found the the target
-		if target == peer.id {
+		if req.targetPeerID == peer.id ||
+			bytes.Equal(req.targetNodeID[:], peer.lightningID[:]) {
 			targetPeer = peer
 			break
 		}
 	}
 
 	if targetPeer == nil {
-		req.err <- fmt.Errorf("unable to find peer %v", target)
+		req.err <- fmt.Errorf("unable to find peer lightningID(%v), "+
+			"peerID(%v)", req.targetNodeID, req.targetPeerID)
 		return
 	}
 
@@ -446,21 +448,23 @@ func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
 
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
-func (s *server) OpenChannel(nodeID int32, localAmt, remoteAmt btcutil.Amount,
+func (s *server) OpenChannel(peerID int32, nodeID []byte, localAmt, remoteAmt btcutil.Amount,
 	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 
-	s.queries <- &openChanReq{
-		targetNodeID:     nodeID,
+	req := &openChanReq{
+		targetPeerID:     peerID,
 		localFundingAmt:  localAmt,
 		remoteFundingAmt: remoteAmt,
 		numConfs:         numConfs,
-
-		updates: updateChan,
-		err:     errChan,
+		updates:          updateChan,
+		err:              errChan,
 	}
+	copy(req.targetNodeID[:], nodeID)
+
+	s.queries <- req
 
 	return updateChan, errChan
 }

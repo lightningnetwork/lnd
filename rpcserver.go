@@ -196,18 +196,17 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
-	target := in.TargetPeerId
-	numConfs := in.NumConfs
-	updateChan, errChan := r.server.OpenChannel(target, localFundingAmt,
-		remoteFundingAmt, numConfs)
+	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
+		in.TargetNode, localFundingAmt, remoteFundingAmt, in.NumConfs)
 
 	var outpoint wire.OutPoint
 out:
 	for {
 		select {
 		case err := <-errChan:
-			rpcsLog.Errorf("unable to open channel to peerid(%v): %v",
-				target, err)
+			rpcsLog.Errorf("unable to open channel to "+
+				"lightningID(%v) nor peerID(%v): %v",
+				in.TargetNode, in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",

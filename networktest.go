@@ -79,6 +79,11 @@ type lightningNode struct {
 
 	nodeId int
 
+	// LightningId is the ID, or the sha256 of the node's identity public
+	// key. This field will only be populated once the node itself has been
+	// started via the start() method.
+	LightningID [32]byte
+
 	cmd     *exec.Cmd
 	pidFile string
 
@@ -180,6 +185,18 @@ func (l *lightningNode) start() error {
 	}
 
 	l.LightningClient = lnrpc.NewLightningClient(conn)
+
+	// Obtain the lnid of this node for quick identification purposes.
+	ctxb := context.Background()
+	info, err := l.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return nil
+	}
+	lnID, err := hex.DecodeString(info.LightningId)
+	if err != nil {
+		return err
+	}
+	copy(l.LightningID[:], lnID)
 
 	return nil
 }
@@ -457,6 +474,11 @@ func (n *networkHarness) networkWatcher() {
 				clients[req.txid] = append(clients[req.txid], req.eventChan)
 			}
 		case txid := <-n.seenTxns:
+			// Add this txid to our set of "seen" transactions. So
+			// we're able to dispatch any notifications for this
+			// txid which arrive *after* it's seen within the
+			// network.
+			seenTxns[txid] = struct{}{}
 
 			// If there isn't a registered notification for this
 			// transaction then ignore it.
@@ -498,14 +520,12 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
-	// TODO(roasbeef): should pass actual id instead, will fail if more
-	// connections added for Alice.
 	openReq := &lnrpc.OpenChannelRequest{
-		TargetPeerId:        int32(destNode.nodeId),
-		LocalFundingAmount:  int64(amt),
-		RemoteFundingAmount: 0,
-		NumConfs:            numConfs,
+		TargetNode:         destNode.LightningID[:],
+		LocalFundingAmount: int64(amt),
+		NumConfs:           numConfs,
 	}
+
 	respStream, err := srcNode.OpenChannel(ctx, openReq)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel between "+
@@ -568,7 +588,10 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	if !ok {
 		return nil, fmt.Errorf("expected close pending update, got %v", pendingClose)
 	}
-	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	closeTxid, err := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	if err != nil {
+		return nil, err
+	}
 	n.WaitForTxBroadcast(*closeTxid)
 
 	return closeRespStream, nil

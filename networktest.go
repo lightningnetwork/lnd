@@ -470,6 +470,11 @@ func (n *networkHarness) networkWatcher() {
 				clients[req.txid] = append(clients[req.txid], req.eventChan)
 			}
 		case txid := <-n.seenTxns:
+			// Add this txid to our set of "seen" transactions. So
+			// we're able to dispatch any notifications for this
+			// txid which arrive *after* it's seen within the
+			// network.
+			seenTxns[txid] = struct{}{}
 
 			// If there isn't a registered notification for this
 			// transaction then ignore it.
@@ -578,7 +583,10 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	if !ok {
 		return nil, fmt.Errorf("expected close pending update, got %v", pendingClose)
 	}
-	closeTxid, _ := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	closeTxid, err := wire.NewShaHash(pendingClose.ClosePending.Txid)
+	if err != nil {
+		return nil, err
+	}
 	n.WaitForTxBroadcast(*closeTxid)
 
 	return closeRespStream, nil

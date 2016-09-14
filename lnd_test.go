@@ -149,7 +149,7 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 	// that Bob haven't added newly created channel in the list of active
 	// channels, so lets wait for a second.
 	time.Sleep(time.Second)
-	checkChannelBalance(net.Bob, amount)
+	checkChannelBalance(net.Bob, 0)
 
 	closeChannel(net.Alice, chanPoint)
 }

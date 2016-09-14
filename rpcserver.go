@@ -392,7 +392,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	var balance btcutil.Amount
 	for _, peer := range r.server.Peers() {
 		for _, snapshot := range peer.ChannelSnapshots() {
-			balance += snapshot.Capacity
+			balance += snapshot.LocalBalance
 		}
 	}
 

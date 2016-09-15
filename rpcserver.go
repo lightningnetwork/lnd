@@ -385,6 +385,20 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
 }
 
+
+func (r *rpcServer) ChannelBalance(ctx context.Context,
+	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
+
+	var balance btcutil.Amount
+	for _, peer := range r.server.Peers() {
+		for _, snapshot := range peer.ChannelSnapshots() {
+			balance += snapshot.LocalBalance
+		}
+	}
+
+	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil
+}
+
 // PendingChannels returns a list of all the channels that are currently
 // considered "pending". A channel is pending if it has finished the funding
 // workflow and is waiting for confirmations for the funding txn, or is in the

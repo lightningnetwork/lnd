@@ -55,6 +55,8 @@ const (
 	CmdNeighborRstMessage          = uint32(3030)
 	CmdRoutingTableRequestMessage  = uint32(3040)
 	CmdRoutingTableTransferMessage = uint32(3050)
+	CmdAllowHTLCRequest            = uint32(3060)
+	CmdAllowHTLCResponse           = uint32(3070)
 
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
@@ -122,6 +124,10 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &PaymentInitiation{}
 	case CmdPaymentInitiationConfirmation:
 		msg = &PaymentInitiationConfirmation{}
+	case CmdAllowHTLCRequest:
+		msg = &AllowHTLCRequestMessage{}
+	case CmdAllowHTLCResponse:
+		msg = &AllowHTLCResponseMessage{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

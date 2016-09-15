@@ -259,12 +259,16 @@ message MultihopPaymentResponse {
 message FindPathRequest {
     string targetID = 1;
     int32 numberOfPaths = 2;
+    bool validate = 3;
+    int64 amount = 4;
+    int32 timeout = 5;
 }
 
 message FindPathResponse {
     message Path {
         repeated string path = 1;
         double fee = 2;
+        int32 validationStatus = 3;
     }
     repeated Path paths = 1;
 }

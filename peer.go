@@ -387,7 +387,9 @@ out:
 			*lnwire.NeighborRstMessage,
 			*lnwire.NeighborUpdMessage,
 			*lnwire.RoutingTableRequestMessage,
-			*lnwire.RoutingTableTransferMessage:
+			*lnwire.RoutingTableTransferMessage,
+			*lnwire.AllowHTLCRequestMessage,
+			*lnwire.AllowHTLCResponseMessage:
 			// Convert to base routing message and set sender and receiver
 			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		case *lnwire.PaymentInitiation,

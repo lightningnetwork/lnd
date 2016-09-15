@@ -541,21 +541,32 @@ func (r *rpcServer) FindPath(ctx context.Context, in *lnrpc.FindPathRequest) (*l
 	paths, err := r.server.routingMgr.FindKSP(
 		graph.NewID(in.TargetID),
 		int(in.NumberOfPaths),
-		10*time.Second,
+		1*time.Second,
 	)
+	rpcsLog.Info("[FindPath] after FindKSP dest=", hex.EncodeToString([]byte(in.TargetID)))
+
 	if err != nil{
 		return nil, err
+	}
+	validationStatuses := make([]lnwire.AllowHTLCStatus, len(paths))
+	if in.Validate {
+		validationStatuses = r.server.routingMgr.ValidatePathMult(
+			paths,
+			in.Amount,
+			time.Duration(in.Timeout) * time.Second,
+		)
 	}
 	resp := &lnrpc.FindPathResponse{
 		Paths: make([]*lnrpc.FindPathResponse_Path, 0),
 	}
-	for _, p := range(paths){
+	for i, p := range(paths){
 		newP := &lnrpc.FindPathResponse_Path{
 			Path: make([]string, 0),
 		}
 		for _, node := range(p){
 			newP.Path = append(newP.Path, node.String())
 		}
+		newP.ValidationStatus = int32(validationStatuses[i])
 		resp.Paths = append(resp.Paths, newP)
 	}
 	return resp, nil

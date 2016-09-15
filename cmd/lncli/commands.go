@@ -21,6 +21,7 @@ import (
 
 	"github.com/BitfuryLightning/tools/rt/visualizer"
 	"strconv"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -915,7 +916,7 @@ func sendMultihopPayment(ctx *cli.Context) error {
 var FindPathCommand = cli.Command{
 	Name: "findpath",
 	Description: "finds path from node to some other node",
-	Usage: "findpath DESTINATION",
+	Usage: "findpath --destination <LightningID> --maxpath <MaxPath> --validate --amount <Satoshis>",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "destination",
@@ -926,8 +927,35 @@ var FindPathCommand = cli.Command{
 			Usage: "maximal number of paths to find",
 			Value: 10,
 		},
+		cli.BoolFlag{
+			Name: "validate",
+			Usage: "send message to know if paths are valid",
+		},
+		cli.Int64Flag{
+			Name: "amount",
+			Usage: "amount of money which could be send through path",
+			Value: 10,
+		},
+		cli.IntFlag{
+			Name: "timeout",
+			Usage: "timeout which is used during path validation. In seconds",
+			Value: 1,
+		},
 	},
 	Action: findPath,
+}
+
+func validationStatusToStr(st lnwire.AllowHTLCStatus) string {
+	switch st {
+	case lnwire.AllowHTLCStatus_Allow:
+		return "ALLOW"
+	case lnwire.AllowHTLCStatus_Decline:
+		return "DECLINE"
+	case lnwire.AllowHTLCStatus_Timeout:
+		return "TIMEOUT"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func findPath(ctx *cli.Context) error {
@@ -945,6 +973,9 @@ func findPath(ctx *cli.Context) error {
 	req := &lnrpc.FindPathRequest{
 		TargetID: string(destID),
 		NumberOfPaths: int32(ctx.Int("maxpath")),
+		Validate: ctx.Bool("validate"),
+		Amount: ctx.Int64("amount"),
+		Timeout: int32(ctx.Int("timeout")),
 	}
 
 	resp, err := client.FindPath(ctxb, req)
@@ -954,6 +985,7 @@ func findPath(ctx *cli.Context) error {
 	// We need to convert byte-strings into hex-encoded string
 	type PathResult struct {
 		Path []string `json:"path"`
+		ValidationStatus string  `json:"validation_status"`
 	}
 	var convResp struct {
 		Paths []PathResult `json:"paths"`
@@ -965,7 +997,99 @@ func findPath(ctx *cli.Context) error {
 			convPath[j] = hex.EncodeToString([]byte(resp.Paths[i].Path[j]))
 		}
 		convResp.Paths[i].Path = convPath
+		convResp.Paths[i].ValidationStatus = validationStatusToStr(lnwire.AllowHTLCStatus(resp.Paths[i].ValidationStatus))
 	}
 	printRespJson(convResp)
+	return nil
+}
+
+var PayMultihopCommand = cli.Command{
+	Name: "paymultihop",
+	Description: "finds path from node to some other node and send payment to it",
+	Usage: "paymultihop --destination <LightningID> --amount <Amount in Satoshi> --maxpath <MaxPath> --timeout <Path timeout>",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "destination",
+			Usage: "lightningID of destination",
+		},
+		cli.IntFlag{
+			Name: "maxpath",
+			Usage: "maximal number of paths to find",
+			Value: 10,
+		},
+		cli.Int64Flag{
+			Name: "amount",
+			Usage: "amount of money which could be send through path",
+			Value: 10,
+		},
+		cli.IntFlag{
+			Name: "timeout",
+			Usage: "timeout which is used during path validation. In seconds",
+			Value: 1,
+		},
+	},
+	Action: payMultihop,
+}
+
+func payMultihop(ctx *cli.Context) error {
+	// TODO(roasbeef): add deadline to context
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	amount := ctx.Int64("amount")
+	destID, err := hex.DecodeString(ctx.String("destination"))
+	if err != nil{
+		return err
+	}
+	if len(destID) != 32 {
+		return fmt.Errorf("Incorrect size of LightningID, got %v, want %v", len(destID), 32)
+	}
+	req := &lnrpc.FindPathRequest{
+		TargetID: string(destID),
+		NumberOfPaths: int32(ctx.Int("maxpath")),
+		Validate: true,
+		Amount: amount,
+		Timeout: int32(ctx.Int("timeout")),
+	}
+
+	resp, err := client.FindPath(ctxb, req)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Found %v paths\n", len(resp.Paths))
+	iPathToUse := -1
+	var convPathToUse []string
+	// We need to convert byte-strings into hex-encoded string
+	for i := 0; i< len(resp.Paths); i++{
+		convPath := make([]string, len(resp.Paths[i].Path))
+		for j:=0; j<len(resp.Paths[i].Path); j++ {
+			convPath[j] = hex.EncodeToString([]byte(resp.Paths[i].Path[j]))
+		}
+		status := lnwire.AllowHTLCStatus(resp.Paths[i].ValidationStatus)
+		fmt.Printf("%v: %v\n", validationStatusToStr(status), convPath)
+		// We need first valid path because it is shortest
+		if iPathToUse == -1 && status == lnwire.AllowHTLCStatus_Allow{
+			iPathToUse = i
+			convPathToUse = convPath
+		}
+	}
+	if iPathToUse == -1 {
+		fmt.Println("We didn't find any suitable path")
+	} else {
+		pathToUse := resp.Paths[iPathToUse].Path
+		fmt.Println("Suitable path found.")
+		fmt.Printf("Will make payment %v using path %v\n", amount, convPathToUse)
+		req := &lnrpc.MultihopPaymentRequest{
+			Amount: amount,
+			// We need to ignore first node(because it is ourselves)
+			LightningIDs: pathToUse[1:],
+		}
+		_, err := client.SendMultihopPayment(ctxb, req)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Payment send")
+
+	}
 	return nil
 }

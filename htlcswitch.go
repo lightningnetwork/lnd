@@ -307,6 +307,8 @@ out:
 				h.handleUnregisterLink(req)
 			case *linkInfoUpdateMsg:
 				h.handleLinkUpdate(req)
+			case *canSendMsg:
+				h.handleCanSendMsg(req)
 			}
 		case <-h.quit:
 			break out
@@ -499,4 +501,37 @@ type linkInfoUpdateMsg struct {
 // HTLC invoice.
 func (h *htlcSwitch) UpdateLink(chanPoint *wire.OutPoint, bandwidthDelta btcutil.Amount) {
 	h.linkControl <- &linkInfoUpdateMsg{chanPoint, bandwidthDelta}
+}
+
+// Message to ask if it is possible to send given amount of money to a partner.
+type canSendMsg struct {
+	partnerId wire.ShaHash
+	amount btcutil.Amount
+	resp chan lnwire.AllowHTLCStatus
+}
+
+func (h *htlcSwitch) CanSend(partnerId wire.ShaHash, amount btcutil.Amount) lnwire.AllowHTLCStatus {
+	hswcLog.Info("Start processing canSendMsg")
+	msg := & canSendMsg{
+		partnerId: partnerId,
+		amount: amount,
+		resp: make(chan lnwire.AllowHTLCStatus, 1),
+	}
+	h.linkControl <- msg
+	return <-msg.resp
+}
+
+func (h *htlcSwitch) handleCanSendMsg(msg *canSendMsg){
+	hswcLog.Info("Start processing canSendMsg")
+	chanInterface, ok := h.interfaces[msg.partnerId]
+	if !ok {
+		msg.resp <- lnwire.AllowHTLCStatus_Decline
+		return
+	}
+	for _, link := range chanInterface {
+		if link.availableBandwidth >= msg.amount {
+			msg.resp <- lnwire.AllowHTLCStatus_Allow
+		}
+	}
+	msg.resp <- lnwire.AllowHTLCStatus_Decline
 }

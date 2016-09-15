@@ -64,6 +64,7 @@ func main() {
 		ShowRoutingTableCommand,
 		SendMultihopPayment,
 		FindPathCommand,
+		PayMultihopCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

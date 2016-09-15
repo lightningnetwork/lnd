@@ -385,7 +385,8 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
 }
 
-
+// ChannelBalance returns the total available channel flow across all open
+// channels in satoshis.
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
 

@@ -9,11 +9,11 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
-	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 type lndTestCase func(net *networkHarness, t *testing.T)
@@ -28,8 +28,12 @@ func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 	t.Fatalf("funding tx was not included in block")
 }
 
-func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) (func(*lightningNode,
-*lightningNode, btcutil.Amount) *lnrpc.ChannelPoint, func(*lightningNode, *lnrpc.ChannelPoint)) {
+// getChannelHelpers returns a series of helper functions as closures which may
+// be useful within tests to execute common activities such as synchronously
+// waiting for channels to open/close.
+func getChannelHelpers(ctxb context.Context, net *networkHarness,
+	t *testing.T) (func(*lightningNode, *lightningNode, btcutil.Amount) *lnrpc.ChannelPoint,
+	func(*lightningNode, *lnrpc.ChannelPoint)) {
 
 	openChannel := func(alice *lightningNode, bob *lightningNode, amount btcutil.Amount) *lnrpc.ChannelPoint {
 		chanOpenUpdate, err := net.OpenChannel(ctxb, alice, bob, amount, 1)
@@ -50,7 +54,7 @@ func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) 
 		}
 		fundingChanPoint, err := net.WaitForChannelOpen(chanOpenUpdate)
 		if err != nil {
-			t.Fatalf("error while waiting for channeel open: %v", err)
+			t.Fatalf("error while waiting for channel open: %v", err)
 		}
 		fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
 		if err != nil {
@@ -75,7 +79,7 @@ func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) 
 	closeChannel := func(node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint) {
 		closeUpdates, err := net.CloseChannel(ctxb, node, fundingChanPoint, false)
 		if err != nil {
-			t.Fatalf("unable to clsoe channel: %v", err)
+			t.Fatalf("unable to close channel: %v", err)
 		}
 
 		// Finally, generate a single block, wait for the final close status
@@ -99,9 +103,6 @@ func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) 
 	}
 
 	return openChannel, closeChannel
-
-
-
 }
 
 // testBasicChannelFunding performs a test exercising expected behavior from a
@@ -111,13 +112,20 @@ func getChannelHelpers(ctxb context.Context, net *networkHarness, t *testing.T) 
 // transaction was mined.
 func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
-
-	// First establish a channel with a capacity of 0.5 BTC between Alice
-	// and Bob.
 	openChannel, closeChannel := getChannelHelpers(ctxb, net, t)
+
 	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
 
+	// First establish a channel with a capacity of 0.5 BTC between Alice
+	// and Bob. This function will block until the channel itself is fully
+	// open or an error occurs in the funding process. A series of
+	// assertions will be executed to ensure the funding process completed
+	// successfully.
 	chanPoint := openChannel(net.Alice, net.Bob, chanAmt)
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
 	closeChannel(net.Alice, chanPoint)
 }
 
@@ -125,8 +133,11 @@ func testBasicChannelFunding(net *networkHarness, t *testing.T) {
 // checks channel balance to be equal amount specified while creation of channel.
 func testChannelBalance(net *networkHarness, t *testing.T) {
 	ctxb := context.Background()
+	openChannel, closeChannel := getChannelHelpers(ctxb, net, t)
 
-	checkChannelBalance := func (node lnrpc.LightningClient, amount btcutil.Amount) {
+	// Creates a helper closure to be used below which asserts the proper
+	// response to a channel balance RPC.
+	checkChannelBalance := func(node lnrpc.LightningClient, amount btcutil.Amount) {
 		response, err := node.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
 		if err != nil {
 			t.Fatalf("unable to get channel balance: %v", err)
@@ -138,19 +149,28 @@ func testChannelBalance(net *networkHarness, t *testing.T) {
 		}
 	}
 
-	openChannel, closeChannel := getChannelHelpers(ctxb, net, t)
+	// Open a channel with 0.5 BTC between Alice and Bob, ensuring the
+	// channel has been opened properly.
 	amount := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
-
 	chanPoint := openChannel(net.Alice, net.Bob, amount)
 
+	// As this is a single funder channel, Alice's balance should be
+	// exactly 0.5 BTC since now state transitions have taken place yet.
 	checkChannelBalance(net.Alice, amount)
 
-	// Because we wait for Alice channel open notification it might happen
-	// that Bob haven't added newly created channel in the list of active
-	// channels, so lets wait for a second.
+	// Since we only explicitly wait for Alice's channel open notification,
+	// Bob might not yet have updated his internal state in response to
+	// Alice's channel open proof. So we sleep here for a second to let Bob
+	// catch up.
+	// TODO(roasbeef): Bob should also watch for the channel on-chain after
+	// the changes to restrict the number of pending channels are in.
 	time.Sleep(time.Second)
+
+	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
 
+	// Finally close the channel between Alice and Bob, asserting that the
+	// channel has been properly closed on-chain.
 	closeChannel(net.Alice, chanPoint)
 }
 
@@ -185,7 +205,7 @@ func testChannelForceClosure(net *networkHarness, t *testing.T) {
 
 	// Now that the channel is open, immediately execute a force closure of
 	// the channel. This will also assert that the commitment transaction
-	// was immediately broadcast in order to fufill the force closure
+	// was immediately broadcast in order to fulfill the force closure
 	// request.
 	closeUpdate, err := net.CloseChannel(ctxb, net.Alice, chanPoint, true)
 	if err != nil {
@@ -213,7 +233,7 @@ func testChannelForceClosure(net *networkHarness, t *testing.T) {
 
 	// At this point, the sweeping transaction should now be broadcast. So
 	// we fetch the node's mempool to ensure it has been properly
-	// broadcasted.
+	// broadcast.
 	var sweepingTXID *wire.ShaHash
 	var mempool []*wire.ShaHash
 mempoolPoll:
@@ -244,7 +264,7 @@ mempoolPoll:
 	sweepingTXID = mempool[0]
 
 	// Fetch the sweep transaction, all input it's spending should be from
-	// the commitment transaction which was broadcasted on-chain.
+	// the commitment transaction which was broadcast on-chain.
 	sweepTx, err := net.Miner.Node.GetRawTransaction(sweepingTXID)
 	if err != nil {
 		t.Fatalf("unable to fetch sweep tx: %v", err)
@@ -274,9 +294,8 @@ mempoolPoll:
 var lndTestCases = map[string]lndTestCase{
 	"basic funding flow":    testBasicChannelFunding,
 	"channel force closure": testChannelForceClosure,
-	"channel balance": testChannelBalance,
+	"channel balance":       testChannelBalance,
 }
-
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
@@ -332,9 +351,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	}
 
 	// With the btcd harness created, we can now complete the
-	// initialization of the network. args - list of lnd arguments, example: "--debuglevel=debug"
+	// initialization of the network. args - list of lnd arguments,
+	// example: "--debuglevel=debug"
 	args := []string{}
-
 	if err := lightningNetwork.InitializeSeedNodes(btcdHarness, args); err != nil {
 		t.Fatalf("unable to initialize seed nodes: %v", err)
 	}

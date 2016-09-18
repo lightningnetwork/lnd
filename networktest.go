@@ -274,7 +274,6 @@ func newNetworkHarness() (*networkHarness, error) {
 	}, nil
 }
 
-
 // InitializeSeedNodes initialized alice and bob nodes given an already
 // running instance of btcd's rpctest harness and extra command line flags,
 // which should be formatted properly - "--arg=value".
@@ -421,6 +420,8 @@ out:
 				bobResp.Balance == expectedBalance {
 				break out
 			}
+		case <-time.After(time.Second * 30):
+			return fmt.Errorf("balances not synced after deadline")
 		}
 	}
 
@@ -502,17 +503,26 @@ func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
 	}()
 }
 
-// WaitForTxBroadcast blocks until the target txid is seen on the network.
-func (n *networkHarness) WaitForTxBroadcast(txid wire.ShaHash) {
+// WaitForTxBroadcast blocks until the target txid is seen on the network. If
+// the transaction isn't seen within the network before the passed timeout,
+// then an error is returend.
+func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid wire.ShaHash) error {
 	eventChan := make(chan struct{})
 
 	n.watchRequests <- &watchRequest{txid, eventChan}
 
-	<-eventChan
+	select {
+	case <-eventChan:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("tx not seen before context timeout")
+	}
 }
 
 // OpenChannel attemps to open a channel between srcNode and destNode with the
-// passed channel funding parameters.
+// passed channel funding parameters. If the passed context has a timeout, then
+// if the timeout is reeached before the channel pending notification is
+// received, an error is returned.
 func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
@@ -529,38 +539,73 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 			"alice and bob: %v", err)
 	}
 
-	// Consume the "channel pending" update. This waits until the node
-	// notifies us that the final message in the channel funding workflow
-	// has been sent to the remote node.
-	resp, err := respStream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
-	}
-	if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
-		return nil, fmt.Errorf("expected channel pending update, "+
-			"instead got %v", resp)
-	}
+	chanOpen := make(chan struct{})
+	errChan := make(chan error)
+	go func() {
+		// Consume the "channel pending" update. This waits until the node
+		// notifies us that the final message in the channel funding workflow
+		// has been sent to the remote node.
+		resp, err := respStream.Recv()
+		if err != nil {
+			errChan <- err
+		}
+		if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+			errChan <- fmt.Errorf("expected channel pending update, "+
+				"instead got %v", resp)
+		}
 
-	return respStream, nil
+		close(chanOpen)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached before chan pending " +
+			"update sent")
+	case err := <-errChan:
+		return nil, err
+	case <-chanOpen:
+		return respStream, nil
+	}
 }
 
 // WaitForChannelOpen waits for a notification that a channel is open by
-// consuming a message from the past open channel stream.
-func (n *networkHarness) WaitForChannelOpen(openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
-	resp, err := openChanStream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
-	}
-	fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
-	if !ok {
-		return nil, fmt.Errorf("expected channel open update, instead got %v", resp)
-	}
+// consuming a message from the past open channel stream. If the passed context
+// has a timeout, then if the timeout is reached before the channel has been
+// opened, then an error is returned.
+func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
+	openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
 
-	return fundingResp.ChanOpen.ChannelPoint, nil
+	errChan := make(chan error)
+	respChan := make(chan *lnrpc.ChannelPoint)
+	go func() {
+		resp, err := openChanStream.Recv()
+		if err != nil {
+			errChan <- fmt.Errorf("unable to read rpc resp: %v", err)
+		}
+		fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
+		if !ok {
+			errChan <- fmt.Errorf("expected channel open update, "+
+				"instead got %v", resp)
+		}
+
+		respChan <- fundingResp.ChanOpen.ChannelPoint
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached while waiting for " +
+			"channel open")
+	case err := <-errChan:
+		return nil, err
+	case chanPoint := <-respChan:
+		return chanPoint, nil
+	}
 }
 
 // CloseChannel close channel attempts to close the channel indicated by the
-// passed channel point, initiated by the passed lnNode.
+// passed channel point, initiated by the passed lnNode. If the passed context
+// has a timeout, then if the timeout is reached before the channel close is
+// pending, then an error is returned.
 func (n *networkHarness) CloseChannel(ctx context.Context,
 	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
@@ -574,41 +619,86 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 		return nil, fmt.Errorf("unable to close channel: %v", err)
 	}
 
-	// Consume the "channel close" update in order to wait for the closing
-	// transaction to be broadcast, then wait for the closing tx to be seen
-	// within the network.
-	closeResp, err := closeRespStream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
-	}
-	pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
-	if !ok {
-		return nil, fmt.Errorf("expected close pending update, got %v", pendingClose)
-	}
-	closeTxid, err := wire.NewShaHash(pendingClose.ClosePending.Txid)
-	if err != nil {
-		return nil, err
-	}
-	n.WaitForTxBroadcast(*closeTxid)
+	errChan := make(chan error)
+	fin := make(chan struct{})
+	go func() {
+		// Consume the "channel close" update in order to wait for the closing
+		// transaction to be broadcast, then wait for the closing tx to be seen
+		// within the network.
+		closeResp, err := closeRespStream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		pendingClose, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
+		if !ok {
+			errChan <- fmt.Errorf("expected channel close update, "+
+				"instead got %v", pendingClose)
+			return
+		}
 
-	return closeRespStream, nil
+		closeTxid, err := wire.NewShaHash(pendingClose.ClosePending.Txid)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		if err := n.WaitForTxBroadcast(ctx, *closeTxid); err != nil {
+			errChan <- err
+			return
+		}
+
+		close(fin)
+	}()
+
+	// Wait until either the deadline for the context expires, an error
+	// occurs, or the channel close update is received.
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached before channel close " +
+			"initiated")
+	case err := <-errChan:
+		return nil, err
+	case <-fin:
+		return closeRespStream, nil
+	}
 }
 
 // WaitForChannelClose waits for a notification from the passed channel close
-// stream that the node has deemed the channel has been fully closed.
-func (n *networkHarness) WaitForChannelClose(closeChanStream lnrpc.Lightning_CloseChannelClient) (*wire.ShaHash, error) {
-	// TODO(roasbeef): use passed ctx to set a deadline on amount of time to
-	// wait.
-	closeResp, err := closeChanStream.Recv()
-	if err != nil {
-		return nil, fmt.Errorf("unable to read rpc resp: %v", err)
-	}
-	closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
-	if !ok {
-		return nil, fmt.Errorf("expected channel open update, instead got %v", closeFin)
-	}
+// stream that the node has deemed the channel has been fully closed. If the
+// passed context has a timeout, then if the timeout is reached before the
+// notification is received then an error is returned.
+func (n *networkHarness) WaitForChannelClose(ctx context.Context,
+	closeChanStream lnrpc.Lightning_CloseChannelClient) (*wire.ShaHash, error) {
 
-	return wire.NewShaHash(closeFin.ChanClose.ClosingTxid)
+	errChan := make(chan error)
+	updateChan := make(chan *lnrpc.CloseStatusUpdate_ChanClose)
+	go func() {
+		closeResp, err := closeChanStream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		closeFin, ok := closeResp.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
+		if !ok {
+			errChan <- fmt.Errorf("expected channel close update, "+
+				"instead got %v", closeFin)
+			return
+		}
+
+		updateChan <- closeFin
+	}()
+
+	// Wait until either the deadline for the context expires, an error
+	// occurs, or the channel close update is received.
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout reached before update sent")
+	case err := <-errChan:
+		return nil, err
+	case update := <-updateChan:
+		return wire.NewShaHash(update.ChanClose.ClosingTxid)
+	}
 }
 
 // AssertChannelExists asserts that an active channel identified by

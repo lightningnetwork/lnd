@@ -858,7 +858,7 @@ type pendingPayment struct {
 type commitmentState struct {
 	// htlcsToSettle is a list of preimages which allow us to settle one or
 	// many of the pending HTLC's we've received from the upstream peer.
-	htlcsToSettle map[uint32]invoice
+	htlcsToSettle map[uint32]*channeldb.Invoice
 
 	// TODO(roasbeef): use once trickle+batch logic is in
 	pendingBatch []*pendingPayment
@@ -920,7 +920,7 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		channel:       channel,
 		chanPoint:     channel.ChannelPoint(),
 		clearedHTCLs:  make(map[uint32]*pendingPayment),
-		htlcsToSettle: make(map[uint32]invoice),
+		htlcsToSettle: make(map[uint32]*channeldb.Invoice),
 		switchChan:    htlcPlex,
 	}
 
@@ -1055,13 +1055,13 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		index := state.channel.ReceiveHTLC(htlcPkt)
 
 		rHash := htlcPkt.RedemptionHashes[0]
-		if invoice, found := p.server.invoices.lookupInvoice(rHash); found {
+		invoice, err := p.server.invoices.LookupInvoice(rHash)
+		if err == nil {
 			// TODO(roasbeef): check value
 			//  * onion layer strip should also be before invoice lookup
-			//  * also can immediately send the settle msg
-			invCopy := *invoice
-			invCopy.value = btcutil.Amount(htlcPkt.Amount)
-			state.htlcsToSettle[index] = invCopy
+			state.htlcsToSettle[index] = invoice
+		} else if err != channeldb.ErrInvoiceNotFound {
+			peerLog.Errorf("unable to query for invoice: %v", err)
 		}
 	case *lnwire.HTLCSettleRequest:
 		// TODO(roasbeef): this assumes no "multi-sig"
@@ -1159,7 +1159,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			// Otherwise, we settle this HTLC within our local
 			// state update log, then send the update entry to the
 			// remote party.
-			logIndex, err := state.channel.SettleHTLC(invoice.paymentPreimage)
+			preimage := invoice.Terms.PaymentPreimage
+			logIndex, err := state.channel.SettleHTLC(preimage)
 			if err != nil {
 				peerLog.Errorf("unable to settle htlc: %v", err)
 				p.Disconnect()
@@ -1169,12 +1170,12 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			settleMsg := &lnwire.HTLCSettleRequest{
 				ChannelPoint:     state.chanPoint,
 				HTLCKey:          lnwire.HTLCKey(logIndex),
-				RedemptionProofs: [][32]byte{invoice.paymentPreimage},
+				RedemptionProofs: [][32]byte{preimage},
 			}
 			p.queueMsg(settleMsg, nil)
 			delete(state.htlcsToSettle, htlc.Index)
 
-			bandwidthUpdate += invoice.value
+			bandwidthUpdate += invoice.Terms.Value
 
 			numSettled++
 		}

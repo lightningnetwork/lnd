@@ -92,7 +92,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		chanDB:        chanDB,
 		fundingMgr:    newFundingManager(wallet),
 		htlcSwitch:    newHtlcSwitch(),
-		invoices:      newInvoiceRegistry(),
+		invoices:      newInvoiceRegistry(chanDB),
 		lnwallet:      wallet,
 		identityPriv:  privKey,
 		lightningID:   fastsha256.Sum256(serializedPubKey),
@@ -104,8 +104,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		quit:          make(chan struct{}),
 	}
 
-	// TODO(roasbeef): remove
-	s.invoices.addInvoice(1000*1e8, *debugPre)
 
 	s.utxoNursery = newUtxoNursery(notifier, wallet)
 

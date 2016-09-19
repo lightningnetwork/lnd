@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"time"
 
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/fastsha256"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -507,6 +510,102 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	}
 
 	return nil
+}
+
+// AddInvoice attempts to add a new invoice to the invoice database. Any
+// duplicated invoices are rejected, therefore all invoices *must* have a
+// unique payment preimage.
+func (r *rpcServer) AddInvoice(ctx context.Context,
+	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
+
+	preImage := invoice.RPreimage
+	preimageLength := len(preImage)
+	if preimageLength != 32 {
+		return nil, fmt.Errorf("payment preimage must be exactly "+
+			"32 bytes, is instead %v", preimageLength)
+	}
+
+	if len(invoice.Memo) > channeldb.MaxMemoSize {
+		return nil, fmt.Errorf("memo too large: %v bytes "+
+			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
+	}
+	if len(invoice.Receipt) > channeldb.MaxReceiptSize {
+		return nil, fmt.Errorf("receipt too large: %v bytes "+
+			"(maxsize=%v)", len(invoice.Receipt), channeldb.MaxReceiptSize)
+	}
+
+	i := &channeldb.Invoice{
+		CreationDate: time.Now(),
+		Terms: channeldb.ContractTerm{
+			Value: btcutil.Amount(invoice.Value),
+		},
+	}
+	copy(i.Memo[:], invoice.Memo)
+	copy(i.Receipt[:], invoice.Receipt)
+	copy(i.Terms.PaymentPreimage[:], preImage)
+
+	if err := r.server.invoices.AddInvoice(i); err != nil {
+		return nil, err
+	}
+
+	rHash := fastsha256.Sum256(preImage)
+	return &lnrpc.AddInvoiceResponse{
+		RHash: rHash[:],
+	}, nil
+}
+
+// LookupInvoice attemps to look up an invoice according to its payment hash.
+// The passed payment hash *must* be exactly 32 bytes, if not an error is
+// returned.
+func (r *rpcServer) LookupInvoice(ctx context.Context,
+	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
+
+	if len(req.RHash) != 32 {
+		return nil, fmt.Errorf("payment hash must be exactly "+
+			"32 bytes, is instead %v", len(req.RHash))
+	}
+
+	var payHash [32]byte
+	copy(payHash[:], req.RHash)
+
+	invoice, err := r.server.invoices.LookupInvoice(payHash)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.Invoice{
+		Memo:      string(invoice.Memo[:]),
+		Receipt:   invoice.Receipt[:],
+		RPreimage: invoice.Terms.PaymentPreimage[:],
+		Value:     int64(invoice.Terms.Value),
+	}, nil
+}
+
+// ListInvoices returns a list of all the invoices currently stored within the
+// database. Any active debug invoices are ignored.
+func (r *rpcServer) ListInvoices(ctx context.Context,
+	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
+
+	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
+	for i, dbInvoice := range dbInvoices {
+		invoice := &lnrpc.Invoice{
+			Memo:      string(dbInvoice.Memo[:]),
+			Receipt:   dbInvoice.Receipt[:],
+			RPreimage: dbInvoice.Terms.PaymentPreimage[:],
+			Value:     int64(dbInvoice.Terms.Value),
+		}
+
+		invoices[i] = invoice
+	}
+
+	return &lnrpc.ListInvoiceResponse{
+		Invoices: invoices,
+	}, nil
 }
 
 func (r *rpcServer) ShowRoutingTable(ctx context.Context,

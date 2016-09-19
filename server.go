@@ -19,6 +19,9 @@ import (
 
 	"github.com/BitfuryLightning/tools/routing"
 	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/roasbeef/btcwallet/waddrmgr"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // server is the main server of the Lightning Network Daemon. The server
@@ -57,6 +60,7 @@ type server struct {
 	routingMgr *routing.RoutingManager
 
 	utxoNursery *utxoNursery
+	paymentManager *PaymentManager
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -112,6 +116,15 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// Create a new routing manager with ourself as the sole node within
 	// the graph.
 	s.routingMgr = routing.NewRoutingManager(graph.NewID(s.lightningID), nil)
+	s.routingMgr.CanSendFunc = func(partnerID graph.ID, amount int64)bool{
+		r := s.htlcSwitch.CanSend(wire.ShaHash(partnerID.ToByte32()), btcutil.Amount(amount)) == lnwire.AllowHTLCStatus_Allow
+		srvrLog.Infof("CanSend(%v, %v)=%v", partnerID, amount, r)
+		return r
+	}
+
+	s.paymentManager = NewPaymentManager()
+	s.paymentManager.LightningID = s.lightningID
+	s.paymentManager.invoices = s.invoices
 
 	s.rpcServer = newRpcServer(s)
 
@@ -154,6 +167,7 @@ func (s *server) Start() error {
 		return err
 	}
 	s.routingMgr.Start()
+	s.paymentManager.Start()
 
 	s.wg.Add(1)
 	go s.queryHandler()
@@ -316,6 +330,27 @@ out:
 			} else {
 				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
 			}
+		case msg := <- s.paymentManager.chPaymentOut:
+			// TODO(mkl): refactor code. Delete duplicates with above code.
+			var targetPeer *peer
+			for _, peer := range s.peers { // TODO: threadsafe api
+				// We found the the target
+				if peer.lightningID == msg.dst {
+					targetPeer = peer
+					break
+				}
+			}
+			if targetPeer != nil {
+				fndgLog.Info("Peer found. Sending message")
+				done := make(chan struct{}, 1)
+				targetPeer.queueMsg(msg.msg, done)
+			} else {
+				srvrLog.Errorf("Can't find peer %v to send message %v of type %T", msg.dst, msg.msg, msg.msg)
+			}
+		case pkt := <- s.paymentManager.chHTLCOut:
+			s.htlcSwitch.SendHTLC(pkt)
+		case pkt := <-s.htlcSwitch.htlcPlexOut:
+			s.paymentManager.chHTLCIn <- pkt
 		case <-s.quit:
 			break out
 		}

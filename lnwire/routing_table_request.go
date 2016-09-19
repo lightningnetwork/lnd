@@ -21,15 +21,21 @@ func (msg *RoutingTableRequestMessage) Command() uint32 {
 }
 
 func (msg *RoutingTableRequestMessage) Encode(w io.Writer, pver uint32) error {
-	return nil
+	_, err := w.Write([]byte("RoutingTableRequestMessage"))
+	return err
 }
 
 func (msg *RoutingTableRequestMessage) Decode(r io.Reader, pver uint32) error {
-	return nil
+	var b [26]byte
+	_, err := r.Read(b[:])
+	if string(b[:]) != "RoutingTableRequestMessage"{
+		err = fmt.Errorf("Can't read RoutingTableRequestMessage message")
+	}
+	return err
 }
 
 func (msg *RoutingTableRequestMessage) MaxPayloadLength(uint32) uint32 {
-	return 0
+	return 31
 }
 
 func (msg *RoutingTableRequestMessage) Validate() error {

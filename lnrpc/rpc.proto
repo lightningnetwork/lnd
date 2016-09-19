@@ -19,7 +19,10 @@ service Lightning {
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
 
     rpc SendPayment(stream SendRequest) returns (stream SendResponse);
+
     rpc ShowRoutingTable(ShowRoutingTableRequest) returns (ShowRoutingTableResponse);
+    rpc SendMultihopPayment(MultihopPaymentRequest) returns (MultihopPaymentResponse);
+    rpc FindPath(FindPathRequest) returns (FindPathResponse);
 }
 
 message SendRequest {
@@ -244,3 +247,29 @@ message ShowRoutingTableRequest {
 message ShowRoutingTableResponse {
     repeated RoutingTableLink channels = 1;
 }
+
+message MultihopPaymentRequest {
+    repeated string LightningIDs = 1;
+    int64 amount = 2;
+}
+
+message MultihopPaymentResponse {
+}
+
+message FindPathRequest {
+    string targetID = 1;
+    int32 numberOfPaths = 2;
+    bool validate = 3;
+    int64 amount = 4;
+    int32 timeout = 5;
+}
+
+message FindPathResponse {
+    message Path {
+        repeated string path = 1;
+        double fee = 2;
+        int32 validationStatus = 3;
+    }
+    repeated Path paths = 1;
+}
+

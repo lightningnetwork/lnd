@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/fastsha256"
 )
 
 const (
@@ -72,12 +73,19 @@ type htlcSwitch struct {
 	// currently have open with that peer.
 	interfaces map[wire.ShaHash][]*link
 
+	// Maps preimage hashes to outpoints. It allows chained settlement
+	hashRtoChan map[[32]byte] *[]wire.OutPoint
+
 	// TODO(roasbeef): msgs for dynamic link quality
 	linkControl chan interface{}
 
 	outgoingPayments chan *htlcPacket
 
 	htlcPlex chan *htlcPacket
+
+	// Channel for notifying external observers, like payment manager
+	// They should never modify obtained packets
+	htlcPlexOut chan *htlcPacket
 
 	// TODO(roasbeef): messaging chan to/from upper layer (routing - L3)
 
@@ -92,8 +100,10 @@ func newHtlcSwitch() *htlcSwitch {
 	return &htlcSwitch{
 		chanIndex:        make(map[wire.OutPoint]*link),
 		interfaces:       make(map[wire.ShaHash][]*link),
+		hashRtoChan:      make(map[[32]byte] *[]wire.OutPoint),
 		linkControl:      make(chan interface{}),
 		htlcPlex:         make(chan *htlcPacket, htlcQueueSize),
+		htlcPlexOut:      make(chan *htlcPacket, htlcQueueSize),
 		outgoingPayments: make(chan *htlcPacket, htlcQueueSize),
 		quit:             make(chan struct{}),
 	}
@@ -131,10 +141,9 @@ func (h *htlcSwitch) Stop() error {
 // alternative error is returned.
 func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) error {
 	htlcPkt.err = make(chan error, 1)
-
 	h.outgoingPayments <- htlcPkt
-
-	return <-htlcPkt.err
+	err := <-htlcPkt.err
+	return err
 }
 
 // htlcForwarder is responsible for optimally forwarding (and possibly
@@ -167,7 +176,6 @@ out:
 
 			wireMsg := htlcPkt.msg.(*lnwire.HTLCAddRequest)
 			amt := btcutil.Amount(wireMsg.Amount)
-
 			// Handle this send request in a distinct goroutine in
 			// order to avoid a possible deadlock between the htlc
 			// switch and channel's htlc manager.
@@ -180,9 +188,6 @@ out:
 				if link.availableBandwidth < amt {
 					continue
 				}
-
-				hswcLog.Tracef("Sending %v to %x", amt, dest[:])
-
 				// TODO(roasbeef): peer downstream should set chanPoint
 				wireMsg.ChannelPoint = link.chanPoint
 				go func() {
@@ -204,11 +209,63 @@ out:
 		case pkt := <-h.htlcPlex:
 			numUpdates += 1
 			// TODO(roasbeef): properly account with cleared vs settled
-			switch pkt.msg.(type) {
+			switch msg := pkt.msg.(type) {
 			case *lnwire.HTLCAddRequest:
 				satRecv += pkt.amt
+				msg2, _ := pkt.msg.(*lnwire.HTLCAddRequest)
+				if msg2.OnionBlob != nil && len(msg2.OnionBlob)>=32 {
+					newDst, err := wire.NewShaHash(msg2.OnionBlob[0:32])
+					if err != nil {
+						hswcLog.Info("Cannot get new destanation after unpacking onion blob")
+						continue
+					}
+					// Save link which uses this hashR from which this message originates. So in future we now what to settle
+					if outPoints, ok := h.hashRtoChan[msg.RedemptionHashes[0]]; ok {
+						*outPoints = append(*outPoints, *msg.ChannelPoint)
+					} else {
+						outPoints := &([]wire.OutPoint{*msg.ChannelPoint})
+						h.hashRtoChan[msg.RedemptionHashes[0]] = outPoints
+					}
+					newOnion := msg2.OnionBlob[32:]
+					newHTLCAdd := *msg2
+					newHTLCAdd.OnionBlob = newOnion
+					newPkt := &htlcPacket{
+						msg: &newHTLCAdd,
+						dest: *newDst,
+						err: make(chan error, 1),
+					}
+					h.outgoingPayments <- newPkt
+				}
+				h.htlcPlexOut <- pkt
 			case *lnwire.HTLCSettleRequest:
 				satSent += pkt.amt
+				msg2, _ := pkt.msg.(*lnwire.HTLCSettleRequest)
+				newHTLCSettle := *msg2
+				newPkt := &htlcPacket{
+					msg: &newHTLCSettle,
+					dest: pkt.dest,
+					err: make(chan error, 1),
+				}
+				hashR := fastsha256.Sum256(msg.RedemptionProofs[0][:])
+				outPoints, ok := h.hashRtoChan[hashR]
+				if !ok {
+					hswcLog.Info("No channels with given hashR found. Chained settlement is not possible. hasR: %v", hex.EncodeToString(hashR[:]))
+				} else {
+					hswcLog.Infof("Found %v channels with given hashR", len(*outPoints))
+					//TODO(mkl): Send htlc to this channels to initiate chained settlement
+					for _, outPoint := range(*outPoints){
+						l, ok := h.chanIndex[outPoint];
+						if !ok {
+							hswcLog.Errorf("Cannot find link for outpoint: %v", outPoint)
+						}
+						l.linkChan <- newPkt
+					}
+					delete(h.hashRtoChan, hashR)
+				}
+
+			h.htlcPlexOut <- newPkt
+			default:
+				hswcLog.Info("From <-h.htlcPlex: unknown message type")
 			}
 
 			// TODO(roasbeef): parse dest/src, forward on outgoing
@@ -250,6 +307,8 @@ out:
 				h.handleUnregisterLink(req)
 			case *linkInfoUpdateMsg:
 				h.handleLinkUpdate(req)
+			case *canSendMsg:
+				h.handleCanSendMsg(req)
 			}
 		case <-h.quit:
 			break out
@@ -442,4 +501,37 @@ type linkInfoUpdateMsg struct {
 // HTLC invoice.
 func (h *htlcSwitch) UpdateLink(chanPoint *wire.OutPoint, bandwidthDelta btcutil.Amount) {
 	h.linkControl <- &linkInfoUpdateMsg{chanPoint, bandwidthDelta}
+}
+
+// Message to ask if it is possible to send given amount of money to a partner.
+type canSendMsg struct {
+	partnerId wire.ShaHash
+	amount btcutil.Amount
+	resp chan lnwire.AllowHTLCStatus
+}
+
+func (h *htlcSwitch) CanSend(partnerId wire.ShaHash, amount btcutil.Amount) lnwire.AllowHTLCStatus {
+	hswcLog.Info("Start processing canSendMsg")
+	msg := & canSendMsg{
+		partnerId: partnerId,
+		amount: amount,
+		resp: make(chan lnwire.AllowHTLCStatus, 1),
+	}
+	h.linkControl <- msg
+	return <-msg.resp
+}
+
+func (h *htlcSwitch) handleCanSendMsg(msg *canSendMsg){
+	hswcLog.Info("Start processing canSendMsg")
+	chanInterface, ok := h.interfaces[msg.partnerId]
+	if !ok {
+		msg.resp <- lnwire.AllowHTLCStatus_Decline
+		return
+	}
+	for _, link := range chanInterface {
+		if link.availableBandwidth >= msg.amount {
+			msg.resp <- lnwire.AllowHTLCStatus_Allow
+		}
+	}
+	msg.resp <- lnwire.AllowHTLCStatus_Decline
 }

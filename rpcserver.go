@@ -17,6 +17,8 @@ import (
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	"golang.org/x/net/context"
+	"github.com/BitfuryLightning/tools/rt/graph"
+	"time"
 )
 
 var (
@@ -518,4 +520,54 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	return &lnrpc.ShowRoutingTableResponse{
 		Channels: channels,
 	}, nil
+}
+
+func (r *rpcServer) SendMultihopPayment(ctx context.Context, in *lnrpc.MultihopPaymentRequest) (* lnrpc.MultihopPaymentResponse, error){
+	pathArr := make([][32]byte, 0)
+	for i:=0; i<len(in.LightningIDs); i++ {
+		addr, err := wire.NewShaHash([]byte(in.LightningIDs[i]))
+		if err != nil {
+			return nil, err
+		}
+		pathArr = append(pathArr, [32]byte(*addr))
+	}
+	r.server.paymentManager.SendPayment(lnwire.CreditsAmount(in.Amount), pathArr)
+	rpcsLog.Infof("[SendMultihopPayment] amount=%v path=%v", in.Amount, pathArr)
+	return &lnrpc.MultihopPaymentResponse{}, nil
+}
+
+func (r *rpcServer) FindPath(ctx context.Context, in *lnrpc.FindPathRequest) (*lnrpc.FindPathResponse, error){
+	rpcsLog.Info("[FindPath] dest=", hex.EncodeToString([]byte(in.TargetID)))
+	paths, err := r.server.routingMgr.FindKSP(
+		graph.NewID(in.TargetID),
+		int(in.NumberOfPaths),
+		1*time.Second,
+	)
+	rpcsLog.Info("[FindPath] after FindKSP dest=", hex.EncodeToString([]byte(in.TargetID)))
+
+	if err != nil{
+		return nil, err
+	}
+	validationStatuses := make([]lnwire.AllowHTLCStatus, len(paths))
+	if in.Validate {
+		validationStatuses = r.server.routingMgr.ValidatePathMult(
+			paths,
+			in.Amount,
+			time.Duration(in.Timeout) * time.Second,
+		)
+	}
+	resp := &lnrpc.FindPathResponse{
+		Paths: make([]*lnrpc.FindPathResponse_Path, 0),
+	}
+	for i, p := range(paths){
+		newP := &lnrpc.FindPathResponse_Path{
+			Path: make([]string, 0),
+		}
+		for _, node := range(p){
+			newP.Path = append(newP.Path, node.String())
+		}
+		newP.ValidationStatus = int32(validationStatuses[i])
+		resp.Paths = append(resp.Paths, newP)
+	}
+	return resp, nil
 }

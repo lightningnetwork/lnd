@@ -44,6 +44,10 @@ const (
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
 
+	// Commands for controlling payment
+	CmdPaymentInitiation = uint32(2500)
+	CmdPaymentInitiationConfirmation = uint32(2510)
+
 	// Commands for routing
 	CmdNeighborHelloMessage        = uint32(3000)
 	CmdNeighborUpdMessage          = uint32(3010)
@@ -51,6 +55,8 @@ const (
 	CmdNeighborRstMessage          = uint32(3030)
 	CmdRoutingTableRequestMessage  = uint32(3040)
 	CmdRoutingTableTransferMessage = uint32(3050)
+	CmdAllowHTLCRequest            = uint32(3060)
+	CmdAllowHTLCResponse           = uint32(3070)
 
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
@@ -114,6 +120,14 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &RoutingTableRequestMessage{}
 	case CmdRoutingTableTransferMessage:
 		msg = &RoutingTableTransferMessage{}
+	case CmdPaymentInitiation:
+		msg = &PaymentInitiation{}
+	case CmdPaymentInitiationConfirmation:
+		msg = &PaymentInitiationConfirmation{}
+	case CmdAllowHTLCRequest:
+		msg = &AllowHTLCRequestMessage{}
+	case CmdAllowHTLCResponse:
+		msg = &AllowHTLCResponseMessage{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

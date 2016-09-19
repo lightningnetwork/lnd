@@ -436,7 +436,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// HTLC once he learns of the preimage.
 	var preimage [32]byte
 	copy(preimage[:], paymentPreimage)
-	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	settleIndex, _, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}

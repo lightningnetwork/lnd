@@ -61,6 +61,9 @@ func main() {
 		GetInfoCommand,
 		PendingChannelsCommand,
 		SendPaymentCommand,
+		AddInvoiceCommand,
+		LookupInvoiceCommand,
+		ListInvoicesCommand,
 		ShowRoutingTableCommand,
 	}
 

@@ -423,7 +423,7 @@ func walletBalance(ctx *cli.Context) error {
 var ChannelBalanceCommand = cli.Command{
 	Name:        "channelbalance",
 	Description: "returns the sum of the total available channel balance across all open channels",
-	Action: channelBalance,
+	Action:      channelBalance,
 }
 
 func channelBalance(ctx *cli.Context) error {
@@ -542,11 +542,21 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	// TODO(roasbeef): remove debug payment hash
+
+	rHash, err := hex.DecodeString(ctx.String("payment_hash"))
+	if err != nil {
+		return err
+	}
+	if len(rHash) != 32 {
+		return fmt.Errorf("payment hash must be exactly 32 bytes, is "+
+			"instead %v", len(rHash))
+	}
+
 	req := &lnrpc.SendRequest{
-		Dest:     destAddr,
-		Amt:      int64(ctx.Int("amt")),
-		FastSend: ctx.Bool("fast"),
+		Dest:        destAddr,
+		Amt:         int64(ctx.Int("amt")),
+		PaymentHash: rHash[:],
+		FastSend:    ctx.Bool("fast"),
 	}
 
 	paymentStream, err := client.SendPayment(context.Background())
@@ -566,6 +576,137 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	paymentStream.CloseSend()
 
 	printRespJson(resp)
+
+	return nil
+}
+
+var AddInvoiceCommand = cli.Command{
+	Name:        "addinvoice",
+	Description: "add a new invoice, expressing intent for a future payment",
+	Usage:       "addinvoice --memo=[note] --receipt=[sig+contract hash] --value=[in_satoshis] --preimage=[32_byte_hash]",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "memo",
+			Usage: "an optional memo to attach along with the invoice",
+		},
+		cli.StringFlag{
+			Name:  "receipt",
+			Usage: "an optional cryptographic receipt of payment",
+		},
+		cli.StringFlag{
+			Name:  "preimage",
+			Usage: "the hex-encoded preimage which will allow settling an incoming HTLC payable to this preimage",
+		},
+		cli.IntFlag{
+			Name:  "value",
+			Usage: "the value of this invoice in satoshis",
+		},
+	},
+	Action: addInvoice,
+}
+
+func addInvoice(ctx *cli.Context) error {
+	client := getClient(ctx)
+
+	preimage, err := hex.DecodeString(ctx.String("preimage"))
+	if err != nil {
+		return fmt.Errorf("unable to parse preimage: %v", err)
+	}
+
+	receipt, err := hex.DecodeString(ctx.String("receipt"))
+	if err != nil {
+		return fmt.Errorf("unable to parse receipt: %v", err)
+	}
+
+	invoice := &lnrpc.Invoice{
+		Memo:      ctx.String("memo"),
+		Receipt:   receipt,
+		RPreimage: preimage,
+		Value:     int64(ctx.Int("value")),
+	}
+
+	resp, err := client.AddInvoice(context.Background(), invoice)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(struct {
+		RHash string `json:"r_hash"`
+	}{
+		RHash: hex.EncodeToString(resp.RHash),
+	})
+
+	return nil
+}
+
+var LookupInvoiceCommand = cli.Command{
+	Name:        "lookupinvoice",
+	Description: "lookup an existing invoice by its payment hash",
+	Usage:       "lookupinvoice --rhash=[32_byte_hash]",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "rhash",
+			Usage: "the payment hash of the invoice to query for, the hash " +
+				"should be a hex-encoded string",
+		},
+	},
+	Action: lookupInvoice,
+}
+
+func lookupInvoice(ctx *cli.Context) error {
+	client := getClient(ctx)
+
+	rHash, err := hex.DecodeString(ctx.String("rhash"))
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.PaymentHash{
+		RHash: rHash,
+	}
+
+	invoice, err := client.LookupInvoice(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(invoice)
+
+	return nil
+}
+
+var ListInvoicesCommand = cli.Command{
+	Name:        "listinvoices",
+	Usage:       "listinvoice --pending_only=[true|false]",
+	Description: "list all invoices currently stored",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "pending_only",
+			Usage: "toggles if all invoices should be returned, or only " +
+				"those that are currently unsettled",
+		},
+	},
+	Action: listInvoices,
+}
+
+func listInvoices(ctx *cli.Context) error {
+	client := getClient(ctx)
+
+	pendingOnly := true
+	if !ctx.Bool("pending_only") {
+		pendingOnly = false
+	}
+
+	req := &lnrpc.ListInvoiceRequest{
+		PendingOnly: pendingOnly,
+	}
+
+	invoices, err := client.ListInvoices(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(invoices)
 
 	return nil
 }

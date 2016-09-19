@@ -68,6 +68,7 @@ type config struct {
 	TestNet3   bool   `long:"testnet" description:"Use the test network"`
 	SimNet     bool   `long:"simnet" description:"Use the simulation test network"`
 	SegNet     bool   `long:"segnet" description:"Use the segragated witness test network"`
+	DebugHTLC  bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLC's sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 }
 
 // loadConfig initializes and parses the config using a config file and command

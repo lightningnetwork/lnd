@@ -458,12 +458,22 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				return err
 			}
 
+			// If we're in debug HTLC mode, then all outgoing
+			// HTLC's will pay to the same debug rHash. Otherwise,
+			// we pay to the rHash specified within the RPC
+			// request.
+			var rHash [32]byte
+			if cfg.DebugHTLC {
+				rHash = debugHash
+			} else {
+				copy(rHash[:], nextPayment.PaymentHash)
+			}
 			// Craft an HTLC packet to send to the routing sub-system. The
 			// meta-data within this packet will be used to route the
 			// payment through the network.
 			htlcAdd := &lnwire.HTLCAddRequest{
 				Amount:           lnwire.CreditsAmount(nextPayment.Amt),
-				RedemptionHashes: [][32]byte{debugHash},
+				RedemptionHashes: [][32]byte{rHash},
 			}
 			destAddr, err := wire.NewShaHash(nextPayment.Dest)
 			if err != nil {

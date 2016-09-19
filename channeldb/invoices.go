@@ -180,6 +180,48 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 	return invoice, nil
 }
 
+// FetchAllInvoices returns all invoices currently stored within the database.
+// If the pendingOnly param is true, then only unsettled invoices will be
+// returned, skipping all invoices that are fully settled.
+func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
+	var invoices []*Invoice
+
+	err := d.store.View(func(tx *bolt.Tx) error {
+		invoiceB := tx.Bucket(invoiceBucket)
+		if invoiceB == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		// Iterate through the entire key space of the top-level
+		// invoice bucket. If key with a non-nil value stores the next
+		// invoice ID which maps to the corresponding invoice.
+		return invoiceB.ForEach(func(k, v []byte) error {
+			if v == nil {
+				return nil
+			}
+
+			invoiceReader := bytes.NewReader(v)
+			invoice, err := deserializeInvoice(invoiceReader)
+			if err != nil {
+				return err
+			}
+
+			if pendingOnly && invoice.Terms.Settled {
+				return nil
+			}
+
+			invoices = append(invoices, invoice)
+
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return invoices, nil
+}
+
 // SettleInvoice attempts to mark an invoice corresponding to the passed
 // payment hash as fully settled. If an invoice matching the passed payment
 // hash doesn't existing within the database, then the action will fail with a

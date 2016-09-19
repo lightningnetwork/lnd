@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"crypto/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -9,6 +10,26 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcutil"
 )
+
+func randInvoice(value btcutil.Amount) (*Invoice, error) {
+
+	var pre [32]byte
+	if _, err := rand.Read(pre[:]); err != nil {
+		return nil, err
+	}
+
+	i := &Invoice{
+		CreationDate: time.Now(),
+		Terms: ContractTerm{
+			PaymentPreimage: pre,
+			Value:           value,
+		},
+	}
+	copy(i.Memo[:], []byte("memo"))
+	copy(i.Receipt[:], []byte("recipt"))
+
+	return i, nil
+}
 
 func TestInvoiceWorkflow(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
@@ -72,5 +93,41 @@ func TestInvoiceWorkflow(t *testing.T) {
 	var fakeHash [32]byte
 	if _, err := db.LookupInvoice(fakeHash); err != ErrInvoiceNotFound {
 		t.Fatalf("lookup should have failed, instead %v", err)
+	}
+
+	// Add 100 random invoices.
+	const numInvoices = 10
+	amt := btcutil.Amount(1000)
+	invoices := make([]*Invoice, numInvoices+1)
+	invoices[0] = dbInvoice2
+	for i := 1; i < len(invoices)-1; i++ {
+		invoice, err := randInvoice(amt)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		if err := db.AddInvoice(invoice); err != nil {
+			t.Fatalf("unable to add invoice %v", err)
+		}
+
+		invoices[i] = invoice
+	}
+
+	// Perform a scan to collect all the active invoices.
+	dbInvoices, err := db.FetchAllInvoices(false)
+	if err != nil {
+		t.Fatalf("unable to fetch all invoices: %v", err)
+	}
+
+	// The retrieve list of invoices should be identical as since we're
+	// using big endian, the invoices should be retrieved in asecending
+	// order (and the primary key should be incremented with each
+	// insertion).
+	for i := 0; i < len(invoices)-1; i++ {
+		if !reflect.DeepEqual(invoices[i], dbInvoices[i]) {
+			t.Fatalf("retrived invoices don't match %v vs %v",
+				spew.Sdump(invoices[i]),
+				spew.Sdump(dbInvoices[i]))
+		}
 	}
 }

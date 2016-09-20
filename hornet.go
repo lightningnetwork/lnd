@@ -1,4 +1,4 @@
-package main
+package sphinx
 
 import (
 	"github.com/btcsuite/btcd/btcec"

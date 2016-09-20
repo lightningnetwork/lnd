@@ -1,4 +1,4 @@
-package main
+package sphinx
 
 import (
 	"bytes"
@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg"
 )
 
 func TestSphinxCorrectness(t *testing.T) {

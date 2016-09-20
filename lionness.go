@@ -1,4 +1,4 @@
-package main
+package sphinx
 
 import (
 	"crypto/hmac"

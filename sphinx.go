@@ -414,6 +414,19 @@ const (
 	Failure
 )
 
+func (p ProcessCode) String() string {
+	switch p {
+	case ExitNode:
+		return "ExitNode"
+	case MoreHops:
+		return "MoreHops"
+	case Failure:
+		return "Failure"
+	default:
+		return "Unknown"
+	}
+}
+
 // ProcessMsgAction....
 type ProcessMsgAction struct {
 	Action ProcessCode

@@ -73,7 +73,6 @@ var nullDest byte
 // header, decrypt the next set of routing information, and re-randomize the
 // ephemeral key for the next node in the path. This per-hop re-randomization
 // allows us to only propgate a single group element through the onion route.
-// TODO(roasbeef): serialize/deserialize methods..
 type MixHeader struct {
 	EphemeralKey *btcec.PublicKey
 	RoutingInfo  [routingInfoSize]byte
@@ -211,22 +210,21 @@ func generateHeaderPadding(numHops int, sharedSecrets [][sharedSecretSize]byte) 
 	return filler
 }
 
-// ForwardingMessage represents a forwarding message containing onion wrapped
+// OnionPacket represents a forwarding message containing onion wrapped
 // hop-to-hop routing information along with an onion encrypted payload message
 // addressed to the final destination.
-// TODO(roasbeef): serialize/deserialize methods..
-type ForwardingMessage struct {
+type OnionPacket struct {
 	Header *MixHeader
 	Msg    [messageSize]byte
 }
 
-// NewForwardingMessage generates the a mix header containing the neccessary
-// onion routing information required to propagate the message through the
-// mixnet, eventually reaching the final node specified by 'identifier'. The
-// onion encrypted message payload is then to be delivered to the specified 'dest'
+// NewOnionPaccket generates the a mix header containing the neccessary onion
+// routing information required to propagate the message through the mixnet,
+// eventually reaching the final node specified by 'identifier'. The onion
+// encrypted message payload is then to be delivered to the specified 'dest'
 // address.
-func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
-	message []byte) (*ForwardingMessage, error) {
+func NewOnionPacket(route []*btcec.PublicKey, dest LightningAddress,
+	message []byte) (*OnionPacket, error) {
 	routeLength := len(route)
 
 	// Compute the mix header, and shared secerts for each hop. We pass in
@@ -257,13 +255,13 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 		onion = lionessEncode(generateKey("pi", secrets[i]), onion)
 	}
 
-	return &ForwardingMessage{Header: mixHeader, Msg: onion}, nil
+	return &OnionPacket{Header: mixHeader, Msg: onion}, nil
 }
 
-// Encode serializes the raw bytes of the forwarding message into the passed
+// Encode serializes the raw bytes of the onoin packet into the passed
 // io.Writer. The form encoded within the passed io.Writer is suitable for
 // either storing on disk, or sending over the network.
-func (f *ForwardingMessage) Encode(w io.Writer) error {
+func (f *OnionPacket) Encode(w io.Writer) error {
 	ephemeral := f.Header.EphemeralKey.SerializeCompressed()
 	if _, err := w.Write(ephemeral); err != nil {
 		return err
@@ -288,7 +286,7 @@ func (f *ForwardingMessage) Encode(w io.Writer) error {
 // encoded within the io.Reader. In the case of any decoding errors, an error
 // will be returned. If the method successs, then the new ForwardingMessage is
 // ready to be processed by an instance of SphinxNode.
-func (f *ForwardingMessage) Decode(r io.Reader) error {
+func (f *OnionPacket) Decode(r io.Reader) error {
 	var err error
 
 	f.Header = &MixHeader{}
@@ -341,9 +339,10 @@ func xor(dst, a, b []byte) int {
 	return n
 }
 
-// generateKey...
-// used to key rand padding generation, mac, and lionness
-// TODO(roasbeef): comment...
+// generateKey generates a new key for usage in Sphinx packet
+// construction/processing based off of the denoted keyType. Within Sphinx
+// various keys are used within the same onion packet for padding generation,
+// MAC generation, and encryption/decryption.
 func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityParameter]byte {
 	mac := hmac.New(sha256.New, []byte(keyType))
 	mac.Write(sharedKey[:])
@@ -355,8 +354,9 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [securityPara
 	return key
 }
 
-// generateHeaderPadding...
-// TODO(roasbeef): comments...
+// generateCipherStream generates a stream of cryptographic psuedo-random bytes
+// intened to be used to encrypt a message using a one-time-pad like
+// construciton.
 func generateCipherStream(key [securityParameter]byte, numBytes uint) []byte {
 	// Key must be 16, 24, or 32 bytes.
 	block, _ := aes.NewCipher(key[:16])
@@ -375,7 +375,7 @@ func generateCipherStream(key [securityParameter]byte, numBytes uint) []byte {
 	return cipherStream
 }
 
-// ComputeBlindingFactor for the next hop given the ephemeral pubKey and
+// computeBlindingFactor for the next hop given the ephemeral pubKey and
 // sharedSecret for this hop. The blinding factor is computed as the
 // sha-256(pubkey || sharedSecret).
 func computeBlindingFactor(hopPubKey *btcec.PublicKey, hopSharedSecret []byte) [sha256.Size]byte {
@@ -395,7 +395,10 @@ func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec
 	return &btcec.PublicKey{hopPubKey.Curve, newX, newY}
 }
 
-// multiScalarMult...
+// multiScalarMult computes the cumulative product of the blinding factors
+// times the passed public key.
+//
+// TODO(roasbeef): optimize using totient?
 func multiScalarMult(hopPubKey *btcec.PublicKey, blindingFactors [][sha256.Size]byte) *btcec.PublicKey {
 	finalPubKey := hopPubKey
 
@@ -406,14 +409,25 @@ func multiScalarMult(hopPubKey *btcec.PublicKey, blindingFactors [][sha256.Size]
 	return finalPubKey
 }
 
+// ProcessCode is an enum-like type which describes to the high-level package
+// user which action shuold be taken after processing a Sphinx packet.
 type ProcessCode int
 
 const (
+	// ExitNode indicates that the node which processed the Sphinx packet
+	// is the destination hop in the route.
 	ExitNode = iota
+
+	// MoreHops indicates that there are additional hops left within the
+	// route. Therefore the caller should forward the packet to the node
+	// denoted as the "NextHop".
 	MoreHops
+
+	// Failure indicates that a failure occured during packet processing.
 	Failure
 )
 
+// String returns a human readable string for each of the ProcessCodes.
 func (p ProcessCode) String() string {
 	switch p {
 	case ExitNode:
@@ -427,67 +441,103 @@ func (p ProcessCode) String() string {
 	}
 }
 
-// ProcessMsgAction....
-type ProcessMsgAction struct {
+// ProcessedPacket encapsulates the resulting state generated after processing
+// an OnionPacket. A processed packet communicates to the caller what action
+// shuold be taken after processing.
+type ProcessedPacket struct {
+	// Action represents the action the caller should take after processing
+	// the packet.
 	Action ProcessCode
 
+	// NextHop is the next hop in the route the caller should forward the
+	// onion packet to.
+	//
+	// NOTE: This field will only be populated iff the above Action is
+	// MoreHops.
 	NextHop [securityParameter]byte
-	FwdMsg  *ForwardingMessage
 
+	// Packet is the resulting packet uncovered afer processing the
+	// original onion packet by stripping off a layer from mix-header and
+	// message.
+	//
+	// NOTE: This field will only be populated iff the above Action is
+	// MoreHops.
+	Packet *OnionPacket
+
+	// DestAddr is the destination address of the final intended receiver.
+	//
+	// NOTE: This field will only be populated iff the above Action is
+	// ExitNode.
 	DestAddr LightningAddress
-	DestMsg  []byte
+
+	// DestMsg is the final e2e message addressed to the final destination.
+	//
+	// NOTE: This field will only be populated iff the above Action is
+	// ExitNode.
+	DestMsg []byte
 }
 
-// SphinxNode...
-type SphinxNode struct {
+// Router is an onion router within the Sphinx network. The router is capable
+// of processing incoming Sphinx onion packets thereby "peeling" a layer off
+// the onion encryption which the packet is wrapped with.
+type Router struct {
 	nodeID [securityParameter]byte
+
 	// TODO(roasbeef): swap out with btcutil.AddressLightningKey maybe?
 	nodeAddr *btcutil.AddressPubKeyHash
-	lnKey    *btcec.PrivateKey
+	onionKey *btcec.PrivateKey
 
 	seenSecrets map[[sharedSecretSize]byte]struct{}
 }
 
-// NewSphinxNode...
-func NewSphinxNode(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *SphinxNode {
+// NewRouter creates a new instance of a Sphinx onion Router given the node's
+// currently advertised onion private key, and the target Bitcoin network.
+func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 	var nodeID [securityParameter]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
 	// Safe to ignore the error here, nodeID is 20 bytes.
 	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
 
-	return &SphinxNode{
+	return &Router{
 		nodeID:   nodeID,
 		nodeAddr: nodeAddr,
-		lnKey:    nodeKey,
+		onionKey: nodeKey,
 		// TODO(roasbeef): replace instead with bloom filter?
 		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
 		seenSecrets: make(map[[sharedSecretSize]byte]struct{}),
 	}
 }
 
-// ProcessMixHeader...
-// TODO(roasbeef): proto msg enum?
-func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*ProcessMsgAction, error) {
-	mixHeader := fwdMsg.Header
-	onionMsg := fwdMsg.Msg
+// ProcessOnionPacket processes an incoming onion packet which has been forward
+// to the target Sphinx router. If the encoded ephemeral key isn't on the
+// target Elliptic Curve, then the packet is rejected. Similarly, if the
+// derived shared secret has been seen before the packet is rejected.  Finally
+// if the MAC doesn't check the packet is again rejected.
+//
+// In the case of a successful packet processing, and ProcessedPacket struct is
+// returned which houses the newly parsed packet, along with instructions on
+// what to do next.
+func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, error) {
+	mixHeader := onionPkt.Header
+	onionMsg := onionPkt.Msg
 
 	dhKey := mixHeader.EphemeralKey
 	routeInfo := mixHeader.RoutingInfo
 	headerMac := mixHeader.HeaderMAC
 
 	// Ensure that the public key is on our curve.
-	if !s.lnKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
+	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
 		return nil, fmt.Errorf("pubkey isn't on secp256k1 curve")
 	}
 
 	// Compute our shared secret.
-	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(s.lnKey, dhKey))
+	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(r.onionKey, dhKey))
 
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
 	// message.
-	if _, ok := s.seenSecrets[sharedSecret]; ok {
+	if _, ok := r.seenSecrets[sharedSecret]; ok {
 		return nil, ErrReplayedPacket
 	}
 
@@ -501,7 +551,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*Proce
 
 	// The MAC checks out, mark this current shared secret as processed in
 	// order to mitigate future replay attacks.
-	s.seenSecrets[sharedSecret] = struct{}{}
+	r.seenSecrets[sharedSecret] = struct{}{}
 
 	// Attach the padding zeroes in order to properly strip an encryption
 	// layer off the routing info revealing the routing information for the
@@ -522,7 +572,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*Proce
 		}*/
 		destAddr := onionCore[securityParameter : securityParameter*2]
 		msg := onionCore[securityParameter*2:]
-		return &ProcessMsgAction{
+		return &ProcessedPacket{
 			Action:   ExitNode,
 			DestAddr: destAddr,
 			DestMsg:  msg,
@@ -550,7 +600,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*Proce
 		// next hop to also process.
 		nextOnion := lionessDecode(generateKey("pi", sharedSecret), onionMsg)
 
-		nextFwdMsg := &ForwardingMessage{
+		nextFwdMsg := &OnionPacket{
 			Header: &MixHeader{
 				EphemeralKey: nextDHKey,
 				RoutingInfo:  nextMixHeader,
@@ -559,10 +609,10 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*Proce
 			Msg: nextOnion,
 		}
 
-		return &ProcessMsgAction{
+		return &ProcessedPacket{
 			Action:  MoreHops,
 			NextHop: nextHop,
-			FwdMsg:  nextFwdMsg,
+			Packet:  nextFwdMsg,
 		}, nil
 	}
 }

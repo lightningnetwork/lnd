@@ -13,8 +13,8 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 )
 
-func newTestRoute(numHops int) ([]*SphinxNode, *ForwardingMessage, error) {
-	nodes := make([]*SphinxNode, numHops)
+func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
+	nodes := make([]*Router, numHops)
 
 	// Create numMaxHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
@@ -24,20 +24,20 @@ func newTestRoute(numHops int) ([]*SphinxNode, *ForwardingMessage, error) {
 				"key for sphinx node: %v", err)
 		}
 
-		nodes[i] = NewSphinxNode(privKey, &chaincfg.MainNetParams)
+		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams)
 	}
 
 	// Gather all the pub keys in the path.
 	route := make([]*btcec.PublicKey, len(nodes))
 	for i := 0; i < len(nodes); i++ {
-		route[i] = nodes[i].lnKey.PubKey()
+		route[i] = nodes[i].onionKey.PubKey()
 	}
 
 	// Generate a forwarding message to route to the final node via the
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	dest := append([]byte("roasbeef"), bytes.Repeat([]byte{0}, securityParameter-8)...)
-	fwdMsg, err := NewForwardingMessage(route, dest, []byte("testing"))
+	fwdMsg, err := NewOnionPacket(route, dest, []byte("testing"))
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -59,7 +59,7 @@ func TestSphinxCorrectness(t *testing.T) {
 		hop := nodes[i]
 
 		log.Printf("Processing at hop: %v \n", i)
-		processAction, err := hop.ProcessForwardingMessage(fwdMsg)
+		processAction, err := hop.ProcessOnionPacket(fwdMsg)
 		if err != nil {
 			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
 		}
@@ -104,7 +104,7 @@ func TestSphinxCorrectness(t *testing.T) {
 					hex.EncodeToString(parsedNextHop))
 			}
 
-			fwdMsg = processAction.FwdMsg
+			fwdMsg = processAction.Packet
 		}
 	}
 }
@@ -121,7 +121,7 @@ func TestSphinxSingleHop(t *testing.T) {
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
-	processedPacket, err := nodes[0].ProcessForwardingMessage(fwdMsg)
+	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -145,13 +145,13 @@ func TestSphinxNodeRelpay(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessForwardingMessage(fwdMsg); err != nil {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessForwardingMessage(fwdMsg); err != ErrReplayedPacket {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != ErrReplayedPacket {
 		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
 	}
 }
@@ -173,7 +173,7 @@ func TestSphinxEncodeDecode(t *testing.T) {
 
 	// Now decode the bytes encoded above. Again, this should succeeed
 	// without any errors.
-	newFwdMsg := &ForwardingMessage{}
+	newFwdMsg := &OnionPacket{}
 	if err := newFwdMsg.Decode(&b); err != nil {
 		t.Fatalf("unable to decode message: %v", err)
 	}

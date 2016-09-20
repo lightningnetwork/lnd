@@ -108,6 +108,32 @@ func TestSphinxCorrectness(t *testing.T) {
 		}
 	}
 }
+
+func TestSphinxSingleHop(t *testing.T) {
+	// We'd like to test the proper behavior of the correctness of onion
+	// packet processing for "single-hop" payments which bare a full onion
+	// packet.
+
+	nodes, fwdMsg, err := newTestRoute(1)
+	if err != nil {
+		t.Fatalf("unable to create test route: %v", err)
+	}
+
+	// Simulating a direct single-hop payment, send the sphinx packet to
+	// the destination node, making it process the packet fully.
+	processedPacket, err := nodes[0].ProcessForwardingMessage(fwdMsg)
+	if err != nil {
+		t.Fatalf("unable to process sphinx packet: %v", err)
+	}
+
+	// The destination node should detect that the packet is destined for
+	// itself.
+	if processedPacket.Action != ExitNode {
+		t.Fatalf("processed action is correct, is %v should be %v",
+			processedPacket.Action, ExitNode)
+	}
+}
+
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.

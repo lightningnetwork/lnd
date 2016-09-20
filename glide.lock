@@ -1,8 +1,8 @@
-hash: d11bb1bf4ed6df842559ffff8fcf859509382395ba38fc29a0de546526ecbcd4
-updated: 2016-09-08T12:08:13.98576317-07:00
+hash: 3047655dd4d303e49360573568bb046155e047519243c0ed8b1f8be2fcaf02de
+updated: 2016-09-20T16:28:15.627923101-07:00
 imports:
 - name: github.com/awalterschulze/gographviz
-  version: cafbade2d58068c3992f12afe46742195c673d2b
+  version: 761fd5fbb34e4c2c138c280395b65b48e4ff5a53
   subpackages:
   - ast
   - parser
@@ -59,7 +59,9 @@ imports:
   subpackages:
   - proto
 - name: github.com/howeyc/gopass
-  version: 3ca23474a7c7203e0a0a070fd33508f6efdb9b3d
+  version: 26c6e1184fd5255fa5f5289d0b789a4819c203a4
+- name: github.com/lightningnetwork/lightning-onion
+  version: 81647ffa2c5e17c0447d359e1963a54e18be85c4
 - name: github.com/roasbeef/btcd
   version: baea7691cc3c59480703fe1a3fb5595c838c963c
   subpackages:
@@ -88,13 +90,13 @@ imports:
   - waddrmgr
   - wallet
   - walletdb/bdb
+  - walletdb
   - internal/zero
   - snacl
-  - walletdb
-  - wtxmgr
   - internal/prompt
   - wallet/txauthor
   - wallet/txrules
+  - wtxmgr
   - internal/legacy/keystore
   - internal/helpers
   - wallet/internal/txsizes
@@ -102,7 +104,7 @@ imports:
 - name: github.com/urfave/cli
   version: a14d7d367bc02b1f57d88de97926727f2d936387
 - name: golang.org/x/crypto
-  version: 9e590154d2353f3f5e1b24da7275686040dcf491
+  version: 6ab629be5e31660579425a738ba8870beb5b7404
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -113,16 +115,17 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 9313baa13d9262e49d07b20ed57dceafcd7240cc
+  version: f4fe4abe3c785295ddf81c7f1823bcd3bad391b6
   subpackages:
   - context
   - http2
   - trace
   - http2/hpack
+  - idna
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/sys
-  version: 30de6d19a3bd89a5f38ae4028e23aaa5582648af
+  version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
   subpackages:
   - unix
 - name: google.golang.org/grpc

@@ -1,7 +1,7 @@
 package: github.com/lightningnetwork/lnd
 import:
 - package: github.com/BitfuryLightning/tools
-  version: ^0.0.2
+  version: b36ae00916b800503504455f7afeb3159bd5ee35
   subpackages:
   - routing
   - rt
@@ -56,3 +56,4 @@ import:
   - context
 - package: google.golang.org/grpc
   version: ^1.0.0
+- package: github.com/lightningnetwork/lightning-onion

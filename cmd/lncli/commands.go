@@ -811,10 +811,7 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	selfLightningId, err := hex.DecodeString(respGetInfo.LightningId)
-	if err != nil {
-		return err
-	}
+	selfLightningId := respGetInfo.IdentityPubkey
 
 	imgType := ctx.String("type")
 	imgDest := ctx.String("dest")
@@ -847,15 +844,15 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 		fmt.Printf("Format: '%v' not recognized. Use one of: %v\n", imgType, visualizer.SupportedFormats())
 		return nil
 	}
+
 	// generate description graph by dot language
-	err = writeToTempFile(r, tempFile, selfLightningId)
-	if err != nil {
+	if err := writeToTempFile(r, tempFile, selfLightningId); err != nil {
 		return err
 	}
-	err = writeToImageFile(tempFile, imageFile)
-	if err != nil {
+	if err := writeToImageFile(tempFile, imageFile); err != nil {
 		return err
 	}
+
 	if ctx.Bool("open") {
 		if err := visualizer.Open(imageFile); err != nil {
 			return err
@@ -864,10 +861,10 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 	return nil
 }
 
-func writeToTempFile(r *rt.RoutingTable, file *os.File, self []byte) error {
-	slc := []graph.ID{graph.NewID(string(self))}
+func writeToTempFile(r *rt.RoutingTable, file *os.File, self string) error {
+	slc := []graph.ID{graph.NewID(self)}
 	viz := visualizer.New(r.G, slc, nil, nil)
-	viz.ApplyToNode = func(s string) string { return hex.EncodeToString([]byte(s)) }
+	viz.ApplyToNode = func(s string) string { return s }
 	viz.ApplyToEdge = func(info interface{}) string {
 		if info, ok := info.(*rt.ChannelInfo); ok {
 			return fmt.Sprintf(`"%v"`, info.Capacity())
@@ -939,7 +936,7 @@ func printRTAsTable(r *rt.RoutingTable, humanForm bool) {
 		// Generate prefix tree for shortcuts
 		lightningIdTree = prefix_tree.NewPrefixTree()
 		for _, node := range r.Nodes() {
-			lightningIdTree.Add(hex.EncodeToString([]byte(node.String())))
+			lightningIdTree.Add(node.String())
 		}
 		edgeIdTree = prefix_tree.NewPrefixTree()
 		for _, channel := range channels {
@@ -948,8 +945,8 @@ func printRTAsTable(r *rt.RoutingTable, humanForm bool) {
 	}
 	for _, channel := range channels {
 		var source, target, edgeId string
-		sourceHex := hex.EncodeToString([]byte(channel.Id1.String()))
-		targetHex := hex.EncodeToString([]byte(channel.Id2.String()))
+		sourceHex := channel.Id1.String()
+		targetHex := channel.Id2.String()
 		edgeIdRaw := channel.EdgeID.String()
 		if humanForm {
 			source = getShortcut(lightningIdTree, sourceHex, minLen)
@@ -993,8 +990,8 @@ func printRTAsJSON(r *rt.RoutingTable) {
 	channelsRaw := r.AllChannels()
 	channels.Channels = make([]ChannelDesc, 0, len(channelsRaw))
 	for _, channelRaw := range channelsRaw {
-		sourceHex := hex.EncodeToString([]byte(channelRaw.Id1.String()))
-		targetHex := hex.EncodeToString([]byte(channelRaw.Id2.String()))
+		sourceHex := channelRaw.Id1.String()
+		targetHex := channelRaw.Id2.String()
 		channels.Channels = append(channels.Channels,
 			ChannelDesc{
 				ID1:      sourceHex,

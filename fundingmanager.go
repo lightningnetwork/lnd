@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"sync"
 	"sync/atomic"
 

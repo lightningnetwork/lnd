@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
+	"io"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -257,6 +258,62 @@ func NewForwardingMessage(route []*btcec.PublicKey, dest LightningAddress,
 	}
 
 	return &ForwardingMessage{Header: mixHeader, Msg: onion}, nil
+}
+
+// Encode serializes the raw bytes of the forwarding message into the passed
+// io.Writer. The form encoded within the passed io.Writer is suitable for
+// either storing on disk, or sending over the network.
+func (f *ForwardingMessage) Encode(w io.Writer) error {
+	ephemeral := f.Header.EphemeralKey.SerializeCompressed()
+	if _, err := w.Write(ephemeral); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(f.Header.RoutingInfo[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(f.Header.HeaderMAC[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(f.Msg[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode fully populates the target ForwardingMessage from the raw bytes
+// encoded within the io.Reader. In the case of any decoding errors, an error
+// will be returned. If the method successs, then the new ForwardingMessage is
+// ready to be processed by an instance of SphinxNode.
+func (f *ForwardingMessage) Decode(r io.Reader) error {
+	var err error
+
+	f.Header = &MixHeader{}
+
+	var ephemeral [33]byte
+	if _, err := io.ReadFull(r, ephemeral[:]); err != nil {
+		return err
+	}
+	f.Header.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, f.Header.RoutingInfo[:]); err != nil {
+		return err
+	}
+	if _, err := io.ReadFull(r, f.Header.HeaderMAC[:]); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, f.Msg[:]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // calcMac calculates HMAC-SHA-256 over the message using the passed secret key as

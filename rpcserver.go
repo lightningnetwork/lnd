@@ -208,7 +208,7 @@ out:
 		select {
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to "+
-				"lightningID(%v) nor peerID(%v): %v",
+				"lightningID(%x) nor peerID(%v): %v",
 				in.TargetNode, in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:

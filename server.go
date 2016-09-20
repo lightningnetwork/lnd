@@ -118,7 +118,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// Create a new routing manager with ourself as the sole node within
 	// the graph.
-	s.routingMgr = routing.NewRoutingManager(graph.NewID(s.lightningID), nil)
+	selfVertex := hex.EncodeToString(serializedPubKey)
+	s.routingMgr = routing.NewRoutingManager(graph.NewID(selfVertex), nil)
 
 	s.rpcServer = newRpcServer(s)
 
@@ -306,22 +307,27 @@ out:
 			msg1 := msg.(*routing.RoutingMessage)
 			if msg1.ReceiverID == nil {
 				peerLog.Critical("msg1.GetReceiverID() == nil")
+				continue
 			}
-			receiverID := msg1.ReceiverID.ToByte32()
+			receiverID := msg1.ReceiverID.String()
+
 			var targetPeer *peer
 			for _, peer := range s.peers { // TODO: threadsafe api
+				nodePub := peer.identityPub.SerializeCompressed()
+				idStr := hex.EncodeToString(nodePub)
+
 				// We found the the target
-				if peer.lightningID == receiverID {
+				if receiverID == idStr {
 					targetPeer = peer
 					break
 				}
 			}
+
 			if targetPeer != nil {
-				fndgLog.Info("Peer found. Sending message")
-				done := make(chan struct{}, 1)
-				targetPeer.queueMsg(msg1.Msg, done)
+				targetPeer.queueMsg(msg1.Msg, nil)
 			} else {
-				srvrLog.Errorf("Can't find peer to send message %v", receiverID)
+				srvrLog.Errorf("Can't find peer to send message %v",
+					receiverID)
 			}
 		case <-s.quit:
 			break out

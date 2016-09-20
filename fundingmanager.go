@@ -583,9 +583,10 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			// so this new channel can be utilized during path
 			// finding.
 			chanInfo := openChan.StateSnapshot()
-			capacity := int64(chanInfo.Capacity)
+			capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
+			vertex := hex.EncodeToString(fmsg.peer.identityPub.SerializeCompressed())
 			fmsg.peer.server.routingMgr.OpenChannel(
-				graph.NewID(chanInfo.RemoteID),
+				graph.NewID(vertex),
 				graph.NewEdgeID(fundingPoint.String()),
 				&rt.ChannelInfo{
 					Cpt: capacity,
@@ -655,8 +656,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// Notify the L3 routing manager of the newly active channel link.
 	capacity := int64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
+	vertex := hex.EncodeToString(fmsg.peer.identityPub.SerializeCompressed())
 	fmsg.peer.server.routingMgr.OpenChannel(
-		graph.NewID([32]byte(fmsg.peer.lightningID)),
+		graph.NewID(vertex),
 		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
 		&rt.ChannelInfo{
 			Cpt: capacity,

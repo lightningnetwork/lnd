@@ -515,8 +515,9 @@ var SendPaymentCommand = cli.Command{
 	Usage:       "sendpayment --dest=[node_id] --amt=[in_satoshis]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "dest, d",
-			Usage: "lightning address of the payment recipient",
+			Name: "dest, d",
+			Usage: "the compressed identity pubkey of the " +
+				"payment recipient",
 		},
 		cli.IntFlag{ // TODO(roasbeef): float64?
 			Name:  "amt, a",
@@ -542,18 +543,13 @@ var SendPaymentCommand = cli.Command{
 func sendPaymentCommand(ctx *cli.Context) error {
 	client := getClient(ctx)
 
-	destAddr, err := hex.DecodeString(ctx.String("dest"))
+	destNode, err := hex.DecodeString(ctx.String("dest"))
 	if err != nil {
 		return err
 	}
-
-	rHash, err := hex.DecodeString(ctx.String("payment_hash"))
-	if err != nil {
-		return err
-	}
-	if len(rHash) != 32 {
-		return fmt.Errorf("payment hash must be exactly 32 bytes, is "+
-			"instead %v", len(rHash))
+	if len(destNode) != 33 {
+		return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
+			"instead: %v", len(destNode))
 	}
 
 	req := &lnrpc.SendRequest{

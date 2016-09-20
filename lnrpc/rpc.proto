@@ -135,11 +135,12 @@ message GetInfoRequest{}
 message GetInfoResponse {
     string lightning_id = 1;
     string identity_address = 2;
+    string identity_pubkey = 3;
 
-    uint32 num_pending_channels = 3;
-    uint32 num_active_channels = 4;
+    uint32 num_pending_channels = 4;
+    uint32 num_active_channels = 5;
 
-    uint32 num_peers = 5;
+    uint32 num_peers = 6;
 }
 
 message ConfirmationUpdate {

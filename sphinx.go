@@ -130,7 +130,6 @@ func NewMixHeader(dest LightningAddress, identifier [securityParameter]byte,
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding(numHops, hopSharedSecrets)
-
 	// First we generate the routing info + MAC for the very last hop.
 	mixHeader := make([]byte, 0, routingInfoSize)
 	mixHeader = append(mixHeader, dest...)
@@ -358,15 +357,15 @@ const (
 	Failure
 )
 
-// processMsgAction....
-type processMsgAction struct {
-	action ProcessCode
+// ProcessMsgAction....
+type ProcessMsgAction struct {
+	Action ProcessCode
 
-	nextHop [securityParameter]byte
-	fwdMsg  *ForwardingMessage
+	NextHop [securityParameter]byte
+	FwdMsg  *ForwardingMessage
 
-	destAddr LightningAddress
-	destMsg  []byte
+	DestAddr LightningAddress
+	DestMsg  []byte
 }
 
 // SphinxNode...
@@ -399,7 +398,7 @@ func NewSphinxNode(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *SphinxNode 
 
 // ProcessMixHeader...
 // TODO(roasbeef): proto msg enum?
-func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*processMsgAction, error) {
+func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*ProcessMsgAction, error) {
 	mixHeader := fwdMsg.Header
 	onionMsg := fwdMsg.Msg
 
@@ -453,10 +452,10 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 		}*/
 		destAddr := onionCore[securityParameter : securityParameter*2]
 		msg := onionCore[securityParameter*2:]
-		return &processMsgAction{
-			action:   ExitNode,
-			destAddr: destAddr,
-			destMsg:  msg,
+		return &ProcessMsgAction{
+			Action:   ExitNode,
+			DestAddr: destAddr,
+			DestMsg:  msg,
 		}, nil
 
 	default: // The message is destined for another mix-net node.
@@ -490,10 +489,10 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 			Msg: nextOnion,
 		}
 
-		return &processMsgAction{
-			action:  MoreHops,
-			nextHop: nextHop,
-			fwdMsg:  nextFwdMsg,
+		return &ProcessMsgAction{
+			Action:  MoreHops,
+			NextHop: nextHop,
+			FwdMsg:  nextFwdMsg,
 		}, nil
 	}
 }

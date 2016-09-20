@@ -44,7 +44,7 @@ func TestSphinxCorrectness(t *testing.T) {
 	for i := 0; i < len(nodes); i++ {
 		hop := nodes[i]
 
-		fmt.Printf("Processing at hop: %v \n", i)
+		log.Printf("Processing at hop: %v \n", i)
 		processAction, err := hop.ProcessForwardingMessage(fwdMsg)
 		if err != nil {
 			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
@@ -53,36 +53,36 @@ func TestSphinxCorrectness(t *testing.T) {
 		// If this is the last hop on the path, the node should
 		// recognize that it's the exit node.
 		if i == len(nodes)-1 {
-			if processAction.action != ExitNode {
+			if processAction.Action != ExitNode {
 				t.Fatalf("Processing error, node %v is the last hop in"+
 					"the path, yet it doesn't recognize so", i)
 			}
 
 			// The original destination address and message should
 			// now be fully decrypted.
-			if !bytes.Equal(dest, processAction.destAddr) {
+			if !bytes.Equal(dest, processAction.DestAddr) {
 				t.Fatalf("Destination address parsed incorrectly at final destination!"+
 					" Should be %v, is instead %v",
 					hex.EncodeToString(dest),
-					hex.EncodeToString(processAction.destAddr))
+					hex.EncodeToString(processAction.DestAddr))
 			}
 
-			if !bytes.HasPrefix(processAction.destMsg, []byte("testing")) {
+			if !bytes.HasPrefix(processAction.DestMsg, []byte("testing")) {
 				t.Fatalf("Final message parsed incorrectly at final destination!"+
 					"Should be %v, is instead %v",
-					[]byte("testing"), processAction.destMsg)
+					[]byte("testing"), processAction.DestMsg)
 			}
 
 		} else {
 			// If this isn't the last node in the path, then the returned
 			// action should indicate that there are more hops to go.
-			if processAction.action != MoreHops {
+			if processAction.Action != MoreHops {
 				t.Fatalf("Processing error, node %v is not the final"+
 					" hop, yet thinks it is.", i)
 			}
 
 			// The next hop should have been parsed as node[i+1].
-			parsedNextHop := processAction.nextHop[:]
+			parsedNextHop := processAction.NextHop[:]
 			if !bytes.Equal(parsedNextHop, nodes[i+1].nodeID[:]) {
 				t.Fatalf("Processing error, next hop parsed incorrectly."+
 					" next hop shoud be %v, was instead parsed as %v",
@@ -90,7 +90,7 @@ func TestSphinxCorrectness(t *testing.T) {
 					hex.EncodeToString(parsedNextHop))
 			}
 
-			fwdMsg = processAction.fwdMsg
+			fwdMsg = processAction.FwdMsg
 		}
 	}
 }

@@ -527,6 +527,10 @@ var SendPaymentCommand = cli.Command{
 			Usage: "the hash to use within the payment's HTLC",
 		},
 		cli.BoolFlag{
+			Name:  "debug_send",
+			Usage: "use the debug rHash when sending the HTLC",
+		},
+		cli.BoolFlag{
 			Name: "fast, f",
 			Usage: "skip the HTLC trickle logic, immediately creating a " +
 				"new commitment",
@@ -553,10 +557,21 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.SendRequest{
-		Dest:        destAddr,
-		Amt:         int64(ctx.Int("amt")),
-		PaymentHash: rHash[:],
-		FastSend:    ctx.Bool("fast"),
+		Dest:     destNode,
+		Amt:      int64(ctx.Int("amt")),
+		FastSend: ctx.Bool("fast"),
+	}
+
+	if !ctx.Bool("debug_send") {
+		rHash, err := hex.DecodeString(ctx.String("payment_hash"))
+		if err != nil {
+			return err
+		}
+		if len(rHash) != 32 {
+			return fmt.Errorf("payment hash must be exactly 32 "+
+				"bytes, is instead %v", len(rHash))
+		}
+		req.PaymentHash = rHash
 	}
 
 	paymentStream, err := client.SendPayment(context.Background())

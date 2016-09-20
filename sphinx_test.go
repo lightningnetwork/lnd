@@ -108,6 +108,28 @@ func TestSphinxCorrectness(t *testing.T) {
 		}
 	}
 }
+func TestSphinxNodeRelpay(t *testing.T) {
+	// We'd like to ensure that the sphinx node itself rejects all replayed
+	// packets which share the same shared secret.
+
+	nodes, fwdMsg, err := newTestRoute(numMaxHops)
+	if err != nil {
+		t.Fatalf("unable to create test route: %v", err)
+	}
+
+	// Allow the node to process the initial packet, this should proceed
+	// without any failures.
+	if _, err := nodes[0].ProcessForwardingMessage(fwdMsg); err != nil {
+		t.Fatalf("unable to process sphinx packet: %v", err)
+	}
+
+	// Now, force the node to process the packet a second time, this should
+	// fail with a detected replay error.
+	if _, err := nodes[0].ProcessForwardingMessage(fwdMsg); err != ErrReplayedPacket {
+		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
+	}
+}
+
 func TestSphinxEncodeDecode(t *testing.T) {
 	// Create some test data with a randomly populated, yet valid onion
 	// forwarding message.

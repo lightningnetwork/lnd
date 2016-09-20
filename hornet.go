@@ -6,8 +6,7 @@ import (
 )
 
 // TODO(roasbeef): Might need to change? due to the PRG* requirements?
-const NumMaxHops = 20
-const FSLength = 48
+const fSLength = 48
 
 // Hmm appears that they use k = 128 throughout the paper?
 
@@ -45,7 +44,7 @@ const FSLength = 48
 // NOTE: Length of routing segment in the paper is 8 bytes (enough for their
 // imaginary network, I guess). But, looking like they'll be (20 + 33 bytes)
 // 53 bytes. Or 52 if we use curve25519
-type RoutingSegment struct {
+type routingSegment struct {
 	nextHop *btcec.PublicKey // NOTE: or, is this a LN addr? w/e that is?
 	// nextHop [32]byte
 	rCommitment [ripemd160.Size]byte
@@ -54,17 +53,17 @@ type RoutingSegment struct {
 }
 
 // SphinxPayload...
-type SphinxPayload struct {
+type sphinxPayload struct {
 }
 
 // ForwardingSegment....
-type ForwardingSegment struct {
+type forwardingSegment struct {
 	// Here's hash(R), attempt to make an HTLC with the next hop. If
 	// successful, then pass along the onion so we can finish getting the
 	// payment circuit set up.
 	// TODO(roasbeef): Do we create HTLC's with the minimum amount
 	// possible? 1 satoshi or is it 1 mili-satoshi?
-	rs RoutingSegment
+	rs routingSegment
 
 	// To defend against replay attacks. Intermediate nodes will drop the
 	// FS if it deems it's expired.
@@ -76,18 +75,18 @@ type ForwardingSegment struct {
 }
 
 // AnonymousHeader...
-type AnonymousHeader struct {
+type anonymousHeader struct {
 	// Forwarding info for the current hop. When serialized, it'll be
 	// encrypted with SV, the secret key for this node known to no-one but
 	// the node. It also contains a secret key shared with this node and the
 	// source, so it can peel off a layer of the onion for the next hop.
-	FS ForwardingSegment
+	fs forwardingSegment
 
 	mac [32]byte // TODO(roasbeef): or, 16?
 }
 
 // CommonHeader...
-type CommonHeader struct {
+type commonHeader struct {
 	// TODO(roasbeef): maybe can use this to extend HORNET with additiona control signals
 	// for LN nodes?
 	controlType uint8
@@ -96,22 +95,20 @@ type CommonHeader struct {
 }
 
 // DataPacket...
-type DataPacket struct {
-	Chdr  CommonHeader
-	Ahdr  AnonymousHeader             // TODO(roasbeef): MAC in ahdr includes the chdr?
-	Onion [FSLength * NumMaxHops]byte // TODO(roasbeef): or, is it NumMaxHops - 1?
+type dataPacket struct {
+	chdr  commonHeader
+	ahdr  anonymousHeader             // TODO(roasbeef): MAC in ahdr includes the chdr?
+	onion [fSLength * numMaxHops]byte // TODO(roasbeef): or, is it NumMaxHops - 1?
 }
 
-type SphinxHeader struct {
+type sphinxHeader struct {
 }
 
 // SessionSetupPacket...
-type SessionSetupPacket struct {
-	Chdr      CommonHeader
-	Shdr      SphinxHeader
-	Sp        SphinxPayload
-	FsPayload [FSLength * NumMaxHops]byte // ? r*c
+type sessionSetupPacket struct {
+	chdr      commonHeader
+	shdr      sphinxHeader
+	sp        sphinxPayload
+	fsPayload [fSLength * numMaxHops]byte // ? r*c
 	// TODO(roabeef): hmm does this implcitly mean messages are a max of 48 bytes?
 }
-
-// will add other LN specific control packets below, I guess

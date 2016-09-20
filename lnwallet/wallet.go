@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -960,9 +959,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
 		return
 	}
-
-	walletLog.Infof("sighash verify: %v", hex.EncodeToString(sigHash))
-	walletLog.Infof("initer verifying tx: %v", spew.Sdump(commitTx))
 
 	// Verify that we've received a valid signature from the remote party
 	// for our version of the commitment transaction.

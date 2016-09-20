@@ -419,7 +419,7 @@ func (s *SphinxNode) ProcessForwardingMessage(fwdMsg *ForwardingMessage) (*proce
 	// shared secret before, cease processing and just drop this forwarding
 	// message.
 	if _, ok := s.seenSecrets[sharedSecret]; ok {
-		return nil, fmt.Errorf("shared secret previously seen")
+		return nil, ErrReplayedPacket
 	}
 
 	// Using the derived shared secret, ensure the integrity of the routing

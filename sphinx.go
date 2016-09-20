@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -487,6 +488,7 @@ type Router struct {
 	nodeAddr *btcutil.AddressPubKeyHash
 	onionKey *btcec.PrivateKey
 
+	sync.RWMutex
 	seenSecrets map[[sharedSecretSize]byte]struct{}
 }
 
@@ -537,9 +539,12 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
 	// message.
+	r.RLock()
 	if _, ok := r.seenSecrets[sharedSecret]; ok {
+		r.RUnlock()
 		return nil, ErrReplayedPacket
 	}
+	r.RUnlock()
 
 	// Using the derived shared secret, ensure the integrity of the routing
 	// information by checking the attached MAC without leaking timing
@@ -551,7 +556,9 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 
 	// The MAC checks out, mark this current shared secret as processed in
 	// order to mitigate future replay attacks.
+	r.Lock()
 	r.seenSecrets[sharedSecret] = struct{}{}
+	r.Unlock()
 
 	// Attach the padding zeroes in order to properly strip an encryption
 	// layer off the routing info revealing the routing information for the

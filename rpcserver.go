@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -9,12 +10,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -317,6 +322,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	return &lnrpc.GetInfoResponse{
 		LightningId:        hex.EncodeToString(r.server.lightningID[:]),
+		IdentityPubkey:     hex.EncodeToString(idPub),
 		IdentityAddress:    idAddr.String(),
 		NumPendingChannels: pendingChannels,
 		NumActiveChannels:  activeChannels,
@@ -445,7 +451,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
+	queryTimeout := time.Duration(time.Minute)
 	errChan := make(chan error, 1)
+
 	for {
 		select {
 		case err := <-errChan:
@@ -461,6 +469,28 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				return err
 			}
 
+			// Query the routing table for a potential path to the
+			// destination node. If a path is ultimately
+			// unavailable, then an error will be returned.
+			destNode := hex.EncodeToString(nextPayment.Dest)
+			targetVertex := graph.NewID(destNode)
+			path, err := r.server.routingMgr.FindPath(targetVertex,
+				queryTimeout)
+			if err != nil {
+				return err
+			}
+			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
+
+			// Generate the raw encoded sphinx packet to be
+			// included along with the HTLC add message.
+			// We snip off the first hop from the path as within
+			// the routing table's star graph, we're always the
+			// first hop.
+			sphinxPacket, err := generateSphinxPacket(path[1:])
+			if err != nil {
+				return err
+			}
+
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
@@ -471,19 +501,18 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
 			}
-			// Craft an HTLC packet to send to the routing sub-system. The
-			// meta-data within this packet will be used to route the
-			// payment through the network.
+
+			// Craft an HTLC packet to send to the routing
+			// sub-system. The meta-data within this packet will be
+			// used to route the payment through the network.
 			htlcAdd := &lnwire.HTLCAddRequest{
 				Amount:           lnwire.CreditsAmount(nextPayment.Amt),
 				RedemptionHashes: [][32]byte{rHash},
+				OnionBlob:        sphinxPacket,
 			}
-			destAddr, err := wire.NewShaHash(nextPayment.Dest)
-			if err != nil {
-				return err
-			}
+			destAddr := wire.ShaHash(fastsha256.Sum256(nextPayment.Dest))
 			htlcPkt := &htlcPacket{
-				dest: *destAddr,
+				dest: destAddr,
 				msg:  htlcAdd,
 			}
 
@@ -510,6 +539,50 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	}
 
 	return nil
+}
+
+// generateSphinxPacket generates then encodes a sphinx packet which encodes
+// the onion route specified by the passed list of graph vertexes. The blob
+// returned from this function can immediately be included within an HTLC add
+// packet to be sent to the first hop within the route.
+func generateSphinxPacket(vertexes []graph.ID) ([]byte, error) {
+	var dest sphinx.LightningAddress
+	e2eMessage := []byte("test")
+
+	route := make([]*btcec.PublicKey, len(vertexes))
+	for i, vertex := range vertexes {
+		vertexBytes, err := hex.DecodeString(vertex.String())
+		if err != nil {
+			return nil, err
+		}
+
+		pub, err := btcec.ParsePubKey(vertexBytes, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+
+		route[i] = pub
+	}
+
+	// Next generate the onion routing packet which allows
+	// us to perform privacy preserving source routing
+	// across the network.
+	var onionBlob bytes.Buffer
+	mixHeader, err := sphinx.NewOnionPacket(route, dest,
+		e2eMessage)
+	if err != nil {
+		return nil, err
+	}
+	if err := mixHeader.Encode(&onionBlob); err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Tracef("[sendpayment] generated sphinx packet: %v",
+		newLogClosure(func() string {
+			return spew.Sdump(mixHeader)
+		}))
+
+	return onionBlob.Bytes(), nil
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -610,8 +683,11 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 
 func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
+
 	rpcsLog.Debugf("[ShowRoutingTable]")
+
 	rtCopy := r.server.routingMgr.GetRTCopy()
+
 	channels := make([]*lnrpc.RoutingTableLink, 0)
 	for _, channel := range rtCopy.AllChannels() {
 		channels = append(channels,
@@ -624,6 +700,7 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 			},
 		)
 	}
+
 	return &lnrpc.ShowRoutingTableResponse{
 		Channels: channels,
 	}, nil

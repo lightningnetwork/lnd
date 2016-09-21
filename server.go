@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
@@ -58,6 +59,8 @@ type server struct {
 
 	utxoNursery *utxoNursery
 
+	sphinx *sphinx.Router
+
 	newPeers  chan *peer
 	donePeers chan *peer
 	queries   chan interface{}
@@ -95,13 +98,16 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		invoices:      newInvoiceRegistry(chanDB),
 		lnwallet:      wallet,
 		identityPriv:  privKey,
-		lightningID:   fastsha256.Sum256(serializedPubKey),
-		listeners:     listeners,
-		peers:         make(map[int32]*peer),
-		newPeers:      make(chan *peer, 100),
-		donePeers:     make(chan *peer, 100),
-		queries:       make(chan interface{}),
-		quit:          make(chan struct{}),
+		// TODO(roasbeef): derive proper onion key based on rotation
+		// schedule
+		sphinx:      sphinx.NewRouter(privKey, activeNetParams.Params),
+		lightningID: fastsha256.Sum256(serializedPubKey),
+		listeners:   listeners,
+		peers:       make(map[int32]*peer),
+		newPeers:    make(chan *peer, 100),
+		donePeers:   make(chan *peer, 100),
+		queries:     make(chan interface{}),
+		quit:        make(chan struct{}),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"

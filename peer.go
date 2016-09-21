@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"container/list"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -62,6 +64,7 @@ type peer struct {
 
 	conn net.Conn
 
+	identityPub   *btcec.PublicKey
 	lightningAddr *lndc.LNAdr
 	lightningID   wire.ShaHash
 
@@ -151,6 +154,7 @@ func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool
 
 	p := &peer{
 		conn:        conn,
+		identityPub: nodePub,
 		lightningID: wire.ShaHash(fastsha256.Sum256(nodePub.SerializeCompressed())),
 		id:          atomic.AddInt32(&numNodes, 1),
 		chainNet:    btcNet,
@@ -882,6 +886,11 @@ type commitmentState struct {
 	// fowarding.
 	switchChan chan<- *htlcPacket
 
+	// sphinx is an instance of the Sphinx onion Router for this node. The
+	// router will be used to process all incmoing Sphinx packets embedded
+	// within HTLC add messages.
+	sphinx *sphinx.Router
+
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
 }
@@ -921,8 +930,13 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		chanPoint:     channel.ChannelPoint(),
 		clearedHTCLs:  make(map[uint32]*pendingPayment),
 		htlcsToSettle: make(map[uint32]*channeldb.Invoice),
+		sphinx:        p.server.sphinx,
 		switchChan:    htlcPlex,
 	}
+
+	// TODO(roasbeef): check to see if able to settle any currently pending
+	// HTLC's
+	//   * also need signals when new invoices are added by the invoiceRegistry
 
 	batchTimer := time.Tick(10 * time.Millisecond)
 out:
@@ -1049,19 +1063,51 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 	// TODO(roasbeef): timeouts
 	//  * fail if can't parse sphinx mix-header
 	case *lnwire.HTLCAddRequest:
+		// Before adding the new HTLC to the state machine, parse the
+		// onion object in order to obtain the routing information.
+		blobReader := bytes.NewReader(htlcPkt.OnionBlob)
+		onionPkt := &sphinx.OnionPacket{}
+		if err := onionPkt.Decode(blobReader); err != nil {
+			peerLog.Errorf("unable to decode onion pkt: %v", err)
+			p.Disconnect()
+			return
+		}
+		mixHeader, err := state.sphinx.ProcessOnionPacket(onionPkt)
+		if err != nil {
+			peerLog.Errorf("unable to process onion pkt: %v", err)
+			p.Disconnect()
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the pre-image
 		index := state.channel.ReceiveHTLC(htlcPkt)
 
-		rHash := htlcPkt.RedemptionHashes[0]
-		invoice, err := p.server.invoices.LookupInvoice(rHash)
-		if err == nil {
-			// TODO(roasbeef): check value
-			//  * onion layer strip should also be before invoice lookup
+		switch mixHeader.Action {
+		// We're the designated payment destination. Therefore we
+		// attempt to see if we have an invoice locally which'll
+		// allow us to settle this HTLC.
+		case sphinx.ExitNode:
+			rHash := htlcPkt.RedemptionHashes[0]
+			invoice, err := p.server.invoices.LookupInvoice(rHash)
+			if err != nil {
+				// TODO(roasbeef): send a canceHTLC message if we can't settle.
+				peerLog.Errorf("unable to query to locate: %v", err)
+				p.Disconnect()
+				return
+			}
+
+			// TODO(roasbeef): check values accept if >=
 			state.htlcsToSettle[index] = invoice
-		} else if err != channeldb.ErrInvoiceNotFound {
-			peerLog.Errorf("unable to query for invoice: %v", err)
+			return
+		case sphinx.MoreHops:
+			// TODO(roasbeef): parse out the next dest so can
+			// attach to packet when forwarding.
+			//  * send cancel + error if not in rounting table
+		default:
+			peerLog.Errorf("mal formed onion packet")
+			p.Disconnect()
 		}
 	case *lnwire.HTLCSettleRequest:
 		// TODO(roasbeef): this assumes no "multi-sig"

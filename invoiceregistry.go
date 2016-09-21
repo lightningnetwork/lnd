@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -54,15 +55,21 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage wire.ShaHash) {
 	paymentHash := wire.ShaHash(fastsha256.Sum256(preimage[:]))
 
-	i.Lock()
-	i.debugInvoices[paymentHash] = &channeldb.Invoice{
+	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
 			Value:           amt,
 			PaymentPreimage: preimage,
 		},
 	}
+
+	i.Lock()
+	i.debugInvoices[paymentHash] = invoice
 	i.Unlock()
+
+	ltndLog.Debugf("Adding debug invoice %v", newLogClosure(func() string {
+		return spew.Sdump(invoice)
+	}))
 }
 
 // AddInvoice adds a regular invoice for the specified amount, identified by
@@ -71,6 +78,10 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage wire.ShaH
 // daemon add/forward HTLC's are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+	ltndLog.Debugf("Adding invoice %v", newLogClosure(func() string {
+		return spew.Sdump(invoice)
+	}))
+
 	// TODO(roasbeef): also check in memory for quick lookups/settles?
 	return i.cdb.AddInvoice(invoice)
 }
@@ -99,6 +110,8 @@ func (i *invoiceRegistry) LookupInvoice(rHash wire.ShaHash) (*channeldb.Invoice,
 // dbueg invoice, then this method is a nooop as debug invoices are never fully
 // settled.
 func (i *invoiceRegistry) SettleInvoice(rHash wire.ShaHash) error {
+	ltndLog.Debugf("Setting invoice %x", rHash[:])
+
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	i.RLock()

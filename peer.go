@@ -1120,8 +1120,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// We perform the HTLC forwarding to the switch in a distinct
 		// goroutine in order not to block the post-processing of
 		// HTLC's that are eligble for forwarding.
-		// TODO(roasbeef): no need to forward if have settled any of
-		// these.
+		// TODO(roasbeef): don't forward if we're going to settle them
 		go func() {
 			for _, htlc := range htlcsToForward {
 				// Send this fully activated HTLC to the htlc
@@ -1136,6 +1135,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// can them from the pending set, and signal the requster (if
 		// existing) that the payment has been fully fulfilled.
 		var bandwidthUpdate btcutil.Amount
+		var settledPayments []wire.ShaHash
 		numSettled := 0
 		for _, htlc := range htlcsToForward {
 			if p, ok := state.clearedHTCLs[htlc.ParentIndex]; ok {
@@ -1176,6 +1176,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			delete(state.htlcsToSettle, htlc.Index)
 
 			bandwidthUpdate += invoice.Terms.Value
+			settledPayments = append(settledPayments,
+				wire.ShaHash(htlc.RHash))
 
 			numSettled++
 		}
@@ -1202,6 +1204,15 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		} else if sent {
 			// TODO(roasbeef): wait to delete from htlcsToSettle?
 			state.numUnAcked += 1
+		}
+
+		// Notify the invoiceRegistry of the invoices we just settled
+		// with this latest commitment update.
+		for _, invoice := range settledPayments {
+			err := p.server.invoices.SettleInvoice(invoice)
+			if err != nil {
+				peerLog.Errorf("unable to settle invoice: %v", err)
+			}
 		}
 	}
 }

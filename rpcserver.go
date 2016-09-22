@@ -510,7 +510,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				RedemptionHashes: [][32]byte{rHash},
 				OnionBlob:        sphinxPacket,
 			}
-			destAddr := wire.ShaHash(fastsha256.Sum256(nextPayment.Dest))
+			firstHopPub, err := hex.DecodeString(path[1].String())
+			if err != nil {
+				return err
+			}
+			destAddr := wire.ShaHash(fastsha256.Sum256(firstHopPub))
 			htlcPkt := &htlcPacket{
 				dest: destAddr,
 				msg:  htlcAdd,

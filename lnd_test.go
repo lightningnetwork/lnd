@@ -366,7 +366,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// With the btcd harness created, we can now complete the
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"
-	args := []string{}
+	args := []string{"--debughtlc"}
 	if err := lightningNetwork.InitializeSeedNodes(btcdHarness, args); err != nil {
 		t.Fatalf("unable to initialize seed nodes: %v", err)
 	}

@@ -92,13 +92,18 @@ const (
 // settles, or removes an HTLC. PaymentDescriptors encapsulate all necessary
 // meta-data w.r.t to an HTLC, and additional data pairing a settle message to
 // the original added HTLC.
+// TODO(roasbeef): LogEntry interface??
+//  * need to separate attrs for cancel/add/settle
 type PaymentDescriptor struct {
-	// TODO(roasbeef): LogEntry interface??
 	sync.RWMutex
 
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
 	RHash PaymentHash
+
+	// RPreimage is the preimage that settles the HTLC pointed to wthin the
+	// log by the ParentIndex.
+	RPreimage PaymentHash
 
 	// Timeout is the absolute timeout in blocks, afterwhich this HTLC
 	// expires.
@@ -113,9 +118,7 @@ type PaymentDescriptor struct {
 	Index uint32
 
 	// ParentIndex is the index of the log entry that this HTLC update
-	// settles or times out. If IsIncoming is false, then this refers to an
-	// index within our local log, otherwise this refers to an entry int he
-	// remote peer's log.
+	// settles or times out.
 	ParentIndex uint32
 
 	// Payload is an opaque blob which is used to complete multi-hop routing.
@@ -1302,9 +1305,9 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint32, error) {
 
 	parentPd := targetHTLC.Value.(*PaymentDescriptor)
 
-	// TODO(roasbeef): maybe make the log entries an interface?
 	pd := &PaymentDescriptor{
 		Amount:      parentPd.Amount,
+		RPreimage:   preimage,
 		Index:       lc.ourLogCounter,
 		ParentIndex: parentPd.Index,
 		EntryType:   Settle,
@@ -1334,6 +1337,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint32
 
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
+		RPreimage:   preimage,
 		ParentIndex: htlc.Index,
 		Index:       lc.theirLogCounter,
 		EntryType:   Settle,

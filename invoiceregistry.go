@@ -110,7 +110,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash wire.ShaHash) (*channeldb.Invoice,
 // dbueg invoice, then this method is a nooop as debug invoices are never fully
 // settled.
 func (i *invoiceRegistry) SettleInvoice(rHash wire.ShaHash) error {
-	ltndLog.Debugf("Setting invoice %x", rHash[:])
+	ltndLog.Debugf("Settling invoice %x", rHash[:])
 
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.

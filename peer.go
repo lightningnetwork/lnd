@@ -891,6 +891,14 @@ type commitmentState struct {
 	// within HTLC add messages.
 	sphinx *sphinx.Router
 
+	// pendingCircuits tracks the remote log index of the incoming HTLC's,
+	// mapped to the processed Sphinx packet contained within the HTLC.
+	// This map is used as a staging area between when an HTLC is added to
+	// the log, and when it's locked into the commitment state of both
+	// chains. Once locked in, the processed packet is sent to the switch
+	// along with the HTLC to forward the packet to the next hop.
+	pendingCircuits map[uint32]*sphinx.ProcessedPacket
+
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
 }
@@ -926,12 +934,13 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 	}
 
 	state := &commitmentState{
-		channel:       channel,
-		chanPoint:     channel.ChannelPoint(),
-		clearedHTCLs:  make(map[uint32]*pendingPayment),
-		htlcsToSettle: make(map[uint32]*channeldb.Invoice),
-		sphinx:        p.server.sphinx,
-		switchChan:    htlcPlex,
+		channel:         channel,
+		chanPoint:       channel.ChannelPoint(),
+		clearedHTCLs:    make(map[uint32]*pendingPayment),
+		htlcsToSettle:   make(map[uint32]*channeldb.Invoice),
+		pendingCircuits: make(map[uint32]*sphinx.ProcessedPacket),
+		sphinx:          p.server.sphinx,
+		switchChan:      htlcPlex,
 	}
 
 	// TODO(roasbeef): check to see if able to settle any currently pending
@@ -1022,12 +1031,14 @@ out:
 // HTLC's, timeout previously cleared HTLC's, and finally to settle currently
 // cleared HTLC's with the upstream peer.
 func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
+	var isSettle bool
 	switch htlc := pkt.msg.(type) {
 	case *lnwire.HTLCAddRequest:
 		// A new payment has been initiated via the
 		// downstream channel, so we add the new HTLC
 		// to our local log, then update the commitment
 		// chains.
+		htlc.ChannelPoint = state.chanPoint
 		index := state.channel.AddHTLC(htlc)
 		p.queueMsg(htlc, nil)
 
@@ -1037,21 +1048,37 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 			err:   pkt.err,
 		})
 
-		// If this newly added update exceeds the max batch size, the
-		// initiate an update.
-		// TODO(roasbeef): enforce max HTLC's in flight limit
-		if len(state.pendingBatch) >= 10 {
-			if sent, err := p.updateCommitTx(state); err != nil {
-				peerLog.Errorf("unable to update "+
-					"commitment: %v", err)
-				p.Disconnect()
-				return
-			} else if !sent {
-				return
-			}
-
-			state.numUnAcked += 1
+	case *lnwire.HTLCSettleRequest:
+		pre := htlc.RedemptionProofs[0]
+		logIndex, err := state.channel.SettleHTLC(pre)
+		if err != nil {
+			// TODO(roasbeef): broadcast on-chain
+			peerLog.Errorf("settle for incoming HTLC rejected: %v", err)
+			p.Disconnect()
+			return
 		}
+
+		htlc.ChannelPoint = state.chanPoint
+		htlc.HTLCKey = lnwire.HTLCKey(logIndex)
+
+		p.queueMsg(htlc, nil)
+		isSettle = true
+	}
+
+	// If this newly added update exceeds the max batch size for adds, or
+	// this is a settle request, then initiate an update.
+	// TODO(roasbeef): enforce max HTLC's in flight limit
+	if len(state.pendingBatch) >= 10 || isSettle {
+		if sent, err := p.updateCommitTx(state); err != nil {
+			peerLog.Errorf("unable to update "+
+				"commitment: %v", err)
+			p.Disconnect()
+			return
+		} else if !sent {
+			return
+		}
+
+		state.numUnAcked += 1
 	}
 }
 
@@ -1072,7 +1099,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			p.Disconnect()
 			return
 		}
-		mixHeader, err := state.sphinx.ProcessOnionPacket(onionPkt)
+		sphinxPacket, err := state.sphinx.ProcessOnionPacket(onionPkt)
 		if err != nil {
 			peerLog.Errorf("unable to process onion pkt: %v", err)
 			p.Disconnect()
@@ -1084,10 +1111,10 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// "settle" list in the event that we know the pre-image
 		index := state.channel.ReceiveHTLC(htlcPkt)
 
-		switch mixHeader.Action {
+		switch sphinxPacket.Action {
 		// We're the designated payment destination. Therefore we
-		// attempt to see if we have an invoice locally which'll
-		// allow us to settle this HTLC.
+		// attempt to see if we have an invoice locally which'll allow
+		// us to settle this HTLC.
 		case sphinx.ExitNode:
 			rHash := htlcPkt.RedemptionHashes[0]
 			invoice, err := p.server.invoices.LookupInvoice(rHash)
@@ -1100,11 +1127,15 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 			// TODO(roasbeef): check values accept if >=
 			state.htlcsToSettle[index] = invoice
-			return
+
+		// There are additional hops left within this route, so we
+		// track the next hop according to the index of this HTLC
+		// within their log. When forwarding locked-in HLTC's to the
+		// switch, we'll attach the routing information so the switch
+		// can finalize the circuit.
 		case sphinx.MoreHops:
-			// TODO(roasbeef): parse out the next dest so can
-			// attach to packet when forwarding.
-			//  * send cancel + error if not in rounting table
+			// TODO(roasbeef): send cancel + error if not in rounting table
+			state.pendingCircuits[index] = sphinxPacket
 		default:
 			peerLog.Errorf("mal formed onion packet")
 			p.Disconnect()
@@ -1163,25 +1194,12 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			return
 		}
 
-		// We perform the HTLC forwarding to the switch in a distinct
-		// goroutine in order not to block the post-processing of
-		// HTLC's that are eligble for forwarding.
-		// TODO(roasbeef): don't forward if we're going to settle them
-		go func() {
-			for _, htlc := range htlcsToForward {
-				// Send this fully activated HTLC to the htlc
-				// switch to continue the chained clear/settle.
-				state.switchChan <- p.logEntryToHtlcPkt(htlc)
-			}
-
-		}()
-
 		// If any of the htlc's eligible for forwarding are pending
 		// settling or timeing out previous outgoing payments, then we
 		// can them from the pending set, and signal the requster (if
 		// existing) that the payment has been fully fulfilled.
 		var bandwidthUpdate btcutil.Amount
-		var settledPayments []wire.ShaHash
+		settledPayments := make(map[lnwallet.PaymentHash]struct{})
 		numSettled := 0
 		for _, htlc := range htlcsToForward {
 			if p, ok := state.clearedHTCLs[htlc.ParentIndex]; ok {
@@ -1222,11 +1240,36 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			delete(state.htlcsToSettle, htlc.Index)
 
 			bandwidthUpdate += invoice.Terms.Value
-			settledPayments = append(settledPayments,
-				wire.ShaHash(htlc.RHash))
+			settledPayments[htlc.RHash] = struct{}{}
 
 			numSettled++
 		}
+
+		go func() {
+			for _, htlc := range htlcsToForward {
+				// We don't need to forward any HTLC's that we
+				// just settled above.
+				if _, ok := settledPayments[htlc.RHash]; ok {
+					continue
+				}
+
+				onionPkt := state.pendingCircuits[htlc.Index]
+				delete(state.pendingCircuits, htlc.Index)
+
+				// Send this fully activated HTLC to the htlc
+				// switch to continue the chained clear/settle.
+				pkt, err := logEntryToHtlcPkt(*state.chanPoint,
+					htlc, onionPkt)
+				if err != nil {
+					peerLog.Errorf("unable to make htlc pkt: %v",
+						err)
+					continue
+				}
+
+				state.switchChan <- pkt
+			}
+
+		}()
 
 		if numSettled == 0 {
 			return
@@ -1254,8 +1297,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		// Notify the invoiceRegistry of the invoices we just settled
 		// with this latest commitment update.
-		for _, invoice := range settledPayments {
-			err := p.server.invoices.SettleInvoice(invoice)
+		for invoice, _ := range settledPayments {
+			err := p.server.invoices.SettleInvoice(wire.ShaHash(invoice))
 			if err != nil {
 				peerLog.Errorf("unable to settle invoice: %v", err)
 			}
@@ -1305,7 +1348,10 @@ func (p *peer) updateCommitTx(state *commitmentState) (bool, error) {
 // log entry the corresponding htlcPacket with src/dest set along with the
 // proper wire message. This helepr method is provided in order to aide an
 // htlcManager in forwarding packets to the htlcSwitch.
-func (p *peer) logEntryToHtlcPkt(pd *lnwallet.PaymentDescriptor) *htlcPacket {
+func logEntryToHtlcPkt(chanPoint wire.OutPoint,
+	pd *lnwallet.PaymentDescriptor,
+	onionPkt *sphinx.ProcessedPacket) (*htlcPacket, error) {
+
 	pkt := &htlcPacket{}
 
 	// TODO(roasbeef): alter after switch to log entry interface
@@ -1313,23 +1359,29 @@ func (p *peer) logEntryToHtlcPkt(pd *lnwallet.PaymentDescriptor) *htlcPacket {
 	switch pd.EntryType {
 	case lnwallet.Add:
 		// TODO(roasbeef): timeout, onion blob, etc
+		var b bytes.Buffer
+		if err := onionPkt.Packet.Encode(&b); err != nil {
+			return nil, err
+		}
+
 		msg = &lnwire.HTLCAddRequest{
 			Amount:           lnwire.CreditsAmount(pd.Amount),
 			RedemptionHashes: [][32]byte{pd.RHash},
+			OnionBlob:        b.Bytes(),
 		}
 	case lnwallet.Settle:
-		// TODO(roasbeef): thread through preimage
 		msg = &lnwire.HTLCSettleRequest{
-			HTLCKey: lnwire.HTLCKey(pd.ParentIndex),
+			RedemptionProofs: [][32]byte{pd.RPreimage},
 		}
 	}
 
-	// TODO(roasbeef): set dest via onion blob or state
 	pkt.amt = pd.Amount
 	pkt.msg = msg
-	pkt.src = p.lightningID
 
-	return pkt
+	pkt.srcLink = chanPoint
+	pkt.onion = onionPkt
+
+	return pkt, nil
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

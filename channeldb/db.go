@@ -71,6 +71,11 @@ func (d *DB) Wipe() error {
 			return err
 		}
 
+		err = tx.DeleteBucket(invoiceBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+
 		return nil
 	})
 }
@@ -107,6 +112,10 @@ func createChannelDB(dbPath string) error {
 		}
 
 		if _, err := tx.CreateBucket(channelLogBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
 			return err
 		}
 

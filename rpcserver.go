@@ -655,6 +655,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		Receipt:   invoice.Receipt[:],
 		RPreimage: invoice.Terms.PaymentPreimage[:],
 		Value:     int64(invoice.Terms.Value),
+		Settled:   invoice.Terms.Settled,
 	}, nil
 }
 
@@ -675,6 +676,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 			Receipt:   dbInvoice.Receipt[:],
 			RPreimage: dbInvoice.Terms.PaymentPreimage[:],
 			Value:     int64(dbInvoice.Terms.Value),
+			Settled:   dbInvoice.Terms.Settled,
 		}
 
 		invoices[i] = invoice

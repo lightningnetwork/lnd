@@ -259,6 +259,8 @@ message Invoice {
     bytes r_hash = 4;
 
     int64 value = 5;
+
+    bool settled = 6;
 }
 message AddInvoiceResponse {
     bytes r_hash = 1;

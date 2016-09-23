@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"time"
 
@@ -77,13 +78,13 @@ type Invoice struct {
 	// Memo is an optional memo to be stored along side an invoice.  The
 	// memo may contain further details pertaining to the invoice itself,
 	// or any other message which fits within the size constraints.
-	Memo [MaxMemoSize]byte
+	Memo []byte
 
 	// Receipt is an optional field dedicated for storing a
 	// cryptographically binding receipt of payment.
 	//
 	// TODO(roasbeef): document scheme.
-	Receipt [MaxReceiptSize]byte
+	Receipt []byte
 
 	// CreationDate is the exact time the invoice was created.
 	CreationDate time.Time
@@ -102,6 +103,16 @@ type Invoice struct {
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes.
 func (d *DB) AddInvoice(i *Invoice) error {
+	if len(i.Memo) > MaxMemoSize {
+		return fmt.Errorf("max length a memo is %v, and invoice "+
+			"of length %v was provided", MaxMemoSize, len(i.Memo))
+	}
+	if len(i.Receipt) > MaxReceiptSize {
+		return fmt.Errorf("max length a receipt is %v, and invoice "+
+			"of length %v was provided", MaxReceiptSize,
+			len(i.Receipt))
+	}
+
 	return d.store.Update(func(tx *bolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
@@ -283,10 +294,10 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 }
 
 func serializeInvoice(w io.Writer, i *Invoice) error {
-	if _, err := w.Write(i.Memo[:]); err != nil {
+	if err := wire.WriteVarBytes(w, 0, i.Memo[:]); err != nil {
 		return err
 	}
-	if _, err := w.Write(i.Receipt[:]); err != nil {
+	if err := wire.WriteVarBytes(w, 0, i.Receipt[:]); err != nil {
 		return err
 	}
 
@@ -331,13 +342,16 @@ func fetchInvoice(invoiceNum []byte, invoices *bolt.Bucket) (*Invoice, error) {
 }
 
 func deserializeInvoice(r io.Reader) (*Invoice, error) {
+	var err error
 	invoice := &Invoice{}
 
 	// TODO(roasbeef): use read full everywhere
-	if _, err := io.ReadFull(r, invoice.Memo[:]); err != nil {
+	invoice.Memo, err = wire.ReadVarBytes(r, 0, MaxMemoSize, "")
+	if err != nil {
 		return nil, err
 	}
-	if _, err := io.ReadFull(r, invoice.Receipt[:]); err != nil {
+	invoice.Receipt, err = wire.ReadVarBytes(r, 0, MaxReceiptSize, "")
+	if err != nil {
 		return nil, err
 	}
 

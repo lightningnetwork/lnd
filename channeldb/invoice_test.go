@@ -25,8 +25,8 @@ func randInvoice(value btcutil.Amount) (*Invoice, error) {
 			Value:           value,
 		},
 	}
-	copy(i.Memo[:], []byte("memo"))
-	copy(i.Receipt[:], []byte("recipt"))
+	i.Memo = []byte("memo")
+	i.Receipt = []byte("recipt")
 
 	return i, nil
 }
@@ -43,8 +43,8 @@ func TestInvoiceWorkflow(t *testing.T) {
 	fakeInvoice := &Invoice{
 		CreationDate: time.Now(),
 	}
-	copy(fakeInvoice.Memo[:], []byte("memo"))
-	copy(fakeInvoice.Receipt[:], []byte("recipt"))
+	fakeInvoice.Memo = []byte("memo")
+	fakeInvoice.Receipt = []byte("recipt")
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = btcutil.Amount(10000)
 

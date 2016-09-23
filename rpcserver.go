@@ -613,12 +613,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	i := &channeldb.Invoice{
 		CreationDate: time.Now(),
+		Memo:         []byte(invoice.Memo),
+		Receipt:      invoice.Receipt,
 		Terms: channeldb.ContractTerm{
 			Value: btcutil.Amount(invoice.Value),
 		},
 	}
-	copy(i.Memo[:], invoice.Memo)
-	copy(i.Receipt[:], invoice.Receipt)
 	copy(i.Terms.PaymentPreimage[:], preImage)
 
 	if err := r.server.invoices.AddInvoice(i); err != nil {

@@ -554,9 +554,16 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 		return nil, fmt.Errorf("MAC mismatch, rejecting forwarding message")
 	}
 
-	// The MAC checks out, mark this current shared secret as processed in
-	// order to mitigate future replay attacks.
+	// The MAC checks out, mark this current shared secret as
+	// processed in order to mitigate future replay attacks. We
+	// need to check to see if we already know the secret again
+	// since a replay might have happened while we were checking
+	// the MAC.
 	r.Lock()
+	if _, ok := r.seenSecrets[sharedSecret]; ok {
+		r.RUnlock()
+		return nil, ErrReplayedPacket
+	}
 	r.seenSecrets[sharedSecret] = struct{}{}
 	r.Unlock()
 

@@ -523,7 +523,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
-	if err != lnwallet.ErrInsufficientFunds {
+	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
 		t.Fatalf("error not coinselect error: %v", err)
 	}
 	if failedReservation != nil {
@@ -545,7 +545,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = wallet.InitChannelReservation(fundingAmount,
 		fundingAmount, testHdSeed, numReqConfs, 4)
-	if err != lnwallet.ErrInsufficientFunds {
+	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
 		t.Fatalf("coin selection succeded should have insufficient funds: %v",
 			err)
 	}

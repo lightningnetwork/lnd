@@ -1,7 +1,6 @@
 package lnwallet
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -40,15 +39,26 @@ const (
 )
 
 var (
-	// Error types
-	ErrInsufficientFunds = errors.New("not enough available outputs to " +
-		"create funding transaction")
 
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
 	wtxmgrNamespaceKey    = []byte("wtxmgr")
 )
+
+// ErrInsufficientFunds is a type matching the error interface which is
+// returned when coin selection for a new funding transaction fails to due
+// having an insufficient amount of confirmed funds.
+type ErrInsufficientFunds struct {
+	amountAvailable btcutil.Amount
+	amountSelected  btcutil.Amount
+}
+
+func (e *ErrInsufficientFunds) Error() string {
+	return fmt.Sprintf("not enough outputs to create funding transaction,"+
+		" need %v only have %v  available", e.amountAvailable,
+		e.amountSelected)
+}
 
 // initFundingReserveReq is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
@@ -1283,9 +1293,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.Ou
 		// If we're about to go past the number of available coins,
 		// then exit with an error.
 		if i > len(coins)-1 {
-			return 0, nil, fmt.Errorf("not enough outputs to create "+
-				"funding transaction, need %v only have %v "+
-				"available", amt, satSelected)
+			return 0, nil, &ErrInsufficientFunds{amt, satSelected}
 		}
 
 		// Otherwise, collect this new coin as it may be used for final

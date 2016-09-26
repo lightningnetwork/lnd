@@ -402,17 +402,7 @@ func (n *networkHarness) SetUp() error {
 	}
 
 	// Finally, make a connection between both of the nodes.
-	bobInfo, err := n.Bob.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		return err
-	}
-	req := &lnrpc.ConnectPeerRequest{
-		Addr: &lnrpc.LightningAddress{
-			PubKeyHash: bobInfo.IdentityAddress,
-			Host:       n.Bob.p2pAddr,
-		},
-	}
-	if _, err := n.Alice.ConnectPeer(ctxb, req); err != nil {
+	if err := n.ConnectNodes(ctxb, n.Alice, n.Bob); err != nil {
 		return err
 	}
 
@@ -480,6 +470,33 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 
 	return node, nil
 }
+
+// ConnectNodes establishes an encrypted+authenticated p2p connection from node
+// a towards node b.
+func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) error {
+	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			PubKeyHash: bobInfo.IdentityAddress,
+			Host:       b.p2pAddr,
+		},
+	}
+	if _, err := a.ConnectPeer(ctx, req); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// TODO(roasbeef): add a WithChannel higher-order function?
+//  * python-like context manager w.r.t using a channel within a test
+//  * possibly  adds more funds to the target wallet if the funds are not
+//    enough
+
 // watchRequest encapsulates a request to the harness' network watcher to
 // dispatch a notification once a transaction with the target txid is seen
 // within the test network.
@@ -743,17 +760,15 @@ func (n *networkHarness) WaitForChannelClose(ctx context.Context,
 func (n *networkHarness) AssertChannelExists(ctx context.Context,
 	node *lightningNode, chanPoint *wire.OutPoint) error {
 
-	req := &lnrpc.ListPeersRequest{}
-	peerInfo, err := node.ListPeers(ctx, req)
+	req := &lnrpc.ListChannelsRequest{}
+	resp, err := node.ListChannels(ctx, req)
 	if err != nil {
-		return fmt.Errorf("unable to list nodeA peers: %v", err)
+		return fmt.Errorf("unable fetch node's channels: %v", err)
 	}
 
-	for _, peer := range peerInfo.Peers {
-		for _, channel := range peer.Channels {
-			if channel.ChannelPoint == chanPoint.String() {
-				return nil
-			}
+	for _, channel := range resp.Channels {
+		if channel.ChannelPoint == chanPoint.String() {
+			return nil
 		}
 	}
 
@@ -774,4 +789,47 @@ func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
 	}
 
 	return string(buf), nil
+}
+
+// SendCoins attemps to send amt satoshis from the internal mining node to the
+// targetted lightning node.
+func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
+	target *lightningNode) error {
+
+	// First, obtain an address from the target lightning node, preferring
+	// to receive a p2wkh address s.t the output can immediately be used as
+	// an input to a funding transaction.
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH,
+	}
+	resp, err := target.NewAddress(ctx, addrReq)
+	if err != nil {
+		return err
+	}
+	addr, err := btcutil.DecodeAddress(resp.Address, n.netParams)
+	if err != nil {
+		return err
+	}
+	addrScript, err := txscript.PayToAddrScript(addr)
+	if err != nil {
+		return err
+	}
+
+	// Generate a transaction which creates an output to the target
+	// pkScript of the desired amount.
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(amt),
+	}
+	if _, err := n.Miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
+		return err
+	}
+
+	// Finally, generate 6 new blocks to ensure the output gains a
+	// sufficient number of confirmations.
+	if _, err := n.Miner.Node.Generate(6); err != nil {
+		return err
+	}
+
+	return nil
 }

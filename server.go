@@ -94,7 +94,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		chainNotifier: notifier,
 		chanDB:        chanDB,
 		fundingMgr:    newFundingManager(wallet),
-		htlcSwitch:    newHtlcSwitch(),
 		invoices:      newInvoiceRegistry(chanDB),
 		lnwallet:      wallet,
 		identityPriv:  privKey,
@@ -126,6 +125,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// the graph.
 	selfVertex := hex.EncodeToString(serializedPubKey)
 	s.routingMgr = routing.NewRoutingManager(graph.NewID(selfVertex), nil)
+	s.htlcSwitch = newHtlcSwitch(serializedPubKey, s.routingMgr)
 
 	s.rpcServer = newRpcServer(s)
 

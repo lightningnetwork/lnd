@@ -311,7 +311,7 @@ func (p *peer) Disconnect() {
 		// Tell the switch to unregister all links associated with this
 		// peer. Passing nil as the target link indicates that all links
 		// associated with this interface should be closed.
-		p.server.htlcSwitch.UnregisterLink(p.lightningID, nil)
+		p.server.htlcSwitch.UnregisterLink(p.identityPub, nil)
 
 		p.server.donePeers <- p
 	}()
@@ -814,7 +814,9 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	// TODO(roasbeef): also wait for confs before removing state
 	peerLog.Infof("ChannelPoint(%v) is now "+
 		"closed", key)
-	wipeChannel(p, channel)
+	if err := wipeChannel(p, channel); err != nil {
+		peerLog.Errorf("unable to wipe channel: %v", err)
+	}
 }
 
 // wipeChannel removes the passed channel from all indexes associated with the
@@ -826,7 +828,7 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
-	p.server.htlcSwitch.UnregisterLink(p.lightningID, chanID)
+	p.server.htlcSwitch.UnregisterLink(p.identityPub, chanID)
 	htlcWireLink, ok := p.htlcManagers[*chanID]
 	if !ok {
 		return nil
@@ -956,8 +958,9 @@ out:
 			peerLog.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				state.chanPoint)
 			if err := wipeChannel(p, channel); err != nil {
-				peerLog.Errorf("Unable to wipe channel %v", err)
+				peerLog.Errorf("unable to wipe channel %v", err)
 			}
+
 			break out
 		case <-channel.ForceCloseSignal:
 			peerLog.Warnf("ChannelPoint(%v) has been force "+
@@ -970,7 +973,7 @@ out:
 			// If we haven't sent or received a new commitment
 			// update in some time, check to see if we have any
 			// pending updates we need to commit. If so, then send
-			// an update incrementing the unacked coutner is
+			// an update incrementing the unacked counter is
 			// succesful.
 			if !state.channel.PendingUpdates() {
 				continue

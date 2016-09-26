@@ -9,12 +9,15 @@ import (
 
 	"golang.org/x/crypto/ripemd160"
 
+	"github.com/BitfuryLightning/tools/routing"
+	"github.com/BitfuryLightning/tools/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -63,6 +66,8 @@ type htlcPacket struct {
 // circuitKey uniquely identifies an active Sphinx (onion routing) circuit
 // between two open channels. Currently, the rHash of the HTLC which created
 // the circuit is used to uniquely identify each circuit.
+// TODO(roasbeef): need to also add in the settle/clear channel points in order
+// to support fragmenting payments on the link layer: 1 to N, N to N, etc.
 type circuitKey [32]byte
 
 // paymentCircuit represents an active Sphinx (onion routing) circuit between
@@ -145,6 +150,9 @@ type htlcSwitch struct {
 	// fully locked in.
 	htlcPlex chan *htlcPacket
 
+	gateway []byte
+	router  *routing.RoutingManager
+
 	// TODO(roasbeef): messaging chan to/from upper layer (routing - L3)
 
 	// TODO(roasbeef): sampler to log sat/sec and tx/sec
@@ -154,8 +162,10 @@ type htlcSwitch struct {
 }
 
 // newHtlcSwitch creates a new htlcSwitch.
-func newHtlcSwitch() *htlcSwitch {
+func newHtlcSwitch(gateway []byte, r *routing.RoutingManager) *htlcSwitch {
 	return &htlcSwitch{
+		router:           r,
+		gateway:          gateway,
 		chanIndex:        make(map[wire.OutPoint]*link),
 		interfaces:       make(map[wire.ShaHash][]*link),
 		onionIndex:       make(map[[ripemd160.Size]byte][]*link),
@@ -326,9 +336,8 @@ out:
 				// Reduce the available bandwidth for the link
 				// as it will clear the above HTLC, increasing
 				// the limbo balance within the channel.
-				n :=
-					atomic.AddInt64(&circuit.clear.availableBandwidth,
-						-int64(pkt.amt))
+				n := atomic.AddInt64(&circuit.clear.availableBandwidth,
+					-int64(pkt.amt))
 				hswcLog.Tracef("Decrementing link %v bandwidth to %v",
 					circuit.clear.chanPoint, n)
 
@@ -345,7 +354,7 @@ out:
 				copy(cKey[:], rHash[:])
 
 				// If we initiated the payment then there won't
-				// be an active circuit so continue propagating
+				// be an active circuit to continue propagating
 				// the settle over. Therefore, we exit early.
 				circuit, ok := h.paymentCircuits[cKey]
 				if !ok {
@@ -474,6 +483,7 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 
 	// A request with a nil channel point indicates that all the current
 	// links for this channel should be cleared.
+	chansRemoved := make([]*wire.OutPoint, 0, len(links))
 	if req.chanPoint == nil {
 		hswcLog.Infof("purging all active links for interface %v",
 			hex.EncodeToString(chanInterface[:]))
@@ -482,6 +492,8 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 			h.chanIndexMtx.Lock()
 			delete(h.chanIndex, *link.chanPoint)
 			h.chanIndexMtx.Unlock()
+
+			chansRemoved = append(chansRemoved, link.chanPoint)
 		}
 		links = nil
 	} else {
@@ -492,12 +504,30 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 		for i := 0; i < len(links); i++ {
 			chanLink := links[i]
 			if chanLink.chanPoint == req.chanPoint {
+				chansRemoved = append(chansRemoved, req.chanPoint)
+
 				copy(links[i:], links[i+1:])
 				links[len(links)-1] = nil
 				links = links[:len(links)-1]
 
 				break
 			}
+		}
+	}
+
+	// Purge the now inactive channels from the routing table.
+	// TODO(roasbeef): routing layer should only see the links as a
+	// summation of their capacity/etc
+	//  * distinction between connection close and channel close
+	for _, linkChan := range chansRemoved {
+		err := h.router.RemoveChannel(
+			graph.NewID(hex.EncodeToString(h.gateway)),
+			graph.NewID(hex.EncodeToString(req.remoteID)),
+			graph.NewEdgeID(linkChan.String()),
+		)
+		if err != nil {
+			hswcLog.Errorf("unable to remove channel from "+
+				"routing table: %v", err)
 		}
 	}
 
@@ -579,16 +609,25 @@ type unregisterLinkMsg struct {
 	chanInterface [32]byte
 	chanPoint     *wire.OutPoint
 
+	// TODO(roasbeef): redo interface map
+	remoteID []byte
+
 	done chan struct{}
 }
 
 // UnregisterLink requets the htlcSwitch to unregiser the new active link. An
 // unregistered link will no longer be considered a candidate to forward
 // HTLC's.
-func (h *htlcSwitch) UnregisterLink(chanInterface [32]byte, chanPoint *wire.OutPoint) {
+func (h *htlcSwitch) UnregisterLink(remotePub *btcec.PublicKey, chanPoint *wire.OutPoint) {
 	done := make(chan struct{}, 1)
+	rawPub := remotePub.SerializeCompressed()
 
-	h.linkControl <- &unregisterLinkMsg{chanInterface, chanPoint, done}
+	h.linkControl <- &unregisterLinkMsg{
+		chanInterface: fastsha256.Sum256(rawPub),
+		chanPoint:     chanPoint,
+		remoteID:      rawPub,
+		done:          done,
+	}
 
 	<-done
 }

@@ -32,6 +32,7 @@ var (
 )
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
+// TODO(roasbeef): pagination support for the list-style calls
 type rpcServer struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
@@ -600,18 +601,21 @@ func generateSphinxPacket(vertexes []graph.ID) ([]byte, error) {
 	// us to perform privacy preserving source routing
 	// across the network.
 	var onionBlob bytes.Buffer
-	mixHeader, err := sphinx.NewOnionPacket(route, dest,
+	sphinxPacket, err := sphinx.NewOnionPacket(route, dest,
 		e2eMessage)
 	if err != nil {
 		return nil, err
 	}
-	if err := mixHeader.Encode(&onionBlob); err != nil {
+	if err := sphinxPacket.Encode(&onionBlob); err != nil {
 		return nil, err
 	}
 
 	rpcsLog.Tracef("[sendpayment] generated sphinx packet: %v",
 		newLogClosure(func() string {
-			return spew.Sdump(mixHeader)
+			// We unset the internal curve here in order to keep
+			// the logs from getting noisy.
+			sphinxPacket.Header.EphemeralKey.Curve = nil
+			return spew.Sdump(sphinxPacket)
 		}))
 
 	return onionBlob.Bytes(), nil
@@ -649,6 +653,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 	copy(i.Terms.PaymentPreimage[:], preImage)
 
+	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
+		newLogClosure(func() string {
+			return spew.Sdump(i)
+		}))
+
 	if err := r.server.invoices.AddInvoice(i); err != nil {
 		return nil, err
 	}
@@ -673,10 +682,17 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	var payHash [32]byte
 	copy(payHash[:], req.RHash)
 
+	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
+
 	invoice, err := r.server.invoices.LookupInvoice(payHash)
 	if err != nil {
 		return nil, err
 	}
+
+	rpcsLog.Tracef("[lookupinvoice] located invoice %v",
+		newLogClosure(func() string {
+			return spew.Sdump(invoice)
+		}))
 
 	return &lnrpc.Invoice{
 		Memo:      string(invoice.Memo[:]),

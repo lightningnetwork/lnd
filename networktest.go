@@ -84,6 +84,12 @@ type lightningNode struct {
 	// started via the start() method.
 	LightningID [32]byte
 
+	// PubKey is the serialized compressed identity public key of the node.
+	// This field will only be populated once the node itself has been
+	// started via the start() method.
+	PubKey    [33]byte
+	PubKeyStr string
+
 	cmd     *exec.Cmd
 	pidFile string
 
@@ -192,11 +198,20 @@ func (l *lightningNode) start() error {
 	if err != nil {
 		return nil
 	}
+
 	lnID, err := hex.DecodeString(info.LightningId)
 	if err != nil {
 		return err
 	}
 	copy(l.LightningID[:], lnID)
+
+	l.PubKeyStr = info.IdentityPubkey
+
+	pubkey, err := hex.DecodeString(info.IdentityPubkey)
+	if err != nil {
+		return err
+	}
+	copy(l.PubKey[:], pubkey)
 
 	return nil
 }

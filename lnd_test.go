@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"testing"
 	"time"
 
@@ -384,11 +385,206 @@ func testSingleHopInvoice(net *networkHarness, t *testing.T) {
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
 }
 
+func testMultiHopPayments(net *networkHarness, t *testing.T) {
+	const chanAmt = btcutil.Amount(100000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+		chanAmt)
+	aliceChanTXID, err := wire.NewShaHash(chanPointAlice.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	aliceFundPoint := wire.OutPoint{
+		Hash:  *aliceChanTXID,
+		Index: chanPointAlice.OutputIndex,
+	}
+
+	// Create a new node (Carol), load her with some funds, then establish
+	// a connection between Carol and Alice with a channel that has
+	// identical capacity to the one created above.
+	//
+	// The network topology should now look like: Carol -> Alice -> Bob
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {
+		t.Fatalf("unable to connect carol to alice: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(t, net, ctxt, carol, net.Alice,
+		chanAmt)
+	carolChanTXID, err := wire.NewShaHash(chanPointCarol.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	carolFundPoint := wire.OutPoint{
+		Hash:  *carolChanTXID,
+		Index: chanPointCarol.OutputIndex,
+	}
+
+	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
+	// satoshis with a different preimage each time.
+	const numPayments = 5
+	const paymentAmt = 1000
+	rHashes := make([][]byte, numPayments)
+	for i := 0; i < numPayments; i++ {
+		preimage := bytes.Repeat([]byte{byte(i)}, 32)
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
+		}
+		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		rHashes[i] = resp.RHash
+	}
+
+	// Carol's routing table should show a path from Carol -> Alice -> Bob,
+	// with the two channels above recognized as the only links within the
+	// network.
+	req := &lnrpc.ShowRoutingTableRequest{}
+	routingResp, err := carol.ShowRoutingTable(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to query for carol's routing table: %v", err)
+	}
+	if len(routingResp.Channels) != 2 {
+		t.Fatalf("only two channels should be seen as active in the "+
+			"network, instead %v are", len(routingResp.Channels))
+	}
+	for _, link := range routingResp.Channels {
+		switch {
+		case link.Outpoint == aliceFundPoint.String():
+			switch {
+			case link.Id1 == net.Alice.PubKeyStr &&
+				link.Id2 == net.Bob.PubKeyStr:
+				continue
+			case link.Id1 == net.Bob.PubKeyStr &&
+				link.Id2 == net.Alice.PubKeyStr:
+				continue
+			default:
+				t.Fatalf("unkown link within routing "+
+					"table: %v", spew.Sdump(link))
+			}
+		case link.Outpoint == carolFundPoint.String():
+			switch {
+			case link.Id1 == net.Alice.PubKeyStr &&
+				link.Id2 == carol.PubKeyStr:
+				continue
+			case link.Id1 == carol.PubKeyStr &&
+				link.Id2 == net.Alice.PubKeyStr:
+				continue
+			default:
+				t.Fatalf("unkown link within routing "+
+					"table: %v", spew.Sdump(link))
+			}
+		default:
+			t.Fatalf("unkown channel %v found in routing table, "+
+				"only %v and %v should exist", link.Outpoint,
+				aliceFundPoint, carolFundPoint)
+		}
+	}
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created above.
+	carolPayStream, err := carol.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for carol: %v", err)
+	}
+
+	// Concurrently pay off all 5 of Bob's invoices. Each of the goroutines
+	// will unblock on the recv once the HTLC it sent has been fully
+	// settled.
+	var wg sync.WaitGroup
+	for _, rHash := range rHashes {
+		sendReq := &lnrpc.SendRequest{
+			PaymentHash: rHash,
+			Dest:        net.Bob.PubKey[:],
+			Amt:         paymentAmt,
+		}
+
+		wg.Add(1)
+		go func() {
+			if err := carolPayStream.Send(sendReq); err != nil {
+				t.Fatalf("unable to send payment: %v", err)
+			}
+			if _, err := carolPayStream.Recv(); err != nil {
+				t.Fatalf("unable to recv pay resp: %v", err)
+			}
+			wg.Done()
+		}()
+	}
+
+	finClear := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(finClear)
+	}()
+
+	select {
+	case <-time.After(time.Second * 10):
+		t.Fatalf("HLTC's not cleared after 10 seconds")
+	case <-finClear:
+	}
+
+	assertAsymmetricBalance := func(node *lightningNode,
+		chanPoint *wire.OutPoint, localBalance, remoteBalance int64) {
+		listReq := &lnrpc.ListChannelsRequest{}
+		resp, err := node.ListChannels(ctxb, listReq)
+		if err != nil {
+			t.Fatalf("unable to for node's channels: %v", err)
+		}
+		for _, channel := range resp.Channels {
+			if channel.ChannelPoint != chanPoint.String() {
+				continue
+			}
+
+			if channel.LocalBalance != localBalance ||
+				channel.RemoteBalance != remoteBalance {
+				t.Fatalf("incorrect balances: %v",
+					spew.Sdump(channel))
+			}
+			return
+		}
+		t.Fatalf("channel not found")
+	}
+
+	// At this point all the channels within our proto network should be
+	// shifted by 5k satoshis in the direction of Bob, the sink within the
+	// payment flow generated above.
+	// TODO(roasbeef): remove sleep after invoice notification hooks are in
+	// place
+	time.Sleep(time.Second * 3)
+	const sourceBal = int64(95000)
+	const sinkBal = int64(5000)
+	assertAsymmetricBalance(carol, &carolFundPoint, sourceBal, sinkBal)
+	assertAsymmetricBalance(net.Alice, &carolFundPoint, sinkBal, sourceBal)
+	assertAsymmetricBalance(net.Alice, &aliceFundPoint, sourceBal, sinkBal)
+	assertAsymmetricBalance(net.Bob, &aliceFundPoint, sinkBal, sourceBal)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol)
+}
+
 var lndTestCases = map[string]lndTestCase{
 	"basic funding flow":     testBasicChannelFunding,
 	"channel force closure":  testChannelForceClosure,
 	"channel balance":        testChannelBalance,
 	"single hop invoice":     testSingleHopInvoice,
+	"test mult-hop payments": testMultiHopPayments,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

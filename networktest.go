@@ -275,6 +275,8 @@ type networkHarness struct {
 
 	seenTxns      chan wire.ShaHash
 	watchRequests chan *watchRequest
+
+	sync.Mutex
 }
 
 // newNetworkHarness creates a new network test harness.
@@ -458,6 +460,26 @@ func (n *networkHarness) TearDownAll() error {
 	return nil
 }
 
+// NewNode fully initializes a returns a new lightningNode binded to the
+// current instance of the network harness. The created node is running, but
+// not yet connected to other nodes within the network.
+func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
+	n.Lock()
+	defer n.Unlock()
+
+	node, err := newLightningNode(&n.rpcConfig, extraArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := node.start(); err != nil {
+		return nil, err
+	}
+
+	n.activeNodes[node.nodeId] = node
+
+	return node, nil
+}
 // watchRequest encapsulates a request to the harness' network watcher to
 // dispatch a notification once a transaction with the target txid is seen
 // within the test network.

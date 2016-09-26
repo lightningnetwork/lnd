@@ -1268,7 +1268,7 @@ func (l *LightningWallet) deriveMasterElkremRoot() (*btcec.PrivateKey, error) {
 }
 
 // selectInputs selects a slice of inputs necessary to meet the specified
-// selection amount. If input selectino is unable to suceed to to insuffcient
+// selection amount. If input selection is unable to suceed to to insuffcient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
@@ -1283,7 +1283,9 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.Ou
 		// If we're about to go past the number of available coins,
 		// then exit with an error.
 		if i > len(coins)-1 {
-			return 0, nil, ErrInsufficientFunds
+			return 0, nil, fmt.Errorf("not enough outputs to create "+
+				"funding transaction, need %v only have %v "+
+				"available", amt, satSelected)
 		}
 
 		// Otherwise, collect this new coin as it may be used for final

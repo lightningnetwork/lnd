@@ -16,7 +16,9 @@ service Lightning {
 
     rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate);
     rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate);
+
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
 
     rpc SendPayment(stream SendRequest) returns (stream SendResponse);
 
@@ -84,29 +86,31 @@ message ConnectPeerResponse {
 }
 
 message HTLC {
-    int64 id = 1;
-
+    bool incoming = 1;
     int64 amount = 2;
-
     bytes hash_lock = 3;
-
-    bool to_us = 4;
+    uint32 expiration_height = 4;
+    uint32 revocation_delay = 5;
 }
 
 message ActiveChannel {
-    // TODO(roasbeef): make channel points a string everywhere in rpc?
-    string remote_id = 1;
+    string remote_pubkey = 1;
     string channel_point = 2;
 
     int64 capacity = 3;
     int64 local_balance = 4;
     int64 remote_balance = 5;
 
-    int64 unsettled_belance = 6;
+    int64 unsettled_balance = 6;
     repeated HTLC pending_htlcs = 7;
 
     uint64 num_updates = 8;
     // TODO(roasbeef): other stuffs
+}
+
+message ListChannelsRequest {}
+message ListChannelsResponse {
+    repeated ActiveChannel channels = 9;
 }
 
 message Peer {
@@ -121,9 +125,6 @@ message Peer {
     int64 sat_recv = 7;
 
     bool inbound = 8;
-
-    // TODO(roasbeef): add pending channels
-    repeated ActiveChannel channels = 9;
 }
 
 message ListPeersRequest {}

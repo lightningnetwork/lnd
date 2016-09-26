@@ -409,7 +409,7 @@ func (n *networkHarness) SetUp() error {
 	// Now block until both wallets have fully synced up.
 	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10).ToBTC()
 	balReq := &lnrpc.WalletBalanceRequest{}
-	balanceTicker := time.Tick(time.Millisecond * 100)
+	balanceTicker := time.Tick(time.Millisecond * 50)
 out:
 	for {
 		select {
@@ -800,6 +800,12 @@ func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
 func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 	target *lightningNode) error {
 
+	balReq := &lnrpc.WalletBalanceRequest{}
+	initialBalance, err := target.WalletBalance(ctx, balReq)
+	if err != nil {
+		return err
+	}
+
 	// First, obtain an address from the target lightning node, preferring
 	// to receive a p2wkh address s.t the output can immediately be used as
 	// an input to a funding transaction.
@@ -835,5 +841,22 @@ func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 		return err
 	}
 
-	return nil
+	// Pause until the nodes current wallet balances reflects the amount
+	// sent to it above.
+	// TODO(roasbeef): factor out into helper func
+	for {
+		select {
+		case <-time.Tick(time.Millisecond * 50):
+			currentBal, err := target.WalletBalance(ctx, balReq)
+			if err != nil {
+				return err
+			}
+
+			if currentBal.Balance == initialBalance.Balance+amt.ToBTC() {
+				return nil
+			}
+		case <-time.After(time.Second * 30):
+			return fmt.Errorf("balances not synced after deadline")
+		}
+	}
 }

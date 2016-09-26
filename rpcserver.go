@@ -354,20 +354,6 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			BytesSent:   atomic.LoadUint64(&serverPeer.bytesSent),
 		}
 
-		chanSnapshots := serverPeer.ChannelSnapshots()
-		peer.Channels = make([]*lnrpc.ActiveChannel, 0, len(chanSnapshots))
-		for _, chanSnapshot := range chanSnapshots {
-			channel := &lnrpc.ActiveChannel{
-				RemoteId:      lnID,
-				ChannelPoint:  chanSnapshot.ChannelPoint.String(),
-				Capacity:      int64(chanSnapshot.Capacity),
-				LocalBalance:  int64(chanSnapshot.LocalBalance),
-				RemoteBalance: int64(chanSnapshot.RemoteBalance),
-				NumUpdates:    chanSnapshot.NumUpdates,
-			}
-			peer.Channels = append(peer.Channels, channel)
-		}
-
 		resp.Peers = append(resp.Peers, peer)
 	}
 
@@ -444,6 +430,48 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	return &lnrpc.PendingChannelResponse{
 		PendingChannels: pendingChannels,
 	}, nil
+}
+
+// ListChannels returns a description of all direct active, open channels the
+// node knows of.
+// TODO(roasbeef): read all active channels from the DB?
+//   * add 'online' toggle bit
+func (r *rpcServer) ListChannels(ctx context.Context,
+	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
+
+	resp := &lnrpc.ListChannelsResponse{}
+	peers := r.server.Peers()
+
+	for _, peer := range peers {
+		lnID := hex.EncodeToString(peer.identityPub.SerializeCompressed())
+		chanSnapshots := peer.ChannelSnapshots()
+
+		for _, chanSnapshot := range chanSnapshots {
+			channel := &lnrpc.ActiveChannel{
+				RemotePubkey:  lnID,
+				ChannelPoint:  chanSnapshot.ChannelPoint.String(),
+				Capacity:      int64(chanSnapshot.Capacity),
+				LocalBalance:  int64(chanSnapshot.LocalBalance),
+				RemoteBalance: int64(chanSnapshot.RemoteBalance),
+				NumUpdates:    chanSnapshot.NumUpdates,
+				PendingHtlcs:  make([]*lnrpc.HTLC, len(chanSnapshot.Htlcs)),
+			}
+			for i, htlc := range chanSnapshot.Htlcs {
+				channel.PendingHtlcs[i] = &lnrpc.HTLC{
+					Incoming:         htlc.Incoming,
+					Amount:           int64(htlc.Amt),
+					HashLock:         htlc.RHash[:],
+					ExpirationHeight: htlc.RefundTimeout,
+					RevocationDelay:  htlc.RevocationDelay,
+				}
+			}
+
+			resp.Channels = append(resp.Channels, channel)
+		}
+
+	}
+
+	return resp, nil
 }
 
 // SendPayment dispatches a bi-directional streaming RPC for sending payments

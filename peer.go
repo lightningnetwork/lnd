@@ -56,6 +56,7 @@ type chanSnapshotReq struct {
 // for managing any channel state related to this peer. To do so, it has several
 // helper goroutines to handle events such as HTLC timeouts, new funding
 // workflow, and detecting an uncooperative closure of any active channels.
+// TODO(roasbeef): proper reconnection logic
 type peer struct {
 	// MUST be used atomically.
 	started    int32
@@ -975,7 +976,8 @@ out:
 			// pending updates we need to commit. If so, then send
 			// an update incrementing the unacked counter is
 			// succesful.
-			if !state.channel.PendingUpdates() {
+			if !state.channel.PendingUpdates() &&
+				len(state.htlcsToSettle) == 0 {
 				continue
 			}
 

@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
@@ -304,10 +305,90 @@ mempoolPoll:
 	assertTxInBlock(block, sweepTx.Sha(), t)
 }
 
+func testSingleHopInvoice(net *networkHarness, t *testing.T) {
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice being
+	// the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanAmt := btcutil.Amount(100000)
+	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob, chanAmt)
+
+	// Now that the channel is open, create an invoice for Bob which
+	// expects a payment of 1000 satoshis from Alice paid via a particular
+	// pre-image.
+	const paymentAmt = 1000
+	preimage := bytes.Repeat([]byte("A"), 32)
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	invoiceResp, err := net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// With the invoice for Bob added, send a payment towards Alice paying
+	// to the above generated invoice.
+	sendStream, err := net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create alice payment stream: %v", err)
+	}
+	sendReq := &lnrpc.SendRequest{
+		PaymentHash: invoiceResp.RHash,
+		Dest:        net.Bob.PubKey[:],
+		Amt:         paymentAmt,
+	}
+	if err := sendStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if _, err := sendStream.Recv(); err != nil {
+		t.Fatalf("error when attempting recv: %v", err)
+	}
+
+	// Bob's invoice should now be found and marked as settled.
+	// TODO(roasbeef): remove sleep after hooking into the to-be-written
+	// invoice settlement notification stream
+	payHash := &lnrpc.PaymentHash{invoiceResp.RHash}
+	dbInvoice, err := net.Bob.LookupInvoice(ctxb, payHash)
+	if err != nil {
+		t.Fatalf("unable to lookup invoice: %v", err)
+	}
+	if !dbInvoice.Settled {
+		t.Fatalf("bob's invoice should be marked as settled: %v",
+			spew.Sdump(dbInvoice))
+	}
+
+	// The balances of Alice and Bob should be updated accordingly.
+	aliceBalance, err := net.Alice.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for alice's balance: %v", err)
+	}
+	bobBalance, err := net.Bob.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for bob's balance: %v", err)
+	}
+
+	if aliceBalance.Balance != int64(chanAmt-paymentAmt) {
+		t.Fatalf("Alice's balance is incorrect got %v, expected %v",
+			aliceBalance, int64(chanAmt-paymentAmt))
+	}
+	if bobBalance.Balance != paymentAmt {
+		t.Fatalf("Bob's balance is incorrect got %v, expected %v",
+			bobBalance, paymentAmt)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
+}
+
 var lndTestCases = map[string]lndTestCase{
-	"basic funding flow":    testBasicChannelFunding,
-	"channel force closure": testChannelForceClosure,
-	"channel balance":       testChannelBalance,
+	"basic funding flow":     testBasicChannelFunding,
+	"channel force closure":  testChannelForceClosure,
+	"channel balance":        testChannelBalance,
+	"single hop invoice":     testSingleHopInvoice,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
@@ -366,8 +447,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// With the btcd harness created, we can now complete the
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"
-	args := []string{"--debughtlc"}
-	if err := lightningNetwork.InitializeSeedNodes(btcdHarness, args); err != nil {
+	// TODO(roasbeef): create master balanced channel with all the monies?
+	if err := lightningNetwork.InitializeSeedNodes(btcdHarness, nil); err != nil {
 		t.Fatalf("unable to initialize seed nodes: %v", err)
 	}
 	if err = lightningNetwork.SetUp(); err != nil {

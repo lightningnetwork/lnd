@@ -602,10 +602,12 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 		resp, err := respStream.Recv()
 		if err != nil {
 			errChan <- err
+			return
 		}
 		if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
 			errChan <- fmt.Errorf("expected channel pending update, "+
 				"instead got %v", resp)
+			return
 		}
 
 		close(chanOpen)
@@ -635,11 +637,13 @@ func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
 		resp, err := openChanStream.Recv()
 		if err != nil {
 			errChan <- fmt.Errorf("unable to read rpc resp: %v", err)
+			return
 		}
 		fundingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanOpen)
 		if !ok {
 			errChan <- fmt.Errorf("expected channel open update, "+
 				"instead got %v", resp)
+			return
 		}
 
 		respChan <- fundingResp.ChanOpen.ChannelPoint

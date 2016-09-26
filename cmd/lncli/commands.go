@@ -509,6 +509,34 @@ func pendingChannels(ctx *cli.Context) error {
 	return nil
 }
 
+var ListChannelsCommand = cli.Command{
+	Name:        "listchannels",
+	Description: "list all open channels",
+	Usage:       "listchannels --active_only",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "active_only, a",
+			Usage: "only list channels which are currently active",
+		},
+	},
+	Action: listChannels,
+}
+
+func listChannels(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.ListChannelsRequest{}
+	resp, err := client.ListChannels(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+
+	return nil
+}
+
 var SendPaymentCommand = cli.Command{
 	Name:        "sendpayment",
 	Description: "send a payment over lightning",

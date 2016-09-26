@@ -65,6 +65,7 @@ func main() {
 		LookupInvoiceCommand,
 		ListInvoicesCommand,
 		ShowRoutingTableCommand,
+		ListChannelsCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

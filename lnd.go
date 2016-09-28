@@ -91,12 +91,6 @@ func lndMain() error {
 		}
 	}
 
-	rpcIP, err := net.LookupHost(loadedConfig.RPCHost)
-	if err != nil {
-		fmt.Printf("unable to resolve rpc host: %v", err)
-		return err
-	}
-
 	btcdHost := fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort)
 	btcdUser := loadedConfig.RPCUser
 	btcdPass := loadedConfig.RPCPass
@@ -121,7 +115,7 @@ func lndMain() error {
 	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
-		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
+		RpcHost:     fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort),
 		RpcUser:     loadedConfig.RPCUser,
 		RpcPass:     loadedConfig.RPCPass,
 		CACert:      rpcCert,

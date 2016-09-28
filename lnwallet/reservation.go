@@ -59,8 +59,8 @@ type InputScript struct {
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
-// a counterpaty. The funding proceses from reservation to channel opening is a
-// 3-step process. In order to allow for full concurrency during the reservation
+// a counterparty. The funding processes from reservation to channel opening
+// is a 3-step process. In order to allow for full concurrency during the reservation
 // workflow, resources consumed by a contribution are "locked" themselves. This
 // prevents a number of race conditions such as two funding transactions
 // double-spending the same input. A reservation can also be cancelled, which
@@ -68,12 +68,12 @@ type InputScript struct {
 //
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
-//     * One requests the wallet to allocate the neccessary resources for a
+//     * One requests the wallet to allocate the necessary resources for a
 //      channel reservation. These resources a put in limbo for the lifetime
 //      of a reservation.
 //    * Once completed the reservation will have the wallet's contribution
 //      accessible via the .OurContribution() method. This contribution
-//      contains the neccessary items to allow the remote party to build both
+//      contains the necessary items to allow the remote party to build both
 //      the funding, and commitment transactions.
 //  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
@@ -84,7 +84,7 @@ type InputScript struct {
 //     * All signatures crafted by us, are now available via .OurSignatures().
 //  3. ChannelReservation.CompleteReservation/ChannelReservation.CompleteReservationSingle
 //     * The final step in the workflow. The counterparty presents the
-//       signatures for all their inputs to the funding transation, as well
+//       signatures for all their inputs to the funding transaction, as well
 //       as a signature to our version of the commitment transaction.
 //     * We then verify the validity of all signatures before considering the
 //       channel "open".

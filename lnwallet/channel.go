@@ -152,8 +152,8 @@ type PaymentDescriptor struct {
 // commitment represents a commitment to a new state within an active channel.
 // New commitments can be initiated by either side. Commitments are ordered
 // into a commitment chain, with one existing for both parties. Each side can
-// independatly extend the other side's commitment chain, up to a certain
-// "revocation window", which once reached, dissallows new commitments until
+// independently extend the other side's commitment chain, up to a certain
+// "revocation window", which once reached, disallows new commitments until
 // the local nodes receives the revocation for the remote node's chain tail.
 type commitment struct {
 	// height represents the commitment height of this commitment, or the
@@ -162,7 +162,7 @@ type commitment struct {
 
 	// [our|their]MessageIndex are indexes into the HTLC log, up to which
 	// this commitment transaction includes. These indexes allow both sides
-	// to independantly, and concurrent send create new commitments. Each
+	// to independently, and concurrent send create new commitments. Each
 	// new commitment sent to the remote party includes an index in the
 	// shared log which details which of their updates we're including in
 	// this new commitment.
@@ -232,7 +232,7 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 // commitmentChain represents a chain of unrevoked commitments. The tail of the
 // chain is the latest fully signed, yet unrevoked commitment. Two chains are
 // tracked, one for the local node, and another for the remote node. New
-// commitmetns we create locally extend the remote node's chain, and vice
+// commitments we create locally extend the remote node's chain, and vice
 // versa. Commitment chains are allowed to grow to a bounded length, after
 // which the tail needs to be "dropped" before new commitments can be received.
 // The tail is "dropped" when the owner of the chain sends a revocation for the
@@ -1278,7 +1278,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 	return pd.Index
 }
 
-// SettleHTLC attempst to settle an existing outstanding received HTLC. The
+// SettleHTLC attempts to settle an existing outstanding received HTLC. The
 // remote log index of the HTLC settled is returned in order to facilitate
 // creating the corresponding wire message. In the case the supplied pre-image
 // is invalid, an error is returned.

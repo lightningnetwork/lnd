@@ -13,18 +13,7 @@ ENV GODEBUG netdns=cgo
 RUN go build
 RUN go install . ./cmd/...
 
-# Mount a volume where btcd's RPC credentials are stored. We'll need to read
-# the TLS cert from this directory.
-VOLUME ["/rpc"]
+# Expose lnd ports (server, rpc).
+EXPOSE 10011 10009
 
-VOLUME ["/data"]
-
-# Expose the p2p listening port, and the current RPC port.
-EXPOSE 10009 10011
-
-COPY docker/lnd/lnd-start.sh /
-
-# Finally, execute the shell script that will start lnd. We use a shell script
-# rather than executing the command directly with ENTRYPOINT in order to ensure
-# environment variables get properly substitued.
-ENTRYPOINT ["/lnd-start.sh"]
+COPY "docker/lnd/start-lnd.sh" .

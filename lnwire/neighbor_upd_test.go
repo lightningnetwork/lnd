@@ -7,37 +7,20 @@ package lnwire
 import (
 	"bytes"
 	"testing"
+
 	"github.com/roasbeef/btcd/wire"
 	"reflect"
 )
 
-
-func samplePubKey(b byte) [33]byte {
-	var a [33]byte
-	for i:=0; i<33; i++ {
-		a[i] = b
-	}
-	return a
-}
-
-func sampleOutPoint(b byte) wire.OutPoint {
-	var w wire.OutPoint
-	for i:=0; i<len(w.Hash); i++ {
-		w.Hash[i] = b
-	}
-	w.Index = uint32(b)
-	return w
-}
-
-func genNeighborHelloMessage() *NeighborHelloMessage {
+func genNeighborUpdMessage() *NeighborUpdMessage {
 	p1 := samplePubKey(1)
 	p2 := samplePubKey(2)
 	p3 := samplePubKey(3)
 	e1 := sampleOutPoint(4)
 	e2 := sampleOutPoint(5)
 
-	msg := NeighborHelloMessage{
-		Channels: []ChannelOperation{
+	msg := NeighborUpdMessage{
+		Updates: []ChannelOperation{
 			{
 				NodePubKey1: p1,
 				NodePubKey2: p2,
@@ -52,34 +35,36 @@ func genNeighborHelloMessage() *NeighborHelloMessage {
 				ChannelId: &e2,
 				Capacity: 210000,
 				Weight: 2.0,
-				Operation: 0,
+				Operation: 1,
 			},
 		},
 	}
 	return &msg
 }
 
-func TestNeighborHelloMessageEncodeDecode(t *testing.T) {
-	msg1 := genNeighborHelloMessage()
-
+func TestNeighborUpdMessageEncodeDecode(t *testing.T) {
+	msg1 := genNeighborUpdMessage()
 	b := new(bytes.Buffer)
 	err := msg1.Encode(b, 0)
 	if err != nil {
-		t.Fatalf("Can't encode message ", err)
+		t.Fatalf("Can't encode message: %v", err)
 	}
-	msg2 := new(NeighborHelloMessage)
+	msg2 := new(NeighborUpdMessage)
 	err = msg2.Decode(b, 0)
+	if err != nil {
+		t.Fatalf("Can't decode message: %v", err)
+	}
 
 	// Assert equality of the two instances.
 	if !reflect.DeepEqual(msg1, msg2) {
 		t.Fatalf("encode/decode error messages don't match %v vs %v",
 			msg1, msg2)
 	}
+
 }
 
-func TestNeighborHelloMessageReadWrite(t *testing.T) {
-	msg1 := genNeighborHelloMessage()
-
+func TestNeighborUpdMessageReadWrite(t *testing.T) {
+	msg1 := genNeighborUpdMessage()
 	b := new(bytes.Buffer)
 	_, err := WriteMessage(b, msg1, 0, wire.SimNet)
 	if err != nil {
@@ -89,10 +74,14 @@ func TestNeighborHelloMessageReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Can't read message %v", err)
 	}
-
+	_, ok := msg2.(*NeighborUpdMessage)
+	if !ok {
+		t.Fatalf("Can't convert to *NeighborUpdMessage")
+	}
 	// Assert equality of the two instances.
 	if !reflect.DeepEqual(msg1, msg2) {
 		t.Fatalf("encode/decode error messages don't match %v vs %v",
 			msg1, msg2)
 	}
+
 }

@@ -7,22 +7,20 @@ package lnwire
 import (
 	"fmt"
 	"io"
-
-	"github.com/BitfuryLightning/tools/rt"
 )
 
 type NeighborHelloMessage struct {
-	RT *rt.RoutingTable
+	// List of channels
+	Channels []ChannelOperation
 }
 
 func (msg *NeighborHelloMessage) Decode(r io.Reader, pver uint32) error {
-	rt1, err := rt.UnmarshallRoutingTable(r)
-	msg.RT = rt1
+	err := readElements(r, &msg.Channels)
 	return err
 }
 
 func (msg *NeighborHelloMessage) Encode(w io.Writer, pver uint32) error {
-	err := msg.RT.Marshall(w)
+	err := writeElement(w, msg.Channels)
 	return err
 }
 
@@ -41,7 +39,7 @@ func (msg *NeighborHelloMessage) Validate() error {
 }
 
 func (msg *NeighborHelloMessage) String() string {
-	return fmt.Sprintf("NeighborHelloMessage{%v}", msg.RT)
+	return fmt.Sprintf("NeighborHelloMessage{%v}", msg.Channels)
 }
 
 var _ Message = (*NeighborHelloMessage)(nil)

@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ripemd160"
-
-	"github.com/BitfuryLightning/tools/routing"
-	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -537,9 +536,9 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 	//  * distinction between connection close and channel close
 	for _, linkChan := range chansRemoved {
 		err := h.router.RemoveChannel(
-			graph.NewID(hex.EncodeToString(h.gateway)),
-			graph.NewID(hex.EncodeToString(req.remoteID)),
-			graph.NewEdgeID(linkChan.String()),
+			graph.NewVertex(h.gateway),
+			graph.NewVertex(req.remoteID),
+			graph.NewEdgeID(*linkChan),
 		)
 		if err != nil {
 			hswcLog.Errorf("unable to remove channel from "+

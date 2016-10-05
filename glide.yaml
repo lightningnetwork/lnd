@@ -1,11 +1,5 @@
 package: github.com/lightningnetwork/lnd
 import:
-- package: github.com/BitfuryLightning/tools
-  version: b36ae00916b800503504455f7afeb3159bd5ee35
-  subpackages:
-  - routing
-  - rt
-  - rt/graph
 - package: github.com/boltdb/bolt
   version: ^1.2.1
 - package: github.com/btcsuite/btclog

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
@@ -18,8 +17,8 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 
-	"github.com/BitfuryLightning/tools/routing"
-	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 )
 
 // server is the main server of the Lightning Network Daemon. The server
@@ -122,8 +121,36 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// Create a new routing manager with ourself as the sole node within
 	// the graph.
-	selfVertex := hex.EncodeToString(serializedPubKey)
-	s.routingMgr = routing.NewRoutingManager(graph.NewID(selfVertex), nil)
+	selfVertex := serializedPubKey
+	routingMgrConfig := &routing.RoutingConfig{}
+	routingMgrConfig.SendMessage = func (receiver [33]byte, msg lnwire.Message) error {
+		receiverID := graph.NewVertex(receiver[:])
+		if receiverID == graph.NilVertex {
+			peerLog.Critical("receiverID == graph.NilVertex")
+			return fmt.Errorf("receiverID == graph.NilVertex")
+		}
+
+		var targetPeer *peer
+		for _, peer := range s.peers { // TODO: threadsafe api
+			nodePub := peer.addr.IdentityKey.SerializeCompressed()
+			nodeVertex := graph.NewVertex(nodePub[:])
+
+			// We found the the target
+			if receiverID == nodeVertex {
+				targetPeer = peer
+				break
+			}
+		}
+
+		if targetPeer != nil {
+			targetPeer.queueMsg(msg, nil)
+		} else {
+			srvrLog.Errorf("Can't find peer to send message %v",
+				receiverID)
+		}
+		return nil
+	}
+	s.routingMgr = routing.NewRoutingManager(graph.NewVertex(selfVertex), routingMgrConfig)
 	s.htlcSwitch = newHtlcSwitch(serializedPubKey, s.routingMgr)
 
 	s.rpcServer = newRpcServer(s)
@@ -307,32 +334,6 @@ out:
 				s.handleListPeers(msg)
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
-			}
-		case msg := <-s.routingMgr.ChOut:
-			msg1 := msg.(*routing.RoutingMessage)
-			if msg1.ReceiverID == nil {
-				peerLog.Critical("msg1.GetReceiverID() == nil")
-				continue
-			}
-			receiverID := msg1.ReceiverID.String()
-
-			var targetPeer *peer
-			for _, peer := range s.peers { // TODO: threadsafe api
-				nodePub := peer.addr.IdentityKey.SerializeCompressed()
-				idStr := hex.EncodeToString(nodePub)
-
-				// We found the the target
-				if receiverID == idStr {
-					targetPeer = peer
-					break
-				}
-			}
-
-			if targetPeer != nil {
-				targetPeer.queueMsg(msg1.Msg, nil)
-			} else {
-				srvrLog.Errorf("Can't find peer to send message %v",
-					receiverID)
 			}
 		case <-s.quit:
 			break out

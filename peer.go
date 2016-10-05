@@ -5,15 +5,13 @@ import (
 	"container/list"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/BitfuryLightning/tools/rt"
-	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -237,11 +235,10 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		chanInfo := lnChan.StateSnapshot()
 		capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
 		pubSerialized := p.addr.IdentityKey.SerializeCompressed()
-		vertex := hex.EncodeToString(pubSerialized)
 		p.server.routingMgr.OpenChannel(
-			graph.NewID(vertex),
-			graph.NewEdgeID(chanInfo.ChannelPoint.String()),
-			&rt.ChannelInfo{
+			graph.NewVertex(pubSerialized),
+			graph.NewEdgeID(*chanInfo.ChannelPoint),
+			&graph.ChannelInfo{
 				Cpt: capacity,
 			},
 		)
@@ -415,13 +412,11 @@ out:
 		case *lnwire.NeighborAckMessage,
 			*lnwire.NeighborHelloMessage,
 			*lnwire.NeighborRstMessage,
-			*lnwire.NeighborUpdMessage,
-			*lnwire.RoutingTableRequestMessage,
-			*lnwire.RoutingTableTransferMessage:
+			*lnwire.NeighborUpdMessage:
 
 			// Convert to base routing message and set sender and receiver
-			vertex := hex.EncodeToString(p.addr.IdentityKey.SerializeCompressed())
-			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(vertex))
+			vertex := p.addr.IdentityKey.SerializeCompressed()
+			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewVertex(vertex))
 		}
 
 		if isChanUpdate {

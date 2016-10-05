@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -621,6 +621,16 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		case err := <-errChan:
 			return err
 		case nextPayment := <-payChan:
+			// Query the routing table for a potential path to the
+			// destination node. If a path is ultimately
+			// unavailable, then an error will be returned.
+			destNode := nextPayment.Dest
+			targetVertex := graph.NewVertex(destNode)
+			path, err := r.server.routingMgr.FindPath(targetVertex)
+			if err != nil {
+				return err
+			}
+			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
@@ -631,17 +641,14 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
 			}
-
 			// Construct and HTLC packet which a payment route (if
 			// one is found) to the destination using a Sphinx
 			// onoin packet to encode the route.
-			dest := hex.EncodeToString(nextPayment.Dest)
-			htlcPkt, err := r.constructPaymentRoute(dest,
+			htlcPkt, err := r.constructPaymentRoute([]byte(nextPayment.Dest),
 				nextPayment.Amt, rHash)
 			if err != nil {
 				return err
 			}
-
 			// We launch a new goroutine to execute the current
 			// payment so we can continue to serve requests while
 			// this payment is being dispatiched.
@@ -695,7 +702,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Construct and HTLC packet which a payment route (if
 	// one is found) to the destination using a Sphinx
 	// onoin packet to encode the route.
-	htlcPkt, err := r.constructPaymentRoute(nextPayment.DestString,
+	htlcPkt, err := r.constructPaymentRoute([]byte(nextPayment.DestString),
 		nextPayment.Amt, rHash)
 	if err != nil {
 		return nil, err
@@ -714,7 +721,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // encapsulates a Sphinx onion packet that encodes the end-to-end route any
 // payment instructions necessary to complete an HTLC. If a route is unable to
 // be located, then an error is returned indicating as much.
-func (r *rpcServer) constructPaymentRoute(destPubkey string, amt int64,
+func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	rHash [32]byte) (*htlcPacket, error) {
 
 	const queryTimeout = time.Duration(time.Second * 10)
@@ -722,9 +729,8 @@ func (r *rpcServer) constructPaymentRoute(destPubkey string, amt int64,
 	// Query the routing table for a potential path to the destination
 	// node. If a path is ultimately unavailable, then an error will be
 	// returned.
-	targetVertex := graph.NewID(destPubkey)
-	path, err := r.server.routingMgr.FindPath(targetVertex,
-		queryTimeout)
+	targetVertex := graph.NewVertex(destPubkey)
+	path, err := r.server.routingMgr.FindPath(targetVertex)
 	if err != nil {
 		return nil, err
 	}
@@ -747,10 +753,7 @@ func (r *rpcServer) constructPaymentRoute(destPubkey string, amt int64,
 		OnionBlob:        sphinxPacket,
 	}
 
-	firstHopPub, err := hex.DecodeString(path[1].String())
-	if err != nil {
-		return nil, err
-	}
+	firstHopPub := path[1].ToByte()
 	destInterface := wire.ShaHash(fastsha256.Sum256(firstHopPub))
 
 	return &htlcPacket{
@@ -763,17 +766,14 @@ func (r *rpcServer) constructPaymentRoute(destPubkey string, amt int64,
 // the onion route specified by the passed list of graph vertexes. The blob
 // returned from this function can immediately be included within an HTLC add
 // packet to be sent to the first hop within the route.
-func generateSphinxPacket(vertexes []graph.ID, paymentHash []byte) ([]byte, error) {
+func generateSphinxPacket(vertexes []graph.Vertex, paymentHash []byte) ([]byte, error) {
 	// First convert all the vertexs from the routing table to in-memory
 	// public key objects. These objects are necessary in order to perform
 	// the series of ECDH operations required to construct the Sphinx
 	// packet below.
 	route := make([]*btcec.PublicKey, len(vertexes))
 	for i, vertex := range vertexes {
-		vertexBytes, err := hex.DecodeString(vertex.String())
-		if err != nil {
-			return nil, err
-		}
+		vertexBytes := vertex.ToByte()
 
 		pub, err := btcec.ParsePubKey(vertexBytes, btcec.S256())
 		if err != nil {
@@ -1091,11 +1091,11 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	for _, channel := range rtCopy.AllChannels() {
 		channels = append(channels,
 			&lnrpc.RoutingTableLink{
-				Id1:      channel.Id1.String(),
-				Id2:      channel.Id2.String(),
-				Outpoint: channel.EdgeID.String(),
-				Capacity: channel.Info.Capacity(),
-				Weight:   channel.Info.Weight(),
+				Id1:      hex.EncodeToString(channel.Src.ToByte()),
+				Id2:      hex.EncodeToString(channel.Tgt.ToByte()),
+				Outpoint: channel.Id.String(),
+				Capacity: channel.Info.Cpt,
+				Weight:   channel.Info.Wgt,
 			},
 		)
 	}

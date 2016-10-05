@@ -5,28 +5,21 @@
 package lnwire
 
 import (
-	"encoding/gob"
 	"fmt"
 	"io"
-
-	"github.com/BitfuryLightning/tools/rt"
 )
 
 type NeighborUpdMessage struct {
-	DiffBuff *rt.DifferenceBuffer
+	Updates []ChannelOperation
 }
 
 func (msg *NeighborUpdMessage) Decode(r io.Reader, pver uint32) error {
-	decoder := gob.NewDecoder(r)
-	diffBuff := new(rt.DifferenceBuffer)
-	err := decoder.Decode(diffBuff)
-	msg.DiffBuff = diffBuff
+	err := readElements(r, &msg.Updates)
 	return err
 }
 
 func (msg *NeighborUpdMessage) Encode(w io.Writer, pver uint32) error {
-	encoder := gob.NewEncoder(w)
-	err := encoder.Encode(msg.DiffBuff)
+	err := writeElements(w, msg.Updates)
 	return err
 }
 
@@ -45,7 +38,7 @@ func (msg *NeighborUpdMessage) Validate() error {
 }
 
 func (msg *NeighborUpdMessage) String() string {
-	return fmt.Sprintf("NeighborUpdMessage{%v}", *msg.DiffBuff)
+	return fmt.Sprintf("NeighborUpdMessage{%v}", msg.Updates)
 }
 
 var _ Message = (*NeighborUpdMessage)(nil)

@@ -114,10 +114,6 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &NeighborAckMessage{}
 	case CmdNeighborRstMessage:
 		msg = &NeighborRstMessage{}
-	case CmdRoutingTableRequestMessage:
-		msg = &RoutingTableRequestMessage{}
-	case CmdRoutingTableTransferMessage:
-		msg = &RoutingTableTransferMessage{}
 	case CmdPing:
 		msg = &Ping{}
 	case CmdPong:

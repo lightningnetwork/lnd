@@ -21,15 +21,26 @@ func (msg *NeighborRstMessage) Command() uint32 {
 }
 
 func (msg *NeighborRstMessage) Encode(w io.Writer, pver uint32) error {
-	return nil
+	_, err := w.Write([]byte("NeighborRstMessage"))
+	return err
 }
 
 func (msg *NeighborRstMessage) Decode(r io.Reader, pver uint32) error {
+	// 18 is the length of "NeighborRstMessage"
+	var b [18]byte
+	_, err := r.Read(b[:])
+	if err != nil {
+		return err
+	}
+	if string(b[:]) != "NeighborRstMessage" {
+		return fmt.Errorf("Incorrect content of NeighborRstMessage")
+	}
 	return nil
 }
 
 func (msg *NeighborRstMessage) MaxPayloadLength(uint32) uint32 {
-	return 0
+	// 18 is the length of "NeighborRstMessage"
+	return 18
 }
 
 func (msg *NeighborRstMessage) Validate() error {

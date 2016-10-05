@@ -10,16 +10,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/BitfuryLightning/tools/prefix_tree"
-	"github.com/BitfuryLightning/tools/rt"
-	"github.com/BitfuryLightning/tools/rt/graph"
+	"github.com/lightningnetwork/lnd/routing/rt/visualizer/prefix_tree"
+	"github.com/lightningnetwork/lnd/routing/rt"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 
-	"github.com/BitfuryLightning/tools/rt/visualizer"
+	"github.com/lightningnetwork/lnd/routing/rt/visualizer"
+	"strconv"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -796,6 +796,26 @@ var ShowRoutingTableCommand = cli.Command{
 	},
 }
 
+func outPointFromString(s string) (*wire.OutPoint, error) {
+	split := strings.Split(s, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("Wrong format of OutPoint. Got %v", s)
+	}
+	h, err := wire.NewShaHashFromStr(split[0])
+	if err!=nil {
+		return nil, err
+	}
+	n, err := strconv.Atoi(split[1])
+	if err != nil {
+		return nil, err
+	}
+	if n<0 {
+		return nil, fmt.Errorf("Got incorrect output number %v", n)
+	}
+	return wire.NewOutPoint(h, uint32(n)), nil
+}
+
+
 func getRoutingTable(ctxb context.Context, client lnrpc.LightningClient) (*rt.RoutingTable, error) {
 	req := &lnrpc.ShowRoutingTableRequest{}
 	resp, err := client.ShowRoutingTable(ctxb, req)
@@ -805,11 +825,23 @@ func getRoutingTable(ctxb context.Context, client lnrpc.LightningClient) (*rt.Ro
 
 	r := rt.NewRoutingTable()
 	for _, channel := range resp.Channels {
+		outPoint, err := outPointFromString(channel.Outpoint)
+		if err != nil {
+			return nil, err
+		}
+		id1, err := hex.DecodeString(channel.Id1)
+		if err != nil {
+			return nil, err
+		}
+		id2, err := hex.DecodeString(channel.Id2)
+		if err != nil {
+			return nil, err
+		}
 		r.AddChannel(
-			graph.NewID(channel.Id1),
-			graph.NewID(channel.Id2),
-			graph.NewEdgeID(channel.Outpoint),
-			&rt.ChannelInfo{channel.Capacity, channel.Weight},
+			graph.NewVertex(id1),
+			graph.NewVertex(id2),
+			graph.NewEdgeID(*outPoint),
+			&graph.ChannelInfo{channel.Capacity, channel.Weight},
 		)
 	}
 	return r, nil
@@ -903,14 +935,13 @@ func showRoutingTableAsImage(ctx *cli.Context) error {
 }
 
 func writeToTempFile(r *rt.RoutingTable, file *os.File, self string) error {
-	slc := []graph.ID{graph.NewID(self)}
+	slc := []graph.Vertex{graph.NewVertex([]byte(self))}
 	viz := visualizer.New(r.G, slc, nil, nil)
-	viz.ApplyToNode = func(s string) string { return s }
-	viz.ApplyToEdge = func(info interface{}) string {
-		if info, ok := info.(*rt.ChannelInfo); ok {
-			return fmt.Sprintf(`"%v"`, info.Capacity())
-		}
-		return "nil"
+	viz.ApplyToNode = func(v graph.Vertex) string {
+		return  hex.EncodeToString(v.ToByte())
+	}
+	viz.ApplyToEdge = func(info *graph.ChannelInfo) string {
+		return fmt.Sprintf(`"%v"`, info.Cpt)
 	}
 	// need to call method if plan to use shortcut, autocomplete, etc
 	viz.BuildPrefixTree()
@@ -977,18 +1008,18 @@ func printRTAsTable(r *rt.RoutingTable, humanForm bool) {
 		// Generate prefix tree for shortcuts
 		lightningIdTree = prefix_tree.NewPrefixTree()
 		for _, node := range r.Nodes() {
-			lightningIdTree.Add(node.String())
+			lightningIdTree.Add(hex.EncodeToString(node.ToByte()))
 		}
 		edgeIdTree = prefix_tree.NewPrefixTree()
 		for _, channel := range channels {
-			edgeIdTree.Add(channel.EdgeID.String())
+			edgeIdTree.Add(channel.Id.String())
 		}
 	}
 	for _, channel := range channels {
 		var source, target, edgeId string
-		sourceHex := channel.Id1.String()
-		targetHex := channel.Id2.String()
-		edgeIdRaw := channel.EdgeID.String()
+		sourceHex := hex.EncodeToString(channel.Src.ToByte())
+		targetHex := hex.EncodeToString(channel.Tgt.ToByte())
+		edgeIdRaw := channel.Id.String()
 		if humanForm {
 			source = getShortcut(lightningIdTree, sourceHex, minLen)
 			target = getShortcut(lightningIdTree, targetHex, minLen)
@@ -1031,15 +1062,15 @@ func printRTAsJSON(r *rt.RoutingTable) {
 	channelsRaw := r.AllChannels()
 	channels.Channels = make([]ChannelDesc, 0, len(channelsRaw))
 	for _, channelRaw := range channelsRaw {
-		sourceHex := channelRaw.Id1.String()
-		targetHex := channelRaw.Id2.String()
+		sourceHex := hex.EncodeToString(channelRaw.Src.ToByte())
+		targetHex := hex.EncodeToString(channelRaw.Tgt.ToByte())
 		channels.Channels = append(channels.Channels,
 			ChannelDesc{
 				ID1:      sourceHex,
 				ID2:      targetHex,
-				EdgeId:   channelRaw.EdgeID.String(),
-				Weight:   channelRaw.Info.Weight(),
-				Capacity: channelRaw.Info.Capacity(),
+				EdgeId:   channelRaw.Id.String(),
+				Weight:   channelRaw.Info.Wgt,
+				Capacity: channelRaw.Info.Cpt,
 			},
 		)
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -14,9 +13,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
-	"github.com/BitfuryLightning/tools/rt"
-	"github.com/BitfuryLightning/tools/rt/graph"
 	"google.golang.org/grpc"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 )
 
 const (
@@ -622,11 +620,10 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			chanInfo := openChan.StateSnapshot()
 			capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
 			pubSerialized := fmsg.peer.addr.IdentityKey.SerializeCompressed()
-			vertex := hex.EncodeToString(pubSerialized)
 			fmsg.peer.server.routingMgr.OpenChannel(
-				graph.NewID(vertex),
-				graph.NewEdgeID(fundingPoint.String()),
-				&rt.ChannelInfo{
+				graph.NewVertex(pubSerialized),
+				graph.NewEdgeID(*fundingPoint),
+				&graph.ChannelInfo{
 					Cpt: capacity,
 				},
 			)
@@ -694,11 +691,11 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// Notify the L3 routing manager of the newly active channel link.
 	capacity := int64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
-	vertex := hex.EncodeToString(fmsg.peer.addr.IdentityKey.SerializeCompressed())
+	vertex := fmsg.peer.addr.IdentityKey.SerializeCompressed()
 	fmsg.peer.server.routingMgr.OpenChannel(
-		graph.NewID(vertex),
-		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
-		&rt.ChannelInfo{
+		graph.NewVertex(vertex),
+		graph.NewEdgeID(*resCtx.reservation.FundingOutpoint()),
+		&graph.ChannelInfo{
 			Cpt: capacity,
 		},
 	)

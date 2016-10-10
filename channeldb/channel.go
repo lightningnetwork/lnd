@@ -127,7 +127,7 @@ type OpenChannel struct {
 
 	OurMultiSigKey      *btcec.PublicKey
 	TheirMultiSigKey    *btcec.PublicKey
-	FundingRedeemScript []byte
+	FundingWitnessScript []byte
 
 	// In blocks
 	LocalCsvDelay  uint32
@@ -1095,7 +1095,7 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
-	if err := wire.WriteVarBytes(&b, 0, channel.FundingRedeemScript[:]); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, channel.FundingWitnessScript[:]); err != nil {
 		return err
 	}
 
@@ -1151,7 +1151,7 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 		return err
 	}
 
-	channel.FundingRedeemScript, err = wire.ReadVarBytes(infoBytes, 0, 520, "")
+	channel.FundingWitnessScript, err = wire.ReadVarBytes(infoBytes, 0, 520, "")
 	if err != nil {
 		return err
 	}

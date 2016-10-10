@@ -660,13 +660,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, multiSigOut, err := GenFundingPkScript(ourKey.SerializeCompressed(),
+	witnessScript, multiSigOut, err := GenFundingPkScript(ourKey.SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	pendingReservation.partialState.FundingRedeemScript = redeemScript
+	pendingReservation.partialState.FundingWitnessScript = witnessScript
 
 	// Sort the transaction. Since both side agree to a canonical
 	// ordering, by sorting we no longer need to send the entire
@@ -792,7 +792,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Generate a signature for their version of the initial commitment
 	// transaction.
 	signDesc = SignDescriptor{
-		RedeemScript: redeemScript,
+		WitnessScript: witnessScript,
 		PubKey:       ourKey,
 		Output:       multiSigOut,
 		HashType:     txscript.SigHashAll,
@@ -837,13 +837,13 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	ourKey := pendingReservation.partialState.OurMultiSigKey
 	theirKey := theirContribution.MultiSigKey
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	redeemScript, _, err := GenFundingPkScript(ourKey.SerializeCompressed(),
+	witnessScript, _, err := GenFundingPkScript(ourKey.SerializeCompressed(),
 		theirKey.SerializeCompressed(), channelCapacity)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	pendingReservation.partialState.FundingRedeemScript = redeemScript
+	pendingReservation.partialState.FundingWitnessScript = witnessScript
 
 	masterElkremRoot, err := l.deriveMasterElkremRoot()
 	if err != nil {
@@ -953,17 +953,17 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	commitTx := pendingReservation.partialState.OurCommitTx
 	theirKey := pendingReservation.theirContribution.MultiSigKey
 
-	// Re-generate both the redeemScript and p2sh output. We sign the
-	// redeemScript script, but include the p2sh output as the subscript
+	// Re-generate both the witnessScript and p2sh output. We sign the
+	// witnessScript script, but include the p2sh output as the subscript
 	// for verification.
-	redeemScript := pendingReservation.partialState.FundingRedeemScript
+	witnessScript := pendingReservation.partialState.FundingWitnessScript
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
 	theirCommitSig := msg.theirCommitmentSig
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(commitTx)
-	sigHash, err := txscript.CalcWitnessSigHash(redeemScript, hashCache,
+	sigHash, err := txscript.CalcWitnessSigHash(witnessScript, hashCache,
 		txscript.SigHashAll, commitTx, 0, channelValue)
 	if err != nil {
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
@@ -1066,13 +1066,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	pendingReservation.partialState.OurCommitTx = ourCommitTx
 	txsort.InPlaceSort(theirCommitTx)
 
-	redeemScript := pendingReservation.partialState.FundingRedeemScript
+	witnessScript := pendingReservation.partialState.FundingWitnessScript
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)
 	theirKey := pendingReservation.theirContribution.MultiSigKey
 	ourKey := pendingReservation.partialState.OurMultiSigKey
 
-	sigHash, err := txscript.CalcWitnessSigHash(redeemScript, hashCache,
+	sigHash, err := txscript.CalcWitnessSigHash(witnessScript, hashCache,
 		txscript.SigHashAll, ourCommitTx, 0, channelValue)
 	if err != nil {
 		req.err <- err
@@ -1094,13 +1094,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	p2wsh, err := witnessScriptHash(redeemScript)
+	p2wsh, err := witnessScriptHash(witnessScript)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	signDesc := SignDescriptor{
-		RedeemScript: redeemScript,
+		WitnessScript: witnessScript,
 		PubKey:       ourKey,
 		Output: &wire.TxOut{
 			PkScript: p2wsh,

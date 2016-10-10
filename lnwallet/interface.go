@@ -154,10 +154,10 @@ type SignDescriptor struct {
 	// key corresponding to this public key.
 	PubKey *btcec.PublicKey
 
-	// RedeemScript is the full script required to properly redeem the
+	// WitnessScript is the full script required to properly redeem the
 	// output. This field will only be populated if a p2wsh or a p2sh
 	// output is being signed.
-	RedeemScript []byte
+	WitnessScript []byte
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,

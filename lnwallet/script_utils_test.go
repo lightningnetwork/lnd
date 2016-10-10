@@ -82,7 +82,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	}
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
-		RedeemScript: delayScript,
+		WitnessScript: delayScript,
 		SigHashes:    txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),

@@ -329,7 +329,7 @@ func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 func (r *ChannelReservation) FundingRedeemScript() []byte {
 	r.RLock()
 	defer r.RUnlock()
-	return r.partialState.FundingRedeemScript
+	return r.partialState.FundingWitnessScript
 }
 
 // LocalCommitTx returns the commitment transaction for the local node involved

@@ -58,11 +58,11 @@ type mockSigner struct {
 
 func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
 	amt := signDesc.Output.Value
-	redeemScript := signDesc.RedeemScript
+	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, redeemScript, txscript.SigHashAll, privKey)
+		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll, privKey)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 
-	redeemScript, _, err := GenFundingPkScript(aliceKeyPub.SerializeCompressed(),
+	witnessScript, _, err := GenFundingPkScript(aliceKeyPub.SerializeCompressed(),
 		bobKeyPub.SerializeCompressed(), int64(channelCapacity))
 	if err != nil {
 		return nil, nil, nil, err
@@ -240,7 +240,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         aliceKeyPub,
 		TheirMultiSigKey:       bobKeyPub,
-		FundingRedeemScript:    redeemScript,
+		FundingWitnessScript:    witnessScript,
 		LocalCsvDelay:          csvTimeoutAlice,
 		RemoteCsvDelay:         csvTimeoutBob,
 		TheirCurrentRevocation: bobRevokeKey,
@@ -260,7 +260,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         bobKeyPub,
 		TheirMultiSigKey:       aliceKeyPub,
-		FundingRedeemScript:    redeemScript,
+		FundingWitnessScript:    witnessScript,
 		LocalCsvDelay:          csvTimeoutBob,
 		RemoteCsvDelay:         csvTimeoutAlice,
 		TheirCurrentRevocation: aliceRevokeKey,

@@ -385,7 +385,7 @@ type LightningChannel struct {
 	LocalDeliveryScript  []byte
 	RemoteDeliveryScript []byte
 
-	FundingRedeemScript []byte
+	FundingWitnessScript []byte
 	fundingTxIn         *wire.TxIn
 	fundingP2WSH        []byte
 
@@ -432,7 +432,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		Capacity:              state.Capacity,
 		LocalDeliveryScript:   state.OurDeliveryScript,
 		RemoteDeliveryScript:  state.TheirDeliveryScript,
-		FundingRedeemScript:   state.FundingRedeemScript,
+		FundingWitnessScript:   state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralCloseSignal: make(chan struct{}),
 	}
@@ -460,7 +460,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 	// Create the sign descriptor which we'll be using very frequently to
 	// request a signature for the 2-of-2 multi-sig from the signer in
 	// order to complete channel state transitions.
-	fundingPkScript, err := witnessScriptHash(state.FundingRedeemScript)
+	fundingPkScript, err := witnessScriptHash(state.FundingWitnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +468,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 	lc.fundingP2WSH = fundingPkScript
 	lc.signDesc = &SignDescriptor{
 		PubKey:       lc.channelState.OurMultiSigKey,
-		RedeemScript: lc.channelState.FundingRedeemScript,
+		WitnessScript: lc.channelState.FundingWitnessScript,
 		Output: &wire.TxOut{
 			PkScript: lc.fundingP2WSH,
 			Value:    int64(lc.channelState.Capacity),
@@ -955,7 +955,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	// Construct the sighash of the commitment transaction corresponding to
 	// this newly proposed state update.
 	localCommitTx := localCommitmentView.txn
-	multiSigScript := lc.channelState.FundingRedeemScript
+	multiSigScript := lc.channelState.FundingWitnessScript
 	hashCache := txscript.NewTxSigHashes(localCommitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(multiSigScript, hashCache,
 		txscript.SigHashAll, localCommitTx, 0, int64(lc.channelState.Capacity))
@@ -1485,7 +1485,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// required to spend from the multi-sig output.
 	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
 	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
-	witness := SpendMultiSig(lc.FundingRedeemScript, ourKey, ourSig,
+	witness := SpendMultiSig(lc.FundingWitnessScript, ourKey, ourSig,
 		theirKey, theirSig)
 	commitTx.TxIn[0].Witness = witness
 
@@ -1529,7 +1529,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// set as the caller will decide these values once sweeping the output.
 	selfSignDesc := &SignDescriptor{
 		PubKey:       selfKey,
-		RedeemScript: selfScript,
+		WitnessScript: selfScript,
 		Output: &wire.TxOut{
 			PkScript: delayScript,
 			Value:    int64(lc.channelState.OurBalance),
@@ -1643,7 +1643,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
 	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
 	ourSig := append(closeSig, byte(txscript.SigHashAll))
-	witness := SpendMultiSig(lc.signDesc.RedeemScript, ourKey, ourSig,
+	witness := SpendMultiSig(lc.signDesc.WitnessScript, ourKey, ourSig,
 		theirKey, remoteSig)
 	closeTx.TxIn[0].Witness = witness
 

@@ -145,9 +145,9 @@ type BlockChainIO interface {
 	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
 }
 
-// SignDescriptor houses the necessary information required to succesfully sign
+// SignDescriptor houses the necessary information required to successfully sign
 // a given output. This struct is used by the Signer interface in order to gain
-// access to critial data needed to generate a valid signature.
+// access to critical data needed to generate a valid signature.
 type SignDescriptor struct {
 	// Pubkey is the public key to which the signature should be generated
 	// over. The Signer should then generate a signature with the private

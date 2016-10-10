@@ -668,7 +668,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 	pendingReservation.partialState.FundingRedeemScript = redeemScript
 
-	// Sort the transaction. Since both side agree to a cannonical
+	// Sort the transaction. Since both side agree to a canonical
 	// ordering, by sorting we no longer need to send the entire
 	// transaction. Only signatures will be exchanged.
 	fundingTx.AddTxOut(multiSigOut)
@@ -708,7 +708,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// Locate the index of the multi-sig outpoint in order to record it
-	// since the outputs are cannonically sorted. If this is a single funder
+	// since the outputs are canonically sorted. If this is a single funder
 	// workflow, then we'll also need to send this to the remote node.
 	fundingTxID := fundingTx.TxSha()
 	_, multiSigIndex := FindScriptOutputIndex(fundingTx, multiSigOut.PkScript)
@@ -888,7 +888,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 }
 
 // handleFundingCounterPartySigs is the final step in the channel reservation
-// workflow. During this setp, we validate *all* the received signatures for
+// workflow. During this step, we validate *all* the received signatures for
 // inputs to the funding transaction. If any of these are invalid, we bail,
 // and forcibly cancel this funding request. Additionally, we ensure that the
 // signature we received from the counterparty for our version of the commitment
@@ -1201,7 +1201,7 @@ out:
 
 // selectCoinsAndChange performs coin selection in order to obtain witness
 // outputs which sum to at least 'numCoins' amount of satoshis. If coin
-// selection is succesful/possible, then the selected coins are available
+// selection is successful/possible, then the selected coins are available
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
@@ -1210,7 +1210,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
-	// spends accross funding transactions.
+	// spends across funding transactions.
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
@@ -1222,7 +1222,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 		return err
 	}
 
-	// Peform coin selection over our available, unlocked unspent outputs
+	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
 	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)

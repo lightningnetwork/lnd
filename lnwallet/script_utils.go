@@ -94,7 +94,7 @@ func SpendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 
 	// When initially generating the redeemScript, we sorted the serialized
 	// public keys in descending order. So we do a quick comparison in order
-	// ensure the signatures appear on the Script Virual Machine stack in
+	// ensure the signatures appear on the Script Virtual Machine stack in
 	// the correct order.
 	if bytes.Compare(pubA, pubB) == -1 {
 		witness[1] = sigB
@@ -556,7 +556,7 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	// signature with the revocation public key. The revocation public key
 	// will *only* be known to the other party if we have divulged the
 	// revocation hash, allowing them to homomorphically derive the proper
-	// private key which coresponds to the revoke public key.
+	// private key which corresponds to the revoke public key.
 	builder := txscript.NewScriptBuilder()
 
 	builder.AddOp(txscript.OP_IF)

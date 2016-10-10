@@ -43,7 +43,7 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
-	fwdMsg, err := NewOnionPacket(route, sessionKey, []byte("testing"), hopPayloads)
+	fwdMsg, err := NewOnionPacket(route, sessionKey, hopPayloads)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -75,12 +75,6 @@ func TestSphinxCorrectness(t *testing.T) {
 			if processAction.Action != ExitNode {
 				t.Fatalf("Processing error, node %v is the last hop in "+
 					"the path, yet it doesn't recognize so", i)
-			}
-
-			if !bytes.HasPrefix(processAction.Packet.Msg[:], []byte("testing")) {
-				t.Fatalf("Final message parsed incorrectly at final destination!"+
-					"Should be %v, is instead %v",
-					[]byte("testing"), processAction.Packet.Msg)
 			}
 
 		} else {

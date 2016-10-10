@@ -20,7 +20,7 @@ const (
 	securityParameter = 20
 
 	// Default message size in bytes. This is probably *much* too big atm?
-	messageSize = 1024
+	messageSize = 0
 
 	// The maximum path length. This should be set to an
 	// estiamate of the upper limit of the diameter of the node graph.
@@ -74,8 +74,8 @@ type MixHeader struct {
 // 'paymentPath'.  This function returns the created mix header along
 // with a derived shared secret for each node in the path.
 func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	onion [1024]byte, rawHopPayloads [][]byte) (*MixHeader,
-	[1024]byte, [][sharedSecretSize]byte, error) {
+	rawHopPayloads [][]byte) (*MixHeader,
+	[][sharedSecretSize]byte, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -131,7 +131,6 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 
 		rhoKey := generateKey("rho", hopSharedSecrets[i])
 		gammaKey := generateKey("gamma", hopSharedSecrets[i])
-		piKey := generateKey("pi", hopSharedSecrets[i])
 		muKey := generateKey("mu", hopSharedSecrets[i])
 
 		// Shift and obfuscate routing info
@@ -153,13 +152,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 			copy(hopPayloads[len(hopPayloads)-len(hopFiller):], hopFiller)
 		}
 
-		cipher, err := chacha20.New(piKey[:], bytes.Repeat([]byte{0x00}, 8))
-		if err != nil {
-			return nil, onion, nil, err
-		}
-		cipher.XORKeyStream(onion[:], onion[:])
-
-		packet := append(append(mixHeader[:], hopPayloads[:]...), onion[:]...)
+		packet := append(mixHeader[:], hopPayloads[:]...)
 		next_hmac = calcMac(muKey, packet)
 		next_address = btcutil.Hash160(paymentPath[i].SerializeCompressed())
 	}
@@ -171,7 +164,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		HeaderMAC:    next_hmac,
 		HopPayload:   hopPayloads,
 	}
-	return header, onion, hopSharedSecrets, nil
+	return header, hopSharedSecrets, nil
 }
 
 // Shift the byte-slice by the given number of bytes to the right and
@@ -214,28 +207,21 @@ func generateHeaderPadding(key string, numHops int, hopSize int, sharedSecrets [
 // addressed to the final destination.
 type OnionPacket struct {
 	Header *MixHeader
-	Msg    [messageSize]byte
 }
 
 // NewOnionPaccket generates the a mix header containing the neccessary onion
 // routing information required to propagate the message through the mixnet,
 // eventually reaching the final node specified by a zero identifier.
 func NewOnionPacket(route []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	message []byte, hopPayloads [][]byte) (*OnionPacket, error) {
-
-	// Now for the body of the message.
-	var body [1024]byte
-	n := copy(body[:], message)
-	n += copy(body[n:], []byte{0x7f})
-	n += copy(body[n:], bytes.Repeat([]byte{0xff}, messageSize-n))
+	hopPayloads [][]byte) (*OnionPacket, error) {
 
 	// Compute the mix header, and shared secerts for each hop.
-	mixHeader, body, _, err := NewMixHeader(route, sessionKey, body, hopPayloads)
+	mixHeader, _, err := NewMixHeader(route, sessionKey, hopPayloads)
 	if err != nil {
 		return nil, err
 	}
 
-	return &OnionPacket{Header: mixHeader, Msg: body}, nil
+	return &OnionPacket{Header: mixHeader}, nil
 }
 
 // Encode serializes the raw bytes of the onoin packet into the passed
@@ -261,10 +247,6 @@ func (f *OnionPacket) Encode(w io.Writer) error {
 	}
 
 	if _, err := w.Write(f.Header.HopPayload[:]); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(f.Msg[:]); err != nil {
 		return err
 	}
 
@@ -302,10 +284,6 @@ func (f *OnionPacket) Decode(r io.Reader) error {
 		return err
 	}
 	if _, err := io.ReadFull(r, f.Header.HopPayload[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, f.Msg[:]); err != nil {
 		return err
 	}
 
@@ -513,7 +491,6 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 // what to do next.
 func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, error) {
 	mixHeader := onionPkt.Header
-	onionMsg := onionPkt.Msg
 
 	dhKey := mixHeader.EphemeralKey
 	routeInfo := mixHeader.RoutingInfo
@@ -542,7 +519,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 	// information by checking the attached MAC without leaking timing
 	// information.
 
-	message := append(append(routeInfo[:], mixHeader.HopPayload[:]...), onionMsg[:]...)
+	message := append(routeInfo[:], mixHeader.HopPayload[:]...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
 		return nil, fmt.Errorf("MAC mismatch %x != %x, rejecting forwarding message", headerMac, calculatedMac)
@@ -594,15 +571,6 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 			HopPayload:   nextHopPayloads,
 		},
 	}
-
-	// Strip a single layer of encryption from the onion for the
-	// next hop to also process.
-	key := generateKey("pi", sharedSecret)
-	cipher, err := chacha20.New(key[:], bytes.Repeat([]byte{0x00}, 8))
-	if err != nil {
-		return nil, err
-	}
-	cipher.XORKeyStream(nextFwdMsg.Msg[:], onionMsg[:])
 
 	var action ProcessCode = MoreHops
 

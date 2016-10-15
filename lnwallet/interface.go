@@ -38,6 +38,40 @@ type Utxo struct {
 	wire.OutPoint
 }
 
+// TransactionDetail describes a transaction with either inputs which belong to
+// the wallet, or has outputs that pay to the wallet.
+type TransactionDetail struct {
+	// Hash is the transaction hash of the transaction.
+	Hash wire.ShaHash
+
+	// Value is the net value of this transaction (in satoshis) from the
+	// PoV of the wallet. If this transaction purely spends from the
+	// wallet's funds, then this value will be negative. Similarly, if this
+	// transaction credits the wallet, then this value will be positive.
+	Value btcutil.Amount
+
+	// NumConfirmations is the number of confirmations this transaction
+	// has. If the transaction is unconfirmed, then this value will be
+	// zero.
+	NumConfirmations int32
+
+	// BlockHeight is the hash of the block which includes this
+	// transaction. Unconfirmed transactions will have a nil value for this
+	// field.
+	BlockHash *wire.ShaHash
+
+	// BlockHeight is the height of the block including this transaction.
+	// Unconfirmed transaction will show a height of zero.
+	BlockHeight int32
+
+	// Timestamp is the unix timestamp of the block including this
+	// transaction. If the transaction is unconfirmed, then this will be a
+	// timestamp of txn creation.
+	Timestamp int64
+
+	// TotalFees is the total fee in satoshis paid by this transaction.
+	TotalFees int64
+}
 // WalletController defines an abstract interface for controlling a local Pure
 // Go wallet, a local or remote wallet via an RPC mechanism, or possibly even
 // a daemon assisted hardware wallet. This interface serves the purpose of
@@ -73,13 +107,11 @@ type WalletController interface {
 	// passed address. If the wallet is unable to locate this private key
 	// due to the address not being under control of the wallet, then an
 	// error should be returned.
-	// TODO(roasbeef): should instead take tadge's derivation scheme in
 	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
 
 	// NewRawKey returns a raw private key controlled by the wallet. These
 	// keys are used for the 2-of-2 multi-sig outputs for funding
 	// transactions, as well as the pub key used for commitment transactions.
-	// TODO(roasbeef): may be scrapped, see above TODO
 	NewRawKey() (*btcec.PublicKey, error)
 
 	// FetchRootKey returns a root key which will be used by the
@@ -100,6 +132,10 @@ type WalletController interface {
 	// this method. Passing -1 as 'confirms' indicates that even
 	// unconfirmed outputs should be returned.
 	ListUnspentWitness(confirms int32) ([]*Utxo, error)
+
+	// ListTransactionDetails returns a list of all transactions which are
+	// relevant to the wallet.
+	ListTransactionDetails() ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are

@@ -1,6 +1,7 @@
 package btcwallet
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -377,4 +378,117 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 // finally broadcasts the passed transaction to the Bitcoin network.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 	return b.wallet.PublishTransaction(tx)
+}
+
+// extractBalanceDelta extracts the net balance delta from the PoV of the
+// wallet given a TransactionSummary.
+func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, error) {
+	tx := wire.NewMsgTx()
+	txReader := bytes.NewReader(txSummary.Transaction)
+	if err := tx.Deserialize(txReader); err != nil {
+		return -1, nil
+	}
+
+	// For each input we debit the wallet's outflow for this transaction,
+	// and for each output we credit the wallet's inflow for this
+	// transaction.
+	var balanceDelta btcutil.Amount
+	for _, input := range txSummary.MyInputs {
+		balanceDelta -= input.PreviousAmount
+	}
+	for _, output := range txSummary.MyOutputs {
+		balanceDelta += btcutil.Amount(tx.TxOut[output.Index].Value)
+	}
+
+	return balanceDelta, nil
+}
+
+// minedTransactionsToDetails is a helper function which converts a summary
+// information about mined transactions to a TransactionDetail.
+func minedTransactionsToDetails(currentHeight int32,
+	block base.Block) ([]*lnwallet.TransactionDetail, error) {
+
+	details := make([]*lnwallet.TransactionDetail, 0, len(block.Transactions))
+	for _, tx := range block.Transactions {
+		txDetail := &lnwallet.TransactionDetail{
+			Hash:             *tx.Hash,
+			NumConfirmations: currentHeight - block.Height + 1,
+			BlockHash:        block.Hash,
+			BlockHeight:      block.Height,
+			Timestamp:        block.Timestamp,
+			TotalFees:        int64(tx.Fee),
+		}
+
+		balanceDelta, err := extractBalanceDelta(tx)
+		if err != nil {
+			return nil, err
+		}
+		txDetail.Value = balanceDelta
+
+		details = append(details, txDetail)
+	}
+
+	return details, nil
+}
+
+// unminedTransactionsToDetail is a helper funciton which converts a summary
+// for a unconfirmed transaction to a transaction detail.
+func unminedTransactionsToDetail(summary base.TransactionSummary) (*lnwallet.TransactionDetail, error) {
+	txDetail := &lnwallet.TransactionDetail{
+		Hash:      *summary.Hash,
+		TotalFees: int64(summary.Fee),
+		Timestamp: summary.Timestamp,
+	}
+
+	balanceDelta, err := extractBalanceDelta(summary)
+	if err != nil {
+		return nil, err
+	}
+	txDetail.Value = balanceDelta
+
+	return txDetail, nil
+}
+
+// ListTransactionDetails returns a list of all transactions which are
+// relevant to the wallet.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, error) {
+	// Grab the best block the wallet knows of, we'll use this to calculate
+	// # of confirmations shortly below.
+	bestBlock := b.wallet.Manager.SyncedTo()
+	currentHeight := bestBlock.Height
+
+	// TODO(roasbeef): can replace with start "wallet birthday"
+	start := base.NewBlockIdentifierFromHeight(0)
+	stop := base.NewBlockIdentifierFromHeight(bestBlock.Height)
+	txns, err := b.wallet.GetTransactions(start, stop, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	txDetails := make([]*lnwallet.TransactionDetail, 0,
+		len(txns.MinedTransactions)+len(txns.UnminedTransactions))
+
+	// For both confirmed and unconfirme dtransactions, create a
+	// TransactionDetail which re-packages the data returned by the base
+	// wallet.
+	for _, blockPackage := range txns.MinedTransactions {
+		details, err := minedTransactionsToDetails(currentHeight, blockPackage)
+		if err != nil {
+			return nil, err
+		}
+
+		txDetails = append(txDetails, details...)
+	}
+	for _, tx := range txns.UnminedTransactions {
+		detail, err := unminedTransactionsToDetail(tx)
+		if err != nil {
+			return nil, err
+		}
+
+		txDetails = append(txDetails, detail)
+	}
+
+	return txDetails, nil
 }

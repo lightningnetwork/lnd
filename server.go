@@ -48,7 +48,6 @@ type server struct {
 	bio      lnwallet.BlockChainIO
 	lnwallet *lnwallet.LightningWallet
 
-	// TODO(roasbeef): add to constructor
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
 

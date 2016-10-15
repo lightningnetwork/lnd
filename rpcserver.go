@@ -167,7 +167,22 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 
+// NewWitnessAddress returns a new native witness address under the control of
+// the local wallet.
+func (r *rpcServer) NewWitnessAddress(ctx context.Context,
+	in *lnrpc.NewWitnessAddressRequest) (*lnrpc.NewAddressResponse, error) {
+
+	addr, err := r.server.lnwallet.NewAddress(lnwallet.WitnessPubKey, false)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
+	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
+}
+
 // ConnectPeer attempts to establish a connection to a remote peer.
+// TODO(roasbeef): also return pubkey and/or identity hash?
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
 
@@ -674,13 +689,29 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 func (r *rpcServer) LookupInvoice(ctx context.Context,
 	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
 
-	if len(req.RHash) != 32 {
-		return nil, fmt.Errorf("payment hash must be exactly "+
-			"32 bytes, is instead %v", len(req.RHash))
+	var (
+		payHash [32]byte
+		rHash   []byte
+		err     error
+	)
+
+	// If the RHash as a raw string was provided, then decode that and use
+	// that directly. Otherwise, we use the raw bytes provided.
+	if req.RHashStr != "" {
+		rHash, err = hex.DecodeString(req.RHashStr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		rHash = req.RHash
 	}
 
-	var payHash [32]byte
-	copy(payHash[:], req.RHash)
+	// Ensure that the payment hash is *exactly* 32-bytes.
+	if len(rHash) != 0 && len(rHash) != 32 {
+		return nil, fmt.Errorf("payment hash must be exactly "+
+			"32 bytes, is instead %v", len(rHash))
+	}
+	copy(payHash[:], rHash)
 
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
@@ -731,6 +762,109 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	}, nil
 }
 
+// SubscribeInvoices returns a uni-directional stream (sever -> client) for
+// notifying the client of newly added/settled invoices.
+func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
+	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
+
+	invoiceClient := r.server.invoices.SubscribeNotifications()
+	defer invoiceClient.Cancel()
+
+	for {
+		select {
+		// TODO(roasbeef): include newly added invoices?
+		case settledInvoice := <-invoiceClient.SettledInvoices:
+			invoice := &lnrpc.Invoice{
+				Memo:      string(settledInvoice.Memo[:]),
+				Receipt:   settledInvoice.Receipt[:],
+				RPreimage: settledInvoice.Terms.PaymentPreimage[:],
+				Value:     int64(settledInvoice.Terms.Value),
+				Settled:   settledInvoice.Terms.Settled,
+			}
+			if err := updateStream.Send(invoice); err != nil {
+				return err
+			}
+		case <-r.quit:
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// SubscribeTransactions creates a uni-directional stream (server -> client) in
+// which any newly discovered transactions relevant to the wallet are sent
+// over.
+func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
+	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
+
+	txClient, err := r.server.lnwallet.SubscribeTransactions()
+	if err != nil {
+		return err
+	}
+	defer txClient.Cancel()
+
+	for {
+		select {
+		case tx := <-txClient.ConfirmedTransactions():
+			detail := &lnrpc.Transaction{
+				TxHash:           tx.Hash.String(),
+				Amount:           tx.Value.ToBTC(),
+				NumConfirmations: tx.NumConfirmations,
+				BlockHash:        tx.BlockHash.String(),
+				TimeStamp:        tx.Timestamp,
+				TotalFees:        tx.TotalFees,
+			}
+			if err := updateStream.Send(detail); err != nil {
+				return err
+			}
+		case tx := <-txClient.UnconfirmedTransactions():
+			detail := &lnrpc.Transaction{
+				TxHash:    tx.Hash.String(),
+				Amount:    tx.Value.ToBTC(),
+				TimeStamp: tx.Timestamp,
+				TotalFees: tx.TotalFees,
+			}
+			if err := updateStream.Send(detail); err != nil {
+				return err
+			}
+		case <-r.quit:
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// GetTransactions returns a list of describing all the known transactions
+// relevant to the wallet.
+func (r *rpcServer) GetTransactions(context.Context,
+	*lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+
+	transactions, err := r.server.lnwallet.ListTransactionDetails()
+	if err != nil {
+		return nil, err
+	}
+
+	txDetails := &lnrpc.TransactionDetails{
+		Transactions: make([]*lnrpc.Transaction, len(transactions)),
+	}
+	for i, tx := range transactions {
+		txDetails.Transactions[i] = &lnrpc.Transaction{
+			TxHash:           tx.Hash.String(),
+			Amount:           tx.Value.ToBTC(),
+			NumConfirmations: tx.NumConfirmations,
+			BlockHash:        tx.BlockHash.String(),
+			TimeStamp:        tx.Timestamp,
+			TotalFees:        tx.TotalFees,
+		}
+	}
+
+	return txDetails, nil
+}
+
+// ShowRoutingTable returns a table-formatted dump of the known routing
+// topology from the PoV of the source node.
 func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
 
@@ -738,7 +872,7 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 
 	rtCopy := r.server.routingMgr.GetRTCopy()
 
-	channels := make([]*lnrpc.RoutingTableLink, 0)
+	var channels []*lnrpc.RoutingTableLink
 	for _, channel := range rtCopy.AllChannels() {
 		channels = append(channels,
 			&lnrpc.RoutingTableLink{

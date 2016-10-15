@@ -134,6 +134,7 @@ out:
 					midStageOutputs <- immatureUtxo
 				}()
 			}
+			// TODO(roasbeef): rename to preschool and kindergarden
 		case midUtxo := <-midStageOutputs:
 			// The transaction creating the output has been
 			// created, so we move it from early stage to

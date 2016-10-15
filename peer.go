@@ -1155,6 +1155,9 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			p.Disconnect()
 			return
 		}
+
+		// TODO(roasbeef): add pre-image to DB in order to swipe
+		// repeated r-values
 	case *lnwire.CommitSignature:
 		// We just received a new update to our local commitment chain,
 		// validate this new commitment, closing the link if invalid.

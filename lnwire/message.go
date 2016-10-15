@@ -219,7 +219,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 		return 0, nil
 	}
 
-	// Write the head first.
+	// Write the header first.
 	n, err := w.Write(hw.Bytes())
 	totalBytes += n
 	if err != nil {

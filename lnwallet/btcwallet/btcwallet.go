@@ -492,3 +492,121 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 
 	return txDetails, nil
 }
+
+// txSubscriptionClient encapsulates the transaction notification client from
+// the base wallet. Notifications received from the client will be proxied over
+// two distinct channels.
+type txSubscriptionClient struct {
+	txClient base.TransactionNotificationsClient
+
+	confirmed   chan *lnwallet.TransactionDetail
+	unconfirmed chan *lnwallet.TransactionDetail
+
+	w *base.Wallet
+
+	wg   sync.WaitGroup
+	quit chan struct{}
+}
+
+// ConfirmedTransactions returns a channel which will be sent on as new
+// relevant transactions are confirmed.
+//
+// This is part of the TransactionSubscription interface.
+func (t *txSubscriptionClient) ConfirmedTransactions() chan *lnwallet.TransactionDetail {
+	return t.confirmed
+}
+
+// UnconfirmedTransactions returns a channel which will be sent on as
+// new relevant transactions are seen within the network.
+//
+// This is part of the TransactionSubscription interface.
+func (t *txSubscriptionClient) UnconfirmedTransactions() chan *lnwallet.TransactionDetail {
+	return t.unconfirmed
+}
+
+// Cancel finalizes the subscription, cleaning up any resources allocated.
+//
+// This is part of the TransactionSubscription interface.
+func (t *txSubscriptionClient) Cancel() {
+	close(t.quit)
+	t.wg.Wait()
+
+	t.txClient.Done()
+}
+
+// notificationProxier proxies the notifications received by the underlying
+// wallet's notification client to a higher-level TransactionSubscription
+// client.
+func (t *txSubscriptionClient) notificationProxier() {
+out:
+	for {
+		select {
+		case txNtfn := <-t.txClient.C:
+			// TODO(roasbeef): handle detached blocks
+			currentHeight := t.w.Manager.SyncedTo().Height
+
+			// Launch a goroutine to re-package and send
+			// notifications for any newly confirmed transactions.
+			go func() {
+				for _, block := range txNtfn.AttachedBlocks {
+					details, err := minedTransactionsToDetails(currentHeight, block)
+					if err != nil {
+						continue
+					}
+
+					for _, d := range details {
+						select {
+						case t.confirmed <- d:
+						case <-t.quit:
+							return
+						}
+					}
+				}
+
+			}()
+
+			// Launch a goroutine to re-package and send
+			// notifications for any newly unconfirmed transactions.
+			go func() {
+				for _, tx := range txNtfn.UnminedTransactions {
+					detail, err := unminedTransactionsToDetail(tx)
+					if err != nil {
+						continue
+					}
+
+					select {
+					case t.unconfirmed <- detail:
+					case <-t.quit:
+						return
+					}
+				}
+			}()
+		case <-t.quit:
+			break out
+		}
+	}
+
+	t.wg.Done()
+}
+
+// SubscribeTransactions returns a TransactionSubscription client which
+// is capable of receiving async notifications as new transactions
+// related to the wallet are seen within the network, or found in
+// blocks.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
+	walletClient := b.wallet.NtfnServer.TransactionNotifications()
+
+	txClient := &txSubscriptionClient{
+		txClient:    walletClient,
+		confirmed:   make(chan *lnwallet.TransactionDetail),
+		unconfirmed: make(chan *lnwallet.TransactionDetail),
+		w:           b.wallet,
+		quit:        make(chan struct{}),
+	}
+	txClient.wg.Add(1)
+	go txClient.notificationProxier()
+
+	return txClient, nil
+}

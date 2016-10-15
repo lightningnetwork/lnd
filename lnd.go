@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -12,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+
+	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
 

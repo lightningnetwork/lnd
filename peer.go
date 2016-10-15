@@ -655,8 +655,8 @@ func (p *peer) executeForceClose(channel *lnwallet.LightningChannel) (*wire.ShaH
 		return nil, err
 	}
 
-	// Send the closed channel sumary over to the utxoNursery in order to
-	// have its outputs sweeped back into the wallet once they're mature.
+	// Send the closed channel summary over to the utxoNursery in order to
+	// have its outputs swept back into the wallet once they're mature.
 	p.server.utxoNursery.incubateOutputs(closeSummary)
 
 	return &txid, nil

@@ -57,7 +57,7 @@ type BtcWallet struct {
 var _ lnwallet.WalletController = (*BtcWallet)(nil)
 
 // New returns a new fully initialized instance of BtcWallet given a valid
-// confirguration struct.
+// configuration struct.
 func New(cfg *Config) (*BtcWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(cfg.DataDir, cfg.NetParams)

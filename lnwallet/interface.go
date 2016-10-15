@@ -210,19 +210,19 @@ type BlockChainIO interface {
 	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
 }
 
-// SignDescriptor houses the necessary information required to succesfully sign
+// SignDescriptor houses the necessary information required to successfully sign
 // a given output. This struct is used by the Signer interface in order to gain
-// access to critial data needed to generate a valid signature.
+// access to critical data needed to generate a valid signature.
 type SignDescriptor struct {
 	// Pubkey is the public key to which the signature should be generated
 	// over. The Signer should then generate a signature with the private
 	// key corresponding to this public key.
 	PubKey *btcec.PublicKey
 
-	// RedeemScript is the full script required to properly redeem the
+	// WitnessScript is the full script required to properly redeem the
 	// output. This field will only be populated if a p2wsh or a p2sh
 	// output is being signed.
-	RedeemScript []byte
+	WitnessScript []byte
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,

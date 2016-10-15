@@ -481,14 +481,14 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	chanInfo := lnc.StateSnapshot()
 
 	// Obtain bob's signature for the closure transaction.
-	redeemScript := lnc.FundingRedeemScript
+	witnessScript := lnc.FundingWitnessScript
 	fundingOut := lnc.ChannelPoint()
 	fundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 	bobCloseTx := lnwallet.CreateCooperativeCloseTx(fundingTxIn,
 		chanInfo.RemoteBalance, chanInfo.LocalBalance,
 		lnc.RemoteDeliveryScript, lnc.LocalDeliveryScript,
 		false)
-	bobSig, err := bobNode.signCommitTx(bobCloseTx, redeemScript, int64(lnc.Capacity))
+	bobSig, err := bobNode.signCommitTx(bobCloseTx, witnessScript, int64(lnc.Capacity))
 	if err != nil {
 		t.Fatalf("unable to generate bob's signature for closing tx: %v", err)
 	}
@@ -497,7 +497,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	// be accepted, and found in the next mined block.
 	ourKey := chanReservation.OurContribution().MultiSigKey.SerializeCompressed()
 	theirKey := chanReservation.TheirContribution().MultiSigKey.SerializeCompressed()
-	witness := lnwallet.SpendMultiSig(redeemScript, ourKey, aliceCloseSig,
+	witness := lnwallet.SpendMultiSig(witnessScript, ourKey, aliceCloseSig,
 		theirKey, bobSig)
 	bobCloseTx.TxIn[0].Witness = witness
 	if err := wallet.PublishTransaction(bobCloseTx); err != nil {

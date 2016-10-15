@@ -24,7 +24,7 @@ type ChannelContribution struct {
 	Inputs []*wire.TxIn
 
 	// ChangeOutputs are the Outputs to be used in the case that the total
-	// value of the fund ing inputs is greater than the total potential
+	// value of the funding inputs is greater than the total potential
 	// channel capacity.
 	ChangeOutputs []*wire.TxOut
 
@@ -52,28 +52,29 @@ type ChannelContribution struct {
 
 // InputScripts represents any script inputs required to redeem a previous
 // output. This struct is used rather than just a witness, or scripSig in
-// order to accomdate nested p2sh which utilizes both types of input scripts.
+// order to accommodate nested p2sh which utilizes both types of input scripts.
 type InputScript struct {
 	Witness   [][]byte
 	ScriptSig []byte
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
-// a counterpaty. The funding proceses from reservation to channel opening is a
-// 3-step process. In order to allow for full concurrency during the reservation
-// workflow, resources consumed by a contribution are "locked" themselves. This
-// prevents a number of race conditions such as two funding transactions
-// double-spending the same input. A reservation can also be cancelled, which
-// removes the resources from limbo, allowing another reservation to claim them.
+// a counterparty. The funding processes from reservation to channel opening
+// is a 3-step process. In order to allow for full concurrency during the
+// reservation workflow, resources consumed by a contribution are "locked"
+// themselves. This prevents a number of race conditions such as two funding
+// transactions double-spending the same input. A reservation can also be
+// cancelled, which removes the resources from limbo, allowing another
+// reservation to claim them.
 //
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
-//     * One requests the wallet to allocate the neccessary resources for a
+//     * One requests the wallet to allocate the necessary resources for a
 //      channel reservation. These resources a put in limbo for the lifetime
 //      of a reservation.
 //    * Once completed the reservation will have the wallet's contribution
 //      accessible via the .OurContribution() method. This contribution
-//      contains the neccessary items to allow the remote party to build both
+//      contains the necessary items to allow the remote party to build both
 //      the funding, and commitment transactions.
 //  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
 //     * The counterparty presents their contribution to the payment channel.
@@ -84,7 +85,7 @@ type InputScript struct {
 //     * All signatures crafted by us, are now available via .OurSignatures().
 //  3. ChannelReservation.CompleteReservation/ChannelReservation.CompleteReservationSingle
 //     * The final step in the workflow. The counterparty presents the
-//       signatures for all their inputs to the funding transation, as well
+//       signatures for all their inputs to the funding transaction, as well
 //       as a signature to our version of the commitment transaction.
 //     * We then verify the validity of all signatures before considering the
 //       channel "open".
@@ -328,7 +329,7 @@ func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 func (r *ChannelReservation) FundingRedeemScript() []byte {
 	r.RLock()
 	defer r.RUnlock()
-	return r.partialState.FundingRedeemScript
+	return r.partialState.FundingWitnessScript
 }
 
 // LocalCommitTx returns the commitment transaction for the local node involved

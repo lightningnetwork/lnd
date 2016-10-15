@@ -25,11 +25,11 @@ var (
 
 // witnessScriptHash generates a pay-to-witness-script-hash public key script
 // paying to a version 0 witness program paying to the passed redeem script.
-func witnessScriptHash(redeemScript []byte) ([]byte, error) {
+func witnessScriptHash(witnessScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	bldr.AddOp(txscript.OP_0)
-	scriptHash := fastsha256.Sum256(redeemScript)
+	scriptHash := fastsha256.Sum256(witnessScript)
 	bldr.AddData(scriptHash[:])
 	return bldr.Script()
 }
@@ -68,33 +68,33 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	}
 
 	// First, create the 2-of-2 multi-sig script itself.
-	redeemScript, err := genMultiSigScript(aPub, bPub)
+	witnessScript, err := genMultiSigScript(aPub, bPub)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// With the 2-of-2 script in had, generate a p2wsh script which pays
 	// to the funding script.
-	pkScript, err := witnessScriptHash(redeemScript)
+	pkScript, err := witnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return redeemScript, wire.NewTxOut(amt, pkScript), nil
+	return witnessScript, wire.NewTxOut(amt, pkScript), nil
 }
 
 // SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh
 // multi-sig output.
-func SpendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
+func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	witness := make([][]byte, 4)
 
 	// When spending a p2wsh multi-sig script, rather than an OP_0, we add
 	// a nil stack element to eat the extra pop.
 	witness[0] = nil
 
-	// When initially generating the redeemScript, we sorted the serialized
+	// When initially generating the witnessScript, we sorted the serialized
 	// public keys in descending order. So we do a quick comparison in order
-	// ensure the signatures appear on the Script Virual Machine stack in
+	// ensure the signatures appear on the Script Virtual Machine stack in
 	// the correct order.
 	if bytes.Compare(pubA, pubB) == -1 {
 		witness[1] = sigB
@@ -105,7 +105,7 @@ func SpendMultiSig(redeemScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	}
 
 	// Finally, add the pre-image as the last witness element.
-	witness[3] = redeemScript
+	witness[3] = witnessScript
 
 	return witness
 }
@@ -556,7 +556,7 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	// signature with the revocation public key. The revocation public key
 	// will *only* be known to the other party if we have divulged the
 	// revocation hash, allowing them to homomorphically derive the proper
-	// private key which coresponds to the revoke public key.
+	// private key which corresponds to the revoke public key.
 	builder := txscript.NewScriptBuilder()
 
 	builder.AddOp(txscript.OP_IF)
@@ -621,7 +621,7 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[1] = []byte{0}
-	witnessStack[2] = signDesc.RedeemScript
+	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil
 }

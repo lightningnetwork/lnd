@@ -148,7 +148,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		FundingOutpoint:            testOutpoint,
 		OurMultiSigKey:             privKey.PubKey(),
 		TheirMultiSigKey:           privKey.PubKey(),
-		FundingRedeemScript:        script,
+		FundingWitnessScript:        script,
 		TheirCurrentRevocation:     privKey.PubKey(),
 		TheirCurrentRevocationHash: key,
 		OurDeliveryScript:          script,
@@ -257,7 +257,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		newState.TheirMultiSigKey.SerializeCompressed()) {
 		t.Fatalf("their multisig key doesn't match")
 	}
-	if !bytes.Equal(state.FundingRedeemScript, newState.FundingRedeemScript) {
+	if !bytes.Equal(state.FundingWitnessScript, newState.FundingWitnessScript) {
 		t.Fatalf("redeem script doesn't match")
 	}
 

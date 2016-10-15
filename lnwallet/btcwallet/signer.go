@@ -96,7 +96,7 @@ func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescriptor) ([]byte, error) {
-	redeemScript := signDesc.RedeemScript
+	witnessScript := signDesc.WitnessScript
 
 	privKey, err := b.fetchPrivKey(signDesc.PubKey)
 	if err != nil {
@@ -105,7 +105,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescrip
 
 	amt := signDesc.Output.Value
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes, 0,
-		amt, redeemScript, txscript.SigHashAll, privKey)
+		amt, witnessScript, txscript.SigHashAll, privKey)
 	if err != nil {
 		return nil, err
 	}

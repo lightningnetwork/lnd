@@ -16,13 +16,13 @@ import (
 // the commitment transaction.
 //
 // The following spending cases are covered by this test:
-//   * Alice's spend from the delayed output on her commitment transaciton.
+//   * Alice's spend from the delayed output on her commitment transaction.
 //   * Bob's spend from Alice's delayed output when she broadcasts a revoked
 //     commitment transaction.
 //   * Bob's spend from his unencumbered output within Alice's commitment
 //     transaction.
 func TestCommitmentSpendValidation(t *testing.T) {
-	// We generate a fake output, and the coresponding txin. This output
+	// We generate a fake output, and the corresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
 	fundingOut := &wire.OutPoint{
@@ -82,7 +82,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	}
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
-		RedeemScript: delayScript,
+		WitnessScript: delayScript,
 		SigHashes:    txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),

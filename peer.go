@@ -354,7 +354,7 @@ out:
 			break out
 		}
 
-		var isChanUpate bool
+		var isChanUpdate bool
 		var targetChan *wire.OutPoint
 
 		switch msg := nextMsg.(type) {
@@ -374,16 +374,16 @@ out:
 		// TODO(roasbeef): interface for htlc update msgs
 		//  * .(CommitmentUpdater)
 		case *lnwire.HTLCAddRequest:
-			isChanUpate = true
+			isChanUpdate = true
 			targetChan = msg.ChannelPoint
 		case *lnwire.HTLCSettleRequest:
-			isChanUpate = true
+			isChanUpdate = true
 			targetChan = msg.ChannelPoint
 		case *lnwire.CommitRevocation:
-			isChanUpate = true
+			isChanUpdate = true
 			targetChan = msg.ChannelPoint
 		case *lnwire.CommitSignature:
-			isChanUpate = true
+			isChanUpdate = true
 			targetChan = msg.ChannelPoint
 		case *lnwire.NeighborAckMessage,
 			*lnwire.NeighborHelloMessage,
@@ -395,7 +395,7 @@ out:
 			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
 		}
 
-		if isChanUpate {
+		if isChanUpdate {
 			// We might be receiving an update to a newly funded
 			// channel in which we were the responder. Therefore
 			// we need to possibly block until the new channel has

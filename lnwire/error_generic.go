@@ -8,11 +8,11 @@ import (
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The
-// message format is purposefully general in order to allow expressino of a wide
+// message format is purposefully general in order to allow expression of a wide
 // array of possible errors. Each ErrorGeneric message is directed at a particular
 // open channel referenced by ChannelPoint.
 type ErrorGeneric struct {
-	// ChannelPoint references the active channel in which the error occured
+	// ChannelPoint references the active channel in which the error occurred
 	// within. A ChannelPoint of zeroHash:0 denotes this error applies to
 	// the entire established connection.
 	ChannelPoint *wire.OutPoint
@@ -22,7 +22,7 @@ type ErrorGeneric struct {
 	ErrorID uint16
 
 	// Problem is a human-readable string further elaborating upon the
-	// nature of the exact error. The maxmium allowed length of this
+	// nature of the exact error. The maximum allowed length of this
 	// message is 8192 bytes.
 	Problem string
 }

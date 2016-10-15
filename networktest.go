@@ -69,7 +69,7 @@ func generateListeningPorts() (int, int) {
 
 // lightningNode represents an instance of lnd running within our test network
 // harness. Each lightningNode instance also fully embedds an RPC client in
-// order to programatically drive the node.
+// order to pragmatically drive the node.
 type lightningNode struct {
 	cfg *config
 
@@ -573,9 +573,9 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid wire.ShaHa
 	}
 }
 
-// OpenChannel attemps to open a channel between srcNode and destNode with the
+// OpenChannel attempts to open a channel between srcNode and destNode with the
 // passed channel funding parameters. If the passed context has a timeout, then
-// if the timeout is reeached before the channel pending notification is
+// if the timeout is reached before the channel pending notification is
 // received, an error is returned.
 func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,

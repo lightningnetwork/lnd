@@ -62,8 +62,8 @@ func (e *ErrInsufficientFunds) Error() string {
 
 // initFundingReserveReq is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
-// paramters are configurable accross channels. These paramters are to be chosen
-// depending on the fee climate within the network, and time value of funds to
+// parameters are configurable across channels. These parameters are to be
+// chosen depending on the fee climate within the network, and time value of funds to
 // be locked up within the channel. Upon success a ChannelReservation will be
 // created in order to track the lifetime of this pending channel. Outputs
 // selected will be 'locked', making them unavailable, for any other pending
@@ -239,7 +239,7 @@ type LightningWallet struct {
 
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
-	// double spend inputs accross each other.
+	// double spend inputs across each other.
 	coinSelectMtx sync.RWMutex
 
 	// A wrapper around a namespace within boltdb reserved for ln-based
@@ -263,14 +263,14 @@ type LightningWallet struct {
 	Signer Signer
 
 	// chainIO is an instance of the BlockChainIO interface. chainIO is
-	// used to lookup the existance of outputs within the utxo set.
+	// used to lookup the existence of outputs within the UTXO set.
 	chainIO BlockChainIO
 
-	// rootKey is the root HD key dervied from a WalletController private
+	// rootKey is the root HD key derived from a WalletController private
 	// key. This rootKey is used to derive all LN specific secrets.
 	rootKey *hdkeychain.ExtendedKey
 
-	// All messages to the wallet are to be sent accross this channel.
+	// All messages to the wallet are to be sent across this channel.
 	msgChan chan interface{}
 
 	// Incomplete payment channels are stored in the map below. An intent
@@ -423,7 +423,7 @@ func (l *LightningWallet) GetIdentitykey() (*btcec.PrivateKey, error) {
 	return identityKey.ECPrivKey()
 }
 
-// requestHandler is the primary goroutine(s) resposible for handling, and
+// requestHandler is the primary goroutine(s) responsible for handling, and
 // dispatching relies to all messages.
 func (l *LightningWallet) requestHandler() {
 out:
@@ -455,15 +455,15 @@ out:
 	l.wg.Done()
 }
 
-// InitChannelReservation kicks off the 3-step workflow required to succesfully
+// InitChannelReservation kicks off the 3-step workflow required to successfully
 // open a payment channel with a remote node. As part of the funding
 // reservation, the inputs selected for the funding transaction are 'locked'.
 // This ensures that multiple channel reservations aren't double spending the
 // same inputs in the funding transaction. If reservation initialization is
-// succesful, a ChannelReservation containing our completed contribution is
-// returned. Our contribution contains all the items neccessary to allow the
+// successful, a ChannelReservation containing our completed contribution is
+// returned. Our contribution contains all the items necessary to allow the
 // counter party to build the funding transaction, and both versions of the
-// commitment transaction. Otherwise, an error occured a nil pointer along with
+// commitment transaction. Otherwise, an error occurred a nil pointer along with
 // an error are returned.
 //
 // Once a ChannelReservation has been obtained, two additional steps must be
@@ -500,7 +500,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation := NewChannelReservation(totalCapacity, req.fundingAmount,
 		req.minFeeRate, l, id, req.numConfs)
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
 	defer reservation.Unlock()
 
@@ -568,9 +568,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	l.fundingLimbo[id] = reservation
 	l.limboMtx.Unlock()
 
-	// Funding reservation request succesfully handled. The funding inputs
+	// Funding reservation request successfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
-	// completed, or cancecled.
+	// completed, or canceled.
 	req.resp <- reservation
 	req.err <- nil
 }

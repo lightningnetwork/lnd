@@ -24,7 +24,7 @@ const (
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
 // struct is used internally within the funding manager to track and progress
-// the funding workflow initiated by incoming/outgoing meethods from the target
+// the funding workflow initiated by incoming/outgoing methods from the target
 // peer. Additionally, this struct houses a response and error channel which is
 // used to respond to the caller in the case a channel workflow is initiated
 // via a local signal such as RPC.
@@ -121,7 +121,7 @@ type fundingManager struct {
 	// state of the funding manager.
 	queries chan interface{}
 
-	// fundingRequests is a channel used to recieve channel initiation
+	// fundingRequests is a channel used to receive channel initiation
 	// requests from a local sub-system within the daemon.
 	fundingRequests chan *initFundingMsg
 
@@ -286,7 +286,7 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 }
 
 // processFundingRequest sends a message to the fundingManager allowing it to
-// intiate the new funding workflow with the source peer.
+// initiate the new funding workflow with the source peer.
 func (f *fundingManager) processFundingRequest(msg *lnwire.SingleFundingRequest, peer *peer) {
 	f.fundingMsgs <- &fundingRequestMsg{msg, peer}
 }
@@ -319,7 +319,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		return
 	}
 
-	// Once the reservation has been created succesfully, we add it to this
+	// Once the reservation has been created successfully, we add it to this
 	// peers map of pending reservations to track this particular reservation
 	// until either abort or completion.
 	f.resMtx.Lock()
@@ -719,6 +719,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	if _, ok := f.activeReservations[msg.peer.id]; !ok {
 		f.activeReservations[msg.peer.id] = make(pendingChannels)
 	}
+
 	f.activeReservations[msg.peer.id][chanID] = &reservationWithCtx{
 		reservation: reservation,
 		peer:        msg.peer,

@@ -155,4 +155,7 @@ imports:
   - naming
   - transport
   - peer
+- name: github.com/go-errors/errors
+  version: a41850380601eeb43f4350f7d17c6bbd8944aaf8
+
 testImports: []

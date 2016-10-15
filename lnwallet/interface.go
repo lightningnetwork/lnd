@@ -72,6 +72,24 @@ type TransactionDetail struct {
 	// TotalFees is the total fee in satoshis paid by this transaction.
 	TotalFees int64
 }
+
+// TransactionSubscription is an interface which describes an object capable of
+// receiving notifications of new transaction related to the underlying wallet.
+// TODO(roasbeef): add balance updates?
+type TransactionSubscription interface {
+	// ConfirmedTransactions returns a channel which will be sent on as new
+	// relevant transactions are confirmed.
+	ConfirmedTransactions() chan *TransactionDetail
+
+	// UnconfirmedTransactions returns a channel which will be sent on as
+	// new relevant transactions are seen within the network.
+	UnconfirmedTransactions() chan *TransactionDetail
+
+	// Cancel finalizes the subscription, cleaning up any resources
+	// allocated.
+	Cancel()
+}
+
 // WalletController defines an abstract interface for controlling a local Pure
 // Go wallet, a local or remote wallet via an RPC mechanism, or possibly even
 // a daemon assisted hardware wallet. This interface serves the purpose of
@@ -150,6 +168,17 @@ type WalletController interface {
 	// PublishTransaction performs cursory validation (dust checks, etc),
 	// then finally broadcasts the passed transaction to the Bitcoin network.
 	PublishTransaction(tx *wire.MsgTx) error
+
+	// SubscribeTransactions returns a TransactionSubscription client which
+	// is capable of receiving async notifications as new transactions
+	// related to the wallet are seen within the network, or found in
+	// blocks.
+	//
+	// NOTE: a non-nil error shuold be returned if notifications aren't
+	// supported.
+	//
+	// TODO(roasbeef): make distinct interface?
+	SubscribeTransactions() (TransactionSubscription, error)
 
 	// Start initializes the wallet, making any neccessary connections,
 	// starting up required goroutines etc.

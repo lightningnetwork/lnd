@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -14,11 +15,13 @@ import (
 
 	"google.golang.org/grpc"
 
+	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+
 	"github.com/roasbeef/btcrpcclient"
 )
 
@@ -175,8 +178,9 @@ func lndMain() error {
 	grpcServer := grpc.NewServer(opts...)
 	lnrpc.RegisterLightningServer(grpcServer, server.rpcServer)
 
-	// Finally, start the grpc server listening for HTTP/2 connections.
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", loadedConfig.RPCPort))
+	// Next, Start the grpc server listening for HTTP/2 connections.
+	grpcEndpoint := fmt.Sprintf("localhost:%d", loadedConfig.RPCPort)
+	lis, err := net.Listen("tcp", grpcEndpoint)
 	if err != nil {
 		fmt.Printf("failed to listen: %v", err)
 		return err
@@ -184,6 +188,26 @@ func lndMain() error {
 	go func() {
 		rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 		grpcServer.Serve(lis)
+	}()
+
+	// Finally, start the REST proxy for our gRPC server above.
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	mux := proxy.NewServeMux()
+	swaggerPattern := proxy.MustPattern(proxy.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "swagger"}, ""))
+	// TODO(roasbeef): accept path to swagger file as command-line option
+	mux.Handle("GET", swaggerPattern, func(w http.ResponseWriter, r *http.Request, p map[string]string) {
+		http.ServeFile(w, r, "lnrpc/rpc.swagger.json")
+	})
+	proxyOpts := []grpc.DialOption{grpc.WithInsecure()}
+	err = lnrpc.RegisterLightningHandlerFromEndpoint(ctx, mux, grpcEndpoint, proxyOpts)
+	if err != nil {
+		return err
+	}
+	go func() {
+		rpcsLog.Infof("gRPC proxy started")
+		http.ListenAndServe(":8080", mux)
 	}()
 
 	// Wait for shutdown signal from either a graceful server stop or from

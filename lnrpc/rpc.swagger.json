@@ -1,0 +1,981 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "rpc.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/balance/blockchain": {
+      "get": {
+        "operationId": "WalletBalance",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcWalletBalanceResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/balance/channels": {
+      "get": {
+        "operationId": "ChannelBalance",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelBalanceResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels": {
+      "get": {
+        "operationId": "ListChannels",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListChannelsResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "post": {
+        "operationId": "OpenChannel",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcOpenStatusUpdate"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcOpenChannelRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/pending": {
+      "get": {
+        "operationId": "PendingChannels",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPendingChannelResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/transactions": {
+      "post": {
+        "operationId": "SendPayment",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "(streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}": {
+      "delete": {
+        "summary": "TODO(roasbeef): merge with below with bool?",
+        "operationId": "CloseChannel",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcCloseStatusUpdate"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "channel_point.funding_txid",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "channel_point.output_index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "force",
+            "in": "path",
+            "required": true,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/getinfo": {
+      "get": {
+        "operationId": "GetInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcGetInfoResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/invoices": {
+      "post": {
+        "operationId": "AddInvoice",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcAddInvoiceResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcInvoice"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/invoices/subscribe": {
+      "get": {
+        "operationId": "SubscribeInvoices",
+        "responses": {
+          "200": {
+            "description": "(streaming responses)",
+            "schema": {
+              "$ref": "#/definitions/lnrpcInvoice"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/invoices/{pending_only}": {
+      "get": {
+        "operationId": "ListInvoices",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListInvoiceResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pending_only",
+            "in": "path",
+            "required": true,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/invoices/{r_hash_str}": {
+      "get": {
+        "operationId": "LookupInvoice",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcInvoice"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "r_hash_str",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/newaddress": {
+      "get": {
+        "operationId": "NewWitnessAddress",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNewAddressResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/peers": {
+      "get": {
+        "operationId": "ListPeers",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPeersResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "post": {
+        "operationId": "ConnectPeer",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcConnectPeerResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcConnectPeerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/transactions": {
+      "get": {
+        "operationId": "GetTransactions",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcTransactionDetails"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "post": {
+        "operationId": "SendCoins",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCoinsResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCoinsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "PendingChannelResponsePendingChannel": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "channel_point": {
+          "type": "string",
+          "format": "string"
+        },
+        "closing_txid": {
+          "type": "string",
+          "format": "string"
+        },
+        "lightning_id": {
+          "type": "string",
+          "format": "string"
+        },
+        "local_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "peer_id": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "remote_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "status": {
+          "$ref": "#/definitions/lnrpcChannelStatus"
+        }
+      }
+    },
+    "lnrpcActiveChannel": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "channel_point": {
+          "type": "string",
+          "format": "string"
+        },
+        "local_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_updates": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "pending_htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHTLC"
+          }
+        },
+        "remote_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "remote_pubkey": {
+          "type": "string",
+          "format": "string"
+        },
+        "unsettled_balance": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcAddInvoiceResponse": {
+      "type": "object",
+      "properties": {
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcChannelBalanceRequest": {
+      "type": "object"
+    },
+    "lnrpcChannelBalanceResponse": {
+      "type": "object",
+      "properties": {
+        "balance": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcChannelCloseUpdate": {
+      "type": "object",
+      "properties": {
+        "closing_txid": {
+          "type": "string",
+          "format": "byte"
+        },
+        "success": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "lnrpcChannelOpenUpdate": {
+      "type": "object",
+      "properties": {
+        "channel_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        }
+      }
+    },
+    "lnrpcChannelPoint": {
+      "type": "object",
+      "properties": {
+        "funding_txid": {
+          "type": "string",
+          "format": "byte"
+        },
+        "funding_txid_str": {
+          "type": "string",
+          "format": "string"
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcChannelStatus": {
+      "type": "string",
+      "enum": [
+        "ALL",
+        "OPENING",
+        "CLOSING"
+      ],
+      "default": "ALL"
+    },
+    "lnrpcCloseChannelRequest": {
+      "type": "object",
+      "properties": {
+        "channel_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "force": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "time_limit": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcCloseStatusUpdate": {
+      "type": "object",
+      "properties": {
+        "chan_close": {
+          "$ref": "#/definitions/lnrpcChannelCloseUpdate"
+        },
+        "close_pending": {
+          "$ref": "#/definitions/lnrpcPendingUpdate"
+        },
+        "confirmation": {
+          "$ref": "#/definitions/lnrpcConfirmationUpdate"
+        }
+      }
+    },
+    "lnrpcConfirmationUpdate": {
+      "type": "object",
+      "properties": {
+        "block_height": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "block_sha": {
+          "type": "string",
+          "format": "byte"
+        },
+        "num_confs_left": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcConnectPeerRequest": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "$ref": "#/definitions/lnrpcLightningAddress"
+        }
+      }
+    },
+    "lnrpcConnectPeerResponse": {
+      "type": "object",
+      "properties": {
+        "peer_id": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "lnrpcGetInfoRequest": {
+      "type": "object"
+    },
+    "lnrpcGetInfoResponse": {
+      "type": "object",
+      "properties": {
+        "identity_address": {
+          "type": "string",
+          "format": "string"
+        },
+        "identity_pubkey": {
+          "type": "string",
+          "format": "string"
+        },
+        "lightning_id": {
+          "type": "string",
+          "format": "string"
+        },
+        "num_active_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "num_peers": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "num_pending_channels": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcGetTransactionsRequest": {
+      "type": "object"
+    },
+    "lnrpcHTLC": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiration_height": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "hash_lock": {
+          "type": "string",
+          "format": "byte"
+        },
+        "incoming": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "revocation_delay": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcInvoice": {
+      "type": "object",
+      "properties": {
+        "memo": {
+          "type": "string",
+          "format": "string"
+        },
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "r_preimage": {
+          "type": "string",
+          "format": "byte"
+        },
+        "receipt": {
+          "type": "string",
+          "format": "byte"
+        },
+        "settled": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "value": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcInvoiceSubscription": {
+      "type": "object"
+    },
+    "lnrpcLightningAddress": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "format": "string"
+        },
+        "pubKeyHash": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcListChannelsRequest": {
+      "type": "object"
+    },
+    "lnrpcListChannelsResponse": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcActiveChannel"
+          }
+        }
+      }
+    },
+    "lnrpcListInvoiceRequest": {
+      "type": "object",
+      "properties": {
+        "pending_only": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "lnrpcListInvoiceResponse": {
+      "type": "object",
+      "properties": {
+        "invoices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcInvoice"
+          }
+        }
+      }
+    },
+    "lnrpcListPeersRequest": {
+      "type": "object"
+    },
+    "lnrpcListPeersResponse": {
+      "type": "object",
+      "properties": {
+        "peers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPeer"
+          }
+        }
+      }
+    },
+    "lnrpcNewAddressResponse": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcNewWitnessAddressRequest": {
+      "type": "object"
+    },
+    "lnrpcOpenChannelRequest": {
+      "type": "object",
+      "properties": {
+        "commission_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "local_funding_amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_confs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "remote_funding_amount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "target_node": {
+          "type": "string",
+          "format": "byte"
+        },
+        "target_peer_id": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "lnrpcOpenStatusUpdate": {
+      "type": "object",
+      "properties": {
+        "chan_open": {
+          "$ref": "#/definitions/lnrpcChannelOpenUpdate"
+        },
+        "chan_pending": {
+          "$ref": "#/definitions/lnrpcPendingUpdate"
+        },
+        "confirmation": {
+          "$ref": "#/definitions/lnrpcConfirmationUpdate"
+        }
+      }
+    },
+    "lnrpcPaymentHash": {
+      "type": "object",
+      "properties": {
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "r_hash_str": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcPeer": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "format": "string"
+        },
+        "bytes_recv": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "bytes_sent": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "inbound": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "lightning_id": {
+          "type": "string",
+          "format": "string"
+        },
+        "peer_id": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "sat_recv": {
+          "type": "string",
+          "format": "int64"
+        },
+        "sat_sent": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcPendingChannelRequest": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/lnrpcChannelStatus"
+        }
+      }
+    },
+    "lnrpcPendingChannelResponse": {
+      "type": "object",
+      "properties": {
+        "pending_channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PendingChannelResponsePendingChannel"
+          }
+        }
+      }
+    },
+    "lnrpcPendingUpdate": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcSendCoinsRequest": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "type": "string",
+          "format": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcSendCoinsResponse": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcSendRequest": {
+      "type": "object",
+      "properties": {
+        "amt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "dest": {
+          "type": "string",
+          "format": "byte"
+        },
+        "fast_send": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcSendResponse": {
+      "type": "object"
+    },
+    "lnrpcTransaction": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "format": "double"
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "string"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "num_confirmations": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "time_stamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_fees": {
+          "type": "string",
+          "format": "int64"
+        },
+        "tx_hash": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcTransactionDetails": {
+      "type": "object",
+      "properties": {
+        "transactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcTransaction"
+          }
+        }
+      }
+    },
+    "lnrpcWalletBalanceRequest": {
+      "type": "object",
+      "properties": {
+        "witness_only": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "lnrpcWalletBalanceResponse": {
+      "type": "object",
+      "properties": {
+        "balance": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    }
+  }
+}

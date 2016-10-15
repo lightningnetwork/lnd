@@ -1,13 +1,14 @@
-hash: 3047655dd4d303e49360573568bb046155e047519243c0ed8b1f8be2fcaf02de
-updated: 2016-09-20T16:28:15.627923101-07:00
+hash: db69bdd1de1bff79275a16649b87f5c5769a7ce6e889a9babf96dea470d931bf
+updated: 2016-10-15T14:19:38.70874686-07:00
 imports:
 - name: github.com/awalterschulze/gographviz
-  version: 761fd5fbb34e4c2c138c280395b65b48e4ff5a53
+  version: d4d8514752339899250316f88a7907468e8eca7e
   subpackages:
   - ast
   - parser
-  - scanner
   - token
+  - errors
+  - lexer
 - name: github.com/BitfuryLightning/tools
   version: b36ae00916b800503504455f7afeb3159bd5ee35
   subpackages:
@@ -55,11 +56,20 @@ imports:
   subpackages:
   - spew
 - name: github.com/golang/protobuf
-  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
+  version: 98fa357170587e470c5f27d3c3ea0947b71eb455
   subpackages:
   - proto
+  - jsonpb
+  - protoc-gen-go/descriptor
+- name: github.com/grpc-ecosystem/grpc-gateway
+  version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
+  subpackages:
+  - runtime
+  - third_party/googleapis/google/api
+  - utilities
+  - runtime/internal
 - name: github.com/howeyc/gopass
-  version: 26c6e1184fd5255fa5f5289d0b789a4819c203a4
+  version: f5387c492211eb133053880d23dfae62aa14123d
 - name: github.com/lightningnetwork/lightning-onion
   version: 81647ffa2c5e17c0447d359e1963a54e18be85c4
 - name: github.com/roasbeef/btcd
@@ -84,7 +94,7 @@ imports:
   - txsort
   - base58
 - name: github.com/roasbeef/btcwallet
-  version: 1fd2d6224698e14591d06f2a10b24e86494cc19f
+  version: 7acd18a96697b180b631631108f1a15448de369f
   subpackages:
   - chain
   - waddrmgr
@@ -104,7 +114,7 @@ imports:
 - name: github.com/urfave/cli
   version: a14d7d367bc02b1f57d88de97926727f2d936387
 - name: golang.org/x/crypto
-  version: 6ab629be5e31660579425a738ba8870beb5b7404
+  version: 5f31782cfb2b6373211f8f9fbf31283fa234b570
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -115,7 +125,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: f4fe4abe3c785295ddf81c7f1823bcd3bad391b6
+  version: 8b4af36cd21a1f85a7484b49feb7c79363106d8e
   subpackages:
   - context
   - http2
@@ -125,17 +135,17 @@ imports:
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/sys
-  version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
+  version: 9bb9f0998d48b31547d975974935ae9b48c7a03c
   subpackages:
   - unix
 - name: google.golang.org/grpc
-  version: 0032a855ba5c8a3c8e0d71c2deef354b70af1584
+  version: b1a2821ca5a4fd6b6e48ddfbb7d6d7584d839d21
   subpackages:
   - grpclog
   - codes
+  - metadata
   - credentials
   - internal
-  - metadata
   - naming
   - transport
   - peer

@@ -1,32 +1,129 @@
 syntax = "proto3";
 
+import "google/api/annotations.proto";
+
 package lnrpc;
 
 service Lightning {
-    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse);
-    rpc ChannelBalance(ChannelBalanceRequest) returns (ChannelBalanceResponse);
+    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse) {
+        option (google.api.http) = {
+            get: "/v1/balance/blockchain"
+        };
+    }
+    rpc ChannelBalance(ChannelBalanceRequest) returns (ChannelBalanceResponse) {
+        option (google.api.http) = {
+            get: "/v1/balance/channels"
+        };
+    }
+
+    rpc GetTransactions(GetTransactionsRequest) returns (TransactionDetails) {
+        option (google.api.http) = {
+            get: "/v1/transactions" 
+        };
+    }
+    rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse) {
+        option (google.api.http) = {
+            post: "/v1/transactions"
+            body: "*"
+        };
+    }
+    rpc SubscribeTransactions(GetTransactionsRequest) returns (stream Transaction);
 
     rpc SendMany(SendManyRequest) returns (SendManyResponse);
-    rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse);
+
     rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
+    rpc NewWitnessAddress(NewWitnessAddressRequest) returns (NewAddressResponse) {
+        option (google.api.http) = {
+            get: "/v1/newaddress"
+        };
+    }
 
-    rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse);
-    rpc ListPeers(ListPeersRequest) returns (ListPeersResponse);
-    rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+    rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse) {
+        option (google.api.http) = {
+            post: "/v1/peers"
+            body: "*"
+        };
+    }
+    rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
+        option (google.api.http) = {
+            get: "/v1/peers"
+        };
+    }
+    rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {
+        option (google.api.http) = {
+            get: "/v1/getinfo"
+        };
+    }
 
-    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate);
-    rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate);
+    // TODO(roasbeef): merge with below with bool?
+    rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse) {
+        option (google.api.http) = {
+           get: "/v1/channels/pending"
+        };
+    }
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {
+        option (google.api.http) = {
+            get: "/v1/channels"
+        };
+    }
+    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate) {
+        option (google.api.http) = {
+            post: "/v1/channels"
+            body: "*"
+        };
+    }
+    rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate) {
+        option (google.api.http) = {
+            delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}"
+        };
+    }
 
-    rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse);
-    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+    rpc SendPayment(stream SendRequest) returns (stream SendResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/transactions"
+            body: "*"
+        };
+    }
 
-    rpc SendPayment(stream SendRequest) returns (stream SendResponse);
-
-    rpc AddInvoice(Invoice) returns (AddInvoiceResponse);
-    rpc LookupInvoice(PaymentHash) returns (Invoice);
-    rpc ListInvoices(ListInvoiceRequest) returns (ListInvoiceResponse);
+    rpc AddInvoice(Invoice) returns (AddInvoiceResponse) {
+        option (google.api.http) = {
+            post: "/v1/invoices"
+            body: "*"
+        };
+    }
+    rpc ListInvoices(ListInvoiceRequest) returns (ListInvoiceResponse) {
+        option (google.api.http) = {
+            get: "/v1/invoices/{pending_only}"
+        };
+    }
+    rpc LookupInvoice(PaymentHash) returns (Invoice) {
+        option (google.api.http) = {
+            get: "/v1/invoices/{r_hash_str}"
+        };
+    }
+    rpc SubscribeInvoices(InvoiceSubscription) returns (stream Invoice) {
+        option (google.api.http) = {
+            get: "/v1/invoices/subscribe"
+        };
+    }
 
     rpc ShowRoutingTable(ShowRoutingTableRequest) returns (ShowRoutingTableResponse);
+}
+
+
+message Transaction {
+    string tx_hash = 1;
+    double amount = 2;
+    int32 num_confirmations = 3;
+    string block_hash = 4;
+    int32 block_height = 5;
+    int64 time_stamp = 6;
+    int64 total_fees = 7;
+}
+message GetTransactionsRequest {
+}
+message TransactionDetails {
+    repeated Transaction transactions = 1;
 }
 
 message SendRequest {
@@ -36,13 +133,14 @@ message SendRequest {
 
     bool fast_send = 4;
 }
-message SendResponse{
+message SendResponse {
     // TODO(roasbeef): info about route? stats?
 }
 
 message ChannelPoint {
     bytes funding_txid = 1;
-    uint32 output_index = 2;
+    string funding_txid_str = 2;
+    uint32 output_index = 3;
 }
 
 message LightningAddress {
@@ -71,9 +169,9 @@ message NewAddressRequest {
         NESTED_PUBKEY_HASH = 1;
         PUBKEY_HASH = 2;
     }
-
     AddressType type = 1;
 }
+message NewWitnessAddressRequest {}
 message NewAddressResponse {
     string address = 1;
 }
@@ -267,7 +365,8 @@ message AddInvoiceResponse {
     bytes r_hash = 1;
 }
 message PaymentHash {
-    bytes r_hash = 1;
+    string r_hash_str = 1;
+    bytes r_hash = 2;
 }
 message ListInvoiceRequest {
     bool pending_only = 1;
@@ -275,3 +374,5 @@ message ListInvoiceRequest {
 message ListInvoiceResponse {
     repeated Invoice invoices = 1;
 }
+
+message InvoiceSubscription {}

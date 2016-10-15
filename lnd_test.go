@@ -13,6 +13,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+	"google.golang.org/grpc"
 	"testing"
 )
 
@@ -86,6 +87,29 @@ func assertTxInBlock(ct *CT, block *btcutil.Block, txid *wire.ShaHash) {
 	ct.Errorf("funding tx was not included in block")
 }
 
+// mineBlocks mine 'num' of blocks and check that blocks are present in
+// node blockchain.
+func mineBlocks(ct *CT, net *networkHarness, num uint32) []*btcutil.Block {
+	blocks := make([]*btcutil.Block, num)
+
+	blockHashes, err := net.Miner.Node.Generate(num)
+	if err != nil {
+		ct.Errorf("unable to generate blocks: %v", err)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := net.Miner.Node.GetBlock(blockHash)
+		if err != nil {
+			ct.Errorf("unable to get block: %v", err)
+		}
+
+		blocks[i] = block
+	}
+
+	return blocks
+}
+
+
 // openChannelAndAssert attempts to open a channel with the specified
 // parameters extended from Alice to Bob. Additionally, two items are asserted
 // after the channel is considered open: the funding transaction should be
@@ -102,14 +126,8 @@ func openChannelAndAssert(ct *CT, net *networkHarness, ctx context.Context,
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	blockHash, err := net.Miner.Node.Generate(1)
-	if err != nil {
-		ct.Errorf("unable to generate block: %v", err)
-	}
-	block, err := net.Miner.Node.GetBlock(blockHash[0])
-	if err != nil {
-		ct.Errorf("unable to get block: %v", err)
-	}
+	block := mineBlocks(ct, net, 1)[0]
+
 	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
 	if err != nil {
 		ct.Errorf("error while waiting for channel open: %v", err)
@@ -150,14 +168,7 @@ func closeChannelAndAssert(ct *CT, net *networkHarness, ctx context.Context,
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	blockHash, err := net.Miner.Node.Generate(1)
-	if err != nil {
-		ct.Errorf("unable to generate block: %v", err)
-	}
-	block, err := net.Miner.Node.GetBlock(blockHash[0])
-	if err != nil {
-		ct.Errorf("unable to get block: %v", err)
-	}
+	block := mineBlocks(ct, net, 1)[0]
 
 	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
 	if err != nil {
@@ -752,16 +763,114 @@ func testBasicChannelCreation(net *networkHarness, ct *CT) {
 	}
 }
 
-type testCase func(net *networkHarness, t *testing.T)
+// testMaxPendingChannels checks that error is returned from remote peer if
+// max pending channel number was exceeded and that '--maxpendingchannels' flag
+// exists and works properly.
+func testMaxPendingChannels(net *networkHarness, ct *CT) {
+	maxPendingChannels := defaultMaxPendingChannels + 1
+	amount := btcutil.Amount(btcutil.SatoshiPerBitcoin)
+
+	timeout := time.Duration(time.Second * 10)
+	ctx, _ := context.WithTimeout(context.Background(), timeout)
+
+	// Create a new node (Carol) with greater number of max pending
+	// channels.
+	args := []string{
+		fmt.Sprintf("--maxpendingchannels=%v", maxPendingChannels),
+	}
+
+	carol, err := net.NewNode(args)
+
+	if err != nil {
+		ct.Errorf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctx, net.Alice, carol); err != nil {
+		ct.Errorf("unable to connect carol to alice: %v", err)
+	}
+
+	carolBalance := btcutil.Amount(maxPendingChannels) * amount
+	if err := net.SendCoins(ctx, carolBalance, carol); err != nil {
+		ct.Errorf("unable to send coins to carol: %v", err)
+	}
+
+	// Send open channel requests without generating new blocks thereby
+	// increasing pool of pending channels. Then check that we can't
+	// open the channel if the number of pending channels exceed
+	// max value.
+	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxPendingChannels)
+	for i := 0; i < maxPendingChannels; i++ {
+		stream, err := net.OpenChannel(ctx, net.Alice, carol, amount, 1)
+		if err != nil {
+			ct.Errorf("unable to open channel: %v", err)
+		}
+		openStreams[i] = stream
+	}
+
+	// Carol exhausted available amount of pending channels, next open
+	// channel request should cause ErrorGeneric to be sent back to Alice.
+	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 1)
+	if err == nil {
+		ct.Errorf("error wasn't received")
+	} else if grpc.Code(err) != OpenChannelFundingError {
+		ct.Errorf("not expected error was received : %v", err)
+	}
+
+	// For now our channels are in pending state, in order to not
+	// interfere with other tests we should clean up - complete opening
+	// of the channel and then close it.
+
+	// Mine a block, then wait for node's to notify us that the channel
+	// has been opened. The funding transactions should be found within the
+	// newly mined block.
+	block := mineBlocks(ct, net, 1)[0]
+
+	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
+
+	for i, stream := range openStreams {
+		fundingChanPoint, err := net.WaitForChannelOpen(ctx, stream)
+		if err != nil {
+			ct.Errorf("error while waiting for channel open: %v", err)
+		}
+
+		fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+		if err != nil {
+			ct.Errorf("unable to create sha hash: %v", err)
+		}
+
+		assertTxInBlock(ct, block, fundingTxID)
+
+		// The channel should be listed in the peer information
+		// returned by both peers.
+		chanPoint := wire.OutPoint{
+			Hash:  *fundingTxID,
+			Index: fundingChanPoint.OutputIndex,
+		}
+		if err := net.AssertChannelExists(ctx, net.Alice, &chanPoint); err != nil {
+			ct.Errorf("unable to assert channel existence: %v", err)
+		}
+
+		chanPoints[i] = fundingChanPoint
+	}
+
+	// Finally close the channel between Alice and Carol, asserting that the
+	// channel has been properly closed on-chain.
+	for _, chanPoint := range chanPoints {
+		closeChannelAndAssert(ct, net, ctx, net.Alice, chanPoint)
+	}
+
+}
+
+type testCase func(net *networkHarness, ct *CT)
 
 var testCases = map[string]testCase{
 	"basic funding flow":          testBasicChannelFunding,
 	"channel force closure":       testChannelForceClosure,
 	"channel balance":             testChannelBalance,
 	"single hop invoice":          testSingleHopInvoice,
+	"max pending channel":         testMaxPendingChannels,
 	"multi-hop payments":          testMultiHopPayments,
+	"multiple channel creation":   testBasicChannelCreation,
 	"invoice update subscription": testInvoiceSubscriptions,
-	"multiple channel creation": 	testBasicChannelCreation,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

@@ -7,6 +7,12 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
+const (
+	// Is returned by remote peer when number of pending channels exceed max
+	// value.
+	ErrorMaxPendingChannels = 1
+)
+
 // ErrorGeneric represents a generic error bound to an exact channel. The
 // message format is purposefully general in order to allow expression of a wide
 // array of possible errors. Each ErrorGeneric message is directed at a particular

@@ -27,6 +27,10 @@ import (
 	"golang.org/x/net/context"
 )
 
+const (
+	OpenChannelFundingError = 100
+)
+
 var (
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 )

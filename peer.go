@@ -373,6 +373,16 @@ out:
 			p.remoteCloseChanReqs <- msg
 		// TODO(roasbeef): interface for htlc update msgs
 		//  * .(CommitmentUpdater)
+
+		case *lnwire.ErrorGeneric:
+			switch msg.ErrorID {
+			case lnwire.ErrorMaxPendingChannels:
+				p.server.fundingMgr.processErrorGeneric(msg, p)
+			default:
+				peerLog.Warn("ErrorGeneric(%v) handling isn't" +
+					" implemented.", msg.ErrorID)
+			}
+
 		case *lnwire.HTLCAddRequest:
 			isChanUpdate = true
 			targetChan = msg.ChannelPoint

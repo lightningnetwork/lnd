@@ -18,8 +18,6 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-type lndTestCase func(net *networkHarness, t *testing.T)
-
 func assertTxInBlock(block *btcutil.Block, txid *wire.ShaHash, t *testing.T) {
 	for _, tx := range block.Transactions() {
 		if bytes.Equal(txid[:], tx.Sha()[:]) {
@@ -352,7 +350,9 @@ func testSingleHopInvoice(net *networkHarness, t *testing.T) {
 	// Bob's invoice should now be found and marked as settled.
 	// TODO(roasbeef): remove sleep after hooking into the to-be-written
 	// invoice settlement notification stream
-	payHash := &lnrpc.PaymentHash{invoiceResp.RHash}
+	payHash := &lnrpc.PaymentHash{
+		RHash: invoiceResp.RHash,
+	}
 	dbInvoice, err := net.Bob.LookupInvoice(ctxb, payHash)
 	if err != nil {
 		t.Fatalf("unable to lookup invoice: %v", err)
@@ -455,6 +455,7 @@ func testMultiHopPayments(net *networkHarness, t *testing.T) {
 	// Carol's routing table should show a path from Carol -> Alice -> Bob,
 	// with the two channels above recognized as the only links within the
 	// network.
+	time.Sleep(time.Second)
 	req := &lnrpc.ShowRoutingTableRequest{}
 	routingResp, err := carol.ShowRoutingTable(ctxb, req)
 	if err != nil {
@@ -579,12 +580,95 @@ func testMultiHopPayments(net *networkHarness, t *testing.T) {
 	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol)
 }
 
+func testInvoiceSubscriptions(net *networkHarness, t *testing.T) {
+	const chanAmt = btcutil.Amount(500000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 500k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+		chanAmt)
+
+	// Next create a new invoice for Bob requesting 1k satoshis.
+	const paymentAmt = 1000
+	preimage := bytes.Repeat([]byte{byte(90)}, 32)
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	invoiceResp, err := net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Create a new invoice subscription client for Bob, the notification
+	// should be dispatched shortly below.
+	req := &lnrpc.InvoiceSubscription{}
+	bobInvoiceSubscription, err := net.Bob.SubscribeInvoices(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to subscribe to bob's invoice updates: %v", err)
+	}
+
+	updateSent := make(chan struct{})
+	go func() {
+		invoiceUpdate, err := bobInvoiceSubscription.Recv()
+		if err != nil {
+			t.Fatalf("unable to recv invoice update: %v", err)
+		}
+
+		// The invoice update should exactly match the invoice created
+		// above, but should now be settled.
+		if !invoiceUpdate.Settled {
+			t.Fatalf("invoice not settled but shoudl be")
+		}
+		if !bytes.Equal(invoiceUpdate.RPreimage, invoice.RPreimage) {
+			t.Fatalf("payment preimages don't match: expected %v, got %v",
+				invoice.RPreimage, invoiceUpdate.RPreimage)
+		}
+
+		close(updateSent)
+	}()
+
+	// With the assertion above set up, send a payment from Alice to Bob
+	// which should finalize and settle the invoice.
+	sendStream, err := net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create alice payment stream: %v", err)
+	}
+	sendReq := &lnrpc.SendRequest{
+		PaymentHash: invoiceResp.RHash,
+		Dest:        net.Bob.PubKey[:],
+		Amt:         paymentAmt,
+	}
+	if err := sendStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if _, err := sendStream.Recv(); err != nil {
+		t.Fatalf("error when attempting recv: %v", err)
+	}
+
+	select {
+	case <-time.After(time.Second * 5):
+		t.Fatalf("update not sent after 5 seconds")
+	case <-updateSent: // Fall through on success
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
+}
+
+type lndTestCase func(net *networkHarness, t *testing.T)
+
 var lndTestCases = map[string]lndTestCase{
-	"basic funding flow":     testBasicChannelFunding,
-	"channel force closure":  testChannelForceClosure,
-	"channel balance":        testChannelBalance,
-	"single hop invoice":     testSingleHopInvoice,
-	"test mult-hop payments": testMultiHopPayments,
+	"basic funding flow":          testBasicChannelFunding,
+	"channel force closure":       testChannelForceClosure,
+	"channel balance":             testChannelBalance,
+	"single hop invoice":          testSingleHopInvoice,
+	"multi-hop payments":          testMultiHopPayments,
+	"invoice update subscription": testInvoiceSubscriptions,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

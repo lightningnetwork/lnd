@@ -47,8 +47,8 @@ func lndMain() error {
 	// Show version at startup.
 	ltndLog.Infof("Version %s", version())
 
-	if loadedConfig.SPVMode == true {
-		shell(loadedConfig.SPVHostAdr, activeNetParams.Params)
+	if cfg.SPVMode == true {
+		shell(cfg.SPVHostAdr, activeNetParams.Params)
 		return err
 	}
 
@@ -65,7 +65,7 @@ func lndMain() error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.Open(loadedConfig.DataDir, activeNetParams.Params)
+	chanDB, err := channeldb.Open(cfg.DataDir, activeNetParams.Params)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
 		return err
@@ -76,13 +76,13 @@ func lndMain() error {
 	// specified in the config, then we'll se that directly. Otherwise, we
 	// attempt to read the cert from the path specified in the config.
 	var rpcCert []byte
-	if loadedConfig.RawRPCCert != "" {
-		rpcCert, err = hex.DecodeString(loadedConfig.RawRPCCert)
+	if cfg.RawRPCCert != "" {
+		rpcCert, err = hex.DecodeString(cfg.RawRPCCert)
 		if err != nil {
 			return err
 		}
 	} else {
-		certFile, err := os.Open(loadedConfig.RPCCert)
+		certFile, err := os.Open(cfg.RPCCert)
 		if err != nil {
 			return err
 		}
@@ -95,15 +95,15 @@ func lndMain() error {
 		}
 	}
 
-	rpcIP, err := net.LookupHost(loadedConfig.RPCHost)
+	rpcIP, err := net.LookupHost(cfg.RPCHost)
 	if err != nil {
 		fmt.Printf("unable to resolve rpc host: %v", err)
 		return err
 	}
 
-	btcdHost := fmt.Sprintf("%v:%v", loadedConfig.RPCHost, activeNetParams.rpcPort)
-	btcdUser := loadedConfig.RPCUser
-	btcdPass := loadedConfig.RPCPass
+	btcdHost := fmt.Sprintf("%v:%v", cfg.RPCHost, activeNetParams.rpcPort)
+	btcdUser := cfg.RPCUser
+	btcdPass := cfg.RPCPass
 
 	// TODO(roasbeef): parse config here and select chosen notifier instead
 	rpcConfig := &btcrpcclient.ConnConfig{
@@ -121,13 +121,13 @@ func lndMain() error {
 		return err
 	}
 
-	// TODO(roasbeef): paarse config here select chosen WalletController
+	// TODO(roasbeef): parse config here select chosen WalletController
 	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
-		DataDir:     filepath.Join(loadedConfig.DataDir, "lnwallet"),
+		DataDir:     filepath.Join(cfg.DataDir, "lnwallet"),
 		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
-		RpcUser:     loadedConfig.RPCUser,
-		RpcPass:     loadedConfig.RPCPass,
+		RpcUser:     cfg.RPCUser,
+		RpcPass:     cfg.RPCPass,
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
@@ -156,7 +156,7 @@ func lndMain() error {
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	defaultListenAddrs := []string{
-		net.JoinHostPort("", strconv.Itoa(loadedConfig.PeerPort)),
+		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
 	server, err := newServer(defaultListenAddrs, notifier, bio, wallet, chanDB)
 	if err != nil {

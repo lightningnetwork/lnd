@@ -13,18 +13,19 @@ import (
 )
 
 const (
-	defaultConfigFilename = "lnd.conf"
-	defaultDataDirname    = "data"
-	defaultLogLevel       = "info"
-	defaultLogDirname     = "logs"
-	defaultLogFilename    = "lnd.log"
-	defaultRPCPort        = 10009
-	defaultSPVMode        = false
-	defaultPeerPort       = 10011
-	defaultRPCHost        = "localhost"
-	defaultRPCUser        = "user"
-	defaultRPCPass        = "passwd"
-	defaultSPVHostAdr     = "localhost:18333"
+	defaultConfigFilename     = "lnd.conf"
+	defaultDataDirname        = "data"
+	defaultLogLevel           = "info"
+	defaultLogDirname         = "logs"
+	defaultLogFilename        = "lnd.log"
+	defaultRPCPort            = 10009
+	defaultSPVMode            = false
+	defaultPeerPort           = 10011
+	defaultRPCHost            = "localhost"
+	defaultRPCUser            = "user"
+	defaultRPCPass            = "passwd"
+	defaultSPVHostAdr         = "localhost:18333"
+	defaultMaxPendingChannels = 1
 )
 
 var (
@@ -62,13 +63,14 @@ type config struct {
 	RPCUser  string `short:"u" long:"rpcuser" description:"Username for RPC connections"`
 	RPCPass  string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 
-	RPCCert    string `long:"rpccert" description:"File containing btcd's certificate file"`
-	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of btcd's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
-	SPVHostAdr string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
-	TestNet3   bool   `long:"testnet" description:"Use the test network"`
-	SimNet     bool   `long:"simnet" description:"Use the simulation test network"`
-	SegNet     bool   `long:"segnet" description:"Use the segragated witness test network"`
-	DebugHTLC  bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLC's sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	RPCCert            string `long:"rpccert" description:"File containing btcd's certificate file"`
+	RawRPCCert         string `long:"rawrpccert" description:"The raw bytes of btcd's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
+	SPVHostAdr         string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
+	TestNet3           bool   `long:"testnet" description:"Use the test network"`
+	SimNet             bool   `long:"simnet" description:"Use the simulation test network"`
+	SegNet             bool   `long:"segnet" description:"Use the segragated witness test network"`
+	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLC's sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -81,18 +83,19 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		ConfigFile: defaultConfigFile,
-		DataDir:    defaultDataDir,
-		DebugLevel: defaultLogLevel,
-		LogDir:     defaultLogDir,
-		PeerPort:   defaultPeerPort,
-		RPCPort:    defaultRPCPort,
-		SPVMode:    defaultSPVMode,
-		RPCHost:    defaultRPCHost,
-		RPCUser:    defaultRPCUser,
-		RPCPass:    defaultRPCPass,
-		RPCCert:    defaultRPCCertFile,
-		SPVHostAdr: defaultSPVHostAdr,
+		ConfigFile:         defaultConfigFile,
+		DataDir:            defaultDataDir,
+		DebugLevel:         defaultLogLevel,
+		LogDir:             defaultLogDir,
+		PeerPort:           defaultPeerPort,
+		RPCPort:            defaultRPCPort,
+		SPVMode:            defaultSPVMode,
+		RPCHost:            defaultRPCHost,
+		RPCUser:            defaultRPCUser,
+		RPCPass:            defaultRPCPass,
+		RPCCert:            defaultRPCCertFile,
+		SPVHostAdr:         defaultSPVHostAdr,
+		MaxPendingChannels: defaultMaxPendingChannels,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

@@ -25,6 +25,13 @@ type ErrorGeneric struct {
 	// nature of the exact error. The maximum allowed length of this
 	// message is 8192 bytes.
 	Problem string
+
+	// PendingChannelID allows peers communicate errors in the context of a
+	// particular pending channel. With this field, once a peer reads an
+	// ErrorGeneric message with the PendingChannelID field set, then they
+	// can forward the error to the fundingManager who can handle it
+	// properly.
+	PendingChannelID uint64
 }
 
 // NewErrorGeneric creates a new ErrorGeneric message.
@@ -47,6 +54,7 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 		&c.ChannelPoint,
 		&c.ErrorID,
 		&c.Problem,
+		&c.PendingChannelID,
 	)
 	if err != nil {
 		return err
@@ -64,6 +72,7 @@ func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 		c.ChannelPoint,
 		c.ErrorID,
 		c.Problem,
+		c.PendingChannelID,
 	)
 	if err != nil {
 		return err
@@ -110,5 +119,6 @@ func (c *ErrorGeneric) String() string {
 		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("ErrorID:\t%d\n", c.ErrorID) +
 		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
+		fmt.Sprintf("PendingChannelID:\t%s\n", c.PendingChannelID) +
 		fmt.Sprintf("--- End ErrorGeneric ---\n")
 }

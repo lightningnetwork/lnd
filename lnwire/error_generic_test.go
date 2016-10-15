@@ -11,6 +11,7 @@ func TestErrorGenericEncodeDecode(t *testing.T) {
 		ChannelPoint: outpoint1,
 		ErrorID:      99,
 		Problem:      "Hello world!",
+		PendingChannelID: 1,
 	}
 
 	// Next encode the EG message into an empty bytes buffer.

@@ -473,8 +473,7 @@ func (n *networkHarness) TearDownAll() error {
 			return err
 		}
 	}
-
-	close(n.lndErrorChan)
+	
 	return nil
 }
 

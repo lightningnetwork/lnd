@@ -506,9 +506,16 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 			if chanLink.chanPoint == req.chanPoint {
 				chansRemoved = append(chansRemoved, req.chanPoint)
 
+				// We perform an in-place delete by sliding
+				// every element down one, then slicing off the
+				// last element. Additionally, we update the
+				// slice reference within the source map to
+				// ensure full deletion.
 				copy(links[i:], links[i+1:])
 				links[len(links)-1] = nil
-				links = links[:len(links)-1]
+				h.interfaceMtx.Lock()
+				h.interfaces[chanInterface] = links[:len(links)-1]
+				h.interfaceMtx.Unlock()
 
 				break
 			}

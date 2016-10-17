@@ -660,6 +660,30 @@ func testInvoiceSubscriptions(net *networkHarness, t *testing.T) {
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
 }
 
+// testBasicChannelCreation test multiple channel opening and closing.
+func testBasicChannelCreation(net *networkHarness, t *testing.T) {
+	timeout := time.Duration(time.Second * 5)
+	ctx, _ := context.WithTimeout(context.Background(), timeout)
+
+	amount := btcutil.Amount(btcutil.SatoshiPerBitcoin)
+
+	num := 2
+
+	// Open the channel between Alice and Bob, asserting that the
+	// channel has been properly open on-chain.
+	chanPoints := make([]*lnrpc.ChannelPoint, num)
+	for i := 0; i < num; i++ {
+		chanPoints[i] = openChannelAndAssert(t, net, ctx, net.Alice,
+			net.Bob, amount)
+	}
+
+	// Close the channel between Alice and Bob, asserting that the
+	// channel has been properly closed on-chain.
+	for _, chanPoint := range chanPoints {
+		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint)
+	}
+}
+
 type lndTestCase func(net *networkHarness, t *testing.T)
 
 var lndTestCases = map[string]lndTestCase{
@@ -669,6 +693,7 @@ var lndTestCases = map[string]lndTestCase{
 	"single hop invoice":          testSingleHopInvoice,
 	"multi-hop payments":          testMultiHopPayments,
 	"invoice update subscription": testInvoiceSubscriptions,
+	"multiple channel creation": 	testBasicChannelCreation,
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

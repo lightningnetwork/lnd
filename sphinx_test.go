@@ -127,7 +127,6 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-
 	nodes, fwdMsg, err := newTestRoute(numMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)

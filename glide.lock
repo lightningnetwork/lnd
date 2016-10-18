@@ -1,6 +1,12 @@
-hash: db69bdd1de1bff79275a16649b87f5c5769a7ce6e889a9babf96dea470d931bf
-updated: 2016-10-15T14:19:38.70874686-07:00
+hash: 0bdf51a0e40c8cba475333645a769b711e699be36803b02f3b14430642ab79b2
+updated: 2016-10-17T19:44:40.047044856-07:00
 imports:
+- name: github.com/aead/chacha20
+  version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
+  subpackages:
+  - chacha
+- name: github.com/aead/poly1305
+  version: 7ab7663051fa9fa57de391f966a859e781d48b0a
 - name: github.com/awalterschulze/gographviz
   version: d4d8514752339899250316f88a7907468e8eca7e
   subpackages:
@@ -139,7 +145,7 @@ imports:
   subpackages:
   - unix
 - name: google.golang.org/grpc
-  version: b1a2821ca5a4fd6b6e48ddfbb7d6d7584d839d21
+  version: b7f1379d3cbbbeb2ca3405852012e237aa05459e
   subpackages:
   - grpclog
   - codes

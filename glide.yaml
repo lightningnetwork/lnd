@@ -59,3 +59,4 @@ import:
 - package: github.com/lightningnetwork/lightning-onion
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: ^1.1.0
+- package: github.com/aead/chacha20

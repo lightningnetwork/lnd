@@ -1,0 +1,10 @@
+language: go
+go:
+  - 1.6.3
+  - 1.7
+sudo: false
+install:
+  - go get -v github.com/lightningnetwork/lightning-onion
+script:
+  - export PATH=$PATH:$HOME/gopath/bin
+  - go test -v

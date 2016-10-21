@@ -16,6 +16,9 @@ import (
 
 func main() {
 	args := os.Args
+
+	assocData := bytes.Repeat([]byte{'B'}, 32)
+
 	if len(args) == 1 {
 		fmt.Printf("Usage: %s (generate|decode) <private-keys>\n", args[0])
 	} else if args[1] == "generate" {
@@ -40,7 +43,7 @@ func main() {
 			hopPayloads = append(hopPayloads, payload)
 		}
 
-		msg, err := sphinx.NewOnionPacket(route, sessionKey, []byte("testing"), hopPayloads)
+		msg, err := sphinx.NewOnionPacket(route, sessionKey, hopPayloads, assocData)
 		if err != nil {
 			log.Fatalf("Error creating message: %v", err)
 		}
@@ -74,7 +77,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error parsing message: %v", err)
 		}
-		p, err := s.ProcessOnionPacket(&packet)
+		p, err := s.ProcessOnionPacket(&packet, assocData)
 		if err != nil {
 			log.Fatalf("Failed to decode message: %s", err)
 		}

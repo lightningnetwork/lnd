@@ -74,7 +74,7 @@ type MixHeader struct {
 // 'paymentPath'.  This function returns the created mix header along
 // with a derived shared secret for each node in the path.
 func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	rawHopPayloads [][]byte) (*MixHeader,
+	rawHopPayloads [][]byte, assocData []byte) (*MixHeader,
 	[][sharedSecretSize]byte, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
@@ -152,7 +152,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 			copy(hopPayloads[len(hopPayloads)-len(hopFiller):], hopFiller)
 		}
 
-		packet := append(mixHeader[:], hopPayloads[:]...)
+		packet := append(append(mixHeader[:], hopPayloads[:]...), assocData...)
 		next_hmac = calcMac(muKey, packet)
 		next_address = btcutil.Hash160(paymentPath[i].SerializeCompressed())
 	}
@@ -213,10 +213,10 @@ type OnionPacket struct {
 // routing information required to propagate the message through the mixnet,
 // eventually reaching the final node specified by a zero identifier.
 func NewOnionPacket(route []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	hopPayloads [][]byte) (*OnionPacket, error) {
+	hopPayloads [][]byte, assocData []byte) (*OnionPacket, error) {
 
 	// Compute the mix header, and shared secerts for each hop.
-	mixHeader, _, err := NewMixHeader(route, sessionKey, hopPayloads)
+	mixHeader, _, err := NewMixHeader(route, sessionKey, hopPayloads, assocData)
 	if err != nil {
 		return nil, err
 	}
@@ -489,7 +489,7 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 // In the case of a successful packet processing, and ProcessedPacket struct is
 // returned which houses the newly parsed packet, along with instructions on
 // what to do next.
-func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, error) {
+func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*ProcessedPacket, error) {
 	mixHeader := onionPkt.Header
 
 	dhKey := mixHeader.EphemeralKey
@@ -519,7 +519,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket) (*ProcessedPacket, er
 	// information by checking the attached MAC without leaking timing
 	// information.
 
-	message := append(routeInfo[:], mixHeader.HopPayload[:]...)
+	message := append(append(routeInfo[:], mixHeader.HopPayload[:]...), assocData...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
 		return nil, fmt.Errorf("MAC mismatch %x != %x, rejecting forwarding message", headerMac, calculatedMac)

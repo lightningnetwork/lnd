@@ -43,7 +43,7 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
-	fwdMsg, err := NewOnionPacket(route, sessionKey, hopPayloads)
+	fwdMsg, err := NewOnionPacket(route, sessionKey, hopPayloads, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -64,7 +64,7 @@ func TestSphinxCorrectness(t *testing.T) {
 		hop := nodes[i]
 
 		log.Printf("Processing at hop: %v \n", i)
-		processAction, err := hop.ProcessOnionPacket(fwdMsg)
+		processAction, err := hop.ProcessOnionPacket(fwdMsg, nil)
 		if err != nil {
 			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
 		}
@@ -111,7 +111,7 @@ func TestSphinxSingleHop(t *testing.T) {
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
-	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg)
+	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -135,15 +135,29 @@ func TestSphinxNodeRelpay(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != nil {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != ErrReplayedPacket {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != ErrReplayedPacket {
 		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
 	}
+}
+
+func TestSphinxAssocData(t *testing.T) {
+	// We want to make sure that the associated data is considered in the
+	// HMAC creation
+	nodes, fwdMsg, err := newTestRoute(5)
+	if err != nil {
+		t.Fatalf("unable to create random onion packet: %v", err)
+	}
+
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
+		t.Fatalf("we should fail when associated data changes")
+	}
+
 }
 
 func TestSphinxEncodeDecode(t *testing.T) {

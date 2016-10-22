@@ -302,7 +302,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 // local node (Alice in this case) creates a new outgoing HTLC to bob, commits
 // this change, then bob immediately commits a settlement of the HTLC after the
 // initial add is fully commited in both commit chains.
-// TODO(roasbeef): write higher level framework to excercise various states of
+// TODO(roasbeef): write higher level framework to exercise various states of
 // the state machine
 //  * DSL language perhaps?
 //  * constructed via input/output files
@@ -348,7 +348,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice unable to sign commitment: %v", err)
 	}
 
-	// Bob recieves this signature message, then generates a signature for
+	// Bob receives this signature message, then generates a signature for
 	// Alice's commitment transaction, and the revocation to his prior
 	// commitment transaction.
 	if err := bobChannel.ReceiveNewCommitment(aliceSig, bobLogIndex); err != nil {
@@ -363,12 +363,12 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
 
-	// Alice then proceses bob's signature, and generates a revocation for
+	// Alice then processes bob's signature, and generates a revocation for
 	// bob.
 	if err := aliceChannel.ReceiveNewCommitment(bobSig, aliceLogIndex); err != nil {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
-	// Alice then processes this revocation, sending her own revovation for
+	// Alice then processes this revocation, sending her own recovation for
 	// her prior commitment transaction. Alice shouldn't have any HTLC's to
 	// forward since she's sending anoutgoing HTLC.
 	if htlcs, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {

@@ -9,7 +9,7 @@ import (
 // responder after the previously constructed funding transaction has achieved
 // a sufficient number of confirmations. It is the initiator's duty to present
 // a proof of an open channel to the responder. Otherwise, responding node may
-// be vulernable to a resource exhasution attack wherein the a requesting node
+// be vulnerable to a resource exhaustion attack wherein the a requesting node
 // repeatedly negotiates funding transactions which are never broadcast. If the
 // responding node commits resources to watch the chain for each funding
 // transaction, then this attack is very cheap for the initiator.

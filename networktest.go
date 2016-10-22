@@ -19,6 +19,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 
+	"bytes"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/rpctest"
@@ -69,7 +71,7 @@ func generateListeningPorts() (int, int) {
 
 // lightningNode represents an instance of lnd running within our test network
 // harness. Each lightningNode instance also fully embedds an RPC client in
-// order to programatically drive the node.
+// order to pragmatically drive the node.
 type lightningNode struct {
 	cfg *config
 
@@ -159,13 +161,26 @@ func (l *lightningNode) genArgs() []string {
 // start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
-func (l *lightningNode) start() error {
+func (l *lightningNode) start(lndError chan error) error {
 	args := l.genArgs()
 
 	l.cmd = exec.Command("lnd", args...)
+
+	// Redirect stderr output to buffer
+	var errb bytes.Buffer
+	l.cmd.Stderr = &errb
+
 	if err := l.cmd.Start(); err != nil {
 		return err
 	}
+
+	go func() {
+		// If lightning node process exited with error status
+		// then we should transmit stderr output in main process.
+		if err := l.cmd.Wait(); err != nil {
+			lndError <- errors.New(errb.String())
+		}
+	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
 		fmt.Sprintf("%s.pid", l.nodeId)))
@@ -234,7 +249,14 @@ func (l *lightningNode) cleanup() error {
 
 // stop attempts to stop the active lnd process.
 func (l *lightningNode) stop() error {
-	if l.cmd == nil || l.cmd.Process == nil {
+
+	// We should skip node stop in case:
+	// - start of the node wasn't initiated
+	// - process wasn't spawned
+	// - process already finished
+	if l.cmd == nil ||
+		l.cmd.Process == nil ||
+		(l.cmd.ProcessState != nil && l.cmd.ProcessState.Exited()) {
 		return nil
 	}
 
@@ -276,6 +298,10 @@ type networkHarness struct {
 	seenTxns      chan wire.ShaHash
 	watchRequests chan *watchRequest
 
+	// Channel for transmitting stderr output from failed lightning node
+	// to main process.
+	lndErrorChan chan error
+
 	sync.Mutex
 }
 
@@ -288,6 +314,7 @@ func newNetworkHarness() (*networkHarness, error) {
 		activeNodes:   make(map[int]*lightningNode),
 		seenTxns:      make(chan wire.ShaHash),
 		watchRequests: make(chan *watchRequest),
+		lndErrorChan:  make(chan error),
 	}, nil
 }
 
@@ -345,7 +372,7 @@ func (n *networkHarness) SetUp() error {
 	go func() {
 		var err error
 		defer wg.Done()
-		if err = n.Alice.start(); err != nil {
+		if err = n.Alice.start(n.lndErrorChan); err != nil {
 			errChan <- err
 			return
 		}
@@ -353,7 +380,7 @@ func (n *networkHarness) SetUp() error {
 	go func() {
 		var err error
 		defer wg.Done()
-		if err = n.Bob.start(); err != nil {
+		if err = n.Bob.start(n.lndErrorChan); err != nil {
 			errChan <- err
 			return
 		}
@@ -462,7 +489,7 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 		return nil, err
 	}
 
-	if err := node.start(); err != nil {
+	if err := node.start(n.lndErrorChan); err != nil {
 		return nil, err
 	}
 
@@ -573,9 +600,9 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid wire.ShaHa
 	}
 }
 
-// OpenChannel attemps to open a channel between srcNode and destNode with the
+// OpenChannel attempts to open a channel between srcNode and destNode with the
 // passed channel funding parameters. If the passed context has a timeout, then
-// if the timeout is reeached before the channel pending notification is
+// if the timeout is reached before the channel pending notification is
 // received, an error is returned.
 func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,

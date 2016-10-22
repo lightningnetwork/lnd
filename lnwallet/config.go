@@ -1,6 +1,7 @@
 package lnwallet
 
-// Config..
+// Config is a struct which houses configuration parameters which modify the
+// behaviour of LightningWallet.
 type Config struct {
 	// default csv time
 	// default cltv time

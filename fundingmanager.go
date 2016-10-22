@@ -13,8 +13,10 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"fmt"
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -24,7 +26,7 @@ const (
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
 // struct is used internally within the funding manager to track and progress
-// the funding workflow initiated by incoming/outgoing meethods from the target
+// the funding workflow initiated by incoming/outgoing methods from the target
 // peer. Additionally, this struct houses a response and error channel which is
 // used to respond to the caller in the case a channel workflow is initiated
 // via a local signal such as RPC.
@@ -88,6 +90,14 @@ type fundingOpenMsg struct {
 	peer *peer
 }
 
+// fundingErrorMsg couples an lnwire.ErrorGeneric message
+// with the peer who sent the message. This allows the funding
+// manager properly process the error.
+type fundingErrorMsg struct {
+	err  *lnwire.ErrorGeneric
+	peer *peer
+}
+
 // pendingChannels is a map instantiated per-peer which tracks all active
 // pending single funded channels indexed by their pending channel identifier.
 type pendingChannels map[uint64]*reservationWithCtx
@@ -121,7 +131,7 @@ type fundingManager struct {
 	// state of the funding manager.
 	queries chan interface{}
 
-	// fundingRequests is a channel used to recieve channel initiation
+	// fundingRequests is a channel used to receive channel initiation
 	// requests from a local sub-system within the daemon.
 	fundingRequests chan *initFundingMsg
 
@@ -232,6 +242,8 @@ out:
 				f.handleFundingSignComplete(fmsg)
 			case *fundingOpenMsg:
 				f.handleFundingOpen(fmsg)
+			case *fundingErrorMsg:
+				f.handleErrorGenericMsg(fmsg)
 			}
 		case req := <-f.fundingRequests:
 			f.handleInitFundingMsg(req)
@@ -286,7 +298,7 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 }
 
 // processFundingRequest sends a message to the fundingManager allowing it to
-// intiate the new funding workflow with the source peer.
+// initiate the new funding workflow with the source peer.
 func (f *fundingManager) processFundingRequest(msg *lnwire.SingleFundingRequest, peer *peer) {
 	f.fundingMsgs <- &fundingRequestMsg{msg, peer}
 }
@@ -297,6 +309,23 @@ func (f *fundingManager) processFundingRequest(msg *lnwire.SingleFundingRequest,
 // TODO(roasbeef): add error chan to all, let channelManager handle
 // error+propagate
 func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
+
+	// Check number of pending channels to be smaller than maximum allowed
+	// number and send ErrorGeneric to remote peer if condition is violated.
+	if len(f.activeReservations[fmsg.peer.id]) >= cfg.MaxPendingChannels {
+		errMsg := &lnwire.ErrorGeneric{
+			ChannelPoint: &wire.OutPoint{
+				Hash:  wire.ShaHash{},
+				Index: 0,
+			},
+			Problem:          "Number of pending channels exceed maximum",
+			ErrorID:          lnwire.ErrorMaxPendingChannels,
+			PendingChannelID: fmsg.msg.ChannelID,
+		}
+		fmsg.peer.queueMsg(errMsg, nil)
+		return
+	}
+
 	msg := fmsg.msg
 	amt := msg.FundingAmount
 	delay := msg.CsvDelay
@@ -319,7 +348,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		return
 	}
 
-	// Once the reservation has been created succesfully, we add it to this
+	// Once the reservation has been created successfully, we add it to this
 	// peers map of pending reservations to track this particular reservation
 	// until either abort or completion.
 	f.resMtx.Lock()
@@ -684,6 +713,7 @@ func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq)
 // wallet, then sends a funding request to the remote peer kicking off the
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
+
 	nodeID := msg.peer.lightningID
 
 	localAmt := msg.localFundingAmt
@@ -719,6 +749,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	if _, ok := f.activeReservations[msg.peer.id]; !ok {
 		f.activeReservations[msg.peer.id] = make(pendingChannels)
 	}
+
 	f.activeReservations[msg.peer.id][chanID] = &reservationWithCtx{
 		reservation: reservation,
 		peer:        msg.peer,
@@ -753,4 +784,47 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		deliveryScript,
 	)
 	msg.peer.queueMsg(fundingReq, nil)
+}
+
+// processErrorGeneric sends a message to the fundingManager allowing it
+// to process the occurred generic error.
+func (f *fundingManager) processErrorGeneric(err *lnwire.ErrorGeneric,
+	peer *peer) {
+	f.fundingMsgs <- &fundingErrorMsg{err, peer}
+}
+
+// handleErrorGenericMsg process the error which was received from remote peer,
+// depends on the type of error we should do different clean up steps and
+// inform user about it.
+func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
+	if fmsg.err.ErrorID == lnwire.ErrorMaxPendingChannels {
+		peerID := fmsg.peer.id
+		chanID := fmsg.err.PendingChannelID
+
+		f.resMtx.RLock()
+		resCtx, ok := f.activeReservations[peerID][chanID]
+		f.resMtx.RUnlock()
+
+		if !ok {
+			resCtx.err <- fmt.Errorf("ErrorGeneric error " +
+				"was returned from remote peer for channel "+
+				"(id: %v), but it can't be found and thereby "+
+				"can't be canceled.", chanID)
+		}
+
+		if err := resCtx.reservation.Cancel(); err != nil {
+			resCtx.err <- fmt.Errorf("Remote peer responded "+
+				"with: Number of pending channels exceed "+
+				"maximum, but we can't cancel the reservation "+
+				"- %v", err)
+		} else {
+			resCtx.err <- grpc.Errorf(OpenChannelFundingError,
+				"Remote peer responded with: Number of "+
+					"pending channels exceed maximum")
+		}
+
+		f.resMtx.Lock()
+		delete(f.activeReservations[peerID], chanID)
+		f.resMtx.Unlock()
+	}
 }

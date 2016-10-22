@@ -7,12 +7,18 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
+const (
+	// Is returned by remote peer when number of pending channels exceed max
+	// value.
+	ErrorMaxPendingChannels = 1
+)
+
 // ErrorGeneric represents a generic error bound to an exact channel. The
-// message format is purposefully general in order to allow expressino of a wide
+// message format is purposefully general in order to allow expression of a wide
 // array of possible errors. Each ErrorGeneric message is directed at a particular
 // open channel referenced by ChannelPoint.
 type ErrorGeneric struct {
-	// ChannelPoint references the active channel in which the error occured
+	// ChannelPoint references the active channel in which the error occurred
 	// within. A ChannelPoint of zeroHash:0 denotes this error applies to
 	// the entire established connection.
 	ChannelPoint *wire.OutPoint
@@ -22,9 +28,16 @@ type ErrorGeneric struct {
 	ErrorID uint16
 
 	// Problem is a human-readable string further elaborating upon the
-	// nature of the exact error. The maxmium allowed length of this
+	// nature of the exact error. The maximum allowed length of this
 	// message is 8192 bytes.
 	Problem string
+
+	// PendingChannelID allows peers communicate errors in the context of a
+	// particular pending channel. With this field, once a peer reads an
+	// ErrorGeneric message with the PendingChannelID field set, then they
+	// can forward the error to the fundingManager who can handle it
+	// properly.
+	PendingChannelID uint64
 }
 
 // NewErrorGeneric creates a new ErrorGeneric message.
@@ -47,6 +60,7 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 		&c.ChannelPoint,
 		&c.ErrorID,
 		&c.Problem,
+		&c.PendingChannelID,
 	)
 	if err != nil {
 		return err
@@ -64,6 +78,7 @@ func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 		c.ChannelPoint,
 		c.ErrorID,
 		c.Problem,
+		c.PendingChannelID,
 	)
 	if err != nil {
 		return err
@@ -110,5 +125,6 @@ func (c *ErrorGeneric) String() string {
 		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("ErrorID:\t%d\n", c.ErrorID) +
 		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
+		fmt.Sprintf("PendingChannelID:\t%s\n", c.PendingChannelID) +
 		fmt.Sprintf("--- End ErrorGeneric ---\n")
 }

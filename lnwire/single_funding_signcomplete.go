@@ -8,7 +8,7 @@ import (
 )
 
 // SingleFundingSignComplete is the message Bob sends to Alice which delivers
-// a signature for Alice's version of the commitment transaction. After thie
+// a signature for Alice's version of the commitment transaction. After this
 // message is received and processed by Alice, she is free to broadcast the
 // funding transaction.
 type SingleFundingSignComplete struct {

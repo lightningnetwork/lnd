@@ -14,6 +14,7 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"fmt"
+
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
 	"google.golang.org/grpc"
@@ -309,7 +310,6 @@ func (f *fundingManager) processFundingRequest(msg *lnwire.SingleFundingRequest,
 // TODO(roasbeef): add error chan to all, let channelManager handle
 // error+propagate
 func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
-
 	// Check number of pending channels to be smaller than maximum allowed
 	// number and send ErrorGeneric to remote peer if condition is violated.
 	if len(f.activeReservations[fmsg.peer.id]) >= cfg.MaxPendingChannels {
@@ -319,7 +319,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 				Index: 0,
 			},
 			Problem:          "Number of pending channels exceed maximum",
-			ErrorID:          lnwire.ErrorMaxPendingChannels,
+			Code:             lnwire.ErrorMaxPendingChannels,
 			PendingChannelID: fmsg.msg.ChannelID,
 		}
 		fmsg.peer.queueMsg(errMsg, nil)
@@ -713,7 +713,6 @@ func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq)
 // wallet, then sends a funding request to the remote peer kicking off the
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
-
 	nodeID := msg.peer.lightningID
 
 	localAmt := msg.localFundingAmt
@@ -786,10 +785,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	msg.peer.queueMsg(fundingReq, nil)
 }
 
-// processErrorGeneric sends a message to the fundingManager allowing it
-// to process the occurred generic error.
+// processErrorGeneric sends a message to the fundingManager allowing it to
+// process the occurred generic error.
 func (f *fundingManager) processErrorGeneric(err *lnwire.ErrorGeneric,
 	peer *peer) {
+
 	f.fundingMsgs <- &fundingErrorMsg{err, peer}
 }
 
@@ -797,7 +797,8 @@ func (f *fundingManager) processErrorGeneric(err *lnwire.ErrorGeneric,
 // depends on the type of error we should do different clean up steps and
 // inform user about it.
 func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
-	if fmsg.err.ErrorID == lnwire.ErrorMaxPendingChannels {
+	switch fmsg.err.Code {
+	case lnwire.ErrorMaxPendingChannels:
 		peerID := fmsg.peer.id
 		chanID := fmsg.err.PendingChannelID
 
@@ -805,8 +806,9 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 		resCtx, ok := f.activeReservations[peerID][chanID]
 		f.resMtx.RUnlock()
 
+		// TODO(roasbeef): comment
 		if !ok {
-			resCtx.err <- fmt.Errorf("ErrorGeneric error " +
+			resCtx.err <- fmt.Errorf("ErrorGeneric error "+
 				"was returned from remote peer for channel "+
 				"(id: %v), but it can't be found and thereby "+
 				"can't be canceled.", chanID)
@@ -826,5 +828,7 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 		f.resMtx.Lock()
 		delete(f.activeReservations[peerID], chanID)
 		f.resMtx.Unlock()
+	default:
+		fndgLog.Warnf("unknown funding error %v", fmsg.err)
 	}
 }

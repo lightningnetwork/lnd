@@ -8,10 +8,10 @@ import (
 
 func TestErrorGenericEncodeDecode(t *testing.T) {
 	eg := &ErrorGeneric{
-		ChannelPoint: outpoint1,
-		ErrorID:      99,
-		Problem:      "Hello world!",
+		ChannelPoint:     outpoint1,
 		PendingChannelID: 1,
+		Code:             99,
+		Problem:          "Hello world!",
 	}
 
 	// Next encode the EG message into an empty bytes buffer.

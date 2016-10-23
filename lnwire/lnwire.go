@@ -84,6 +84,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case ErrorCode:
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], uint16(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case CreditsAmount:
 		if err := binary.Write(w, binary.BigEndian, int64(e)); err != nil {
 			return err
@@ -308,6 +314,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint16(b[:])
+	case *ErrorCode:
+		var b [2]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = ErrorCode(binary.BigEndian.Uint16(b[:]))
 	case *CreditsAmount:
 		var b [8]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

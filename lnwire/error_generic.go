@@ -7,10 +7,14 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
+// ErrorCode represents the short error code for each of the defined errors
+// within the Lightning Network protocol spec.
+type ErrorCode uint16
+
 const (
-	// Is returned by remote peer when number of pending channels exceed max
-	// value.
-	ErrorMaxPendingChannels = 1
+	// ErrorMaxPendingChannels is returned by remote peer when the number
+	// of active pending channels exceeds their maximum policy limit.
+	ErrorMaxPendingChannels ErrorCode = 1
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The
@@ -18,19 +22,10 @@ const (
 // array of possible errors. Each ErrorGeneric message is directed at a particular
 // open channel referenced by ChannelPoint.
 type ErrorGeneric struct {
-	// ChannelPoint references the active channel in which the error occurred
-	// within. A ChannelPoint of zeroHash:0 denotes this error applies to
-	// the entire established connection.
+	// ChannelPoint references the active channel in which the error
+	// occurred within. A ChannelPoint of zeroHash:0 denotes this error
+	// applies to the entire established connection.
 	ChannelPoint *wire.OutPoint
-
-	// ErrorID quickly defines the nature of the error according to error
-	// type.
-	ErrorID uint16
-
-	// Problem is a human-readable string further elaborating upon the
-	// nature of the exact error. The maximum allowed length of this
-	// message is 8192 bytes.
-	Problem string
 
 	// PendingChannelID allows peers communicate errors in the context of a
 	// particular pending channel. With this field, once a peer reads an
@@ -38,6 +33,14 @@ type ErrorGeneric struct {
 	// can forward the error to the fundingManager who can handle it
 	// properly.
 	PendingChannelID uint64
+
+	// Code is the short error ID which describes the nature of the error.
+	Code ErrorCode
+
+	// Problem is a human-readable string further elaborating upon the
+	// nature of the exact error. The maximum allowed length of this
+	// message is 8192 bytes.
+	Problem string
 }
 
 // NewErrorGeneric creates a new ErrorGeneric message.
@@ -58,7 +61,7 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 	// Problem
 	err := readElements(r,
 		&c.ChannelPoint,
-		&c.ErrorID,
+		&c.Code,
 		&c.Problem,
 		&c.PendingChannelID,
 	)
@@ -76,7 +79,7 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelPoint,
-		c.ErrorID,
+		c.Code,
 		c.Problem,
 		c.PendingChannelID,
 	)
@@ -123,7 +126,7 @@ func (c *ErrorGeneric) Validate() error {
 func (c *ErrorGeneric) String() string {
 	return fmt.Sprintf("\n--- Begin ErrorGeneric ---\n") +
 		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
-		fmt.Sprintf("ErrorID:\t%d\n", c.ErrorID) +
+		fmt.Sprintf("Code:\t%d\n", c.Code) +
 		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
 		fmt.Sprintf("PendingChannelID:\t%s\n", c.PendingChannelID) +
 		fmt.Sprintf("--- End ErrorGeneric ---\n")

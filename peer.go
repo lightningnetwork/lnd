@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"container/list"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
@@ -400,8 +401,10 @@ out:
 			*lnwire.NeighborUpdMessage,
 			*lnwire.RoutingTableRequestMessage,
 			*lnwire.RoutingTableTransferMessage:
+
 			// Convert to base routing message and set sender and receiver
-			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(([32]byte)(p.lightningID)))
+			vertex := hex.EncodeToString(p.identityPub.SerializeCompressed())
+			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(vertex))
 		}
 
 		if isChanUpdate {

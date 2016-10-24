@@ -885,7 +885,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// 'OnTxAccepted' call back.
 	lndHarness, err := newNetworkHarness()
 	if err != nil {
-		ht.Fatalf("unable to create lightning network harness: %v", err)
+		t.Fatalf("unable to create lightning network harness: %v", err)
 	}
 	defer lndHarness.TearDownAll()
 
@@ -898,14 +898,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// drive blockchain related events within the network.
 	btcdHarness, err := rpctest.New(harnessNetParams, handlers, nil)
 	if err != nil {
-		ht.Fatalf("unable to create mining node: %v", err)
+		t.Fatalf("unable to create mining node: %v", err)
 	}
 	defer btcdHarness.TearDown()
 	if err := btcdHarness.SetUp(true, 50); err != nil {
-		ht.Fatalf("unable to set up mining node: %v", err)
+		t.Fatalf("unable to set up mining node: %v", err)
 	}
 	if err := btcdHarness.Node.NotifyNewTransactions(false); err != nil {
-		ht.Fatalf("unable to request transaction notifications: %v", err)
+		t.Fatalf("unable to request transaction notifications: %v", err)
 	}
 
 	// With the btcd harness created, we can now complete the
@@ -913,13 +913,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// example: "--debuglevel=debug"
 	// TODO(roasbeef): create master balanced channel with all the monies?
 	if err := lndHarness.InitializeSeedNodes(btcdHarness, nil); err != nil {
-		ht.Fatalf("unable to initialize seed nodes: %v", err)
+		t.Fatalf("unable to initialize seed nodes: %v", err)
 	}
 	if err = lndHarness.SetUp(); err != nil {
-		ht.Fatalf("unable to set up test lightning network: %v", err)
+		t.Fatalf("unable to set up test lightning network: %v", err)
 	}
 
-	ht.Logf("Running %v integration tests", len(testCases))
+	t.Logf("Running %v integration tests", len(testCases))
 	for name, test := range testCases {
 		errChan := ht.RunTest(lndHarness, test)
 
@@ -929,15 +929,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		// without any problems.
 		case err := <-errChan:
 			if err != nil {
-				ht.Fatalf("Fail: (%v): exited with error: \n%v",
+				t.Fatalf("Fail: (%v): exited with error: \n%v",
 					name, err)
 			}
-			ht.Logf("Passed: (%v)", name)
+			t.Logf("Passed: (%v)", name)
 
 		// If a read from this channel succeeeds then one of the
 		// running lnd nodes has exited with a fatal erorr.
 		case err := <-lndHarness.ProcessErrors():
-			ht.Fatalf("Fail:  (%v): lnd finished with error "+
+			t.Fatalf("Fail:  (%v): lnd finished with error "+
 				"(stderr): \n%v", name, err)
 		}
 	}

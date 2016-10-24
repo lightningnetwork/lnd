@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -12,8 +13,6 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-
-	"fmt"
 
 	"github.com/BitfuryLightning/tools/rt"
 	"github.com/BitfuryLightning/tools/rt/graph"
@@ -806,25 +805,24 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 		resCtx, ok := f.activeReservations[peerID][chanID]
 		f.resMtx.RUnlock()
 
-		// TODO(roasbeef): comment
 		if !ok {
-			resCtx.err <- fmt.Errorf("ErrorGeneric error "+
-				"was returned from remote peer for channel "+
-				"(id: %v), but it can't be found and thereby "+
-				"can't be canceled.", chanID)
+			fndgLog.Warnf("ErrorGeneric error was returned from " +
+				"remote peer for unknown channel (id: %v)")
+			return
 		}
 
 		if err := resCtx.reservation.Cancel(); err != nil {
-			resCtx.err <- fmt.Errorf("Remote peer responded "+
-				"with: Number of pending channels exceed "+
-				"maximum, but we can't cancel the reservation "+
-				"- %v", err)
+			resCtx.err <- fmt.Errorf("max pending channels "+
+				"exceeded -- unable to cancel reservation: %v",
+				err)
 		} else {
 			resCtx.err <- grpc.Errorf(OpenChannelFundingError,
-				"Remote peer responded with: Number of "+
-					"pending channels exceed maximum")
+				"unable to create channel, max number of "+
+					"pending channels exceeded.")
 		}
 
+		// TODO(roasbeef): possibly cancel funding barrier in peer's
+		// channelManager?
 		f.resMtx.Lock()
 		delete(f.activeReservations[peerID], chanID)
 		f.resMtx.Unlock()

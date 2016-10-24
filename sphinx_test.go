@@ -33,11 +33,17 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 		route[i] = nodes[i].onionKey.PubKey()
 	}
 
+	var hopPayloads [][]byte
+	for i := 0; i < len(nodes); i++ {
+		payload := bytes.Repeat([]byte{byte('A' + i)}, hopPayloadSize)
+		hopPayloads = append(hopPayloads, payload)
+	}
+
 	// Generate a forwarding message to route to the final node via the
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
-	dest := append([]byte("roasbeef"), bytes.Repeat([]byte{0}, securityParameter-8)...)
-	fwdMsg, err := NewOnionPacket(route, dest, []byte("testing"))
+	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
+	fwdMsg, err := NewOnionPacket(route, sessionKey, hopPayloads, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -47,7 +53,6 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	dest := append([]byte("roasbeef"), bytes.Repeat([]byte{0}, securityParameter-8)...)
 	nodes, fwdMsg, err := newTestRoute(numMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
@@ -59,7 +64,7 @@ func TestSphinxCorrectness(t *testing.T) {
 		hop := nodes[i]
 
 		log.Printf("Processing at hop: %v \n", i)
-		processAction, err := hop.ProcessOnionPacket(fwdMsg)
+		processAction, err := hop.ProcessOnionPacket(fwdMsg, nil)
 		if err != nil {
 			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
 		}
@@ -68,23 +73,8 @@ func TestSphinxCorrectness(t *testing.T) {
 		// recognize that it's the exit node.
 		if i == len(nodes)-1 {
 			if processAction.Action != ExitNode {
-				t.Fatalf("Processing error, node %v is the last hop in"+
+				t.Fatalf("Processing error, node %v is the last hop in "+
 					"the path, yet it doesn't recognize so", i)
-			}
-
-			// The original destination address and message should
-			// now be fully decrypted.
-			if !bytes.Equal(dest, processAction.DestAddr) {
-				t.Fatalf("Destination address parsed incorrectly at final destination!"+
-					" Should be %v, is instead %v",
-					hex.EncodeToString(dest),
-					hex.EncodeToString(processAction.DestAddr))
-			}
-
-			if !bytes.HasPrefix(processAction.DestMsg, []byte("testing")) {
-				t.Fatalf("Final message parsed incorrectly at final destination!"+
-					"Should be %v, is instead %v",
-					[]byte("testing"), processAction.DestMsg)
 			}
 
 		} else {
@@ -121,7 +111,7 @@ func TestSphinxSingleHop(t *testing.T) {
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
-	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg)
+	processedPacket, err := nodes[0].ProcessOnionPacket(fwdMsg, nil)
 	if err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
@@ -145,15 +135,29 @@ func TestSphinxNodeRelpay(t *testing.T) {
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != nil {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != nil {
 		t.Fatalf("unable to process sphinx packet: %v", err)
 	}
 
 	// Now, force the node to process the packet a second time, this should
 	// fail with a detected replay error.
-	if _, err := nodes[0].ProcessOnionPacket(fwdMsg); err != ErrReplayedPacket {
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, nil); err != ErrReplayedPacket {
 		t.Fatalf("sphinx packet replay should be rejected, instead error is %v", err)
 	}
+}
+
+func TestSphinxAssocData(t *testing.T) {
+	// We want to make sure that the associated data is considered in the
+	// HMAC creation
+	nodes, fwdMsg, err := newTestRoute(5)
+	if err != nil {
+		t.Fatalf("unable to create random onion packet: %v", err)
+	}
+
+	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
+		t.Fatalf("we should fail when associated data changes")
+	}
+
 }
 
 func TestSphinxEncodeDecode(t *testing.T) {

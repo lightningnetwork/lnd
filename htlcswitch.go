@@ -611,11 +611,14 @@ func (h *htlcSwitch) RegisterLink(p *peer, linkInfo *channeldb.ChannelSnapshot,
 	return h.htlcPlex
 }
 
-// unregisterLinkMsg is a message which requests the active ink be unregistered.
+// unregisterLinkMsg is a message which requests the active link be unregistered.
 type unregisterLinkMsg struct {
 	chanInterface [32]byte
 	chanPoint     *wire.OutPoint
 
+	// remoteID is the identity public key of the node we're removing the
+	// link between. The public key is expected to be serialized in
+	// compressed form.
 	// TODO(roasbeef): redo interface map
 	remoteID []byte
 

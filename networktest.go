@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/grpclog"
 
 	"bytes"
+
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -174,9 +175,9 @@ func (l *lightningNode) start(lndError chan error) error {
 		return err
 	}
 
+	// Launch a new goroutine which that bubbles up any potential fatal
+	// process errors to the goroutine running the tests.
 	go func() {
-		// If lightning node process exited with error status
-		// then we should transmit stderr output in main process.
 		if err := l.cmd.Wait(); err != nil {
 			lndError <- errors.New(errb.String())
 		}
@@ -249,14 +250,13 @@ func (l *lightningNode) cleanup() error {
 
 // stop attempts to stop the active lnd process.
 func (l *lightningNode) stop() error {
-
 	// We should skip node stop in case:
 	// - start of the node wasn't initiated
 	// - process wasn't spawned
 	// - process already finished
-	if l.cmd == nil ||
-		l.cmd.Process == nil ||
-		(l.cmd.ProcessState != nil && l.cmd.ProcessState.Exited()) {
+	processFinished := l.cmd.ProcessState != nil &&
+		l.cmd.ProcessState.Exited()
+	if l.cmd == nil || l.cmd.Process == nil || processFinished {
 		return nil
 	}
 
@@ -342,6 +342,13 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []strin
 	n.activeNodes[n.Bob.nodeId] = n.Bob
 
 	return err
+}
+
+// ProcessErrors returns a channel used for reporting any fatal process errors.
+// If any of the active nodes within the harness' test network incur a fatal
+// error, that error is sent over this channel.
+func (n *networkHarness) ProcessErrors() chan error {
+	return n.lndErrorChan
 }
 
 // fakeLogger is a fake grpclog.Logger implementation. This is used to stop

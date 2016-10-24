@@ -495,6 +495,14 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg) {
+	// It isn't possible to create a channel with zero funds committed.
+	if req.fundingAmount+req.capacity == 0 {
+		req.err <- fmt.Errorf("cannot have channel with zero " +
+			"satoshis funded")
+		req.resp <- nil
+		return
+	}
+
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	totalCapacity := req.capacity + commitFee
 	reservation := NewChannelReservation(totalCapacity, req.fundingAmount,
@@ -612,11 +620,11 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.err <- nil
 }
 
-// handleFundingCounterPartyFunds processes the second workflow step for the
-// lifetime of a channel reservation. Upon completion, the reservation will
-// carry a completed funding transaction (minus the counterparty's input
-// signatures), both versions of the commitment transaction, and our signature
-// for their version of the commitment transaction.
+// handleContributionMsg processes the second workflow step for the lifetime of
+// a channel reservation. Upon completion, the reservation will carry a
+// completed funding transaction (minus the counterparty's input signatures),
+// both versions of the commitment transaction, and our signature for their
+// version of the commitment transaction.
 func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	l.limboMtx.Lock()
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
@@ -793,11 +801,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// transaction.
 	signDesc = SignDescriptor{
 		WitnessScript: witnessScript,
-		PubKey:       ourKey,
-		Output:       multiSigOut,
-		HashType:     txscript.SigHashAll,
-		SigHashes:    txscript.NewTxSigHashes(theirCommitTx),
-		InputIndex:   0,
+		PubKey:        ourKey,
+		Output:        multiSigOut,
+		HashType:      txscript.SigHashAll,
+		SigHashes:     txscript.NewTxSigHashes(theirCommitTx),
+		InputIndex:    0,
 	}
 	sigTheirCommit, err := l.Signer.SignOutputRaw(theirCommitTx, &signDesc)
 	if err != nil {
@@ -1101,7 +1109,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	}
 	signDesc := SignDescriptor{
 		WitnessScript: witnessScript,
-		PubKey:       ourKey,
+		PubKey:        ourKey,
 		Output: &wire.TxOut{
 			PkScript: p2wsh,
 			Value:    channelValue,

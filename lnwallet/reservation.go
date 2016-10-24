@@ -140,17 +140,25 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 	var ourBalance btcutil.Amount
 	var theirBalance btcutil.Amount
 
+	// If we're the responder to a single-funder reservation, then we have
+	// no initial balance in the channel.
 	if fundingAmt == 0 {
 		ourBalance = 0
 		theirBalance = capacity - commitFee
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
-		if capacity == fundingAmt+commitFee { // Single funder
+
+		// If we're initiating a single funder workflow, then we pay
+		// all the initial fees within the commitment transaction.
+		if capacity == fundingAmt+commitFee {
 			ourBalance = capacity - commitFee
+			// Otherwise, this is a dual funder workflow where both slides
+			// split the amount funded and the commitment fee.
 		} else {
 			ourBalance = fundingAmt - commitFee
 		}
+
 		theirBalance = capacity - fundingAmt - commitFee
 	}
 

@@ -111,11 +111,11 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(channelLogBucket); err != nil {
+		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
+		if _, err := tx.CreateBucket(nodeInfoBucket); err != nil {
 			return err
 		}
 

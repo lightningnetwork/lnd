@@ -386,8 +386,8 @@ type LightningChannel struct {
 	RemoteDeliveryScript []byte
 
 	FundingWitnessScript []byte
-	fundingTxIn         *wire.TxIn
-	fundingP2WSH        []byte
+	fundingTxIn          *wire.TxIn
+	fundingP2WSH         []byte
 
 	// ForceCloseSignal is a channel that is closed to indicate that a
 	// local system has initiated a force close by broadcasting the current
@@ -432,7 +432,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		Capacity:              state.Capacity,
 		LocalDeliveryScript:   state.OurDeliveryScript,
 		RemoteDeliveryScript:  state.TheirDeliveryScript,
-		FundingWitnessScript:   state.FundingWitnessScript,
+		FundingWitnessScript:  state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralCloseSignal: make(chan struct{}),
 	}
@@ -467,7 +467,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 	lc.fundingTxIn = wire.NewTxIn(state.FundingOutpoint, nil, nil)
 	lc.fundingP2WSH = fundingPkScript
 	lc.signDesc = &SignDescriptor{
-		PubKey:       lc.channelState.OurMultiSigKey,
+		PubKey:        lc.channelState.OurMultiSigKey,
 		WitnessScript: lc.channelState.FundingWitnessScript,
 		Output: &wire.TxOut{
 			PkScript: lc.fundingP2WSH,
@@ -1528,7 +1528,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// needs to sweep this output. The hash cache, and input index are not
 	// set as the caller will decide these values once sweeping the output.
 	selfSignDesc := &SignDescriptor{
-		PubKey:       selfKey,
+		PubKey:        selfKey,
 		WitnessScript: selfScript,
 		Output: &wire.TxOut{
 			PkScript: delayScript,

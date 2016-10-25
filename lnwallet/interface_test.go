@@ -54,6 +54,8 @@ var (
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
+	_, testPub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
+
 	// The number of confirmations required to consider any created channel
 	// open.
 	numReqConfs = uint16(1)
@@ -101,7 +103,7 @@ type bobNode struct {
 	deliveryAddress btcutil.Address
 	revocation      [32]byte
 	delay           uint32
-	id              [wire.HashSize]byte
+	id              *btcec.PublicKey
 
 	availableOutputs []*wire.TxIn
 	changeOutputs    []*wire.TxOut
@@ -241,7 +243,7 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 	id[0] = 0xff
 
 	return &bobNode{
-		id:               id,
+		id:               pubKey,
 		privKey:          privKey,
 		channelKey:       pubKey,
 		deliveryAddress:  bobAddr,
@@ -457,8 +459,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 
 	// The resulting active channel state should have been persisted to the DB.
 	fundingSha := fundingTx.TxSha()
-	nodeID := wire.ShaHash(bobNode.id)
-	channels, err := wallet.ChannelDB.FetchOpenChannels(&nodeID)
+	channels, err := wallet.ChannelDB.FetchOpenChannels(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
 	}
@@ -513,7 +514,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// Create a single channel asking for 16 BTC total.
 	fundingAmount := btcutil.Amount(8 * 1e8)
 	_, err := wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testHdSeed, numReqConfs, 4)
+		testPub, numReqConfs, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
@@ -523,7 +524,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// that aren't locked, so this should fail.
 	amt := btcutil.Amount(900 * 1e8)
 	failedReservation, err := wallet.InitChannelReservation(amt, amt,
-		testHdSeed, numReqConfs, 4)
+		testPub, numReqConfs, 4)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -543,14 +544,14 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// Create a reservation for 44 BTC.
 	fundingAmount := btcutil.Amount(44 * 1e8)
 	chanReservation, err := wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testHdSeed, numReqConfs, 4)
+		fundingAmount, testPub, numReqConfs, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testHdSeed, numReqConfs, 4)
+		fundingAmount, testPub, numReqConfs, 4)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
 		t.Fatalf("coin selection succeded should have insufficient funds: %v",
 			err)
@@ -580,7 +581,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Request to fund a new channel should now succeeed.
 	_, err = wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testHdSeed, numReqConfs, 4)
+		testPub, numReqConfs, 4)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -720,8 +721,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	// TODO(roasbeef): de-duplicate
 	fundingTx := chanReservation.FinalFundingTx()
 	fundingSha := fundingTx.TxSha()
-	nodeID := wire.ShaHash(bobNode.id)
-	channels, err := lnwallet.ChannelDB.FetchOpenChannels(&nodeID)
+	channels, err := lnwallet.ChannelDB.FetchOpenChannels(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
 	}

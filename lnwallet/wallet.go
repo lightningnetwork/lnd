@@ -92,8 +92,7 @@ type initFundingReserveMsg struct {
 	minFeeRate btcutil.Amount
 
 	// The ID of the remote node we would like to open a channel with.
-	// TODO(roasbeef): switch to just reg pubkey?
-	nodeID [32]byte
+	nodeID *btcec.PublicKey
 
 	// The delay on the "pay-to-self" output(s) of the commitment transaction.
 	csvDelay uint32
@@ -473,8 +472,8 @@ out:
 // transaction, and that the signature we records for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(capacity,
-	ourFundAmt btcutil.Amount, theirID [32]byte, numConfs uint16,
-	csvDelay uint32) (*ChannelReservation, error) {
+	ourFundAmt btcutil.Amount, theirID *btcec.PublicKey,
+	numConfs uint16, csvDelay uint32) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -512,7 +511,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.Lock()
 	defer reservation.Unlock()
 
-	reservation.partialState.TheirLNID = req.nodeID
+	reservation.partialState.IdentityPub = req.nodeID
 	ourContribution := reservation.ourContribution
 	ourContribution.CsvDelay = req.csvDelay
 	reservation.partialState.LocalCsvDelay = req.csvDelay

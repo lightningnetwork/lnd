@@ -229,7 +229,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 
 	aliceChannelState := &channeldb.OpenChannel{
-		TheirLNID:              testHdSeed,
+		IdentityPub:            aliceKeyPub,
 		ChanID:                 prevOut,
 		OurCommitKey:           aliceKeyPub,
 		TheirCommitKey:         bobKeyPub,
@@ -240,7 +240,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         aliceKeyPub,
 		TheirMultiSigKey:       bobKeyPub,
-		FundingWitnessScript:    witnessScript,
+		FundingWitnessScript:   witnessScript,
 		LocalCsvDelay:          csvTimeoutAlice,
 		RemoteCsvDelay:         csvTimeoutBob,
 		TheirCurrentRevocation: bobRevokeKey,
@@ -249,7 +249,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		Db:                     dbAlice,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		TheirLNID:              testHdSeed,
+		IdentityPub:            bobKeyPub,
 		ChanID:                 prevOut,
 		OurCommitKey:           bobKeyPub,
 		TheirCommitKey:         aliceKeyPub,
@@ -260,7 +260,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         bobKeyPub,
 		TheirMultiSigKey:       aliceKeyPub,
-		FundingWitnessScript:    witnessScript,
+		FundingWitnessScript:   witnessScript,
 		LocalCsvDelay:          csvTimeoutBob,
 		RemoteCsvDelay:         csvTimeoutAlice,
 		TheirCurrentRevocation: aliceRevokeKey,
@@ -688,12 +688,13 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// Now fetch both of the channels created above from disk to simulate a
 	// node restart with persistence.
-	id := wire.ShaHash(testHdSeed)
-	aliceChannels, err := aliceChannel.channelState.Db.FetchOpenChannels(&id)
+	alicePub := aliceChannel.channelState.IdentityPub
+	aliceChannels, err := aliceChannel.channelState.Db.FetchOpenChannels(alicePub)
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
-	bobChannels, err := bobChannel.channelState.Db.FetchOpenChannels(&id)
+	bobPub := bobChannel.channelState.IdentityPub
+	bobChannels, err := bobChannel.channelState.Db.FetchOpenChannels(bobPub)
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}

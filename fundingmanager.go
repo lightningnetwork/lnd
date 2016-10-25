@@ -339,7 +339,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// side of a single funder workflow, we don't commit any funds to the
 	// channel ourselves.
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
-	reservation, err := f.wallet.InitChannelReservation(amt, 0, fmsg.peer.lightningID, 1, delay)
+	reservation, err := f.wallet.InitChannelReservation(amt, 0,
+		fmsg.peer.identityPub, 1, delay)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -712,13 +713,14 @@ func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq)
 // wallet, then sends a funding request to the remote peer kicking off the
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
-	nodeID := msg.peer.lightningID
-
-	localAmt := msg.localFundingAmt
-	remoteAmt := msg.remoteFundingAmt
-	capacity := localAmt + remoteAmt
-	numConfs := msg.numConfs
-	// TODO(roasbeef): add delay
+	var (
+		// TODO(roasbeef): add delay
+		nodeID    = msg.peer.identityPub
+		localAmt  = msg.localFundingAmt
+		remoteAmt = msg.remoteFundingAmt
+		capacity  = localAmt + remoteAmt
+		numConfs  = msg.numConfs
+	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
 		"capacity=%v, numConfs=%v)", localAmt, remoteAmt, capacity, numConfs)

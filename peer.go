@@ -204,7 +204,7 @@ func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool
 
 	// Fetch and then load all the active channels we have with this
 	// remote peer from the database.
-	activeChans, err := server.chanDB.FetchOpenChannels(&p.lightningID)
+	activeChans, err := server.chanDB.FetchOpenChannels(p.identityPub)
 	if err != nil {
 		peerLog.Errorf("unable to fetch active chans "+
 			"for peer %v: %v", p, err)

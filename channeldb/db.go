@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -143,7 +144,7 @@ func fileExists(path string) bool {
 // associated with the target nodeID. In the case that no active channels are
 // known to have been created with this node, then a zero-length slice is
 // returned.
-func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
+func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 	err := d.store.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
@@ -155,7 +156,8 @@ func (d *DB) FetchOpenChannels(nodeID *wire.ShaHash) ([]*OpenChannel, error) {
 
 		// Within this top level bucket, fetch the bucket dedicated to storing
 		// open channel data specific to the remote node.
-		nodeChanBucket := openChanBucket.Bucket(nodeID[:])
+		pub := nodeID.SerializeCompressed()
+		nodeChanBucket := openChanBucket.Bucket(pub)
 		if nodeChanBucket == nil {
 			return nil
 		}

@@ -133,7 +133,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	}
 
 	return &OpenChannel{
-		TheirLNID:                  key,
+		IdentityPub:                pubKey,
 		ChanID:                     id,
 		MinFeePerKb:                btcutil.Amount(5000),
 		OurCommitKey:               privKey.PubKey(),
@@ -148,7 +148,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		FundingOutpoint:            testOutpoint,
 		OurMultiSigKey:             privKey.PubKey(),
 		TheirMultiSigKey:           privKey.PubKey(),
-		FundingWitnessScript:        script,
+		FundingWitnessScript:       script,
 		TheirCurrentRevocation:     privKey.PubKey(),
 		TheirCurrentRevocationHash: key,
 		OurDeliveryScript:          script,
@@ -190,8 +190,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
-	nodeID := wire.ShaHash(state.TheirLNID)
-	openChannels, err := cdb.FetchOpenChannels(&nodeID)
+	openChannels, err := cdb.FetchOpenChannels(state.IdentityPub)
 	if err != nil {
 		t.Fatalf("unable to fetch open channel: %v", err)
 	}
@@ -200,7 +199,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 
 	// The decoded channel state should be identical to what we stored
 	// above.
-	if !bytes.Equal(state.TheirLNID[:], newState.TheirLNID[:]) {
+	if !state.IdentityPub.IsEqual(newState.IdentityPub) {
 		t.Fatalf("their id doesn't match")
 	}
 	if !reflect.DeepEqual(state.ChanID, newState.ChanID) {
@@ -328,7 +327,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 
 	// As the channel is now closed, attempting to fetch all open channels
 	// for our fake node ID should return an empty slice.
-	openChans, err := cdb.FetchOpenChannels(&nodeID)
+	openChans, err := cdb.FetchOpenChannels(state.IdentityPub)
 	if err != nil {
 		t.Fatalf("unable to fetch open channels: %v", err)
 	}
@@ -396,8 +395,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// The balances, new update, the HTLC's and the changes to the fake
 	// commitment transaction along with the modified signature should all
 	// have been updated.
-	nodeID := wire.ShaHash(channel.TheirLNID)
-	updatedChannel, err := cdb.FetchOpenChannels(&nodeID)
+	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)
 	if err != nil {
 		t.Fatalf("unable to fetch updated channel: %v", err)
 	}
@@ -469,7 +467,7 @@ func TestChannelStateTransition(t *testing.T) {
 		}
 	}
 	// The revocation state stored on-disk should now also be identical.
-	updatedChannel, err = cdb.FetchOpenChannels(&nodeID)
+	updatedChannel, err = cdb.FetchOpenChannels(channel.IdentityPub)
 	if err != nil {
 		t.Fatalf("unable to fetch updated channel: %v", err)
 	}

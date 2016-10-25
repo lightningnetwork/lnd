@@ -40,10 +40,12 @@ var (
 	// channelLogBucket is dedicated for storing the necessary delta state
 	// between channel updates required to re-construct a past state in
 	// order to punish a counter party attempting a non-cooperative channel
-	// closure.
+	// closure. A channel log bucket is created for each node and is nested
+	// within a node's ID bucket.
 	channelLogBucket = []byte("clb")
 
-	// identityKey is the key for storing this node's current LD identity key.
+	// identityKey is the key for storing this node's current LD identity
+	// key.
 	identityKey = []byte("idk")
 
 	// The following prefixes are stored at the base level within the
@@ -100,8 +102,9 @@ var (
 // to an on-disk log, which can then subsequently be queried in order to
 // "time-travel" to a prior state.
 type OpenChannel struct {
-	// Hash? or Their current pubKey?
-	TheirLNID [wire.HashSize]byte
+	// IdentityPub is the identity public key of the remote node this
+	// channel has been established with.
+	IdentityPub *btcec.PublicKey
 
 	// The ID of a channel is the txid of the funding transaction.
 	ChanID      *wire.OutPoint
@@ -125,8 +128,8 @@ type OpenChannel struct {
 	// The outpoint of the final funding transaction.
 	FundingOutpoint *wire.OutPoint
 
-	OurMultiSigKey      *btcec.PublicKey
-	TheirMultiSigKey    *btcec.PublicKey
+	OurMultiSigKey       *btcec.PublicKey
+	TheirMultiSigKey     *btcec.PublicKey
 	FundingWitnessScript []byte
 
 	// In blocks
@@ -181,7 +184,8 @@ func (c *OpenChannel) FullSync() error {
 
 		// Within this top level bucket, fetch the bucket dedicated to storing
 		// open channel data specific to the remote node.
-		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(c.TheirLNID[:])
+		nodePub := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(nodePub)
 		if err != nil {
 			return err
 		}
@@ -222,7 +226,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 			return err
 		}
 
-		id := c.TheirLNID[:]
+		id := c.IdentityPub.SerializeCompressed()
 		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
 		if err != nil {
 			return err
@@ -322,7 +326,7 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 			return err
 		}
 
-		id := c.TheirLNID[:]
+		id := c.IdentityPub.SerializeCompressed()
 		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
 		if err != nil {
 			return err
@@ -361,7 +365,8 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 	err := c.Db.store.View(func(tx *bolt.Tx) error {
 		chanBucket := tx.Bucket(openChannelBucket)
 
-		nodeChanBucket := chanBucket.Bucket(c.TheirLNID[:])
+		nodePub := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket := chanBucket.Bucket(nodePub)
 		if nodeChanBucket == nil {
 			return ErrNoActiveChannels
 		}
@@ -400,7 +405,8 @@ func (c *OpenChannel) CloseChannel() error {
 
 		// Within this top level bucket, fetch the bucket dedicated to storing
 		// open channel data specific to the remote node.
-		nodeChanBucket := chanBucket.Bucket(c.TheirLNID[:])
+		nodePub := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket := chanBucket.Bucket(nodePub)
 		if nodeChanBucket == nil {
 			return ErrNoActiveChannels
 		}
@@ -436,7 +442,7 @@ func (c *OpenChannel) CloseChannel() error {
 // snapshot is detached from the original channel that generated it, providing
 // read-only access to the current or prior state of an active channel.
 type ChannelSnapshot struct {
-	RemoteID [wire.HashSize]byte
+	RemoteIdentity btcec.PublicKey
 
 	ChannelPoint *wire.OutPoint
 
@@ -460,6 +466,7 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	defer c.RUnlock()
 
 	snapshot := &ChannelSnapshot{
+		RemoteIdentity:        *c.IdentityPub,
 		ChannelPoint:          c.ChanID,
 		Capacity:              c.Capacity,
 		LocalBalance:          c.OurBalance,
@@ -468,7 +475,6 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		TotalSatoshisSent:     c.TotalSatoshisSent,
 		TotalSatoshisReceived: c.TotalSatoshisReceived,
 	}
-	copy(snapshot.RemoteID[:], c.TheirLNID[:])
 
 	// Copy over the current set of HTLC's to ensure the caller can't
 	// mutate our internal state.
@@ -907,7 +913,8 @@ func putChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	copy(idKey[:3], chanIDKey)
 	copy(idKey[3:], b.Bytes())
 
-	return nodeChanBucket.Put(idKey, channel.TheirLNID[:])
+	idBytes := channel.IdentityPub.SerializeCompressed()
+	return nodeChanBucket.Put(idKey, idBytes)
 }
 
 func deleteChannelIDs(nodeChanBucket *bolt.Bucket, chanID []byte) error {
@@ -918,8 +925,12 @@ func deleteChannelIDs(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 }
 
 func fetchChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	var b bytes.Buffer
-	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+	var (
+		err error
+		b   bytes.Buffer
+	)
+
+	if err = writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
 	}
 
@@ -929,7 +940,10 @@ func fetchChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	copy(idKey[3:], b.Bytes())
 
 	idBytes := nodeChanBucket.Get(idKey)
-	copy(channel.TheirLNID[:], idBytes)
+	channel.IdentityPub, err = btcec.ParsePubKey(idBytes, btcec.S256())
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

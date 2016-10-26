@@ -18,14 +18,6 @@ var (
 	// query for all open channels pertaining to the node by exploring each
 	// node's sub-bucket within the openChanBucket.
 	nodeInfoBucket = []byte("nib")
-
-	// chanIndexBucket...
-	//  * stores (chanPoint || nodePub) index
-	//    * allows for prefix-ish scan to randomly get info for a channel
-	//  * written to after FullSync
-	//  * deleted from during channel close
-	//  * used to fetch all open channels
-	chanIdentityBucket = []byte("chanidentity")
 )
 
 // LinkNode stores meta-data related to node's that we have/had a direct
@@ -64,7 +56,6 @@ type LinkNode struct {
 	// authenticated connection for the stored identity public key.
 	//
 	// TODO(roasbeef): also need to support hidden service addrs
-	//  * make map to easily remove addrs?
 	Addresses []*net.TCPAddr
 
 	db *DB
@@ -95,6 +86,12 @@ func (l *LinkNode) UpdateLastSeen(lastSeen time.Time) error {
 // AddAddress appends the specified TCP address to the list of known addresses
 // this node is/was known to be reachable at.
 func (l *LinkNode) AddAddress(addr *net.TCPAddr) error {
+	for _, a := range l.Addresses {
+		if a.String() == addr.String() {
+			return nil
+		}
+	}
+
 	l.Addresses = append(l.Addresses, addr)
 
 	return l.Sync()

@@ -977,7 +977,7 @@ type commitmentState struct {
 	logCommitTimer <-chan time.Time
 
 	// switchChan is a channel used to send packets to the htlc switch for
-	// fowarding.
+	// forwarding.
 	switchChan chan<- *htlcPacket
 
 	// sphinx is an instance of the Sphinx onion Router for this node. The

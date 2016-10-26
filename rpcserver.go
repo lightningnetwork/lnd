@@ -29,7 +29,9 @@ import (
 )
 
 const (
-	OpenChannelFundingError = 100
+	// ErrorMaxPendingChannels is an additional gRPC error, which is
+	// returned if max pending channel restriction was violated.
+	ErrorMaxPendingChannels = 100
 )
 
 var (

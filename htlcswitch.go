@@ -222,7 +222,7 @@ func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) error {
 // their links. The duties of the forwarder are similar to that of a network
 // switch, in that it facilitates multi-hop payments by acting as a central
 // messaging bus. The switch communicates will active links to create, manage,
-// and tearn down active onion routed payments.Each active channel is modeled
+// and tear down active onion routed payments.Each active channel is modeled
 // as networked device with meta-data such as the available payment bandwidth,
 // and total link capacity.
 func (h *htlcSwitch) htlcForwarder() {
@@ -292,7 +292,7 @@ out:
 			switch wireMsg := pkt.msg.(type) {
 			// A link has just forwarded us a new HTLC, therefore
 			// we initiate the payment circuit within our internal
-			// staate so we can properly forward the ultimate
+			// state so we can properly forward the ultimate
 			// settle message.
 			case *lnwire.HTLCAddRequest:
 				// Create the two ends of the payment circuit
@@ -328,7 +328,7 @@ out:
 
 				// With the circuit initiated, send the htlcPkt
 				// to the clearing link within the circuit to
-				// continue propagating the HTLC accross the
+				// continue propagating the HTLC across the
 				// network.
 				circuit.clear.linkChan <- &htlcPacket{
 					msg: wireMsg,

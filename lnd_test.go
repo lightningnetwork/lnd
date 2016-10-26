@@ -885,8 +885,8 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 1)
 	if err == nil {
 		t.Fatalf("error wasn't received")
-	} else if grpc.Code(err) != OpenChannelFundingError {
-		t.Fatalf("not expected error was received : %v", err)
+	} else if grpc.Code(err) != ErrorMaxPendingChannels {
+		t.Fatalf("not expected error was received: %v", err)
 	}
 
 	// For now our channels are in pending state, in order to not

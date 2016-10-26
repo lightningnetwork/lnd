@@ -827,7 +827,7 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 				"exceeded -- unable to cancel reservation: %v",
 				err)
 		} else {
-			resCtx.err <- grpc.Errorf(OpenChannelFundingError,
+			resCtx.err <- grpc.Errorf(ErrorMaxPendingChannels,
 				"unable to create channel, max number of "+
 					"pending channels exceeded.")
 		}

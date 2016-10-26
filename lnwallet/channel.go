@@ -1014,7 +1014,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 // processAddEntry evaluates the effect of an add entry within the HTLC log.
 // If the HTLC hasn't yet been committed in either chain, then the height it
-// was commited is updated. Keeping track of this inclusion height allows us to
+// was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *btcutil.Amount,
 	nextHeight uint64, remoteChain bool, isIncoming bool) {
@@ -1165,7 +1165,7 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 // the remote party. This method will should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
 // signature fully accepting a new state we've initiated. If we are able to
-// succesfully validate the signature, then the generated commitment is added
+// successfully validate the signature, then the generated commitment is added
 // to our local commitment chain. Once we send a revocation for our prior
 // state, then this newly added commitment becomes our current accepted channel
 // state.
@@ -1992,7 +1992,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	}
 
 	// Next, we create the script paying to them. This is just a regular
-	// P2WKH output, without any added CSV delay.
+	// P2WPKH output, without any added CSV delay.
 	theirWitnessKeyHash, err := commitScriptUnencumbered(theirKey)
 	if err != nil {
 		return nil, err

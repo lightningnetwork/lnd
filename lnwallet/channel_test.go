@@ -135,7 +135,7 @@ func initRevocationWindows(chanA, chanB *LightningChannel, windowSize int) error
 	return nil
 }
 
-// forceStateTransition executes the neccessary interaction between the two
+// forceStateTransition executes the necessary interaction between the two
 // commitment state machines to transition to a new state locking in any
 // pending updates.
 func forceStateTransition(chanA, chanB *LightningChannel) error {
@@ -320,7 +320,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 // TestSimpleAddSettleWorkflow tests a simple channel scenario wherein the
 // local node (Alice in this case) creates a new outgoing HTLC to bob, commits
 // this change, then bob immediately commits a settlement of the HTLC after the
-// initial add is fully commited in both commit chains.
+// initial add is fully committed in both commit chains.
 // TODO(roasbeef): write higher level framework to exercise various states of
 // the state machine
 //  * DSL language perhaps?
@@ -389,7 +389,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 	// Alice then processes this revocation, sending her own recovation for
 	// her prior commitment transaction. Alice shouldn't have any HTLC's to
-	// forward since she's sending anoutgoing HTLC.
+	// forward since she's sending an outgoing HTLC.
 	if htlcs, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
 		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
 	} else if len(htlcs) != 0 {
@@ -441,7 +441,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// Alice's revocation window should now be one beyond the size of the
-	// intial window. Same goes for Bob.
+	// initial window. Same goes for Bob.
 	if aliceChannel.revocationWindowEdge != 4 {
 		t.Fatalf("alice revocation window not incremented, is %v should be %v",
 			aliceChannel.revocationWindowEdge, 4)

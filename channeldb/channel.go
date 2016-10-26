@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -166,47 +167,90 @@ type OpenChannel struct {
 // FullSync serializes, and writes to disk the *full* channel state, using
 // both the active channel bucket to store the prefixed column fields, and the
 // remote node's ID to store the remainder of the channel state.
-//
-// NOTE: This method requires an active EncryptorDecryptor to be registered in
-// order to encrypt sensitive information.
 func (c *OpenChannel) FullSync() error {
 	c.Lock()
 	defer c.Unlock()
 
+	return c.Db.store.Update(c.fullSync)
+}
+
+// fullSync is an internal versino of the FullSync method which allows callers
+// to sync the contents of an OpenChannel while re-using an existing database
+// transaction.
+func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
+	// TODO(roasbeef): add helper funcs to create scoped update
+	// First fetch the top level bucket which stores all data related to
+	// current, active channels.
+	chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+	if err != nil {
+		return err
+	}
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	nodePub := c.IdentityPub.SerializeCompressed()
+	nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(nodePub)
+	if err != nil {
+		return err
+	}
+
+	// Add this channel ID to the node's active channel index if
+	// it doesn't already exist.
+	chanIDBucket, err := nodeChanBucket.CreateBucketIfNotExists(chanIDBucket)
+	if err != nil {
+		return err
+	}
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, c.ChanID); err != nil {
+		return err
+	}
+	if chanIDBucket.Get(b.Bytes()) == nil {
+		if err := chanIDBucket.Put(b.Bytes(), nil); err != nil {
+			return err
+		}
+	}
+
+	return putOpenChannel(chanBucket, nodeChanBucket, c)
+}
+
+// FullSyncWithAddr is identical to the FullSync function in that it writes the
+// full channel state to disk. Additionally, this function also creates a
+// LinkNode relationship between this newly created channel and an existing of
+// new LinkNode instance. Syncing with this method rather than FullSync is
+// required in order to allow listing all channels in the database globally, or
+// according to the LinkNode they were created with.
+//
+// TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
+// that includes service bits.
+func (c *OpenChannel) FullSyncWithAddr(addr *net.TCPAddr) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.store.Update(func(tx *bolt.Tx) error {
-		// TODO(roasbeef): add helper funcs to create scoped update
-		// First fetch the top level bucket which stores all data related to
-		// current, active channels.
-		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		// First, sync all the persistent channel state to disk.
+		if err := c.fullSync(tx); err != nil {
+			return err
+		}
+
+		nodeInfoBucket, err := tx.CreateBucketIfNotExists(nodeInfoBucket)
 		if err != nil {
 			return err
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to storing
-		// open channel data specific to the remote node.
+		// If a LinkNode for this identity public key already exsits, then
+		// we can exit early.
 		nodePub := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(nodePub)
-		if err != nil {
-			return err
+		if nodeInfoBucket.Get(nodePub) != nil {
+			return nil
 		}
 
-		// Add this channel ID to the node's active channel index if
-		// it doesn't already exist.
-		chanIDBucket, err := nodeChanBucket.CreateBucketIfNotExists(chanIDBucket)
-		if err != nil {
-			return err
-		}
-		var b bytes.Buffer
-		if err := writeOutpoint(&b, c.ChanID); err != nil {
-			return err
-		}
-		if chanIDBucket.Get(b.Bytes()) == nil {
-			if err := chanIDBucket.Put(b.Bytes(), nil); err != nil {
-				return err
-			}
-		}
+		// Next, we need to establish a (possibly) new LinkNode
+		// relationship for this channel. The LinkNode meta-data contains
+		// reachability, up-time, and service bits related information.
+		// TODO(roasbeef): net info shuld be in lnwire.NetAddress
+		linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addr)
 
-		return putOpenChannel(chanBucket, nodeChanBucket, c)
+		return putLinkNode(nodeInfoBucket, linkNode)
 	})
 }
 

@@ -454,41 +454,45 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 // ListChannels returns a description of all direct active, open channels the
 // node knows of.
-// TODO(roasbeef): read all active channels from the DB?
-//   * add 'online' toggle bit
+// TODO(roasbeef): add 'online' bit to response
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 
 	resp := &lnrpc.ListChannelsResponse{}
-	peers := r.server.Peers()
 
-	for _, peer := range peers {
-		lnID := hex.EncodeToString(peer.identityPub.SerializeCompressed())
-		chanSnapshots := peer.ChannelSnapshots()
+	dbChannels, err := r.server.chanDB.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
 
-		for _, chanSnapshot := range chanSnapshots {
-			channel := &lnrpc.ActiveChannel{
-				RemotePubkey:  lnID,
-				ChannelPoint:  chanSnapshot.ChannelPoint.String(),
-				Capacity:      int64(chanSnapshot.Capacity),
-				LocalBalance:  int64(chanSnapshot.LocalBalance),
-				RemoteBalance: int64(chanSnapshot.RemoteBalance),
-				NumUpdates:    chanSnapshot.NumUpdates,
-				PendingHtlcs:  make([]*lnrpc.HTLC, len(chanSnapshot.Htlcs)),
-			}
-			for i, htlc := range chanSnapshot.Htlcs {
-				channel.PendingHtlcs[i] = &lnrpc.HTLC{
-					Incoming:         htlc.Incoming,
-					Amount:           int64(htlc.Amt),
-					HashLock:         htlc.RHash[:],
-					ExpirationHeight: htlc.RefundTimeout,
-					RevocationDelay:  htlc.RevocationDelay,
-				}
-			}
+	rpcsLog.Infof("[listchannels] fetched %v channels from DB",
+		len(dbChannels))
 
-			resp.Channels = append(resp.Channels, channel)
+	for _, dbChannel := range dbChannels {
+		nodePub := dbChannel.IdentityPub.SerializeCompressed()
+		nodeID := hex.EncodeToString(nodePub)
+
+		channel := &lnrpc.ActiveChannel{
+			RemotePubkey:  nodeID,
+			ChannelPoint:  dbChannel.ChanID.String(),
+			Capacity:      int64(dbChannel.Capacity),
+			LocalBalance:  int64(dbChannel.OurBalance),
+			RemoteBalance: int64(dbChannel.TheirBalance),
+			NumUpdates:    dbChannel.NumUpdates,
+			PendingHtlcs:  make([]*lnrpc.HTLC, len(dbChannel.Htlcs)),
 		}
 
+		for i, htlc := range dbChannel.Htlcs {
+			channel.PendingHtlcs[i] = &lnrpc.HTLC{
+				Incoming:         htlc.Incoming,
+				Amount:           int64(htlc.Amt),
+				HashLock:         htlc.RHash[:],
+				ExpirationHeight: htlc.RefundTimeout,
+				RevocationDelay:  htlc.RevocationDelay,
+			}
+		}
+
+		resp.Channels = append(resp.Channels, channel)
 	}
 
 	return resp, nil

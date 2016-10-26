@@ -590,6 +590,11 @@ out:
 			req.resp <- snapshots
 
 		case pendingChanPoint := <-p.barrierInits:
+			// A new channel has almost finished the funding
+			// process. In order to properly synchronize with the
+			// writeHandler goroutine, we add a new channel to the
+			// barriers map which will be closed once the channel
+			// is fully open.
 			p.barrierMtx.Lock()
 			peerLog.Tracef("Creating chan barrier for "+
 				"ChannelPoint(%v)", pendingChanPoint)

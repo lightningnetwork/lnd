@@ -499,24 +499,43 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
-	queryTimeout := time.Duration(time.Minute)
+	const queryTimeout = time.Duration(time.Second * 10)
 	errChan := make(chan error, 1)
+	payChan := make(chan *lnrpc.SendRequest)
+
+	// Launch a new goroutine to handle reading new payment requests from
+	// the client. This way we can handle errors independently of blocking
+	// and waiting for the next payment request to come through.
+	go func() {
+		for {
+			select {
+			case <-r.quit:
+				errChan <- nil
+				return
+			default:
+				// Receive the next pending payment within the
+				// stream sent by the client. If we read the
+				// EOF sentinel, then the client has closed the
+				// stream, and we can exit normally.
+				nextPayment, err := paymentStream.Recv()
+				if err == io.EOF {
+					errChan <- nil
+					return
+				} else if err != nil {
+					errChan <- err
+					return
+				}
+
+				payChan <- nextPayment
+			}
+		}
+	}()
 
 	for {
 		select {
 		case err := <-errChan:
 			return err
-		default:
-			// Receive the next pending payment within the stream sent by
-			// the client. If we read the EOF sentinel, then the client has
-			// closed the stream, and we can exit normally.
-			nextPayment, err := paymentStream.Recv()
-			if err == io.EOF {
-				return nil
-			} else if err != nil {
-				return err
-			}
-
+		case nextPayment := <-payChan:
 			// Query the routing table for a potential path to the
 			// destination node. If a path is ultimately
 			// unavailable, then an error will be returned.

@@ -823,13 +823,13 @@
           "type": "boolean",
           "format": "boolean"
         },
-        "lightning_id": {
-          "type": "string",
-          "format": "string"
-        },
         "peer_id": {
           "type": "integer",
           "format": "int32"
+        },
+        "pub_key": {
+          "type": "string",
+          "format": "string"
         },
         "sat_recv": {
           "type": "string",

@@ -212,7 +212,7 @@ message ListChannelsResponse {
 }
 
 message Peer {
-    string lightning_id = 1;
+    string pub_key = 1;
     int32 peer_id = 2;
     string address = 3;
 

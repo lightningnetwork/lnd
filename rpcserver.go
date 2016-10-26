@@ -364,14 +364,14 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	for _, serverPeer := range serverPeers {
 		// TODO(roasbeef): add a snapshot method which grabs peer read mtx
 
-		lnID := hex.EncodeToString(serverPeer.lightningID[:])
+		nodePub := serverPeer.identityPub.SerializeCompressed()
 		peer := &lnrpc.Peer{
-			LightningId: lnID,
-			PeerId:      serverPeer.id,
-			Address:     serverPeer.conn.RemoteAddr().String(),
-			Inbound:     serverPeer.inbound,
-			BytesRecv:   atomic.LoadUint64(&serverPeer.bytesReceived),
-			BytesSent:   atomic.LoadUint64(&serverPeer.bytesSent),
+			PubKey:    hex.EncodeToString(nodePub),
+			PeerId:    serverPeer.id,
+			Address:   serverPeer.conn.RemoteAddr().String(),
+			Inbound:   serverPeer.inbound,
+			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
+			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
 		}
 
 		resp.Peers = append(resp.Peers, peer)

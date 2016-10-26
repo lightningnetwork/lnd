@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -69,10 +70,17 @@ func (e *ErrInsufficientFunds) Error() string {
 // selected will be 'locked', making them unavailable, for any other pending
 // reservations. Therefore, all channels in reservation limbo will be periodically
 // after a timeout period in order to avoid "exhaustion" attacks.
-// NOTE: The workflow currently assumes fully balanced symmetric channels.
-// Meaning both parties must encumber the same amount of funds.
+//
 // TODO(roasbeef): zombie reservation sweeper goroutine.
 type initFundingReserveMsg struct {
+	// The ID of the remote node we would like to open a channel with.
+	nodeID *btcec.PublicKey
+
+	// The IP address plus port that we used to either establish or accept
+	// the connection which led to the negotiation of this funding
+	// workflow.
+	nodeAddr *net.TCPAddr
+
 	// The number of confirmations required before the channel is considered
 	// open.
 	numConfs uint16
@@ -90,9 +98,6 @@ type initFundingReserveMsg struct {
 	// rate of the network.
 	// TODO(roasbeef): integrate fee estimation project...
 	minFeeRate btcutil.Amount
-
-	// The ID of the remote node we would like to open a channel with.
-	nodeID *btcec.PublicKey
 
 	// The delay on the "pay-to-self" output(s) of the commitment transaction.
 	csvDelay uint32
@@ -473,7 +478,8 @@ out:
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(capacity,
 	ourFundAmt btcutil.Amount, theirID *btcec.PublicKey,
-	numConfs uint16, csvDelay uint32) (*ChannelReservation, error) {
+	theirAddr *net.TCPAddr, numConfs uint16,
+	csvDelay uint32) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -512,6 +518,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	defer reservation.Unlock()
 
 	reservation.partialState.IdentityPub = req.nodeID
+	reservation.nodeAddr = req.nodeAddr
 	ourContribution := reservation.ourContribution
 	ourContribution.CsvDelay = req.csvDelay
 	reservation.partialState.LocalCsvDelay = req.csvDelay
@@ -903,7 +910,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 // our signature.
 func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigsMsg) {
 	l.limboMtx.RLock()
-	pendingReservation, ok := l.fundingLimbo[msg.pendingFundingID]
+	res, ok := l.fundingLimbo[msg.pendingFundingID]
 	l.limboMtx.RUnlock()
 	if !ok {
 		msg.err <- fmt.Errorf("attempted to update non-existant funding state")
@@ -911,14 +918,14 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	}
 
 	// Grab the mutex on the ChannelReservation to ensure thead-safety
-	pendingReservation.Lock()
-	defer pendingReservation.Unlock()
+	res.Lock()
+	defer res.Unlock()
 
 	// Now we can complete the funding transaction by adding their
 	// signatures to their inputs.
-	pendingReservation.theirFundingInputScripts = msg.theirFundingInputScripts
+	res.theirFundingInputScripts = msg.theirFundingInputScripts
 	inputScripts := msg.theirFundingInputScripts
-	fundingTx := pendingReservation.fundingTx
+	fundingTx := res.fundingTx
 	sigIndex := 0
 	fundingHashCache := txscript.NewTxSigHashes(fundingTx)
 	for i, txin := range fundingTx.TxIn {
@@ -956,19 +963,19 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// At this point, we can also record and verify their signature for our
 	// commitment transaction.
-	pendingReservation.theirCommitmentSig = msg.theirCommitmentSig
-	commitTx := pendingReservation.partialState.OurCommitTx
-	theirKey := pendingReservation.theirContribution.MultiSigKey
+	res.theirCommitmentSig = msg.theirCommitmentSig
+	commitTx := res.partialState.OurCommitTx
+	theirKey := res.theirContribution.MultiSigKey
 
 	// Re-generate both the witnessScript and p2sh output. We sign the
 	// witnessScript script, but include the p2sh output as the subscript
 	// for verification.
-	witnessScript := pendingReservation.partialState.FundingWitnessScript
+	witnessScript := res.partialState.FundingWitnessScript
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
 	theirCommitSig := msg.theirCommitmentSig
-	channelValue := int64(pendingReservation.partialState.Capacity)
+	channelValue := int64(res.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(commitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(witnessScript, hashCache,
 		txscript.SigHashAll, commitTx, 0, channelValue)
@@ -987,19 +994,15 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
 		return
 	}
-	pendingReservation.partialState.OurCommitSig = theirCommitSig
+	res.partialState.OurCommitSig = theirCommitSig
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
-	delete(l.fundingLimbo, pendingReservation.reservationID)
-	// TODO(roasbeef): unlock outputs here, Store.InsertTx will handle marking
-	// input in unconfirmed tx, so future coin selects don't pick it up
-	//  * also record location of change address so can use AddCredit
+	delete(l.fundingLimbo, res.reservationID)
 	l.limboMtx.Unlock()
 
 	walletLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
-		pendingReservation.partialState.FundingOutpoint,
-		spew.Sdump(fundingTx))
+		res.partialState.FundingOutpoint, spew.Sdump(fundingTx))
 
 	// Broacast the finalized funding transaction to the network.
 	if err := l.PublishTransaction(fundingTx); err != nil {
@@ -1009,14 +1012,16 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	if err := pendingReservation.partialState.FullSync(); err != nil {
+	// TODO(roasbeef): revisit faul-tolerance of this flow
+	nodeAddr := res.nodeAddr
+	if err := res.partialState.FullSyncWithAddr(nodeAddr); err != nil {
 		msg.err <- err
 		return
 	}
 
 	// Create a goroutine to watch the chain so we can open the channel once
 	// the funding tx has enough confirmations.
-	go l.openChannelAfterConfirmations(pendingReservation)
+	go l.openChannelAfterConfirmations(res)
 
 	msg.err <- nil
 }
@@ -1136,7 +1141,8 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 	res, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.RUnlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existant funding state")
+		req.err <- fmt.Errorf("attempted to update non-existant " +
+			"funding state")
 		res.chanOpen <- nil
 		return
 	}
@@ -1152,7 +1158,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	if err := res.partialState.FullSync(); err != nil {
+	if err := res.partialState.FullSyncWithAddr(res.nodeAddr); err != nil {
 		req.err <- err
 		res.chanOpen <- nil
 		return
@@ -1160,7 +1166,8 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l.Signer, l.chainIO, l.chainNotifier, res.partialState)
+	channel, _ := NewLightningChannel(l.Signer, l.chainIO, l.chainNotifier,
+		res.partialState)
 
 	res.chanOpen <- channel
 	req.err <- nil

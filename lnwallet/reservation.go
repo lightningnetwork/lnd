@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"net"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -114,6 +115,7 @@ type ChannelReservation struct {
 	theirContribution *ChannelContribution
 
 	partialState *channeldb.OpenChannel
+	nodeAddr     *net.TCPAddr
 
 	// The ID of this reservation, used to uniquely track the reservation
 	// throughout its lifetime.

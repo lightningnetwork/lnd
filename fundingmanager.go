@@ -340,7 +340,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// channel ourselves.
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
 	reservation, err := f.wallet.InitChannelReservation(amt, 0,
-		fmsg.peer.identityPub, 1, delay)
+		fmsg.peer.identityPub, fmsg.peer.lightningAddr.NetAddr, 1, delay)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -723,13 +723,14 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
-		"capacity=%v, numConfs=%v)", localAmt, remoteAmt, capacity, numConfs)
+		"capacity=%v, numConfs=%v, addr=%v)", localAmt, remoteAmt,
+		capacity, numConfs, msg.peer.lightningAddr.NetAddr)
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
 	reservation, err := f.wallet.InitChannelReservation(capacity, localAmt,
-		nodeID, uint16(numConfs), 4)
+		nodeID, msg.peer.lightningAddr.NetAddr, uint16(numConfs), 4)
 	if err != nil {
 		msg.err <- err
 		return

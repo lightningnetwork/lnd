@@ -49,6 +49,7 @@ type LinkNode struct {
 	// channel should be unilaterally closed due to inactivity.
 	//
 	// TODO(roasbeef): replace with block hash/height?
+	//  * possibly add a time-value metric into the heuristic?
 	LastSeen time.Time
 
 	// Addresses is a list of IP address in which either we were able to

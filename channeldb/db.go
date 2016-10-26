@@ -162,39 +162,103 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 			return nil
 		}
 
-		// Once we have the node's channel bucket, iterate through each
-		// item in the inner chan ID bucket. This bucket acts as an
-		// index for all channels we currently have open with this node.
-		nodeChanIDBucket := nodeChanBucket.Bucket(chanIDBucket[:])
-		if nodeChanIDBucket == nil {
-			return nil
-		}
-		err := nodeChanIDBucket.ForEach(func(k, v []byte) error {
-			if k == nil {
-				return nil
-			}
-
-			outBytes := bytes.NewReader(k)
-			chanID := &wire.OutPoint{}
-			if err := readOutpoint(outBytes, chanID); err != nil {
-				return err
-			}
-
-			oChannel, err := fetchOpenChannel(openChanBucket,
-				nodeChanBucket, chanID)
-			if err != nil {
-				return err
-			}
-			oChannel.Db = d
-
-			channels = append(channels, oChannel)
-			return nil
-		})
+		// Finally, we both of the necessary buckets retrieved, fetch
+		// all the active channels related to this node.
+		nodeChannels, err := d.fetchNodeChannels(openChanBucket,
+			nodeChanBucket)
 		if err != nil {
 			return err
 		}
 
+		channels = nodeChannels
 		return nil
+	})
+
+	return channels, err
+}
+
+// fetchNodeChannels retrieves all active channels from the target
+// nodeChanBucket. This function is typically used to fetch all the active
+// channels related to a particualr node.
+func (d *DB) fetchNodeChannels(openChanBucket,
+	nodeChanBucket *bolt.Bucket) ([]*OpenChannel, error) {
+
+	var channels []*OpenChannel
+
+	// Once we have the node's channel bucket, iterate through each
+	// item in the inner chan ID bucket. This bucket acts as an
+	// index for all channels we currently have open with this node.
+	nodeChanIDBucket := nodeChanBucket.Bucket(chanIDBucket[:])
+	if nodeChanIDBucket == nil {
+		return nil, nil
+	}
+	err := nodeChanIDBucket.ForEach(func(k, v []byte) error {
+		if k == nil {
+			return nil
+		}
+
+		outBytes := bytes.NewReader(k)
+		chanID := &wire.OutPoint{}
+		if err := readOutpoint(outBytes, chanID); err != nil {
+			return err
+		}
+
+		oChannel, err := fetchOpenChannel(openChanBucket,
+			nodeChanBucket, chanID)
+		if err != nil {
+			return err
+		}
+		oChannel.Db = d
+
+		channels = append(channels, oChannel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return channels, nil
+}
+
+// FetchAllChannels attempts to retrieve all open channels currently stored
+// within the database. If no active channels exist within the network, then
+// ErrNoActiveChannels is returned.
+func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
+	var channels []*OpenChannel
+
+	err := d.store.View(func(tx *bolt.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Next, fetch the bucket dedicated to storing meta-data
+		// related to all nodes. All keys within this bucket are the
+		// serialized public keys of all our direct counterparties.
+		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+		if nodeMetaBucket == nil {
+			return fmt.Errorf("node bucket not created")
+		}
+
+		// Finally for each node public key in the bucket, fetch all
+		// the channels related to this particualr ndoe.
+		return nodeMetaBucket.ForEach(func(k, v []byte) error {
+			nodeChanBucket := openChanBucket.Bucket(k)
+			if nodeChanBucket == nil {
+				return nil
+			}
+
+			nodeChannels, err := d.fetchNodeChannels(openChanBucket,
+				nodeChanBucket)
+			if err != nil {
+				return err
+			}
+
+			channels = append(channels, nodeChannels...)
+			return nil
+		})
 	})
 
 	return channels, err

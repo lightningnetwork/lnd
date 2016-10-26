@@ -15,6 +15,10 @@ const (
 	// ErrorMaxPendingChannels is returned by remote peer when the number
 	// of active pending channels exceeds their maximum policy limit.
 	ErrorMaxPendingChannels ErrorCode = 1
+
+	// ErrorMaxTransactionWeight is returned by remote peer when transaction
+	// weight exceed maximum allowable value.
+	ErrorMaxTransactionWeight ErrorCode = 2
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The

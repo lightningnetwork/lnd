@@ -340,7 +340,7 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 //
 // Possible Input Scripts:
 //    RECVR: <sig> <preimage> 1
-//    REVOK: <sig> <preimage> 1 0
+//    REVOK: <sig> <preimage> 0 1
 //    SENDR: <sig> 0 0
 //
 // OP_IF
@@ -358,7 +358,7 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 // 	<revoke hash> OP_EQUALVERIFY
 //     OP_ELSE
 // 	//Refund
-// 	<absolute blockehight> OP_CHECKLOCKTIMEVERIFY OP_DROP
+// 	<absolute blockheight> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //     OP_ENDIF
 //     <sender key> OP_CHECKSIG
 // OP_ENDIF

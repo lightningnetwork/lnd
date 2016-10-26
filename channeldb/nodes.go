@@ -100,15 +100,6 @@ func (l *LinkNode) AddAddress(addr *net.TCPAddr) error {
 // Sync performs a full database sync which writes the current up-to-date data
 // within the struct to the database.
 func (l *LinkNode) Sync() error {
-	// First serialize the LinkNode into its raw-bytes encoding. This is
-	// done outside of the transaction in order to minimize the length of
-	// the DB transaction.
-	var b bytes.Buffer
-	if err := serializeLinkNode(&b, l); err != nil {
-		return err
-	}
-
-	nodePub := l.IdentityPub.SerializeCompressed()
 
 	// Finally update the database by storing the link node and updating
 	// any relevant indexes.
@@ -118,8 +109,24 @@ func (l *LinkNode) Sync() error {
 			return fmt.Errorf("node bucket not created")
 		}
 
-		return nodeMetaBucket.Put(nodePub, b.Bytes())
+		return putLinkNode(nodeMetaBucket, l)
 	})
+}
+
+// putLinkNode serializes then writes the encoded version of the passed link
+// node into the nodeMetaBucket. This function is provided in order to allow
+// the ability to re-use a database transaction across many operations.
+func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
+	// First serialize the LinkNode into its raw-bytes encoding.
+	var b bytes.Buffer
+	if err := serializeLinkNode(&b, l); err != nil {
+		return err
+	}
+
+	// Finally insert the link-node into the node meta-data bucket keyed
+	// according to the its pubkey serialized in compressed form.
+	nodePub := l.IdentityPub.SerializeCompressed()
+	return nodeMetaBucket.Put(nodePub, b.Bytes())
 }
 
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
@@ -165,6 +172,8 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 }
 
 // FetchAllLinkNodes attempts to fetch all active LinkNodes from the database.
+// If there haven't been any channels explicitly linked to LinkNodes written to
+// the database, then this function will return an empty slice.
 func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 	var linkNodes []*LinkNode
 

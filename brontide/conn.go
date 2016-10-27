@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 )
 
@@ -30,17 +31,16 @@ var _ net.Conn = (*Conn)(nil)
 // remote peer located at address which has remotePub as its long-term static
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
-func Dial(localPriv *btcec.PrivateKey, remotePub *btcec.PublicKey,
-	address string) (*Conn, error) {
-
-	conn, err := net.Dial("tcp", address)
+func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error) {
+	ipAddr := netAddr.Address.String()
+	conn, err := net.Dial("tcp", ipAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	b := &Conn{
 		conn:  conn,
-		noise: NewBrontideMachine(true, localPriv, remotePub),
+		noise: NewBrontideMachine(true, localPriv, netAddr.IdentityKey),
 	}
 
 	// Initiate the handshake by sending the first act to the receiver.

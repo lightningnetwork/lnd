@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 )
 
@@ -31,14 +32,17 @@ func TestConnectionCorrectness(t *testing.T) {
 	}
 	defer listener.Close()
 
-	listenAddr := listener.Addr().String()
+	netAddr := &lnwire.NetAddress{
+		IdentityKey: localPriv.PubKey(),
+		Address:     listener.Addr().(*net.TCPAddr),
+	}
 
 	// Initiate a connection with a separate goroutine, and listen with our
 	// main one. If both errors are nil, then encryption+auth was succesful.
 	errChan := make(chan error)
 	connChan := make(chan net.Conn)
 	go func() {
-		conn, err := Dial(remotePriv, localPriv.PubKey(), listenAddr)
+		conn, err := Dial(remotePriv, netAddr)
 		errChan <- err
 		connChan <- conn
 	}()

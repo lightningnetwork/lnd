@@ -98,7 +98,7 @@ type commonHeader struct {
 type dataPacket struct {
 	chdr  commonHeader
 	ahdr  anonymousHeader             // TODO(roasbeef): MAC in ahdr includes the chdr?
-	onion [fSLength * numMaxHops]byte // TODO(roasbeef): or, is it NumMaxHops - 1?
+	onion [fSLength * NumMaxHops]byte // TODO(roasbeef): or, is it NumMaxHops - 1?
 }
 
 type sphinxHeader struct {
@@ -109,6 +109,6 @@ type sessionSetupPacket struct {
 	chdr      commonHeader
 	shdr      sphinxHeader
 	sp        sphinxPayload
-	fsPayload [fSLength * numMaxHops]byte // ? r*c
+	fsPayload [fSLength * NumMaxHops]byte // ? r*c
 	// TODO(roabeef): hmm does this implcitly mean messages are a max of 48 bytes?
 }

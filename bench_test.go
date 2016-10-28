@@ -13,8 +13,8 @@ var (
 )
 
 func BenchmarkPathPacketConstruction(b *testing.B) {
-	route := make([]*btcec.PublicKey, numMaxHops)
-	for i := 0; i < numMaxHops; i++ {
+	route := make([]*btcec.PublicKey, NumMaxHops)
+	for i := 0; i < NumMaxHops; i++ {
 		privKey, err := btcec.NewPrivateKey(btcec.S256())
 		if err != nil {
 			b.Fatalf("unable to generate key: %v", privKey)
@@ -30,7 +30,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 
 	var hopPayloads [][]byte
 	for i := 0; i < len(route); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)}, hopPayloadSize)
+		payload := bytes.Repeat([]byte{byte('A' + i)}, HopPayloadSize)
 		hopPayloads = append(hopPayloads, payload)
 	}
 

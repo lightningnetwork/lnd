@@ -24,19 +24,19 @@ const (
 
 	// The maximum path length. This should be set to an
 	// estiamate of the upper limit of the diameter of the node graph.
-	numMaxHops = 20
+	NumMaxHops = 20
 
 	// The number of bytes produced by our CSPRG for the key stream
 	// implementing our stream cipher to encrypt/decrypt the mix header. The
 	// last 2 * securityParameter bytes are only used in order to generate/check
 	// the MAC over the header.
-	numStreamBytes = (2*numMaxHops + 2) * securityParameter
+	numStreamBytes = (2*NumMaxHops + 2) * securityParameter
 
 	// Size in bytes of the shared secrets.
 	sharedSecretSize = 32
 
 	// Per-hop payload size
-	hopPayloadSize = 20
+	HopPayloadSize = 20
 
 	// Fixed size of the the routing info. This consists of a 20
 	// byte address and a 20 byte HMAC for each hop of the route,
@@ -44,7 +44,7 @@ const (
 	// increasingly obfuscated. In case fewer than numMaxHops are
 	// used, then the remainder is padded with null-bytes, also
 	// obfuscated.
-	routingInfoSize = 2 * numMaxHops * securityParameter
+	routingInfoSize = 2 * NumMaxHops * securityParameter
 
 	// Length of the keys used to generate cipher streams and
 	// encrypt payloads. Since we use SHA256 to generate the keys,
@@ -66,7 +66,7 @@ type MixHeader struct {
 	EphemeralKey *btcec.PublicKey
 	RoutingInfo  [routingInfoSize]byte
 	HeaderMAC    [securityParameter]byte
-	HopPayload   [numMaxHops * hopPayloadSize]byte
+	HopPayload   [NumMaxHops * HopPayloadSize]byte
 }
 
 // NewMixHeader creates a new mix header which is capable of
@@ -115,11 +115,11 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding("rho", numHops, 2*securityParameter, hopSharedSecrets)
-	hopFiller := generateHeaderPadding("gamma", numHops, hopPayloadSize, hopSharedSecrets)
+	hopFiller := generateHeaderPadding("gamma", numHops, HopPayloadSize, hopSharedSecrets)
 
 	// Allocate and initialize fields to zero-filled slices
 	var mixHeader [routingInfoSize]byte
-	var hopPayloads [numMaxHops * hopPayloadSize]byte
+	var hopPayloads [NumMaxHops * HopPayloadSize]byte
 
 	// Same goes for the HMAC
 	var next_hmac [20]byte
@@ -141,7 +141,7 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		xor(mixHeader[:], mixHeader[:], streamBytes[:routingInfoSize])
 
 		// Shift and obfuscate per-hop payload
-		rightShift(hopPayloads[:], hopPayloadSize)
+		rightShift(hopPayloads[:], HopPayloadSize)
 		copy(hopPayloads[:], rawHopPayloads[i])
 		hopStreamBytes := generateCipherStream(gammaKey, uint(len(hopPayloads)))
 		xor(hopPayloads[:], hopPayloads[:], hopStreamBytes)
@@ -194,7 +194,7 @@ func generateHeaderPadding(key string, numHops int, hopSize int, sharedSecrets [
 	filler := make([]byte, (numHops-1)*hopSize)
 
 	for i := 1; i < numHops; i++ {
-		totalFillerSize := ((numMaxHops - i) + 1) * hopSize
+		totalFillerSize := ((NumMaxHops - i) + 1) * hopSize
 		streamBytes := generateCipherStream(generateKey(key, sharedSecrets[i-1]),
 			numStreamBytes)
 		xor(filler, filler, streamBytes[totalFillerSize:totalFillerSize+i*hopSize])
@@ -444,7 +444,7 @@ type ProcessedPacket struct {
 	//
 	// This field contains instructions for the current node,
 	// e.g., how many coins to forward.
-	HopPayload [hopPayloadSize]byte
+	HopPayload [HopPayloadSize]byte
 }
 
 // Router is an onion router within the Sphinx network. The router is capable
@@ -495,7 +495,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	dhKey := mixHeader.EphemeralKey
 	routeInfo := mixHeader.RoutingInfo
 	headerMac := mixHeader.HeaderMAC
-	var hopPayload [hopPayloadSize]byte
+	var hopPayload [HopPayloadSize]byte
 
 	// Ensure that the public key is on our curve.
 	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
@@ -561,13 +561,13 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	var nextMixHeader [routingInfoSize]byte
 	copy(nextMixHeader[:], hopInfo[securityParameter*2:])
 
-	hopPayloadsWithPadding := append(mixHeader.HopPayload[:], bytes.Repeat([]byte{0x00}, hopPayloadSize)...)
+	hopPayloadsWithPadding := append(mixHeader.HopPayload[:], bytes.Repeat([]byte{0x00}, HopPayloadSize)...)
 	hopStreamBytes := generateCipherStream(generateKey("gamma", sharedSecret), uint(len(hopPayloadsWithPadding)))
 	xor(hopPayloadsWithPadding, hopPayloadsWithPadding, hopStreamBytes)
 
-	copy(hopPayload[:], hopPayloadsWithPadding[:hopPayloadSize])
-	var nextHopPayloads [numMaxHops * hopPayloadSize]byte
-	copy(nextHopPayloads[:], hopPayloadsWithPadding[hopPayloadSize:])
+	copy(hopPayload[:], hopPayloadsWithPadding[:HopPayloadSize])
+	var nextHopPayloads [NumMaxHops * HopPayloadSize]byte
+	copy(nextHopPayloads[:], hopPayloadsWithPadding[HopPayloadSize:])
 
 	nextFwdMsg := &OnionPacket{
 		Header: &MixHeader{

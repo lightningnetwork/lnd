@@ -35,7 +35,7 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 
 	var hopPayloads [][]byte
 	for i := 0; i < len(nodes); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)}, hopPayloadSize)
+		payload := bytes.Repeat([]byte{byte('A' + i)}, HopPayloadSize)
 		hopPayloads = append(hopPayloads, payload)
 	}
 
@@ -53,7 +53,7 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	nodes, fwdMsg, err := newTestRoute(numMaxHops)
+	nodes, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, fwdMsg, err := newTestRoute(numMaxHops)
+	nodes, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}

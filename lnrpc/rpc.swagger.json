@@ -391,7 +391,7 @@
           "type": "string",
           "format": "string"
         },
-        "lightning_id": {
+        "identity_key": {
           "type": "string",
           "format": "string"
         },
@@ -589,10 +589,6 @@
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
-        "identity_address": {
-          "type": "string",
-          "format": "string"
-        },
         "identity_pubkey": {
           "type": "string",
           "format": "string"
@@ -682,7 +678,7 @@
           "type": "string",
           "format": "string"
         },
-        "pubKeyHash": {
+        "pubkey": {
           "type": "string",
           "format": "string"
         }
@@ -759,6 +755,10 @@
           "type": "string",
           "format": "int64"
         },
+        "node_pubkey": {
+          "type": "string",
+          "format": "byte"
+        },
         "num_confs": {
           "type": "integer",
           "format": "int64"
@@ -766,10 +766,6 @@
         "remote_funding_amount": {
           "type": "string",
           "format": "int64"
-        },
-        "target_node": {
-          "type": "string",
-          "format": "byte"
         },
         "target_peer_id": {
           "type": "integer",

@@ -144,7 +144,7 @@ message ChannelPoint {
 }
 
 message LightningAddress {
-    string pubKeyHash = 1;
+    string pubkey = 1;
     string host = 2;
 }
 
@@ -233,7 +233,6 @@ message ListPeersResponse {
 message GetInfoRequest{}
 message GetInfoResponse {
     string lightning_id = 1;
-    string identity_address = 2;
     string identity_pubkey = 3;
 
     uint32 num_pending_channels = 4;
@@ -278,7 +277,7 @@ message PendingUpdate {
 
 message OpenChannelRequest {
     int32 target_peer_id = 1;
-    bytes target_node = 2;
+    bytes node_pubkey = 2;
 
     int64 local_funding_amount = 3;
     int64 remote_funding_amount = 4;
@@ -307,7 +306,7 @@ message PendingChannelResponse {
     message PendingChannel {
         int32 peer_id = 1;
 
-        string lightning_id = 2;
+        string identity_key = 2;
         string channel_point = 3;
 
         int64 capacity = 4;

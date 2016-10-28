@@ -1,9 +1,11 @@
 package lnwire
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // ServiceFlag identifies the services supported by a particular Lightning
@@ -30,4 +32,17 @@ type NetAddress struct {
 
 	// Address is is the IP address and port of the node.
 	Address *net.TCPAddr
+
+	// ChainNet is the Bitcoin network this node is associated with.
+	// TODO(roasbeef): make a slice in the future for multi-chain
+	ChainNet wire.BitcoinNet
+}
+
+// String returns a human readable string describing the target NetAddress. The
+// current string format is: <pubkey>@host.
+func (n *NetAddress) String() string {
+	// TODO(roasbeef): use base58?
+	pubkey := n.IdentityKey.SerializeCompressed()
+
+	return fmt.Sprintf("%x@%v", pubkey, n.Address)
 }

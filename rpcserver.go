@@ -564,16 +564,6 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			}
 			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
 
-			// Generate the raw encoded sphinx packet to be
-			// included along with the HTLC add message.
-			// We snip off the first hop from the path as within
-			// the routing table's star graph, we're always the
-			// first hop.
-			sphinxPacket, err := generateSphinxPacket(path[1:])
-			if err != nil {
-				return err
-			}
-
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
@@ -583,6 +573,16 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				rHash = debugHash
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
+			}
+
+			// Generate the raw encoded sphinx packet to be
+			// included along with the HTLC add message.  We snip
+			// off the first hop from the path as within the
+			// routing table's star graph, we're always the first
+			// hop.
+			sphinxPacket, err := generateSphinxPacket(path[1:], rHash[:])
+			if err != nil {
+				return err
 			}
 
 			// Craft an HTLC packet to send to the routing
@@ -606,10 +606,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// TODO(roasbeef): semaphore to limit num outstanding
 			// goroutines.
 			go func() {
-				// Finally, send this next packet to the routing layer in order
-				// to complete the next payment.
-				// TODO(roasbeef): this should go through the L3 router once
-				// multi-hop is in place.
+				// Finally, send this next packet to the
+				// routing layer in order to complete the next
+				// payment.
+				// TODO(roasbeef): this should go through the
+				// L3 router once multi-hop is in place.
 				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 					errChan <- err
 					return
@@ -632,10 +633,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // the onion route specified by the passed list of graph vertexes. The blob
 // returned from this function can immediately be included within an HTLC add
 // packet to be sent to the first hop within the route.
-func generateSphinxPacket(vertexes []graph.ID) ([]byte, error) {
-	var dest sphinx.LightningAddress
-	e2eMessage := []byte("test")
-
+func generateSphinxPacket(vertexes []graph.ID, paymentHash []byte) ([]byte, error) {
+	// First convert all the vertexs from the routing table to in-memory
+	// public key objects. These objects are necessary in order to perform
+	// the series of ECDH operations required to construct the Sphinx
+	// packet below.
 	route := make([]*btcec.PublicKey, len(vertexes))
 	for i, vertex := range vertexes {
 		vertexBytes, err := hex.DecodeString(vertex.String())
@@ -651,15 +653,35 @@ func generateSphinxPacket(vertexes []graph.ID) ([]byte, error) {
 		route[i] = pub
 	}
 
-	// Next generate the onion routing packet which allows
-	// us to perform privacy preserving source routing
-	// across the network.
-	var onionBlob bytes.Buffer
-	sphinxPacket, err := sphinx.NewOnionPacket(route, dest,
-		e2eMessage)
+	// Next we generate the per-hop payload which gives each node within
+	// the route the necessary information (fees, CLTV value, etc) to
+	// properly forward the payment.
+	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
+	// within hop paylods.
+	var hopPayloads [][]byte
+	for i := 0; i < len(route); i++ {
+		payload := bytes.Repeat([]byte{byte('A' + i)},
+			sphinx.HopPayloadSize)
+		hopPayloads = append(hopPayloads, payload)
+	}
+
+	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
 		return nil, err
 	}
+
+	// Next generate the onion routing packet which allows
+	// us to perform privacy preserving source routing
+	// across the network.
+	sphinxPacket, err := sphinx.NewOnionPacket(route, sessionKey,
+		hopPayloads, paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, encode Sphinx packet using it's wire represenation to be
+	// included within the HTLC add packet.
+	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {
 		return nil, err
 	}

@@ -1,5 +1,5 @@
-hash: 0bdf51a0e40c8cba475333645a769b711e699be36803b02f3b14430642ab79b2
-updated: 2016-10-17T19:44:40.047044856-07:00
+hash: 2106ce14ff53c14d3d0d3d8f34e1cf01c01a79eef409ffe871cd5783b77939c8
+updated: 2016-10-27T20:34:19.347013604-07:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -61,6 +61,8 @@ imports:
   version: 6d212800a42e8ab5c146b8ace3490ee17e5225f9
   subpackages:
   - spew
+- name: github.com/go-errors/errors
+  version: a41850380601eeb43f4350f7d17c6bbd8944aaf8
 - name: github.com/golang/protobuf
   version: 98fa357170587e470c5f27d3c3ea0947b71eb455
   subpackages:
@@ -77,7 +79,7 @@ imports:
 - name: github.com/howeyc/gopass
   version: f5387c492211eb133053880d23dfae62aa14123d
 - name: github.com/lightningnetwork/lightning-onion
-  version: 81647ffa2c5e17c0447d359e1963a54e18be85c4
+  version: f38a054899049d1f5bdb6550c17724060384161b
 - name: github.com/roasbeef/btcd
   version: baea7691cc3c59480703fe1a3fb5595c838c963c
   subpackages:
@@ -120,7 +122,7 @@ imports:
 - name: github.com/urfave/cli
   version: a14d7d367bc02b1f57d88de97926727f2d936387
 - name: golang.org/x/crypto
-  version: 5f31782cfb2b6373211f8f9fbf31283fa234b570
+  version: ca7e7f10cb9fd9c1a6ff7f60436c086d73714180
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -131,7 +133,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 8b4af36cd21a1f85a7484b49feb7c79363106d8e
+  version: b336a971b799939dd16ae9b1df8334cb8b977c4d
   subpackages:
   - context
   - http2
@@ -141,7 +143,7 @@ imports:
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/sys
-  version: 9bb9f0998d48b31547d975974935ae9b48c7a03c
+  version: c200b10b5d5e122be351b67af224adc6128af5bf
   subpackages:
   - unix
 - name: google.golang.org/grpc
@@ -155,7 +157,4 @@ imports:
   - naming
   - transport
   - peer
-- name: github.com/go-errors/errors
-  version: a41850380601eeb43f4350f7d17c6bbd8944aaf8
-
 testImports: []

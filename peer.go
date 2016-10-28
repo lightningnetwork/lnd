@@ -1109,12 +1109,23 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			p.Disconnect()
 			return
 		}
-		sphinxPacket, err := state.sphinx.ProcessOnionPacket(onionPkt)
+
+		// Attempt to process the Sphinx packet. We include the payment
+		// hash of the HTLC as it's authenticated within the Sphinx
+		// packet itself as associated data in order to thwart attempts
+		// a replay attacks. In the case of a replay, an attacker is
+		// *forced* to use the same payment hash twice, thereby losing
+		// their money entirely.
+		rHash := htlcPkt.RedemptionHashes[0][:]
+		sphinxPacket, err := state.sphinx.ProcessOnionPacket(onionPkt, rHash)
 		if err != nil {
 			peerLog.Errorf("unable to process onion pkt: %v", err)
 			p.Disconnect()
 			return
 		}
+
+		// TODO(roasbeef): perform sanity checks on per-hop payload
+		//  * time-lock is sane, fee, chain, etc
 
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
@@ -1144,7 +1155,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// switch, we'll attach the routing information so the switch
 		// can finalize the circuit.
 		case sphinx.MoreHops:
-			// TODO(roasbeef): send cancel + error if not in rounting table
+			// TODO(roasbeef): send cancel + error if not in
+			// routing table
 			state.pendingCircuits[index] = sphinxPacket
 		default:
 			peerLog.Errorf("mal formed onion packet")

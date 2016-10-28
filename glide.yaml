@@ -57,6 +57,7 @@ import:
 - package: google.golang.org/grpc
   version: ^1.0.0
 - package: github.com/lightningnetwork/lightning-onion
+  version: master
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: ^1.1.0
 - package: github.com/aead/chacha20

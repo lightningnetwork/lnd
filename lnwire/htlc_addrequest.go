@@ -57,6 +57,7 @@ type HTLCAddRequest struct {
 	// and the shared secret is fresh, then the node should stip off a layer
 	// of encryption, exposing the next hop to be used in the subsequent
 	// HTLCAddRequest message.
+	// TODO(roasbeef): can be fixed sized now that v1 Sphinx is "done".
 	OnionBlob []byte
 }
 

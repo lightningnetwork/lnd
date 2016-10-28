@@ -82,11 +82,6 @@ type lightningNode struct {
 
 	nodeId int
 
-	// LightningId is the ID, or the sha256 of the node's identity public
-	// key. This field will only be populated once the node itself has been
-	// started via the start() method.
-	LightningID [32]byte
-
 	// PubKey is the serialized compressed identity public key of the node.
 	// This field will only be populated once the node itself has been
 	// started via the start() method.
@@ -214,12 +209,6 @@ func (l *lightningNode) start(lndError chan error) error {
 	if err != nil {
 		return nil
 	}
-
-	lnID, err := hex.DecodeString(info.LightningId)
-	if err != nil {
-		return err
-	}
-	copy(l.LightningID[:], lnID)
 
 	l.PubKeyStr = info.IdentityPubkey
 
@@ -513,8 +502,8 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
-			PubKeyHash: bobInfo.IdentityAddress,
-			Host:       b.p2pAddr,
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.p2pAddr,
 		},
 	}
 	if _, err := a.ConnectPeer(ctx, req); err != nil {
@@ -614,7 +603,7 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	openReq := &lnrpc.OpenChannelRequest{
-		TargetNode:         destNode.LightningID[:],
+		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
 		NumConfs:           numConfs,
 	}

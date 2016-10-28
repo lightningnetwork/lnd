@@ -149,7 +149,7 @@ func sendMany(ctx *cli.Context) error {
 
 var ConnectCommand = cli.Command{
 	Name:   "connect",
-	Usage:  "connect to a remote lnd peer: <lnid>@host",
+	Usage:  "connect to a remote lnd peer: <pubkey>@host",
 	Action: connectPeer,
 }
 
@@ -160,12 +160,13 @@ func connectPeer(ctx *cli.Context) error {
 	targetAddress := ctx.Args().Get(0)
 	splitAddr := strings.Split(targetAddress, "@")
 	if len(splitAddr) != 2 {
-		return fmt.Errorf("target address expected in format: lnid@host:port")
+		return fmt.Errorf("target address expected in format: " +
+			"pubkey@host:port")
 	}
 
 	addr := &lnrpc.LightningAddress{
-		PubKeyHash: splitAddr[0],
-		Host:       splitAddr[1],
+		Pubkey: splitAddr[0],
+		Host:   splitAddr[1],
 	}
 	req := &lnrpc.ConnectPeerRequest{addr}
 
@@ -184,17 +185,18 @@ var OpenChannelCommand = cli.Command{
 	Description: "Attempt to open a new channel to an existing peer, " +
 		"optionally blocking until the channel is 'open'. Once the " +
 		"channel is open, a channelPoint (txid:vout) of the funding " +
-		"output is returned. NOTE: peer_id and lightning_id are " +
+		"output is returned. NOTE: peer_id and node_key are " +
 		"mutually exclusive, only one should be used, not both.",
-	Usage: "openchannel --peer_id=X --local_amt=N --remote_amt=N --num_confs=N",
+	Usage: "openchannel --node_key=X --local_amt=N --remote_amt=N --num_confs=N",
 	Flags: []cli.Flag{
 		cli.IntFlag{
 			Name:  "peer_id",
 			Usage: "the relative id of the peer to open a channel with",
 		},
 		cli.StringFlag{
-			Name:  "lightning_id",
-			Usage: "the lightning id of the target peer",
+			Name: "node_key",
+			Usage: "the identity public key of the target peer " +
+				"serialized in compressed format",
 		},
 		cli.IntFlag{
 			Name:  "local_amt",
@@ -222,7 +224,7 @@ func openChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
-	if ctx.Int("peer_id") != 0 && ctx.String("lightning_id") != "" {
+	if ctx.Int("peer_id") != 0 && ctx.String("node_key") != "" {
 		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
 			"at the same time, only one can be specified")
 	}
@@ -236,11 +238,11 @@ func openChannel(ctx *cli.Context) error {
 	if ctx.Int("peer_id") != 0 {
 		req.TargetPeerId = int32(ctx.Int("peer_id"))
 	} else {
-		lnID, err := hex.DecodeString(ctx.String("lightning_id"))
+		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
 		if err != nil {
 			return fmt.Errorf("unable to decode lightning id: %v", err)
 		}
-		req.TargetNode = lnID
+		req.NodePubkey = nodePubHex
 	}
 
 	stream, err := client.OpenChannel(ctxb, req)
@@ -540,7 +542,7 @@ func listChannels(ctx *cli.Context) error {
 var SendPaymentCommand = cli.Command{
 	Name:        "sendpayment",
 	Description: "send a payment over lightning",
-	Usage:       "sendpayment --dest=[node_id] --amt=[in_satoshis]",
+	Usage:       "sendpayment --dest=[node_key] --amt=[in_satoshis] --payment_hash=[hash] --debug_send=[true|false]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest, d",

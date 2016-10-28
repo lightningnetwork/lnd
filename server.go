@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -10,11 +9,12 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 
@@ -81,7 +81,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {
-		listeners[i], err = lndc.NewListener(privKey, addr)
+		listeners[i], err = brontide.NewListener(privKey, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +250,7 @@ func (s *server) removePeer(p *peer) {
 // particular peer. This message also houses an error channel which will be
 // used to report success/failure.
 type connectPeerMsg struct {
-	addr *lndc.LNAdr
+	addr *lnwire.NetAddress
 	resp chan int32
 	err  chan error
 }
@@ -266,7 +266,7 @@ type listPeersMsg struct {
 // relative peer ID, or a global lightning  ID.
 type openChanReq struct {
 	targetPeerID int32
-	targetNodeID [32]byte
+	targetPubkey *btcec.PublicKey
 
 	// TODO(roasbeef): make enums in lnwire
 	channelType uint8
@@ -318,7 +318,7 @@ out:
 
 			var targetPeer *peer
 			for _, peer := range s.peers { // TODO: threadsafe api
-				nodePub := peer.identityPub.SerializeCompressed()
+				nodePub := peer.addr.IdentityKey.SerializeCompressed()
 				idStr := hex.EncodeToString(nodePub)
 
 				// We found the the target
@@ -361,51 +361,39 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 
 	// Ensure we're not already connected to this
 	// peer.
+	targetPub := msg.addr.IdentityKey
 	for _, peer := range s.peers {
-		if peer.lightningAddr.String() == addr.String() {
+		if peer.addr.IdentityKey.IsEqual(targetPub) {
 			msg.err <- fmt.Errorf(
 				"already connected to peer: %v",
-				peer.lightningAddr,
+				peer.addr,
 			)
 			msg.resp <- -1
 			return
 		}
 	}
 
-	// Launch a goroutine to connect to the requested
-	// peer so we can continue to handle queries.
+	// Launch a goroutine to connect to the requested peer so we can
+	// continue to handle queries.
+	//
 	// TODO(roasbeef): semaphore to limit the number of goroutines for
 	// async requests.
 	go func() {
-		// For the lndc crypto handshake, we
-		// either need a compressed pubkey, or a
-		// 20-byte pkh.
-		var remoteId []byte
-		if addr.PubKey == nil {
-			remoteId = addr.Base58Adr.ScriptAddress()
-		} else {
-			remoteId = addr.PubKey.SerializeCompressed()
-		}
+		srvrLog.Debugf("connecting to %v", addr)
 
-		srvrLog.Debugf("connecting to %v", hex.EncodeToString(remoteId))
-		// Attempt to connect to the remote
-		// node. If the we can't make the
-		// connection, or the crypto negotation
-		// breaks down, then return an error to the
-		// caller.
-		ipAddr := addr.NetAddr.String()
-		conn := lndc.NewConn(nil)
-		if err := conn.Dial(
-			s.identityPriv, ipAddr, remoteId); err != nil {
+		// Attempt to connect to the remote node. If the we can't make
+		// the connection, or the crypto negotation breaks down, then
+		// return an error to the caller.
+		conn, err := brontide.Dial(s.identityPriv, addr)
+		if err != nil {
 			msg.err <- err
 			msg.resp <- -1
 			return
 		}
 
-		// Now that we've established a connection,
-		// create a peer, and it to the set of
-		// currently active peers.
-		peer, err := newPeer(conn, s, activeNetParams.Net, false)
+		// Now that we've established a connection, create a peer, and
+		// it to the set of currently active peers.
+		peer, err := newPeer(conn, s, msg.addr, false)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer %v", err)
 			conn.Close()
@@ -413,6 +401,9 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 			msg.err <- err
 			return
 		}
+
+		// TODO(roasbeef): update IP address for link-node
+		//  * also mark last-seen, do it one single transaction?
 
 		peer.Start()
 		s.newPeers <- peer
@@ -431,16 +422,17 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	var targetPeer *peer
 	for _, peer := range s.peers { // TODO(roasbeef): threadsafe api
 		// We found the the target
-		if req.targetPeerID == peer.id ||
-			bytes.Equal(req.targetNodeID[:], peer.lightningID[:]) {
+		if peer.addr.IdentityKey.IsEqual(req.targetPubkey) ||
+			req.targetPeerID == peer.id {
 			targetPeer = peer
 			break
 		}
 	}
 
 	if targetPeer == nil {
-		req.err <- fmt.Errorf("unable to find peer lightningID(%v), "+
-			"peerID(%v)", req.targetNodeID, req.targetPeerID)
+		req.err <- fmt.Errorf("unable to find peer nodeID(%x), "+
+			"peerID(%v)", req.targetPubkey.SerializeCompressed(),
+			req.targetPeerID)
 		return
 	}
 
@@ -455,7 +447,7 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 // ConnectToPeer requests that the server connect to a Lightning Network peer
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.
-func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
+func (s *server) ConnectToPeer(addr *lnwire.NetAddress) (int32, error) {
 	reply := make(chan int32, 1)
 	errChan := make(chan error, 1)
 
@@ -466,7 +458,8 @@ func (s *server) ConnectToPeer(addr *lndc.LNAdr) (int32, error) {
 
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
-func (s *server) OpenChannel(peerID int32, nodeID []byte, localAmt, remoteAmt btcutil.Amount,
+func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
+	localAmt, remoteAmt btcutil.Amount,
 	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
@@ -474,13 +467,13 @@ func (s *server) OpenChannel(peerID int32, nodeID []byte, localAmt, remoteAmt bt
 
 	req := &openChanReq{
 		targetPeerID:     peerID,
+		targetPubkey:     nodeKey,
 		localFundingAmt:  localAmt,
 		remoteFundingAmt: remoteAmt,
 		numConfs:         numConfs,
 		updates:          updateChan,
 		err:              errChan,
 	}
-	copy(req.targetNodeID[:], nodeID)
 
 	s.queries <- req
 
@@ -514,12 +507,23 @@ func (s *server) listener(l net.Listener) {
 		}
 
 		srvrLog.Tracef("New inbound connection from %v", conn.RemoteAddr())
-		peer, err := newPeer(conn, s, activeNetParams.Net, true)
+
+		brontideConn := conn.(*brontide.Conn)
+		peerAddr := &lnwire.NetAddress{
+			IdentityKey: brontideConn.RemotePub(),
+			Address:     conn.RemoteAddr().(*net.TCPAddr),
+			ChainNet:    activeNetParams.Net,
+		}
+
+		peer, err := newPeer(conn, s, peerAddr, true)
 		if err != nil {
 			srvrLog.Errorf("unable to create peer: %v", err)
 			conn.Close()
 			continue
 		}
+
+		// TODO(roasbeef): update IP address for link-node
+		//  * also mark last-seen, do it one single transaction?
 
 		peer.Start()
 		s.newPeers <- peer

@@ -15,7 +15,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -66,9 +65,8 @@ type peer struct {
 
 	conn net.Conn
 
-	identityPub   *btcec.PublicKey
-	lightningAddr *lndc.LNAdr
-	lightningID   wire.ShaHash
+	addr        *lnwire.NetAddress
+	lightningID wire.ShaHash
 
 	inbound bool
 	id      int32
@@ -87,9 +85,6 @@ type peer struct {
 	bytesSent        uint64
 	satoshisSent     uint64
 	satoshisReceived uint64
-
-	// chainNet is the Bitcoin network to which this peer is anchored to.
-	chainNet wire.BitcoinNet
 
 	// sendQueue is the channel which is used to queue outgoing to be
 	// written onto the wire. Note that this channel is unbuffered.
@@ -150,17 +145,18 @@ type peer struct {
 
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
-func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool) (*peer, error) {
-	lndcConn := conn.(*lndc.LNDConn)
-	nodePub := lndcConn.RemotePub
+func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
+	inbound bool) (*peer, error) {
+
+	nodePub := addr.IdentityKey
 
 	p := &peer{
 		conn:        conn,
-		identityPub: nodePub,
 		lightningID: wire.ShaHash(fastsha256.Sum256(nodePub.SerializeCompressed())),
-		id:          atomic.AddInt32(&numNodes, 1),
-		chainNet:    btcNet,
-		inbound:     inbound,
+		addr:        addr,
+
+		id:      atomic.AddInt32(&numNodes, 1),
+		inbound: inbound,
 
 		server: server,
 
@@ -184,15 +180,6 @@ func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool
 		quit:      make(chan struct{}),
 	}
 
-	// TODO(roasbeef): re-write after lnaddr revamp, shouldn't need to use
-	// type assertions
-	var err error
-	tcpAddr := lndcConn.Conn.(*net.TCPConn).RemoteAddr().(*net.TCPAddr)
-	p.lightningAddr, err = lndc.NewLnAdr(tcpAddr, nodePub, activeNetParams.Params)
-	if err != nil {
-		return nil, err
-	}
-
 	// Initiate the pending channel identifier properly depending on if this
 	// node is inbound or outbound. This value will be used in an increasing
 	// manner to track pending channels.
@@ -204,7 +191,7 @@ func newPeer(conn net.Conn, server *server, btcNet wire.BitcoinNet, inbound bool
 
 	// Fetch and then load all the active channels we have with this
 	// remote peer from the database.
-	activeChans, err := server.chanDB.FetchOpenChannels(p.identityPub)
+	activeChans, err := server.chanDB.FetchOpenChannels(p.addr.IdentityKey)
 	if err != nil {
 		peerLog.Errorf("unable to fetch active chans "+
 			"for peer %v: %v", p, err)
@@ -313,7 +300,7 @@ func (p *peer) Disconnect() {
 		// Tell the switch to unregister all links associated with this
 		// peer. Passing nil as the target link indicates that all links
 		// associated with this interface should be closed.
-		p.server.htlcSwitch.UnregisterLink(p.identityPub, nil)
+		p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, nil)
 
 		p.server.donePeers <- p
 	}()
@@ -328,7 +315,8 @@ func (p *peer) String() string {
 // any additional raw payload.
 func (p *peer) readNextMessage() (lnwire.Message, []byte, error) {
 	// TODO(roasbeef): use our own net magic?
-	n, nextMsg, rawPayload, err := lnwire.ReadMessage(p.conn, 0, p.chainNet)
+	n, nextMsg, rawPayload, err := lnwire.ReadMessage(p.conn, 0,
+		p.addr.ChainNet)
 	atomic.AddUint64(&p.bytesReceived, uint64(n))
 	if err != nil {
 		return nil, nil, err
@@ -403,7 +391,7 @@ out:
 			*lnwire.RoutingTableTransferMessage:
 
 			// Convert to base routing message and set sender and receiver
-			vertex := hex.EncodeToString(p.identityPub.SerializeCompressed())
+			vertex := hex.EncodeToString(p.addr.IdentityKey.SerializeCompressed())
 			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewID(vertex))
 		}
 
@@ -457,7 +445,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 		return spew.Sdump(msg)
 	}))
 
-	n, err := lnwire.WriteMessage(p.conn, msg, 0, p.chainNet)
+	n, err := lnwire.WriteMessage(p.conn, msg, 0, p.addr.ChainNet)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
 	return err
@@ -846,7 +834,7 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
-	p.server.htlcSwitch.UnregisterLink(p.identityPub, chanID)
+	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, chanID)
 	htlcWireLink, ok := p.htlcManagers[*chanID]
 	if !ok {
 		return nil
@@ -1274,6 +1262,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			for _, htlc := range htlcsToForward {
 				// We don't need to forward any HTLC's that we
 				// just settled above.
+				// TODO(roasbeef): key by index insteaad?
 				if _, ok := settledPayments[htlc.RHash]; ok {
 					continue
 				}
@@ -1322,6 +1311,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		// Notify the invoiceRegistry of the invoices we just settled
 		// with this latest commitment update.
+		// TODO(roasbeef): wait until next transition?
 		for invoice, _ := range settledPayments {
 			err := p.server.invoices.SettleInvoice(wire.ShaHash(invoice))
 			if err != nil {

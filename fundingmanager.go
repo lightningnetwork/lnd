@@ -200,7 +200,7 @@ func (f *fundingManager) NumPendingChannels() uint32 {
 
 type pendingChannel struct {
 	peerId        int32
-	lightningID   [32]byte
+	identityPub   *btcec.PublicKey
 	channelPoint  *wire.OutPoint
 	capacity      btcutil.Amount
 	localBalance  btcutil.Amount
@@ -285,7 +285,7 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 
 			pendingChan := &pendingChannel{
 				peerId:        peerID,
-				lightningID:   peer.lightningID,
+				identityPub:   peer.addr.IdentityKey,
 				channelPoint:  res.FundingOutpoint(),
 				capacity:      localFund + remoteFund,
 				localBalance:  localFund,
@@ -340,7 +340,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// channel ourselves.
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
 	reservation, err := f.wallet.InitChannelReservation(amt, 0,
-		fmsg.peer.identityPub, fmsg.peer.lightningAddr.NetAddr, 1, delay)
+		fmsg.peer.addr.IdentityKey, fmsg.peer.addr.Address, 1, delay)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -614,7 +614,8 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			// finding.
 			chanInfo := openChan.StateSnapshot()
 			capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
-			vertex := hex.EncodeToString(fmsg.peer.identityPub.SerializeCompressed())
+			pubSerialized := fmsg.peer.addr.IdentityKey.SerializeCompressed()
+			vertex := hex.EncodeToString(pubSerialized)
 			fmsg.peer.server.routingMgr.OpenChannel(
 				graph.NewID(vertex),
 				graph.NewEdgeID(fundingPoint.String()),
@@ -686,7 +687,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// Notify the L3 routing manager of the newly active channel link.
 	capacity := int64(resCtx.reservation.OurContribution().FundingAmount +
 		resCtx.reservation.TheirContribution().FundingAmount)
-	vertex := hex.EncodeToString(fmsg.peer.identityPub.SerializeCompressed())
+	vertex := hex.EncodeToString(fmsg.peer.addr.IdentityKey.SerializeCompressed())
 	fmsg.peer.server.routingMgr.OpenChannel(
 		graph.NewID(vertex),
 		graph.NewEdgeID(resCtx.reservation.FundingOutpoint().String()),
@@ -715,7 +716,7 @@ func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq)
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
 		// TODO(roasbeef): add delay
-		nodeID    = msg.peer.identityPub
+		nodeID    = msg.peer.addr.IdentityKey
 		localAmt  = msg.localFundingAmt
 		remoteAmt = msg.remoteFundingAmt
 		capacity  = localAmt + remoteAmt
@@ -724,13 +725,13 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
 		"capacity=%v, numConfs=%v, addr=%v)", localAmt, remoteAmt,
-		capacity, numConfs, msg.peer.lightningAddr.NetAddr)
+		capacity, numConfs, msg.peer.addr.Address)
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
 	reservation, err := f.wallet.InitChannelReservation(capacity, localAmt,
-		nodeID, msg.peer.lightningAddr.NetAddr, uint16(numConfs), 4)
+		nodeID, msg.peer.addr.Address, uint16(numConfs), 4)
 	if err != nil {
 		msg.err <- err
 		return

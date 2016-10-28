@@ -125,8 +125,10 @@ type htlcSwitch struct {
 	interfaceMtx sync.RWMutex
 	interfaces   map[wire.ShaHash][]*link
 
-	// onionIndex is a secondary index used to properly forward a message
-	// to the next hop within a Sphinx circuit.
+	// onionIndex is an index used to properly forward a message
+	// to the next hop within a Sphinx circuit. Within the sphinx packets,
+	// the "next-hop" destination is encoded as the hash160 of the node's
+	// public key serialized in compressed format.
 	onionMtx   sync.RWMutex
 	onionIndex map[[ripemd160.Size]byte][]*link
 
@@ -442,6 +444,10 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 		chanPoint:          chanPoint,
 	}
 
+	// First update the channel index with this new channel point. The
+	// channel index will be used to quickly lookup channels in order to:
+	// close them, update their link capacity, or possibly during multi-hop
+	// HTLC forwarding.
 	h.chanIndexMtx.Lock()
 	h.chanIndex[*chanPoint] = newLink
 	h.chanIndexMtx.Unlock()
@@ -452,8 +458,11 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	h.interfaces[interfaceID] = append(h.interfaces[interfaceID], newLink)
 	h.interfaceMtx.Unlock()
 
+	// Next, update the onion index which is used to look up the
+	// settle/clear links during multi-hop payments and to dispatch
+	// outgoing payments initiated by a local sub-system.
 	var onionId [ripemd160.Size]byte
-	copy(onionId[:], btcutil.Hash160(req.peer.identityPub.SerializeCompressed()))
+	copy(onionId[:], btcutil.Hash160(req.peer.addr.IdentityKey.SerializeCompressed()))
 
 	h.onionMtx.Lock()
 	h.onionIndex[onionId] = h.interfaces[interfaceID]

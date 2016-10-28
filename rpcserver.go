@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lndc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -194,13 +194,24 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("need: lnc pubkeyhash@hostname")
 	}
 
-	idAtHost := fmt.Sprintf("%v@%v", in.Addr.PubKeyHash, in.Addr.Host)
-	rpcsLog.Debugf("[connectpeer] peer=%v", idAtHost)
-
-	peerAddr, err := lndc.LnAddrFromString(idAtHost, activeNetParams.Params)
+	pubkeyHex, err := hex.DecodeString(in.Addr.Pubkey)
 	if err != nil {
-		rpcsLog.Errorf("(connectpeer): error parsing ln addr: %v", err)
 		return nil, err
+	}
+	pubkey, err := btcec.ParsePubKey(pubkeyHex, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	host, err := net.ResolveTCPAddr("tcp", in.Addr.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	peerAddr := &lnwire.NetAddress{
+		IdentityKey: pubkey,
+		Address:     host,
+		ChainNet:    activeNetParams.Net,
 	}
 
 	peerID, err := r.server.ConnectToPeer(peerAddr)
@@ -209,6 +220,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, err
 	}
 
+	// TODO(roasbeef): add pubkey return
 	rpcsLog.Debugf("Connected to peer: %v", peerAddr.String())
 	return &lnrpc.ConnectPeerResponse{peerID}, nil
 }
@@ -224,8 +236,13 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+	nodepubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+	if err != nil {
+		return err
+	}
+
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		in.TargetNode, localFundingAmt, remoteFundingAmt, in.NumConfs)
+		nodepubKey, localFundingAmt, remoteFundingAmt, in.NumConfs)
 
 	var outpoint wire.OutPoint
 out:
@@ -233,8 +250,8 @@ out:
 		select {
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to "+
-				"lightningID(%x) nor peerID(%v): %v",
-				in.TargetNode, in.TargetPeerId, err)
+				"identityPub(%x) nor peerID(%v): %v",
+				nodepubKey, in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -333,17 +350,11 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}
 
 	pendingChannels := r.server.fundingMgr.NumPendingChannels()
-
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
-	idAddr, err := btcutil.NewAddressPubKeyHash(btcutil.Hash160(idPub), activeNetParams.Params)
-	if err != nil {
-		return nil, err
-	}
 
 	return &lnrpc.GetInfoResponse{
 		LightningId:        hex.EncodeToString(r.server.lightningID[:]),
 		IdentityPubkey:     hex.EncodeToString(idPub),
-		IdentityAddress:    idAddr.String(),
 		NumPendingChannels: pendingChannels,
 		NumActiveChannels:  activeChannels,
 		NumPeers:           uint32(len(serverPeers)),
@@ -364,7 +375,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	for _, serverPeer := range serverPeers {
 		// TODO(roasbeef): add a snapshot method which grabs peer read mtx
 
-		nodePub := serverPeer.identityPub.SerializeCompressed()
+		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
 			PeerId:    serverPeer.id,
@@ -432,9 +443,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		pendingOpenChans := r.server.fundingMgr.PendingChannels()
 		for _, pendingOpen := range pendingOpenChans {
 			// TODO(roasbeef): add confirmation progress
+			pub := pendingOpen.identityPub.SerializeCompressed()
 			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
 				PeerId:        pendingOpen.peerId,
-				LightningId:   hex.EncodeToString(pendingOpen.lightningID[:]),
+				IdentityKey:   hex.EncodeToString(pub),
 				ChannelPoint:  pendingOpen.channelPoint.String(),
 				Capacity:      int64(pendingOpen.capacity),
 				LocalBalance:  int64(pendingOpen.localBalance),

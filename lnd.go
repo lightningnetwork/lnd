@@ -47,11 +47,6 @@ func lndMain() error {
 	// Show version at startup.
 	ltndLog.Infof("Version %s", version())
 
-	if cfg.SPVMode == true {
-		shell(cfg.SPVHostAdr, activeNetParams.Params)
-		return err
-	}
-
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {
 		go func() {

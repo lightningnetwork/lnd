@@ -16,6 +16,7 @@ import (
 	"github.com/roasbeef/btcutil"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"sync/atomic"
 )
 
 // harnessTest wraps a regular testing.T providing enchanced error detection
@@ -616,41 +617,81 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 
 	assertAsymmetricBalance := func(node *lightningNode,
-		chanPoint *wire.OutPoint, localBalance,
+		chanPoint wire.OutPoint, localBalance,
 		remoteBalance int64) {
 
-		listReq := &lnrpc.ListChannelsRequest{}
-		resp, err := node.ListChannels(ctxb, listReq)
-		if err != nil {
-			t.Fatalf("unable to for node's channels: %v", err)
+		channelName := ""
+		switch chanPoint {
+		case carolFundPoint:
+			channelName = "Carol(local) => Alice(remote)"
+		case aliceFundPoint:
+			channelName = "Alice(local) => Bob(remote)"
 		}
-		for _, channel := range resp.Channels {
-			if channel.ChannelPoint != chanPoint.String() {
-				continue
-			}
 
-			if channel.LocalBalance != localBalance ||
-				channel.RemoteBalance != remoteBalance {
-				t.Fatalf("incorrect balances: %v",
-					spew.Sdump(channel))
+		checkBalance := func() error {
+			listReq := &lnrpc.ListChannelsRequest{}
+			resp, err := node.ListChannels(ctxb, listReq)
+			if err != nil {
+				return fmt.Errorf("unable to for node's "+
+					"channels: %v", err)
 			}
-			return
+			for _, channel := range resp.Channels {
+				if channel.ChannelPoint != chanPoint.String() {
+					continue
+				}
+
+				if channel.LocalBalance != localBalance {
+					return fmt.Errorf("%v: incorrect local "+
+						"balances: %v != %v", channelName,
+						channel.LocalBalance, localBalance)
+				}
+
+				if channel.RemoteBalance != remoteBalance {
+					return fmt.Errorf("%v: incorrect remote "+
+						"balances: %v != %v", channelName,
+						channel.RemoteBalance, remoteBalance)
+				}
+
+				return nil
+			}
+			return fmt.Errorf("channel not found")
 		}
-		t.Fatalf("channel not found")
+
+		// As far as HTLC inclusion in commitment transaction might be
+		// postponed we will try to check the balance couple of
+		// times, and then if after some period of time we receive wrong
+		// balance return the error.
+		// TODO(roasbeef): remove sleep after invoice notification hooks
+		// are in place
+		var timeover uint32
+		go func() {
+			<-time.After(time.Second * 20)
+			atomic.StoreUint32(&timeover, 1)
+		}()
+
+		for {
+			isTimeover := atomic.LoadUint32(&timeover) == 1
+			if err := checkBalance(); err != nil {
+				if isTimeover {
+					t.Fatalf("Check balance failed: %v", err)
+				}
+			} else {
+				break
+			}
+		}
 	}
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Bob, the sink within the
-	// payment flow generated above.
-	// TODO(roasbeef): remove sleep after invoice notification hooks are in
-	// place
-	time.Sleep(time.Second * 3)
+	// payment flow generated above. The order of asserts corresponds to
+	// increasing of time is needed to embed the HTLC in commitment
+	// transaction, in channel Carol->Alice->Bob, order is Bob,Alice,Carol.
 	const sourceBal = int64(95000)
 	const sinkBal = int64(5000)
-	assertAsymmetricBalance(carol, &carolFundPoint, sourceBal, sinkBal)
-	assertAsymmetricBalance(net.Alice, &carolFundPoint, sinkBal, sourceBal)
-	assertAsymmetricBalance(net.Alice, &aliceFundPoint, sourceBal, sinkBal)
-	assertAsymmetricBalance(net.Bob, &aliceFundPoint, sinkBal, sourceBal)
+	assertAsymmetricBalance(net.Bob, aliceFundPoint, sinkBal, sourceBal)
+	assertAsymmetricBalance(net.Alice, aliceFundPoint, sourceBal, sinkBal)
+	assertAsymmetricBalance(net.Alice, carolFundPoint, sinkBal, sourceBal)
+	assertAsymmetricBalance(carol, carolFundPoint, sourceBal, sinkBal)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice)

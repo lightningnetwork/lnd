@@ -980,7 +980,7 @@ out:
 			// update in some time, check to see if we have any
 			// pending updates we need to commit. If so, then send
 			// an update incrementing the unacked counter is
-			// succesful.
+			// successfully.
 			if !state.channel.PendingUpdates() &&
 				len(state.htlcsToSettle) == 0 {
 				continue
@@ -1221,7 +1221,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		// If any of the htlc's eligible for forwarding are pending
 		// settling or timeing out previous outgoing payments, then we
-		// can them from the pending set, and signal the requster (if
+		// can them from the pending set, and signal the requester (if
 		// existing) that the payment has been fully fulfilled.
 		var bandwidthUpdate btcutil.Amount
 		settledPayments := make(map[lnwallet.PaymentHash]struct{})

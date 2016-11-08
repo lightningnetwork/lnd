@@ -18,18 +18,16 @@ import (
 	"google.golang.org/grpc"
 )
 
-// harnessTest wraps a regular testing.T providing enchanced error detection
-// and propagation. Any fatal errors encurred by any running lnd processes will
-// bubble up to the error channel embedded within this struct. Additionally,
-// any panics caused by active test cases will also be proxied over the
-// errChan. Finally, all error sent through the error channel will be augmented
-// with a full stack-trace in order to aide in debugging.
+// harnessTest wraps a regular testing.T providing enhanced error detection
+// and propagation. All error will be augmented with a full stack-trace in
+// order to aide in debugging. Additionally, any panics caused by active
+// test cases will also be handled and represented as fatals.
 type harnessTest struct {
-	*testing.T
+	t *testing.T
 
-	// errChan is a channel for sending retransmitted panic errors and
-	// fatal errors which occur while running an integration tests.
-	ErrChan chan error
+	// testCase is populated during test execution and represents the
+	// current test case.
+	testCase *testCase
 }
 
 // newHarnessTest creates a new instance of a harnessTest from a regular
@@ -42,40 +40,44 @@ func newHarnessTest(t *testing.T) *harnessTest {
 // integration tests should mark test failures soley with this method due to
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
-	if h.ErrChan != nil {
-		description := fmt.Sprintf(format, a...)
-		h.ErrChan <- fmt.Errorf(errors.Wrap(description, 1).ErrorStack())
+	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
 
-		h.FailNow()
-		return
+	if h.testCase != nil {
+		h.t.Fatalf("Failed: (%v): exited with error: \n" +
+			"%v", h.testCase.name, stacktrace)
+	} else {
+		h.t.Fatalf("Error outside of test: %v", stacktrace)
 	}
-
-	h.Fatal("cannot send an error when a test isn't running")
 }
 
-// RunTest executes a harness test-case. Any errors or panics will be
-// re-directed to the structs' errChan.
-func (h *harnessTest) RunTest(net *networkHarness, test testCase) chan error {
-	h.ErrChan = make(chan error)
 
-	// Launch a goroutine to execute the acutal test-case. If the test
-	// pases then the error channel returned will be closed. Otherwise, a
-	// non-nil error will be sent over the error channel.
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				h.ErrChan <- fmt.Errorf(err.(string))
-			}
-
-			close(h.ErrChan)
-
-			h.ErrChan = nil
-		}()
-
-		test(net, h)
+// RunTestCase executes a harness test-case. Any errors or panics will be
+// represented as fatal.
+func (h *harnessTest) RunTestCase(testCase *testCase, net *networkHarness) {
+	h.testCase = testCase
+	defer func() {
+		h.testCase = nil
 	}()
 
-	return h.ErrChan
+	defer func() {
+		if err := recover(); err != nil {
+			description := errors.Wrap(err, 2).ErrorStack()
+			h.t.Fatalf("Failed: (%v) paniced with: \n%v",
+				h.testCase.name, description)
+		}
+	}()
+
+	testCase.test(net, h)
+	h.t.Logf("Passed: (%v)", h.testCase.name)
+	return
+}
+
+func (h *harnessTest) Logf(format string, args ...interface{}) {
+	h.t.Logf(format, args...)
+}
+
+func (h *harnessTest) Log(args ...interface{}) {
+	h.t.Log(args...)
 }
 
 func assertTxInBlock(t *harnessTest, block *btcutil.Block, txid *wire.ShaHash) {
@@ -863,17 +865,44 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	}
 }
 
-type testCase func(net *networkHarness, t *harnessTest)
+type testCase struct {
+	name string
+	test func(net *networkHarness, t *harnessTest)
+}
 
-var testCases = map[string]testCase{
-	"basic funding flow":          testBasicChannelFunding,
-	"channel force closure":       testChannelForceClosure,
-	"channel balance":             testChannelBalance,
-	"single hop invoice":          testSingleHopInvoice,
-	"max pending channel":         testMaxPendingChannels,
-	"multi-hop payments":          testMultiHopPayments,
-	"multiple channel creation":   testBasicChannelCreation,
-	"invoice update subscription": testInvoiceSubscriptions,
+var testsCases = []*testCase{
+	{
+		name: "basic funding flow",
+		test: testBasicChannelFunding,
+	},
+	{
+		name: "channel force closure",
+		test: testChannelForceClosure,
+	},
+	{
+		name: "channel balance",
+		test: testChannelBalance,
+	},
+	{
+		name: "single hop invoice",
+		test: testSingleHopInvoice,
+	},
+	{
+		name: "max pending channel",
+		test: testMaxPendingChannels,
+	},
+	{
+		name: "multi-hop payments",
+		test: testMultiHopPayments,
+	},
+	{
+		name: "multiple channel creation",
+		test: testBasicChannelCreation,
+	},
+	{
+		name: "invoice update subscription",
+		test: testInvoiceSubscriptions,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
@@ -885,7 +914,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// 'OnTxAccepted' call back.
 	lndHarness, err := newNetworkHarness()
 	if err != nil {
-		t.Fatalf("unable to create lightning network harness: %v", err)
+		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}
 	defer lndHarness.TearDownAll()
 
@@ -898,14 +927,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// drive blockchain related events within the network.
 	btcdHarness, err := rpctest.New(harnessNetParams, handlers, nil)
 	if err != nil {
-		t.Fatalf("unable to create mining node: %v", err)
+		ht.Fatalf("unable to create mining node: %v", err)
 	}
 	defer btcdHarness.TearDown()
 	if err := btcdHarness.SetUp(true, 50); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
+		ht.Fatalf("unable to set up mining node: %v", err)
 	}
 	if err := btcdHarness.Node.NotifyNewTransactions(false); err != nil {
-		t.Fatalf("unable to request transaction notifications: %v", err)
+		ht.Fatalf("unable to request transaction notifications: %v", err)
 	}
 
 	// With the btcd harness created, we can now complete the
@@ -913,32 +942,25 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// example: "--debuglevel=debug"
 	// TODO(roasbeef): create master balanced channel with all the monies?
 	if err := lndHarness.InitializeSeedNodes(btcdHarness, nil); err != nil {
-		t.Fatalf("unable to initialize seed nodes: %v", err)
+		ht.Fatalf("unable to initialize seed nodes: %v", err)
 	}
 	if err = lndHarness.SetUp(); err != nil {
-		t.Fatalf("unable to set up test lightning network: %v", err)
+		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
 
-	t.Logf("Running %v integration tests", len(testCases))
-	for name, test := range testCases {
-		errChan := ht.RunTest(lndHarness, test)
+	// Spawn a new goroutine to watch for any fatal errors that any of the
+	// running lnd processes encounter. If an error occurs, then the test
+	// fails immediately with a fatal error, as far as fatal is happening
+	// inside goroutine main goroutine would not be finished at the same
+	// time as we receive fatal error from lnd process.
+	go func() {
+		err := <-lndHarness.ProcessErrors()
+		ht.Fatalf("lnd finished with error (stderr): "+
+			"\n%v", err)
+	}()
 
-		select {
-		// Attempt to read from the error channel created for this
-		// specific test. If this error is non-nil then the test passed
-		// without any problems.
-		case err := <-errChan:
-			if err != nil {
-				t.Fatalf("Fail: (%v): exited with error: \n%v",
-					name, err)
-			}
-			t.Logf("Passed: (%v)", name)
-
-		// If a read from this channel succeeeds then one of the
-		// running lnd nodes has exited with a fatal erorr.
-		case err := <-lndHarness.ProcessErrors():
-			t.Fatalf("Fail:  (%v): lnd finished with error "+
-				"(stderr): \n%v", name, err)
-		}
+	t.Logf("Running %v integration tests", len(testsCases))
+	for _, testCase := range testsCases {
+		ht.RunTestCase(testCase, lndHarness)
 	}
 }

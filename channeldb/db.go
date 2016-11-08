@@ -77,6 +77,11 @@ func (d *DB) Wipe() error {
 			return err
 		}
 
+		err = tx.DeleteBucket(nodeInfoBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+
 		return nil
 	})
 }

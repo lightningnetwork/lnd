@@ -38,11 +38,24 @@ type NetAddress struct {
 	ChainNet wire.BitcoinNet
 }
 
+// A compile time assertion to ensure that NetAddress meets the net.Addr
+// interface.
+var _ net.Addr = (*NetAddress)(nil)
+
 // String returns a human readable string describing the target NetAddress. The
 // current string format is: <pubkey>@host.
+//
+// This part of the net.Addr interface.
 func (n *NetAddress) String() string {
 	// TODO(roasbeef): use base58?
 	pubkey := n.IdentityKey.SerializeCompressed()
 
 	return fmt.Sprintf("%x@%v", pubkey, n.Address)
+}
+
+// Network returns the name of the network this address is binded to.
+//
+// This part of the net.Addr interface.
+func (n *NetAddress) Network() string {
+	return n.Address.Network()
 }

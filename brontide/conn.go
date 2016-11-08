@@ -3,6 +3,7 @@ package brontide
 import (
 	"bytes"
 	"io"
+	"math"
 	"net"
 	"time"
 
@@ -108,7 +109,37 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 //
 // Part of the net.Conn interface.
 func (c *Conn) Write(b []byte) (n int, err error) {
-	return len(b), c.noise.WriteMessage(c.conn, b)
+	// If the message doesn't require any chunking, then we can go ahead
+	// with a single write.
+	if len(b)+macSize <= math.MaxUint16 {
+		return len(b), c.noise.WriteMessage(c.conn, b)
+	}
+
+	// If we need to split the message into fragments, then we'll write
+	// chunks which maximize usage of the available payload. To do so, we
+	// subtract the added overhead of the MAC at the end of the message.
+	chunkSize := math.MaxUint16 - macSize
+
+	bytesToWrite := len(b)
+	bytesWritten := 0
+	for bytesWritten < bytesToWrite {
+		// If we're on the last chunk, then truncate the chunk size as
+		// necessary to avoid an out-of-bounds array memory access.
+		if bytesWritten+chunkSize > len(b) {
+			chunkSize = len(b) - bytesWritten
+		}
+
+		// Slice off the next chunk to be written based on our running
+		// counter and next chunk size.
+		chunk := b[bytesWritten : bytesWritten+chunkSize]
+		if err := c.noise.WriteMessage(c.conn, chunk); err != nil {
+			return bytesWritten, err
+		}
+
+		bytesWritten += len(chunk)
+	}
+
+	return bytesWritten, nil
 }
 
 // Close closes the connection.  Any blocked Read or Write operations will be

@@ -2,6 +2,7 @@ package brontide
 
 import (
 	"bytes"
+	"math"
 	"net"
 	"testing"
 
@@ -94,6 +95,44 @@ func TestConnectionCorrectness(t *testing.T) {
 	if !bytes.Equal(outMsg, readBuf) {
 		t.Fatalf("messages don't match, %v vs %v",
 			string(readBuf), string(outMsg))
+	}
+}
+
+func TestMaxPayloadLength(t *testing.T) {
+	b := BrontideMachine{}
+	b.split()
+
+	// Create a payload that's juust over the maximum alloted payload
+	// length.
+	payloadToReject := make([]byte, math.MaxUint16+1)
+
+	var buf bytes.Buffer
+
+	// A write of the payload generated above to the state machine should
+	// be rejected as it's over the max payload length.
+	err := b.WriteMessage(&buf, payloadToReject)
+	if err != ErrMaxMessageLengthExceeded {
+		t.Fatalf("payload is over the max allowed length, the write " +
+			"should have been rejected")
+	}
+
+	// Generate another payload which with the MAC acounted for, should be
+	// accepted as a valid payload.
+	payloadToAccept := make([]byte, math.MaxUint16-macSize)
+	if err := b.WriteMessage(&buf, payloadToAccept); err != nil {
+		t.Fatalf("write for payload was rejected, should have been " +
+			"accepted")
+	}
+
+	// Generate a final payload which is juuust over the max payload length
+	// when the MAC is accounted for.
+	payloadToReject = make([]byte, math.MaxUint16-macSize+1)
+
+	// This payload should be rejected.
+	err = b.WriteMessage(&buf, payloadToReject)
+	if err != ErrMaxMessageLengthExceeded {
+		t.Fatalf("payload is over the max allowed length, the write " +
+			"should have been rejected")
 	}
 }
 

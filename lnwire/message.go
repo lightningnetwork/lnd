@@ -54,6 +54,10 @@ const (
 
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
+
+	// Commands for connection keep-alive.
+	CmdPing = uint32(5000)
+	CmdPong = uint32(5010)
 )
 
 // Message is an interface that defines a lightning wire protocol message. The
@@ -65,7 +69,6 @@ type Message interface {
 	Command() uint32
 	MaxPayloadLength(uint32) uint32
 	Validate() error
-	String() string
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type
@@ -114,6 +117,10 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &RoutingTableRequestMessage{}
 	case CmdRoutingTableTransferMessage:
 		msg = &RoutingTableTransferMessage{}
+	case CmdPing:
+		msg = &Ping{}
+	case CmdPong:
+		msg = &Pong{}
 	default:
 		return nil, fmt.Errorf("unhandled command [%d]", command)
 	}

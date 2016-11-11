@@ -187,7 +187,7 @@ type commitment struct {
 	ourBalance   btcutil.Amount
 	theirBalance btcutil.Amount
 
-	// htlcs is the set of HTLC's which remain uncleared within this
+	// htlcs is the set of HTLC's which remain unsettled within this
 	// commitment.
 	outgoingHTLCs []*PaymentDescriptor
 	incomingHTLCs []*PaymentDescriptor

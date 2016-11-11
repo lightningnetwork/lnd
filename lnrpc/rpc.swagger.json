@@ -63,12 +63,12 @@
         ]
       },
       "post": {
-        "operationId": "OpenChannel",
+        "operationId": "OpenChannelSync",
         "responses": {
           "200": {
-            "description": "(streaming responses)",
+            "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcOpenStatusUpdate"
+              "$ref": "#/definitions/lnrpcChannelPoint"
             }
           }
         },
@@ -105,10 +105,10 @@
     },
     "/v1/channels/transactions": {
       "post": {
-        "operationId": "SendPayment",
+        "operationId": "SendPaymentSync",
         "responses": {
           "200": {
-            "description": "(streaming responses)",
+            "description": "",
             "schema": {
               "$ref": "#/definitions/lnrpcSendResponse"
             }
@@ -117,7 +117,6 @@
         "parameters": [
           {
             "name": "body",
-            "description": "(streaming inputs)",
             "in": "body",
             "required": true,
             "schema": {
@@ -485,14 +484,6 @@
         }
       }
     },
-    "lnrpcChannelOpenUpdate": {
-      "type": "object",
-      "properties": {
-        "channel_point": {
-          "$ref": "#/definitions/lnrpcChannelPoint"
-        }
-      }
-    },
     "lnrpcChannelPoint": {
       "type": "object",
       "properties": {
@@ -759,6 +750,10 @@
           "type": "string",
           "format": "byte"
         },
+        "node_pubkey_string": {
+          "type": "string",
+          "format": "string"
+        },
         "num_confs": {
           "type": "integer",
           "format": "int64"
@@ -770,20 +765,6 @@
         "target_peer_id": {
           "type": "integer",
           "format": "int32"
-        }
-      }
-    },
-    "lnrpcOpenStatusUpdate": {
-      "type": "object",
-      "properties": {
-        "chan_open": {
-          "$ref": "#/definitions/lnrpcChannelOpenUpdate"
-        },
-        "chan_pending": {
-          "$ref": "#/definitions/lnrpcPendingUpdate"
-        },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
         }
       }
     },
@@ -898,6 +879,10 @@
           "type": "string",
           "format": "byte"
         },
+        "dest_string": {
+          "type": "string",
+          "format": "string"
+        },
         "fast_send": {
           "type": "boolean",
           "format": "boolean"
@@ -905,6 +890,10 @@
         "payment_hash": {
           "type": "string",
           "format": "byte"
+        },
+        "payment_hash_string": {
+          "type": "string",
+          "format": "string"
         }
       }
     },

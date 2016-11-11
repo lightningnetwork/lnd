@@ -66,19 +66,24 @@ service Lightning {
             get: "/v1/channels"
         };
     }
-    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate) {
+    rpc OpenChannelSync(OpenChannelRequest) returns (ChannelPoint) {
         option (google.api.http) = {
             post: "/v1/channels"
             body: "*"
         };
     }
+
+    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate);
+
     rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
             delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}"
         };
     }
 
-    rpc SendPayment(stream SendRequest) returns (stream SendResponse) {
+    rpc SendPayment(stream SendRequest) returns (stream SendResponse);
+
+    rpc SendPaymentSync(SendRequest) returns (SendResponse) {
         option (google.api.http) = {
             post: "/v1/channels/transactions"
             body: "*"
@@ -128,10 +133,14 @@ message TransactionDetails {
 
 message SendRequest {
     bytes dest = 1;
-    int64 amt = 2;
-    bytes payment_hash = 3;
+    string dest_string = 2;
 
-    bool fast_send = 4;
+    int64 amt = 3;
+
+    bytes payment_hash = 4;
+    string payment_hash_string = 5;
+
+    bool fast_send = 6;
 }
 message SendResponse {
     // TODO(roasbeef): info about route? stats?
@@ -277,14 +286,17 @@ message PendingUpdate {
 
 message OpenChannelRequest {
     int32 target_peer_id = 1;
+
     bytes node_pubkey = 2;
 
-    int64 local_funding_amount = 3;
-    int64 remote_funding_amount = 4;
+    string node_pubkey_string = 3;
 
-    int64 commission_size = 5;
+    int64 local_funding_amount = 4;
+    int64 remote_funding_amount = 5;
 
-    uint32 num_confs = 6;
+    int64 commission_size = 6;
+
+    uint32 num_confs = 7;
 }
 message OpenStatusUpdate {
     oneof update {

@@ -28,6 +28,10 @@ const (
 	// lengthHeaderSize is the number of bytes used to prefix encode the
 	// length of a message payload.
 	lengthHeaderSize = 2
+
+	// keyRotationInterval is the number of messages sent on a single
+	// cipher stream before the keys are rotated forwards.
+	keyRotationInterval = 1000
 )
 
 var (
@@ -42,7 +46,7 @@ var (
 // sent once the handshake has completed.
 type cipherState struct {
 	// nonce is the nonce passed into the chacha20-poly1305 instance for
-	// encryption+decryption. The nonce is incremented after each succesful
+	// encryption+decryption. The nonce is incremented after each successful
 	// encryption/decryption.
 	//
 	// TODO(roasbeef): this should actually be 96 bit
@@ -54,6 +58,10 @@ type cipherState struct {
 	// TODO(roasbeef): m-lock??
 	secretKey [32]byte
 
+	// salt is an additional secret which is used during key rotation to
+	// generate new keys.
+	salt [32]byte
+
 	// cipher is an instance of the ChaCha20-Poly1305 AEAD construction
 	// created using the secretKey above.
 	cipher cipher.AEAD
@@ -64,6 +72,10 @@ type cipherState struct {
 func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []byte {
 	defer func() {
 		c.nonce++
+
+		if c.nonce > keyRotationInterval {
+			c.rotateKey()
+		}
 	}()
 
 	var nonce [12]byte
@@ -78,6 +90,10 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]byte, error) {
 	defer func() {
 		c.nonce++
+
+		if c.nonce > keyRotationInterval {
+			c.rotateKey()
+		}
 	}()
 
 	var nonce [12]byte
@@ -92,6 +108,37 @@ func (c *cipherState) InitializeKey(key [32]byte) {
 	c.secretKey = key
 	c.nonce = 0
 	c.cipher = chacha20.NewChaCha20Poly1305(&c.secretKey)
+}
+
+// InitializeKeyWithSalt is identical to InitializeKey however it also sets the
+// cipherState's salt field which is used for key rotation.
+func (c *cipherState) InitializeKeyWithSalt(salt, key [32]byte) {
+	c.salt = salt
+	c.InitializeKey(key)
+}
+
+// rotateKey rotates the current encryption/decryption key for this cipherState
+// instance. Key rotation is performed by ratcheting the current key forward
+// using an HKDF invocation with the cipherState's salt as the salt, and the
+// current key as the input.
+func (c *cipherState) rotateKey() {
+	var (
+		info    []byte
+		nextKey [32]byte
+	)
+
+	oldKey := c.secretKey
+	h := hkdf.New(sha256.New, c.salt[:], oldKey[:], info)
+
+	// hkdf(ck, k, zero)
+	// |
+	// | \
+	// |  \
+	// ck  k'
+	h.Read(c.salt[:])
+	h.Read(nextKey[:])
+
+	c.InitializeKey(nextKey)
 }
 
 // symmetricState encapsulates a cipherState object and houses the ephemeral
@@ -112,14 +159,14 @@ type symmetricState struct {
 	// messages or payloads sent until the next DH operation is executed.
 	tempKey [32]byte
 
-	// handshakeDigest is the cummulative hash digest of all handshake
+	// handshakeDigest is the cumulative hash digest of all handshake
 	// messages sent from start to finish. This value is never transmitted
 	// to the other side, but will be used as the AD when
 	// encrypting/decrypting messages using our AEAD construction.
 	handshakeDigest [32]byte
 }
 
-// mixKey is implements a basic HKDF-based key rachet. This method is called
+// mixKey is implements a basic HKDF-based key ratchet. This method is called
 // with the result of each DH output generated during the handshake process.
 // The first 32 bytes extract from the HKDF reader is the next chaining key,
 // then latter 32 bytes become the temp secret key using within any future AEAD
@@ -143,7 +190,7 @@ func (s *symmetricState) mixKey(input []byte) {
 	s.InitializeKey(s.tempKey)
 }
 
-// mixHash hashes the passed input data into the cummulative handshake digest.
+// mixHash hashes the passed input data into the cumulative handshake digest.
 // The running result of this value (h) is used as the associated data in all
 // decryption/encryption operations.
 func (s *symmetricState) mixHash(data []byte) {
@@ -191,7 +238,7 @@ func (s *symmetricState) InitializeSymmetric(protocolName []byte) {
 
 // handshakeState encapsulates the symmetricState and keeps track of all the
 // public keys (static and ephemeral) for both sides during the handshake
-// transscript. If the handshake completes successfuly, then two instances of a
+// transcript. If the handshake completes successfully, then two instances of a
 // cipherState are emitted: one to encrypt messages from initiator to
 // responder, and the other for the opposite direction.
 type handshakeState struct {
@@ -207,7 +254,7 @@ type handshakeState struct {
 }
 
 // newHandshakeState returns a new instance of the handshake state initialized
-// with the prologue and protocol name. If this is the respodner's handshake
+// with the prologue and protocol name. If this is the responder's handshake
 // state, then the remotePub can be nil.
 func newHandshakeState(initiator bool, prologue []byte,
 	localPub *btcec.PrivateKey, remotePub *btcec.PublicKey) handshakeState {
@@ -218,10 +265,10 @@ func newHandshakeState(initiator bool, prologue []byte,
 		remoteStatic: remotePub,
 	}
 
-	// Set the current chainking key and handshake digest to the hash of
-	// the protocol name, and additionally mix in the prologue. If either
-	// sides disagree about the prologue or protocol name, then the
-	// handshake will fail.
+	// Set the current chaining key and handshake digest to the hash of the
+	// protocol name, and additionally mix in the prologue. If either sides
+	// disagree about the prologue or protocol name, then the handshake
+	// will fail.
 	h.InitializeSymmetric([]byte(protocolName))
 	h.mixHash(prologue)
 
@@ -245,7 +292,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 // chacha20 AEAD cipher. On the wire, all messages are prefixed with an
 // authenticated+encrypted length field. Additionally, the encrypted+auth'd
 // length prefix is used as the AD when encrypting+decryption messages. This
-// construction provides confidentiallity of packet length, avoids introducing
+// construction provides confidentiality of packet length, avoids introducing
 // a padding-oracle, and binds the encrypted packet length to the packet
 // itself.
 //
@@ -311,7 +358,7 @@ const (
 // to responder. During act one the initiator generates a fresh ephemeral key,
 // hashes it into the handshake digest, and performs an ECDH between this key
 // and the responder's static key. Future payloads are encrypted with a key
-// dervied from this result.
+// derived from this result.
 //
 //    -> e, es
 func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
@@ -342,9 +389,9 @@ func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
 }
 
 // RecvActOne processes the act one packet sent by the initiator. The responder
-// executes the mirroed actions to that of the initiator extending the
+// executes the mirrored actions to that of the initiator extending the
 // handshake digest and deriving a new shared secret based on a ECDH with the
-// initiator's ephemeral key and reponder's static key.
+// initiator's ephemeral key and responder's static key.
 func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
 	var (
 		err error
@@ -409,7 +456,7 @@ func (b *BrontideMachine) GenActTwo() ([ActTwoSize]byte, error) {
 }
 
 // RecvActTwo processes the second packet (act two) sent from the responder to
-// the initiator. A succesful processing of this packet authenticates the
+// the initiator. A successful processing of this packet authenticates the
 // initiator to the responder.
 func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	var (
@@ -441,9 +488,9 @@ func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 
 // GenActThree creates the final (act three) packet of the handshake. Act three
 // is to be sent from the initiator to the responder. The purpose of act three
-// is to transmit the initiator's public key under strong forwad secrecy to the
-// responder. This act also includes the final ECDH operation which yields the
-// final session.
+// is to transmit the initiator's public key under strong forward secrecy to
+// the responder. This act also includes the final ECDH operation which yields
+// the final session.
 //
 //    -> s, se
 func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
@@ -469,7 +516,7 @@ func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
 
 // RecvActThree processes the final act (act three) sent from the initiator to
 // the responder. After processing this act, the responder learns of the
-// initiators's static public key. Decryption of the static key serves to
+// initiator's static public key. Decryption of the static key serves to
 // authenticate the initiator to the responder.
 func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
 	var (
@@ -506,7 +553,7 @@ func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
 	return nil
 }
 
-// split is the final wrap-up act to be executed at the end of a succesful
+// split is the final wrap-up act to be executed at the end of a successful
 // three act handshake. This function creates to internal cipherState
 // instances: one which is used to encrypt messages from the initiator to the
 // responder, and another which is used to encrypt message for the opposite
@@ -520,25 +567,25 @@ func (b *BrontideMachine) split() {
 
 	h := hkdf.New(sha256.New, b.chainingKey[:], empty, empty)
 
-	// If we're the initiator the the frist 32 bytes are used to encrypt
-	// our messages and the second 32-bytes to decrypt their messages. For
-	// the responder the opposite is true.
+	// If we're the initiator the first 32 bytes are used to encrypt our
+	// messages and the second 32-bytes to decrypt their messages. For the
+	// responder the opposite is true.
 	if b.initiator {
 		h.Read(sendKey[:])
 		b.sendCipher = cipherState{}
-		b.sendCipher.InitializeKey(sendKey)
+		b.sendCipher.InitializeKeyWithSalt(b.chainingKey, sendKey)
 
 		h.Read(recvKey[:])
 		b.recvCipher = cipherState{}
-		b.recvCipher.InitializeKey(recvKey)
+		b.recvCipher.InitializeKeyWithSalt(b.chainingKey, recvKey)
 	} else {
 		h.Read(recvKey[:])
 		b.recvCipher = cipherState{}
-		b.recvCipher.InitializeKey(recvKey)
+		b.recvCipher.InitializeKeyWithSalt(b.chainingKey, recvKey)
 
 		h.Read(sendKey[:])
 		b.sendCipher = cipherState{}
-		b.sendCipher.InitializeKey(sendKey)
+		b.sendCipher.InitializeKeyWithSalt(b.chainingKey, sendKey)
 	}
 }
 
@@ -577,7 +624,7 @@ func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
 	return nil
 }
 
-// ReadMessage attemps to read the next message from the passed io.Reader. In
+// ReadMessage attempts to read the next message from the passed io.Reader. In
 // the case of an authentication error, a non-nil error is returned.
 func (b *BrontideMachine) ReadMessage(r io.Reader) ([]byte, error) {
 	var cipherLen [lengthHeaderSize + macSize]byte
@@ -603,5 +650,3 @@ func (b *BrontideMachine) ReadMessage(r io.Reader) ([]byte, error) {
 	// packet length is authenticated along with the packet itself.
 	return b.recvCipher.Decrypt(cipherLen[:], nil, ciperText)
 }
-
-// TODO(roasbeef): key rotation

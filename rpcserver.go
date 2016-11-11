@@ -479,11 +479,14 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
 
+	channels, err := r.server.chanDB.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
+
 	var balance btcutil.Amount
-	for _, peer := range r.server.Peers() {
-		for _, snapshot := range peer.ChannelSnapshots() {
-			balance += snapshot.LocalBalance
-		}
+	for _, channel := range channels {
+		balance += channel.OurBalance
 	}
 
 	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil

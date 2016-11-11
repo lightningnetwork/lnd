@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -236,11 +237,16 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+
+	// TODO(roasbeef): make it optional
 	nodepubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
 	if err != nil {
 		return err
 	}
 
+	// Instruct the server to trigger the necessary events to attempt to
+	// open a new channel. A stream is returned in place, this stream will
+	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
 		nodepubKey, localFundingAmt, remoteFundingAmt, in.NumConfs)
 
@@ -282,6 +288,63 @@ out:
 	rpcsLog.Tracef("[openchannel] success peerid(%v), ChannelPoint(%v)",
 		in.TargetPeerId, outpoint)
 	return nil
+}
+
+// OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
+// call is meant to be consumed by clients to the REST proxy. As with all other
+// sync calls, all byte slices are instead to be populated as hex encoded
+// strings.
+func (r *rpcServer) OpenChannelSync(ctx context.Context,
+	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
+
+	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
+		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
+		in.LocalFundingAmount, in.RemoteFundingAmount, in.NumConfs)
+
+	// Decode the provided target node's public key, parsing it into a pub
+	// key object. For all sync call, byte slices are expected to be
+	// encoded as hex strings.
+	keyBytes, err := hex.DecodeString(in.NodePubkeyString)
+	if err != nil {
+		return nil, err
+	}
+	nodepubKey, err := btcec.ParsePubKey(keyBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
+	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+
+	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
+		nodepubKey, localFundingAmt, remoteFundingAmt, in.NumConfs)
+
+	select {
+	// If an error occurs them immediately return the error to the client.
+	case err := <-errChan:
+		rpcsLog.Errorf("unable to open channel to "+
+			"identityPub(%x) nor peerID(%v): %v",
+			nodepubKey, in.TargetPeerId, err)
+		return nil, err
+
+	// Otherwise, wait for the first channel update. The first update sent
+	// is when the funding transaction is broadcast to the network.
+	case fundingUpdate := <-updateChan:
+		rpcsLog.Tracef("[openchannel] sending update: %v",
+			fundingUpdate)
+
+		// Parse out the txid of the pending funding transaction. The
+		// sync client can use this to poll against the list of
+		// PendingChannels.
+		openUpdate := fundingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+		chanUpdate := openUpdate.ChanPending
+
+		return &lnrpc.ChannelPoint{
+			FundingTxid: chanUpdate.Txid,
+		}, nil
+	case <-r.quit:
+		return nil, nil
+	}
 }
 
 // CloseChannel attempts to close an active channel identified by its channel
@@ -515,7 +578,6 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
-	const queryTimeout = time.Duration(time.Second * 10)
 	errChan := make(chan error, 1)
 	payChan := make(chan *lnrpc.SendRequest)
 
@@ -552,65 +614,37 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		case err := <-errChan:
 			return err
 		case nextPayment := <-payChan:
-			// Query the routing table for a potential path to the
-			// destination node. If a path is ultimately
-			// unavailable, then an error will be returned.
-			destNode := hex.EncodeToString(nextPayment.Dest)
-			targetVertex := graph.NewID(destNode)
-			path, err := r.server.routingMgr.FindPath(targetVertex,
-				queryTimeout)
-			if err != nil {
-				return err
-			}
-			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
-
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
 			// request.
 			var rHash [32]byte
-			if cfg.DebugHTLC {
+			if cfg.DebugHTLC && len(nextPayment.PaymentHash) == 0 {
 				rHash = debugHash
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
 			}
 
-			// Generate the raw encoded sphinx packet to be
-			// included along with the HTLC add message.  We snip
-			// off the first hop from the path as within the
-			// routing table's star graph, we're always the first
-			// hop.
-			sphinxPacket, err := generateSphinxPacket(path[1:], rHash[:])
+			// Construct and HTLC packet which a payment route (if
+			// one is found) to the destination using a Sphinx
+			// onoin packet to encode the route.
+			dest := hex.EncodeToString(nextPayment.Dest)
+			htlcPkt, err := r.constructPaymentRoute(dest,
+				nextPayment.Amt, rHash)
 			if err != nil {
 				return err
 			}
 
-			// Craft an HTLC packet to send to the routing
-			// sub-system. The meta-data within this packet will be
-			// used to route the payment through the network.
-			htlcAdd := &lnwire.HTLCAddRequest{
-				Amount:           lnwire.CreditsAmount(nextPayment.Amt),
-				RedemptionHashes: [][32]byte{rHash},
-				OnionBlob:        sphinxPacket,
-			}
-			firstHopPub, err := hex.DecodeString(path[1].String())
-			if err != nil {
-				return err
-			}
-			destAddr := wire.ShaHash(fastsha256.Sum256(firstHopPub))
-			htlcPkt := &htlcPacket{
-				dest: destAddr,
-				msg:  htlcAdd,
-			}
-
+			// We launch a new goroutine to execute the current
+			// payment so we can continue to serve requests while
+			// this payment is being dispatiched.
+			//
 			// TODO(roasbeef): semaphore to limit num outstanding
 			// goroutines.
 			go func() {
 				// Finally, send this next packet to the
 				// routing layer in order to complete the next
 				// payment.
-				// TODO(roasbeef): this should go through the
-				// L3 router once multi-hop is in place.
 				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 					errChan <- err
 					return
@@ -627,6 +661,95 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	}
 
 	return nil
+}
+
+// SendPaymentSync is the synchronous non-streaming version of SendPayment.
+// This RPC is intended to be consumed by clients of the REST proxy.
+// Additionally, this RPC expects the destination's public key and the payment
+// hash (if any) to be encoded as hex strings.
+func (r *rpcServer) SendPaymentSync(ctx context.Context,
+	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+
+	// If we're in debug HTLC mode, then all outgoing HTLC's will pay to
+	// the same debug rHash. Otherwise, we pay to the rHash specified
+	// within the RPC request.
+	var rHash [32]byte
+	if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
+		rHash = debugHash
+	} else {
+		paymentHash, err := hex.DecodeString(nextPayment.PaymentHashString)
+		if err != nil {
+			return nil, err
+		}
+
+		copy(rHash[:], paymentHash)
+	}
+
+	// Construct and HTLC packet which a payment route (if
+	// one is found) to the destination using a Sphinx
+	// onoin packet to encode the route.
+	htlcPkt, err := r.constructPaymentRoute(nextPayment.DestString,
+		nextPayment.Amt, rHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, send this next packet to the routing layer in order to
+	// complete the next payment.
+	if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.SendResponse{}, nil
+}
+
+// constructPaymentRoute attempts to construct a complete HTLC packet which
+// encapsulates a Sphinx onion packet that encodes the end-to-end route any
+// payment instructions necessary to complete an HTLC. If a route is unable to
+// be located, then an error is returned indicating as much.
+func (r *rpcServer) constructPaymentRoute(destPubkey string, amt int64,
+	rHash [32]byte) (*htlcPacket, error) {
+
+	const queryTimeout = time.Duration(time.Second * 10)
+
+	// Query the routing table for a potential path to the destination
+	// node. If a path is ultimately unavailable, then an error will be
+	// returned.
+	targetVertex := graph.NewID(destPubkey)
+	path, err := r.server.routingMgr.FindPath(targetVertex,
+		queryTimeout)
+	if err != nil {
+		return nil, err
+	}
+	rpcsLog.Tracef("[sendpayment] selected route: %v", path)
+
+	// Generate the raw encoded sphinx packet to be included along with the
+	// HTLC add message.  We snip off the first hop from the path as within
+	// the routing table's star graph, we're always the first hop.
+	sphinxPacket, err := generateSphinxPacket(path[1:], rHash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Craft an HTLC packet to send to the routing sub-system. The
+	// meta-data within this packet will be used to route the payment
+	// through the network.
+	htlcAdd := &lnwire.HTLCAddRequest{
+		Amount:           lnwire.CreditsAmount(amt),
+		RedemptionHashes: [][32]byte{rHash},
+		OnionBlob:        sphinxPacket,
+	}
+
+	firstHopPub, err := hex.DecodeString(path[1].String())
+	if err != nil {
+		return nil, err
+	}
+	destInterface := wire.ShaHash(fastsha256.Sum256(firstHopPub))
+
+	return &htlcPacket{
+		dest: destInterface,
+		msg:  htlcAdd,
+	}, nil
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
@@ -703,13 +826,30 @@ func generateSphinxPacket(vertexes []graph.ID, paymentHash []byte) ([]byte, erro
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
-	preImage := invoice.RPreimage
-	preimageLength := len(preImage)
-	if preimageLength != 32 {
+	var paymentPreimage [32]byte
+
+	switch {
+	// If a preimage wasn't specified, then we'll generate a new preimage
+	// from fresh cryptographic randomness.
+	case len(invoice.RPreimage) == 0:
+		if _, err := rand.Read(paymentPreimage[:]); err != nil {
+			return nil, err
+		}
+
+	// Otherwise, if a preimage was specified, then it MUST be exactly
+	// 32-bytes.
+	case len(invoice.RPreimage) > 0 && len(invoice.RPreimage) != 32:
 		return nil, fmt.Errorf("payment preimage must be exactly "+
-			"32 bytes, is instead %v", preimageLength)
+			"32 bytes, is instead %v", len(invoice.RPreimage))
+
+	// If the preimage meets the size specifications, then it can be used
+	// as is.
+	default:
+		copy(paymentPreimage[:], invoice.RPreimage[:])
 	}
 
+	// The size of the memo and receipt attached must not exceed the
+	// maximum values for either of the fields.
 	if len(invoice.Memo) > channeldb.MaxMemoSize {
 		return nil, fmt.Errorf("memo too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
@@ -727,18 +867,23 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: btcutil.Amount(invoice.Value),
 		},
 	}
-	copy(i.Terms.PaymentPreimage[:], preImage)
+	copy(i.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
 			return spew.Sdump(i)
 		}))
 
+	// With all sanity checks passed, write the invoice to the database.
 	if err := r.server.invoices.AddInvoice(i); err != nil {
 		return nil, err
 	}
 
-	rHash := fastsha256.Sum256(preImage)
+	// Finally generate the payment hash itself from the pre-image. This
+	// will be used by clients to query for the state of a particular
+	// invoice.
+	rHash := fastsha256.Sum256(paymentPreimage[:])
+
 	return &lnrpc.AddInvoiceResponse{
 		RHash: rHash[:],
 	}, nil
@@ -902,6 +1047,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 func (r *rpcServer) GetTransactions(context.Context,
 	*lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
 
+	// TODO(roasbeef): add pagination support
 	transactions, err := r.server.lnwallet.ListTransactionDetails()
 	if err != nil {
 		return nil, err

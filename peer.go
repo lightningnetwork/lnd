@@ -228,6 +228,19 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanPoint] = lnChan
 		peerLog.Infof("peerID(%v) loaded ChannelPoint(%v)", p.id, chanPoint)
 
+		// Notify the routing table of this newly loaded channel.
+		chanInfo := lnChan.StateSnapshot()
+		capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
+		pubSerialized := p.addr.IdentityKey.SerializeCompressed()
+		vertex := hex.EncodeToString(pubSerialized)
+		p.server.routingMgr.OpenChannel(
+			graph.NewID(vertex),
+			graph.NewEdgeID(chanInfo.ChannelPoint.String()),
+			&rt.ChannelInfo{
+				Cpt: capacity,
+			},
+		)
+
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.

@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"fmt"
+	"io"
+)
 
 // Pong defines a message which is the direct response to a received Ping
 // message. A Pong reply indicates that a connection is still active. The Pong
@@ -74,4 +77,11 @@ func (p *Pong) MaxPayloadLength(uint32) uint32 {
 // This is part of the lnwire.Message interface.
 func (p *Pong) Validate() error {
 	return nil
+}
+
+// String returns the string representation of the target Pong.
+//
+// This is part of the lnwire.Message interface.
+func (p *Pong) String() string {
+	return fmt.Sprintf("Pong(%v)", p.Nonce)
 }

@@ -371,6 +371,9 @@ message Invoice {
     int64 value = 5;
 
     bool settled = 6;
+
+    int64 creation_date = 7;
+    int64 settle_date = 8;
 }
 message AddInvoiceResponse {
     bytes r_hash = 1;

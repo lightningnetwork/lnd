@@ -956,11 +956,12 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
 		invoice := &lnrpc.Invoice{
-			Memo:      string(dbInvoice.Memo[:]),
-			Receipt:   dbInvoice.Receipt[:],
-			RPreimage: dbInvoice.Terms.PaymentPreimage[:],
-			Value:     int64(dbInvoice.Terms.Value),
-			Settled:   dbInvoice.Terms.Settled,
+			Memo:         string(dbInvoice.Memo[:]),
+			Receipt:      dbInvoice.Receipt[:],
+			RPreimage:    dbInvoice.Terms.PaymentPreimage[:],
+			Value:        int64(dbInvoice.Terms.Value),
+			Settled:      dbInvoice.Terms.Settled,
+			CreationDate: dbInvoice.CreationDate.Unix(),
 		}
 
 		invoices[i] = invoice

@@ -633,6 +633,10 @@
     "lnrpcInvoice": {
       "type": "object",
       "properties": {
+        "creation_date": {
+          "type": "string",
+          "format": "int64"
+        },
         "memo": {
           "type": "string",
           "format": "string"
@@ -648,6 +652,10 @@
         "receipt": {
           "type": "string",
           "format": "byte"
+        },
+        "settle_date": {
+          "type": "string",
+          "format": "int64"
         },
         "settled": {
           "type": "boolean",

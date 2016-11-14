@@ -91,6 +91,10 @@ type lightningNode struct {
 	cmd     *exec.Cmd
 	pidFile string
 
+	// processExit is a channel that's closed once it's detected that the
+	// process this instance of lightningNode is bound to has exited.
+	processExit chan struct{}
+
 	extraArgs []string
 
 	lnrpc.LightningClient
@@ -121,13 +125,13 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 
 	numActiveNodes++
 
-	return &lightningNode{
-		cfg:       cfg,
-		p2pAddr:   net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
-		rpcAddr:   net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
-		rpcCert:   rpcConfig.Certificates,
-		nodeId:    nodeNum,
-		extraArgs: lndArgs,
+	return &lightningNode{cfg: cfg,
+		p2pAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
+		rpcAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
+		rpcCert:     rpcConfig.Certificates,
+		nodeId:      nodeNum,
+		processExit: make(chan struct{}),
+		extraArgs:   lndArgs,
 	}, nil
 }
 
@@ -176,6 +180,9 @@ func (l *lightningNode) start(lndError chan error) error {
 		if err := l.cmd.Wait(); err != nil {
 			lndError <- errors.New(errb.String())
 		}
+
+		// Signal any onlookers that this process has exited.
+		close(l.processExit)
 	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
@@ -253,6 +260,22 @@ func (l *lightningNode) stop() error {
 		return l.cmd.Process.Signal(os.Kill)
 	}
 	return l.cmd.Process.Signal(os.Interrupt)
+}
+
+// restart attempts to restart a lightning node by shutting it down cleanly,
+// then restarting the process. This function is fully blocking. Upon restart,
+// the RPC connection to the node will be re-attempted, continuing iff the
+// connection attempt is successful.
+func (l *lightningNode) restart(errChan chan error) error {
+	if err := l.stop(); err != nil {
+		return nil
+	}
+
+	<-l.processExit
+
+	l.processExit = make(chan struct{})
+
+	return l.start(errChan)
 }
 
 // shutdown stops the active lnd process and clean up any temporary directories
@@ -511,6 +534,18 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 	}
 
 	return nil
+}
+
+// RestartNode  attempts to restart a lightning node by shutting it down
+// cleanly, then restarting the process. This function is fully blocking. Upon
+// restart, the RPC connection to the node will be re-attempted, continuing iff
+// the connection attempt is successful.
+//
+// This method can be useful when testing edge cases such as a node broadcast
+// and invalidated prior state, or persistent state recovery, simulating node
+// crashes, etc.
+func (n *networkHarness) RestartNode(node *lightningNode) error {
+	return node.restart(n.lndErrorChan)
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?

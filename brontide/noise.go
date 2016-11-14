@@ -330,6 +330,8 @@ func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 	return &BrontideMachine{handshakeState: handshake}
 }
 
+// TODO(roasbeef): add version bytes, paramterize in constructor above
+
 const (
 	// ActOneSize is the size of the packet sent from initiator to
 	// responder in ActOne. The packet consists of an ephemeral key in
@@ -613,10 +615,10 @@ func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
 		return err
 	}
 
-	// Next, write out the encrypted packet itself. We use the encrypted
-	// packet length above as the AD to the cipher in order to bind both
-	// messages together thwarting an active attack.
-	cipherText := b.sendCipher.Encrypt(cipherLen, nil, p)
+	// Finally, write out the encrypted packet itself. We only write out a
+	// single packet, as any fragmentation should have taken place at a
+	// higher level.
+	cipherText := b.sendCipher.Encrypt(nil, nil, p)
 	if _, err := w.Write(cipherText); err != nil {
 		return err
 	}
@@ -646,7 +648,5 @@ func (b *BrontideMachine) ReadMessage(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
-	// Finally, return the decrypted packet ensuring that the encrypted
-	// packet length is authenticated along with the packet itself.
-	return b.recvCipher.Decrypt(cipherLen[:], nil, ciperText)
+	return b.recvCipher.Decrypt(nil, nil, ciperText)
 }

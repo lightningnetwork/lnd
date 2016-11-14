@@ -580,6 +580,10 @@
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
+        "block_height": {
+          "type": "integer",
+          "format": "int64"
+        },
         "identity_pubkey": {
           "type": "string",
           "format": "string"
@@ -599,6 +603,10 @@
         "num_pending_channels": {
           "type": "integer",
           "format": "int64"
+        },
+        "synced_to_chain": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },

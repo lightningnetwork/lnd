@@ -248,6 +248,9 @@ message GetInfoResponse {
     uint32 num_active_channels = 5;
 
     uint32 num_peers = 6;
+
+    uint32 block_height = 7;
+    bool synced_to_chain = 8;
 }
 
 message ConfirmationUpdate {

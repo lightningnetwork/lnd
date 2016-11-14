@@ -166,7 +166,7 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 	return nil
 }
 
-// createTestChannels creates two test channels funded witr 10 BTC, with 5 BTC
+// createTestChannels creates two test channels funded with 10 BTC, with 5 BTC
 // allocated to each side.
 func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChannel, func(), error) {
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),

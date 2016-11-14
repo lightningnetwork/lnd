@@ -421,6 +421,8 @@ out:
 			// channel in which we were the responder. Therefore
 			// we need to possibly block until the new channel has
 			// propagated internally through the system.
+			// TODO(roasbeef): replace with atomic load from/into
+			// map?
 			p.barrierMtx.RLock()
 			barrier, ok := p.newChanBarriers[*targetChan]
 			p.barrierMtx.RUnlock()
@@ -688,7 +690,7 @@ out:
 // executeForceClose executes a unilateral close of the target channel by
 // broadcasting the current commitment state directly on-chain. Once the
 // commitment transaction has been broadcast, a struct describing the final
-// state of the channel is sent to the utxoNursery in order to ultimatley sweep
+// state of the channel is sent to the utxoNursery in order to ultimately sweep
 // the immature outputs.
 func (p *peer) executeForceClose(channel *lnwallet.LightningChannel) (*wire.ShaHash, error) {
 	// Execute a unilateral close shutting down all further channel

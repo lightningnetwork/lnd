@@ -772,9 +772,9 @@ func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	return elkremRoot
 }
 
-// setHeightHint encodes the current state number within the passed commitment
-// transaction by re-purposing the sequence fields in the input of the
-// commitment transaction to encode the obfuscated state number. The state
+// setStateNumHint encodes the current state number within the passed
+// commitment transaction by re-purposing the sequence fields in the input of
+// the commitment transaction to encode the obfuscated state number. The state
 // number is encoded using 31-bits of the sequence number, with the top bit set
 // in order to disable BIP0068 (sequence locks) semantics. Finally before
 // encoding, the obfuscater is XOR'd against the state number in order to hide
@@ -809,7 +809,7 @@ func setStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
 	return nil
 }
 
-// getHeightHint recovers the current state number given a commitment
+// getStateNumHint recovers the current state number given a commitment
 // transaction which has previously had the state number encoded within it via
 // setStateNumHint and a shared obsfucator.
 //

@@ -199,6 +199,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case [4]byte:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
 	case []byte:
 		// Enforce the maxmium length of all slices used in the wire
 		// protocol.
@@ -450,6 +454,10 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
 		return nil
+	case *[4]byte:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
+			return err
+		}
 	case *[]byte:
 		bytes, err := wire.ReadVarBytes(r, 0, MaxSliceLength, "byte slice")
 		if err != nil {

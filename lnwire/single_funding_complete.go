@@ -35,18 +35,27 @@ type SingleFundingComplete struct {
 	// will send a pre-image which will allow the initiator to sweep the
 	// initiator's funds if the violate the contract.
 	RevocationKey *btcec.PublicKey
+
+	// StateHintObsfucator is the set of bytes used by the initiator to
+	// obsfucate the state number encoded within the sequence number for
+	// the commitment transaction's only input. The initiator generates
+	// this value by hashing the 0th' state derived from the revocation PRF
+	// an additional time.
+	StateHintObsfucator [4]byte
 }
 
 // NewSingleFundingComplete creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingComplete(chanID uint64, fundingPoint *wire.OutPoint,
-	commitSig *btcec.Signature, revokeKey *btcec.PublicKey) *SingleFundingComplete {
+	commitSig *btcec.Signature, revokeKey *btcec.PublicKey,
+	obsfucator [4]byte) *SingleFundingComplete {
 
 	return &SingleFundingComplete{
-		ChannelID:       chanID,
-		FundingOutPoint: fundingPoint,
-		CommitSignature: commitSig,
-		RevocationKey:   revokeKey,
+		ChannelID:           chanID,
+		FundingOutPoint:     fundingPoint,
+		CommitSignature:     commitSig,
+		RevocationKey:       revokeKey,
+		StateHintObsfucator: obsfucator,
 	}
 }
 
@@ -64,7 +73,8 @@ func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 		&s.ChannelID,
 		&s.FundingOutPoint,
 		&s.CommitSignature,
-		&s.RevocationKey)
+		&s.RevocationKey,
+		&s.StateHintObsfucator)
 	if err != nil {
 		return err
 	}
@@ -86,7 +96,8 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 		s.ChannelID,
 		s.FundingOutPoint,
 		s.CommitSignature,
-		s.RevocationKey)
+		s.RevocationKey,
+		s.StateHintObsfucator)
 	if err != nil {
 		return err
 	}
@@ -105,11 +116,11 @@ func (s *SingleFundingComplete) Command() uint32 {
 // MaxPayloadLength returns the maximum allowed payload length for a
 // SingleFundingComplete. This is calculated by summing the max length of all
 // the fields within a SingleFundingResponse. Therefore, the final breakdown
-// is: 8 + 36 + 73 = 150
+// is: 8 + 36 + 33 + 73 + 4 = 154
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) MaxPayloadLength(uint32) uint32 {
-	return 150
+	return 154
 }
 
 // Validate examines each populated field within the SingleFundingComplete for
@@ -146,5 +157,6 @@ func (s *SingleFundingComplete) String() string {
 		fmt.Sprintf("FundingOutPoint:\t\t\t%x\n", s.FundingOutPoint) +
 		fmt.Sprintf("CommitSignature\t\t\t\t%x\n", s.CommitSignature) +
 		fmt.Sprintf("RevocationKey\t\t\t\t%x\n", rk) +
+		fmt.Sprintf("StateHintObsfucator\t\t\t%x\n", s.StateHintObsfucator) +
 		fmt.Sprintf("--- End SingleFundingComplete ---\n")
 }

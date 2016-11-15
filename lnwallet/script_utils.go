@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -21,6 +22,18 @@ var (
 	SequenceLockTimeSeconds      = uint32(1 << 22)
 	SequenceLockTimeMask         = uint32(0x0000ffff)
 	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
+)
+
+const (
+	// StateHintSize is the total number of bytes used between the sequence
+	// number and locktime of the commitment transaction use to encode a hint
+	// to the state number of a particular commitment transaction.
+	StateHintSize = 4
+
+	// maxStateHint is the maximum state number we're able to encode using
+	// StateHintSize bytes amongst the sequence number and locktime fields
+	// of the commitment transaction.
+	maxStateHint = (1 << 31) - 1
 )
 
 // witnessScriptHash generates a pay-to-witness-script-hash public key script
@@ -110,11 +123,11 @@ func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	return witness
 }
 
-// findScriptOutputIndex finds the index of the public key script output
-// matching 'script'. Additionally, a boolean is returned indicating if
-// a matching output was found at all.
+// FindScriptOutputIndex finds the index of the public key script output
+// matching 'script'. Additionally, a boolean is returned indicating if a
+// matching output was found at all.
+//
 // NOTE: The search stops after the first matching script is found.
-// TODO(roasbeef): shouldn't be public?
 func FindScriptOutputIndex(tx *wire.MsgTx, script []byte) (bool, uint32) {
 	found := false
 	index := uint32(0)
@@ -178,7 +191,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// Alternatively, the receiver can place a 0 as the second item of the
 	// witness stack if they wish to claim the HTLC with the proper
 	// pre-image as normal. In order to prevent an over-sized pre-image
-	// attack (which can create undesirable redemption asymmerties), we
+	// attack (which can create undesirable redemption asymmetries), we
 	// strongly require that all HTLC pre-images are exactly 32 bytes.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddOp(txscript.OP_SIZE)
@@ -220,7 +233,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	return builder.Script()
 }
 
-// senderHtlcSpendRevoke constructs a valid witness allowing the reciever of an
+// senderHtlcSpendRevoke constructs a valid witness allowing the receiver of an
 // HTLC to claim the output with knowledge of the revocation preimage in the
 // scenario that the sender of the HTLC broadcasts a previously revoked
 // commitment transaction. A valid spend requires knowledge of the pre-image to
@@ -239,8 +252,8 @@ func senderHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 	}
 
 	// In order to force script execution to enter the revocation clause,
-	// we place two one's as the first items in the final evalulated
-	// witness stack.
+	// we place two one's as the first items in the final evaluated witness
+	// stack.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = sweepSig
 	witnessStack[1] = revokePreimage
@@ -269,7 +282,7 @@ func senderHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
 	}
 
 	// We force script execution into the HTLC redemption clause by placing
-	// a one, then a zero as the first items in the final evalulated
+	// a one, then a zero as the first items in the final evaluated
 	// witness stack.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = sweepSig
@@ -289,8 +302,8 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 	absoluteTimeout, relativeTimeout uint32) (wire.TxWitness, error) {
 
 	// Since the HTLC output has an absolute timeout before we're permitted
-	// to sweep the output, we need to set the locktime of this sweepign
-	// transaction to that aboslute value in order to pass Script
+	// to sweep the output, we need to set the locktime of this sweeping
+	// transaction to that absolute value in order to pass Script
 	// verification.
 	sweepTx.LockTime = absoluteTimeout
 
@@ -361,13 +374,13 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// the main body of the script.
 	builder.AddOp(txscript.OP_IF)
 
-	// In this clause, the receiver can redeem the HTLC after a relative timeout.
-	// This added delay gives the sender (at this time) an opportunity to
-	// re-claim the pending HTLC in the event that the receiver
-	// (at this time) broadcasts this old commitment transaction after it
-	// has been revoked. Additionally, we require that the pre-image is
-	// exactly 32-bytes in order to avoid undesirable redemption
-	// asymmerties in the multi-hop scenario.
+	// In this clause, the receiver can redeem the HTLC after a relative
+	// timeout.  This added delay gives the sender (at this time) an
+	// opportunity to re-claim the pending HTLC in the event that the
+	// receiver (at this time) broadcasts this old commitment transaction
+	// after it has been revoked. Additionally, we require that the
+	// pre-image is exactly 32-bytes in order to avoid undesirable
+	// redemption asymmetries in the multi-hop scenario.
 	builder.AddOp(txscript.OP_SIZE)
 	builder.AddInt64(32)
 	builder.AddOp(txscript.OP_EQUALVERIFY)
@@ -381,14 +394,13 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddOp(txscript.OP_CHECKSIG)
 
 	// Otherwise, the sender will place a 0 as the first item of the
-	// witness stack forcing exeuction to enter the "else" clause of the
+	// witness stack forcing execution to enter the "else" clause of the
 	// main body of the script.
 	builder.AddOp(txscript.OP_ELSE)
 
-	// The sender will place a 1 as the second item of the witness stack
-	// in the scenario that the receiver broadcasts an invalidated
-	// commitment transaction, allowing the sender to sweep all the
-	// receiver's funds.
+	// The sender will place a 1 as the second item of the witness stack in
+	// the scenario that the receiver broadcasts an invalidated commitment
+	// transaction, allowing the sender to sweep all the receiver's funds.
 	builder.AddOp(txscript.OP_IF)
 	builder.AddOp(txscript.OP_SHA256)
 	builder.AddData(revokeHash)
@@ -397,12 +409,12 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// If not, then the sender needs to wait for the HTLC timeout. This
 	// clause may be executed if the receiver fails to present the r-value
 	// in time. This prevents the pending funds from being locked up
-	// indefinately.
+	// indefinitely.
 
 	// The sender will place a 0 as the second item of the witness stack if
 	// they wish to sweep the HTLC after an absolute refund timeout. This
 	// time out clause prevents the pending funds from being locked up
-	// indefinately.
+	// indefinitely.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddInt64(int64(absoluteTimeout))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
@@ -429,8 +441,8 @@ func receiverHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
 	paymentPreimage []byte, relativeTimeout uint32) (wire.TxWitness, error) {
 
 	// In order to properly spend the transaction, we need to set the
-	// sequence number. We do this by convering the relative block delay
-	// into a sequence number value able to be interpeted by
+	// sequence number. We do this by converting the relative block delay
+	// into a sequence number value able to be interpreted by
 	// OP_CHECKSEQUENCEVERIFY.
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, relativeTimeout)
 
@@ -551,12 +563,13 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY
 //     OP_ENDIF
 func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
-	// This script is spendable under two conditions: either the 'csvTimeout'
-	// has passed and we can redeem our funds, or they can produce a valid
-	// signature with the revocation public key. The revocation public key
-	// will *only* be known to the other party if we have divulged the
-	// revocation hash, allowing them to homomorphically derive the proper
-	// private key which corresponds to the revoke public key.
+	// This script is spendable under two conditions: either the
+	// 'csvTimeout' has passed and we can redeem our funds, or they can
+	// produce a valid signature with the revocation public key. The
+	// revocation public key will *only* be known to the other party if we
+	// have divulged the revocation hash, allowing them to homomorphically
+	// derive the proper private key which corresponds to the revoke public
+	// key.
 	builder := txscript.NewScriptBuilder()
 
 	builder.AddOp(txscript.OP_IF)
@@ -628,7 +641,7 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 
 // commitSpendRevoke constructs a valid witness allowing a node to sweep the
 // settled output of a malicious counter-party who broadcasts a revoked
-// commitment trransaction.
+// commitment transaction.
 func commitSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 	revocationPriv *btcec.PrivateKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
@@ -673,7 +686,7 @@ func commitSpendNoDelay(commitScript []byte, outputAmt btcutil.Amount,
 // pseudo-random-function. In the event that we (for some reason) broadcast a
 // revoked commitment transaction, then if the other party knows the revocation
 // pre-image, then they'll be able to derive the corresponding private key to
-// this private key by exploting the homomorphism in the elliptic curve group:
+// this private key by exploiting the homomorphism in the elliptic curve group:
 //    * https://en.wikipedia.org/wiki/Group_homomorphism#Homomorphisms_of_abelian_groups
 //
 // The derivation is performed as follows:
@@ -757,4 +770,61 @@ func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	rootReader.Read(elkremRoot[:])
 
 	return elkremRoot
+}
+
+// setHeightHint encodes the current state number within the passed commitment
+// transaction by re-purposing the sequence fields in the input of the
+// commitment transaction to encode the obfuscated state number. The state
+// number is encoded using 31-bits of the sequence number, with the top bit set
+// in order to disable BIP0068 (sequence locks) semantics. Finally before
+// encoding, the obfuscater is XOR'd against the state number in order to hide
+// the exact state number from the PoV of outside parties.
+func setStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
+	obsfucator [StateHintSize]byte) error {
+
+	// With the current schema we are only able able to encode state num
+	// hints up to 2^31. Therefore if the passed height is greater than our
+	// state hint ceiling, then exit early.
+	if stateNum >= maxStateHint {
+		return fmt.Errorf("unable to encode state, %v is greater "+
+			"state num that max of %v", stateNum, maxStateHint)
+	}
+
+	if len(commitTx.TxIn) != 1 {
+		return fmt.Errorf("commitment tx must have exactly 1 input, "+
+			"instead has %v", len(commitTx.TxIn))
+	}
+
+	// Convert the obfuscater into a uint32, then XOR that against the
+	// targeted height in order to obfuscate the state number of the
+	// commitment transaction in the case that either commitment
+	// transaction is broadcast directly on chain.
+	xorInt := binary.BigEndian.Uint32(obsfucator[:]) & (^wire.SequenceLockTimeDisabled)
+	stateNum = stateNum ^ xorInt
+
+	// Set the height bit of the sequence number in order to disable any
+	// sequence locks semantics.
+	commitTx.TxIn[0].Sequence = stateNum | wire.SequenceLockTimeDisabled
+
+	return nil
+}
+
+// getHeightHint recovers the current state number given a commitment
+// transaction which has previously had the state number encoded within it via
+// setStateNumHint and a shared obsfucator.
+//
+// See setStateNumHint for further details w.r.t exactly how the state-hints
+// are encoded.
+func getStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint32 {
+	// Convert the obfuscater into a uint32, this will be used to
+	// de-obfuscate the final recovered state number.
+	xorInt := binary.BigEndian.Uint32(obsfucator[:]) & (^wire.SequenceLockTimeDisabled)
+
+	// Retrieve the sole state hint from the sequence number of the
+	// transaction. In the process un-set the top bit.
+	stateNumXor := commitTx.TxIn[0].Sequence & (^wire.SequenceLockTimeDisabled)
+
+	// Finally, to obtain the final state number, we XOR by the obfuscater
+	// value to de-obfuscate the state number.
+	return stateNumXor ^ xorInt
 }

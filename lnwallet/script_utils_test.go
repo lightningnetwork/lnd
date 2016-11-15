@@ -83,7 +83,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
 		WitnessScript: delayScript,
-		SigHashes:    txscript.NewTxSigHashes(sweepTx),
+		SigHashes:     txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),
 		},
@@ -533,6 +533,29 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 
 			debugBuf.WriteString(fmt.Sprintf("Stack: ", vm.GetStack()))
 			debugBuf.WriteString(fmt.Sprintf("AltStack: ", vm.GetAltStack()))
+		}
+	}
+}
+
+func TestCommitTxStateHint(t *testing.T) {
+	commitTx := wire.NewMsgTx()
+	commitTx.AddTxIn(&wire.TxIn{})
+
+	var obsfucator [StateHintSize]byte
+	copy(obsfucator[:], testHdSeed[:StateHintSize])
+
+	for i := 0; i < 10000; i++ {
+		stateNum := uint32(i)
+
+		err := setStateNumHint(commitTx, stateNum, obsfucator)
+		if err != nil {
+			t.Fatalf("unable to set state num %v: %v", i, err)
+		}
+
+		extractedStateNum := getStateNumHint(commitTx, obsfucator)
+		if extractedStateNum != stateNum {
+			t.Fatalf("state number mismatched, expected %v, got %v",
+				stateNum, extractedStateNum)
 		}
 	}
 }

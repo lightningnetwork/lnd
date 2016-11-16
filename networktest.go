@@ -205,7 +205,7 @@ func (l *lightningNode) start(lndError chan error) error {
 	}
 	conn, err := grpc.Dial(l.rpcAddr, opts...)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	l.LightningClient = lnrpc.NewLightningClient(conn)
@@ -214,7 +214,7 @@ func (l *lightningNode) start(lndError chan error) error {
 	ctxb := context.Background()
 	info, err := l.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
 	if err != nil {
-		return nil
+		return err
 	}
 
 	l.PubKeyStr = info.IdentityPubkey

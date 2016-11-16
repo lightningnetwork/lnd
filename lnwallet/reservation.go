@@ -139,8 +139,11 @@ type ChannelReservation struct {
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
 	wallet *LightningWallet, id uint64, numConfs uint16) *ChannelReservation {
-	var ourBalance btcutil.Amount
-	var theirBalance btcutil.Amount
+
+	var (
+		ourBalance   btcutil.Amount
+		theirBalance btcutil.Amount
+	)
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel.
@@ -151,17 +154,44 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
 
-		// If we're initiating a single funder workflow, then we pay
-		// all the initial fees within the commitment transaction.
 		if capacity == fundingAmt+commitFee {
+			// If we're initiating a single funder workflow, then
+			// we pay all the initial fees within the commitment
+			// transaction.
 			ourBalance = capacity - commitFee
-			// Otherwise, this is a dual funder workflow where both slides
-			// split the amount funded and the commitment fee.
 		} else {
+			// Otherwise, this is a dual funder workflow where both
+			// slides split the amount funded and the commitment
+			// fee.
 			ourBalance = fundingAmt - commitFee
 		}
 
 		theirBalance = capacity - fundingAmt - commitFee
+	}
+
+	var (
+		initiator bool
+		chanType  channeldb.ChannelType
+	)
+	switch {
+	// If our balance is zero, then we're the responder to a single funder
+	// channel workflow.
+	case ourBalance == 0:
+		initiator = false
+		chanType = channeldb.SingleFunder
+
+	// Or, if their balance is zero, then we're the initiator to a single
+	// funder channel workflow.
+	case theirBalance == 0:
+		initiator = true
+		chanType = channeldb.SingleFunder
+
+	// Otherwise, if both sides are starting out with a non-zero balance,
+	// then neither of us is technically the "initiator" and this is a dual
+	// funder channel.
+	default:
+		initiator = false
+		chanType = channeldb.DualFunder
 	}
 
 	return &ChannelReservation{
@@ -173,6 +203,8 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		},
 		partialState: &channeldb.OpenChannel{
 			Capacity:     capacity,
+			IsInitiator:  initiator,
+			ChanType:     chanType,
 			OurBalance:   ourBalance,
 			TheirBalance: theirBalance,
 			MinFeePerKb:  minFeeRate,

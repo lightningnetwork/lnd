@@ -144,7 +144,11 @@ type OpenChannel struct {
 	OurCommitTx  *wire.MsgTx
 	OurCommitSig []byte
 
-	// The outpoint of the final funding transaction.
+	// StateHintObsfucator are the btyes selected by the initiator (derived
+	// from their shachain root) to obsfucate the state-hint encoded within
+	// the commitment transaction.
+	StateHintObsfucator [4]byte
+
 	// ChanType denotes which type of channel this is.
 	ChanType ChannelType
 
@@ -1265,6 +1269,10 @@ func putChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
+	if _, err := b.Write(channel.StateHintObsfucator[:]); err != nil {
+		return err
+	}
+
 	return nodeChanBucket.Put(elkremKey, b.Bytes())
 }
 
@@ -1319,6 +1327,11 @@ func fetchChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 		return err
 	}
 	channel.RemoteElkrem = remoteE
+
+	_, err = io.ReadFull(elkremStateBytes, channel.StateHintObsfucator[:])
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

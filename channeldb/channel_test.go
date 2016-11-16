@@ -132,6 +132,9 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		}
 	}
 
+	var obsfucator [4]byte
+	copy(obsfucator[:], key[:])
+
 	return &OpenChannel{
 		IsInitiator:                true,
 		ChanType:                   SingleFunder,
@@ -147,6 +150,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		OurCommitSig:               bytes.Repeat([]byte{1}, 71),
 		LocalElkrem:                sender,
 		RemoteElkrem:               receiver,
+		StateHintObsfucator:        obsfucator,
 		FundingOutpoint:            testOutpoint,
 		OurMultiSigKey:             privKey.PubKey(),
 		TheirMultiSigKey:           privKey.PubKey(),
@@ -207,7 +211,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("chan id's don't match")
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
-		t.Fatalf("fee/kb doens't match")
+		t.Fatalf("fee/kb doesn't match")
+	}
 	if state.IsInitiator != newState.IsInitiator {
 		t.Fatalf("initiator status doesn't match")
 	}
@@ -321,6 +326,10 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if !reflect.DeepEqual(state.Htlcs[0], newState.Htlcs[0]) {
 		t.Fatalf("htlcs don't match: %v vs %v", spew.Sdump(state.Htlcs[0]),
 			spew.Sdump(newState.Htlcs[0]))
+	}
+	if !bytes.Equal(state.StateHintObsfucator[:],
+		newState.StateHintObsfucator[:]) {
+		t.Fatalf("obsfuctators don't match")
 	}
 
 	// Finally to wrap up the test, delete the state of the channel within

@@ -181,6 +181,7 @@ func lndMain() error {
 		fmt.Printf("failed to listen: %v", err)
 		return err
 	}
+	defer lis.Close()
 	go func() {
 		rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 		grpcServer.Serve(lis)

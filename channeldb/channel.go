@@ -103,14 +103,17 @@ var (
 type ChannelType uint8
 
 const (
+	// NOTE: iota isn't used here for this enum needs to be stable
+	// long-term as it will be persisted to the database.
+
 	// SingleFunder represents a channel wherein one party solely funds the
 	// entire capacity of the channel.
-	SingleFunder = iota
+	SingleFunder = 0
 
 	// DualFunder represents a channel wherein both parties contribute
 	// funds towards the total capacity of the channel. The channel may be
 	// funded symmetrically or asymmetrically.
-	DualFunder
+	DualFunder = 1
 )
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel

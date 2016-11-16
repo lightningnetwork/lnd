@@ -63,7 +63,7 @@ var (
 	minFeePerKbPrefix  = []byte("mfp")
 	updatePrefix       = []byte("uup")
 	satSentPrefix      = []byte("ssp")
-	satRecievedPrefix  = []byte("srp")
+	satReceivedPrefix  = []byte("srp")
 	netFeesPrefix      = []byte("ntp")
 
 	// chanIDKey stores the node, and channelID for an active channel.
@@ -377,6 +377,9 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 		if err := putChanCapacity(chanBucket, c); err != nil {
 			return err
 		}
+		if err := putChanAmountsTransferred(chanBucket, c); err != nil {
+			return err
+		}
 		if err := putChanNumUpdates(chanBucket, c); err != nil {
 			return err
 		}
@@ -646,7 +649,7 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanNumUpdates(openChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanTotalFlow(openChanBucket, channel); err != nil {
+	if err := putChanAmountsTransferred(openChanBucket, channel); err != nil {
 		return err
 	}
 
@@ -725,7 +728,7 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanNumUpdates(openChanBucket, channel); err != nil {
 		return nil, err
 	}
-	if err = fetchChanTotalFlow(openChanBucket, channel); err != nil {
+	if err = fetchChanAmountsTransferred(openChanBucket, channel); err != nil {
 		return nil, err
 	}
 
@@ -746,7 +749,7 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := deleteChanNumUpdates(openChanBucket, channelID); err != nil {
 		return err
 	}
-	if err := deleteChanTotalFlow(openChanBucket, channelID); err != nil {
+	if err := deleteChanAmountsTransferred(openChanBucket, channelID); err != nil {
 		return err
 	}
 
@@ -926,7 +929,7 @@ func fetchChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) erro
 	return nil
 }
 
-func putChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func putChanAmountsTransferred(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	scratch1 := make([]byte, 8)
 	scratch2 := make([]byte, 8)
 
@@ -944,12 +947,12 @@ func putChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
-	copy(keyPrefix[:3], satRecievedPrefix)
+	copy(keyPrefix[:3], satReceivedPrefix)
 	byteOrder.PutUint64(scratch2, uint64(channel.TotalSatoshisReceived))
 	return openChanBucket.Put(keyPrefix, scratch2)
 }
 
-func deleteChanTotalFlow(openChanBucket *bolt.Bucket, chanID []byte) error {
+func deleteChanAmountsTransferred(openChanBucket *bolt.Bucket, chanID []byte) error {
 	keyPrefix := make([]byte, 3+len(chanID))
 	copy(keyPrefix[3:], chanID)
 
@@ -958,11 +961,11 @@ func deleteChanTotalFlow(openChanBucket *bolt.Bucket, chanID []byte) error {
 		return err
 	}
 
-	copy(keyPrefix[:3], satRecievedPrefix)
+	copy(keyPrefix[:3], satReceivedPrefix)
 	return openChanBucket.Delete(keyPrefix)
 }
 
-func fetchChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func fetchChanAmountsTransferred(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
@@ -975,7 +978,7 @@ func fetchChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 	totalSentBytes := openChanBucket.Get(keyPrefix)
 	channel.TotalSatoshisSent = byteOrder.Uint64(totalSentBytes)
 
-	copy(keyPrefix[:3], satRecievedPrefix)
+	copy(keyPrefix[:3], satReceivedPrefix)
 	totalReceivedBytes := openChanBucket.Get(keyPrefix)
 	channel.TotalSatoshisReceived = byteOrder.Uint64(totalReceivedBytes)
 

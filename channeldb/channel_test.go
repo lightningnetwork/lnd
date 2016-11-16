@@ -133,6 +133,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	}
 
 	return &OpenChannel{
+		ChanType:                   SingleFunder,
 		IdentityPub:                pubKey,
 		ChanID:                     id,
 		MinFeePerKb:                btcutil.Amount(5000),
@@ -207,6 +208,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
 		t.Fatalf("fee/kb doens't match")
+	if state.ChanType != newState.ChanType {
+		t.Fatalf("channel type doesn't match")
 	}
 
 	if !bytes.Equal(state.OurCommitKey.SerializeCompressed(),

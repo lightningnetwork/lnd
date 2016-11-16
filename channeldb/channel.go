@@ -95,6 +95,24 @@ var (
 	deliveryScriptsKey = []byte("dsk")
 )
 
+// ChannelType is an enum-like type that describes one of several possible
+// channel types. Each open channel is associated with a particular type as the
+// channel type may determine how higher level operations are conducted such as
+// fee negotiation, channel closing, the format of HTLC's, etc.
+// TODO(roasbeef): split up per-chain?
+type ChannelType uint8
+
+const (
+	// SingleFunder represents a channel wherein one party solely funds the
+	// entire capacity of the channel.
+	SingleFunder = iota
+
+	// DualFunder represents a channel wherein both parties contribute
+	// funds towards the total capacity of the channel. The channel may be
+	// funded symmetrically or asymmetrically.
+	DualFunder
+)
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)
@@ -127,6 +145,8 @@ type OpenChannel struct {
 	OurCommitSig []byte
 
 	// The outpoint of the final funding transaction.
+	// ChanType denotes which type of channel this is.
+	ChanType ChannelType
 	FundingOutpoint *wire.OutPoint
 
 	OurMultiSigKey       *btcec.PublicKey
@@ -1164,6 +1184,10 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
+	if _, err := b.Write([]byte{uint8(channel.ChanType)}); err != nil {
+		return err
+	}
+
 	return nodeChanBucket.Put(fundTxnKey, b.Bytes())
 }
 
@@ -1220,6 +1244,12 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 	unixSecs := byteOrder.Uint64(scratch)
 	channel.CreationTime = time.Unix(int64(unixSecs), 0)
+
+	var chanType [1]byte
+	if _, err := io.ReadFull(infoBytes, chanType[:]); err != nil {
+		return err
+	}
+	channel.ChanType = ChannelType(chanType[0])
 
 	return nil
 }

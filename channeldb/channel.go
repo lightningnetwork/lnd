@@ -147,6 +147,11 @@ type OpenChannel struct {
 	// The outpoint of the final funding transaction.
 	// ChanType denotes which type of channel this is.
 	ChanType ChannelType
+
+	// IsInitiator is a bool which indicates if we were the original
+	// initiator for the channel. This value may affect how higher levels
+	// negotiate fees, or close the channel.
+	IsInitiator bool
 	FundingOutpoint *wire.OutPoint
 
 	OurMultiSigKey       *btcec.PublicKey
@@ -1134,6 +1139,16 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
+	var boolByte [1]byte
+	if channel.IsInitiator {
+		boolByte[0] = 1
+	} else {
+		boolByte[0] = 0
+	}
+	if _, err := b.Write(boolByte[:]); err != nil {
+		return err
+	}
+
 	if _, err := b.Write([]byte{uint8(channel.ChanType)}); err != nil {
 		return err
 	}
@@ -1194,6 +1209,16 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 	unixSecs := byteOrder.Uint64(scratch)
 	channel.CreationTime = time.Unix(int64(unixSecs), 0)
+
+	var boolByte [1]byte
+	if _, err := io.ReadFull(infoBytes, boolByte[:]); err != nil {
+		return err
+	}
+	if boolByte[0] == 1 {
+		channel.IsInitiator = true
+	} else {
+		channel.IsInitiator = false
+	}
 
 	var chanType [1]byte
 	if _, err := io.ReadFull(infoBytes, chanType[:]); err != nil {

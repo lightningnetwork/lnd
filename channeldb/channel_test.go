@@ -133,6 +133,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	}
 
 	return &OpenChannel{
+		IsInitiator:                true,
 		ChanType:                   SingleFunder,
 		IdentityPub:                pubKey,
 		ChanID:                     id,
@@ -207,17 +208,20 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
 		t.Fatalf("fee/kb doens't match")
+	if state.IsInitiator != newState.IsInitiator {
+		t.Fatalf("initiator status doesn't match")
+	}
 	if state.ChanType != newState.ChanType {
 		t.Fatalf("channel type doesn't match")
 	}
 
 	if !bytes.Equal(state.OurCommitKey.SerializeCompressed(),
 		newState.OurCommitKey.SerializeCompressed()) {
-		t.Fatalf("our commit key dont't match")
+		t.Fatalf("our commit key doesn't match")
 	}
 	if !bytes.Equal(state.TheirCommitKey.SerializeCompressed(),
 		newState.TheirCommitKey.SerializeCompressed()) {
-		t.Fatalf("their commit key dont't match")
+		t.Fatalf("their commit key doesn't match")
 	}
 
 	if state.Capacity != newState.Capacity {
@@ -343,7 +347,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 func TestChannelStateTransition(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
-		t.Fatalf("uanble to make test database: %v", err)
+		t.Fatalf("unable to make test database: %v", err)
 	}
 	defer cleanUp()
 

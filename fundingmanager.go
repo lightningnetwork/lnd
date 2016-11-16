@@ -103,13 +103,14 @@ type fundingErrorMsg struct {
 type pendingChannels map[uint64]*reservationWithCtx
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
-// 'ChannelReservation' workflow, and the wire protocl's funding initiation
-// messages. Any requests to initaite the funding workflow for a channel, either
-// kicked-off locally, or remotely is handled by the funding manager. Once a
-// channels's funding workflow has been completed, any local callers, the local
-// peer, and possibly the remote peer are notified of the completion of the
-// channel workflow. Additionally, any temporary or permanent access controls
-// between the wallet and remote peers are enforced via the funding manager.
+// 'ChannelReservation' workflow, and the wire protocol's funding initiation
+// messages. Any requests to initiate the funding workflow for a channel,
+// either kicked-off locally, or remotely is handled by the funding manager.
+// Once a channel's funding workflow has been completed, any local callers, the
+// local peer, and possibly the remote peer are notified of the completion of
+// the channel workflow. Additionally, any temporary or permanent access
+// controls between the wallet and remote peers are enforced via the funding
+// manager.
 type fundingManager struct {
 	// MUST be used atomically.
 	started int32
@@ -464,8 +465,10 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		outPoint, msg.ChannelID)
 
 	revocationKey := resCtx.reservation.OurContribution().RevocationKey
+	obsfucator := resCtx.reservation.StateNumObfuscator()
+
 	fundingComplete := lnwire.NewSingleFundingComplete(msg.ChannelID,
-		outPoint, commitSig, revocationKey)
+		outPoint, commitSig, revocationKey, obsfucator)
 	sourcePeer.queueMsg(fundingComplete, nil)
 }
 
@@ -491,16 +494,20 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := fmsg.msg.FundingOutPoint
 	chanID := fmsg.msg.ChannelID
-	commitSig := fmsg.msg.CommitSignature.Serialize()
 	fndgLog.Infof("completing pendingID(%v) with ChannelPoint(%v)",
-		fmsg.msg.ChannelID, fundingOut,
+		chanID, fundingOut,
 	)
 
-	// Append a sighash type of SigHashAll to the signature as it's the
-	// sighash type used implicitly within this type of channel for
-	// commitment transactions.
 	revokeKey := fmsg.msg.RevocationKey
-	if err := resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut, commitSig); err != nil {
+	obsfucator := fmsg.msg.StateHintObsfucator
+	commitSig := fmsg.msg.CommitSignature.Serialize()
+
+	// With all the necessary data available, attempt to advance the
+	// funding workflow to the next stage. If this succeeds then the
+	// funding transaction will broadcast after our next message.
+	err := resCtx.reservation.CompleteReservationSingle(revokeKey,
+		fundingOut, commitSig, obsfucator)
+	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
 		fmsg.peer.Disconnect()

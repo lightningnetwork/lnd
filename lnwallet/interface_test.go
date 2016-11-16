@@ -108,6 +108,8 @@ type bobNode struct {
 	delay           uint32
 	id              *btcec.PublicKey
 
+	obsfucator [lnwallet.StateHintSize]byte
+
 	availableOutputs []*wire.TxIn
 	changeOutputs    []*wire.TxOut
 	fundingAmt       btcutil.Amount
@@ -241,6 +243,9 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 	copy(revocation[:], bobsPrivKey)
 	revocation[0] = 0xff
 
+	var obsfucator [lnwallet.StateHintSize]byte
+	copy(obsfucator[:], revocation[:])
+
 	// His ID is just as creative...
 	var id [wire.HashSize]byte
 	id[0] = 0xff
@@ -364,9 +369,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	}
 
 	// The channel reservation should now be populated with a multi-sig key
-	// from our HD chain, a change output with 3 BTC, and 2 outputs selected
-	// of 4 BTC each. Additionally, the rest of the items needed to fufill a
-	// funding contribution should also have been filled in.
+	// from our HD chain, a change output with 3 BTC, and 2 outputs
+	// selected of 4 BTC each. Additionally, the rest of the items needed
+	// to fulfill a funding contribution should also have been filled in.
 	ourContribution := chanReservation.OurContribution()
 	if len(ourContribution.Inputs) != 2 {
 		t.Fatalf("outputs for funding tx not properly selected, have %v "+
@@ -582,7 +587,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// outpoints, will let us fail early/fast instead of querying and
 	// attempting coin selection.
 
-	// Request to fund a new channel should now succeeed.
+	// Request to fund a new channel should now succeed.
 	_, err = wallet.InitChannelReservation(fundingAmount, fundingAmount,
 		testPub, bobAddr, numReqConfs, 4)
 	if err != nil {
@@ -733,6 +738,13 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 			hex.EncodeToString(channels[0].FundingOutpoint.Hash[:]),
 			hex.EncodeToString(fundingSha[:]))
 	}
+	if !channels[0].IsInitiator {
+		t.Fatalf("alice not detected as channel initiator")
+	}
+	if channels[0].ChanType != channeldb.SingleFunder {
+		t.Fatalf("channel type is incorrect, expected %v instead got %v",
+			channeldb.SingleFunder, channels[0].ChanType)
+	}
 
 	assertChannelOpen(t, miner, uint32(numReqConfs), chanReservation.DispatchChan())
 }
@@ -848,15 +860,23 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	fundingTxID := fundingTx.TxSha()
 	_, multiSigIndex := lnwallet.FindScriptOutputIndex(fundingTx, multiOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
+	bobObsfucator := bobNode.obsfucator
 
+	// Next, manually create Alice's commitment transaction, signing the
+	// fully sorted and state hinted transaction.
 	fundingTxIn := wire.NewTxIn(fundingOutpoint, nil, nil)
-	aliceCommitTx, err := lnwallet.CreateCommitTx(fundingTxIn, ourContribution.CommitKey,
-		bobContribution.CommitKey, ourContribution.RevocationKey,
-		ourContribution.CsvDelay, 0, capacity)
+	aliceCommitTx, err := lnwallet.CreateCommitTx(fundingTxIn,
+		ourContribution.CommitKey, bobContribution.CommitKey,
+		ourContribution.RevocationKey, ourContribution.CsvDelay, 0,
+		capacity)
 	if err != nil {
 		t.Fatalf("unable to create alice's commit tx: %v", err)
 	}
 	txsort.InPlaceSort(aliceCommitTx)
+	err = lnwallet.SetStateNumHint(aliceCommitTx, 0, bobObsfucator)
+	if err != nil {
+		t.Fatalf("unable to set state hint: %v", err)
+	}
 	bobCommitSig, err := bobNode.signCommitTx(aliceCommitTx,
 		// TODO(roasbeef): account for hard-coded fee, remove bob node
 		fundingRedeemScript, int64(capacity)+5000)
@@ -866,8 +886,9 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 
 	// With this stage complete, Alice can now complete the reservation.
 	bobRevokeKey := bobContribution.RevocationKey
-	if err := chanReservation.CompleteReservationSingle(bobRevokeKey,
-		fundingOutpoint, bobCommitSig); err != nil {
+	err = chanReservation.CompleteReservationSingle(bobRevokeKey,
+		fundingOutpoint, bobCommitSig, bobObsfucator)
+	if err != nil {
 		t.Fatalf("unable to complete reservation: %v", err)
 	}
 
@@ -1146,10 +1167,10 @@ func TestLightningWallet(t *testing.T) {
 	// up this node with a chain length of 125, so we have plentyyy of BTC
 	// to play around with.
 	miningNode, err := rpctest.New(netParams, nil, nil)
-	defer miningNode.TearDown()
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
+	defer miningNode.TearDown()
 	if err := miningNode.SetUp(true, 25); err != nil {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}

@@ -547,12 +547,12 @@ func TestCommitTxStateHint(t *testing.T) {
 	for i := 0; i < 10000; i++ {
 		stateNum := uint32(i)
 
-		err := setStateNumHint(commitTx, stateNum, obsfucator)
+		err := SetStateNumHint(commitTx, stateNum, obsfucator)
 		if err != nil {
 			t.Fatalf("unable to set state num %v: %v", i, err)
 		}
 
-		extractedStateNum := getStateNumHint(commitTx, obsfucator)
+		extractedStateNum := GetStateNumHint(commitTx, obsfucator)
 		if extractedStateNum != stateNum {
 			t.Fatalf("state number mismatched, expected %v, got %v",
 				stateNum, extractedStateNum)

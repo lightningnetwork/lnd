@@ -324,8 +324,10 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScr
 // the .OurSignatures() method. As this method should only be called as a
 // response to a single funder channel, only a commitment signature will be
 // populated.
-func (r *ChannelReservation) CompleteReservationSingle(revocationKey *btcec.PublicKey,
-	fundingPoint *wire.OutPoint, commitSig []byte) error {
+func (r *ChannelReservation) CompleteReservationSingle(
+	revocationKey *btcec.PublicKey, fundingPoint *wire.OutPoint,
+	commitSig []byte, obsfucator [StateHintSize]byte) error {
+
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addSingleFunderSigsMsg{
@@ -333,6 +335,7 @@ func (r *ChannelReservation) CompleteReservationSingle(revocationKey *btcec.Publ
 		revokeKey:          revocationKey,
 		fundingOutpoint:    fundingPoint,
 		theirCommitmentSig: commitSig,
+		obsfucator:         obsfucator,
 		err:                errChan,
 	}
 
@@ -393,6 +396,19 @@ func (r *ChannelReservation) FundingOutpoint() *wire.OutPoint {
 	r.RLock()
 	defer r.RUnlock()
 	return r.partialState.FundingOutpoint
+}
+
+// StateNumObfuscator returns the bytes to be used to obsfucate the state
+// number hints for all future states of the commitment transaction for this
+// workflow.
+//
+// NOTE: This value will only be available for a single funder workflow after
+// the CompleteReservation or CompleteReservationSingle methods have been
+// successfully executed.
+func (r *ChannelReservation) StateNumObfuscator() [StateHintSize]byte {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.StateHintObsfucator
 }
 
 // Cancel abandons this channel reservation. This method should be called in

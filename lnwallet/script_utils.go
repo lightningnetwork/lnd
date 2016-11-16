@@ -772,14 +772,15 @@ func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	return elkremRoot
 }
 
-// setStateNumHint encodes the current state number within the passed
+// SetStateNumHint encodes the current state number within the passed
 // commitment transaction by re-purposing the sequence fields in the input of
 // the commitment transaction to encode the obfuscated state number. The state
 // number is encoded using 31-bits of the sequence number, with the top bit set
 // in order to disable BIP0068 (sequence locks) semantics. Finally before
 // encoding, the obfuscater is XOR'd against the state number in order to hide
 // the exact state number from the PoV of outside parties.
-func setStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
+// TODO(roasbeef): unexport function after bobNode is gone
+func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
 	obsfucator [StateHintSize]byte) error {
 
 	// With the current schema we are only able able to encode state num
@@ -809,13 +810,13 @@ func setStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
 	return nil
 }
 
-// getStateNumHint recovers the current state number given a commitment
+// GetStateNumHint recovers the current state number given a commitment
 // transaction which has previously had the state number encoded within it via
 // setStateNumHint and a shared obsfucator.
 //
 // See setStateNumHint for further details w.r.t exactly how the state-hints
 // are encoded.
-func getStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint32 {
+func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint32 {
 	// Convert the obfuscater into a uint32, this will be used to
 	// de-obfuscate the final recovered state number.
 	xorInt := binary.BigEndian.Uint32(obsfucator[:]) & (^wire.SequenceLockTimeDisabled)

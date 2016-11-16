@@ -159,7 +159,6 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		NumUpdates:                 0,
 		TotalSatoshisSent:          8,
 		TotalSatoshisReceived:      2,
-		TotalNetFees:               9,
 		CreationTime:               time.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC),
 		Db:                         cdb,
 	}, nil

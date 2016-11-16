@@ -173,7 +173,6 @@ type OpenChannel struct {
 	NumUpdates            uint64
 	TotalSatoshisSent     uint64
 	TotalSatoshisReceived uint64
-	TotalNetFees          uint64    // TODO(roasbeef): total fees paid too?
 	CreationTime          time.Time // TODO(roasbeef): last update time?
 
 	Htlcs []*HTLC
@@ -583,9 +582,6 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanTotalFlow(openChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanNetFee(openChanBucket, channel); err != nil {
-		return err
-	}
 
 	// Next, write out the fields of the channel update less frequently.
 	if err := putChannelIDs(nodeChanBucket, channel); err != nil {
@@ -665,9 +661,6 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanTotalFlow(openChanBucket, channel); err != nil {
 		return nil, err
 	}
-	if err = fetchChanNetFee(openChanBucket, channel); err != nil {
-		return nil, err
-	}
 
 	return channel, nil
 }
@@ -687,9 +680,6 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := deleteChanTotalFlow(openChanBucket, channelID); err != nil {
-		return err
-	}
-	if err := deleteChanNetFee(openChanBucket, channelID); err != nil {
 		return err
 	}
 
@@ -925,47 +915,8 @@ func fetchChanTotalFlow(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 	return nil
 }
 
-func putChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	scratch := make([]byte, 8)
-
-	var b bytes.Buffer
-	if err := writeOutpoint(&b, channel.ChanID); err != nil {
-		return err
-	}
-
-	keyPrefix := make([]byte, 3+b.Len())
-	copy(keyPrefix, netFeesPrefix)
-	copy(keyPrefix[3:], b.Bytes())
-
-	byteOrder.PutUint64(scratch, uint64(channel.TotalNetFees))
-	return openChanBucket.Put(keyPrefix, scratch)
-}
-
-func deleteChanNetFee(openChanBucket *bolt.Bucket, chanID []byte) error {
-	keyPrefix := make([]byte, 3+len(chanID))
-	copy(keyPrefix, netFeesPrefix)
-	copy(keyPrefix[3:], chanID)
-	return openChanBucket.Delete(keyPrefix)
-}
-
-func fetchChanNetFee(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	var b bytes.Buffer
-	if err := writeOutpoint(&b, channel.ChanID); err != nil {
-		return err
-	}
-
-	keyPrefix := make([]byte, 3+b.Len())
-	copy(keyPrefix, netFeesPrefix)
-	copy(keyPrefix[3:], b.Bytes())
-
-	feeBytes := openChanBucket.Get(keyPrefix)
-	channel.TotalNetFees = byteOrder.Uint64(feeBytes)
-
-	return nil
-}
-
 func putChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	// TODO(roabeef): just pass in chanID everywhere for puts
+	// TODO(roasbeef): just pass in chanID everywhere for puts
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
@@ -1179,7 +1130,6 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 
 	scratch := make([]byte, 8)
 	byteOrder.PutUint64(scratch, uint64(channel.CreationTime.Unix()))
-
 	if _, err := b.Write(scratch); err != nil {
 		return err
 	}

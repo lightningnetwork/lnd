@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -16,7 +18,6 @@ import (
 	"github.com/roasbeef/btcutil"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"sync/atomic"
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -44,13 +45,12 @@ func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
 
 	if h.testCase != nil {
-		h.t.Fatalf("Failed: (%v): exited with error: \n" +
+		h.t.Fatalf("Failed: (%v): exited with error: \n"+
 			"%v", h.testCase.name, stacktrace)
 	} else {
 		h.t.Fatalf("Error outside of test: %v", stacktrace)
 	}
 }
-
 
 // RunTestCase executes a harness test-case. Any errors or panics will be
 // represented as fatal.
@@ -994,14 +994,21 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// fails immediately with a fatal error, as far as fatal is happening
 	// inside goroutine main goroutine would not be finished at the same
 	// time as we receive fatal error from lnd process.
+	testsFin := make(chan struct{})
 	go func() {
-		err := <-lndHarness.ProcessErrors()
-		ht.Fatalf("lnd finished with error (stderr): "+
-			"\n%v", err)
+		select {
+		case err := <-lndHarness.ProcessErrors():
+			ht.Fatalf("lnd finished with error (stderr): "+
+				"\n%v", err)
+		case <-testsFin:
+			return
+		}
 	}()
 
 	t.Logf("Running %v integration tests", len(testsCases))
 	for _, testCase := range testsCases {
 		ht.RunTestCase(testCase, lndHarness)
 	}
+
+	close(testsFin)
 }

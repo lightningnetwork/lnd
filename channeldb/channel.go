@@ -125,23 +125,45 @@ type OpenChannel struct {
 	// channel has been established with.
 	IdentityPub *btcec.PublicKey
 
-	// The ID of a channel is the txid of the funding transaction.
-	ChanID      *wire.OutPoint
+	// ChanID is an identifier that uniquely identifies this channel
+	// globally within the blockchain.
+	ChanID *wire.OutPoint
+
+	// MinFeePerKb is the min BTC/KB that should be paid within the
+	// commitment transaction for the entire duration of the channel's
+	// lifetime. This field may be updated during normal operation of the
+	// channel as on-chain conditions change.
 	MinFeePerKb btcutil.Amount
 
-	// Keys for both sides to be used for the commitment transactions.
-	OurCommitKey   *btcec.PublicKey
+	// OurCommitKey is the key to be used within our commitment transaction
+	// to generate the scripts for outputs paying to ourself, and
+	// revocation clauses.
+	OurCommitKey *btcec.PublicKey
+
+	// TheirCommitKey is the key to be used within our commitment
+	// transaction to generate the scripts for outputs paying to ourself,
+	// and revocation clauses.
 	TheirCommitKey *btcec.PublicKey
 
-	// Tracking total channel capacity, and the amount of funds allocated
-	// to each side.
-	Capacity     btcutil.Amount
-	OurBalance   btcutil.Amount
+	// Capacity is the total capacity of this channel.
+	// TODO(roasbeef): need another field to mark how much fees have been
+	// allocated independent of capacity.
+	Capacity btcutil.Amount
+
+	// OurBalance is the current available settled balance within the
+	// channel directly spendable by us.
+	OurBalance btcutil.Amount
+
+	// TheirBalance is the current available settled balance within the
+	// channel directly spendable by the remote node.
 	TheirBalance btcutil.Amount
 
-	// Our current commitment transaction along with their signature for
-	// our commitment transaction.
-	OurCommitTx  *wire.MsgTx
+	// OurCommitKey is the latest version of the commitment state,
+	// broadcast able by us.
+	OurCommitTx *wire.MsgTx
+
+	// OurCommitSig is one half of the signature required to fully complete
+	// the script for the commitment transaction above.
 	OurCommitSig []byte
 
 	// StateHintObsfucator are the btyes selected by the initiator (derived
@@ -156,14 +178,30 @@ type OpenChannel struct {
 	// initiator for the channel. This value may affect how higher levels
 	// negotiate fees, or close the channel.
 	IsInitiator bool
+
+	// FundingOutpoint is the outpoint of the final funding transaction.
 	FundingOutpoint *wire.OutPoint
 
-	OurMultiSigKey       *btcec.PublicKey
-	TheirMultiSigKey     *btcec.PublicKey
+	// OurMultiSigKey is the multi-sig key used within the funding
+	// transaction that we control.
+	OurMultiSigKey *btcec.PublicKey
+
+	// TheirMultiSigKey is the multi-sig key used within the funding
+	// transaction for the remote party.
+	TheirMultiSigKey *btcec.PublicKey
+
+	// FundingWitnessScript is the full witness script used within the
+	// funding transaction.
 	FundingWitnessScript []byte
 
-	// In blocks
-	LocalCsvDelay  uint32
+	// LocalCsvDelay is the delay to be used in outputs paying to us within
+	// the commitment transaction. This value is to be always expressed in
+	// terms of relative blocks.
+	LocalCsvDelay uint32
+
+	// RemoteCsvDelay is the delay to be used in outputs paying to the
+	// remote party. This value is to be always expressed in terms of
+	// relative blocks.
 	RemoteCsvDelay uint32
 
 	// Current revocation for their commitment transaction. However, since
@@ -174,16 +212,31 @@ type OpenChannel struct {
 	LocalElkrem                *elkrem.ElkremSender
 	RemoteElkrem               *elkrem.ElkremReceiver
 
-	// The pkScript for both sides to be used for final delivery in the case
-	// of a cooperative close.
-	OurDeliveryScript   []byte
+	// OurDeliveryScript is the script to be used to pay to us in
+	// cooperative closes.
+	OurDeliveryScript []byte
+
+	// OurDeliveryScript is the script to be used to pay to the remote
+	// party in cooperative closes.
 	TheirDeliveryScript []byte
 
-	NumUpdates            uint64
-	TotalSatoshisSent     uint64
-	TotalSatoshisReceived uint64
-	CreationTime          time.Time // TODO(roasbeef): last update time?
+	// NumUpdates is the total number of updates conducted within this
+	// channel.
+	NumUpdates uint64
 
+	// TotalSatoshisSent is the total number of satoshis we've sent within
+	// this channel.
+	TotalSatoshisSent uint64
+
+	// TotalSatoshisReceived is the total number of satoshis we've received
+	// within this channel.
+	TotalSatoshisReceived uint64
+
+	// CreationTime is the time this channel was initially created.
+	CreationTime time.Time
+
+	// Htlcs is the list of active, uncleared HTLC's currently pending
+	// within the channel.
 	Htlcs []*HTLC
 
 	// TODO(roasbeef): eww

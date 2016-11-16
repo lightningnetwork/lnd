@@ -167,7 +167,7 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 }
 
 // createTestChannels creates two test channels funded with 10 BTC, with 5 BTC
-// allocated to each side.
+// allocated to each side. Within the channel, Alice is the initiator.
 func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChannel, func(), error) {
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
@@ -228,9 +228,15 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		return nil, nil, nil, err
 	}
 
+	var obsfucator [StateHintSize]byte
+	copy(obsfucator[:], aliceFirstRevoke[:])
+
 	aliceChannelState := &channeldb.OpenChannel{
 		IdentityPub:            aliceKeyPub,
 		ChanID:                 prevOut,
+		ChanType:               channeldb.SingleFunder,
+		IsInitiator:            true,
+		StateHintObsfucator:    obsfucator,
 		OurCommitKey:           aliceKeyPub,
 		TheirCommitKey:         bobKeyPub,
 		Capacity:               channelCapacity,
@@ -251,6 +257,9 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	bobChannelState := &channeldb.OpenChannel{
 		IdentityPub:            bobKeyPub,
 		ChanID:                 prevOut,
+		ChanType:               channeldb.SingleFunder,
+		IsInitiator:            false,
+		StateHintObsfucator:    obsfucator,
 		OurCommitKey:           bobKeyPub,
 		TheirCommitKey:         aliceKeyPub,
 		Capacity:               channelCapacity,

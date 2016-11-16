@@ -300,7 +300,7 @@ func (s *commitmentChain) tail() *commitment {
 //  * .SignNextCommitment()
 //    * Called one one wishes to sign the next commitment, either initiating a
 //      new state update, or responding to a received commitment.
-/// * .ReceiveNewCommitment()
+//  * .ReceiveNewCommitment()
 //    * Called upon receipt of a new commitment from the remote party. If the
 //      new commitment is valid, then a revocation should immediately be
 //      generated and sent.
@@ -497,6 +497,9 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 			return
 		}
 
+		// TODO(roasbeef): only close channel if we detect that it's
+		// not our transaction?
+
 		// If the channel's doesn't already indicate that a commitment
 		// transaction has been broadcast on-chain, then this means the
 		// remote party broadcasted their commitment transaction.
@@ -673,6 +676,15 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 			revocationHash, delay, true); err != nil {
 			return nil, err
 		}
+	}
+
+	// Set the state hint of the commitment transaction to facilitate
+	// quickly recovering the necessary penalty state in the case of an
+	// uncooperative broadcast.
+	obsfucator := lc.channelState.StateHintObsfucator
+	stateNum := uint32(nextHeight)
+	if err := SetStateNumHint(commitTx, stateNum, obsfucator); err != nil {
+		return nil, err
 	}
 
 	// Sort the transactions according to the agreed upon cannonical

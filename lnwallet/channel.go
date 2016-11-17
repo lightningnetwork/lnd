@@ -728,6 +728,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		if entry.EntryType == Add {
 			continue
 		}
+		if entry.EntryType == Settle && !remoteChain {
+			lc.channelState.TotalSatoshisReceived += uint64(entry.Amount)
+		}
 
 		addEntry := lc.theirLogIndex[entry.ParentIndex].Value.(*PaymentDescriptor)
 
@@ -738,6 +741,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	for _, entry := range view.theirUpdates {
 		if entry.EntryType == Add {
 			continue
+		}
+		if entry.EntryType == Settle && !remoteChain {
+			lc.channelState.TotalSatoshisSent += uint64(entry.Amount)
 		}
 
 		addEntry := lc.ourLogIndex[entry.ParentIndex].Value.(*PaymentDescriptor)

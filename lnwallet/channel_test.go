@@ -475,7 +475,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 	aliceRevocation2, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
-		t.Fatalf("alice unable to generate revoation: %v", err)
+		t.Fatalf("alice unable to generate revocation: %v", err)
 	}
 	if err := bobChannel.ReceiveNewCommitment(aliceSig2, bobLogIndex2); err != nil {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
@@ -499,11 +499,13 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 			"instead can forward %v: %v", len(htlcs), spew.Sdump(htlcs))
 	}
 
-	// At this point, bob should have 6BTC settled, with Alice still having
-	// 4 BTC. They should also be at a commitment height at two, with the
-	// revocation window extended by by 1 (5).
+	// At this point, Bob should have 6 BTC settled, with Alice still having
+	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel should
+	// show 1 BTC received. They should also be at commitment height two,
+	// with the revocation window extended by by 1 (5).
 	aliceSettleBalance := btcutil.Amount(4 * 1e8)
 	bobSettleBalance := btcutil.Amount(6 * 1e8)
+	satoshisTransferred := uint64(100000000)
 	if aliceChannel.channelState.OurBalance != aliceSettleBalance {
 		t.Fatalf("alice has incorrect local balance %v vs %v",
 			aliceChannel.channelState.OurBalance, aliceSettleBalance)
@@ -519,6 +521,22 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	if bobChannel.channelState.TheirBalance != aliceSettleBalance {
 		t.Fatalf("bob has incorrect remote balance %v vs %v",
 			bobChannel.channelState.TheirBalance, aliceSettleBalance)
+	}
+	if aliceChannel.channelState.TotalSatoshisSent != satoshisTransferred {
+		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
+			aliceChannel.channelState.TotalSatoshisSent, satoshisTransferred)
+	}
+	if aliceChannel.channelState.TotalSatoshisReceived != 0 {
+		t.Fatalf("alice satoshis received incorrect %v vs %v expected",
+			aliceChannel.channelState.TotalSatoshisSent, 0)
+	}
+	if bobChannel.channelState.TotalSatoshisReceived != satoshisTransferred {
+		t.Fatalf("bob satoshis received incorrect %v vs %v expected",
+			bobChannel.channelState.TotalSatoshisReceived, satoshisTransferred)
+	}
+	if bobChannel.channelState.TotalSatoshisSent != 0 {
+		t.Fatalf("bob satoshis sent incorrect %v vs %v expected",
+			bobChannel.channelState.TotalSatoshisReceived, 0)
 	}
 	if bobChannel.currentHeight != 2 {
 		t.Fatalf("bob has incorrect commitment height, %v vs %v",
@@ -803,5 +821,24 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if bobBalance != expectedBobBalance {
 		t.Fatalf("expected %v bob balance, got %v", expectedBobBalance,
 			bobBalance)
+	}
+
+	// The amounts transferred should been updated as per the amounts in
+	// the HTLCs
+	if aliceChannelNew.channelState.TotalSatoshisSent != 3000 {
+		t.Fatalf("expected %v alice satoshis sent, got %v",
+			3000, aliceChannelNew.channelState.TotalSatoshisSent)
+	}
+	if aliceChannelNew.channelState.TotalSatoshisReceived != 1000 {
+		t.Fatalf("expected %v alice satoshis received, got %v",
+			1000, aliceChannelNew.channelState.TotalSatoshisReceived)
+	}
+	if bobChannelNew.channelState.TotalSatoshisSent != 1000 {
+		t.Fatalf("expected %v bob satoshis sent, got %v",
+			1000, bobChannel.channelState.TotalSatoshisSent)
+	}
+	if bobChannelNew.channelState.TotalSatoshisReceived != 3000 {
+		t.Fatalf("expected %v bob satoshis sent, got %v",
+			3000, bobChannel.channelState.TotalSatoshisSent)
 	}
 }

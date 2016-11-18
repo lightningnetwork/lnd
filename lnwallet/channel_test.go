@@ -70,7 +70,17 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 	return sig[:len(sig)-1], nil
 }
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error) {
-	return nil, nil
+
+	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
+		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
+		txscript.SigHashAll, m.key, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &InputScript{
+		Witness: witnessScript,
+	}, nil
 }
 
 type mockNotfier struct {

@@ -639,16 +639,13 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// commitSpendRevoke constructs a valid witness allowing a node to sweep the
+// CommitSpendRevoke constructs a valid witness allowing a node to sweep the
 // settled output of a malicious counter-party who broadcasts a revoked
 // commitment transaction.
-func commitSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
-	revocationPriv *btcec.PrivateKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-	sweepSig, err := txscript.RawTxInWitnessSignature(
-		sweepTx, hashCache, 0, int64(outputAmt), commitScript,
-		txscript.SigHashAll, revocationPriv)
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -656,29 +653,26 @@ func commitSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 	// Place a 1 as the first item in the evaluated witness stack to
 	// force script execution to the revocation clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = sweepSig
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[1] = []byte{1}
-	witnessStack[2] = commitScript
+	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil
 }
 
-// commitSpendNoDelay constructs a valid witness allowing a node to spend their
+// CommitSpendNoDelay constructs a valid witness allowing a node to spend their
 // settled no-delay output on the counter-party's commitment transaction.
-func commitSpendNoDelay(commitScript []byte, outputAmt btcutil.Amount,
-	commitPriv *btcec.PrivateKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-	witness, err := txscript.WitnessScript(sweepTx, hashCache, 0,
-		int64(outputAmt), commitScript, txscript.SigHashAll,
-		commitPriv, true)
+	inputScript, err := signer.ComputeInputScript(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
 
-	return wire.TxWitness(witness), nil
+	return wire.TxWitness(inputScript.Witness), nil
 }
 
 // DeriveRevocationPubkey derives the revocation public key given the

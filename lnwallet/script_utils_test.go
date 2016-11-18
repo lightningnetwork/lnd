@@ -107,11 +107,21 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	}
 
 	// Next, we'll test bob spending with the derived revocation key to
-	// simulate the scenario when alice broadcasts this commitmen
+	// simulate the scenario when alice broadcasts this commitment
 	// transaction after it's been revoked.
 	revokePrivKey := DeriveRevocationPrivKey(bobKeyPriv, revocationPreimage)
-	bobWitnessSpend, err := commitSpendRevoke(delayScript, channelBalance,
-		revokePrivKey, sweepTx)
+	bobRevokeSigner := &mockSigner{revokePrivKey}
+	signDesc = &SignDescriptor{
+		WitnessScript: delayScript,
+		SigHashes:     txscript.NewTxSigHashes(sweepTx),
+		Output: &wire.TxOut{
+			Value: int64(channelBalance),
+		},
+		HashType:   txscript.SigHashAll,
+		InputIndex: 0,
+	}
+	bobWitnessSpend, err := CommitSpendRevoke(bobRevokeSigner, signDesc,
+		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
 	}
@@ -128,12 +138,23 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// alice broadcasts this commitment transaction.
+	bobSigner := &mockSigner{bobKeyPriv}
 	bobScriptp2wkh, err := commitScriptUnencumbered(bobKeyPub)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
-	bobRegularSpend, err := commitSpendNoDelay(bobScriptp2wkh,
-		channelBalance, bobKeyPriv, sweepTx)
+	signDesc = &SignDescriptor{
+		WitnessScript: bobScriptp2wkh,
+		SigHashes:     txscript.NewTxSigHashes(sweepTx),
+		Output: &wire.TxOut{
+			Value:    int64(channelBalance),
+			PkScript: bobScriptp2wkh,
+		},
+		HashType:   txscript.SigHashAll,
+		InputIndex: 0,
+	}
+	bobRegularSpend, err := CommitSpendNoDelay(bobSigner, signDesc,
+		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)
 	}

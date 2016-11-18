@@ -384,6 +384,7 @@ func TestChannelStateTransition(t *testing.T) {
 			RHash:           key,
 			RefundTimeout:   i,
 			RevocationDelay: i + 2,
+			OutputIndex:     uint16(i * 3),
 		}
 		htlcs = append(htlcs, htlc)
 	}

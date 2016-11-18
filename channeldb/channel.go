@@ -409,13 +409,14 @@ type HTLC struct {
 	// must wait before reclaiming the funds in limbo.
 	RefundTimeout uint32
 
-	// RevocationDelay is the relative timeout the party who broadcasts
-	// the commitment transaction must wait before being able to fully
-	// sweep the funds on-chain in the case of a unilateral channel
-	// closure.
+	// RevocationDelay is the relative timeout the party who broadcasts the
+	// commitment transaction must wait before being able to fully sweep
+	// the funds on-chain in the case of a unilateral channel closure.
 	RevocationDelay uint32
 
-	// TODO(roasbeef): add output index?
+	// OutputIndex is the vout output index for this particular HTLC output
+	// on the commitment transaction.
+	OutputIndex uint16
 }
 
 // Copy returns a full copy of the target HTLC.
@@ -425,6 +426,7 @@ func (h *HTLC) Copy() HTLC {
 		Amt:             h.Amt,
 		RefundTimeout:   h.RefundTimeout,
 		RevocationDelay: h.RevocationDelay,
+		OutputIndex:     h.OutputIndex,
 	}
 	copy(clone.RHash[:], h.RHash[:])
 
@@ -1446,8 +1448,8 @@ func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 
 // htlcDiskSize represents the number of btyes a serialized HTLC takes up on
 // disk. The size of an HTLC on disk is 49 bytes total: incoming (1) + amt (8)
-// + rhash (32) + timeouts (8)
-const htlcDiskSize = 1 + 8 + 32 + 4 + 4
+// + rhash (32) + timeouts (8) + output index (2)
+const htlcDiskSize = 1 + 8 + 32 + 4 + 4 + 2
 
 func serializeHTLC(w io.Writer, h *HTLC) error {
 	var buf [htlcDiskSize]byte
@@ -1468,6 +1470,8 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 	n += 4
 	byteOrder.PutUint32(buf[n:], h.RevocationDelay)
 	n += 4
+	byteOrder.PutUint16(buf[n:], h.OutputIndex)
+	n += 2
 
 	if _, err := w.Write(buf[:]); err != nil {
 		return err
@@ -1508,6 +1512,11 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 		return nil, err
 	}
 	h.RevocationDelay = byteOrder.Uint32(scratch[:])
+
+	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
+		return nil, err
+	}
+	h.OutputIndex = byteOrder.Uint16(scratch[:])
 
 	return h, nil
 }

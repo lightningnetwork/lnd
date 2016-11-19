@@ -1120,11 +1120,115 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 	select {
 	case <-time.After(time.Second * 5):
 		t.Fatalf("transactions not received after 3 seconds")
-	case <-confirmedNtfns: // Fall through on successs
+	case <-confirmedNtfns: // Fall through on success
+	}
+}
+
+func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet, t *testing.T) {
+	t.Logf("Running private tweak test")
+
+	// We'd like to test the ability of the wallet's Signer implementation
+	// to be able to sign with a private key derived from tweaking the
+	// specific public key. This scenario exercises the case when the
+	// wallet needs to sign for a sweep of a revoked output.
+
+	// First, generate a new public key under th control of the wallet,
+	// then generate a revocation key using it.
+	pubkey, err := w.NewRawKey()
+	if err != nil {
+		t.Fatalf("unable to obtain public key: %v", err)
+	}
+	revocation := bytes.Repeat([]byte{2}, 32)
+	revocationKey := lnwallet.DeriveRevocationPubkey(pubkey, revocation)
+
+	// With the revocation key generated, create a pkScript that pays to
+	// the revocation key using a simple p2wkh script.
+	pubkeyHash := btcutil.Hash160(revocationKey.SerializeCompressed())
+	revokeAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
+		&chaincfg.SimNetParams)
+	if err != nil {
+		t.Fatalf("unable to create addr: %v", err)
+	}
+	revokeScript, err := txscript.PayToAddrScript(revokeAddr)
+	if err != nil {
+		t.Fatalf("unable to generate script: %v", err)
+	}
+
+	// With the script fully assemebld, instruct the wallet to fund the
+	// output with a newly creaed transaction.
+	revokeOutput := &wire.TxOut{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: revokeScript,
+	}
+	txid, err := w.SendOutputs([]*wire.TxOut{revokeOutput})
+	if err != nil {
+		t.Fatalf("unable to create output: %v", err)
+	}
+
+	// Query for the transaction generated above so we can located the
+	// index of our output.
+	tx, err := w.ChainIO.GetTransaction(txid)
+	if err != nil {
+		t.Fatalf("unable to query for tx: %v", err)
+	}
+	var outputIndex uint32
+	if bytes.Equal(tx.TxOut[0].PkScript, revokeScript) {
+		outputIndex = 0
+	} else {
+		outputIndex = 1
+	}
+
+	/// WIth the index located, we can create a transaction spending the
+	//referenced output.
+	sweepTx := wire.NewMsgTx()
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  tx.TxSha(),
+			Index: outputIndex,
+		},
+	})
+
+	// Now we can populate the sign descriptor which we'll use to generate
+	// the signature. Within the descriptor we set the private tweak value
+	// as the key in the script is derived based on this tweak value and
+	// the key we originally generated above.
+	signDesc := &lnwallet.SignDescriptor{
+		PubKey:        pubkey,
+		PrivateTweak:  revocation,
+		WitnessScript: revokeScript,
+		Output:        revokeOutput,
+		HashType:      txscript.SigHashAll,
+		SigHashes:     txscript.NewTxSigHashes(sweepTx),
+		InputIndex:    0,
+	}
+
+	// With the descriptor created, we use it to generate a signature, then
+	// manually create a valid witness stack we'll use for signing.
+	spendSig, err := w.Signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		t.Fatalf("unable to generate signature: %v", err)
+	}
+	witness := make([][]byte, 2)
+	witness[0] = append(spendSig, byte(txscript.SigHashAll))
+	witness[1] = revocationKey.SerializeCompressed()
+	sweepTx.TxIn[0].Witness = witness
+
+	// Finally, attempt to validate the completed transaction. This should
+	// succeed if the wallet was able to properly generate the proper
+	// private key.
+	vm, err := txscript.NewEngine(revokeScript,
+		sweepTx, 0, txscript.StandardVerifyFlags, nil,
+		nil, int64(btcutil.SatoshiPerBitcoin))
+	if err != nil {
+		t.Fatalf("unable to create engine: %v", err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Fatalf("revocation spend invalid: %v", err)
 	}
 }
 
 var walletTests = []func(miner *rpctest.Harness, w *lnwallet.LightningWallet, test *testing.T){
+	// TODO(roasbeef): reservation tests should prob be split out
 	testDualFundingReservationWorkflow,
 	testSingleFunderReservationWorkflowInitiator,
 	testSingleFunderReservationWorkflowResponder,
@@ -1133,6 +1237,7 @@ var walletTests = []func(miner *rpctest.Harness, w *lnwallet.LightningWallet, te
 	testFundingReservationInvalidCounterpartySigs,
 	testTransactionSubscriptions,
 	testListTransactionDetails,
+	testSignOutputPrivateTweak,
 }
 
 type testLnWallet struct {

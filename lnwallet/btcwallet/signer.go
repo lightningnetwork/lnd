@@ -24,7 +24,7 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	)
 
 	// First check to see if the output is already within the utxo cache.
-	// If so we can return directly saving usk a disk access.
+	// If so we can return directly saving a disk access.
 	b.cacheMtx.RLock()
 	if output, ok := b.utxoCache[*prevOut]; ok {
 		b.cacheMtx.RUnlock()
@@ -72,7 +72,7 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 	return nil, fmt.Errorf("address not found")
 }
 
-// fetchPrivKey attempts to retrieve the raw private key coresponding to the
+// fetchPrivKey attempts to retrieve the raw private key corresponding to the
 // passed public key.
 // TODO(roasbeef): alternatively can extract all the data pushes within the
 // script, then attempt to match keys one by one
@@ -98,14 +98,24 @@ func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescriptor) ([]byte, error) {
 	witnessScript := signDesc.WitnessScript
 
+	// First attempt to fetch the private key which corresponds to the
+	// specified public key.
 	privKey, err := b.fetchPrivKey(signDesc.PubKey)
 	if err != nil {
 		return nil, err
 	}
 
+	// If a tweak is specified, then we'll need to use this tweak to derive
+	// the final private key to be used for signing this output.
+	if signDesc.PrivateTweak != nil {
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.PrivateTweak)
+	}
+
 	amt := signDesc.Output.Value
-	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes, 0,
-		amt, witnessScript, txscript.SigHashAll, privKey)
+	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
+		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll,
+		privKey)
 	if err != nil {
 		return nil, err
 	}

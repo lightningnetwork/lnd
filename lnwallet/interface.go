@@ -140,7 +140,7 @@ type WalletController interface {
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction
 	// paying out to the specified outputs. In the case the wallet has
-	// insufficient funds, or the outputs are non-standard, and error
+	// insufficient funds, or the outputs are non-standard, an error
 	// should be returned.
 	SendOutputs(outputs []*wire.TxOut) (*wire.ShaHash, error)
 
@@ -218,6 +218,15 @@ type SignDescriptor struct {
 	// over. The Signer should then generate a signature with the private
 	// key corresponding to this public key.
 	PubKey *btcec.PublicKey
+
+	// PrivateTweak is a scalar value that should be added to the private
+	// key corresponding to the above public key to obtain the private key
+	// to be used to sign this input. This value is typically a leaf node
+	// from the revocation tree.
+	//
+	// NOTE: If this value is nil, then the input can be signed using only
+	// the above public key.
+	PrivateTweak []byte
 
 	// WitnessScript is the full script required to properly redeem the
 	// output. This field will only be populated if a p2wsh or a p2sh

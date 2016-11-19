@@ -271,9 +271,9 @@ type LightningWallet struct {
 	// update the commitment state.
 	Signer Signer
 
-	// chainIO is an instance of the BlockChainIO interface. chainIO is
+	// ChainIO is an instance of the BlockChainIO interface. ChainIO is
 	// used to lookup the existence of outputs within the UTXO set.
-	chainIO BlockChainIO
+	ChainIO BlockChainIO
 
 	// rootKey is the root HD key derived from a WalletController private
 	// key. This rootKey is used to derive all LN specific secrets.
@@ -341,7 +341,7 @@ func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
 		chainNotifier:    notifier,
 		Signer:           signer,
 		WalletController: wallet,
-		chainIO:          bio,
+		ChainIO:          bio,
 		ChannelDB:        cdb,
 		msgChan:          make(chan interface{}, msgBufferSize),
 		nextFundingID:    0,
@@ -961,7 +961,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			prevOut := txin.PreviousOutPoint
-			output, err := l.chainIO.GetUtxo(&prevOut.Hash, prevOut.Index)
+			output, err := l.ChainIO.GetUtxo(&prevOut.Hash, prevOut.Index)
 			if output == nil {
 				msg.err <- fmt.Errorf("input to funding tx does not exist: %v", err)
 				return
@@ -1200,7 +1200,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l.Signer, l.chainIO, l.chainNotifier,
+	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
 
 	res.chanOpen <- channel
@@ -1242,7 +1242,7 @@ out:
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l.Signer, l.chainIO, l.chainNotifier,
+	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
 	res.chanOpen <- channel
 }

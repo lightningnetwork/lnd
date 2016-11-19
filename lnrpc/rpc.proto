@@ -209,15 +209,17 @@ message ActiveChannel {
     int64 remote_balance = 5;
 
     int64 unsettled_balance = 6;
-    repeated HTLC pending_htlcs = 7;
+    int64 total_satoshis_sent = 7;
+    int64 total_satoshis_received = 8;
+    uint64 num_updates = 9;
 
-    uint64 num_updates = 8;
+    repeated HTLC pending_htlcs = 10;
     // TODO(roasbeef): other stuffs
 }
 
 message ListChannelsRequest {}
 message ListChannelsResponse {
-    repeated ActiveChannel channels = 9;
+    repeated ActiveChannel channels = 11;
 }
 
 message Peer {

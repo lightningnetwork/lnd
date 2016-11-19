@@ -444,6 +444,14 @@
           "type": "string",
           "format": "string"
         },
+        "total_satoshis_received": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_satoshis_sent": {
+          "type": "string",
+          "format": "int64"
+        },
         "unsettled_balance": {
           "type": "string",
           "format": "int64"

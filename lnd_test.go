@@ -464,6 +464,26 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 			bobBalance, paymentAmt)
 	}
 
+	aliceListChannels, err := net.Alice.ListChannels(ctxb, &lnrpc.ListChannelsRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for alice's channel list: %v", err)
+	}
+	aliceSatoshisSent := aliceListChannels.Channels[0].TotalSatoshisSent
+	if aliceSatoshisSent != paymentAmt {
+		t.Fatalf("Alice's satoshis sent is incorrect got %v, expected %v",
+			aliceSatoshisSent, paymentAmt)
+	}
+
+	bobListChannels, err := net.Bob.ListChannels(ctxb, &lnrpc.ListChannelsRequest{})
+	if err != nil {
+		t.Fatalf("unable to query for bob's channel list: %v", err)
+	}
+	bobSatoshisReceived := bobListChannels.Channels[0].TotalSatoshisReceived
+	if bobSatoshisReceived != paymentAmt {
+		t.Fatalf("Bob's satoshis received is incorrect got %v, expected %v",
+			bobSatoshisReceived, paymentAmt)
+	}
+
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
 }

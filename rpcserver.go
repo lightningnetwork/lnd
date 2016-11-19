@@ -551,13 +551,15 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		nodeID := hex.EncodeToString(nodePub)
 
 		channel := &lnrpc.ActiveChannel{
-			RemotePubkey:  nodeID,
-			ChannelPoint:  dbChannel.ChanID.String(),
-			Capacity:      int64(dbChannel.Capacity),
-			LocalBalance:  int64(dbChannel.OurBalance),
-			RemoteBalance: int64(dbChannel.TheirBalance),
-			NumUpdates:    dbChannel.NumUpdates,
-			PendingHtlcs:  make([]*lnrpc.HTLC, len(dbChannel.Htlcs)),
+			RemotePubkey:          nodeID,
+			ChannelPoint:          dbChannel.ChanID.String(),
+			Capacity:              int64(dbChannel.Capacity),
+			LocalBalance:          int64(dbChannel.OurBalance),
+			RemoteBalance:         int64(dbChannel.TheirBalance),
+			TotalSatoshisSent:     int64(dbChannel.TotalSatoshisSent),
+			TotalSatoshisReceived: int64(dbChannel.TotalSatoshisReceived),
+			NumUpdates:            dbChannel.NumUpdates,
+			PendingHtlcs:          make([]*lnrpc.HTLC, len(dbChannel.Htlcs)),
 		}
 
 		for i, htlc := range dbChannel.Htlcs {

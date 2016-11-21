@@ -34,9 +34,9 @@ const (
 	//  * should be tuned to account for max tx "cost"
 	MaxPendingPayments = 100
 
-	// InitialRevocationWindow is the number of unrevoked commitment
+	// InitialRevocationWindow is the number of revoked commitment
 	// transactions allowed within the commitment chain. This value allows
-	// a greater degree of desynchronization by allowing either parties to
+	// a greater degree of de-synchronization by allowing either parties to
 	// extend the other's commitment chain non-interactively, and also
 	// serves as a flow control mechanism to a degree.
 	InitialRevocationWindow = 4
@@ -105,7 +105,7 @@ type PaymentDescriptor struct {
 	// log by the ParentIndex.
 	RPreimage PaymentHash
 
-	// Timeout is the absolute timeout in blocks, afterwhich this HTLC
+	// Timeout is the absolute timeout in blocks, after which this HTLC
 	// expires.
 	Timeout uint32
 
@@ -147,6 +147,11 @@ type PaymentDescriptor struct {
 	// possible upstream peers in the route.
 	isForwarded bool
 	settled     bool
+
+	// pkScript is the raw public key  script that encodes the redemption
+	// rules for this particular HTLC. This field will only be populated
+	// iff the EntryType of this PaymentDescriptor is Add.
+	pkScript []byte
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -205,6 +210,22 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 		Htlcs:         make([]*channeldb.HTLC, 0, numHtlcs),
 	}
 
+	// As we also store the output index of the HTLC for continence
+	// purposes, we create a small helper function to locate the output
+	// index of a particular HTLC within the current commitment
+	// transaction.
+	locateOutputIndex := func(p *PaymentDescriptor) uint16 {
+		var idx uint16
+		for i, txOut := range c.txn.TxOut {
+			// TODO(roasbeef): duplicated payment hashes...
+			if bytes.Equal(txOut.PkScript, p.pkScript) {
+				idx = uint16(i)
+				break
+			}
+		}
+		return idx
+	}
+
 	for _, htlc := range c.outgoingHTLCs {
 		h := &channeldb.HTLC{
 			Incoming:        false,
@@ -212,6 +233,7 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 			RHash:           htlc.RHash,
 			RefundTimeout:   htlc.Timeout,
 			RevocationDelay: 0,
+			OutputIndex:     locateOutputIndex(htlc),
 		}
 		delta.Htlcs = append(delta.Htlcs, h)
 	}
@@ -222,6 +244,7 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 			RHash:           htlc.RHash,
 			RefundTimeout:   htlc.Timeout,
 			RevocationDelay: 0,
+			OutputIndex:     locateOutputIndex(htlc),
 		}
 		delta.Htlcs = append(delta.Htlcs, h)
 	}
@@ -336,7 +359,7 @@ type LightningChannel struct {
 	// revocationWindowEdge is the edge of the current revocation window.
 	// New revocations for prior states created by this channel extend the
 	// edge of this revocation window. The existence of a revocation window
-	// allows the remote party to initiate new state updates independantly
+	// allows the remote party to initiate new state updates independently
 	// until the window is exhausted.
 	revocationWindowEdge uint64
 
@@ -349,7 +372,7 @@ type LightningChannel struct {
 
 	// revocationWindow is a window of revocations sent to use by the
 	// remote party, allowing us to create new commitment transactions
-	// until depleated. The revocations don't contain a valid pre-iamge,
+	// until depleted. The revocations don't contain a valid pre-image,
 	// only an additional key/hash allowing us to create a new commitment
 	// transaction for the remote node that they are able to revoke. If
 	// this slice is empty, then we cannot make any new updates to their
@@ -529,7 +552,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 	for _, htlc := range lc.channelState.Htlcs {
 		// TODO(roasbeef): set isForwarded to false for all? need to
 		// persist state w.r.t to if forwarded or not, or can
-		// inadvertenly trigger replays
+		// inadvertently trigger replays
 		pd := &PaymentDescriptor{
 			RHash:                 htlc.RHash,
 			Timeout:               htlc.RefundTimeout,
@@ -666,14 +689,16 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		return nil, err
 	}
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if err := lc.addHTLC(commitTx, ourCommitTx, htlc,
-			revocationHash, delay, false); err != nil {
+		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
+			revocationHash, delay, false)
+		if err != nil {
 			return nil, err
 		}
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if err := lc.addHTLC(commitTx, ourCommitTx, htlc,
-			revocationHash, delay, true); err != nil {
+		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
+			revocationHash, delay, true)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -687,7 +712,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		return nil, err
 	}
 
-	// Sort the transactions according to the agreed upon cannonical
+	// Sort the transactions according to the agreed upon canonical
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(commitTx)
@@ -1407,7 +1432,10 @@ func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
 // addHTLC adds a new HTLC to the passed commitment transaction. One of four
 // full scripts will be generated for the HTLC output depending on if the HTLC
 // is incoming and if it's being applied to our commitment transaction or that
-// of the remote node's.
+// of the remote node's. Additionally, in order to be able to efficiently
+// locate the added HTLC on the commitment transaction from the
+// PaymentDescriptor that generated it, the generated script is stored within
+// the descriptor itself.
 func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	paymentDesc *PaymentDescriptor, revocation [32]byte, delay uint32,
 	isIncoming bool) error {
@@ -1463,6 +1491,10 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	amountPending := int64(paymentDesc.Amount)
 	commitTx.AddTxOut(wire.NewTxOut(amountPending, htlcP2WSH))
 
+	// Store the pkScript of this particular PaymentDescriptor so we can
+	// quickly locate it within the commitment transaction later.
+	paymentDesc.pkScript = htlcP2WSH
+
 	return nil
 }
 
@@ -1470,7 +1502,7 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 // locked-down to initiate a force closure by broadcasting the latest state
 // on-chain. The summary includes all the information required to claim all
 // rightfully owned outputs.
-// TODO(roasbeef): generalize, add HTLC info, revocatio info, etc.
+// TODO(roasbeef): generalize, add HTLC info, etc.
 type ForceCloseSummary struct {
 	// CloseTx is the transaction which closed the channel on-chain. If we
 	// initiate the force close, then this'll be our latest commitment
@@ -1487,7 +1519,7 @@ type ForceCloseSummary struct {
 	SelfOutputMaturity uint32
 
 	// SelfOutputSignDesc is a fully populated sign descriptor capable of
-	// generating a valid signature to swee the self output.
+	// generating a valid signature to sweep the self output.
 	SelfOutputSignDesc *SignDescriptor
 }
 
@@ -1566,7 +1598,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 		return nil, err
 	}
 
-	// With the necessary information gatehred above, create a new sign
+	// With the necessary information gathered above, create a new sign
 	// descriptor which is capable of generating the signature the caller
 	// needs to sweep this output. The hash cache, and input index are not
 	// set as the caller will decide these values once sweeping the output.
@@ -1599,15 +1631,16 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 
 // InitCooperativeClose initiates a cooperative closure of an active lightning
 // channel. This method should only be executed once all pending HTLCs (if any)
-// on the channel have been cleared/removed. Upon completion, the source channel
-// will shift into the "closing" state, which indicates that all incoming/outgoing
-// HTLC requests should be rejected. A signature for the closing transaction,
-// and the txid of the closing transaction are returned. The initiator of the
-// channel closure should then watch the blockchain for a confirmation of the
-// closing transaction before considering the channel terminated. In the case
-// of an unresponsive remote party, the initiator can either choose to execute
-// a force closure, or backoff for a period of time, and retry the cooperative
-// closure.
+// on the channel have been cleared/removed. Upon completion, the source
+// channel will shift into the "closing" state, which indicates that all
+// incoming/outgoing HTLC requests should be rejected. A signature for the
+// closing transaction, and the txid of the closing transaction are returned.
+// The initiator of the channel closure should then watch the blockchain for a
+// confirmation of the closing transaction before considering the channel
+// terminated. In the case of an unresponsive remote party, the initiator can
+// either choose to execute a force closure, or backoff for a period of time,
+// and retry the cooperative closure.
+//
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any inflight.
 func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error) {
@@ -1646,11 +1679,11 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 
 // CompleteCooperativeClose completes the cooperative closure of the target
 // active lightning channel. This method should be called in response to the
-// remote node initating a cooperative channel closure. A fully signed closure
+// remote node initiating a cooperative channel closure. A fully signed closure
 // transaction is returned. It is the duty of the responding node to broadcast
 // a signed+valid closure transaction to the network.
 //
-// NOTE: The passed remote sig is expected to the a fully complete signature
+// NOTE: The passed remote sig is expected to be a fully complete signature
 // including the proper sighash byte.
 func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.MsgTx, error) {
 	lc.Lock()

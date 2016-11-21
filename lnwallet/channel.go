@@ -862,6 +862,9 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
 func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
 	// Ensure that we have enough unused revocation hashes given to us by the
 	// remote party. If the set is empty, then we're unable to create a new
 	// state unless they first revoke a prior commitment transaction.
@@ -930,6 +933,9 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 // state.
 func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	ourLogIndex uint32) error {
+
+	lc.Lock()
+	defer lc.Unlock()
 
 	theirCommitKey := lc.channelState.TheirCommitKey
 	theirMultiSigKey := lc.channelState.TheirMultiSigKey
@@ -1000,6 +1006,9 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 // indicates that either we have pending updates they need to commit, or vice
 // versa.
 func (lc *LightningChannel) PendingUpdates() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
 	fullySynced := (lc.localCommitChain.tip().ourMessageIndex ==
 		lc.remoteCommitChain.tip().ourMessageIndex)
 
@@ -1012,6 +1021,9 @@ func (lc *LightningChannel) PendingUpdates() bool {
 // chain is advanced by a single commitment. This now lowest unrevoked
 // commitment becomes our currently accepted state within the channel.
 func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
 	theirCommitKey := lc.channelState.TheirCommitKey
 
 	// Now that we've accept a new state transition, we send the remote
@@ -1071,6 +1083,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 // commitment, and a log compaction is attempted. In addition, a slice of
 // HTLC's which can be forwarded upstream are returned.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) ([]*PaymentDescriptor, error) {
+
+	lc.Lock()
+	defer lc.Unlock()
+
 	// The revocation has a nil (zero) pre-image, then this should simply be
 	// added to the end of the revocation window for the remote node.
 	if bytes.Equal(zeroHash[:], revMsg.Revocation[:]) {
@@ -1231,6 +1247,9 @@ func (lc *LightningChannel) compactLogs(ourLog, theirLog *list.List,
 // increasing the number of new commitment updates the remote party can
 // initiate without our cooperation.
 func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
 	/// TODO(roasbeef): error if window edge differs from tail by more than
 	// InitialRevocationWindow
 
@@ -1258,6 +1277,9 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 // TODO(roasbeef): check for duplicates below? edge case during restart w/ HTLC
 // persistence
 func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
+	lc.Lock()
+	defer lc.Unlock()
+
 	pd := &PaymentDescriptor{
 		EntryType: Add,
 		RHash:     PaymentHash(htlc.RedemptionHashes[0]),
@@ -1276,6 +1298,9 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 // method should be called in response to receiving a new HTLC from the remote
 // party.
 func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
+	lc.Lock()
+	defer lc.Unlock()
+
 	pd := &PaymentDescriptor{
 		EntryType: Add,
 		RHash:     PaymentHash(htlc.RedemptionHashes[0]),
@@ -1295,6 +1320,9 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 // creating the corresponding wire message. In the case the supplied pre-image
 // is invalid, an error is returned.
 func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint32, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
 	var targetHTLC *list.Element
 
 	// TODO(roasbeef): optimize
@@ -1336,6 +1364,9 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint32, error) {
 // log, and error is returned. Similarly if the preimage is invalid w.r.t to
 // the referenced of then a distinct error is returned.
 func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint32) error {
+	lc.Lock()
+	defer lc.Unlock()
+
 	paymentHash := fastsha256.Sum256(preimage[:])
 	addEntry, ok := lc.ourLogIndex[logIndex]
 	if !ok {

@@ -723,7 +723,7 @@ func (p *peer) executeForceClose(channel *lnwallet.LightningChannel) (*wire.ShaH
 
 	// With the close transaction in hand, broadcast the transaction to the
 	// network, thereby entering the psot channel resolution state.
-	peerLog.Infof("Broadcasting force close transaction: %v",
+	peerLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
 		channel.ChannelPoint(), newLogClosure(func() string {
 			return spew.Sdump(closeTx)
 		}))
@@ -1052,15 +1052,56 @@ out:
 				peerLog.Errorf("unable to wipe channel %v", err)
 			}
 
-			// TODO(roasbeef): send info about current HTLC's to
-			// utxoNursery
 			break out
 		case <-channel.ForceCloseSignal:
 			peerLog.Warnf("ChannelPoint(%v) has been force "+
 				"closed, disconnecting from peerID(%x)",
 				state.chanPoint, p.id)
 			break out
-			//p.Disconnect()
+		case breachInfo := <-channel.ContractBreach:
+			peerLog.Warnf("REVOKED STATE #%v FOR ChannelPoint(%v) "+
+				"broadcast, REMOTE PEER IS DOING SOMETHING "+
+				"SKETCHY!!!", breachInfo.RevokedStateNum,
+				state.chanPoint)
+
+			// We've just been notified by the channel's state
+			// machine that a contract breaching uncooperative
+			// close has been detected. According to the contract,
+			// we're entitled to ALL the funds remaining in the
+			// channel, so we send the breach information to the
+			// utxoNursery which will sweep the funds into the
+			// wallet.
+			doneChan := p.server.utxoNursery.sweepRevokedFunds(breachInfo)
+
+			// TODO(roasbeef): factor in HTLC's
+			revokedFunds := breachInfo.RemoteOutputSignDesc.Output.Value
+			totalFunds := revokedFunds + breachInfo.LocalOutputSignDesc.Output.Value
+
+			// Launch a goroutine which will block until the
+			// utxoNursery has successfully claimed all pending
+			// funds within the channel. Afterwards, we can clean
+			// up the on-disk channel state.
+			go func() {
+				<-doneChan
+
+				peerLog.Infof("Justice for ChannelPoint(%v) has "+
+					"been served, %v revoked funds (%v total) "+
+					"have been claimed", state.chanPoint,
+					revokedFunds, totalFunds)
+
+				// TODO(roasbeef): chan should switch into
+				// contested state above
+				if err := wipeChannel(p, channel); err != nil {
+					peerLog.Errorf("unable to wipe channel %v", err)
+				}
+			}()
+
+			// TODO(roasbeef): backwards cancel any pending HTLC's
+			// on current commitment transaction?
+			//  * also close other active channels w/ peer
+
+			// TODO(roasbeef): add peer to blacklist?
+			break out
 		// TODO(roasbeef): prevent leaking ticker?
 		case <-state.logCommitTimer:
 			// If we haven't sent or received a new commitment

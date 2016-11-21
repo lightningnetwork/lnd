@@ -422,6 +422,12 @@ type LightningChannel struct {
 	// their version of the commitment transaction on-chain.
 	UnilateralCloseSignal chan struct{}
 
+	// ContractBreach is a channel that is used to communicate the data
+	// necessary to fully resolve the channel in the case that a contract
+	// breach is detected. A contract breach occurs it is detected that the
+	// counter party has broadcast a prior *revoked* state.
+	ContractBreach chan *BreachRetribution
+
 	started  int32
 	shutdown int32
 
@@ -438,7 +444,6 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 	events chainntnfs.ChainNotifier,
 	state *channeldb.OpenChannel) (*LightningChannel, error) {
 
-	// TODO(roasbeef): remove events+wallet
 	lc := &LightningChannel{
 		signer:                signer,
 		bio:                   bio,
@@ -458,6 +463,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		FundingWitnessScript:  state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralCloseSignal: make(chan struct{}),
+		ContractBreach:        make(chan *BreachRetribution),
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for
@@ -509,33 +515,232 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		return nil, err
 	}
 
-	// TODO(roasbeef) move into the peer's htlcManager?
-	//  * if not, send the SpendDetail over the channel instead of just
-	//    closing it
-	go func() {
-		// If the daemon is shutting down, then this notification channel
-		// will be closed, so check the second read-value to avoid a false
-		// positive.
-		if _, ok := <-channelCloseNtfn.Spend; !ok {
+	// Launch the close observer which will vigilantly watch the network
+	// for any broadcasts the current or prior commitment transactions,
+	// taking action accordingly.
+	go lc.closeObserver(channelCloseNtfn)
+
+	return lc, nil
+}
+
+// BreachRetribution contains all the data necessary to bring a channel
+// counter-party to justice claiming ALL lingering funds within the channel in
+// the scenario that they broadcast a revoked commitment transaction. A
+// BreachRetribution is created by the closeObserver if it detects an
+// uncooperative close of the channel which uses a revoked commitment
+// transaction. The BreachRetribution is then sent over the ContractBreach
+// channel in order to allow the subscriber of the channel to dispatch justice.
+type BreachRetribution struct {
+	// BreachTransaction is the transaction which breached the channel
+	// contract by spending from the funding multi-sig with a revoked
+	// commitment transaction.
+	BreachTransaction *wire.MsgTx
+
+	// RevokedStateNum is the revoked state number which was broadcast.
+	RevokedStateNum uint64
+
+	// PendingHTLCs is a slice of the HTLC's which were pending at this
+	// point within the channel's history transcript.
+	PendingHTLCs []*channeldb.HTLC
+
+	// LocalOutputSignDesc is a SignDescriptor which is capable of
+	// generating the signature necessary to sweep the output within the
+	// BreachTransaction that pays directly us.
+	LocalOutputSignDesc *SignDescriptor
+
+	// LocalOutpoint is the outpoint of the output paying to us (the local
+	// party) within the breach transaction.
+	LocalOutpoint wire.OutPoint
+
+	// RemoteOutputSignDesc is a SignDescriptor which is capable of
+	// generating the signature required to claim the funds as described
+	// within the revocation clause of the remote party's commitment
+	// output.
+	RemoteOutputSignDesc *SignDescriptor
+
+	// RemoteOutpoint is the output of the output paying to the remote
+	// party within the breach transaction.
+	RemoteOutpoint wire.OutPoint
+}
+
+// newBreachRetribution creates a new fully populated BreachRetribution for the
+// passed channel, at a particular revoked state number, and one which targets
+// the passed commitment transaction.
+func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
+	broadcastCommitment *wire.MsgTx) (*BreachRetribution, error) {
+
+	commitHash := broadcastCommitment.TxSha()
+
+	// Query the on-disk revocation log for the snapshot which was recorded
+	// at this particular state num.
+	revokedSnapshot, err := chanState.FindPreviousState(stateNum)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the state number broadcast known, we can now derive the proper
+	// leaf from our revocation tree necessary to sweep the remote party's
+	// output.
+	revocationPreimage, err := chanState.RemoteElkrem.AtIndex(stateNum)
+	if err != nil {
+		return nil, err
+	}
+
+	// Once we derive the revocation leaf, we can then re-create the
+	// revocation public key used within this state. This is needed in
+	// order to create the proper script below.
+	localCommitKey := chanState.OurCommitKey
+	revocationKey := DeriveRevocationPubkey(localCommitKey, revocationPreimage[:])
+
+	remoteCommitkey := chanState.TheirCommitKey
+	remoteDelay := chanState.RemoteCsvDelay
+
+	// Next, reconstruct the scripts as they were present at this state
+	// number so we can have the proper witness script to sign and include
+	// within the final witness.
+	remotePkScript, err := commitScriptToSelf(remoteDelay,
+		remoteCommitkey, revocationKey)
+	if err != nil {
+		return nil, err
+	}
+	remoteWitnessHash, err := witnessScriptHash(remotePkScript)
+	if err != nil {
+		return nil, err
+	}
+	localPkScript, err := commitScriptUnencumbered(localCommitKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// In order to fully populate the breach retribution struct, we'll need
+	// to find the exact index of the local+remote commitment outputs.
+	localOutpoint := wire.OutPoint{
+		Hash: commitHash,
+	}
+	remoteOutpoint := wire.OutPoint{
+		Hash: commitHash,
+	}
+	for i, txOut := range broadcastCommitment.TxOut {
+		switch {
+		case bytes.Equal(txOut.PkScript, localPkScript):
+			localOutpoint.Index = uint32(i)
+		case bytes.Equal(txOut.PkScript, remoteWitnessHash):
+			remoteOutpoint.Index = uint32(i)
+		}
+	}
+
+	// Finally, with all the necessary data constructed, we can create the
+	// BreachRetribution struct which houses all the data necessary to
+	// swiftly bring justice to the cheating remote party.
+	return &BreachRetribution{
+		BreachTransaction: broadcastCommitment,
+		RevokedStateNum:   stateNum,
+		PendingHTLCs:      revokedSnapshot.Htlcs,
+		LocalOutpoint:     localOutpoint,
+		LocalOutputSignDesc: &SignDescriptor{
+			PubKey: localCommitKey,
+			Output: &wire.TxOut{
+				PkScript: localPkScript,
+				Value:    int64(revokedSnapshot.LocalBalance),
+			},
+			HashType: txscript.SigHashAll,
+		},
+		RemoteOutpoint: remoteOutpoint,
+		RemoteOutputSignDesc: &SignDescriptor{
+			PubKey:        localCommitKey,
+			PrivateTweak:  revocationPreimage[:],
+			WitnessScript: remotePkScript,
+			Output: &wire.TxOut{
+				PkScript: remoteWitnessHash,
+				Value:    int64(revokedSnapshot.RemoteBalance),
+			},
+			HashType: txscript.SigHashAll,
+		},
+	}, nil
+}
+
+// closeObserver is a goroutine which watches the network for any spends of the
+// multi-sig funding output. A spend from the multi-sig output may occur under
+// the following three scenarios: a cooperative close, a unilateral close, and
+// a uncooperative contract breaching close. In the case of the last scenario a
+// BreachRetribution struct is created and sent over the ContractBreach channel
+// notifying subscribers that the counter-party has violated the condition of
+// the channel by broadcasting a revoked prior state.
+//
+// NOTE: This MUST be run as a goroutine.
+func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEvent) {
+	// If the daemon is shutting down, then this notification channel will
+	// be closed, so check the second read-value to avoid a false positive.
+	commitSpend, ok := <-channelCloseNtfn.Spend
+	if !ok {
+		return
+	}
+
+	// If we've already initiated a local cooperative or unilateral close
+	// locally, then we have nothing more to do.
+	lc.RLock()
+	if lc.status == channelClosed || lc.status == channelDispute {
+		lc.RUnlock()
+		return
+	}
+	lc.RUnlock()
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
+		"detected!", lc.channelState.ChanID)
+
+	// Otherwise, the remote party might have broadcast a prior revoked
+	// state...!!!
+	commitTxBroadcast := commitSpend.SpendingTx
+
+	// Decode the state hint encoded within the commitment transaction to
+	// determine if this is a revoked state or not.
+	obsfucator := lc.channelState.StateHintObsfucator
+	broadcastStateNum := uint64(GetStateNumHint(commitTxBroadcast, obsfucator))
+
+	currentStateNum := lc.remoteCommitChain.tail().height
+
+	switch {
+	// If state number spending transaction matches the current latest
+	// state, then they've initiated a unilateral close. So we'll trigger
+	// the unilateral close signal so subscribers can clean up the state as
+	// necessary.
+	case broadcastStateNum == currentStateNum:
+		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
+			"detected: %v", lc.channelState.ChanID)
+		close(lc.UnilateralCloseSignal)
+
+	// If the state number broadcast is lower than the remote node's
+	// current un-revoked height, then THEY'RE ATTEMPTING TO VIOLATE THE
+	// CONTRACT LAID OUT WITHIN THE PAYMENT CHANNEL.  Therefore we close
+	// the signal indicating a revoked broadcast to allow subscribers to
+	// swiftly dispatch justice!!!
+	case broadcastStateNum < currentStateNum:
+		walletLog.Warnf("Remote peer has breached the channel "+
+			"contract for ChannelPoint(%v). Revoked state #%v was "+
+			"broadcast!!!", lc.channelState.ChanID,
+			broadcastStateNum)
+
+		// Create a new reach retribution struct which contains all the
+		// data needed to swiftly bring the cheating peer to justice.
+		retribution, err := newBreachRetribution(lc.channelState,
+			broadcastStateNum, commitTxBroadcast)
+		if err != nil {
+			walletLog.Errorf("unable to create breach retribution: %v", err)
 			return
 		}
 
-		// TODO(roasbeef): only close channel if we detect that it's
-		// not our transaction?
+		walletLog.Infof("Punishment breach retribution created: %#v",
+			retribution)
 
-		// If the channel's doesn't already indicate that a commitment
-		// transaction has been broadcast on-chain, then this means the
-		// remote party broadcasted their commitment transaction.
-		// TODO(roasbeef): wait for a conf?
-		lc.Lock()
-		if lc.status != channelDispute {
-			close(lc.UnilateralCloseSignal)
-			lc.status = channelDispute
-		}
-		lc.Unlock()
-	}()
-
-	return lc, nil
+		// Finally, send the retribution struct over the contract beach
+		// channel to allow the observer the use the breach retribution
+		// to sweep ALL funds.
+		lc.ContractBreach <- retribution
+	case broadcastStateNum > currentStateNum:
+	}
 }
 
 // restoreStateLogs runs through the current locked-in HTLC's from the point of
@@ -586,6 +791,8 @@ func (lc *LightningChannel) restoreStateLogs() error {
 	return nil
 }
 
+// htlcView represents the "active" HTLC's at a particular point within the
+// history of the HTLC update log.
 type htlcView struct {
 	ourUpdates   []*PaymentDescriptor
 	theirUpdates []*PaymentDescriptor

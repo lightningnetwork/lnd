@@ -719,6 +719,8 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 		chanAmt)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
+	// TODO(roasbeef): make global list of invoices for each node to re-use
+	// and avoid collisions
 	const paymentAmt = 1000
 	preimage := bytes.Repeat([]byte{byte(90)}, 32)
 	invoice := &lnrpc.Invoice{
@@ -952,7 +954,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// Alice will pay to in order to advance the state of the channel.
 	bobPaymentHashes := make([][]byte, numInvoices)
 	for i := 0; i < numInvoices; i++ {
-		preimage := bytes.Repeat([]byte{byte(i * 10)}, 32)
+		preimage := bytes.Repeat([]byte{byte(255 - i)}, 32)
 		invoice := &lnrpc.Invoice{
 			Memo:      "testing",
 			RPreimage: preimage,
@@ -1073,7 +1075,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
 	if bobChan.NumUpdates != bobStateNumPreCopy {
-		t.Fatalf("copy failed: %v", bobChan.NumUpdates)
+		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
 	}
 
 	if err = net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
@@ -1121,7 +1123,8 @@ poll:
 	}
 	for _, txIn := range justiceTx.MsgTx().TxIn {
 		if !bytes.Equal(txIn.PreviousOutPoint.Hash[:], breachTXID[:]) {
-			t.Fatalf("not sweeping output")
+			t.Fatalf("justice tx not spending commitment utxo "+
+				"instead is: %v", txIn.PreviousOutPoint)
 		}
 	}
 
@@ -1132,7 +1135,7 @@ poll:
 	// The block should have exactly *two* transactions, one of which is
 	// the justice transaction.
 	if len(block.Transactions()) != 2 {
-		t.Fatalf("transation wasn't mined")
+		t.Fatalf("transaction wasn't mined")
 	}
 	if !bytes.Equal(justiceTx.Sha()[:], block.Transactions()[1].Sha()[:]) {
 		t.Fatalf("justice tx wasn't mined")
@@ -1141,13 +1144,14 @@ poll:
 	// Finally, obtain Alie's channel state, she shouldn't report any
 	// channel as she just successfully brought Bob to justice by sweeping
 	// all the channel funds.
+	time.Sleep(time.Second * 2)
 	req := &lnrpc.ListChannelsRequest{}
 	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to query for alice's channels: %v", err)
 	}
 	if len(aliceChanInfo.Channels) != 0 {
-		t.Fatalf("alice shouldn't deleted channel: %v",
+		t.Fatalf("alice shouldn't have a channel: %v",
 			spew.Sdump(aliceChanInfo.Channels))
 	}
 }

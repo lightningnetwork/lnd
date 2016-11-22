@@ -190,7 +190,7 @@ type invoiceSubscription struct {
 	id  uint32
 }
 
-// Cancel unregisteres the invoiceSubscription, freeing any previoulsy allocate
+// Cancel unregisters the invoiceSubscription, freeing any previously allocate
 // resources.
 func (i *invoiceSubscription) Cancel() {
 	i.inv.clientMtx.Lock()
@@ -205,6 +205,7 @@ func (i *invoiceRegistry) SubscribeNotifications() *invoiceSubscription {
 	client := &invoiceSubscription{
 		NewInvoices:     make(chan *channeldb.Invoice),
 		SettledInvoices: make(chan *channeldb.Invoice),
+		inv:             i,
 	}
 
 	i.clientMtx.Lock()

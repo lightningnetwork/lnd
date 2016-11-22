@@ -21,11 +21,11 @@ var (
 	// at the base level of this bucket several prefixed keys are stored which
 	// house channel meta-data such as total satoshis sent, number of updates
 	// etc. These fields are stored at this top level rather than within a
-	// node's channel bucket in orer to facilitate sequential prefix scans
+	// node's channel bucket in order to facilitate sequential prefix scans
 	// to gather stats such as total satoshis received.
 	openChannelBucket = []byte("ocb")
 
-	// chanIDBucket is a thrid-level bucket stored within a node's ID bucket
+	// chanIDBucket is a third-level bucket stored within a node's ID bucket
 	// in the open channel bucket. The resolution path looks something like:
 	// ocb -> nodeID -> cib. This bucket contains a series of keys with no
 	// values, these keys are the channel ID's of all the active channels

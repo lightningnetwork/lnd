@@ -161,9 +161,9 @@ func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Conte
 // detected as closed, an assertion checks that the transaction is found within
 // a block.
 func closeChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Context,
-	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint) {
+	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *wire.ShaHash {
 
-	closeUpdates, err := net.CloseChannel(ctx, node, fundingChanPoint, false)
+	closeUpdates, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -179,6 +179,8 @@ func closeChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Cont
 	}
 
 	assertTxInBlock(t, block, closingTxid)
+
+	return closingTxid
 }
 
 // testBasicChannelFunding performs a test exercising expected behavior from a
@@ -204,7 +206,7 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then
@@ -255,7 +257,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint)
+	closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint, false)
 }
 
 // testChannelForceClosure performs a test to exercise the behavior of "force"
@@ -459,7 +461,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
 }
 
 func testMultiHopPayments(net *networkHarness, t *harnessTest) {
@@ -696,9 +698,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	assertAsymmetricBalance(carol, carolFundPoint, sourceBal, sinkBal)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol)
+	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol, false)
 }
 
 func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
@@ -778,7 +780,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
 }
 
 // testBasicChannelCreation test multiple channel opening and closing.
@@ -802,7 +804,7 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint)
+		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint, false)
 	}
 }
 
@@ -902,7 +904,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctx, _ = context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint)
+		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint, false)
 	}
 }
 

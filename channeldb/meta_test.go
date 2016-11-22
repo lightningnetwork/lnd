@@ -2,9 +2,10 @@ package channeldb
 
 import (
 	"bytes"
+	"testing"
+
 	"github.com/boltdb/bolt"
 	"github.com/go-errors/errors"
-	"testing"
 )
 
 // TestVersionFetchPut checks the propernces of fetch/put methods
@@ -22,12 +23,12 @@ func TestVersionFetchPut(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if meta.dbVersionNumber != getLatestDBVersion(DBVersions) {
+	if meta.DbVersionNumber != getLatestDBVersion(dbVersions) {
 		t.Fatal("initialization of meta information wasn't performed")
 	}
 
-	var newVersion uint32 = getLatestDBVersion(DBVersions) + 1
-	meta.dbVersionNumber = newVersion
+	var newVersion uint32 = getLatestDBVersion(dbVersions) + 1
+	meta.DbVersionNumber = newVersion
 
 	if err := db.PutMeta(meta, nil); err != nil {
 		t.Fatalf("update of meta failed %v", err)
@@ -38,7 +39,7 @@ func TestVersionFetchPut(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if meta.dbVersionNumber != newVersion {
+	if meta.DbVersionNumber != newVersion {
 		t.Fatal("update of meta information wasn't performed")
 	}
 }
@@ -87,17 +88,17 @@ func TestOrderOfMigrations(t *testing.T) {
 // TestGlobalVersionList checks that there is no mistake in global version list
 // in terms of version ordering.
 func TestGlobalVersionList(t *testing.T) {
-	if DBVersions == nil {
+	if dbVersions == nil {
 		t.Fatal("can't find versions list")
 	}
 
-	if len(DBVersions) == 0 {
+	if len(dbVersions) == 0 {
 		t.Fatal("db versions list is empty")
 	}
 
-	prev := DBVersions[0].number
-	for i := 1; i < len(DBVersions); i++ {
-		version := DBVersions[i].number
+	prev := dbVersions[0].number
+	for i := 1; i < len(dbVersions); i++ {
+		version := dbVersions[i].number
 
 		if version == prev {
 			t.Fatal("duplicates db versions")
@@ -127,7 +128,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 
 	// Create test meta info with zero database version and put it on disk.
 	// Than creating the version list pretending that new version was added.
-	meta := &Meta{dbVersionNumber: 0}
+	meta := &Meta{DbVersionNumber: 0}
 	cdb.PutMeta(meta, nil)
 
 	versions := []version{
@@ -158,7 +159,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	}()
 
 	// Sync with the latest version - applying migration function.
-	err = cdb.SyncVersions(versions)
+	err = cdb.syncVersions(versions)
 }
 
 func TestMigrationWithPanic(t *testing.T) {
@@ -200,7 +201,7 @@ func TestMigrationWithPanic(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if meta.dbVersionNumber != 0 {
+		if meta.DbVersionNumber != 0 {
 			t.Fatal("migration paniced but version is changed")
 		}
 
@@ -268,7 +269,7 @@ func TestMigrationWithFatal(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if meta.dbVersionNumber != 0 {
+		if meta.DbVersionNumber != 0 {
 			t.Fatal("migration failed but version is changed")
 		}
 
@@ -335,7 +336,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if meta.dbVersionNumber != 1 {
+		if meta.DbVersionNumber != 1 {
 			t.Fatal("version number isn't changed after " +
 				"succesfully aplied migration")
 		}

@@ -67,12 +67,6 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
-	// Synchronize the version of database and apply migration if needed.
-	if err := chanDB.SyncVersions(channeldb.DBVersions); err != nil {
-		fmt.Println("unable to sync versions: ", err)
-		return err
-	}
-
 	// Next load btcd's TLS cert for the RPC connection. If a raw cert was
 	// specified in the config, then we'll se that directly. Otherwise, we
 	// attempt to read the cert from the path specified in the config.

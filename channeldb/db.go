@@ -19,9 +19,9 @@ const (
 	dbFilePermission = 0600
 )
 
-// Migration is a function which takes a prior outdated version of the database
-// instances and mutates the key/bucket structure to arrive at a more up-to-date
-// version of the database.
+// migration is a function which takes a prior outdated version of the database
+// instances and mutates the key/bucket structure to arrive at a more
+// up-to-date version of the database.
 type migration func(tx *bolt.Tx) error
 
 type version struct {
@@ -30,19 +30,20 @@ type version struct {
 }
 
 var (
-	// DBVersions is storing all versions of database. If current version of
-	// database don't match with latest version this list will be used for
-	// retrieving all migration function that are need to apply to the
+	// dbVersions is storing all versions of database. If current version
+	// of database don't match with latest version this list will be used
+	// for retrieving all migration function that are need to apply to the
 	// current db.
-	DBVersions = []version{
+	dbVersions = []version{
 		{
+			// The base DB version requires no migration.
 			number:    1,
-			migration: nil, // The base DB version requires no migration
+			migration: nil,
 		},
 	}
 
-	// Big endian is the preferred byte order, due to cursor scans over integer
-	// keys iterating in order.
+	// Big endian is the preferred byte order, due to cursor scans over
+	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
 )
 
@@ -61,7 +62,6 @@ type DB struct {
 
 // Open opens an existing channeldb created under the passed namespace with
 // sensitive data encrypted by the passed EncryptorDecryptor implementation.
-// TODO(roasbeef): versioning?
 func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
@@ -76,11 +76,19 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 		return nil, err
 	}
 
-	return &DB{
+	chanDB := &DB{
 		store:     bdb,
 		netParams: netParams,
 		dbPath:    dbPath,
-	}, nil
+	}
+
+	// Synchronize the version of database and apply migrations if needed.
+	if err := chanDB.syncVersions(dbVersions); err != nil {
+		bdb.Close()
+		return nil, err
+	}
+
+	return chanDB, nil
 }
 
 // Wipe completely deletes all saved state within all used buckets within the
@@ -299,42 +307,44 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 	return channels, err
 }
 
-// SyncVersions function is used for safe db version synchronization. It applies
+// syncVersions function is used for safe db version synchronization. It applies
 // migration functions to the current database and recovers the previous
 // state of db if at least one error/panic appeared during migration.
-func (d *DB) SyncVersions(versions []version) error {
+func (d *DB) syncVersions(versions []version) error {
 	meta, err := d.FetchMeta(nil)
 	if err != nil {
 		return err
 	}
 
+	// If the current database version matches the latest version number,
+	// then we don't need to perform any migrations.
 	latestVersion := getLatestDBVersion(versions)
-
-	if meta.dbVersionNumber < latestVersion {
-		migrations := getMigrationsToApply(versions, meta.dbVersionNumber)
-
-		return d.store.Update(func(tx *bolt.Tx) error {
-			for _, migration := range migrations {
-				if migration == nil {
-					continue
-				}
-
-				if err := migration(tx); err != nil {
-					return err
-				}
-			}
-
-			meta.dbVersionNumber = latestVersion
-			if err := d.PutMeta(meta, tx); err != nil {
-				return err
-			}
-
-			return nil
-		})
-
+	if meta.DbVersionNumber == latestVersion {
+		return nil
 	}
 
-	return nil
+	// Otherwise, we fetch the migrations which need to applied, and
+	// execute them serially within a single database transaction to ensure
+	// the migration is atomic.
+	migrations := getMigrationsToApply(versions, meta.DbVersionNumber)
+	return d.store.Update(func(tx *bolt.Tx) error {
+		for _, migration := range migrations {
+			if migration == nil {
+				continue
+			}
+
+			if err := migration(tx); err != nil {
+				return err
+			}
+		}
+
+		meta.DbVersionNumber = latestVersion
+		if err := d.PutMeta(meta, tx); err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 func getLatestDBVersion(versions []version) uint32 {

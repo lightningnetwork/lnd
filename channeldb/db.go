@@ -15,10 +15,32 @@ import (
 )
 
 const (
-	dbName = "channel.db"
+	dbName           = "channel.db"
+	dbFilePermission = 0600
 )
 
+// Migration is a function which takes a prior outdated version of the database
+// instances and mutates the key/bucket structure to arrive at a more up-to-date
+// version of the database.
+type migration func(tx *bolt.Tx) error
+
+type version struct {
+	number    uint32
+	migration migration
+}
+
 var (
+	// DBVersions is storing all versions of database. If current version of
+	// database don't match with latest version this list will be used for
+	// retrieving all migration function that are need to apply to the
+	// current db.
+	DBVersions = []version{
+		{
+			number:    1,
+			migration: nil, // The base DB version requires no migration
+		},
+	}
+
 	// Big endian is the preferred byte order, due to cursor scans over integer
 	// keys iterating in order.
 	byteOrder = binary.BigEndian
@@ -32,9 +54,9 @@ var bufPool = &sync.Pool{
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
-	store *bolt.DB
-
+	store     *bolt.DB
 	netParams *chaincfg.Params
+	dbPath    string
 }
 
 // Open opens an existing channeldb created under the passed namespace with
@@ -49,12 +71,16 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 		}
 	}
 
-	bdb, err := bolt.Open(path, 0600, nil)
+	bdb, err := bolt.Open(path, dbFilePermission, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return &DB{store: bdb, netParams: netParams}, nil
+	return &DB{
+		store:     bdb,
+		netParams: netParams,
+		dbPath:    dbPath,
+	}, nil
 }
 
 // Wipe completely deletes all saved state within all used buckets within the
@@ -103,7 +129,7 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := bolt.Open(path, 0600, nil)
+	bdb, err := bolt.Open(path, dbFilePermission, nil)
 	if err != nil {
 		return err
 	}
@@ -122,6 +148,10 @@ func createChannelDB(dbPath string) error {
 		}
 
 		if _, err := tx.CreateBucket(nodeInfoBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(metaBucket); err != nil {
 			return err
 		}
 
@@ -267,4 +297,60 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 	})
 
 	return channels, err
+}
+
+// SyncVersions function is used for safe db version synchronization. It applies
+// migration functions to the current database and recovers the previous
+// state of db if at least one error/panic appeared during migration.
+func (d *DB) SyncVersions(versions []version) error {
+	meta, err := d.FetchMeta(nil)
+	if err != nil {
+		return err
+	}
+
+	latestVersion := getLatestDBVersion(versions)
+
+	if meta.dbVersionNumber < latestVersion {
+		migrations := getMigrationsToApply(versions, meta.dbVersionNumber)
+
+		return d.store.Update(func(tx *bolt.Tx) error {
+			for _, migration := range migrations {
+				if migration == nil {
+					continue
+				}
+
+				if err := migration(tx); err != nil {
+					return err
+				}
+			}
+
+			meta.dbVersionNumber = latestVersion
+			if err := d.PutMeta(meta, tx); err != nil {
+				return err
+			}
+
+			return nil
+		})
+
+	}
+
+	return nil
+}
+
+func getLatestDBVersion(versions []version) uint32 {
+	return versions[len(versions)-1].number
+}
+
+// getMigrationsToApply retrieves the migration function that should be
+// applied to the database.
+func getMigrationsToApply(versions []version, version uint32) []migration {
+	migrations := make([]migration, 0, len(versions))
+
+	for _, v := range versions {
+		if v.number > version {
+			migrations = append(migrations, v.migration)
+		}
+	}
+
+	return migrations
 }

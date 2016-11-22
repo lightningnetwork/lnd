@@ -125,7 +125,8 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 
 	numActiveNodes++
 
-	return &lightningNode{cfg: cfg,
+	return &lightningNode{
+		cfg:         cfg,
 		p2pAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
 		rpcAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
 		rpcCert:     rpcConfig.Certificates,
@@ -186,12 +187,12 @@ func (l *lightningNode) start(lndError chan error) error {
 	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
-		fmt.Sprintf("%s.pid", l.nodeId)))
+		fmt.Sprintf("%v.pid", l.nodeId)))
 	if err != nil {
 		return err
 	}
 	l.pidFile = pid.Name()
-	if _, err = fmt.Fprintf(pid, "%s\n", l.cmd.Process.Pid); err != nil {
+	if _, err = fmt.Fprintf(pid, "%v\n", l.cmd.Process.Pid); err != nil {
 		return err
 	}
 	if err := pid.Close(); err != nil {
@@ -265,8 +266,10 @@ func (l *lightningNode) stop() error {
 // restart attempts to restart a lightning node by shutting it down cleanly,
 // then restarting the process. This function is fully blocking. Upon restart,
 // the RPC connection to the node will be re-attempted, continuing iff the
-// connection attempt is successful.
-func (l *lightningNode) restart(errChan chan error) error {
+// connection attempt is successful. Additionally, if a callback is passed, the
+// closure will be executed after the node has been shutdown, but before the
+// process has been started up again.
+func (l *lightningNode) restart(errChan chan error, callback func() error) error {
 	if err := l.stop(); err != nil {
 		return nil
 	}
@@ -274,6 +277,12 @@ func (l *lightningNode) restart(errChan chan error) error {
 	<-l.processExit
 
 	l.processExit = make(chan struct{})
+
+	if callback != nil {
+		if err := callback(); err != nil {
+			return err
+		}
+	}
 
 	return l.start(errChan)
 }
@@ -539,13 +548,15 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 // RestartNode  attempts to restart a lightning node by shutting it down
 // cleanly, then restarting the process. This function is fully blocking. Upon
 // restart, the RPC connection to the node will be re-attempted, continuing iff
-// the connection attempt is successful.
+// the connection attempt is successful. If the callback parameter is non-nil,
+// then the function will be executed after the node shuts down, but *before*
+// the process has been started up again.
 //
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
 // crashes, etc.
-func (n *networkHarness) RestartNode(node *lightningNode) error {
-	return node.restart(n.lndErrorChan)
+func (n *networkHarness) RestartNode(node *lightningNode, callback func() error) error {
+	return node.restart(n.lndErrorChan, callback)
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?
@@ -615,7 +626,8 @@ func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
 
 // WaitForTxBroadcast blocks until the target txid is seen on the network. If
 // the transaction isn't seen within the network before the passed timeout,
-// then an error is returend.
+// then an error is returned.
+// TODO(roasbeef): add another method which creates queue of all seen transactions
 func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid wire.ShaHash) error {
 	eventChan := make(chan struct{})
 

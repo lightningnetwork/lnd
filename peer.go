@@ -1177,7 +1177,23 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		// to our local log, then update the commitment
 		// chains.
 		htlc.ChannelPoint = state.chanPoint
-		index := state.channel.AddHTLC(htlc)
+		index, err := state.channel.AddHTLC(htlc)
+		if err != nil {
+			// TODO: possibly perform fallback/retry logic
+			// depending on type of error
+			// TODO: send a cancel message back to the htlcSwitch.
+			peerLog.Errorf("Adding HTLC rejected: %v", err)
+			pkt.err <- err
+
+			// Increase the available bandwidth of the link,
+			// previously it was decremented and because
+			// HTLC adding failed we should do the reverse
+			// operation.
+			htlcSwitch := p.server.htlcSwitch
+			htlcSwitch.UpdateLink(htlc.ChannelPoint, pkt.amt)
+			return
+		}
+
 		p.queueMsg(htlc, nil)
 
 		state.pendingBatch = append(state.pendingBatch, &pendingPayment{
@@ -1258,7 +1274,11 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the pre-image
-		index := state.channel.ReceiveHTLC(htlcPkt)
+		index, err := state.channel.ReceiveHTLC(htlcPkt)
+		if err != nil {
+			peerLog.Errorf("Receiving HTLC rejected: %v", err)
+			return
+		}
 
 		switch sphinxPacket.Action {
 		// We're the designated payment destination. Therefore we

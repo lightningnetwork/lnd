@@ -731,6 +731,108 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	}
 }
 
+// TestCheckHTLCNumberConstraint checks that we can't add HTLC or receive
+// HTLC if number of HTLCs exceed maximum available number, also this test
+// checks that if for some reason max number of HTLCs was exceeded and not
+// caught before, the creation of new commitment will not be possible because
+// of validation error.
+func TestCheckHTLCNumberConstraint(t *testing.T) {
+	createHTLC := func(i int) *lnwire.HTLCAddRequest {
+		preimage := bytes.Repeat([]byte{byte(i)}, 32)
+		paymentHash := fastsha256.Sum256(preimage)
+		return &lnwire.HTLCAddRequest{
+			RedemptionHashes: [][32]byte{paymentHash},
+			Amount:           lnwire.CreditsAmount(1e7),
+			Expiry:           uint32(5),
+		}
+	}
+
+	checkError := func(err error) error {
+		if err == nil {
+			return errors.New("Exceed max htlc count error was " +
+				"not received")
+		} else if err != ErrMaxHTLCNumber {
+			return errors.Errorf("Unexpected error occured: %v", err)
+		}
+
+		return nil
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Add max available number of HTLCs.
+	for i := 0; i < MaxHTLCNumber; i++ {
+		htlc := createHTLC(i)
+		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+			t.Fatalf("alice unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("bob unable to receive htlc: %v", err)
+		}
+	}
+
+	// Next addition should cause HTLC max number validation error.
+	htlc := createHTLC(0)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		if err := checkError(err); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("Error was not received")
+	}
+	if _, err := bobChannel.AddHTLC(htlc); err != nil {
+		if err := checkError(err); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("Error was not received")
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
+		if err := checkError(err); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("Error was not received")
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		if err := checkError(err); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("Error was not received")
+	}
+
+	// Manually add HTLC to check SignNextCommitment validation error.
+	pd := &PaymentDescriptor{Index: aliceChannel.theirLogCounter}
+	aliceChannel.theirLogIndex[pd.Index] = aliceChannel.theirUpdateLog.PushBack(pd)
+	aliceChannel.theirLogCounter++
+
+	_, _, err = aliceChannel.SignNextCommitment()
+	if err := checkError(err); err != nil {
+		t.Fatal(err)
+	}
+
+	// Manually add HTLC to check ReceiveNewCommitment validation error.
+	pd = &PaymentDescriptor{Index: bobChannel.theirLogCounter}
+	bobChannel.theirLogIndex[pd.Index] = bobChannel.theirUpdateLog.PushBack(pd)
+	bobChannel.theirLogCounter++
+
+	// And on this stage we should receive the weight error.
+	someSig := []byte("somesig")
+	err = bobChannel.ReceiveNewCommitment(someSig, aliceChannel.theirLogCounter)
+	if err := checkError(err); err != nil {
+		t.Fatal(err)
+	}
+
+}
+
 func TestStateUpdatePersistence(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,

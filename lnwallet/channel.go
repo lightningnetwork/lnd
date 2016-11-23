@@ -1107,6 +1107,11 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
+	err := lc.validateCommitmentSanity(lc.theirLogCounter, lc.ourLogCounter, false)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	// Ensure that we have enough unused revocation hashes given to us by the
 	// remote party. If the set is empty, then we're unable to create a new
 	// state unless they first revoke a prior commitment transaction.
@@ -1165,7 +1170,47 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, uint32, error) {
 	return sig, lc.theirLogCounter, nil
 }
 
-// ReceiveNewCommitment processs a signature for a new commitment state sent by
+// validateCommitmentSanity is used to validate that on current state the commitment
+// transaction is valid in terms of propagating it over Bitcoin network, and
+// also that all outputs are meet Bitcoin spec requirements and they are
+// spendable.
+func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
+	ourLogCounter uint32, prediction bool) error {
+
+	htlcCount := 0
+
+	if prediction {
+		htlcCount++
+	}
+
+	// Run through all the HTLC's that will be covered by this transaction
+	// in order to calculate theirs count.
+	htlcView := lc.fetchHTLCView(theirLogCounter, ourLogCounter)
+
+	for _, entry := range htlcView.ourUpdates {
+		if entry.EntryType == Add {
+			htlcCount++
+		} else {
+			htlcCount--
+		}
+	}
+
+	for _, entry := range htlcView.theirUpdates {
+		if entry.EntryType == Add {
+			htlcCount++
+		} else {
+			htlcCount--
+		}
+	}
+
+	if htlcCount > MaxHTLCNumber {
+		return ErrMaxHTLCNumber
+	}
+
+	return nil
+}
+
+// ReceiveNewCommitment process a signature for a new commitment state sent by
 // the remote party. This method will should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
 // signature fully accepting a new state we've initiated. If we are able to
@@ -1178,6 +1223,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 
 	lc.Lock()
 	defer lc.Unlock()
+
+	err := lc.validateCommitmentSanity(lc.theirLogCounter, ourLogIndex, false)
+	if err != nil {
+		return err
+	}
 
 	theirCommitKey := lc.channelState.TheirCommitKey
 	theirMultiSigKey := lc.channelState.TheirMultiSigKey
@@ -1517,9 +1567,14 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.CommitRevocation, 
 // should be called when preparing to send an outgoing HTLC.
 // TODO(roasbeef): check for duplicates below? edge case during restart w/ HTLC
 // persistence
-func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
+func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) (uint32, error) {
 	lc.Lock()
 	defer lc.Unlock()
+
+	err := lc.validateCommitmentSanity(lc.theirLogCounter, lc.ourLogCounter, true)
+	if err != nil {
+		return 0, err
+	}
 
 	pd := &PaymentDescriptor{
 		EntryType: Add,
@@ -1532,15 +1587,20 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 	lc.ourLogIndex[pd.Index] = lc.ourUpdateLog.PushBack(pd)
 	lc.ourLogCounter++
 
-	return pd.Index
+	return pd.Index, nil
 }
 
 // ReceiveHTLC adds an HTLC to the state machine's remote update log. This
 // method should be called in response to receiving a new HTLC from the remote
 // party.
-func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
+func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) (uint32, error) {
 	lc.Lock()
 	defer lc.Unlock()
+
+	err := lc.validateCommitmentSanity(lc.theirLogCounter, lc.ourLogCounter, true)
+	if err != nil {
+		return 0, err
+	}
 
 	pd := &PaymentDescriptor{
 		EntryType: Add,
@@ -1553,7 +1613,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) uint32 {
 	lc.theirLogIndex[pd.Index] = lc.theirUpdateLog.PushBack(pd)
 	lc.theirLogCounter++
 
-	return pd.Index
+	return pd.Index, nil
 }
 
 // SettleHTLC attempts to settle an existing outstanding received HTLC. The

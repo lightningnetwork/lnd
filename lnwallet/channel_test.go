@@ -9,10 +9,12 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
@@ -253,6 +255,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		OurBalance:             channelBal,
 		TheirBalance:           channelBal,
 		OurCommitTx:            aliceCommitTx,
+		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         aliceKeyPub,
 		TheirMultiSigKey:       bobKeyPub,
@@ -276,6 +279,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		OurBalance:             channelBal,
 		TheirBalance:           channelBal,
 		OurCommitTx:            bobCommitTx,
+		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
 		FundingOutpoint:        prevOut,
 		OurMultiSigKey:         bobKeyPub,
 		TheirMultiSigKey:       aliceKeyPub,
@@ -589,6 +593,94 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	if len(bobChannel.theirLogIndex) != 0 {
 		t.Fatalf("bob's remote log index not cleared, should be empty but "+
 			"has %v entries", len(bobChannel.theirLogIndex))
+	}
+}
+
+// TestCheckCommitTxSize checks that estimation size of commitment
+// transaction with some degree of error corresponds to the actual size.
+func TestCheckCommitTxSize(t *testing.T) {
+	checkSize := func(channel *LightningChannel, count int) {
+		// Due to variable size of the signatures (71-73) we may have
+		// an estimation error.
+		BaseCommitmentTxSizeEstimationError := 4
+
+		commitTx, err := channel.getSignedCommitTx()
+		if err != nil {
+			t.Fatalf("unable to initiate alice force close: %v", err)
+		}
+
+		actualCost := blockchain.GetMsgTxCost(commitTx)
+		estimatedCost := estimateCommitTxCost(count, false)
+
+		diff := int(estimatedCost - actualCost)
+		if 0 > diff || BaseCommitmentTxSizeEstimationError < diff {
+			t.Fatalf("estimation is wrong")
+		}
+
+	}
+
+	createHTLC := func(i int) (*lnwire.HTLCAddRequest, [32]byte) {
+		preimage := bytes.Repeat([]byte{byte(i)}, 32)
+		paymentHash := fastsha256.Sum256(preimage)
+
+		var returnPreimage [32]byte
+		copy(returnPreimage[:], preimage)
+
+		return &lnwire.HTLCAddRequest{
+			RedemptionHashes: [][32]byte{paymentHash},
+			Amount:           lnwire.CreditsAmount(1e7),
+			Expiry:           uint32(5),
+		}, returnPreimage
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Check that weight estimation of the commitment transaction without
+	// HTLCs is right.
+	checkSize(aliceChannel, 0)
+	checkSize(bobChannel, 0)
+
+	// Adding HTLCs and check that size stays in allowable estimation
+	// error window.
+	for i := 1; i <= 10; i++ {
+		htlc, _ := createHTLC(i)
+
+		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+			t.Fatalf("alice unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("bob unable to receive htlc: %v", err)
+		}
+
+		forceStateTransition(aliceChannel, bobChannel)
+		checkSize(aliceChannel, i)
+		checkSize(bobChannel, i)
+	}
+
+	// Settle HTLCs and check that estimation is counting cost of settle
+	// HTLCs properly.
+	for i := 10; i >= 1; i-- {
+		_, preimage := createHTLC(i)
+
+		settleIndex, err := bobChannel.SettleHTLC(preimage)
+		if err != nil {
+			t.Fatalf("bob unable to settle inbound htlc: %v", err)
+		}
+		err = aliceChannel.ReceiveHTLCSettle(preimage, settleIndex)
+		if err != nil {
+			t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+		}
+
+		forceStateTransition(aliceChannel, bobChannel)
+		checkSize(aliceChannel, i-1)
+		checkSize(bobChannel, i-1)
 	}
 }
 

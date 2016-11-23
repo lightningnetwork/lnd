@@ -25,6 +25,10 @@ var (
 	ErrChanClosing = fmt.Errorf("channel is being closed, operation disallowed")
 	ErrNoWindow    = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
+	ErrMaxWeightCost = fmt.Errorf("commitment transaction exceed max " +
+		"available weight")
+	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
+		"htlc number")
 )
 
 const (
@@ -1321,7 +1325,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.CommitRevocation,
 // commitment, and a log compaction is attempted. In addition, a slice of
 // HTLC's which can be forwarded upstream are returned.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) ([]*PaymentDescriptor, error) {
-
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -1736,24 +1739,9 @@ type ForceCloseSummary struct {
 	SelfOutputSignDesc *SignDescriptor
 }
 
-// ForceClose executes a unilateral closure of the transaction at the current
-// lowest commitment height of the channel. Following a force closure, all
-// state transitions, or modifications to the state update logs will be
-// rejected. Additionally, this function also returns a ForceCloseSummary which
-// includes the necessary details required to sweep all the time-locked within
-// the commitment transaction.
-//
-// TODO(roasbeef): all methods need to abort if in dispute state
-// TODO(roasbeef): method to generate CloseSummaries for when the remote peer
-// does a unilateral close
-func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
-	lc.Lock()
-	defer lc.Unlock()
-
-	// Set the channel state to indicate that the channel is now in a
-	// contested state.
-	lc.status = channelDispute
-
+// getSignedCommitTx function take the latest commitment transaction and populate
+// it with witness data.
+func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// Fetch the current commitment transaction, along with their signature
 	// for the transaction.
 	commitTx := lc.channelState.OurCommitTx
@@ -1773,9 +1761,35 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// required to spend from the multi-sig output.
 	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
 	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
-	witness := SpendMultiSig(lc.FundingWitnessScript, ourKey, ourSig,
-		theirKey, theirSig)
-	commitTx.TxIn[0].Witness = witness
+
+	commitTx.TxIn[0].Witness = SpendMultiSig(lc.FundingWitnessScript, ourKey,
+		ourSig, theirKey, theirSig)
+
+	return commitTx, nil
+}
+
+// ForceClose executes a unilateral closure of the transaction at the current
+// lowest commitment height of the channel. Following a force closure, all
+// state transitions, or modifications to the state update logs will be
+// rejected. Additionally, this function also returns a ForceCloseSummary which
+// includes the necessary details required to sweep all the time-locked within
+// the commitment transaction.
+//
+// TODO(roasbeef): all methods need to abort if in dispute state
+// TODO(roasbeef): method to generate CloseSummaries for when the remote peer
+// does a unilateral close
+func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Set the channel state to indicate that the channel is now in a
+	// contested state.
+	lc.status = channelDispute
+
+	commitTx, err := lc.getSignedCommitTx()
+	if err != nil {
+		return nil, err
+	}
 
 	// Locate the output index of the delayed commitment output back to us.
 	// We'll return the details of this output to the caller so they can

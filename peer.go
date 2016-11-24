@@ -1532,7 +1532,7 @@ func logEntryToHtlcPkt(chanPoint wire.OutPoint,
 		}
 
 		msg = &lnwire.HTLCAddRequest{
-			Amount:           lnwire.CreditsAmount(pd.Amount),
+			Amount:           btcutil.Amount(pd.Amount),
 			RedemptionHashes: [][32]byte{pd.RHash},
 			OnionBlob:        b.Bytes(),
 		}

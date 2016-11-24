@@ -768,7 +768,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// With the funding tx complete, create both commitment transactions.
 	// TODO(roasbeef): much cleanup + de-duplication
-	pendingReservation.fundingLockTime = theirContribution.CsvDelay
 	ourBalance := ourContribution.FundingAmount
 	theirBalance := theirContribution.FundingAmount
 	ourCommitKey := ourContribution.CommitKey

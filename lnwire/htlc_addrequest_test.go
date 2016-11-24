@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
+	"github.com/roasbeef/btcutil"
 )
 
 func TestHTLCAddRequestEncodeDecode(t *testing.T) {
@@ -14,7 +15,7 @@ func TestHTLCAddRequestEncodeDecode(t *testing.T) {
 	addReq := &HTLCAddRequest{
 		ChannelPoint:     outpoint1,
 		Expiry:           uint32(144),
-		Amount:           CreditsAmount(123456000),
+		Amount:           btcutil.Amount(123456000),
 		ContractType:     uint8(17),
 		RedemptionHashes: redemptionHashes,
 		OnionBlob:        []byte{255, 0, 255, 0, 255, 0, 255, 0},

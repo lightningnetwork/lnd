@@ -12,7 +12,7 @@ import (
 
 // ChannelContribution is the primary constituent of the funding workflow within
 // lnwallet. Each side first exchanges their respective contributions along with
-// channel specific paramters like the min fee/KB. Once contributions have been
+// channel specific parameters like the min fee/KB. Once contributions have been
 // exchanged, each side will then produce signatures for all their inputs to the
 // funding transactions, and finally a signature for the other party's version
 // of the commitment transaction.
@@ -97,10 +97,6 @@ type ChannelReservation struct {
 
 	// fundingTx is the funding transaction for this pending channel.
 	fundingTx *wire.MsgTx
-
-	// For CLTV it is nLockTime, for CSV it's nSequence, for segwit it's
-	// not needed
-	fundingLockTime uint32
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
@@ -228,7 +224,7 @@ func (r *ChannelReservation) OurContribution() *ChannelContribution {
 	return r.ourContribution
 }
 
-// ProcesContribution verifies the counterparty's contribution to the pending
+// ProcessContribution verifies the counterparty's contribution to the pending
 // payment channel. As a result of this incoming message, lnwallet is able to
 // build the funding transaction, and both commitment transactions. Once this
 // message has been processed, all signatures to inputs to the funding

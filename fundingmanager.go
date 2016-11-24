@@ -1,19 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"google.golang.org/grpc"
 )
 
@@ -306,7 +305,7 @@ func (f *fundingManager) processFundingRequest(msg *lnwire.SingleFundingRequest,
 	f.fundingMsgs <- &fundingRequestMsg{msg, peer}
 }
 
-// handleSingleFundingRequest creates an initial 'ChannelReservation' within
+// handleFundingRequest creates an initial 'ChannelReservation' within
 // the wallet, then responds to the source peer with a single funder response
 // message progressing the funding workflow.
 // TODO(roasbeef): add error chan to all, let channelManager handle
@@ -413,11 +412,16 @@ func (f *fundingManager) processFundingResponse(msg *lnwire.SingleFundingRespons
 // outpoint, and a commitment signature to the remote peer.
 func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	msg := fmsg.msg
+	peerID := fmsg.peer.id
+	chanID := fmsg.msg.ChannelID
 	sourcePeer := fmsg.peer
 
-	f.resMtx.RLock()
-	resCtx := f.activeReservations[fmsg.peer.id][msg.ChannelID]
-	f.resMtx.RUnlock()
+	resCtx, err := f.getReservationCtx(peerID, chanID)
+	if err != nil {
+		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+			peerID, chanID)
+		return
+	}
 
 	fndgLog.Infof("Recv'd fundingResponse for pendingID(%v)", msg.ChannelID)
 
@@ -463,14 +467,14 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	// the peer's readHandler once the channel is open.
 	fmsg.peer.barrierInits <- *outPoint
 
-	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%v)",
-		outPoint, msg.ChannelID)
+	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%v)", outPoint,
+		chanID)
 
 	revocationKey := resCtx.reservation.OurContribution().RevocationKey
 	obsfucator := resCtx.reservation.StateNumObfuscator()
 
-	fundingComplete := lnwire.NewSingleFundingComplete(msg.ChannelID,
-		outPoint, commitSig, revocationKey, obsfucator)
+	fundingComplete := lnwire.NewSingleFundingComplete(chanID, outPoint,
+		commitSig, revocationKey, obsfucator)
 	sourcePeer.queueMsg(fundingComplete, nil)
 }
 
@@ -485,9 +489,12 @@ func (f *fundingManager) processFundingComplete(msg *lnwire.SingleFundingComplet
 // processed, a signature is sent to the remote peer allowing it to broadcast
 // the funding transaction, progressing the workflow into the final stage.
 func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
-	f.resMtx.RLock()
-	resCtx := f.activeReservations[fmsg.peer.id][fmsg.msg.ChannelID]
-	f.resMtx.RUnlock()
+	resCtx, err := f.getReservationCtx(fmsg.peer.id, fmsg.msg.ChannelID)
+	if err != nil {
+		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+			fmsg.peer.id, fmsg.msg.ChannelID)
+		return
+	}
 
 	// The channel initiator has responded with the funding outpoint of the
 	// final funding transaction, as well as a signature for our version of
@@ -507,8 +514,8 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
-	err := resCtx.reservation.CompleteReservationSingle(revokeKey,
-		fundingOut, commitSig, obsfucator)
+	err = resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut,
+		commitSig, obsfucator)
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
@@ -551,10 +558,14 @@ func (f *fundingManager) processFundingSignComplete(msg *lnwire.SingleFundingSig
 // proofs of transaction inclusion.
 func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg) {
 	chanID := fmsg.msg.ChannelID
+	peerID := fmsg.peer.id
 
-	f.resMtx.RLock()
-	resCtx := f.activeReservations[fmsg.peer.id][chanID]
-	f.resMtx.RUnlock()
+	resCtx, err := f.getReservationCtx(peerID, chanID)
+	if err != nil {
+		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+			peerID, chanID)
+		return
+	}
 
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
@@ -594,12 +605,10 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 		case openChan := <-resCtx.reservation.DispatchChan():
 			// This reservation is no longer pending as the funding
 			// transaction has been fully confirmed.
-			f.resMtx.Lock()
-			delete(f.activeReservations[fmsg.peer.id], chanID)
-			f.resMtx.Unlock()
+			f.deleteReservationCtx(peerID, chanID)
 
 			fndgLog.Infof("ChannelPoint(%v) with peerID(%v) is now active",
-				fundingPoint, fmsg.peer.id)
+				fundingPoint, peerID)
 
 			// Now that the channel is open, we need to notify a
 			// number of parties of this event.
@@ -669,9 +678,15 @@ func (f *fundingManager) processFundingOpenProof(msg *lnwire.SingleFundingOpenPr
 // the initiating node is verified, which if correct, marks the channel as open
 // to the source peer.
 func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
-	f.resMtx.RLock()
-	resCtx := f.activeReservations[fmsg.peer.id][fmsg.msg.ChannelID]
-	f.resMtx.RUnlock()
+	chanID := fmsg.msg.ChannelID
+	peerID := fmsg.peer.id
+
+	resCtx, err := f.getReservationCtx(peerID, chanID)
+	if err != nil {
+		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+			peerID, chanID)
+		return
+	}
 
 	// The channel initiator has claimed the channel is now open, so we'll
 	// verify the contained SPV proof for validity.
@@ -690,12 +705,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// The reservation has been completed, therefore we can stop tracking
 	// it within our active reservations map.
-	f.resMtx.Lock()
-	delete(f.activeReservations[fmsg.peer.id], fmsg.msg.ChannelID)
-	f.resMtx.Unlock()
+	f.deleteReservationCtx(peerID, chanID)
 
 	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerID(%v) is now open",
-		resCtx.reservation.FundingOutpoint, fmsg.peer.id)
+		resCtx.reservation.FundingOutpoint, peerID)
 
 	// Notify the L3 routing manager of the newly active channel link.
 	capacity := int64(resCtx.reservation.OurContribution().FundingAmount +
@@ -818,37 +831,67 @@ func (f *fundingManager) processErrorGeneric(err *lnwire.ErrorGeneric,
 // depends on the type of error we should do different clean up steps and
 // inform user about it.
 func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
-	switch fmsg.err.Code {
+	e := fmsg.err
+
+	switch e.Code {
 	case lnwire.ErrorMaxPendingChannels:
 		peerID := fmsg.peer.id
 		chanID := fmsg.err.PendingChannelID
 
-		f.resMtx.RLock()
-		resCtx, ok := f.activeReservations[peerID][chanID]
-		f.resMtx.RUnlock()
-
-		if !ok {
-			fndgLog.Warnf("ErrorGeneric error was returned from " +
-				"remote peer for unknown channel (id: %v)")
+		if ctx, err := f.cancelReservationCtx(peerID, chanID); err != nil {
+			fndgLog.Warnf("unable to delete reservation: %v", err)
+			return
+		} else {
+			ctx.err <- grpc.Errorf(e.Code.ToGrpcCode(), e.Problem)
 			return
 		}
 
-		if err := resCtx.reservation.Cancel(); err != nil {
-			resCtx.err <- fmt.Errorf("max pending channels "+
-				"exceeded -- unable to cancel reservation: %v",
-				err)
-		} else {
-			resCtx.err <- grpc.Errorf(ErrorMaxPendingChannels,
-				"unable to create channel, max number of "+
-					"pending channels exceeded.")
-		}
-
-		// TODO(roasbeef): possibly cancel funding barrier in peer's
-		// channelManager?
-		f.resMtx.Lock()
-		delete(f.activeReservations[peerID], chanID)
-		f.resMtx.Unlock()
 	default:
-		fndgLog.Warnf("unknown funding error %v", fmsg.err)
+		fndgLog.Warnf("unknown funding error (%v:%v)", e.Code, e.Problem)
 	}
+}
+
+// cancelReservationCtx do all needed work in order to securely cancel the
+// reservation.
+func (f *fundingManager) cancelReservationCtx(peerID int32,
+	chanID uint64) (*reservationWithCtx, error) {
+
+	ctx, err := f.getReservationCtx(peerID, chanID)
+	if err != nil {
+		return nil, errors.Errorf("can't find reservation: %v",
+			err)
+	}
+
+	if err := ctx.reservation.Cancel(); err != nil {
+		ctx.err <- err
+		return nil, errors.Errorf("can't cancel reservation: %v",
+			err)
+	}
+
+	f.deleteReservationCtx(peerID, chanID)
+	return ctx, nil
+}
+
+// deleteReservationCtx is needed in order to securely delete the reservation.
+func (f *fundingManager) deleteReservationCtx(peerID int32, chanID uint64) {
+	// TODO(roasbeef): possibly cancel funding barrier in peer's
+	// channelManager?
+	f.resMtx.Lock()
+	delete(f.activeReservations[peerID], chanID)
+	f.resMtx.Unlock()
+}
+
+// getReservationCtx returns the reservation context by peer id and channel id.
+func (f *fundingManager) getReservationCtx(peerID int32,
+	chanID uint64) (*reservationWithCtx, error) {
+
+	f.resMtx.RLock()
+	resCtx, ok := f.activeReservations[peerID][chanID]
+	f.resMtx.RUnlock()
+
+	if !ok {
+		return nil, errors.Errorf("unknown channel (id: %v)", chanID)
+	}
+
+	return resCtx, nil
 }

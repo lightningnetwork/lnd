@@ -5,11 +5,20 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
+	"google.golang.org/grpc/codes"
 )
 
 // ErrorCode represents the short error code for each of the defined errors
 // within the Lightning Network protocol spec.
 type ErrorCode uint16
+
+// ToGrpcCode is used to generate gRPC specific code which will be propagated
+// to the ln rpc client. This code is used to have more detailed view of what
+// goes wrong and also in order to have the ability pragmatically determine
+// the error and take specific actions on the client side.
+func (e ErrorCode) ToGrpcCode() codes.Code {
+	return (codes.Code)(e) + 100
+}
 
 const (
 	// ErrorMaxPendingChannels is returned by remote peer when the number

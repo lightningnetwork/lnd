@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 // HTLCAddRequest is the message sent by Alice to Bob when she wishes to add an
@@ -28,7 +29,7 @@ type HTLCAddRequest struct {
 	// Difference between hop and first item in blob is the fee to complete
 
 	// Amount is the number of credits this HTLC is worth.
-	Amount CreditsAmount
+	Amount btcutil.Amount
 
 	// RefundContext is for payment cancellation
 	// TODO(j): not currently in use, add later

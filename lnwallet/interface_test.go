@@ -908,12 +908,6 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// TODO(roasbeef): bob verify alice's sig
 }
 
-func testFundingReservationInvalidCounterpartySigs(miner *rpctest.Harness, lnwallet *lnwallet.LightningWallet, t *testing.T) {
-}
-
-func testFundingTransactionTxFees(miner *rpctest.Harness, lnwallet *lnwallet.LightningWallet, t *testing.T) {
-}
-
 func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.LightningWallet, t *testing.T) {
 	t.Log("Running list transaction details test")
 
@@ -1234,10 +1228,10 @@ var walletTests = []func(miner *rpctest.Harness, w *lnwallet.LightningWallet, te
 	testSingleFunderReservationWorkflowResponder,
 	testFundingTransactionLockedOutputs,
 	testFundingCancellationNotEnoughFunds,
-	testFundingReservationInvalidCounterpartySigs,
 	testTransactionSubscriptions,
 	testListTransactionDetails,
 	testSignOutputPrivateTweak,
+	testCancelNonExistantReservation,
 }
 
 type testLnWallet struct {
@@ -1324,28 +1318,28 @@ func TestLightningWallet(t *testing.T) {
 		}
 
 		// Funding via 20 outputs with 4BTC each.
-		lnwallet, err := createTestWallet(tempTestDir, miningNode, netParams,
+		lnw, err := createTestWallet(tempTestDir, miningNode, netParams,
 			chainNotifier, wc, signer, bio)
 		if err != nil {
 			t.Fatalf("unable to create test ln wallet: %v", err)
 		}
 
 		// The wallet should now have 80BTC available for spending.
-		assertProperBalance(t, lnwallet, 1, 80)
+		assertProperBalance(t, lnw, 1, 80)
 
 		// Execute every test, clearing possibly mutated wallet state after
 		// each step.
 		for _, walletTest := range walletTests {
-			walletTest(miningNode, lnwallet, t)
+			walletTest(miningNode, lnw, t)
 
 			// TODO(roasbeef): possible reset mining node's chainstate to
 			// initial level, cleanly wipe buckets
-			if err := clearWalletState(lnwallet); err != nil &&
+			if err := clearWalletState(lnw); err != nil &&
 				err != bolt.ErrBucketNotFound {
 				t.Fatalf("unable to wipe wallet state: %v", err)
 			}
 		}
 
-		lnwallet.Shutdown()
+		lnw.Shutdown()
 	}
 }

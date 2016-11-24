@@ -32,7 +32,7 @@ type HTLCKey int64
 // HTLC lists on either side will increment this height. As a result this value
 // should always be monotonically increasing. Any CommitSignature or
 // CommitRevocation messages will reference a value for the commitment height
-// up to which it covers. HTLC's are only explicltly excluded by sending
+// up to which it covers. HTLC's are only explicitly excluded by sending
 // HTLCReject messages referencing a particular HTLCKey.
 type CommitHeight uint64
 

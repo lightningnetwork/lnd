@@ -16,6 +16,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
@@ -886,7 +887,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 1)
 	if err == nil {
 		t.Fatalf("error wasn't received")
-	} else if grpc.Code(err) != ErrorMaxPendingChannels {
+	} else if grpc.Code(err) != lnwire.ErrorMaxPendingChannels.ToGrpcCode() {
 		t.Fatalf("not expected error was received: %v", err)
 	}
 
@@ -1243,6 +1244,22 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		OnTxAccepted: lndHarness.OnTxAccepted,
 	}
 
+	// Spawn a new goroutine to watch for any fatal errors that any of the
+	// running lnd processes encounter. If an error occurs, then the test
+	// fails immediately with a fatal error, as far as fatal is happening
+	// inside goroutine main goroutine would not be finished at the same
+	// time as we receive fatal error from lnd process.
+	testsFin := make(chan struct{})
+	go func() {
+		select {
+		case err := <-lndHarness.ProcessErrors():
+			ht.Fatalf("lnd finished with error (stderr): "+
+				"\n%v", err)
+		case <-testsFin:
+			return
+		}
+	}()
+
 	// First create an instance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
 	// drive blockchain related events within the network.
@@ -1268,22 +1285,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err = lndHarness.SetUp(); err != nil {
 		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
-
-	// Spawn a new goroutine to watch for any fatal errors that any of the
-	// running lnd processes encounter. If an error occurs, then the test
-	// fails immediately with a fatal error, as far as fatal is happening
-	// inside goroutine main goroutine would not be finished at the same
-	// time as we receive fatal error from lnd process.
-	testsFin := make(chan struct{})
-	go func() {
-		select {
-		case err := <-lndHarness.ProcessErrors():
-			ht.Fatalf("lnd finished with error (stderr): "+
-				"\n%v", err)
-		case <-testsFin:
-			return
-		}
-	}()
 
 	t.Logf("Running %v integration tests", len(testsCases))
 	for _, testCase := range testsCases {

@@ -1585,7 +1585,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) (uint32, error)
 		EntryType: Add,
 		RHash:     PaymentHash(htlc.RedemptionHashes[0]),
 		Timeout:   htlc.Expiry,
-		Amount:    btcutil.Amount(htlc.Amount),
+		Amount:    htlc.Amount,
 		Index:     lc.ourLogCounter,
 	}
 
@@ -1611,7 +1611,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) (uint32, er
 		EntryType: Add,
 		RHash:     PaymentHash(htlc.RedemptionHashes[0]),
 		Timeout:   htlc.Expiry,
-		Amount:    btcutil.Amount(htlc.Amount),
+		Amount:    htlc.Amount,
 		Index:     lc.theirLogCounter,
 	}
 

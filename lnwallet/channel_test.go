@@ -355,7 +355,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	htlc := &lnwire.HTLCAddRequest{
 		RedemptionHashes: [][32]byte{paymentHash},
 		// TODO(roasbeef): properly switch to credits: (1 msat)
-		Amount: lnwire.CreditsAmount(1e8),
+		Amount: btcutil.Amount(1e8),
 		Expiry: uint32(5),
 	}
 
@@ -628,7 +628,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 
 		return &lnwire.HTLCAddRequest{
 			RedemptionHashes: [][32]byte{paymentHash},
-			Amount:           lnwire.CreditsAmount(1e7),
+			Amount:           btcutil.Amount(1e7),
 			Expiry:           uint32(5),
 		}, returnPreimage
 	}
@@ -742,7 +742,7 @@ func TestCheckHTLCNumberConstraint(t *testing.T) {
 		paymentHash := fastsha256.Sum256(preimage)
 		return &lnwire.HTLCAddRequest{
 			RedemptionHashes: [][32]byte{paymentHash},
-			Amount:           lnwire.CreditsAmount(1e7),
+			Amount:           btcutil.Amount(1e7),
 			Expiry:           uint32(5),
 		}
 	}
@@ -864,7 +864,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		rHash := fastsha256.Sum256(alicePreimage[:])
 		h := &lnwire.HTLCAddRequest{
 			RedemptionHashes: [][32]byte{rHash},
-			Amount:           lnwire.CreditsAmount(1000),
+			Amount:           btcutil.Amount(1000),
 			Expiry:           uint32(10),
 		}
 
@@ -874,7 +874,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	rHash := fastsha256.Sum256(bobPreimage[:])
 	bobh := &lnwire.HTLCAddRequest{
 		RedemptionHashes: [][32]byte{rHash},
-		Amount:           lnwire.CreditsAmount(1000),
+		Amount:           btcutil.Amount(1000),
 		Expiry:           uint32(10),
 	}
 	bobChannel.AddHTLC(bobh)

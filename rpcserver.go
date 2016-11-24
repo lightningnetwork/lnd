@@ -29,12 +29,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-const (
-	// ErrorMaxPendingChannels is an additional gRPC error, which is
-	// returned if max pending channel restriction was violated.
-	ErrorMaxPendingChannels = 100
-)
-
 var (
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 )
@@ -771,7 +765,7 @@ func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	// meta-data within this packet will be used to route the payment
 	// through the network.
 	htlcAdd := &lnwire.HTLCAddRequest{
-		Amount:           lnwire.CreditsAmount(amt),
+		Amount:           btcutil.Amount(amt),
 		RedemptionHashes: [][32]byte{rHash},
 		OnionBlob:        sphinxPacket,
 	}

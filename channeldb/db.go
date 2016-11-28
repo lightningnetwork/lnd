@@ -95,6 +95,7 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
+	return d.Update(func(tx *bolt.Tx) error {
 		err := tx.DeleteBucket(openChannelBucket)
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
@@ -157,7 +158,10 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		return nil
+		meta := &Meta{
+			DbVersionNumber: getLatestDBVersion(dbVersions),
+		}
+		return putMeta(meta, tx)
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb")

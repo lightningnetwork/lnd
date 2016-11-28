@@ -104,7 +104,7 @@ func (l *LinkNode) Sync() error {
 
 	// Finally update the database by storing the link node and updating
 	// any relevant indexes.
-	return l.db.store.Update(func(tx *bolt.Tx) error {
+	return l.db.Update(func(tx *bolt.Tx) error {
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
 		if nodeInfoBucket == nil {
 			return fmt.Errorf("node bucket not created")
@@ -139,7 +139,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		err  error
 	)
 
-	err = db.store.View(func(tx *bolt.Tx) error {
+	err = db.View(func(tx *bolt.Tx) error {
 		// First fetch the bucket for storing node meta-data, bailing
 		// out early if it hasn't been created yet.
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
@@ -178,7 +178,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 	var linkNodes []*LinkNode
 
-	err := db.store.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
 		if nodeInfoBucket == nil {
 			return fmt.Errorf("node bucket not created")

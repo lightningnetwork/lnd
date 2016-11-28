@@ -51,17 +51,17 @@ var bufPool = &sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
-// DB is the primary datastore for the LND daemon. The database stores
+// DB is the primary datastore for the lnd daemon. The database stores
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
-	store     *bolt.DB
+	*bolt.DB
 	netParams *chaincfg.Params
 	dbPath    string
 }
 
-// Open opens an existing channeldb created under the passed namespace with
-// sensitive data encrypted by the passed EncryptorDecryptor implementation.
+// Open opens an existing channeldb. Any necessary schemas migrations due to
+// udpates will take plave as necessary.
 func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
@@ -77,7 +77,7 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	}
 
 	chanDB := &DB{
-		store:     bdb,
+		DB:        bdb,
 		netParams: netParams,
 		dbPath:    dbPath,
 	}
@@ -95,7 +95,6 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
-	return d.store.Update(func(tx *bolt.Tx) error {
 		err := tx.DeleteBucket(openChannelBucket)
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
@@ -118,11 +117,6 @@ func (d *DB) Wipe() error {
 
 		return nil
 	})
-}
-
-// Close terminates the underlying database handle manually.
-func (d *DB) Close() error {
-	return d.store.Close()
 }
 
 // createChannelDB creates and initializes a fresh version of channeldb. In
@@ -189,7 +183,7 @@ func fileExists(path string) bool {
 // returned.
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
-	err := d.store.View(func(tx *bolt.Tx) error {
+	err := d.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
@@ -269,7 +263,7 @@ func (d *DB) fetchNodeChannels(openChanBucket,
 func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
-	err := d.store.View(func(tx *bolt.Tx) error {
+	err := d.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the meta-data for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
@@ -327,7 +321,7 @@ func (d *DB) syncVersions(versions []version) error {
 	// execute them serially within a single database transaction to ensure
 	// the migration is atomic.
 	migrations := getMigrationsToApply(versions, meta.DbVersionNumber)
-	return d.store.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bolt.Tx) error {
 		for _, migration := range migrations {
 			if migration == nil {
 				continue

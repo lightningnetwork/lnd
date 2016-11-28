@@ -113,7 +113,7 @@ func (d *DB) AddInvoice(i *Invoice) error {
 			len(i.Receipt))
 	}
 
-	return d.store.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
 			return err
@@ -157,7 +157,7 @@ func (d *DB) AddInvoice(i *Invoice) error {
 // terms of the payment.
 func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 	var invoice *Invoice
-	err := d.store.View(func(tx *bolt.Tx) error {
+	err := d.View(func(tx *bolt.Tx) error {
 		invoices := tx.Bucket(invoiceBucket)
 		if invoices == nil {
 			return ErrInvoiceNotFound
@@ -197,7 +197,7 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
 	var invoices []*Invoice
 
-	err := d.store.View(func(tx *bolt.Tx) error {
+	err := d.View(func(tx *bolt.Tx) error {
 		invoiceB := tx.Bucket(invoiceBucket)
 		if invoiceB == nil {
 			return ErrNoInvoicesCreated
@@ -238,7 +238,7 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]*Invoice, error) {
 // hash doesn't existing within the database, then the action will fail with a
 // "not found" error.
 func (d *DB) SettleInvoice(paymentHash [32]byte) error {
-	return d.store.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
 			return err

@@ -171,7 +171,7 @@ func TestMigrationWithPanic(t *testing.T) {
 	beforeMigrationFunc := func(d *DB) {
 		// Insert data in database and in order then make sure that the
 		// key isn't changes in case of panic or fail.
-		d.store.Update(func(tx *bolt.Tx) error {
+		d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err
@@ -205,7 +205,7 @@ func TestMigrationWithPanic(t *testing.T) {
 			t.Fatal("migration paniced but version is changed")
 		}
 
-		err = d.store.Update(func(tx *bolt.Tx) error {
+		err = d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err
@@ -238,7 +238,7 @@ func TestMigrationWithFatal(t *testing.T) {
 	afterMigration := []byte("aftermigration")
 
 	beforeMigrationFunc := func(d *DB) {
-		d.store.Update(func(tx *bolt.Tx) error {
+		d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err
@@ -273,7 +273,7 @@ func TestMigrationWithFatal(t *testing.T) {
 			t.Fatal("migration failed but version is changed")
 		}
 
-		err = d.store.Update(func(tx *bolt.Tx) error {
+		err = d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err
@@ -307,7 +307,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 	// Populate database with initial data.
 	beforeMigrationFunc := func(d *DB) {
-		d.store.Update(func(tx *bolt.Tx) error {
+		d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err
@@ -341,7 +341,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 				"succesfully aplied migration")
 		}
 
-		err = d.store.Update(func(tx *bolt.Tx) error {
+		err = d.Update(func(tx *bolt.Tx) error {
 			bucket, err := tx.CreateBucketIfNotExists(bucketPrefix)
 			if err != nil {
 				return err

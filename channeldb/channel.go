@@ -255,7 +255,7 @@ func (c *OpenChannel) FullSync() error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.store.Update(c.fullSync)
+	return c.Db.Update(c.fullSync)
 }
 
 // fullSync is an internal versino of the FullSync method which allows callers
@@ -310,7 +310,7 @@ func (c *OpenChannel) FullSyncWithAddr(addr *net.TCPAddr) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.store.Update(func(tx *bolt.Tx) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First, sync all the persistent channel state to disk.
 		if err := c.fullSync(tx); err != nil {
 			return err
@@ -348,7 +348,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.store.Update(func(tx *bolt.Tx) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
 		if err != nil {
 			return err
@@ -417,8 +417,8 @@ type HTLC struct {
 	// the funds on-chain in the case of a unilateral channel closure.
 	RevocationDelay uint32
 
-	// OutputIndex is the vout output index for this particular HTLC output
-	// on the commitment transaction.
+	// OutputIndex is the output index for this particular HTLC output
+	// within the commitment transaction.
 	OutputIndex uint16
 }
 
@@ -453,7 +453,7 @@ type ChannelDelta struct {
 // this log can be consulted in order to reconstruct the state needed to
 // rectify the situation.
 func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
-	return c.Db.store.Update(func(tx *bolt.Tx) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
 		if err != nil {
 			return err
@@ -495,7 +495,7 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error) {
 	delta := &ChannelDelta{}
 
-	err := c.Db.store.View(func(tx *bolt.Tx) error {
+	err := c.Db.View(func(tx *bolt.Tx) error {
 		chanBucket := tx.Bucket(openChannelBucket)
 
 		nodePub := c.IdentityPub.SerializeCompressed()
@@ -528,7 +528,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // purposes.
 // TODO(roasbeef): delete on-disk set of HTLC's
 func (c *OpenChannel) CloseChannel() error {
-	return c.Db.store.Update(func(tx *bolt.Tx) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data related to
 		// current, active channels.
 		chanBucket := tx.Bucket(openChannelBucket)
@@ -682,8 +682,6 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 
 // fetchOpenChannel retrieves, and deserializes (including decrypting
 // sensitive) the complete channel currently active with the passed nodeID.
-// An EncryptorDecryptor is required to decrypt sensitive information stored
-// within the database.
 func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	chanID *wire.OutPoint) (*OpenChannel, error) {
 

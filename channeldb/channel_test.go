@@ -91,8 +91,7 @@ func makeTestDB() (*DB, func(), error) {
 		return nil, nil, err
 	}
 
-	// Next, create channeldb for the first time, also setting a mock
-	// EncryptorDecryptor implementation for testing purposes.
+	// Next, create channeldb for the first time.
 	cdb, err := Open(tempDirName, netParams)
 	if err != nil {
 		return nil, nil, err

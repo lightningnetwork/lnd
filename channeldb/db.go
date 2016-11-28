@@ -37,7 +37,7 @@ var (
 	dbVersions = []version{
 		{
 			// The base DB version requires no migration.
-			number:    1,
+			number:    0,
 			migration: nil,
 		},
 	}

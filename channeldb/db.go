@@ -307,7 +307,11 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 func (d *DB) syncVersions(versions []version) error {
 	meta, err := d.FetchMeta(nil)
 	if err != nil {
-		return err
+		if err == ErrMetaNotFound {
+			meta = &Meta{}
+		} else {
+			return err
+		}
 	}
 
 	// If the current database version matches the latest version number,

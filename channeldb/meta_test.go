@@ -30,7 +30,7 @@ func TestVersionFetchPut(t *testing.T) {
 	var newVersion uint32 = getLatestDBVersion(dbVersions) + 1
 	meta.DbVersionNumber = newVersion
 
-	if err := db.PutMeta(meta, nil); err != nil {
+	if err := db.PutMeta(meta); err != nil {
 		t.Fatalf("update of meta failed %v", err)
 	}
 
@@ -129,7 +129,9 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	// Create test meta info with zero database version and put it on disk.
 	// Than creating the version list pretending that new version was added.
 	meta := &Meta{DbVersionNumber: 0}
-	cdb.PutMeta(meta, nil)
+	if err := cdb.PutMeta(meta); err != nil {
+		t.Fatal("unable to store meta data: %v", err)
+	}
 
 	versions := []version{
 		{

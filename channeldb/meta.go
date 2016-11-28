@@ -21,27 +21,13 @@ type Meta struct {
 }
 
 // FetchMeta fetches the meta data from boltdb and returns filled meta
-// structure. If transaction object is specified then it will be used rather
-// than initiation creation of new one.
+// structure.
 func (d *DB) FetchMeta(tx *bolt.Tx) (*Meta, error) {
 	meta := &Meta{}
-	fetchMeta := func(tx *bolt.Tx) error {
-		if metaBucket := tx.Bucket(metaBucket); metaBucket != nil {
-			fetchDbVersion(metaBucket, meta)
-			return nil
-		} else {
-			return ErrMetaNotFound
-		}
-	}
 
-	var err error
-
-	if tx == nil {
-		err = d.store.View(fetchMeta)
-	} else {
-		err = fetchMeta(tx)
-	}
-
+	err := d.View(func(tx *bolt.Tx) error {
+		return fetchMeta(meta, tx)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -49,28 +35,42 @@ func (d *DB) FetchMeta(tx *bolt.Tx) (*Meta, error) {
 	return meta, nil
 }
 
-// PutMeta gets as input meta structure and put it into boltdb. If transaction
-// object is specified then it will be used rather than initiation creation of
-// new one.
-func (d *DB) PutMeta(meta *Meta, tx *bolt.Tx) error {
-	putMeta := func(tx *bolt.Tx) error {
-		metaBucket := tx.Bucket(metaBucket)
-		if metaBucket == nil {
-			return ErrMetaNotFound
-		}
-
-		if err := putDbVersion(metaBucket, meta); err != nil {
-			return err
-		}
-
-		return nil
+// fetchMeta is an internal helper function used in order to allow callers to
+// re-use a database transaction. See the publicly exported FetchMeta method
+// for more information.
+func fetchMeta(meta *Meta, tx *bolt.Tx) error {
+	metaBucket := tx.Bucket(metaBucket)
+	if metaBucket == nil {
+		return ErrMetaNotFound
 	}
 
-	if tx == nil {
-		return d.store.Update(putMeta)
+	data := metaBucket.Get(dbVersionKey)
+	if data == nil {
+		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
 	} else {
-		return putMeta(tx)
+		meta.DbVersionNumber = byteOrder.Uint32(data)
 	}
+
+	return nil
+}
+
+// PutMeta writes the passed instance of the database met-data struct to disk.
+func (d *DB) PutMeta(meta *Meta) error {
+	return d.Update(func(tx *bolt.Tx) error {
+		return putMeta(meta, tx)
+	})
+}
+
+// putMeta is an internal helper function used in order to allow callers to
+// re-use a database transaction. See the publicly exported PutMeta method for
+// more information.
+func putMeta(meta *Meta, tx *bolt.Tx) error {
+	metaBucket, err := tx.CreateBucketIfNotExists(metaBucket)
+	if err != nil {
+		return err
+	}
+
+	return putDbVersion(metaBucket, meta)
 }
 
 func putDbVersion(metaBucket *bolt.Bucket, meta *Meta) error {
@@ -80,12 +80,4 @@ func putDbVersion(metaBucket *bolt.Bucket, meta *Meta) error {
 		return err
 	}
 	return nil
-}
-
-func fetchDbVersion(metaBucket *bolt.Bucket, meta *Meta) {
-	if data := metaBucket.Get(dbVersionKey); data != nil {
-		meta.DbVersionNumber = byteOrder.Uint32(data)
-	} else {
-		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
-	}
 }

@@ -46,6 +46,8 @@ func getTestTxId(miner *rpctest.Harness) (*wire.ShaHash, error) {
 func testSingleConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
+	t.Logf("testing single conf notification")
+
 	// We'd like to test the case of being notified once a txid reaches
 	// a *single* confirmation.
 	//
@@ -88,6 +90,8 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 func testMultiConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
+	t.Logf("testing mulit-conf notification")
+
 	// We'd like to test the case of being notified once a txid reaches
 	// N confirmations, where N > 1.
 	//
@@ -124,6 +128,8 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 
 func testBatchConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	t.Logf("testing batch mulit-conf notification")
 
 	// We'd like to test a case of serving notifiations to multiple
 	// clients, each requesting to be notified once a txid receives
@@ -184,11 +190,12 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	// We'd like to test the spend notifiations for all
-	// ChainNotifier concrete implemenations.
+	t.Logf("testing multi-client spend notification")
+
+	// We'd like to test the spend notifiations for all ChainNotifier
+	// concrete implemenations.
 	//
-	// To do so, we first create a new output to our test target
-	// address.
+	// To do so, we first create a new output to our test target address.
 	txid, err := getTestTxId(miner)
 	if err != nil {
 		t.Fatalf("unable to create test addr: %v", err)
@@ -206,8 +213,8 @@ func testSpendNotification(miner *rpctest.Harness,
 	}
 	tx := wrappedTx.MsgTx()
 
-	// Locate the output index sent to us. We need this so we can
-	// construct a spending txn below.
+	// Locate the output index sent to us. We need this so we can construct
+	// a spending txn below.
 	outIndex := -1
 	var pkScript []byte
 	for i, txOut := range tx.TxOut {
@@ -222,11 +229,20 @@ func testSpendNotification(miner *rpctest.Harness,
 	}
 
 	// Now that we've found the output index, register for a spentness
-	// notification for the newly created output.
+	// notification for the newly created output with multiple clients in
+	// order to ensure the implementation can support multi-client spend
+	// notifiations.
 	outpoint := wire.NewOutPoint(txid, uint32(outIndex))
-	spentIntent, err := notifier.RegisterSpendNtfn(outpoint)
-	if err != nil {
-		t.Fatalf("unable to register for spend ntfn: %v", err)
+
+	const numClients = 5
+	spendClients := make([]*chainntnfs.SpendEvent, numClients)
+	for i := 0; i < numClients; i++ {
+		spentIntent, err := notifier.RegisterSpendNtfn(outpoint)
+		if err != nil {
+			t.Fatalf("unable to register for spend ntfn: %v", err)
+		}
+
+		spendClients[i] = spentIntent
 	}
 
 	// Next, create a new transaction spending that output.
@@ -257,34 +273,46 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	spentNtfn := make(chan *chainntnfs.SpendDetail)
-	go func() {
-		spentNtfn <- <-spentIntent.Spend
-	}()
+	// For each event we registered for above, we create a goroutine which
+	// will listen on the event channel, passing it proxying each
+	// notification into a single which will be examined belwo.
+	spentNtfn := make(chan *chainntnfs.SpendDetail, numClients)
+	for i := 0; i < numClients; i++ {
+		go func(c *chainntnfs.SpendEvent) {
+			spentNtfn <- <-c.Spend
+		}(spendClients[i])
+	}
 
-	select {
-	case ntfn := <-spentNtfn:
-		// We've received the spend nftn. So now verify all the fields
-		// have been set properly.
-		if ntfn.SpentOutPoint != outpoint {
-			t.Fatalf("ntfn includes wrong output, reports %v instead of %v",
-				ntfn.SpentOutPoint, outpoint)
+	for i := 0; i < numClients; i++ {
+		select {
+		case ntfn := <-spentNtfn:
+			// We've received the spend nftn. So now verify all the
+			// fields have been set properly.
+			if ntfn.SpentOutPoint != outpoint {
+				t.Fatalf("ntfn includes wrong output, reports "+
+					"%v instead of %v",
+					ntfn.SpentOutPoint, outpoint)
+			}
+			if !bytes.Equal(ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes()) {
+				t.Fatalf("ntfn includes wrong spender tx sha, "+
+					"reports %v intead of %v",
+					ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes())
+			}
+			if ntfn.SpenderInputIndex != 0 {
+				t.Fatalf("ntfn includes wrong spending input "+
+					"index, reports %v, should be %v",
+					ntfn.SpenderInputIndex, 0)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("spend ntfn never received")
 		}
-		if !bytes.Equal(ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes()) {
-			t.Fatalf("ntfn includes wrong spender tx sha, reports %v intead of %v",
-				ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes())
-		}
-		if ntfn.SpenderInputIndex != 0 {
-			t.Fatalf("ntfn includes wrong spending input index, reports %v, should be %v",
-				ntfn.SpenderInputIndex, 0)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatalf("spend ntfn never received")
 	}
 }
 
 func testBlockEpochNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	t.Logf("testing block epoch notification")
 
 	// We'd like to test the case of multiple registered clients receiving
 	// block epoch notifications.
@@ -333,7 +361,8 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 
 func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
-	// TODO(roasbeef): test various conf targets w/ same txid
+
+	t.Logf("testing multi-client multi-conf notification")
 
 	// We'd like to test the case of a multiple clients registered to
 	// receive a confirmation notification for the same transaction.
@@ -344,8 +373,10 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 	}
 
 	var wg sync.WaitGroup
-	const numConfsClients = 5
-	const numConfs = 1
+	const (
+		numConfsClients = 5
+		numConfs        = 1
+	)
 
 	// Register for a conf notification for the above generated txid with
 	// numConfsClients distinct clients.

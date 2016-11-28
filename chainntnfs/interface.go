@@ -23,6 +23,9 @@ type ChainNotifier interface {
 	// should properly notify the client once the specified number of
 	// confirmations has been reached for the txid, as well as if the
 	// original tx gets re-org'd out of the mainchain.
+	//
+	// NOTE: Dispatching notifications to multiple clients subscribed to
+	// the same (txid, numConfs) tuple MUST be supported.
 	RegisterConfirmationsNtfn(txid *wire.ShaHash, numConfs uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
@@ -32,6 +35,9 @@ type ChainNotifier interface {
 	//
 	// NOTE: This notifications should be triggered once the transaction is
 	// *seen* on the network, not when it has received a single confirmation.
+	//
+	// NOTE: Dispatching notifications to multiple clients subscribed to a
+	// spend of the same outpoint MUST be supported.
 	RegisterSpendNtfn(outpoint *wire.OutPoint) (*SpendEvent, error)
 
 	// RegisterBlockEpochNtfn registers an intent to be notified of each
@@ -109,18 +115,18 @@ type BlockEpochEvent struct {
 }
 
 // NotifierDriver represents a "driver" for a particular interface. A driver is
-// indentified by a globally unique string identifier along with a 'New()'
+// identified by a globally unique string identifier along with a 'New()'
 // method which is responsible for initializing a particular ChainNotifier
 // concrete implementation.
 type NotifierDriver struct {
-	// NotifierType is a string which uniquely identifes the ChainNotifier
+	// NotifierType is a string which uniquely identifies the ChainNotifier
 	// that this driver, drives.
 	NotifierType string
 
 	// New creates a new instance of a concrete ChainNotifier
 	// implementation given a variadic set up arguments. The function takes
-	// a varidaic number of interface paramters in order to provide
-	// initialization flexibility, thereby accomodating several potential
+	// a varidaic number of interface parameters in order to provide
+	// initialization flexibility, thereby accommodating several potential
 	// ChainNotifier implementations.
 	New func(args ...interface{}) (ChainNotifier, error)
 }

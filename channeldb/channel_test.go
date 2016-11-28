@@ -434,6 +434,14 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("update # doesn't match: %v vs %v",
 			updatedChannel[0].NumUpdates, delta.UpdateNum)
 	}
+	numDiskUpdates, err := updatedChannel[0].CommitmentHeight()
+	if err != nil {
+		t.Fatalf("unable to read commitment height from disk: %v", err)
+	}
+	if numDiskUpdates != uint64(delta.UpdateNum) {
+		t.Fatalf("num disk updates doesn't match: %v vs %v",
+			numDiskUpdates, delta.UpdateNum)
+	}
 	for i := 0; i < len(updatedChannel[0].Htlcs); i++ {
 		originalHTLC := updatedChannel[0].Htlcs[i]
 		diskHTLC := channel.Htlcs[i]

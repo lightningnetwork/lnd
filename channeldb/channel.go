@@ -487,6 +487,34 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 	})
 }
 
+// CommitmentHeight returns the current commitment height. The commitment
+// height represents the number of updates to the commitment state to data.
+// This value is always monotonically increasing. This method is provided in
+// order to allow multiple instances of a particular open channel to obtain a
+// consistent view of the number of channel updates to data.
+func (c *OpenChannel) CommitmentHeight() (uint64, error) {
+	// TODO(roasbeef): this is super hacky, remedy during refactor!!!
+	o := &OpenChannel{
+		ChanID: c.ChanID,
+	}
+
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		// Get the bucket dedicated to storing the meta-data for open
+		// channels.
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		return fetchChanNumUpdates(openChanBucket, o)
+	})
+	if err != nil {
+		return 0, nil
+	}
+
+	return o.NumUpdates, nil
+}
+
 // FindPreviousState scans through the append-only log in an attempt to recover
 // the previous channel state indicated by the update number. This method is
 // intended to be used for obtaining the relevant data needed to claim all

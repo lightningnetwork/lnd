@@ -866,6 +866,8 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 				},
 			},
 		}
+
+		p.server.breachArbiter.settledContracts <- req.chanPoint
 	}()
 }
 
@@ -916,6 +918,8 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	if err := wipeChannel(p, channel); err != nil {
 		peerLog.Errorf("unable to wipe channel: %v", err)
 	}
+
+	p.server.breachArbiter.settledContracts <- req.ChannelPoint
 }
 
 // wipeChannel removes the passed channel from all indexes associated with the
@@ -960,7 +964,7 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	// small summary for historical records.
 	if err := channel.DeleteState(); err != nil {
 		peerLog.Errorf("Unable to delete ChannelPoint(%v) "+
-			"from db %v", chanID, err)
+			"from db: %v", chanID, err)
 		return err
 	}
 
@@ -1075,11 +1079,14 @@ out:
 	for {
 		select {
 		case <-channel.UnilateralCloseSignal:
+			// TODO(roasbeef): need to send HTLC outputs to nursery
 			peerLog.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				state.chanPoint)
 			if err := wipeChannel(p, channel); err != nil {
 				peerLog.Errorf("unable to wipe channel %v", err)
 			}
+
+			p.server.breachArbiter.settledContracts <- state.chanPoint
 
 			break out
 		case <-channel.ForceCloseSignal:

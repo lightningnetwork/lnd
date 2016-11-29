@@ -13,8 +13,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
-	"google.golang.org/grpc"
 	"github.com/lightningnetwork/lnd/routing/rt/graph"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -122,6 +122,8 @@ type fundingManager struct {
 	// wallet is the daemon's internal Lightning enabled wallet.
 	wallet *lnwallet.LightningWallet
 
+	breachAribter *breachArbiter
+
 	// fundingMsgs is a channel which receives wrapped wire messages
 	// related to funding workflow from outside peers.
 	fundingMsgs chan interface{}
@@ -140,10 +142,12 @@ type fundingManager struct {
 
 // newFundingManager creates and initializes a new instance of the
 // fundingManager.
-func newFundingManager(w *lnwallet.LightningWallet) *fundingManager {
+func newFundingManager(w *lnwallet.LightningWallet, b *breachArbiter) *fundingManager {
 	return &fundingManager{
+		wallet:        w,
+		breachAribter: b,
+
 		activeReservations: make(map[int32]pendingChannels),
-		wallet:             w,
 		fundingMsgs:        make(chan interface{}, msgBufferSize),
 		fundingRequests:    make(chan *initFundingMsg, msgBufferSize),
 		queries:            make(chan interface{}, 1),
@@ -158,7 +162,7 @@ func (f *fundingManager) Start() error {
 		return nil
 	}
 
-	fndgLog.Infof("funding manager running")
+	fndgLog.Tracef("Funding manager running")
 
 	f.wg.Add(1) // TODO(roasbeef): tune
 	go f.reservationCoordinator()
@@ -173,7 +177,7 @@ func (f *fundingManager) Stop() error {
 		return nil
 	}
 
-	fndgLog.Infof("funding manager shutting down")
+	fndgLog.Infof("Funding manager shutting down")
 
 	close(f.quit)
 
@@ -604,6 +608,11 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			// server peer.
 			fmsg.peer.newChannels <- openChan
 
+			// Afterwards we send the breach arbiter the new
+			// channel so it can watch for attempts to breach the
+			// channel's contract by the remote party.
+			f.breachAribter.newContracts <- openChan
+
 			// Next, we queue a message to notify the remote peer
 			// that the channel is open. We additionally provide an
 			// SPV proof allowing them to verify the transaction
@@ -699,6 +708,11 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 			Cpt: capacity,
 		},
 	)
+
+	// Send the newly opened channel to the breach arbiter to it can watch
+	// for uncopperative channel breaches, potentially punishing the
+	// counter-party for attempting to cheat us.
+	f.breachAribter.newContracts <- openChan
 
 	// Finally, notify the target peer of the newly open channel.
 	fmsg.peer.newChannels <- openChan

@@ -370,6 +370,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	var closeType LinkCloseType
 	switch force {
 	case true:
+		// TODO(roasbeef): should be able to force close w/o connection
+		// to peer
 		closeType = CloseForce
 	case false:
 		closeType = CloseRegular

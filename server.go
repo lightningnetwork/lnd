@@ -50,8 +50,9 @@ type server struct {
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
 
-	htlcSwitch *htlcSwitch
-	invoices   *invoiceRegistry
+	htlcSwitch    *htlcSwitch
+	invoices      *invoiceRegistry
+	breachArbiter *breachArbiter
 
 	routingMgr *routing.RoutingManager
 
@@ -88,23 +89,28 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
+		lnwallet:      wallet,
 		bio:           bio,
 		chainNotifier: notifier,
 		chanDB:        chanDB,
-		fundingMgr:    newFundingManager(wallet),
-		invoices:      newInvoiceRegistry(chanDB),
-		lnwallet:      wallet,
-		identityPriv:  privKey,
+
+		invoices:    newInvoiceRegistry(chanDB),
+		utxoNursery: newUtxoNursery(notifier, wallet),
+
+		identityPriv: privKey,
+
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
 		sphinx:      sphinx.NewRouter(privKey, activeNetParams.Params),
 		lightningID: fastsha256.Sum256(serializedPubKey),
-		listeners:   listeners,
-		peers:       make(map[int32]*peer),
-		newPeers:    make(chan *peer, 100),
-		donePeers:   make(chan *peer, 100),
-		queries:     make(chan interface{}),
-		quit:        make(chan struct{}),
+
+		listeners: listeners,
+
+		peers:     make(map[int32]*peer),
+		newPeers:  make(chan *peer, 100),
+		donePeers: make(chan *peer, 100),
+		queries:   make(chan interface{}),
+		quit:      make(chan struct{}),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
@@ -123,7 +129,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// the graph.
 	selfVertex := serializedPubKey
 	routingMgrConfig := &routing.RoutingConfig{}
-	routingMgrConfig.SendMessage = func (receiver [33]byte, msg lnwire.Message) error {
+	routingMgrConfig.SendMessage = func(receiver [33]byte, msg lnwire.Message) error {
 		receiverID := graph.NewVertex(receiver[:])
 		if receiverID == graph.NilVertex {
 			peerLog.Critical("receiverID == graph.NilVertex")
@@ -135,7 +141,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			nodePub := peer.addr.IdentityKey.SerializeCompressed()
 			nodeVertex := graph.NewVertex(nodePub[:])
 
-			// We found the the target
+			// We found the target
 			if receiverID == nodeVertex {
 				targetPeer = peer
 				break
@@ -155,6 +161,13 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.rpcServer = newRpcServer(s)
 
+	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
+
+	s.fundingMgr = newFundingManager(wallet, s.breachArbiter)
+
+	// TODO(roasbeef): introduce closure and config system to decouple the
+	// initialization above ^
+
 	return s, nil
 }
 
@@ -172,11 +185,11 @@ func (s *server) Start() error {
 		go s.listener(l)
 	}
 
-	// Start the notification server. This is used so channel managment
+	// Start the notification server. This is used so channel management
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
-	// funding transaction is spent in an attempt at an uncooperative
-	// close by the counter party.
+	// funding transaction is spent in an attempt at an uncooperative close
+	// by the counter party.
 	if err := s.chainNotifier.Start(); err != nil {
 		return err
 	}
@@ -191,6 +204,9 @@ func (s *server) Start() error {
 		return err
 	}
 	if err := s.utxoNursery.Start(); err != nil {
+		return err
+	}
+	if err := s.breachArbiter.Start(); err != nil {
 		return err
 	}
 	s.routingMgr.Start()
@@ -224,6 +240,7 @@ func (s *server) Stop() error {
 	s.routingMgr.Stop()
 	s.htlcSwitch.Stop()
 	s.utxoNursery.Stop()
+	s.breachArbiter.Stop()
 
 	s.lnwallet.Shutdown()
 

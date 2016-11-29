@@ -581,6 +581,9 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 	hswcLog.Debugf("requesting interface %v to close link %v",
 		hex.EncodeToString(targetLink.peer.lightningID[:]), req.chanPoint)
 	targetLink.peer.localCloseChanReqs <- req
+
+	// TODO(roasbeef): if type was CloseBreach initiate force closure with
+	// all other channels (if any) we have with the remote peer.
 }
 
 // handleLinkUpdate processes the link info update message by adjusting the

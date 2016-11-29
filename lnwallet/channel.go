@@ -467,7 +467,7 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		FundingWitnessScript:  state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralCloseSignal: make(chan struct{}),
-		ContractBreach:        make(chan *BreachRetribution),
+		ContractBreach:        make(chan *BreachRetribution, 1),
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for
@@ -692,6 +692,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	lc.Lock()
 	defer lc.Unlock()
 
+	// TODO(roasbeef): logs duplicated due to breachArbiter...
 	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
 		"detected!", lc.channelState.ChanID)
 
@@ -704,7 +705,11 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	obsfucator := lc.channelState.StateHintObsfucator
 	broadcastStateNum := uint64(GetStateNumHint(commitTxBroadcast, obsfucator))
 
-	currentStateNum := lc.remoteCommitChain.tail().height
+	currentStateNum, err := lc.channelState.CommitmentHeight()
+	if err != nil {
+		walletLog.Errorf("unable to obtain commitment height: %v", err)
+		return
+	}
 
 	switch {
 	// If state number spending transaction matches the current latest
@@ -713,7 +718,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// necessary.
 	case broadcastStateNum == currentStateNum:
 		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
-			"detected: %v", lc.channelState.ChanID)
+			"detected", lc.channelState.ChanID)
 		close(lc.UnilateralCloseSignal)
 
 	// If the state number broadcast is lower than the remote node's
@@ -736,7 +741,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			return
 		}
 
-		walletLog.Infof("Punishment breach retribution created: %#v",
+		walletLog.Debugf("Punishment breach retribution created: %#v",
 			retribution)
 
 		// Finally, send the retribution struct over the contract beach

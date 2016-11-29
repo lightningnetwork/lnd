@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	WitnessFactor = blockchain.WitnessScaleFactor
+	WitnessFactor              = blockchain.WitnessScaleFactor
 	MaxTransactionWeightPolicy = blockchain.MaxBlockCost / 10
 
 	// The weight(cost), which is different from the !size! (see BIP-141),
@@ -21,7 +21,7 @@ const (
 	//	- WitnessScriptSHA256: 32 bytes
 	P2WSHSize = 1 + 1 + 32
 
-	// P2PKH: 22 bytes
+	// P2WPKH: 22 bytes
 	//	- OP_0: 1 byte
 	//	- OP_DATA: 1 byte (PublicKeyHASH160 length)
 	//	- PublicKeyHASH160: 20 bytes
@@ -116,7 +116,6 @@ const (
 	// one penalty transaction.
 	MaxHTLCNumber = 1253
 )
-
 
 // estimateCommitTxCost estimate commitment transaction cost depending on the
 // precalculated cost of base transaction, witness data, which is needed for

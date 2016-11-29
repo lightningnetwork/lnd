@@ -1114,24 +1114,26 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// broadcast as Bob's contract breaching transaction gets confirmed
 	// above.
 	var justiceTXID *wire.ShaHash
+	breakTimeout := time.After(time.Second * 5)
 poll:
 	for {
 		select {
-		case <-time.After(time.Second * 5):
+		case <-breakTimeout:
 			t.Fatalf("justice tx not found in mempool")
 		default:
-			mempool, err := net.Miner.Node.GetRawMempool()
-			if err != nil {
-				t.Fatalf("unable to get mempool: %v", err)
-			}
-
-			if len(mempool) == 0 {
-				continue
-			}
-
-			justiceTXID = mempool[0]
-			break poll
 		}
+
+		mempool, err := net.Miner.Node.GetRawMempool()
+		if err != nil {
+			t.Fatalf("unable to get mempool: %v", err)
+		}
+
+		if len(mempool) == 0 {
+			continue
+		}
+
+		justiceTXID = mempool[0]
+		break poll
 	}
 
 	// Query for the mempool transaction found above. Then assert that all

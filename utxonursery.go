@@ -2,6 +2,7 @@ package main
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -20,10 +21,6 @@ import (
 // passed. As outputs reach their maturity age, they're swept in batches into
 // the source wallet, returning the outputs so they can be used within future
 // channels, or regular Bitcoin transactions.
-//
-// On a part-time basis, the utxoNursery also acts as an adjudicator in the
-// scenario that we detect a peer breaching the contract of a channel by
-// broadcasting a prior revoked state.
 type utxoNursery struct {
 	sync.RWMutex
 
@@ -38,8 +35,6 @@ type utxoNursery struct {
 	unstagedOutputs map[wire.OutPoint]*immatureOutput
 	stagedOutputs   map[uint32][]*immatureOutput
 
-	breachedContracts chan *retributionInfo
-
 	started uint32
 	stopped uint32
 	quit    chan struct{}
@@ -52,19 +47,24 @@ func newUtxoNursery(notifier chainntnfs.ChainNotifier,
 	wallet *lnwallet.LightningWallet) *utxoNursery {
 
 	return &utxoNursery{
-		notifier:          notifier,
-		wallet:            wallet,
-		requests:          make(chan *incubationRequest),
-		breachedContracts: make(chan *retributionInfo),
-		unstagedOutputs:   make(map[wire.OutPoint]*immatureOutput),
-		stagedOutputs:     make(map[uint32][]*immatureOutput),
-		quit:              make(chan struct{}),
+		notifier:        notifier,
+		wallet:          wallet,
+		requests:        make(chan *incubationRequest),
+		unstagedOutputs: make(map[wire.OutPoint]*immatureOutput),
+		stagedOutputs:   make(map[uint32][]*immatureOutput),
+		quit:            make(chan struct{}),
 	}
 }
 
 // Start launches all goroutines the utxoNursery needs to properly carry out
 // its duties.
 func (u *utxoNursery) Start() error {
+	if !atomic.CompareAndSwapUint32(&u.started, 0, 1) {
+		return nil
+	}
+
+	utxnLog.Tracef("Starting UTXO nursery")
+
 	u.wg.Add(1)
 	go u.incubator()
 
@@ -74,6 +74,12 @@ func (u *utxoNursery) Start() error {
 // Stop gracefully shutsdown any lingering goroutines launched during normal
 // operation of the utxoNursery.
 func (u *utxoNursery) Stop() error {
+	if !atomic.CompareAndSwapUint32(&u.stopped, 0, 1) {
+		return nil
+	}
+
+	utxnLog.Infof("UTXO nursery shutting down")
+
 	close(u.quit)
 	u.wg.Wait()
 
@@ -200,86 +206,6 @@ out:
 				continue
 			}
 			delete(u.stagedOutputs, newHeight)
-		case breachInfo := <-u.breachedContracts:
-			// A new channel contract has just been breached! We
-			// first register for a notification to be dispatched
-			// once the breach transaction (the revoked commitment
-			// transaction) has been confirmed in the chain to
-			// ensure we're not dealing with a moving target.
-			breachTXID := &breachInfo.commitHash
-			confChan, err := u.notifier.RegisterConfirmationsNtfn(breachTXID, 1)
-			if err != nil {
-				utxnLog.Errorf("unable to register for conf for txid: ",
-					breachTXID)
-				continue
-			}
-
-			utxnLog.Infof("A channel has been breached with tx: %v. "+
-				"Waiting for confirmation, then justice will be served!",
-				breachTXID)
-
-			// With the notification registered, we launch a new
-			// goroutine which will finalize the channel
-			// retribution after the breach transaction has been
-			// confirmed.
-			go func() {
-				// If the second value is !ok, then the channel
-				// has been closed signifying a daemon
-				// shutdown, so we exit.
-				if _, ok := <-confChan.Confirmed; !ok {
-					// TODO(roasbeef): should check-point
-					// state above
-					return
-				}
-
-				utxnLog.Infof("Breach transaction %v has been "+
-					"confirmed, sweeping revoked funds", breachTXID)
-
-				// With the breach transaction confirmed, we
-				// now create the justice tx which will claim
-				// ALL the funds within the channel.
-				justiceTx, err := u.createJusticeTx(breachInfo)
-				if err != nil {
-					utxnLog.Errorf("unable to create "+
-						"justice tx: %v", err)
-					return
-				}
-
-				utxnLog.Infof("Broadcasting justice tx: %v",
-					newLogClosure(func() string {
-						return spew.Sdump(justiceTx)
-					}))
-
-				// Finally, broadcast the transaction,
-				// finalizing the channels' retribution against
-				// the cheating counter-party.
-				err = u.wallet.PublishTransaction(justiceTx)
-				if err != nil {
-					utxnLog.Errorf("unable to broadcast "+
-						"justice tx: %v", err)
-					return
-				}
-
-				// As a conclusionary step, we register for a
-				// notification to be dispatched once the
-				// justice tx is confirmed. After confirmation
-				// we notify the caller that initiated the
-				// retribution work low that the deed has been
-				// done.
-				justiceTXID := justiceTx.TxSha()
-				confChan, err := u.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1)
-				if err != nil {
-					utxnLog.Errorf("unable to register for conf for txid: ",
-						justiceTXID)
-					return
-				}
-
-				if _, ok := <-confChan.Confirmed; !ok {
-					return
-				}
-
-				close(breachInfo.doneChan)
-			}()
 		case <-u.quit:
 			break out
 		}
@@ -288,24 +214,11 @@ out:
 	u.wg.Done()
 }
 
-// newSweepPkScript creates a new public key script which should be used to
-// sweep any time-locked, or contested channel funds into the wallet.
-// Specifically, the script generted is a version 0, pay-to-witness-pubkey-hash
-// (p2wkh) output.
-func (u *utxoNursery) newSweepPkScript() ([]byte, error) {
-	sweepAddr, err := u.wallet.NewAddress(lnwallet.WitnessPubKey, false)
-	if err != nil {
-		return nil, err
-	}
-
-	return txscript.PayToAddrScript(sweepAddr)
-}
-
-// createSweepTx creates a final sweeping transaction with all witnesses
-// inplace for all inputs. The created transaction has a single output sending
+// createSweepTx creates a final sweeping transaction with all witnesses in
+// place for all inputs. The created transaction has a single output sending
 // all the funds back to the source wallet.
 func (u *utxoNursery) createSweepTx(matureOutputs []*immatureOutput) (*wire.MsgTx, error) {
-	pkScript, err := u.newSweepPkScript()
+	pkScript, err := newSweepPkScript(u.wallet)
 	if err != nil {
 		return nil, err
 	}
@@ -404,137 +317,15 @@ func (u *utxoNursery) incubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 	}
 }
 
-// retributionInfo encapsulates all the data needed to sweep all the contested
-// funds within a channel whose contract has been breached by the prior
-// counter-party. This struct is used by the utxoNursery to create the justice
-// transaction which spends all outputs of the commitment transaction into an
-// output controlled by the wallet.
-type retributionInfo struct {
-	commitHash wire.ShaHash
-
-	localAmt         btcutil.Amount
-	localOutpoint    wire.OutPoint
-	localWitnessFunc witnessGenerator
-
-	remoteAmt        btcutil.Amount
-	remoteOutpoint   wire.OutPoint
-	remotWitnessFunc witnessGenerator
-
-	htlcWitnessFuncs []witnessGenerator
-
-	doneChan chan struct{}
-}
-
-// createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
-// the funds within the channel which we are now entitled to due to a breach of
-// the channel's contract by the counter-party. This function returns a *fully*
-// signed transaction with the witness for each input fully in place.
-func (u *utxoNursery) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error) {
-	// First, we obtain a new public key script from the wallet which we'll
-	// sweep the funds to.
-	// TODO(roasbeef): possibly create many outputs to minimize change in
-	// the future?
-	pkScriptOfJustice, err := u.newSweepPkScript()
+// newSweepPkScript creates a new public key script which should be used to
+// sweep any time-locked, or contested channel funds into the wallet.
+// Specifically, the script generated is a version 0,
+// pay-to-witness-pubkey-hash (p2wkh) output.
+func newSweepPkScript(wallet lnwallet.WalletController) ([]byte, error) {
+	sweepAddr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
 	if err != nil {
 		return nil, err
 	}
 
-	// Before creating the actual TxOut, we'll need to calculate proper fee
-	// to attach to the transaction to ensure a timely confirmation.
-	// TODO(roasbeef): remove hard-coded fee
-	totalAmt := r.localAmt + r.remoteAmt
-	sweepedAmt := int64(totalAmt - 5000)
-
-	// With the fee calculate, we can now create the justice transaction
-	// using the information gathered above.
-	justiceTx := wire.NewMsgTx()
-	justiceTx.AddTxOut(&wire.TxOut{
-		PkScript: pkScriptOfJustice,
-		Value:    sweepedAmt,
-	})
-	justiceTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: r.localOutpoint,
-	})
-	justiceTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: r.remoteOutpoint,
-	})
-
-	hashCache := txscript.NewTxSigHashes(justiceTx)
-
-	// Finally, using the witness generation functions attached to the
-	// retribution information, we'll populate the inputs with fully valid
-	// witnesses for both commitment outputs, and all the pending HTLC's at
-	// this state in the channel's history.
-	// TODO(roasbeef): handle the 2-layer HTLC's
-	localWitness, err := r.localWitnessFunc(justiceTx, hashCache, 0)
-	if err != nil {
-		return nil, err
-	}
-	justiceTx.TxIn[0].Witness = localWitness
-
-	remoteWitness, err := r.remotWitnessFunc(justiceTx, hashCache, 1)
-	if err != nil {
-		return nil, err
-	}
-	justiceTx.TxIn[1].Witness = remoteWitness
-
-	return justiceTx, nil
-}
-
-// sweepRevokedFunds notifies the utxoNursery that a channel's contract has
-// been breached by the prior counter party. Once notified the utxoNursery will
-// attempt to sweep ALL funds within the channel using the information provided
-// within the BreachRetribution generated due to the breach of channel
-// contract. The funds will be swept only after the breaching transaction
-// receives a necessary number of confirmations. A channel is immediately
-// returned which will be closed once the funds have been successful swept into
-// the wallet.
-func (u *utxoNursery) sweepRevokedFunds(breachInfo *lnwallet.BreachRetribution) chan struct{} {
-	// First we generate the witness generation function which will be used
-	// to sweep the output only we can satisfy on the commitment
-	// transaction. This output is just a regular p2wkh output.
-	localSignDesc := breachInfo.LocalOutputSignDesc
-	localWitness := func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-		inputIndex int) ([][]byte, error) {
-
-		desc := localSignDesc
-		desc.SigHashes = hc
-		desc.InputIndex = inputIndex
-
-		return lnwallet.CommitSpendNoDelay(u.wallet.Signer, desc, tx)
-	}
-
-	// Next we create the witness generation function that will be used to
-	// sweep the cheating counter party's output by taking advantage of the
-	// revocation clause within the output's witness script.
-	remoteSignDesc := breachInfo.RemoteOutputSignDesc
-	remoteWitness := func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-		inputIndex int) ([][]byte, error) {
-
-		desc := breachInfo.RemoteOutputSignDesc
-		desc.SigHashes = hc
-		desc.InputIndex = inputIndex
-
-		return lnwallet.CommitSpendRevoke(u.wallet.Signer, desc, tx)
-	}
-
-	// Finally, with the two witness generation funcs created, we send the
-	// retribution information to the utxo nursery. The created doneChan
-	// will be closed once the nursery sweeps all outputs inti the wallet.
-	doneChan := make(chan struct{})
-	u.breachedContracts <- &retributionInfo{
-		commitHash: breachInfo.BreachTransaction.TxSha(),
-
-		localAmt:         btcutil.Amount(localSignDesc.Output.Value),
-		localOutpoint:    breachInfo.LocalOutpoint,
-		localWitnessFunc: localWitness,
-
-		remoteAmt:        btcutil.Amount(remoteSignDesc.Output.Value),
-		remoteOutpoint:   breachInfo.RemoteOutpoint,
-		remotWitnessFunc: remoteWitness,
-
-		doneChan: doneChan,
-	}
-
-	return doneChan
+	return txscript.PayToAddrScript(sweepAddr)
 }

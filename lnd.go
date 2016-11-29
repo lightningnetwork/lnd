@@ -68,7 +68,7 @@ func lndMain() error {
 	defer chanDB.Close()
 
 	// Next load btcd's TLS cert for the RPC connection. If a raw cert was
-	// specified in the config, then we'll se that directly. Otherwise, we
+	// specified in the config, then we'll set that directly. Otherwise, we
 	// attempt to read the cert from the path specified in the config.
 	var rpcCert []byte
 	if cfg.RawRPCCert != "" {

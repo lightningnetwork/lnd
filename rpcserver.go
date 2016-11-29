@@ -12,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -20,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -367,7 +367,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
 		targetChannelPoint)
 
-	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint, force)
+	var closeType LinkCloseType
+	switch force {
+	case true:
+		closeType = CloseForce
+	case false:
+		closeType = CloseRegular
+	}
+
+	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint, closeType)
 
 out:
 	for {

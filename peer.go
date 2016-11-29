@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -19,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -778,15 +778,35 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	channel := p.activeChannels[*req.chanPoint]
 	p.activeChanMtx.RUnlock()
 
-	if req.forceClose {
+	switch req.CloseType {
+	// A type of CloseForce indicates that the user has opted for
+	// unilaterally close the channel on-chain.
+	case CloseForce:
 		closingTxid, err = p.executeForceClose(channel)
 		peerLog.Infof("Force closing ChannelPoint(%v) with txid: %v",
 			req.chanPoint, closingTxid)
-	} else {
+
+	// A type of CloseRegular indicates that the user has opted to close
+	// out this channel on-chian, so we execute the cooperative channel
+	// closre workflow.
+	case CloseRegular:
 		closingTxid, err = p.executeCooperativeClose(channel)
 		peerLog.Infof("Attempting cooperative close of "+
 			"ChannelPoint(%v) with txid: %v", req.chanPoint,
 			closingTxid)
+
+	// A type of CloseBreach indicates that the counter-party has breached
+	// the cahnnel therefore we need to clean up our local state.
+	case CloseBreach:
+		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
+			"channel", req.chanPoint)
+		if err := wipeChannel(p, channel); err != nil {
+			peerLog.Infof("Unable to wipe channel after detected "+
+				"breach: %v", err)
+			req.err <- err
+			return
+		}
+		return
 	}
 	if err != nil {
 		req.err <- err
@@ -817,11 +837,10 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 
 		select {
 		case height, ok := <-confNtfn.Confirmed:
-			// In the case that the ChainNotifier is shutting
-			// down, all subscriber notification channels will be
-			// closed, generating a nil receive.
+			// In the case that the ChainNotifier is shutting down,
+			// all subscriber notification channels will be closed,
+			// generating a nil receive.
 			if !ok {
-				// TODO(roasbeef): check for nil elsewhere
 				return
 			}
 
@@ -877,10 +896,12 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 		return
 	}
 
+	peerLog.Infof("Broadcasting cooperative close tx: %v",
+		newLogClosure(func() string {
+			return spew.Sdump(closeTx)
+		}))
+
 	// Finally, broadcast the closure transaction, to the network.
-	peerLog.Infof("Broadcasting cooperative close tx: %v", newLogClosure(func() string {
-		return spew.Sdump(closeTx)
-	}))
 	if err := p.server.lnwallet.PublishTransaction(closeTx); err != nil {
 		peerLog.Errorf("channel close tx from "+
 			"ChannelPoint(%v) rejected: %v",
@@ -910,20 +931,33 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	// longer active.
 	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, chanID)
 
+	// Additionally, close up "down stream" link for the htlcManager which
+	// has been assigned to this channel. This servers the link between the
+	// htlcManager and the switch, signalling that the channel is no longer
+	// active.
 	p.htlcManMtx.RLock()
+
+	// If the channel can't be found in the map, then this channel has
+	// already been wiped.
 	htlcWireLink, ok := p.htlcManagers[*chanID]
 	if !ok {
 		p.htlcManMtx.RUnlock()
 		return nil
 	}
+
+	close(htlcWireLink)
+
 	p.htlcManMtx.RUnlock()
 
+	// Next, we remove the htlcManager from our internal map as the
+	// goroutine should have exited gracefully due to the channel closure
+	// above.
 	p.htlcManMtx.RLock()
 	delete(p.htlcManagers, *chanID)
 	p.htlcManMtx.RUnlock()
 
-	close(htlcWireLink)
-
+	// Finally, we purge the channel's state from the database, leaving a
+	// small summary for historical records.
 	if err := channel.DeleteState(); err != nil {
 		peerLog.Errorf("Unable to delete ChannelPoint(%v) "+
 			"from db %v", chanID, err)

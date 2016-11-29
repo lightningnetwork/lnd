@@ -7,18 +7,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/ripemd160"
-	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"golang.org/x/crypto/ripemd160"
 )
 
 const (
@@ -184,6 +184,8 @@ func (h *htlcSwitch) Start() error {
 		return nil
 	}
 
+	hswcLog.Tracef("Starting HTLC switch")
+
 	h.wg.Add(2)
 	go h.networkAdmin()
 	go h.htlcForwarder()
@@ -197,6 +199,8 @@ func (h *htlcSwitch) Stop() error {
 	if !atomic.CompareAndSwapInt32(&h.shutdown, 0, 1) {
 		return nil
 	}
+
+	hswcLog.Infof("HLTC switch shutting down")
 
 	close(h.quit)
 	h.wg.Wait()
@@ -480,7 +484,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 // this link leaves the interface empty, then the interface entry itself is
 // also deleted.
 func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
-	hswcLog.Infof("unregistering active link, interface=%v, chan_point=%v",
+	hswcLog.Debugf("unregistering active link, interface=%v, chan_point=%v",
 		hex.EncodeToString(req.chanInterface[:]), req.chanPoint)
 
 	chanInterface := req.chanInterface
@@ -493,7 +497,7 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 	// links for this channel should be cleared.
 	chansRemoved := make([]*wire.OutPoint, 0, len(links))
 	if req.chanPoint == nil {
-		hswcLog.Infof("purging all active links for interface %v",
+		hswcLog.Debugf("purging all active links for interface %v",
 			hex.EncodeToString(chanInterface[:]))
 
 		for _, link := range links {
@@ -550,7 +554,7 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 	//  * just have the interfaces index be keyed on hash160?
 
 	if len(links) == 0 {
-		hswcLog.Infof("interface %v has no active links, destroying",
+		hswcLog.Debugf("interface %v has no active links, destroying",
 			hex.EncodeToString(chanInterface[:]))
 		h.interfaceMtx.Lock()
 		delete(h.interfaces, chanInterface)
@@ -574,7 +578,7 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 		return
 	}
 
-	hswcLog.Infof("requesting interface %v to close link %v",
+	hswcLog.Debugf("requesting interface %v to close link %v",
 		hex.EncodeToString(targetLink.peer.lightningID[:]), req.chanPoint)
 	targetLink.peer.localCloseChanReqs <- req
 }
@@ -650,11 +654,30 @@ func (h *htlcSwitch) UnregisterLink(remotePub *btcec.PublicKey, chanPoint *wire.
 	<-done
 }
 
-// closeChanReq represents a request to close a particular channel specified
-// by its outpoint.
+// LinkCloseType is a enum which signals the type of channel closure the switch
+// should execute.
+type LinkCloseType uint8
+
+const (
+	// CloseRegular indicates a regular cooperative channel closure should be attempted.
+	CloseRegular LinkCloseType = iota
+
+	// CloseForce indicates that the channel should be forcefully closed.
+	// This entails the broadcast of the commitment transaction directly on
+	// chain unilaterally.
+	CloseForce
+
+	// CloseBreach indicates that a channel breach has been dtected, and
+	// the link should immediately be marked as unavailable.
+	CloseBreach
+)
+
+// closeChanReq represents a request to close a particular channel specified by
+// its outpoint.
 type closeLinkReq struct {
-	chanPoint  *wire.OutPoint
-	forceClose bool
+	CloseType LinkCloseType
+
+	chanPoint *wire.OutPoint
 
 	updates chan *lnrpc.CloseStatusUpdate
 	err     chan error
@@ -663,18 +686,18 @@ type closeLinkReq struct {
 // CloseLink closes an active link targetted by it's channel point. Closing the
 // link initiates a cooperative channel closure iff forceClose is false. If
 // forceClose is true, then a unilateral channel closure is executed.
-// TODO(roabeef): bool flag for timeout
+// TODO(roasbeef): consolidate with UnregisterLink?
 func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint,
-	forceClose bool) (chan *lnrpc.CloseStatusUpdate, chan error) {
+	closeType LinkCloseType) (chan *lnrpc.CloseStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
 	errChan := make(chan error, 1)
 
 	h.linkControl <- &closeLinkReq{
-		chanPoint:  chanPoint,
-		forceClose: forceClose,
-		updates:    updateChan,
-		err:        errChan,
+		CloseType: closeType,
+		chanPoint: chanPoint,
+		updates:   updateChan,
+		err:       errChan,
 	}
 
 	return updateChan, errChan

@@ -202,7 +202,9 @@ out:
 			// breachObserver detected to the channel.
 			killSignal, ok := b.breachObservers[*chanPoint]
 			if !ok {
-				return
+				brarLog.Errorf("Unable to find contract: %v",
+					chanPoint)
+				continue
 			}
 
 			brarLog.Debugf("ChannelPoint(%v) has been settled, "+

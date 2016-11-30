@@ -2,6 +2,7 @@ package btcdnotify
 
 import (
 	"container/heap"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -436,6 +437,7 @@ type spendNotification struct {
 // outpoint has been detected, the details of the spending event will be sent
 // across the 'Spend' channel.
 func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
+
 	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
 		return nil, err
 	}
@@ -446,6 +448,33 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 	}
 
 	b.notificationRegistry <- ntfn
+
+	// The following conditional checks to ensure that when a spend notification
+	// is registered, the output hasn't already been spent. If the output
+	// is no longer in the UTXO set, the chain will be rescanned from the point
+	// where the output was added. The rescan will dispatch the notification.
+	txout, err := b.chainConn.GetTxOut(&outpoint.Hash, outpoint.Index, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if txout == nil {
+		transaction, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
+		if err != nil {
+			return nil, err
+		}
+
+		blockhash, err := wire.NewShaHashFromStr(transaction.BlockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		ops := []*wire.OutPoint{outpoint}
+		if err := b.chainConn.Rescan(blockhash, nil, ops); err != nil {
+			chainntnfs.Log.Errorf("Rescan for spend notification txout failed: %v", err)
+			return nil, err
+		}
+	}
 
 	return &chainntnfs.SpendEvent{ntfn.spendChan}, nil
 }
@@ -476,6 +505,19 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	}
 
 	b.notificationRegistry <- ntfn
+
+	// The following conditional checks transaction confirmation notification
+	// requests so that if the transaction has already been included in a block
+	// with the requested number of confirmations, the notification will be
+	// dispatched immediately.
+	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
+	if err != nil {
+		if !strings.Contains(err.Error(), "No information") {
+			return nil, err
+		}
+	} else if uint32(tx.Confirmations) > numConfs {
+		ntfn.finConf <- int32(tx.Confirmations)
+	}
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed:    ntfn.finConf,

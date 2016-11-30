@@ -412,6 +412,161 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 	}
 }
 
+// Tests the case in which a confirmation notification is requested for a
+// transaction that has already been included in a block. In this case,
+// the confirmation notification should be dispatched immediately.
+func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	t.Logf("testing transaction confirmed before notification registration")
+
+	// First, let's send some coins to "ourself", obtainig a txid.
+	// We're spending from a coinbase output here, so we use the dedicated
+	// function.
+
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	// Now generate one block. The notifier must check older blocks when the
+	// confirmation event is registered below to ensure that the TXID hasn't
+	// already been included in the chain, otherwise the notification will
+	// never be sent.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate two blocks: %v", err)
+	}
+
+	// Now that we have a txid, register a confirmation notification with
+	// the chainntfn source.
+	numConfs := uint32(1)
+	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	confSent := make(chan int32)
+	go func() {
+		confSent <- <-confIntent.Confirmed
+	}()
+
+	select {
+	case <-confSent:
+		break
+	case <-time.After(2 * time.Second):
+		t.Fatalf("confirmation notification never received")
+	}
+}
+
+// Tests the case in which a spend notification is requested for a spend that
+// has already been included in a block. In this case, the spend notification
+// should be dispatched immediately.
+func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	t.Logf("testing spend broadcast before notification registration")
+
+	// We'd like to test the spend notifications for all
+	// ChainNotifier concrete implemenations.
+	//
+	// To do so, we first create a new output to our test target
+	// address.
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test addr: %v", err)
+	}
+
+	// Mine a single block which should include that txid above.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// Now that we have the txid, fetch the transaction itself.
+	wrappedTx, err := miner.Node.GetRawTransaction(txid)
+	if err != nil {
+		t.Fatalf("unable to get new tx: %v", err)
+	}
+	tx := wrappedTx.MsgTx()
+
+	// Locate the output index sent to us. We need this so we can
+	// construct a spending txn below.
+	outIndex := -1
+	var pkScript []byte
+	for i, txOut := range tx.TxOut {
+		if bytes.Contains(txOut.PkScript, testAddr.ScriptAddress()) {
+			pkScript = txOut.PkScript
+			outIndex = i
+			break
+		}
+	}
+	if outIndex == -1 {
+		t.Fatalf("unable to locate new output")
+	}
+
+	// Now that we've found the output index, register for a spentness
+	// notification for the newly created output.
+	outpoint := wire.NewOutPoint(txid, uint32(outIndex))
+
+	// Next, create a new transaction spending that output.
+	spendingTx := wire.NewMsgTx()
+	spendingTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: *outpoint,
+	})
+	spendingTx.AddTxOut(&wire.TxOut{
+		Value:    1e8,
+		PkScript: pkScript,
+	})
+	sigScript, err := txscript.SignatureScript(spendingTx, 0, pkScript,
+		txscript.SigHashAll, privKey, true)
+	if err != nil {
+		t.Fatalf("unable to sign tx: %v", err)
+	}
+	spendingTx.TxIn[0].SignatureScript = sigScript
+
+	// Broadcast our spending transaction.
+	spenderSha, err := miner.Node.SendRawTransaction(spendingTx, true)
+	if err != nil {
+		t.Fatalf("unable to brodacst tx: %v", err)
+	}
+
+	// Now we mine an additional block, which should include our spend.
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// Now, we register to be notified of a spend that has already happened.
+	// The notifier should dispatch a spend notification immediately.
+	spentIntent, err := notifier.RegisterSpendNtfn(outpoint)
+	if err != nil {
+		t.Fatalf("unable to register for spend ntfn: %v", err)
+	}
+
+	spentNtfn := make(chan *chainntnfs.SpendDetail)
+	go func() {
+		spentNtfn <- <-spentIntent.Spend
+	}()
+
+	select {
+	case ntfn := <-spentNtfn:
+		// We've received the spend nftn. So now verify all the fields
+		// have been set properly.
+		if ntfn.SpentOutPoint != outpoint {
+			t.Fatalf("ntfn includes wrong output, reports %v instead of %v",
+				ntfn.SpentOutPoint, outpoint)
+		}
+		if !bytes.Equal(ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes()) {
+			t.Fatalf("ntfn includes wrong spender tx sha, reports %v intead of %v",
+				ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes())
+		}
+		if ntfn.SpenderInputIndex != 0 {
+			t.Fatalf("ntfn includes wrong spending input index, reports %v, should be %v",
+				ntfn.SpenderInputIndex, 0)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("spend ntfn never received")
+	}
+}
+
 var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T){
 	testSingleConfirmationNotification,
 	testMultiConfirmationNotification,
@@ -419,6 +574,8 @@ var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	testMultiClientConfirmationNotification,
 	testSpendNotification,
 	testBlockEpochNotification,
+	testTxConfirmedBeforeNtfnRegistration,
+	testSpendBeforeNtfnRegistration,
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests

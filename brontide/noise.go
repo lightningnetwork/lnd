@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 
@@ -330,30 +331,34 @@ func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 	return &BrontideMachine{handshakeState: handshake}
 }
 
-// TODO(roasbeef): add version bytes, paramterize in constructor above
-
 const (
+	// HandshakeVersion is the expected version of the brontide handshake.
+	// Any messages that carry a different version will cause the handshake
+	// to abort immediately.
+	HandshakeVersion = byte(0)
+
 	// ActOneSize is the size of the packet sent from initiator to
-	// responder in ActOne. The packet consists of an ephemeral key in
-	// compressed format, and a 16-byte poly1305 tag.
+	// responder in ActOne. The packet consists of a handshake version, an
+	// ephemeral key in compressed format, and a 16-byte poly1305 tag.
 	//
-	// 33 + 16
-	ActOneSize = 49
+	// 1 + 33 + 16
+	ActOneSize = 50
 
 	// ActTwoSize is the size the packet sent from responder to initiator
-	// in ActTwo. The packet consists of an ephemeral key in compressed
-	// format and a 16-byte poly1305 tag.
+	// in ActTwo. The packet consists of a handshake version, an ephemeral
+	// key in compressed format and a 16-byte poly1305 tag.
 	//
-	// 33 + 16
-	ActTwoSize = 49
+	// 1 + 33 + 16
+	ActTwoSize = 50
 
 	// ActThreeSize is the size of the packet sent from initiator to
-	// responder in ActThree. The packet consists of the initiators static
-	// key encrypted with strong forward secrecy and a 16-byte poly1035
+	// responder in ActThree. The packet consists of a handshake version,
+	// the initiators static key encrypted with strong forward secrecy and
+	// a 16-byte poly1035
 	// tag.
 	//
-	// 33 + 16 + 16
-	ActThreeSize = 65
+	// 1 + 33 + 16 + 16
+	ActThreeSize = 66
 )
 
 // GenActOne generates the initial packet (act one) to be sent from initiator
@@ -384,8 +389,9 @@ func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
 
 	authPayload := b.EncryptAndHash([]byte{})
 
-	copy(actOne[:33], ephemeral)
-	copy(actOne[33:], authPayload)
+	actOne[0] = HandshakeVersion
+	copy(actOne[1:34], ephemeral)
+	copy(actOne[34:], authPayload)
 
 	return actOne, nil
 }
@@ -401,8 +407,15 @@ func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
 		p   [16]byte
 	)
 
-	copy(e[:], actOne[:33])
-	copy(p[:], actOne[33:])
+	// If the handshake version is unknown, then the handshake fails
+	// immediately.
+	if actOne[0] != HandshakeVersion {
+		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
+			"valid", actOne[0], HandshakeVersion)
+	}
+
+	copy(e[:], actOne[1:34])
+	copy(p[:], actOne[34:])
 
 	// e
 	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
@@ -451,8 +464,9 @@ func (b *BrontideMachine) GenActTwo() ([ActTwoSize]byte, error) {
 
 	authPayload := b.EncryptAndHash([]byte{})
 
-	copy(actTwo[:33], ephemeral)
-	copy(actTwo[33:], authPayload)
+	actTwo[0] = HandshakeVersion
+	copy(actTwo[1:34], ephemeral)
+	copy(actTwo[34:], authPayload)
 
 	return actTwo, nil
 }
@@ -467,8 +481,15 @@ func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 		p   [16]byte
 	)
 
-	copy(e[:], actTwo[:33])
-	copy(p[:], actTwo[33:])
+	// If the handshake version is unknown, then the handshake fails
+	// immediately.
+	if actTwo[0] != HandshakeVersion {
+		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
+			"valid", actTwo[0], HandshakeVersion)
+	}
+
+	copy(e[:], actTwo[1:34])
+	copy(p[:], actTwo[34:])
 
 	// e
 	b.remoteEphemeral, err = btcec.ParsePubKey(e[:], btcec.S256())
@@ -506,8 +527,9 @@ func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
 
 	authPayload := b.EncryptAndHash([]byte{})
 
-	copy(actThree[:49], ciphertext)
-	copy(actThree[49:], authPayload)
+	actThree[0] = HandshakeVersion
+	copy(actThree[1:50], ciphertext)
+	copy(actThree[50:], authPayload)
 
 	// With the final ECDH operation complete, derive the session sending
 	// and receiving keys.
@@ -527,8 +549,15 @@ func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
 		p   [16]byte
 	)
 
-	copy(s[:], actThree[:33+16])
-	copy(p[:], actThree[33+16:])
+	// If the handshake version is unknown, then the handshake fails
+	// immediately.
+	if actThree[0] != HandshakeVersion {
+		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
+			"valid", actThree[0], HandshakeVersion)
+	}
+
+	copy(s[:], actThree[1:33+16+1])
+	copy(p[:], actThree[33+16+1:])
 
 	// s
 	remotePub, err := b.DecryptAndHash(s[:])

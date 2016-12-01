@@ -64,9 +64,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 	// this portion will fail with a non-nil error.
 	var actOne [ActOneSize]byte
 	if _, err := io.ReadFull(conn, actOne[:]); err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 	if err := brontideConn.noise.RecvActOne(actOne); err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 
@@ -74,9 +76,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 	// key for the session along with an authenticating tag.
 	actTwo, err := brontideConn.noise.GenActTwo()
 	if err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 	if _, err := conn.Write(actTwo[:]); err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 
@@ -85,9 +89,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 	// sides have mutually authenticated each other.
 	var actThree [ActThreeSize]byte
 	if _, err := io.ReadFull(conn, actThree[:]); err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 	if err := brontideConn.noise.RecvActThree(actThree); err != nil {
+		brontideConn.conn.Close()
 		return nil, err
 	}
 

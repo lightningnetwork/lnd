@@ -47,9 +47,11 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	// Initiate the handshake by sending the first act to the receiver.
 	actOne, err := b.noise.GenActOne()
 	if err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 	if _, err := conn.Write(actOne[:]); err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 
@@ -59,9 +61,11 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	// secrecy.
 	var actTwo [ActTwoSize]byte
 	if _, err := io.ReadFull(conn, actTwo[:]); err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 	if err := b.noise.RecvActTwo(actTwo); err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 
@@ -69,9 +73,11 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	// key and execute the final ECDH operation.
 	actThree, err := b.noise.GenActThree()
 	if err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 	if _, err := conn.Write(actThree[:]); err != nil {
+		b.conn.Close()
 		return nil, err
 	}
 

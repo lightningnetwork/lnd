@@ -46,16 +46,17 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 	connChan := make(chan net.Conn)
 	go func() {
 		conn, err := Dial(remotePriv, netAddr)
+
 		errChan <- err
 		connChan <- conn
 	}()
 
 	localConn, listenErr := listener.Accept()
 	if listenErr != nil {
-		return nil, nil, err
+		return nil, nil, listenErr
 	}
 
-	if dialErr := <-errChan; err != nil {
+	if dialErr := <-errChan; dialErr != nil {
 		return nil, nil, dialErr
 	}
 	remoteConn := <-connChan

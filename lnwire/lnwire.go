@@ -64,10 +64,10 @@ func (c CreditsAmount) ToSatoshi() int64 {
 
 type ChannelOperation struct {
 	NodePubKey1, NodePubKey2 [33]byte
-	ChannelId *wire.OutPoint
-	Capacity int64
-	Weight float64
-	Operation byte
+	ChannelId                *wire.OutPoint
+	Capacity                 int64
+	Weight                   float64
+	Operation                byte
 }
 
 // writeElement is a one-stop shop to write the big endian representation of
@@ -171,12 +171,35 @@ func writeElement(w io.Writer, element interface{}) error {
 			}
 		}
 	case *btcec.Signature:
+		// Serialize the signature with all the checks that entails
 		sig := e.Serialize()
-		if len(sig) > 73 {
-			return fmt.Errorf("Signature too long!")
+		var b [64]byte
+		// Extract lengths of R and S
+		rLen := uint8(sig[3])
+		sLen := uint8(sig[5+rLen])
+		// Check to make sure each can fit into the intended buffer
+		if sLen > 32 {
+			if (sLen > 33) || (sig[6+rLen] != 0x00) {
+				return fmt.Errorf("S is over 32 bytes long without padding")
+			} else {
+				sLen -= 1
+				copy(b[64-sLen:], sig[7+rLen:])
+			}
+		} else {
+			copy(b[64-sLen:], sig[6+rLen:])
 		}
-
-		if err := wire.WriteVarBytes(w, 0, sig); err != nil {
+		if rLen > 32 {
+			if (rLen > 33) || (sig[4] != 0x00) {
+				return fmt.Errorf("R is over 32 bytes long without padding")
+			} else {
+				rLen -= 1
+				copy(b[32-rLen:], sig[5:5+rLen])
+			}
+		} else {
+			copy(b[32-rLen:], sig[4:4+rLen])
+		}
+		// Write buffer
+		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
 	case *wire.ShaHash:
@@ -305,7 +328,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		for i:=0; i<len(e); i++ {
+		for i := 0; i < len(e); i++ {
 			err := writeElement(w, e[i])
 			if err != nil {
 				return err
@@ -320,7 +343,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			e.Weight,
 			e.Operation,
 		)
-		if err != nil{
+		if err != nil {
 			return err
 		}
 	default:
@@ -455,12 +478,27 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = sigs
 		return nil
 	case **btcec.Signature:
-		sigBytes, err := wire.ReadVarBytes(r, 0, 73, "signature")
-		if err != nil {
+		var b [64]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
-
-		sig, err := btcec.ParseSignature(sigBytes, btcec.S256())
+		// Extract canonically-padded bigint representations from buffer
+		r := extractCanonicalPadding(b[0:32])
+		s := extractCanonicalPadding(b[32:64])
+		rLen := uint8(len(r))
+		sLen := uint8(len(s))
+		// Create a canonical serialized signature
+		sigBytes := make([]byte, 6+rLen+sLen, 6+rLen+sLen)
+		sigBytes[0] = 48
+		sigBytes[1] = 4 + rLen + sLen
+		sigBytes[2] = 2
+		sigBytes[3] = rLen
+		sigBytes[rLen+4] = 2
+		sigBytes[rLen+5] = sLen
+		copy(sigBytes[4:], r)
+		copy(sigBytes[rLen+6:], s)
+		// Parse the signature with strict checks
+		sig, err := btcec.ParseDERSignature(sigBytes, btcec.S256())
 		if err != nil {
 			return err
 		}
@@ -593,7 +631,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = make([]ChannelOperation, nChannels)
-		for i:=uint64(0); i < nChannels; i++ {
+		for i := uint64(0); i < nChannels; i++ {
 			err := readElement(r, &((*e)[i]))
 			if err != nil {
 				return err
@@ -683,4 +721,22 @@ func isValidPkScript(pkScript PkScript) bool {
 	}
 
 	return true
+}
+
+// extractCanonicalPadding is a utility function to extract the canonical
+// padding of a big-endian integer from the wire encoding (a 0-padded
+// big-endian integer) such that it passes btcec.canonicalPadding test.
+func extractCanonicalPadding (b []byte) []byte {
+  for i := 0; i < len(b); i++ {
+    // Found first non-zero byte
+    if b[i] > 0 {
+      // If the MSB is set, we need zero padding
+      if b[i] & 0x80 == 0x80 {
+        return append([]byte{ 0x00 }, b[i:]...)
+      } else {
+        return b[i:]
+      }
+    }
+  }
+  return []byte{ 0x00 }
 }

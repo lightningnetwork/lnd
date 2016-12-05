@@ -1076,3 +1076,27 @@ func printRTAsJSON(r *rt.RoutingTable) {
 	}
 	printRespJson(channels)
 }
+
+
+
+var ListPaymentsCommand = cli.Command{
+	Name:        "listpayments",
+	Usage:       "listpayments",
+	Description: "list all outgoing payments",
+	Action: listPayments,
+}
+
+func listPayments(ctx *cli.Context) error {
+	client := getClient(ctx)
+
+	req := &lnrpc.ListPaymentsRequest{}
+
+	payments, err := client.ListPayments(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(payments)
+
+	return nil
+}

@@ -98,11 +98,7 @@ type Invoice struct {
 	Terms ContractTerm
 }
 
-// AddInvoice inserts the targeted invoice into the database. If the invoice
-// has *any* payment hashes which already exists within the database, then the
-// insertion will be aborted and rejected due to the strict policy banning any
-// duplicate payment hashes.
-func (d *DB) AddInvoice(i *Invoice) error {
+func validateInvoice(i *Invoice) error {
 	if len(i.Memo) > MaxMemoSize {
 		return fmt.Errorf("max length a memo is %v, and invoice "+
 			"of length %v was provided", MaxMemoSize, len(i.Memo))
@@ -112,7 +108,18 @@ func (d *DB) AddInvoice(i *Invoice) error {
 			"of length %v was provided", MaxReceiptSize,
 			len(i.Receipt))
 	}
+	return nil
+}
 
+// AddInvoice inserts the targeted invoice into the database. If the invoice
+// has *any* payment hashes which already exists within the database, then the
+// insertion will be aborted and rejected due to the strict policy banning any
+// duplicate payment hashes.
+func (d *DB) AddInvoice(i *Invoice) error {
+	err := validateInvoice(i)
+	if err != nil {
+		return err
+	}
 	return d.Update(func(tx *bolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {

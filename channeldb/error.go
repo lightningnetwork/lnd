@@ -14,6 +14,8 @@ var (
 	ErrNoInvoicesCreated = fmt.Errorf("there are no existing invoices")
 	ErrDuplicateInvoice  = fmt.Errorf("invoice with payment hash already exists")
 
+	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
+
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
 

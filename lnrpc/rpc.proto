@@ -113,6 +113,18 @@ service Lightning {
     }
 
     rpc ShowRoutingTable(ShowRoutingTableRequest) returns (ShowRoutingTableResponse);
+
+    rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse){
+        option (google.api.http) = {
+            get: "/v1/payments"
+        };
+    };
+
+    rpc DeleteAllPayments(DeleteAllPaymentsRequest) returns (DeleteAllPaymentsResponse) {
+        option (google.api.http) = {
+            delete: "/v1/payments"
+        };
+    };
 }
 
 
@@ -396,3 +408,27 @@ message ListInvoiceResponse {
 }
 
 message InvoiceSubscription {}
+
+
+message Payment {
+    string r_hash = 1;
+
+    int64 value = 2;
+
+    int64 creation_date = 3;
+    repeated string path = 4;
+    int64 fee = 5;
+}
+
+message ListPaymentsRequest {
+}
+
+message ListPaymentsResponse {
+    repeated Payment payments = 1;
+}
+
+message DeleteAllPaymentsRequest {
+}
+
+message DeleteAllPaymentsResponse {
+}

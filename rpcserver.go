@@ -597,6 +597,19 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
+func constructPayment(path []graph.Vertex, amount btcutil.Amount, rHash []byte) *channeldb.OutgoingPayment {
+	payment := &channeldb.OutgoingPayment{}
+	copy(payment.RHash[:], rHash)
+	payment.Invoice.Terms.Value = btcutil.Amount(amount)
+	payment.Invoice.CreationDate = time.Now()
+	pathBytes := make([][]byte, len(path))
+	for i:=0; i<len(path); i++ {
+		pathBytes[i] = path[i].ToByte()
+	}
+	payment.Path = pathBytes
+	return payment
+}
+
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
@@ -641,13 +654,6 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// Query the routing table for a potential path to the
 			// destination node. If a path is ultimately
 			// unavailable, then an error will be returned.
-			destNode := nextPayment.Dest
-			targetVertex := graph.NewVertex(destNode)
-			path, err := r.server.routingMgr.FindPath(targetVertex)
-			if err != nil {
-				return err
-			}
-			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
@@ -661,11 +667,12 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// Construct and HTLC packet which a payment route (if
 			// one is found) to the destination using a Sphinx
 			// onoin packet to encode the route.
-			htlcPkt, err := r.constructPaymentRoute([]byte(nextPayment.Dest),
+			htlcPkt, path, err := r.constructPaymentRoute([]byte(nextPayment.Dest),
 				nextPayment.Amt, rHash)
 			if err != nil {
 				return err
 			}
+			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
 			// We launch a new goroutine to execute the current
 			// payment so we can continue to serve requests while
 			// this payment is being dispatiched.
@@ -680,7 +687,9 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					errChan <- err
 					return
 				}
-
+				// Save payment to DB.
+				payment := constructPayment(path, btcutil.Amount(nextPayment.Amt), rHash[:])
+				r.server.chanDB.AddPayment(payment)
 				// TODO(roasbeef): proper responses
 				resp := &lnrpc.SendResponse{}
 				if err := paymentStream.Send(resp); err != nil {
@@ -719,7 +728,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Construct and HTLC packet which a payment route (if
 	// one is found) to the destination using a Sphinx
 	// onoin packet to encode the route.
-	htlcPkt, err := r.constructPaymentRoute([]byte(nextPayment.DestString),
+	htlcPkt, path, err := r.constructPaymentRoute([]byte(nextPayment.DestString),
 		nextPayment.Amt, rHash)
 	if err != nil {
 		return nil, err
@@ -730,7 +739,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 		return nil, err
 	}
-
+	payment := constructPayment(path, btcutil.Amount(nextPayment.Amt), rHash[:])
+				r.server.chanDB.AddPayment(payment)
 	return &lnrpc.SendResponse{}, nil
 }
 
@@ -739,7 +749,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // payment instructions necessary to complete an HTLC. If a route is unable to
 // be located, then an error is returned indicating as much.
 func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
-	rHash [32]byte) (*htlcPacket, error) {
+	rHash [32]byte) (*htlcPacket, []graph.Vertex, error) {
 
 	const queryTimeout = time.Duration(time.Second * 10)
 
@@ -749,7 +759,7 @@ func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	targetVertex := graph.NewVertex(destPubkey)
 	path, err := r.server.routingMgr.FindPath(targetVertex)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rpcsLog.Tracef("[sendpayment] selected route: %v", path)
 
@@ -758,7 +768,7 @@ func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	// the routing table's star graph, we're always the first hop.
 	sphinxPacket, err := generateSphinxPacket(path[1:], rHash[:])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Craft an HTLC packet to send to the routing sub-system. The
@@ -776,7 +786,7 @@ func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	return &htlcPacket{
 		dest: destInterface,
 		msg:  htlcAdd,
-	}, nil
+	}, path, nil
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
@@ -1120,4 +1130,41 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	return &lnrpc.ShowRoutingTableResponse{
 		Channels: channels,
 	}, nil
+}
+
+
+// ListPayments returns a list of all outgoing payments.
+func (r *rpcServer) ListPayments(context.Context,
+	*lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
+	rpcsLog.Debugf("[ListPayments]")
+	payments, err := r.server.chanDB.FetchAllPayments()
+	if err != nil {
+		return nil, err
+	}
+	paymentsResp := &lnrpc.ListPaymentsResponse{
+		Payments: make([]*lnrpc.Payment, len(payments)),
+	}
+	for i:=0; i<len(payments); i++{
+		p := &lnrpc.Payment{}
+		p.CreationDate = payments[i].CreationDate.Unix()
+		p.Value = int64(payments[i].Terms.Value)
+		p.RHash = hex.EncodeToString(payments[i].RHash[:])
+		path := make([]string, len(payments[i].Path))
+		for j:=0; j<len(path); j++ {
+			path[j] = hex.EncodeToString(payments[i].Path[j])
+		}
+		p.Path = path
+		paymentsResp.Payments[i] = p
+	}
+
+	return paymentsResp, nil
+}
+
+// DeleteAllPayments deletes all outgoing payments from DB.
+func (r *rpcServer) DeleteAllPayments(context.Context,
+	*lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
+	rpcsLog.Debugf("[DeleteAllPayments]")
+	err := r.server.chanDB.DeleteAllPayments()
+	resp := &lnrpc.DeleteAllPaymentsResponse{}
+	return resp, err
 }

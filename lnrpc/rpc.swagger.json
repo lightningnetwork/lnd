@@ -293,6 +293,36 @@
         ]
       }
     },
+    "/v1/payments": {
+      "get": {
+        "operationId": "ListPayments",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPaymentsResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "delete": {
+        "operationId": "DeleteAllPayments",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteAllPaymentsResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/peers": {
       "get": {
         "operationId": "ListPeers",
@@ -582,6 +612,12 @@
         }
       }
     },
+    "lnrpcDeleteAllPaymentsRequest": {
+      "type": "object"
+    },
+    "lnrpcDeleteAllPaymentsResponse": {
+      "type": "object"
+    },
     "lnrpcGetInfoRequest": {
       "type": "object"
     },
@@ -733,6 +769,20 @@
         }
       }
     },
+    "lnrpcListPaymentsRequest": {
+      "type": "object"
+    },
+    "lnrpcListPaymentsResponse": {
+      "type": "object",
+      "properties": {
+        "payments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPayment"
+          }
+        }
+      }
+    },
     "lnrpcListPeersRequest": {
       "type": "object"
     },
@@ -789,6 +839,34 @@
         "target_peer_id": {
           "type": "integer",
           "format": "int32"
+        }
+      }
+    },
+    "lnrpcPayment": {
+      "type": "object",
+      "properties": {
+        "creation_date": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "string"
+          }
+        },
+        "r_hash": {
+          "type": "string",
+          "format": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },

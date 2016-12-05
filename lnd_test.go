@@ -24,6 +24,8 @@ import (
 	"github.com/roasbeef/btcutil"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"reflect"
+	"encoding/hex"
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -486,6 +488,128 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 		t.Fatalf("Bob's satoshis received is incorrect got %v, expected %v",
 			bobSatoshisReceived, paymentAmt)
 	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+}
+
+func testListPayments(net *networkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	// Delete all payments from Alice. DB should have no payments
+	deleteAllPaymentsInitialReq := &lnrpc.DeleteAllPaymentsRequest{}
+	_, err := net.Alice.DeleteAllPayments(ctxt, deleteAllPaymentsInitialReq)
+	if err != nil {
+		t.Fatalf("Can't delete payments at the begining: %v", err)
+	}
+
+	// Check that there are no payments before test.
+	reqInit := &lnrpc.ListPaymentsRequest{}
+	paymentsRespInit, err := net.Alice.ListPayments(ctxt, reqInit)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if len(paymentsRespInit.Payments) != 0 {
+		t.Fatalf("incorrect number of payments, got %v, want %v", len(paymentsRespInit.Payments), 0)
+	}
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice being
+	// the sole funder of the channel.
+
+	chanAmt := btcutil.Amount(100000)
+	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob, chanAmt)
+
+	// Now that the channel is open, create an invoice for Bob which
+	// expects a payment of 1000 satoshis from Alice paid via a particular
+	// pre-image.
+	const paymentAmt = 1000
+	preimage := bytes.Repeat([]byte("B"), 32)
+	invoice := &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	invoiceResp, err := net.Bob.AddInvoice(ctxt, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// With the invoice for Bob added, send a payment towards Alice paying
+	// to the above generated invoice.
+	sendStream, err := net.Alice.SendPayment(ctxt)
+	if err != nil {
+		t.Fatalf("unable to create alice payment stream: %v", err)
+	}
+	sendReq := &lnrpc.SendRequest{
+		PaymentHash: invoiceResp.RHash,
+		Dest:        net.Bob.PubKey[:],
+		Amt:         paymentAmt,
+	}
+	if err := sendStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if _, err := sendStream.Recv(); err != nil {
+		t.Fatalf("error when attempting recv: %v", err)
+	}
+
+	// We doesn't check different states of parties
+	// like balance here because it is already checked in
+	// testSingleHopInvoice
+	req := &lnrpc.ListPaymentsRequest{}
+	paymentsResp, err := net.Alice.ListPayments(ctxt, req)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if len(paymentsResp.Payments) != 1 {
+		t.Fatalf("incorrect number of payments, got %v, want %v", len(paymentsResp.Payments), 1)
+	}
+	p := paymentsResp.Payments[0]
+
+	// Check path.
+	expectedPath := []string {
+		net.Alice.PubKeyStr,
+		net.Bob.PubKeyStr,
+	}
+	if !reflect.DeepEqual(p.Path, expectedPath) {
+		t.Fatalf("incorrect path, got %v, want %v", p.Path, expectedPath)
+	}
+
+	// Check amount.
+	if p.Value != paymentAmt {
+		t.Fatalf("incorrect amount, got %v, want %v", p.Value, paymentAmt)
+	}
+
+	// Check RHash.
+	correctRHash := hex.EncodeToString(invoiceResp.RHash)
+	if !reflect.DeepEqual(p.RHash, correctRHash){
+		t.Fatalf("incorrect RHash, got %v, want %v", p.RHash, correctRHash)
+	}
+
+	// Check Fee.
+	// Currently there is no fees so assume value 0 for fees.
+	if p.Fee != 0 {
+		t.Fatalf("incorrect Fee, got %v, want %v", p.Fee, 0)
+	}
+
+	// Delete all payments from Alice. DB should have no payments.
+	deleteAllPaymentsEndReq := &lnrpc.DeleteAllPaymentsRequest{}
+	_, err = net.Alice.DeleteAllPayments(ctxt, deleteAllPaymentsEndReq)
+	if err != nil {
+		t.Fatalf("Can't delete payments at the end: %v", err)
+	}
+
+	// Check that there are no payments before test.
+	reqEnd := &lnrpc.ListPaymentsRequest{}
+	_, err = net.Alice.ListPayments(ctxt, reqEnd)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if len(paymentsRespInit.Payments) != 0 {
+		t.Fatalf("incorrect number of payments, got %v, want %v", len(paymentsRespInit.Payments), 0)
+	}
+
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
@@ -1204,6 +1328,10 @@ var testsCases = []*testCase{
 	{
 		name: "single hop invoice",
 		test: testSingleHopInvoice,
+	},
+	{
+		name: "list of outgoing payments",
+		test: testListPayments,
 	},
 	{
 		name: "max pending channel",

@@ -10,7 +10,8 @@ func TestSingleFundingRequestWire(t *testing.T) {
 	// First create a new SFR message.
 	cdp := pubKey
 	delivery := PkScript(bytes.Repeat([]byte{0x02}, 25))
-	sfr := NewSingleFundingRequest(20, 21, 22, 23, 5, 5, cdp, cdp, delivery)
+	sfr := NewSingleFundingRequest(20, 21, 22, 23, 5, 5, cdp, cdp,
+		delivery, 540)
 
 	// Next encode the SFR message into an empty bytes buffer.
 	var b bytes.Buffer

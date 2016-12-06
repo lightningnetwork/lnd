@@ -9,7 +9,8 @@ import (
 func TestSingleFundingResponseWire(t *testing.T) {
 	// First create a new SFR message.
 	delivery := PkScript(bytes.Repeat([]byte{0x02}, 25))
-	sfr := NewSingleFundingResponse(22, pubKey, pubKey, pubKey, 5, delivery)
+	sfr := NewSingleFundingResponse(22, pubKey, pubKey, pubKey, 5,
+		delivery, 540)
 
 	// Next encode the SFR message into an empty bytes buffer.
 	var b bytes.Buffer

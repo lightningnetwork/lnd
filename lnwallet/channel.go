@@ -881,19 +881,21 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	var selfKey *btcec.PublicKey
 	var remoteKey *btcec.PublicKey
 	var delay uint32
-	var delayBalance, p2wkhBalance btcutil.Amount
+	var delayBalance, p2wkhBalance, dustLimit btcutil.Amount
 	if remoteChain {
 		selfKey = lc.channelState.TheirCommitKey
 		remoteKey = lc.channelState.OurCommitKey
 		delay = lc.channelState.RemoteCsvDelay
 		delayBalance = theirBalance
 		p2wkhBalance = ourBalance
+		dustLimit = lc.channelState.TheirDustLimit
 	} else {
 		selfKey = lc.channelState.OurCommitKey
 		remoteKey = lc.channelState.TheirCommitKey
 		delay = lc.channelState.LocalCsvDelay
 		delayBalance = ourBalance
 		p2wkhBalance = theirBalance
+		dustLimit = lc.channelState.OurDustLimit
 	}
 
 	// Generate a new commitment transaction with all the latest
@@ -905,6 +907,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		return nil, err
 	}
 	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlc.Amount < dustLimit {
+			continue
+		}
+
 		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
 			revocationHash, delay, false)
 		if err != nil {
@@ -912,6 +918,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		}
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlc.Amount < dustLimit {
+			continue
+		}
+
 		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
 			revocationHash, delay, true)
 		if err != nil {

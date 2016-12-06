@@ -390,13 +390,7 @@ out:
 		//  * .(CommitmentUpdater)
 
 		case *lnwire.ErrorGeneric:
-			switch msg.Code {
-			case lnwire.ErrorMaxPendingChannels:
-				p.server.fundingMgr.processErrorGeneric(msg, p)
-			default:
-				peerLog.Warnf("ErrorGeneric(%v) handling isn't"+
-					" implemented.", msg.Code)
-			}
+			p.server.fundingMgr.processErrorGeneric(msg, p)
 		case *lnwire.HTLCAddRequest:
 			isChanUpdate = true
 			targetChan = msg.ChannelPoint

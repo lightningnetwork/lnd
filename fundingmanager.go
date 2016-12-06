@@ -335,6 +335,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%v) "+
 		"from peerID(%v)", amt, delay, msg.ChannelID, fmsg.peer.id)
 
+	ourDustLimit := lnwallet.DefaultDustLimit()
+	theirDustlimit := msg.DustLimit
 	// Attempt to initialize a reservation within the wallet. If the wallet
 	// has insufficient resources to create the channel, then the reservation
 	// attempt may be rejected. Note that since we're on the responding
@@ -342,13 +344,16 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// channel ourselves.
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
 	reservation, err := f.wallet.InitChannelReservation(amt, 0,
-		fmsg.peer.addr.IdentityKey, fmsg.peer.addr.Address, 1, delay)
+		fmsg.peer.addr.IdentityKey, fmsg.peer.addr.Address, 1, delay,
+		ourDustLimit)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
 		fmsg.peer.Disconnect()
 		return
 	}
+
+	reservation.SetTheirDustLimit(theirDustlimit)
 
 	// Once the reservation has been created successfully, we add it to this
 	// peers map of pending reservations to track this particular reservation
@@ -396,7 +401,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	fundingResp := lnwire.NewSingleFundingResponse(msg.ChannelID,
 		ourContribution.RevocationKey, ourContribution.CommitKey,
 		ourContribution.MultiSigKey, ourContribution.CsvDelay,
-		deliveryScript)
+		deliveryScript, ourDustLimit)
 
 	fmsg.peer.queueMsg(fundingResp, nil)
 }
@@ -424,6 +429,8 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	}
 
 	fndgLog.Infof("Recv'd fundingResponse for pendingID(%v)", msg.ChannelID)
+
+	resCtx.reservation.SetTheirDustLimit(msg.DustLimit)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -747,22 +754,24 @@ func (f *fundingManager) initFundingWorkflow(targetPeer *peer, req *openChanReq)
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
 		// TODO(roasbeef): add delay
-		nodeID    = msg.peer.addr.IdentityKey
-		localAmt  = msg.localFundingAmt
-		remoteAmt = msg.remoteFundingAmt
-		capacity  = localAmt + remoteAmt
-		numConfs  = msg.numConfs
+		nodeID       = msg.peer.addr.IdentityKey
+		localAmt     = msg.localFundingAmt
+		remoteAmt    = msg.remoteFundingAmt
+		capacity     = localAmt + remoteAmt
+		numConfs     = msg.numConfs
+		ourDustLimit = lnwallet.DefaultDustLimit()
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
-		"capacity=%v, numConfs=%v, addr=%v)", localAmt, remoteAmt,
-		capacity, numConfs, msg.peer.addr.Address)
+		"capacity=%v, numConfs=%v, addr=%v, dustLimit=%v)", localAmt,
+		remoteAmt, ourDustLimit, capacity, numConfs,
+		msg.peer.addr.Address)
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
 	reservation, err := f.wallet.InitChannelReservation(capacity, localAmt,
-		nodeID, msg.peer.addr.Address, uint16(numConfs), 4)
+		nodeID, msg.peer.addr.Address, uint16(numConfs), 4, ourDustLimit)
 	if err != nil {
 		msg.err <- err
 		return
@@ -815,6 +824,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		contribution.CommitKey,
 		contribution.MultiSigKey,
 		deliveryScript,
+		ourDustLimit,
 	)
 	msg.peer.queueMsg(fundingReq, nil)
 }

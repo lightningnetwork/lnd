@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcutil"
 )
 
 // SingleFundingResponse is the message Bob sends to Alice after she initiates
@@ -45,12 +46,18 @@ type SingleFundingResponse struct {
 	// cooperative close. Only the following script templates are
 	// supported: P2PKH, P2WKH, P2SH, and P2WSH.
 	DeliveryPkScript PkScript
+
+	// DustLimit is the threshold below which no HTLC output should be
+	// generated for remote commitment transaction; ie. HTLCs below
+	// this amount are not enforceable onchain for their point of view.
+	DustLimit btcutil.Amount
 }
 
 // NewSingleFundingResponse creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
-	delay uint32, deliveryScript PkScript) *SingleFundingResponse {
+	delay uint32, deliveryScript PkScript,
+	dustLimit btcutil.Amount) *SingleFundingResponse {
 
 	return &SingleFundingResponse{
 		ChannelID:              chanID,
@@ -59,6 +66,7 @@ func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
 		RevocationKey:          rk,
 		CsvDelay:               delay,
 		DeliveryPkScript:       deliveryScript,
+		DustLimit:              dustLimit,
 	}
 }
 
@@ -78,13 +86,15 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	// RevocationKey (33)
 	// CsvDelay (4)
 	// DeliveryPkScript (final delivery)
+	// DustLimit (8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.ChannelDerivationPoint,
 		&c.CommitmentKey,
 		&c.RevocationKey,
 		&c.CsvDelay,
-		&c.DeliveryPkScript)
+		&c.DeliveryPkScript,
+		&c.DustLimit)
 	if err != nil {
 		return err
 	}
@@ -104,13 +114,15 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 	// RevocationKey (33)
 	// CsvDelay (4)
 	// DeliveryPkScript (final delivery)
+	// DustLimit (8)
 	err := writeElements(w,
 		c.ChannelID,
 		c.ChannelDerivationPoint,
 		c.CommitmentKey,
 		c.RevocationKey,
 		c.CsvDelay,
-		c.DeliveryPkScript)
+		c.DeliveryPkScript,
+		c.DustLimit)
 	if err != nil {
 		return err
 	}
@@ -130,11 +142,11 @@ func (c *SingleFundingResponse) Command() uint32 {
 // SingleFundingResponse. This is calculated by summing the max length of all
 // the fields within a SingleFundingResponse. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + (33 * 3) + 8 + 25
+// Therefore, the final breakdown is: 8 + (33 * 3) + 8 + 25 + 8
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
-	return 140
+	return 148
 }
 
 // Validate examines each populated field within the SingleFundingResponse for
@@ -160,6 +172,11 @@ func (c *SingleFundingResponse) Validate() error {
 			"P2PKH, P2WKH, P2SH, or P2WSH.")
 	}
 
+	if c.DustLimit <= 0 {
+		return fmt.Errorf("Dust limit shouldn't be below or equal to " +
+			"zero.")
+	}
+
 	// We're good!
 	return nil
 }
@@ -183,10 +200,11 @@ func (c *SingleFundingResponse) String() string {
 
 	return fmt.Sprintf("\n--- Begin SingleFundingResponse ---\n") +
 		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", cdp) +
-		fmt.Sprintf("CommitmentKey\t\t\t\t%x\n", ck) +
-		fmt.Sprintf("RevocationKey\t\t\t\t%x\n", rk) +
-		fmt.Sprintf("CsvDelay\t\t%d\n", c.CsvDelay) +
-		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("ChannelDerivationPoint:\t\t\t\t%x\n", cdp) +
+		fmt.Sprintf("CommitmentKey:\t\t\t\t%x\n", ck) +
+		fmt.Sprintf("RevocationKey:\t\t\t\t%x\n", rk) +
+		fmt.Sprintf("CsvDelay:\t\t%d\n", c.CsvDelay) +
+		fmt.Sprintf("DeliveryPkScript:\t\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("DustLimit:\t\t\t%d\n", c.DustLimit) +
 		fmt.Sprintf("--- End SingleFundingResponse ---\n")
 }

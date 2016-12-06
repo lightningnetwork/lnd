@@ -68,13 +68,19 @@ type SingleFundingRequest struct {
 	// supported: P2PKH, P2WKH, P2SH, and P2WSH.
 	DeliveryPkScript PkScript
 
+	// DustLimit is the threshold below which no HTLC output should be
+	// generated for our commitment transaction; ie. HTLCs below
+	// this amount are not enforceable onchain from our point view.
+	DustLimit btcutil.Amount
+
 	// TODO(roasbeef): confirmation depth
 }
 
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
 func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
-	cdp *btcec.PublicKey, deliveryScript PkScript) *SingleFundingRequest {
+	cdp *btcec.PublicKey, deliveryScript PkScript,
+	dustLimit btcutil.Amount) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
 		ChannelID:              chanID,
@@ -86,6 +92,7 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 		CommitmentKey:          ck,
 		ChannelDerivationPoint: cdp,
 		DeliveryPkScript:       deliveryScript,
+		DustLimit:              dustLimit,
 	}
 }
 
@@ -104,6 +111,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 	// Pubkey (33)
 	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
+	// DustLimit (8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.ChannelType,
@@ -113,7 +121,8 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.CsvDelay,
 		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
-		&c.DeliveryPkScript)
+		&c.DeliveryPkScript,
+		&c.DustLimit)
 	if err != nil {
 		return err
 	}
@@ -136,6 +145,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 	// Pubkey (33)
 	// Pubkey (33)
 	// DeliveryPkScript (final delivery)
+	// DustLimit (8)
 	err := writeElements(w,
 		c.ChannelID,
 		c.ChannelType,
@@ -145,7 +155,8 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.CsvDelay,
 		c.CommitmentKey,
 		c.ChannelDerivationPoint,
-		c.DeliveryPkScript)
+		c.DeliveryPkScript,
+		c.DustLimit)
 	if err != nil {
 		return err
 	}
@@ -165,11 +176,12 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 = 158.
+// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 + 8 =
+// 166.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 158
+	return 166
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -210,6 +222,10 @@ func (c *SingleFundingRequest) Validate() error {
 			"P2PKH, P2WKH, P2SH, or P2WSH.")
 	}
 
+	if c.DustLimit <= 0 {
+		return fmt.Errorf("Dust limit should be greater than zero.")
+	}
+
 	// We're good!
 	return nil
 }
@@ -231,8 +247,9 @@ func (c *SingleFundingRequest) String() string {
 		fmt.Sprintf("CoinType:\t\t\t%d\n", c.CoinType) +
 		fmt.Sprintf("FeePerKb:\t\t\t%s\n", c.FeePerKb.String()) +
 		fmt.Sprintf("FundingAmount:\t\t\t%s\n", c.FundingAmount.String()) +
-		fmt.Sprintf("CsvDelay\t\t\t%d\n", c.CsvDelay) +
-		fmt.Sprintf("ChannelDerivationPoint\t\t\t\t%x\n", serializedPubkey) +
-		fmt.Sprintf("DeliveryPkScript\t\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("CsvDelay:\t\t\t%d\n", c.CsvDelay) +
+		fmt.Sprintf("ChannelDerivationPoint:\t\t\t%x\n", serializedPubkey) +
+		fmt.Sprintf("DeliveryPkScript:\t\t\t%x\n", c.DeliveryPkScript) +
+		fmt.Sprintf("DustLimit:\t\t\t%d\n", c.DustLimit) +
 		fmt.Sprintf("--- End SingleFundingRequest ---\n")
 }

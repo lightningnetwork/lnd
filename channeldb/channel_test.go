@@ -140,6 +140,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		IdentityPub:                pubKey,
 		ChanID:                     id,
 		MinFeePerKb:                btcutil.Amount(5000),
+		TheirDustLimit:             btcutil.Amount(200),
+		OurDustLimit:               btcutil.Amount(200),
 		OurCommitKey:               privKey.PubKey(),
 		TheirCommitKey:             pubKey,
 		Capacity:                   btcutil.Amount(10000),
@@ -182,7 +184,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("unable to create channel state: %v", err)
 	}
 	state.Htlcs = []*HTLC{
-		&HTLC{
+		{
 			Incoming:        true,
 			Amt:             10,
 			RHash:           key,
@@ -211,6 +213,12 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
 		t.Fatalf("fee/kb doesn't match")
+	}
+	if state.TheirDustLimit != newState.TheirDustLimit {
+		t.Fatalf("their dust limit doesn't match")
+	}
+	if state.OurDustLimit != newState.OurDustLimit {
+		t.Fatalf("our dust limit doesn't match")
 	}
 	if state.IsInitiator != newState.IsInitiator {
 		t.Fatalf("initiator status doesn't match")

@@ -100,6 +100,11 @@ type initFundingReserveMsg struct {
 	// TODO(roasbeef): integrate fee estimation project...
 	minFeeRate btcutil.Amount
 
+	// ourDustLimit is the threshold below which no HTLC output should be
+	// generated for our commitment transaction; ie. HTLCs below
+	// this amount are not enforceable onchain from our point of view.
+	ourDustLimit btcutil.Amount
+
 	// The delay on the "pay-to-self" output(s) of the commitment transaction.
 	csvDelay uint32
 
@@ -484,7 +489,7 @@ out:
 func (l *LightningWallet) InitChannelReservation(capacity,
 	ourFundAmt btcutil.Amount, theirID *btcec.PublicKey,
 	theirAddr *net.TCPAddr, numConfs uint16,
-	csvDelay uint32) (*ChannelReservation, error) {
+	csvDelay uint32, ourDustLimit btcutil.Amount) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -494,6 +499,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 		numConfs:      numConfs,
 		fundingAmount: ourFundAmt,
 		csvDelay:      csvDelay,
+		ourDustLimit:  ourDustLimit,
 		nodeID:        theirID,
 		err:           errChan,
 		resp:          respChan,
@@ -522,11 +528,14 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.Lock()
 	defer reservation.Unlock()
 
-	reservation.partialState.IdentityPub = req.nodeID
 	reservation.nodeAddr = req.nodeAddr
-	ourContribution := reservation.ourContribution
-	ourContribution.CsvDelay = req.csvDelay
+	reservation.ourContribution.CsvDelay = req.csvDelay
+
+	reservation.partialState.IdentityPub = req.nodeID
 	reservation.partialState.LocalCsvDelay = req.csvDelay
+	reservation.partialState.OurDustLimit = req.ourDustLimit
+
+	ourContribution := reservation.ourContribution
 
 	// If we're on the receiving end of a single funder channel then we
 	// don't need to perform any coin selection. Otherwise, attempt to

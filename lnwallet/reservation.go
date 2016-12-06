@@ -382,6 +382,14 @@ func (r *ChannelReservation) LocalCommitTx() *wire.MsgTx {
 	return r.partialState.OurCommitTx
 }
 
+// SetDustLimit set dust limit of the remote party.
+func (r *ChannelReservation) SetTheirDustLimit(dustLimit btcutil.Amount) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.partialState.TheirDustLimit = dustLimit
+}
+
 // FundingOutpoint returns the outpoint of the funding transaction.
 //
 // NOTE: The pointer returned will only be set once the .ProcesContribution()

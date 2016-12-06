@@ -455,9 +455,9 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	}
 
 	// Spawn a goroutine to send the funding workflow request to the funding
-	// manager. This allows the server to continue handling queries instead of
-	// blocking on this request which is exporeted as a synchronous request to
-	// the outside world.
+	// manager. This allows the server to continue handling queries instead
+	// of blocking on this request which is exported as a synchronous
+	// request to the outside world.
 	// TODO(roasbeef): server semaphore to restrict num goroutines
 	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 }

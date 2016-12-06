@@ -188,6 +188,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 
 	channelCapacity := btcutil.Amount(10 * 1e8)
 	channelBal := channelCapacity / 2
+	aliceDustLimit := btcutil.Amount(200)
+	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 
@@ -265,6 +267,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		TheirCurrentRevocation: bobRevokeKey,
 		LocalElkrem:            aliceElkrem,
 		RemoteElkrem:           &elkrem.ElkremReceiver{},
+		TheirDustLimit:         bobDustLimit,
+		OurDustLimit:           aliceDustLimit,
 		Db:                     dbAlice,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -289,6 +293,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		TheirCurrentRevocation: aliceRevokeKey,
 		LocalElkrem:            bobElkrem,
 		RemoteElkrem:           &elkrem.ElkremReceiver{},
+		TheirDustLimit:         aliceDustLimit,
+		OurDustLimit:           bobDustLimit,
 		Db:                     dbBob,
 	}
 
@@ -831,6 +837,122 @@ func TestCheckHTLCNumberConstraint(t *testing.T) {
 		t.Fatal(err)
 	}
 
+}
+
+// TestCheckDustLimit checks that unsettled HTLC with dust limit not included in
+// commitment transaction as output, but sender balance is decreased (thereby all
+// unsettled dust HTLCs will go to miners fee).
+func TestCheckDustLimit(t *testing.T) {
+	createHTLC := func(data, amount btcutil.Amount) (*lnwire.HTLCAddRequest,
+		[32]byte) {
+		preimage := bytes.Repeat([]byte{byte(data)}, 32)
+		paymentHash := fastsha256.Sum256(preimage)
+
+		var returnPreimage [32]byte
+		copy(returnPreimage[:], preimage)
+
+		return &lnwire.HTLCAddRequest{
+			RedemptionHashes: [][32]byte{paymentHash},
+			Amount:           amount,
+			Expiry:           uint32(5),
+		}, returnPreimage
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	aliceDustLimit := aliceChannel.channelState.OurDustLimit
+	bobDustLimit := bobChannel.channelState.OurDustLimit
+	htlcAmount := btcutil.Amount(500)
+
+	if !((htlcAmount > aliceDustLimit) && (bobDustLimit  > htlcAmount)) {
+		t.Fatal("htlc amount needs to be above Alice's dust limit, but " +
+			"below Bob's dust limit .")
+	}
+
+	aliceAmount := aliceChannel.channelState.OurBalance
+	bobAmount := bobChannel.channelState.OurBalance
+
+	htlc, preimage := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to receive htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// First two outputs are payment to them and to us. If we encounter
+	// third output it means that dust HTLC was included. Their channel
+	// balance shouldn't change because, it will be changed only after
+	// HTLC will be settled.
+
+	// From Alice point of view HTLC's amount is bigger then dust limit.
+	commitment := aliceChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 3 {
+		t.Fatal("htlc wasn't added")
+	}
+	if commitment.ourBalance != aliceAmount-htlcAmount {
+		t.Fatal("our balance wasn't updated")
+	}
+	if commitment.theirBalance != bobAmount {
+		t.Fatal("their balance was updated")
+	}
+
+	// From Bob point of view HTLC's amount is lower then dust limit.
+	commitment = bobChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 2 {
+		t.Fatal("HTLC with dust amount was added")
+	}
+	if commitment.theirBalance != aliceAmount-htlcAmount {
+		t.Fatal("their balance wasn't updated")
+	}
+	if commitment.ourBalance != bobAmount {
+		t.Fatal("our balance was updated")
+	}
+
+	// Settle HTLC and sign new commitment.
+	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	if err != nil {
+		t.Fatalf("bob unable to settle inbound htlc: %v", err)
+	}
+	err = aliceChannel.ReceiveHTLCSettle(preimage, settleIndex)
+	if err != nil {
+		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	commitment = aliceChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 2 {
+		t.Fatal("HTLC wasn't settled")
+	}
+	if commitment.ourBalance != aliceAmount-htlcAmount {
+		t.Fatal("our balance wasn't updated")
+	}
+	if commitment.theirBalance != bobAmount+htlcAmount {
+		t.Fatal("their balance wasn't updated")
+	}
+
+	commitment = bobChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 2 {
+		t.Fatal("HTLC with dust amount wasn't settled")
+	}
+	if commitment.ourBalance != bobAmount+htlcAmount {
+		t.Fatal("our balance wasn't updated")
+	}
+	if commitment.theirBalance != aliceAmount-htlcAmount {
+		t.Fatal("their balance wasn't updated")
+	}
 }
 
 func TestStateUpdatePersistence(t *testing.T) {

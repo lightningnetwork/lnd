@@ -10,6 +10,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"net"
 )
 
 // Common variables and functions for the message tests
@@ -21,6 +22,10 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
+
+	maxUint32 uint32 = (1 << 32) - 1
+	maxUint24 uint32 = (1 << 24) - 1
+	maxUint16 uint16 = (1 << 16) - 1
 
 	// For debugging, writes to /dev/shm/
 	// Maybe in the future do it if you do "go test -v"
@@ -91,6 +96,24 @@ var (
 	// Reversed when displayed
 	txidBytes, _ = hex.DecodeString("fd95c6e5c9d5bcf9cfc7231b6a438e46c518c724d0b04b75cc8fddf84a254e3a")
 	_            = copy(txid[:], txidBytes)
+
+	someAlias, _ = NewAlias("012345678901234567890")
+	someSig, _   = btcec.ParseSignature(sigStr, btcec.S256())
+	someSigBytes = someSig.Serialize()
+
+	someAddress = &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8333}
+
+	someChannelID = &ChannelID{
+		BlockHeight: maxUint24,
+		TxIndex:     maxUint24,
+		TxPosition:  maxUint16,
+	}
+
+	someRGB = RGB{
+		red:   255,
+		green: 255,
+		blue:  255,
+	}
 )
 
 func SerializeTest(t *testing.T, message Message, expectedString string, filename string) *bytes.Buffer {

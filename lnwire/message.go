@@ -55,9 +55,14 @@ const (
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
 
+	// Commands for discovery service.
+	CmdChannelAnnoucmentMessage = uint32(5000)
+	CmdChannelUpdateAnnoucmentMessage = uint32(5010)
+	CmdNodeAnnoucmentMessage = uint32(5020)
+
 	// Commands for connection keep-alive.
-	CmdPing = uint32(5000)
-	CmdPong = uint32(5010)
+	CmdPing = uint32(6000)
+	CmdPong = uint32(6010)
 )
 
 // Message is an interface that defines a lightning wire protocol message. The
@@ -114,6 +119,12 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &NeighborAckMessage{}
 	case CmdNeighborRstMessage:
 		msg = &NeighborRstMessage{}
+	case CmdChannelAnnoucmentMessage:
+		msg = &ChannelAnnouncement{}
+	case CmdChannelUpdateAnnoucmentMessage:
+		msg = &ChannelUpdateAnnouncement{}
+	case CmdNodeAnnoucmentMessage:
+		msg = &NodeAnnouncement{}
 	case CmdPing:
 		msg = &Ping{}
 	case CmdPong:

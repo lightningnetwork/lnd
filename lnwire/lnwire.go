@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"net"
 )
 
 // MaxSliceLength is the maximum allowed lenth for any opaque byte slices in
@@ -324,6 +326,63 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
+	case *ChannelID:
+		// Check that field fit in 3 bytes and write the blockHeight
+		if e.BlockHeight > ((1 << 24) - 1) {
+			return errors.New("block height should fit in 3 bytes")
+		}
+
+		var blockHeight [4]byte
+		binary.BigEndian.PutUint32(blockHeight[:], e.BlockHeight)
+
+		if _, err := w.Write(blockHeight[1:]); err != nil {
+			return err
+		}
+
+		// Check that field fit in 3 bytes and write the txIndex
+		if e.TxIndex > ((1 << 24) - 1) {
+			return errors.New("tx index should fit in 3 bytes")
+		}
+
+		var txIndex [4]byte
+		binary.BigEndian.PutUint32(txIndex[:], e.TxIndex)
+		if _, err := w.Write(txIndex[1:]); err != nil {
+			return err
+		}
+
+		// Write the txPosition
+		var txPosition [2]byte
+		binary.BigEndian.PutUint16(txPosition[:], e.TxPosition)
+		if _, err := w.Write(txPosition[:]); err != nil {
+			return err
+		}
+
+	case *net.TCPAddr:
+		var ip [16]byte
+		copy(ip[:], e.IP.To16())
+		if _, err := w.Write(ip[:]); err != nil {
+			return err
+		}
+
+		var port [4]byte
+		binary.BigEndian.PutUint32(port[:], uint32(e.Port))
+		if _, err := w.Write(port[:]); err != nil {
+			return err
+		}
+	case RGB:
+		err := writeElements(w,
+			e.red,
+			e.green,
+			e.blue,
+		)
+		if err != nil {
+			return err
+		}
+	case Alias:
+		if err := writeElements(w, ([32]byte)(e)); err != nil {
+			return err
+		}
+
 	default:
 		return fmt.Errorf("Unknown type in writeElement: %T", e)
 	}
@@ -403,7 +462,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = &b
 	case **btcec.PublicKey:
-		var b [33]byte
+		var b [btcec.PubKeyBytesLenCompressed]byte
 		if _, err = io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
@@ -503,11 +562,11 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 	case *[]byte:
-		bytes, err := wire.ReadVarBytes(r, 0, MaxSliceLength, "byte slice")
+		b, err := wire.ReadVarBytes(r, 0, MaxSliceLength, "byte slice")
 		if err != nil {
 			return err
 		}
-		*e = bytes
+		*e = b
 	case *PkScript:
 		pkScript, err := wire.ReadVarBytes(r, 0, 25, "pkscript")
 		if err != nil {
@@ -610,6 +669,58 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
+	case **ChannelID:
+		var blockHeight [4]byte
+		if _, err = io.ReadFull(r, blockHeight[1:]); err != nil {
+			return err
+		}
+
+		var txIndex [4]byte
+		if _, err = io.ReadFull(r, txIndex[1:]); err != nil {
+			return err
+		}
+
+		var txPosition [2]byte
+		if _, err = io.ReadFull(r, txPosition[:]); err != nil {
+			return err
+		}
+
+		*e = &ChannelID{
+			BlockHeight: binary.BigEndian.Uint32(blockHeight[:]),
+			TxIndex:     binary.BigEndian.Uint32(txIndex[:]),
+			TxPosition:  binary.BigEndian.Uint16(txPosition[:]),
+		}
+
+	case **net.TCPAddr:
+		var ip [16]byte
+		if _, err = io.ReadFull(r, ip[:]); err != nil {
+			return err
+		}
+
+		var port [4]byte
+		if _, err = io.ReadFull(r, port[:]); err != nil {
+			return err
+		}
+
+		*e = &net.TCPAddr{
+			IP:   (net.IP)(ip[:]),
+			Port: int(binary.BigEndian.Uint32(port[:])),
+		}
+	case *RGB:
+		err := readElements(r,
+			&e.red,
+			&e.green,
+			&e.blue,
+		)
+		if err != nil {
+			return err
+		}
+	case *Alias:
+		var a [32]byte
+		if err := readElements(r, &a); err != nil {
+			return err
+		}
+		*e = (Alias)(a)
 
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)

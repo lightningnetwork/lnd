@@ -53,3 +53,28 @@ func (b *BtcWallet) GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error) {
 
 	return tx.MsgTx(), nil
 }
+
+// GetBlock returns a raw block from the server given its hash.
+//
+// This method is a part of the lnwallet.BlockChainIO interface.
+func (b *BtcWallet) GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error) {
+	block, err := b.rpc.GetBlock(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	return block, nil
+}
+
+// GetBlockHash returns the hash of the block in the best block chain at the
+// given height.
+//
+// This method is a part of the lnwallet.BlockChainIO interface.
+func (b *BtcWallet) GetBlockHash(blockHeight int64) (*wire.ShaHash, error) {
+	blockHash, err := b.rpc.GetBlockHash(blockHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	return blockHash, nil
+}

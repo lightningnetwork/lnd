@@ -210,8 +210,15 @@ type BlockChainIO interface {
 	GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, error)
 
 	// GetTransaction returns the full transaction identified by the passed
-	// transaction ID.
-	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
+ 	// transaction ID.
+ 	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
+
+	// GetBlockHash returns the hash of the block in the best block chain at the
+	// given height.
+	GetBlockHash(blockHeight int64) (*wire.ShaHash, error)
+
+	// GetBlock returns a block by the given hash.
+	GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully sign

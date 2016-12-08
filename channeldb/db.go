@@ -116,6 +116,15 @@ func (d *DB) Wipe() error {
 			return err
 		}
 
+		err = tx.DeleteBucket(nodeBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+		err = tx.DeleteBucket(edgeBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+
 		return nil
 	})
 }
@@ -151,6 +160,13 @@ func createChannelDB(dbPath string) error {
 		}
 
 		if _, err := tx.CreateBucket(nodeInfoBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(nodeBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucket(edgeBucket); err != nil {
 			return err
 		}
 
@@ -347,6 +363,11 @@ func (d *DB) syncVersions(versions []version) error {
 
 		return nil
 	})
+}
+
+// ChannelGraph returns a new instance of the directed channel graph.
+func (d *DB) ChannelGraph() *ChannelGraph {
+	return &ChannelGraph{d}
 }
 
 func getLatestDBVersion(versions []version) uint32 {

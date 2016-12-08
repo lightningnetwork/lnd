@@ -64,10 +64,10 @@ func (c CreditsAmount) ToSatoshi() int64 {
 
 type ChannelOperation struct {
 	NodePubKey1, NodePubKey2 [33]byte
-	ChannelId *wire.OutPoint
-	Capacity int64
-	Weight float64
-	Operation byte
+	ChannelId                *wire.OutPoint
+	Capacity                 int64
+	Weight                   float64
+	Operation                byte
 }
 
 // writeElement is a one-stop shop to write the big endian representation of
@@ -171,12 +171,13 @@ func writeElement(w io.Writer, element interface{}) error {
 			}
 		}
 	case *btcec.Signature:
-		sig := e.Serialize()
-		if len(sig) > 73 {
-			return fmt.Errorf("Signature too long!")
+		var b [64]byte
+		err := serializeSigToWire(&b, e)
+		if err != nil {
+			return err
 		}
-
-		if err := wire.WriteVarBytes(w, 0, sig); err != nil {
+		// Write buffer
+		if _, err = w.Write(b[:]); err != nil {
 			return err
 		}
 	case *wire.ShaHash:
@@ -305,7 +306,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		for i:=0; i<len(e); i++ {
+		for i := 0; i < len(e); i++ {
 			err := writeElement(w, e[i])
 			if err != nil {
 				return err
@@ -320,7 +321,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			e.Weight,
 			e.Operation,
 		)
-		if err != nil{
+		if err != nil {
 			return err
 		}
 	default:
@@ -455,16 +456,14 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = sigs
 		return nil
 	case **btcec.Signature:
-		sigBytes, err := wire.ReadVarBytes(r, 0, 73, "signature")
+		var b [64]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		err = deserializeSigFromWire(e, b)
 		if err != nil {
 			return err
 		}
-
-		sig, err := btcec.ParseSignature(sigBytes, btcec.S256())
-		if err != nil {
-			return err
-		}
-		*e = sig
 	case *[][32]byte:
 		// How many to read
 		var sliceSize uint16
@@ -593,7 +592,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = make([]ChannelOperation, nChannels)
-		for i:=uint64(0); i < nChannels; i++ {
+		for i := uint64(0); i < nChannels; i++ {
 			err := readElement(r, &((*e)[i]))
 			if err != nil {
 				return err

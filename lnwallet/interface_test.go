@@ -496,7 +496,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	bobCloseTx := lnwallet.CreateCooperativeCloseTx(fundingTxIn,
 		chanInfo.RemoteBalance, chanInfo.LocalBalance,
 		lnc.RemoteDeliveryScript, lnc.LocalDeliveryScript,
-		false)
+		true)
 	bobSig, err := bobNode.signCommitTx(bobCloseTx, witnessScript, int64(lnc.Capacity))
 	if err != nil {
 		t.Fatalf("unable to generate bob's signature for closing tx: %v", err)

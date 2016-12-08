@@ -1949,11 +1949,10 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 	// been initiated.
 	lc.status = channelClosing
 
-	// TODO(roasbeef): assumes initiator pays fees
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
-		true)
+		lc.channelState.IsInitiator)
 	closeTxSha := closeTx.TxSha()
 
 	// Finally, sign the completed cooperative closure transaction. As the
@@ -1995,7 +1994,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
-		false)
+		lc.channelState.IsInitiator)
 
 	// With the transaction created, we can finally generate our half of
 	// the 2-of-2 multi-sig needed to redeem the funding output.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
@@ -609,4 +610,40 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 	go txClient.notificationProxier()
 
 	return txClient, nil
+}
+
+// IsSynced returns a boolean indicating if from the PoV of the wallet,
+// it has fully synced to the current best block in the main chain.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) IsSynced() (bool, error) {
+	// Grab the best chain state the wallet is currently aware of.
+	syncState := b.wallet.Manager.SyncedTo()
+
+	// Next, query the btcd node to grab the info about the tip of the main
+	// chain.
+	bestHash, bestHeight, err := b.rpc.GetBestBlock()
+	if err != nil {
+		return false, err
+	}
+
+	// If the wallet hasn't yet fully synced to the node's best chain tip,
+	// then we're not yet fully synced.
+	if syncState.Height < bestHeight {
+		return false, nil
+	}
+
+	// If the wallet is on par with the current best chain tip, then we
+	// still may not yet be synced as the btcd node may still be catching
+	// up to the main chain. So we'll grab the block header in order to
+	// make a guess based on the current time stamp.
+	blockHeader, err := b.rpc.GetBlockHeader(bestHash)
+	if err != nil {
+		return false, err
+	}
+
+	// If the timestamp no the best header is more than 2 hours in the
+	// past, then we're not yet synced.
+	minus24Hours := time.Now().Add(-2 * time.Hour)
+	return !blockHeader.Timestamp.Before(minus24Hours), nil
 }

@@ -174,13 +174,17 @@ type WalletController interface {
 	// related to the wallet are seen within the network, or found in
 	// blocks.
 	//
-	// NOTE: a non-nil error shuold be returned if notifications aren't
+	// NOTE: a non-nil error should be returned if notifications aren't
 	// supported.
 	//
 	// TODO(roasbeef): make distinct interface?
 	SubscribeTransactions() (TransactionSubscription, error)
 
-	// Start initializes the wallet, making any neccessary connections,
+	// IsSynced returns a boolean indicating if from the PoV of the wallet,
+	// it has fully synced to the current best block in the main chain.
+	IsSynced() (bool, error)
+
+	// Start initializes the wallet, making any necessary connections,
 	// starting up required goroutines etc.
 	Start() error
 

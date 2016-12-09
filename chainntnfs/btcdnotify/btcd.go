@@ -2,7 +2,6 @@ package btcdnotify
 
 import (
 	"container/heap"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +211,8 @@ func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetai
 // notificationDispatcher is the primary goroutine which handles client
 // notification registrations, as well as notification dispatches.
 func (b *BtcdNotifier) notificationDispatcher() {
+	var currentHeight int32
+
 out:
 	for {
 		select {
@@ -226,9 +227,14 @@ out:
 				chainntnfs.Log.Infof("New confirmations "+
 					"subscription: txid=%v, numconfs=%v",
 					*msg.txid, msg.numConfirmations)
-				// TODO(roasbeef): perform a N-block look
-				// behind to catch race-condition due to faster
-				// inter-block time?
+
+				// If the notification can be partially or
+				// fully dispatched, then we can skip the first
+				// phase for ntfns.
+				if b.attemptHistoricalDispatch(msg, currentHeight) {
+					continue
+				}
+
 				txid := *msg.txid
 				b.confNotifications[txid] = append(b.confNotifications[txid], msg)
 			case *blockEpochRegistration:
@@ -251,6 +257,8 @@ out:
 			b.chainUpdates[0] = nil // Set to nil to prevent GC leak.
 			b.chainUpdates = b.chainUpdates[1:]
 			b.chainUpdateMtx.Unlock()
+
+			currentHeight = update.blockHeight
 
 			newBlock, err := b.chainConn.GetBlock(update.blockHash)
 			if err != nil {
@@ -327,6 +335,41 @@ out:
 		}
 	}
 	b.wg.Done()
+}
+
+// attemptHistoricalDispatch tries to use historical information to decide if a
+// notificaiton ca be disptahced immediately, or is partially confirmed so it
+// can skip straight to the confirmations heap.
+func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
+	currentHeight int32) bool {
+
+	// If the transaction already has some or all of the confirmations,
+	// then we may be able to
+	// dispatch it immediately.
+	tx, err := b.chainConn.GetRawTransactionVerbose(msg.txid)
+	if err != nil {
+		return false
+	}
+
+	// If the transaction has more that enough confirmations, then we can
+	// dispatch it immediately after obtaininig for information w.r.t
+	// exaclty *when* if got all its confirmations.
+	if uint32(tx.Confirmations) >= msg.numConfirmations {
+		msg.finConf <- int32(tx.Confirmations)
+		return true
+	}
+
+	// Otherwise, the transaciton has only been *partially* confirmed, so
+	// we need to insert it into the confirmationheap.
+	confsLeft := msg.numConfirmations - uint32(tx.Confirmations)
+	confHeight := uint32(currentHeight) + confsLeft
+	heapEntry := &confEntry{
+		msg,
+		confHeight,
+	}
+	heap.Push(b.confHeap, heapEntry)
+
+	return false
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
@@ -505,19 +548,6 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	}
 
 	b.notificationRegistry <- ntfn
-
-	// The following conditional checks transaction confirmation notification
-	// requests so that if the transaction has already been included in a block
-	// with the requested number of confirmations, the notification will be
-	// dispatched immediately.
-	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
-	if err != nil {
-		if !strings.Contains(err.Error(), "No information") {
-			return nil, err
-		}
-	} else if uint32(tx.Confirmations) > numConfs {
-		ntfn.finConf <- int32(tx.Confirmations)
-	}
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed:    ntfn.finConf,

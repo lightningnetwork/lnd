@@ -93,7 +93,7 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 	}()
 
 	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[:], c.nonce)
+	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
 
 	return c.cipher.Seal(cipherText, nonce[:], plainText, associatedData)
 }
@@ -111,7 +111,7 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 	}()
 
 	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[:], c.nonce)
+	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
 
 	return c.cipher.Open(plainText, nonce[:], cipherText, associatedData)
 }

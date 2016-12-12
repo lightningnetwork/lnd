@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -427,12 +428,24 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	pendingChannels := r.server.fundingMgr.NumPendingChannels()
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
+	currentHeight, err := r.server.bio.GetCurrentHeight()
+	if err != nil {
+		return nil, err
+	}
+
+	isSynced, err := r.server.lnwallet.IsSynced()
+	if err != nil {
+		return nil, err
+	}
+
 	return &lnrpc.GetInfoResponse{
-		LightningId:        hex.EncodeToString(r.server.lightningID[:]),
 		IdentityPubkey:     hex.EncodeToString(idPub),
 		NumPendingChannels: pendingChannels,
 		NumActiveChannels:  activeChannels,
 		NumPeers:           uint32(len(serverPeers)),
+		BlockHeight:        uint32(currentHeight),
+		SyncedToChain:      isSynced,
+		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
 	}, nil
 }
 

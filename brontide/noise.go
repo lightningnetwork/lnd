@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/aead/chacha20"
+	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
 )
 
@@ -41,6 +42,18 @@ var (
 )
 
 // TODO(roasbeef): free buffer pool?
+
+// ecdh performs an ECDH operation between pub and priv. The returned value is
+// the sha256 of the compressed shared point.
+func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
+	s := &btcec.PublicKey{}
+	x, y := pub.Curve.ScalarMult(pub.X, pub.Y, priv.D.Bytes())
+	s.X = x
+	s.Y = y
+
+	h := fastsha256.Sum256(s.SerializeCompressed())
+	return h[:]
+}
 
 // cipherState encapsulates the state for the AEAD which will be used to
 // encrypt+authenticate any payloads sent during the handshake, and messages
@@ -384,8 +397,8 @@ func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
 	b.mixHash(ephemeral)
 
 	// es
-	s := btcec.GenerateSharedSecret(b.localEphemeral, b.remoteStatic)
-	b.mixKey(s)
+	s := ecdh(b.remoteStatic, b.localEphemeral)
+	b.mixKey(s[:])
 
 	authPayload := b.EncryptAndHash([]byte{})
 
@@ -425,7 +438,7 @@ func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
 	b.mixHash(b.remoteEphemeral.SerializeCompressed())
 
 	// es
-	s := btcec.GenerateSharedSecret(b.localStatic, b.remoteEphemeral)
+	s := ecdh(b.remoteEphemeral, b.localStatic)
 	b.mixKey(s)
 
 	// If the initiator doesn't know our static key, then this operation
@@ -459,7 +472,7 @@ func (b *BrontideMachine) GenActTwo() ([ActTwoSize]byte, error) {
 	b.mixHash(b.localEphemeral.PubKey().SerializeCompressed())
 
 	// ee
-	s := btcec.GenerateSharedSecret(b.localEphemeral, b.remoteEphemeral)
+	s := ecdh(b.remoteEphemeral, b.localEphemeral)
 	b.mixKey(s)
 
 	authPayload := b.EncryptAndHash([]byte{})
@@ -499,7 +512,7 @@ func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	b.mixHash(b.remoteEphemeral.SerializeCompressed())
 
 	// ee
-	s := btcec.GenerateSharedSecret(b.localEphemeral, b.remoteEphemeral)
+	s := ecdh(b.remoteEphemeral, b.localEphemeral)
 	b.mixKey(s)
 
 	if _, err := b.DecryptAndHash(p[:]); err != nil {
@@ -522,7 +535,8 @@ func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
 	ourPubkey := b.localStatic.PubKey().SerializeCompressed()
 	ciphertext := b.EncryptAndHash(ourPubkey)
 
-	s := btcec.GenerateSharedSecret(b.localStatic, b.remoteEphemeral)
+
+	s := ecdh(b.remoteEphemeral, b.localStatic)
 	b.mixKey(s)
 
 	authPayload := b.EncryptAndHash([]byte{})
@@ -570,7 +584,7 @@ func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
 	}
 
 	// se
-	se := btcec.GenerateSharedSecret(b.localEphemeral, b.remoteStatic)
+	se := ecdh(b.remoteStatic, b.localEphemeral)
 	b.mixKey(se)
 
 	if _, err := b.DecryptAndHash(p[:]); err != nil {

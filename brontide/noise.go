@@ -338,7 +338,7 @@ type BrontideMachine struct {
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 	remotePub *btcec.PublicKey) *BrontideMachine {
 
-	handshake := newHandshakeState(initiator, []byte("bitcoin"), localPub,
+	handshake := newHandshakeState(initiator, []byte("lightning"), localPub,
 		remotePub)
 
 	return &BrontideMachine{handshakeState: handshake}

@@ -273,7 +273,7 @@ out:
 				update.blockHash)
 
 			newHeight := update.blockHeight
-			for _, tx := range newBlock.Transactions() {
+			for _, tx := range newBlock.Transactions {
 				// Check if the inclusion of this transaction
 				// within a block by itself triggers a block
 				// confirmation threshold, if so send a
@@ -281,8 +281,8 @@ out:
 				// notification on a heap to be triggered in
 				// the future once additional confirmations are
 				// attained.
-				txSha := tx.Sha()
-				b.checkConfirmationTrigger(txSha, newHeight)
+				txSha := tx.TxSha()
+				b.checkConfirmationTrigger(&txSha, newHeight)
 			}
 
 			// A new block has been connected to the main

@@ -24,6 +24,7 @@ import:
   - txscript
   - wire
 - package: github.com/roasbeef/btcrpcclient
+  version: master
 - package: github.com/roasbeef/btcutil
   subpackages:
   - bloom

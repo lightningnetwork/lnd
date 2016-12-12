@@ -85,9 +85,10 @@ func (h *harnessTest) Log(args ...interface{}) {
 	h.t.Log(args...)
 }
 
-func assertTxInBlock(t *harnessTest, block *btcutil.Block, txid *wire.ShaHash) {
-	for _, tx := range block.Transactions() {
-		if bytes.Equal(txid[:], tx.Sha()[:]) {
+func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *wire.ShaHash) {
+	for _, tx := range block.Transactions {
+		sha := tx.TxSha()
+		if bytes.Equal(txid[:], sha[:]) {
 			return
 		}
 	}
@@ -97,8 +98,8 @@ func assertTxInBlock(t *harnessTest, block *btcutil.Block, txid *wire.ShaHash) {
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain.
-func mineBlocks(t *harnessTest, net *networkHarness, num uint32) []*btcutil.Block {
-	blocks := make([]*btcutil.Block, num)
+func mineBlocks(t *harnessTest, net *networkHarness, num uint32) []*wire.MsgBlock {
+	blocks := make([]*wire.MsgBlock, num)
 
 	blockHashes, err := net.Miner.Node.Generate(num)
 	if err != nil {
@@ -1156,10 +1157,11 @@ poll:
 
 	// The block should have exactly *two* transactions, one of which is
 	// the justice transaction.
-	if len(block.Transactions()) != 2 {
+	if len(block.Transactions) != 2 {
 		t.Fatalf("transaction wasn't mined")
 	}
-	if !bytes.Equal(justiceTx.Sha()[:], block.Transactions()[1].Sha()[:]) {
+	justiceSha := block.Transactions[1].TxSha()
+	if !bytes.Equal(justiceTx.Sha()[:], justiceSha[:]) {
 		t.Fatalf("justice tx wasn't mined")
 	}
 

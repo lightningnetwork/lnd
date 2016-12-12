@@ -596,10 +596,6 @@
           "type": "string",
           "format": "string"
         },
-        "lightning_id": {
-          "type": "string",
-          "format": "string"
-        },
         "num_active_channels": {
           "type": "integer",
           "format": "int64"
@@ -613,6 +609,10 @@
           "format": "int64"
         },
         "synced_to_chain": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "testnet": {
           "type": "boolean",
           "format": "boolean"
         }

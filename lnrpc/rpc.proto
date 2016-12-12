@@ -243,16 +243,17 @@ message ListPeersResponse {
 
 message GetInfoRequest{}
 message GetInfoResponse {
-    string lightning_id = 1;
-    string identity_pubkey = 3;
+    string identity_pubkey = 1;
 
-    uint32 num_pending_channels = 4;
-    uint32 num_active_channels = 5;
+    uint32 num_pending_channels = 2;
+    uint32 num_active_channels = 3;
 
-    uint32 num_peers = 6;
+    uint32 num_peers = 4;
 
-    uint32 block_height = 7;
-    bool synced_to_chain = 8;
+    uint32 block_height = 5;
+
+    bool synced_to_chain = 6;
+    bool testnet = 7;
 }
 
 message ConfirmationUpdate {

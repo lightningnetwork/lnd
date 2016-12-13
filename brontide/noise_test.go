@@ -63,7 +63,6 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 
 	return localConn, remoteConn, nil
 }
-
 func TestConnectionCorrectness(t *testing.T) {
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
@@ -164,7 +163,7 @@ func TestWriteMessageChunking(t *testing.T) {
 	// size.
 	largeMessage := bytes.Repeat([]byte("kek"), math.MaxUint16*3)
 
-	// Launch a new goroutine to write the lerge message generated above in
+	// Launch a new goroutine to write the large message generated above in
 	// chunks. We spawn a new goroutine because otherwise, we may block as
 	// the kernal waits for the buffer to flush.
 	var wg sync.WaitGroup
@@ -197,8 +196,4 @@ func TestWriteMessageChunking(t *testing.T) {
 	if !bytes.Equal(buf, largeMessage) {
 		t.Fatalf("bytes don't match")
 	}
-}
-
-func TestNoiseIdentityHiding(t *testing.T) {
-	// TODO(roasbeef): fin
 }

@@ -142,7 +142,7 @@ func (c *cipherState) rotateKey() {
 	)
 
 	oldKey := c.secretKey
-	h := hkdf.New(sha256.New, c.salt[:], oldKey[:], info)
+	h := hkdf.New(sha256.New, oldKey[:], c.salt[:], info)
 
 	// hkdf(ck, k, zero)
 	// |
@@ -192,7 +192,7 @@ func (s *symmetricState) mixKey(input []byte) {
 	salt := s.chainingKey
 	h := hkdf.New(sha256.New, secret, salt[:], info)
 
-	// hkdf(input, ck, zero)
+	// hkdf(ck, input, zero)
 	// |
 	// | \
 	// |  \
@@ -535,7 +535,6 @@ func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
 	ourPubkey := b.localStatic.PubKey().SerializeCompressed()
 	ciphertext := b.EncryptAndHash(ourPubkey)
 
-
 	s := ecdh(b.remoteEphemeral, b.localStatic)
 	b.mixKey(s)
 
@@ -610,7 +609,7 @@ func (b *BrontideMachine) split() {
 		recvKey [32]byte
 	)
 
-	h := hkdf.New(sha256.New, b.chainingKey[:], empty, empty)
+	h := hkdf.New(sha256.New, empty, b.chainingKey[:], empty)
 
 	// If we're the initiator the first 32 bytes are used to encrypt our
 	// messages and the second 32-bytes to decrypt their messages. For the

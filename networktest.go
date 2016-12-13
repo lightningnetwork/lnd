@@ -734,7 +734,7 @@ func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
 // pending, then an error is returned.
 func (n *networkHarness) CloseChannel(ctx context.Context,
 	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
-	force bool) (lnrpc.Lightning_CloseChannelClient, error) {
+	force bool) (lnrpc.Lightning_CloseChannelClient, *wire.ShaHash, error) {
 
 	closeReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: cp,
@@ -742,11 +742,11 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	}
 	closeRespStream, err := lnNode.CloseChannel(ctx, closeReq)
 	if err != nil {
-		return nil, fmt.Errorf("unable to close channel: %v", err)
+		return nil, nil, fmt.Errorf("unable to close channel: %v", err)
 	}
 
 	errChan := make(chan error)
-	fin := make(chan struct{})
+	fin := make(chan *wire.ShaHash)
 	go func() {
 		// Consume the "channel close" update in order to wait for the closing
 		// transaction to be broadcast, then wait for the closing tx to be seen
@@ -772,20 +772,19 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 			errChan <- err
 			return
 		}
-
-		close(fin)
+		fin <- closeTxid
 	}()
 
 	// Wait until either the deadline for the context expires, an error
 	// occurs, or the channel close update is received.
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout reached before channel close " +
+		return nil, nil, fmt.Errorf("timeout reached before channel close " +
 			"initiated")
 	case err := <-errChan:
-		return nil, err
-	case <-fin:
-		return closeRespStream, nil
+		return nil, nil, err
+	case closeTxid := <-fin:
+		return closeRespStream, closeTxid, nil
 	}
 }
 

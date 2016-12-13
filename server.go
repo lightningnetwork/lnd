@@ -108,7 +108,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		chanDB:        chanDB,
 
 		invoices:    newInvoiceRegistry(chanDB),
-		utxoNursery: newUtxoNursery(notifier, wallet),
+		utxoNursery: newUtxoNursery(chanDB, notifier, wallet),
 		htlcSwitch:  newHtlcSwitch(),
 
 		identityPriv: privKey,

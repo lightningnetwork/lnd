@@ -21,6 +21,11 @@ const (
 	notifierType = "btcd"
 )
 
+var (
+	ErrChainNotifierShuttingDown = errors.New("chainntnfs: system interrupt " +
+		"while attempting to register for spend notification.")
+)
+
 // chainUpdate encapsulates an update to the current main chain. This struct is
 // used as an element within an unbounded queue in order to avoid blocking the
 // main rpc dispatch rule.
@@ -549,8 +554,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 
 	select {
 	case <-b.quit:
-		return nil, errors.New("chainntnfs: system interrupt while " +
-			"attempting to register for spend notification.")
+		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
 	}
 
@@ -611,8 +615,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 
 	select {
 	case <-b.quit:
-		return nil, errors.New("chainntnfs: system interrupt while " +
-			"attempting to register for confirmation notification.")
+		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
 		return &chainntnfs.ConfirmationEvent{
 			Confirmed:    ntfn.finConf,

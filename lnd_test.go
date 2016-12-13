@@ -172,7 +172,7 @@ func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Conte
 func closeChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Context,
 	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *wire.ShaHash {
 
-	closeUpdates, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
+	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -275,11 +275,13 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 // force closes the channel after some cursory assertions. Within the test, two
 // transactions should be broadcast on-chain, the commitment transaction itself
 // (which closes the channel), and the sweep transaction a few blocks later
-// once the output(s) become mature.
+// once the output(s) become mature. This test also includes several restarts
+// to ensure that the transaction output states are persisted throughout
+// the forced closure process.
 //
-// TODO(roabeef): also add an unsettled HTLC before force closing.
+// TODO(roasbeef): also add an unsettled HTLC before force closing.
 func testChannelForceClosure(net *networkHarness, t *harnessTest) {
-	timeout := time.Duration(time.Second * 5)
+	timeout := time.Duration(time.Second * 10)
 	ctxb := context.Background()
 
 	// First establish a channel ween with a capacity of 100k satoshis
@@ -306,28 +308,63 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	// the channel. This will also assert that the commitment transaction
 	// was immediately broadcast in order to fulfill the force closure
 	// request.
-	closeUpdate, err := net.CloseChannel(ctxb, net.Alice, chanPoint, true)
+	_, closingTxID, err := net.CloseChannel(ctxb, net.Alice, chanPoint, true)
 	if err != nil {
 		t.Fatalf("unable to execute force channel closure: %v", err)
 	}
 
+	// The several restarts in this test are intended to ensure that when a
+	// channel is force-closed, the UTXO nursery has persisted the state of
+	// the channel in the closure process and will recover the correct state
+	// when the system comes back on line. This restart tests state
+	// persistence at the beginning of the process, when the commitment
+	// transaction has been broadcast but not yet confirmed in a block.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closingTxID, err := net.WaitForChannelClose(ctxt, closeUpdate)
-	if err != nil {
-		t.Fatalf("error while waiting for channel close: %v", err)
+
+	// The following sleep provides time for the UTXO nursery to move the
+	// output from the preschool to the kindergarten database buckets
+	// prior to RestartNode() being triggered. Without this sleep, the
+	// database update may fail, causing the UTXO nursery to retry the move
+	// operation upon restart. This will change the blockheights from what
+	// is expected by the test.
+	// TODO(bvu): refactor out this sleep.
+	duration := time.Millisecond * 300
+	time.Sleep(duration)
+
+	// The following restart is intended to ensure that outputs from the
+	// force close commitment transaction have been persisted once the
+	// transaction has been confirmed, but before the outputs are spendable
+	// (the "kindergarten" bucket.)
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
 	}
 
 	// Currently within the codebase, the default CSV is 4 relative blocks.
-	// So generate exactly 4 new blocks.
+	// For the persistence test, we generate three blocks, then trigger
+	// a restart and then generate the final block that should trigger
+	// the creation of the sweep transaction.
 	// TODO(roasbeef): should check default value in config here instead,
 	// or make delay a param
 	const defaultCSV = 4
-	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
+	if _, err := net.Miner.Node.Generate(defaultCSV - 1); err != nil {
+		t.Fatalf("unable to mine blocks: %v", err)
+	}
+
+	// The following restart checks to ensure that outputs in the kindergarten
+	// bucket are persisted while waiting for the required number of
+	// confirmations to be reported.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
@@ -336,20 +373,21 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	// broadcast.
 	var sweepingTXID *wire.ShaHash
 	var mempool []*wire.ShaHash
+	mempoolTimeout := time.After(3 * time.Second)
+	checkMempoolTick := time.Tick(100 * time.Millisecond)
 mempoolPoll:
 	for {
 		select {
-		case <-time.After(time.Second * 5):
+		case <-mempoolTimeout:
 			t.Fatalf("sweep tx not found in mempool")
-		default:
+		case <-checkMempoolTick:
 			mempool, err = net.Miner.Node.GetRawMempool()
 			if err != nil {
 				t.Fatalf("unable to fetch node's mempool: %v", err)
 			}
-			if len(mempool) == 0 {
-				continue
+			if len(mempool) != 0 {
+				break mempoolPoll
 			}
-			break mempoolPoll
 		}
 	}
 

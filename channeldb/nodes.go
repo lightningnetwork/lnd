@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -106,8 +105,8 @@ func (l *LinkNode) Sync() error {
 	// any relevant indexes.
 	return l.db.Update(func(tx *bolt.Tx) error {
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeInfoBucket == nil {
-			return fmt.Errorf("node bucket not created")
+		if nodeMetaBucket == nil {
+			return ErrLinkNodesNotFound
 		}
 
 		return putLinkNode(nodeMetaBucket, l)
@@ -143,8 +142,8 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		// First fetch the bucket for storing node meta-data, bailing
 		// out early if it hasn't been created yet.
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeInfoBucket == nil {
-			return fmt.Errorf("node bucket not created")
+		if nodeMetaBucket == nil {
+			return ErrLinkNodesNotFound
 		}
 
 		// If a link node for that particular public key cannot be
@@ -180,11 +179,15 @@ func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 
 	err := db.View(func(tx *bolt.Tx) error {
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeInfoBucket == nil {
-			return fmt.Errorf("node bucket not created")
+		if nodeMetaBucket == nil {
+			return ErrLinkNodesNotFound
 		}
 
 		return nodeMetaBucket.ForEach(func(k, v []byte) error {
+			if v == nil {
+				return nil
+			}
+
 			nodeReader := bytes.NewReader(v)
 			linkNode, err := deserializeLinkNode(nodeReader)
 			if err != nil {

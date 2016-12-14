@@ -3,7 +3,8 @@ package channeldb
 import "fmt"
 
 var (
-	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
+	ErrNoChanDBExists    = fmt.Errorf("channel db has not yet been created")
+	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")
 
 	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
 	ErrChannelNoExist   = fmt.Errorf("this channel does not exist")

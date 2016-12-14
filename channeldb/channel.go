@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/lightningnetwork/lnd/elkrem"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -89,9 +88,9 @@ var (
 	// and finally 2-of-2 multisig redeem script.
 	fundingTxnKey = []byte("fsk")
 
-	// elkremStateKey stores their current revocation hash, and our elkrem
-	// sender, and their elkrem receiver.
-	elkremStateKey = []byte("esk")
+	// preimageStateKey stores their current revocation hash, our
+	// preimage producer and their preimage store.
+	preimageStateKey = []byte("esk")
 
 	// deliveryScriptsKey stores the scripts for the final delivery in the
 	// case of a cooperative closure.
@@ -225,8 +224,17 @@ type OpenChannel struct {
 	// aren't yet able to verify that it's actually in the hash chain.
 	TheirCurrentRevocation     *btcec.PublicKey
 	TheirCurrentRevocationHash [32]byte
-	LocalElkrem                *elkrem.ElkremSender
-	RemoteElkrem               *elkrem.ElkremReceiver
+
+	// RevocationProducer is used to generate the revocation in such a way
+	// that remote side might store it efficiently and have the ability to
+	// restore the revocation by index if needed. Current implementation of
+	// secret producer is shachain producer.
+	RevocationProducer shachain.Producer
+
+	// RevocationStore is used to efficiently store the revocations for
+	// previous channels states sent to us by remote side. Current
+	// implementation of secret store is shachain store.
+	RevocationStore shachain.Store
 
 	// OurDeliveryScript is the script to be used to pay to us in
 	// cooperative closes.
@@ -480,15 +488,16 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 			return err
 		}
 
-		// Persist the latest elkrem state to disk as the remote peer
-		// has just added to our local elkrem receiver, and given us a
-		// new pending revocation key.
-		if err := putChanElkremState(nodeChanBucket, c); err != nil {
+		// Persist the latest preimage state to disk as the remote peer
+		// has just added to our local preimage store, and
+		// given us a new pending revocation key.
+		if err := putChanPreimageState(nodeChanBucket, c); err != nil {
 			return err
 		}
 
-		// With the current elkrem state updated, append a new log
-		// entry recording this the delta of this state transition.
+		// With the current preimage producer/store state updated,
+		// append a new log entry recording this the delta of this state
+		// transition.
 		// TODO(roasbeef): could make the deltas relative, would save
 		// space, but then tradeoff for more disk-seeks to recover the
 		// full state.
@@ -737,7 +746,7 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanFundingInfo(nodeChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanElkremState(nodeChanBucket, channel); err != nil {
+	if err := putChanPreimageState(nodeChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanDeliveryScripts(nodeChanBucket, channel); err != nil {
@@ -774,8 +783,8 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanFundingInfo(nodeChanBucket, channel); err != nil {
 		return nil, fmt.Errorf("unable to read funding info: %v", err)
 	}
-	if err = fetchChanElkremState(nodeChanBucket, channel); err != nil {
-		return nil, fmt.Errorf("uable to read elkrem state: %v", err)
+	if err = fetchChanPreimageState(nodeChanBucket, channel); err != nil {
+		return nil, err
 	}
 	if err = fetchChanDeliveryScripts(nodeChanBucket, channel); err != nil {
 		return nil, fmt.Errorf("unable to read delivery scripts: %v", err)
@@ -849,7 +858,7 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := deleteChanFundingInfo(nodeChanBucket, channelID); err != nil {
 		return err
 	}
-	if err := deleteChanElkremState(nodeChanBucket, channelID); err != nil {
+	if err := deleteChanPreimageState(nodeChanBucket, channelID); err != nil {
 		return err
 	}
 	if err := deleteChanDeliveryScripts(nodeChanBucket, channelID); err != nil {
@@ -1459,16 +1468,7 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	return nil
 }
 
-func putChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
-	var bc bytes.Buffer
-	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
-		return err
-	}
-
-	elkremKey := make([]byte, len(elkremStateKey)+bc.Len())
-	copy(elkremKey[:3], elkremStateKey)
-	copy(elkremKey[3:], bc.Bytes())
-
+func putChanPreimageState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 
 	revKey := channel.TheirCurrentRevocation.SerializeCompressed()
@@ -1482,16 +1482,19 @@ func putChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 
 	// TODO(roasbeef): shouldn't be storing on disk, should re-derive as
 	// needed
-	senderBytes := channel.LocalElkrem.ToBytes()
-	if err := wire.WriteVarBytes(&b, 0, senderBytes); err != nil {
-		return err
-	}
-
-	reciverBytes, err := channel.RemoteElkrem.ToBytes()
+	data, err := channel.RevocationProducer.ToBytes()
 	if err != nil {
 		return err
 	}
-	if err := wire.WriteVarBytes(&b, 0, reciverBytes); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, data); err != nil {
+		return err
+	}
+
+	data, err = channel.RevocationStore.ToBytes()
+	if err != nil {
+		return err
+	}
+	if err := wire.WriteVarBytes(&b, 0, data); err != nil {
 		return err
 	}
 
@@ -1499,28 +1502,36 @@ func putChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
-	return nodeChanBucket.Put(elkremKey, b.Bytes())
+	var bc bytes.Buffer
+	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
+		return err
+	}
+
+	preimageKey := make([]byte, len(preimageStateKey)+bc.Len())
+	copy(preimageKey[:3], preimageStateKey)
+	copy(preimageKey[3:], bc.Bytes())
+	return nodeChanBucket.Put(preimageKey, b.Bytes())
 }
 
-func deleteChanElkremState(nodeChanBucket *bolt.Bucket, chanID []byte) error {
-	elkremKey := make([]byte, len(elkremStateKey)+len(chanID))
-	copy(elkremKey[:3], elkremStateKey)
-	copy(elkremKey[3:], chanID)
-	return nodeChanBucket.Delete(elkremKey)
+func deleteChanPreimageState(nodeChanBucket *bolt.Bucket, chanID []byte) error {
+	preimageKey := make([]byte, len(preimageStateKey)+len(chanID))
+	copy(preimageKey[:3], preimageStateKey)
+	copy(preimageKey[3:], chanID)
+	return nodeChanBucket.Delete(preimageKey)
 }
 
-func fetchChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func fetchChanPreimageState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
 	}
-	elkremKey := make([]byte, len(elkremStateKey)+b.Len())
-	copy(elkremKey[:3], elkremStateKey)
-	copy(elkremKey[3:], b.Bytes())
+	preimageKey := make([]byte, len(preimageStateKey)+b.Len())
+	copy(preimageKey[:3], preimageStateKey)
+	copy(preimageKey[3:], b.Bytes())
 
-	elkremStateBytes := bytes.NewReader(nodeChanBucket.Get(elkremKey))
+	reader := bytes.NewReader(nodeChanBucket.Get(preimageKey))
 
-	revKeyBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
+	revKeyBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
 	if err != nil {
 		return err
 	}
@@ -1529,32 +1540,30 @@ func fetchChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 		return err
 	}
 
-	if _, err := elkremStateBytes.Read(channel.TheirCurrentRevocationHash[:]); err != nil {
+	if _, err := reader.Read(channel.TheirCurrentRevocationHash[:]); err != nil {
 		return err
 	}
 
 	// TODO(roasbeef): should be rederiving on fly, or encrypting on disk.
-	senderBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
+	producerBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
 	if err != nil {
 		return err
 	}
-	elkremRoot, err := chainhash.NewHash(senderBytes)
+	channel.RevocationProducer, err = shachain.NewRevocationProducerFromBytes(producerBytes)
 	if err != nil {
 		return err
 	}
-	channel.LocalElkrem = elkrem.NewElkremSender(*elkremRoot)
 
-	reciverBytes, err := wire.ReadVarBytes(elkremStateBytes, 0, 1000, "")
+	storeBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
 	if err != nil {
 		return err
 	}
-	remoteE, err := elkrem.ElkremReceiverFromBytes(reciverBytes)
+	channel.RevocationStore, err = shachain.NewRevocationStoreFromBytes(storeBytes)
 	if err != nil {
 		return err
 	}
-	channel.RemoteElkrem = remoteE
 
-	_, err = io.ReadFull(elkremStateBytes, channel.StateHintObsfucator[:])
+	_, err = io.ReadFull(reader, channel.StateHintObsfucator[:])
 	if err != nil {
 		return err
 	}

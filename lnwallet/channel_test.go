@@ -11,8 +11,8 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -202,15 +202,17 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	bobElkrem := elkrem.NewElkremSender(deriveElkremRoot(bobKeyPriv, bobKeyPub, aliceKeyPub))
-	bobFirstRevoke, err := bobElkrem.AtIndex(0)
+	bobRoot := deriveRevocationRoot(bobKeyPriv, bobKeyPub, aliceKeyPub)
+	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
+	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	bobRevokeKey := DeriveRevocationPubkey(aliceKeyPub, bobFirstRevoke[:])
 
-	aliceElkrem := elkrem.NewElkremSender(deriveElkremRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub))
-	aliceFirstRevoke, err := aliceElkrem.AtIndex(0)
+	aliceRoot := deriveRevocationRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub)
+	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
+	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -262,8 +264,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		LocalCsvDelay:          csvTimeoutAlice,
 		RemoteCsvDelay:         csvTimeoutBob,
 		TheirCurrentRevocation: bobRevokeKey,
-		LocalElkrem:            aliceElkrem,
-		RemoteElkrem:           &elkrem.ElkremReceiver{},
+		RevocationProducer:     alicePreimageProducer,
+		RevocationStore:        shachain.NewRevocationStore(),
 		TheirDustLimit:         bobDustLimit,
 		OurDustLimit:           aliceDustLimit,
 		Db:                     dbAlice,
@@ -288,8 +290,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		LocalCsvDelay:          csvTimeoutBob,
 		RemoteCsvDelay:         csvTimeoutAlice,
 		TheirCurrentRevocation: aliceRevokeKey,
-		LocalElkrem:            bobElkrem,
-		RemoteElkrem:           &elkrem.ElkremReceiver{},
+		RevocationProducer:     bobPreimageProducer,
+		RevocationStore:        shachain.NewRevocationStore(),
 		TheirDustLimit:         aliceDustLimit,
 		OurDustLimit:           bobDustLimit,
 		Db:                     dbBob,
@@ -598,9 +600,10 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 // transaction with some degree of error corresponds to the actual size.
 func TestCheckCommitTxSize(t *testing.T) {
 	checkSize := func(channel *LightningChannel, count int) {
-		// Due to variable size of the signatures (71-73) we may have
-		// an estimation error.
-		BaseCommitmentTxSizeEstimationError := 4
+		// Due to variable size of the signatures (70-73) in
+		// witness script actual size of commitment transaction might
+		// be lower on 6 weight.
+		BaseCommitmentTxSizeEstimationError := 6
 
 		commitTx, err := channel.getSignedCommitTx()
 		if err != nil {

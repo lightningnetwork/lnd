@@ -85,14 +85,14 @@ const (
 	//	- Marker: 1 byte
 	WitnessHeaderSize = 1 + 1
 
-	// CommitmentTransaction: 125 bytes
+	// CommitmentTransaction: 125 43 * num-htlc-outputs bytes
 	//	- Version: 4 bytes
 	//	- WitnessHeader <---- part of the witness data
 	//	- CountTxIn: 1 byte
-	//	- TxIn:
+	//	- TxIn: 41 bytes
 	//		FundingInput
 	//	- CountTxOut: 1 byte
-	//	- TxOut:
+	//	- TxOut: 74 + 43 * num-htlc-outputs bytes
 	//		OutputPayingToThem,
 	//		OutputPayingToUs,
 	//		....HTLCOutputs...

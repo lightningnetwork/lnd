@@ -734,10 +734,10 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		return nil, err
 	}
 
-	// With the state number broadcast known, we can now derive the proper
-	// leaf from our revocation tree necessary to sweep the remote party's
+	// With the state number broadcast known, we can now derive/restore the
+	// proper revocation preimage necessary to sweep the remote party's
 	// output.
-	revocationPreimage, err := chanState.RemoteElkrem.AtIndex(stateNum)
+	revocationPreimage, err := chanState.RevocationStore.LookUp(stateNum)
 	if err != nil {
 		return nil, err
 	}
@@ -1482,7 +1482,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 	// derive the key+hash needed to construct the new commitment view and
 	// state.
 	nextHeight := lc.currentHeight + 1
-	revocation, err := lc.channelState.LocalElkrem.AtIndex(nextHeight)
+	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
 	if err != nil {
 		return err
 	}
@@ -1577,7 +1577,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	// Now that we've accept a new state transition, we send the remote
 	// party the revocation for our current commitment state.
 	revocationMsg := &lnwire.RevokeAndAck{}
-	currentRevocation, err := lc.channelState.LocalElkrem.AtIndex(lc.currentHeight)
+	currentRevocation, err := lc.channelState.RevocationProducer.AtIndex(lc.currentHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -1586,7 +1586,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	// Along with this revocation, we'll also send an additional extension
 	// to our revocation window to the remote party.
 	lc.revocationWindowEdge++
-	revocationEdge, err := lc.channelState.LocalElkrem.AtIndex(lc.revocationWindowEdge)
+	revocationEdge, err := lc.channelState.RevocationProducer.AtIndex(lc.revocationWindowEdge)
 	if err != nil {
 		return nil, err
 	}
@@ -1655,11 +1655,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	currentRevocationKey := lc.channelState.TheirCurrentRevocation
 	pendingRevocation := chainhash.Hash(revMsg.Revocation)
 
-	// Ensure the new preimage fits in properly within the elkrem receiver
-	// tree. If this fails, then all other checks are skipped.
+	// Ensure that the new pre-image can be placed in preimage store.
 	// TODO(rosbeef): abstract into func
-	remoteElkrem := lc.channelState.RemoteElkrem
-	if err := remoteElkrem.AddNext(&pendingRevocation); err != nil {
+	store := lc.channelState.RevocationStore
+	if err := store.Store(&pendingRevocation); err != nil {
 		return nil, err
 	}
 
@@ -1698,8 +1697,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 
 	// At this point, the revocation has been accepted, and we've rotated
 	// the current revocation key+hash for the remote party. Therefore we
-	// sync now to ensure the elkrem receiver state is consistent with the
-	// current commitment height.
+	// sync now to ensure the revocation producer state is consistent with
+	// the current commitment height.
 	tail := lc.remoteCommitChain.tail()
 	delta, err := tail.toChannelDelta()
 	if err != nil {
@@ -1778,7 +1777,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, erro
 	revMsg.ChannelPoint = *lc.channelState.ChanID
 
 	nextHeight := lc.revocationWindowEdge + 1
-	revocation, err := lc.channelState.LocalElkrem.AtIndex(nextHeight)
+	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -2147,8 +2146,8 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// Re-derive the original pkScript for out to-self output within the
 	// commitment transaction. We'll need this for the created sign
 	// descriptor.
-	elkrem := lc.channelState.LocalElkrem
-	unusedRevocation, err := elkrem.AtIndex(lc.currentHeight)
+	producer := lc.channelState.RevocationProducer
+	unusedRevocation, err := producer.AtIndex(lc.currentHeight)
 	if err != nil {
 		return nil, err
 	}

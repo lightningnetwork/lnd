@@ -11,10 +11,10 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil/hdkeychain"
 
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -27,9 +27,9 @@ const (
 	// outside word.
 	msgBufferSize = 100
 
-	// elkremRootIndex is the top level HD key index from which secrets
-	// used to generate elkrem roots should be derived from.
-	elkremRootIndex = hdkeychain.HardenedKeyStart + 1
+	// revocationRootIndex is the top level HD key index from which secrets
+	// used to generate producer roots should be derived from.
+	revocationRootIndex = hdkeychain.HardenedKeyStart + 1
 
 	// identityKeyIndex is the top level HD key index which is used to
 	// generate/rotate identity keys.
@@ -42,7 +42,6 @@ const (
 )
 
 var (
-
 	// Namespace bucket keys.
 	lightningNamespaceKey = []byte("ln-wallet")
 	waddrmgrNamespaceKey  = []byte("waddrmgr")
@@ -757,11 +756,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
-	e := &elkrem.ElkremReceiver{}
-	pendingReservation.partialState.RemoteElkrem = e
+	s := shachain.NewRevocationStore()
+	pendingReservation.partialState.RevocationStore = s
 	pendingReservation.partialState.TheirCurrentRevocation = theirContribution.RevocationKey
 
-	masterElkremRoot, err := l.deriveMasterElkremRoot()
+	masterElkremRoot, err := l.deriveMasterRevocationRoot()
 	if err != nil {
 		req.err <- err
 		return
@@ -769,12 +768,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Now that we have their commitment key, we can create the revocation
 	// key for the first version of our commitment transaction. To do so,
-	// we'll first create our elkrem root, then grab the first pre-iamge
-	// from it.
-	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
-	elkremSender := elkrem.NewElkremSender(elkremRoot)
-	pendingReservation.partialState.LocalElkrem = elkremSender
-	firstPreimage, err := elkremSender.AtIndex(0)
+	// we'll first create our root, then produce the first pre-image.
+	root := deriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
+	producer := shachain.NewRevocationProducer(root)
+	pendingReservation.partialState.RevocationProducer = producer
+	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {
 		req.err <- err
 		return
@@ -812,7 +810,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// TODO(roasbeef): define obsfucator scheme for dual funder
 	var stateObsfucator [StateHintSize]byte
 	if pendingReservation.partialState.IsInitiator {
-		stateObsfucator, err = deriveStateHintObsfucator(elkremSender)
+		stateObsfucator, err = deriveStateHintObfuscator(producer)
 		if err != nil {
 			req.err <- err
 			return
@@ -902,7 +900,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	}
 	pendingReservation.partialState.FundingWitnessScript = witnessScript
 
-	masterElkremRoot, err := l.deriveMasterElkremRoot()
+	masterElkremRoot, err := l.deriveMasterRevocationRoot()
 	if err != nil {
 		req.err <- err
 		return
@@ -910,22 +908,22 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	// Now that we know their commitment key, we can create the revocation
 	// key for our version of the initial commitment transaction.
-	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
-	elkremSender := elkrem.NewElkremSender(elkremRoot)
-	firstPreimage, err := elkremSender.AtIndex(0)
+	root := deriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
+	producer := shachain.NewRevocationProducer(root)
+	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	pendingReservation.partialState.LocalElkrem = elkremSender
+	pendingReservation.partialState.RevocationProducer = producer
 	theirCommitKey := theirContribution.CommitKey
 	ourRevokeKey := DeriveRevocationPubkey(theirCommitKey, firstPreimage[:])
 
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
-	remoteElkrem := &elkrem.ElkremReceiver{}
-	pendingReservation.partialState.RemoteElkrem = remoteElkrem
+	remotePreimageStore := shachain.NewRevocationStore()
+	pendingReservation.partialState.RevocationStore = remotePreimageStore
 
 	// Record the counterpaty's remaining contributions to the channel,
 	// converting their delivery address into a public key script.
@@ -1379,11 +1377,11 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	return nil
 }
 
-// deriveMasterElkremRoot derives the private key which serves as the master
-// elkrem root. This master secret is used as the secret input to a HKDF to
-// generate elkrem secrets based on random, but public data.
-func (l *LightningWallet) deriveMasterElkremRoot() (*btcec.PrivateKey, error) {
-	masterElkremRoot, err := l.rootKey.Child(elkremRootIndex)
+// deriveMasterRevocationRoot derives the private key which serves as the master
+// producer root. This master secret is used as the secret input to a HKDF to
+// generate revocation secrets based on random, but public data.
+func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error) {
+	masterElkremRoot, err := l.rootKey.Child(revocationRootIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -1391,34 +1389,34 @@ func (l *LightningWallet) deriveMasterElkremRoot() (*btcec.PrivateKey, error) {
 	return masterElkremRoot.ECPrivKey()
 }
 
-// deriveStateHintObsfucator derives the bytes to be used for obsfucatating the
-// state hints from the elkerem root to be used for a new channel. The
-// obsfucator is generated by performing an additional sha256 hash of the first
-// child derived from the elkrem root. The leading 4 bytes are used for the
-// obsfucator.
-func deriveStateHintObsfucator(elkremRoot *elkrem.ElkremSender) ([StateHintSize]byte, error) {
-	var obsfucator [StateHintSize]byte
+// deriveStateHintObfuscator derives the bytes to be used for obfuscating the
+// state hints from the root to be used for a new channel. The
+// obfuscator is generated by performing an additional sha256 hash of the first
+// child derived from the revocation root. The leading 4 bytes are used for the
+// obfuscator.
+func deriveStateHintObfuscator(producer shachain.Producer) ([StateHintSize]byte, error) {
+	var obfuscator [StateHintSize]byte
 
-	firstChild, err := elkremRoot.AtIndex(0)
+	firstChild, err := producer.AtIndex(0)
 	if err != nil {
-		return obsfucator, err
+		return obfuscator, err
 	}
 
 	grandChild := fastsha256.Sum256(firstChild[:])
-	copy(obsfucator[:], grandChild[:])
+	copy(obfuscator[:], grandChild[:])
 
-	return obsfucator, nil
+	return obfuscator, nil
 }
 
 // initStateHints properly sets the obsfucated state hints on both commitment
 // transactions using the passed obsfucator.
 func initStateHints(commit1, commit2 *wire.MsgTx,
-	obsfucator [StateHintSize]byte) error {
+	obfuscator [StateHintSize]byte) error {
 
-	if err := SetStateNumHint(commit1, 0, obsfucator); err != nil {
+	if err := SetStateNumHint(commit1, 0, obfuscator); err != nil {
 		return err
 	}
-	if err := SetStateNumHint(commit2, 0, obsfucator); err != nil {
+	if err := SetStateNumHint(commit2, 0, obfuscator); err != nil {
 		return err
 	}
 
@@ -1426,7 +1424,7 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 }
 
 // selectInputs selects a slice of inputs necessary to meet the specified
-// selection amount. If input selection is unable to suceed to to insuffcient
+// selection amount. If input selection is unable to succeed to to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.

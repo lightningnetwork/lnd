@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/elkrem"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -117,17 +117,16 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		return nil, err
 	}
 
-	// Simulate 1000 channel updates via progression of the elkrem
-	// revocation trees.
-	sender := elkrem.NewElkremSender(key)
-	receiver := &elkrem.ElkremReceiver{}
+	// Simulate 1000 channel updates.
+	producer := shachain.NewRevocationProducer((*chainhash.Hash)(&key))
+	store := shachain.NewRevocationStore()
 	for i := 0; i < 1000; i++ {
-		preImage, err := sender.AtIndex(uint64(i))
+		preImage, err := producer.AtIndex(uint64(i))
 		if err != nil {
 			return nil, err
 		}
 
-		if receiver.AddNext(preImage); err != nil {
+		if store.Store(preImage); err != nil {
 			return nil, err
 		}
 	}
@@ -150,8 +149,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		TheirBalance:               btcutil.Amount(9000),
 		OurCommitTx:                testTx,
 		OurCommitSig:               bytes.Repeat([]byte{1}, 71),
-		LocalElkrem:                sender,
-		RemoteElkrem:               receiver,
+		RevocationProducer:         producer,
+		RevocationStore:            store,
 		StateHintObsfucator:        obsfucator,
 		FundingOutpoint:            testOutpoint,
 		OurMultiSigKey:             privKey.PubKey(),
@@ -207,34 +206,34 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// The decoded channel state should be identical to what we stored
 	// above.
 	if !state.IdentityPub.IsEqual(newState.IdentityPub) {
-		t.Fatalf("their id doesn't match")
+		t.Fatal("their id doesn't match")
 	}
 	if !reflect.DeepEqual(state.ChanID, newState.ChanID) {
-		t.Fatalf("chan id's don't match")
+		t.Fatal("chan id's don't match")
 	}
 	if state.MinFeePerKb != newState.MinFeePerKb {
-		t.Fatalf("fee/kb doesn't match")
+		t.Fatal("fee/kb doesn't match")
 	}
 	if state.TheirDustLimit != newState.TheirDustLimit {
-		t.Fatalf("their dust limit doesn't match")
+		t.Fatal("their dust limit doesn't match")
 	}
 	if state.OurDustLimit != newState.OurDustLimit {
-		t.Fatalf("our dust limit doesn't match")
+		t.Fatal("our dust limit doesn't match")
 	}
 	if state.IsInitiator != newState.IsInitiator {
-		t.Fatalf("initiator status doesn't match")
+		t.Fatal("initiator status doesn't match")
 	}
 	if state.ChanType != newState.ChanType {
-		t.Fatalf("channel type doesn't match")
+		t.Fatal("channel type doesn't match")
 	}
 
 	if !bytes.Equal(state.OurCommitKey.SerializeCompressed(),
 		newState.OurCommitKey.SerializeCompressed()) {
-		t.Fatalf("our commit key doesn't match")
+		t.Fatal("our commit key doesn't match")
 	}
 	if !bytes.Equal(state.TheirCommitKey.SerializeCompressed(),
 		newState.TheirCommitKey.SerializeCompressed()) {
-		t.Fatalf("their commit key doesn't match")
+		t.Fatal("their commit key doesn't match")
 	}
 
 	if state.Capacity != newState.Capacity {
@@ -242,49 +241,49 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 			newState.Capacity)
 	}
 	if state.OurBalance != newState.OurBalance {
-		t.Fatalf("our balance doesn't match")
+		t.Fatal("our balance doesn't match")
 	}
 	if state.TheirBalance != newState.TheirBalance {
-		t.Fatalf("their balance doesn't match")
+		t.Fatal("their balance doesn't match")
 	}
 
 	var b1, b2 bytes.Buffer
 	if err := state.OurCommitTx.Serialize(&b1); err != nil {
-		t.Fatalf("unable to serialize transaction")
+		t.Fatal("unable to serialize transaction")
 	}
 	if err := newState.OurCommitTx.Serialize(&b2); err != nil {
-		t.Fatalf("unable to serialize transaction")
+		t.Fatal("unable to serialize transaction")
 	}
 	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("ourCommitTx doesn't match")
+		t.Fatal("ourCommitTx doesn't match")
 	}
 	if !bytes.Equal(newState.OurCommitSig, state.OurCommitSig) {
-		t.Fatalf("commit sigs don't match")
+		t.Fatal("commit sigs don't match")
 	}
 
 	// TODO(roasbeef): replace with a single equal?
 	if !reflect.DeepEqual(state.FundingOutpoint, newState.FundingOutpoint) {
-		t.Fatalf("funding outpoint doesn't match")
+		t.Fatal("funding outpoint doesn't match")
 	}
 
 	if !bytes.Equal(state.OurMultiSigKey.SerializeCompressed(),
 		newState.OurMultiSigKey.SerializeCompressed()) {
-		t.Fatalf("our multisig key doesn't match")
+		t.Fatal("our multisig key doesn't match")
 	}
 	if !bytes.Equal(state.TheirMultiSigKey.SerializeCompressed(),
 		newState.TheirMultiSigKey.SerializeCompressed()) {
-		t.Fatalf("their multisig key doesn't match")
+		t.Fatal("their multisig key doesn't match")
 	}
 	if !bytes.Equal(state.FundingWitnessScript, newState.FundingWitnessScript) {
-		t.Fatalf("redeem script doesn't match")
+		t.Fatal("redeem script doesn't match")
 	}
 
 	// The local and remote delivery scripts should be identical.
 	if !bytes.Equal(state.OurDeliveryScript, newState.OurDeliveryScript) {
-		t.Fatalf("our delivery address doesn't match")
+		t.Fatal("our delivery address doesn't match")
 	}
 	if !bytes.Equal(state.TheirDeliveryScript, newState.TheirDeliveryScript) {
-		t.Fatalf("their delivery address doesn't match")
+		t.Fatal("their delivery address doesn't match")
 	}
 
 	if state.NumUpdates != newState.NumUpdates {
@@ -304,33 +303,45 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 			state.TotalSatoshisSent, newState.TotalSatoshisSent)
 	}
 	if state.TotalSatoshisReceived != newState.TotalSatoshisReceived {
-		t.Fatalf("satoshis received doesn't match")
+		t.Fatal("satoshis received doesn't match")
 	}
 
 	if state.CreationTime.Unix() != newState.CreationTime.Unix() {
-		t.Fatalf("creation time doesn't match")
+		t.Fatal("creation time doesn't match")
 	}
 
-	// The local and remote elkrems should be identical.
-	if !bytes.Equal(state.LocalElkrem.ToBytes(), newState.LocalElkrem.ToBytes()) {
-		t.Fatalf("local elkrems don't match")
-	}
-	oldRemoteElkrem, err := state.RemoteElkrem.ToBytes()
+	// The local and remote producers should be identical.
+	oldProducer, err := state.RevocationProducer.ToBytes()
 	if err != nil {
-		t.Fatalf("unable to serialize old remote elkrem: %v", err)
+		t.Fatalf("can't convert old revocation producer to bytes: %v",
+			err)
 	}
-	newRemoteElkrem, err := newState.RemoteElkrem.ToBytes()
+
+	newProducer, err := newState.RevocationProducer.ToBytes()
 	if err != nil {
-		t.Fatalf("unable to serialize new remote elkrem: %v", err)
+		t.Fatalf("can't convert new revocation producer to bytes: %v",
+			err)
 	}
-	if !bytes.Equal(oldRemoteElkrem, newRemoteElkrem) {
-		t.Fatalf("remote elkrems don't match")
+
+	if !bytes.Equal(oldProducer, newProducer) {
+		t.Fatal("local producer don't match")
+	}
+	oldStore, err := state.RevocationStore.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize old remote store: %v", err)
+	}
+	newStore, err := newState.RevocationStore.ToBytes()
+	if err != nil {
+		t.Fatalf("unable to serialize new remote store: %v", err)
+	}
+	if !bytes.Equal(oldStore, newStore) {
+		t.Fatal("remote store don't match")
 	}
 	if !newState.TheirCurrentRevocation.IsEqual(state.TheirCurrentRevocation) {
-		t.Fatalf("revocation keys don't match")
+		t.Fatal("revocation keys don't match")
 	}
 	if !bytes.Equal(newState.TheirCurrentRevocationHash[:], state.TheirCurrentRevocationHash[:]) {
-		t.Fatalf("revocation hashes don't match")
+		t.Fatal("revocation hashes don't match")
 	}
 	if !reflect.DeepEqual(state.Htlcs[0], newState.Htlcs[0]) {
 		t.Fatalf("htlcs don't match: %v vs %v", spew.Sdump(state.Htlcs[0]),
@@ -338,7 +349,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if !bytes.Equal(state.StateHintObsfucator[:],
 		newState.StateHintObsfucator[:]) {
-		t.Fatalf("obsfuctators don't match")
+		t.Fatal("obsfuctators don't match")
 	}
 
 	// Finally to wrap up the test, delete the state of the channel within
@@ -363,7 +374,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// should yield no results.
 	openChans, err = cdb.FetchAllChannels()
 	if err != nil {
-		t.Fatalf("unable to fetch all open chans")
+		t.Fatal("unable to fetch all open chans")
 	}
 	if len(openChans) != 0 {
 		t.Fatalf("all channels not deleted, found %v", len(openChans))
@@ -494,13 +505,13 @@ func TestChannelStateTransition(t *testing.T) {
 	// The two deltas (the original vs the on-disk version) should
 	// identical, and all HTLC data should properly be retained.
 	if delta.LocalBalance != diskDelta.LocalBalance {
-		t.Fatalf("local balances don't match")
+		t.Fatal("local balances don't match")
 	}
 	if delta.RemoteBalance != diskDelta.RemoteBalance {
-		t.Fatalf("remote balances don't match")
+		t.Fatal("remote balances don't match")
 	}
 	if delta.UpdateNum != diskDelta.UpdateNum {
-		t.Fatalf("update number doesn't match")
+		t.Fatal("update number doesn't match")
 	}
 	for i := 0; i < len(delta.Htlcs); i++ {
 		originalHTLC := delta.Htlcs[i]
@@ -546,7 +557,7 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 	if !bytes.Equal(updatedChannel[0].TheirCurrentRevocationHash[:],
 		newRevocation) {
-		t.Fatalf("revocation state wasn't synced!")
+		t.Fatal("revocation state wasn't synced!")
 	}
 
 	// Now attempt to delete the channel from the database.
@@ -569,6 +580,6 @@ func TestChannelStateTransition(t *testing.T) {
 	// revocation log has been deleted.
 	_, err = updatedChannel[0].FindPreviousState(uint64(delta.UpdateNum))
 	if err == nil {
-		t.Fatalf("revocation log search should've failed")
+		t.Fatal("revocation log search should've failed")
 	}
 }

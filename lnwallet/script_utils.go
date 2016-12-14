@@ -752,31 +752,31 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 	return privRevoke
 }
 
-// deriveElkremRoot derives an elkrem root unique to a channel given the
+// deriveRevocationRoot derives an root unique to a channel given the
 // private key for our public key in the 2-of-2 multi-sig, and the remote
-// node's multi-sig public key. The root is derived using the HKDF[1][2]
+// node's multi-sig public key. The seed is derived using the HKDF[1][2]
 // instantiated with sha-256. The secret data used is our multi-sig private
 // key, with the salt being the remote node's public key.
 //
 // [1]: https://eprint.iacr.org/2010/264.pdf
 // [2]: https://tools.ietf.org/html/rfc5869
-func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
+func deriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 	localMultiSigKey *btcec.PublicKey,
-	remoteMultiSigKey *btcec.PublicKey) chainhash.Hash {
+	remoteMultiSigKey *btcec.PublicKey) *chainhash.Hash {
 
-	secret := elkremDerivationRoot.Serialize()
+	secret := derivationRoot.Serialize()
 	salt := localMultiSigKey.SerializeCompressed()
 	info := remoteMultiSigKey.SerializeCompressed()
 
-	rootReader := hkdf.New(sha256.New, secret, salt, info)
+	seedReader := hkdf.New(sha256.New, secret, salt, info)
 
 	// It's safe to ignore the error her as we know for sure that we won't
 	// be draining the HKDF past its available entropy horizon.
 	// TODO(roasbeef): revisit...
-	var elkremRoot chainhash.Hash
-	rootReader.Read(elkremRoot[:])
+	var root chainhash.Hash
+	seedReader.Read(root[:])
 
-	return elkremRoot
+	return &root
 }
 
 // SetStateNumHint encodes the current state number within the passed

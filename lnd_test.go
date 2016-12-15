@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1100,7 +1101,8 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
 	}
 
-	if err = net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
+	err = net.ConnectNodes(ctxb, net.Alice, net.Bob)
+	if err != nil && !strings.Contains(err.Error(), "already connected") {
 		t.Fatalf("unable to connect bob and alice: %v", err)
 	}
 

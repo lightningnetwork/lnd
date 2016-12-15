@@ -632,11 +632,14 @@ func (c *ChannelGraph) FetchLightningNode(pub *btcec.PublicKey) (*LightningNode,
 // ForEachChannel iterates through all the outgoing channel edges from this
 // node, executing the passed callback with each edge as its sole argument. If
 // the callback returns an error, then the iteration is halted with the error
-// propagated back up to the caller.
-func (l *LightningNode) ForEachChannel(cb func(*ChannelEdge) error) error {
+// propagated back up to the caller. If the caller wishes to re-use an existing
+// boltdb transaction, then it should be passed as the first argument.
+// Otherwise the first argument should be nil and a fresh transaction will be
+// created to execute the graph traversal.
+func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdge) error) error {
 	nodePub := l.PubKey.SerializeCompressed()
 
-	return l.db.View(func(tx *bolt.Tx) error {
+	traversal := func(tx *bolt.Tx) error {
 		nodes := tx.Bucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNotFound
@@ -682,7 +685,17 @@ func (l *LightningNode) ForEachChannel(cb func(*ChannelEdge) error) error {
 		}
 
 		return nil
-	})
+	}
+
+	// If no transaction was provided, then we'll create a new transaction
+	// to execute the transaction within.
+	if tx == nil {
+		return l.db.View(traversal)
+	}
+
+	// Otherwise, we re-use the existing transaction to execute the graph
+	// traversal.
+	return traversal(tx)
 }
 
 // ChannelEdge represents a *directed* edge within the channel graph. For each

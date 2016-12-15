@@ -489,7 +489,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Finally, we want to test the ability to iterate over all the
 	// outgoing channels for a particular node.
 	numNodeChans := 0
-	err = firstNode.ForEachChannel(func(c *ChannelEdge) error {
+	err = firstNode.ForEachChannel(nil, func(c *ChannelEdge) error {
 		// Each each should indicate that it's outgoing (pointed
 		// towards the second node).
 		if !c.Node.PubKey.IsEqual(secondNode.PubKey) {

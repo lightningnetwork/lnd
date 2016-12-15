@@ -159,6 +159,9 @@ func (b *BtcdNotifier) Stop() error {
 			close(confClient.negativeConf)
 		}
 	}
+	for _, epochClient := range b.blockEpochClients {
+		close(epochClient)
+	}
 
 	return nil
 }

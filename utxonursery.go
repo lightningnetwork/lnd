@@ -96,6 +96,8 @@ func (u *utxoNursery) Stop() error {
 // Once an output is mature, it will be swept into the wallet at the earlier
 // possible height.
 func (u *utxoNursery) incubator() {
+	defer u.wg.Done()
+
 	// Register with the notifier to receive notifications for each newly
 	// connected block.
 	newBlocks, err := u.notifier.RegisterBlockEpochNtfn()
@@ -163,7 +165,15 @@ out:
 			utxnLog.Infof("Outpoint %v now mid-stage, will mature "+
 				"at height %v (delay of %v)", midUtxo.outPoint,
 				maturityHeight, midUtxo.blocksToMaturity)
-		case epoch := <-newBlocks.Epochs:
+		case epoch, ok := <-newBlocks.Epochs:
+			// If the epoch channel has been closed, then the
+			// ChainNotifier is exiting which means the daemon is
+			// as well. Therefore, we exit early also in order to
+			// ensure the daemon shutsdown gracefully, yet swiftly.
+			if !ok {
+				return
+			}
+
 			// A new block has just been connected, check to see if
 			// we have any new outputs that can be swept into the
 			// wallet.
@@ -210,8 +220,6 @@ out:
 			break out
 		}
 	}
-
-	u.wg.Done()
 }
 
 // createSweepTx creates a final sweeping transaction with all witnesses in

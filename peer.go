@@ -1398,7 +1398,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			p.queueMsg(settleMsg, nil)
 			delete(state.htlcsToSettle, htlc.Index)
 
-			bandwidthUpdate += invoice.Terms.Value
+			bandwidthUpdate += htlc.Amount
 			settledPayments[htlc.RHash] = struct{}{}
 
 			numSettled++

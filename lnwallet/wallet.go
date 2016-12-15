@@ -501,6 +501,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 		csvDelay:      csvDelay,
 		ourDustLimit:  ourDustLimit,
 		nodeID:        theirID,
+		nodeAddr:      theirAddr,
 		err:           errChan,
 		resp:          respChan,
 	}

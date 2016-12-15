@@ -2,6 +2,7 @@ package btcdnotify
 
 import (
 	"container/heap"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -546,7 +547,12 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
 	}
 
-	b.notificationRegistry <- ntfn
+	select {
+	case <-b.quit:
+		return nil, errors.New("chainntnfs: system interrupt while " +
+			"attempting to register for spend notification.")
+	case b.notificationRegistry <- ntfn:
+	}
 
 	// The following conditional checks to ensure that when a spend notification
 	// is registered, the output hasn't already been spent. If the output
@@ -603,12 +609,16 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 		negativeConf:     make(chan int32, 1),
 	}
 
-	b.notificationRegistry <- ntfn
-
-	return &chainntnfs.ConfirmationEvent{
-		Confirmed:    ntfn.finConf,
-		NegativeConf: ntfn.negativeConf,
-	}, nil
+	select {
+	case <-b.quit:
+		return nil, errors.New("chainntnfs: system interrupt while " +
+			"attempting to register for confirmation notification.")
+	case b.notificationRegistry <- ntfn:
+		return &chainntnfs.ConfirmationEvent{
+			Confirmed:    ntfn.finConf,
+			NegativeConf: ntfn.negativeConf,
+		}, nil
+	}
 }
 
 // blockEpochRegistration represents a client's intent to receive a
@@ -625,9 +635,13 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, er
 		epochChan: make(chan *chainntnfs.BlockEpoch, 20),
 	}
 
-	b.notificationRegistry <- registration
-
-	return &chainntnfs.BlockEpochEvent{
-		Epochs: registration.epochChan,
-	}, nil
+	select {
+	case <-b.quit:
+		return nil, errors.New("chainntnfs: system interrupt while " +
+			"attempting to register for block epoch notification.")
+	case b.notificationRegistry <- registration:
+		return &chainntnfs.BlockEpochEvent{
+			Epochs: registration.epochChan,
+		}, nil
+	}
 }

@@ -337,12 +337,15 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	ourDustLimit := lnwallet.DefaultDustLimit()
 	theirDustlimit := msg.DustLimit
+
 	// Attempt to initialize a reservation within the wallet. If the wallet
 	// has insufficient resources to create the channel, then the reservation
 	// attempt may be rejected. Note that since we're on the responding
 	// side of a single funder workflow, we don't commit any funds to the
 	// channel ourselves.
 	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
+	// TODO(roasbeef): assuming this was an inbound connection, replace
+	// port with default advertised port
 	reservation, err := f.wallet.InitChannelReservation(amt, 0,
 		fmsg.peer.addr.IdentityKey, fmsg.peer.addr.Address, 1, delay,
 		ourDustLimit)

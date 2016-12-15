@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -28,6 +29,7 @@ var (
 	hswcLog    = btclog.Disabled
 	utxnLog    = btclog.Disabled
 	brarLog    = btclog.Disabled
+	cmgrLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -43,6 +45,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"HSWC": hswcLog,
 	"UTXN": utxnLog,
 	"BRAR": brarLog,
+	"CMGR": cmgrLog,
 }
 
 // useLogger updates the logger references for subsystemID to logger.  Invalid
@@ -89,6 +92,10 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "BRAR":
 		brarLog = logger
+
+	case "CMGR":
+		cmgrLog = logger
+		connmgr.UseLogger(logger)
 	}
 }
 

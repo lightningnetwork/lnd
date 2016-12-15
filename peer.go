@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
@@ -65,7 +66,8 @@ type peer struct {
 	connected  int32
 	disconnect int32
 
-	conn net.Conn
+	connReq *connmgr.ConnReq
+	conn    net.Conn
 
 	addr        *lnwire.NetAddress
 	lightningID wire.ShaHash
@@ -317,6 +319,10 @@ func (p *peer) Disconnect() {
 	}
 
 	close(p.quit)
+
+	if p.connReq != nil {
+		p.server.connMgr.Disconnect(p.connReq.ID())
+	}
 
 	// Launch a goroutine to clean up the remaining resources.
 	go func() {
@@ -762,6 +768,8 @@ func (p *peer) executeCooperativeClose(channel *lnwallet.LightningChannel) (*wir
 
 // handleLocalClose kicks-off the workflow to execute a cooperative or forced
 // unilateral closure of the channel initiated by a local sub-system.
+// TODO(roasbeef): if no more active channels with peer call Remove on connMgr
+// with peerID
 func (p *peer) handleLocalClose(req *closeLinkReq) {
 	var (
 		err         error

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,9 @@ import (
 	"strings"
 
 	flags "github.com/btcsuite/go-flags"
+	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -301,4 +305,13 @@ func supportedSubsystems() []string {
 	// Sort the subsystems for stable display.
 	sort.Strings(subsystems)
 	return subsystems
+}
+
+// noiseDial is a factory function which creates a connmgr compliant dialing
+// function by returning a closure which includes the server's identity key.
+func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
+	return func(a net.Addr) (net.Conn, error) {
+		lnAddr := a.(*lnwire.NetAddress)
+		return brontide.Dial(idPriv, lnAddr)
+	}
 }

@@ -568,6 +568,11 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // purposes.
 // TODO(roasbeef): delete on-disk set of HTLC's
 func (c *OpenChannel) CloseChannel() error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, c.ChanID); err != nil {
+		return err
+	}
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data related to
 		// current, active channels.
@@ -589,12 +594,19 @@ func (c *OpenChannel) CloseChannel() error {
 		if chanIndexBucket == nil {
 			return ErrNoActiveChannels
 		}
-		var b bytes.Buffer
-		if err := writeOutpoint(&b, c.ChanID); err != nil {
-			return err
-		}
+
+		// If this channel isn't found within the channel index bucket,
+		// then it has already been deleted. So we can exit early as
+		// there isn't any more work for us to do here.
 		outPointBytes := b.Bytes()
-		if err := chanIndexBucket.Delete(b.Bytes()); err != nil {
+		if chanIndexBucket.Get(outPointBytes) == nil {
+			return nil
+		}
+
+		// Otherwise, we can safely delete the channel from the index
+		// without running into any boltdb related errors by repeated
+		// deletion attempts.
+		if err := chanIndexBucket.Delete(outPointBytes); err != nil {
 			return err
 		}
 
@@ -988,7 +1000,7 @@ func fetchChanTheirDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) 
 	return nil
 }
 
-func fetchChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel)error {
+func fetchChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err

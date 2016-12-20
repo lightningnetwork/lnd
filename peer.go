@@ -607,7 +607,11 @@ out:
 // queueMsg queues a new lnwire.Message to be eventually sent out on the
 // wire.
 func (p *peer) queueMsg(msg lnwire.Message, doneChan chan struct{}) {
-	p.outgoingQueue <- outgoinMsg{msg, doneChan}
+	select {
+	case p.outgoingQueue <- outgoinMsg{msg, doneChan}:
+	case <-p.quit:
+		return
+	}
 }
 
 // ChannelSnapshots returns a slice of channel snapshots detailing all

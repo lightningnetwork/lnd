@@ -124,6 +124,10 @@ func (d *DB) Wipe() error {
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
 		}
+		err = tx.DeleteBucket(graphMetaBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
 
 		return nil
 	})
@@ -167,6 +171,9 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 		if _, err := tx.CreateBucket(edgeBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucket(graphMetaBucket); err != nil {
 			return err
 		}
 

@@ -7,6 +7,7 @@ import (
 	prand "math/rand"
 	"net"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -504,4 +505,175 @@ func TestGraphTraversal(t *testing.T) {
 	if numNodeChans != numChannels {
 		t.Fatalf("all edges for node reached within ForEach")
 	}
+}
+
+func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *wire.ShaHash,
+	blockHeight uint32) {
+
+	pruneHash, pruneHeight, err := graph.PruneTip()
+	if err != nil {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: unable to fetch prune tip: %v", line, err)
+	}
+	if !bytes.Equal(blockHash[:], pruneHash[:]) {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line: %v, prune tips don't match, expected %x got %x",
+			line, blockHash, pruneHash)
+	}
+	if pruneHeight != blockHeight {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: prune heights don't match, expected %v "+
+			"got %v", line, blockHeight, pruneHeight)
+	}
+}
+
+func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
+	numChans := 0
+	if err := graph.ForEachChannel(func(*ChannelEdge, *ChannelEdge) error {
+		numChans += 1
+		return nil
+	}); err != nil {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v:unable to scan channels: %v", line, err)
+	}
+	if numChans != n {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: expected %v chans instead have %v", line, n, numChans)
+	}
+}
+
+func TestGraphPruning(t *testing.T) {
+	db, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	graph := db.ChannelGraph()
+
+	// As initial set up for the test, we'll create a graph with 5 vertexes
+	// and enough edges to create a fully connected graph. The graph will
+	// be rather simple, representing a straight line.
+	const numNodes = 5
+	graphNodes := make([]*LightningNode, numNodes)
+	for i := 0; i < numNodes; i++ {
+		node, err := createTestVertex(db)
+		if err != nil {
+			t.Fatalf("unable to create node: %v", err)
+		}
+
+		if err := graph.AddLightningNode(node); err != nil {
+			t.Fatalf("unable to add node: %v", err)
+		}
+
+		graphNodes[i] = node
+	}
+
+	// With the vertexes created, we'll next create a series of channels
+	// between them.
+	channelPoints := make([]*wire.OutPoint, 0, numNodes-1)
+	for i := 0; i < numNodes-1; i++ {
+		txHash := fastsha256.Sum256([]byte{byte(i)})
+		chanID := uint64(i + 1)
+		op := wire.OutPoint{
+			Hash:  txHash,
+			Index: 0,
+		}
+
+		channelPoints = append(channelPoints, &op)
+
+		err := graph.AddChannelEdge(graphNodes[i].PubKey,
+			graphNodes[i+1].PubKey, &op, chanID)
+		if err != nil {
+			t.Fatalf("unable to add node: %v", err)
+		}
+
+		// Create and add an edge with random data that points from
+		// node_i -> node_i+1
+		edge := randEdge(chanID, op, db)
+		edge.Flags = 0
+		edge.Node = graphNodes[i]
+		if err := graph.UpdateEdgeInfo(edge); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+
+		// Create another random edge that points from node_i+1 ->
+		// node_i this time.
+		edge = randEdge(chanID, op, db)
+		edge.Flags = 1
+		edge.Node = graphNodes[i]
+		if err := graph.UpdateEdgeInfo(edge); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+	}
+
+	// Now with our test graph created, we can test the pruning
+	// capabilities of the channel graph.
+
+	// First we create a mock block that ends up closing the first two
+	// channels.
+	var blockHash wire.ShaHash
+	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
+	blockHeight := uint32(1)
+	block := channelPoints[:2]
+	numPruned, err := graph.PruneGraph(block, &blockHash, blockHeight)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+	if numPruned != 2 {
+		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
+			2, numPruned)
+	}
+
+	// Now ensure that the prune tip has been updated.
+	assertPruneTip(t, graph, &blockHash, blockHeight)
+
+	// Count up the number of channels known within the graph, only 2
+	// should be remaining.
+	asserNumChans(t, graph, 2)
+
+	// Next we'll create a block that doesn't close any channels within the
+	// graph to test the negative error case.
+	fakeHash := fastsha256.Sum256([]byte("test prune"))
+	nonChannel := &wire.OutPoint{
+		Hash:  fakeHash,
+		Index: 9,
+	}
+	blockHash = fastsha256.Sum256(blockHash[:])
+	blockHeight = 2
+	numPruned, err = graph.PruneGraph([]*wire.OutPoint{nonChannel},
+		&blockHash, blockHeight)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+
+	// No channels should've been detected as pruned.
+	if numPruned != 0 {
+		t.Fatalf("channels were pruned but shouldn't have been")
+	}
+
+	// Once again, the prune tip should've been updated.
+	assertPruneTip(t, graph, &blockHash, blockHeight)
+	asserNumChans(t, graph, 2)
+
+	// Finally, create a block that prunes the remainder of the channels
+	// from the graph.
+	blockHash = fastsha256.Sum256(blockHash[:])
+	blockHeight = 3
+	numPruned, err = graph.PruneGraph(channelPoints[2:], &blockHash,
+		blockHeight)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+
+	// The remainder of the channels should've been pruned from the graph.
+	if numPruned != 2 {
+		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
+			2, numPruned)
+	}
+
+	// The prune tip should be updated, and no channels should be found
+	// within the current graph.
+	assertPruneTip(t, graph, &blockHash, blockHeight)
+	asserNumChans(t, graph, 0)
 }

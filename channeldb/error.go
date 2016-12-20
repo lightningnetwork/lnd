@@ -23,6 +23,7 @@ var (
 	ErrGraphNodesNotFound = fmt.Errorf("no graph nodes exist")
 	ErrGraphNoEdgesFound  = fmt.Errorf("no graph edges exist")
 	ErrGraphNodeNotFound  = fmt.Errorf("unable to find node")
+	ErrGraphNeverPruned   = fmt.Errorf("graph never pruned")
 
 	ErrEdgeNotFound = fmt.Errorf("edge for chanID not found")
 

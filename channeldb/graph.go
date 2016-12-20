@@ -75,6 +75,19 @@ var (
 	// maps: outPoint -> chanID
 	channelPointBucket = []byte("chan-index")
 
+	// graphMetaBucket is a top-level bucket which stores various meta-deta
+	// related to the on-disk channel graph. Data strored in this bucket
+	// includes the block to which the graph has been synced to, the total
+	// number of channels, etc.
+	graphMetaBucket = []byte("graph-meta")
+
+	// pruneTipKey is a key within the above graphMetaBucket that stores
+	// the best known blockhash+height that the channel graph has been
+	// known to be pruned to. Once a new block is discovered, any channels
+	// that have been closed (by spending the outpoint) can safely be
+	// removed from the graph.
+	pruneTipKey = []byte("prune-tip")
+
 	edgeBloomKey = []byte("edge-bloom")
 	nodeBloomKey = []byte("node-bloom")
 )
@@ -281,6 +294,7 @@ func addLightningNode(tx *bolt.Tx, node *LightningNode) error {
 }
 
 // LookupAlias attempts to return the alias as advertised by the target node.
+// TODO(roasbeef): currently assumes that aliases are unique...
 func (r *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	var alias string
 
@@ -439,14 +453,27 @@ func (r *ChannelGraph) HasChannelEdge(chanID uint64) (bool, error) {
 	return b, err
 }
 
-// DeleteChannelEdge removes an edge from the database as identified by it's
-// funding outpoint. If the edge does not exist within the database, then this
-func (r *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
-	// TODO(roasbeef): possibly delete from node bucket if node has no more
-	// channels
-	// TODO(roasbeef): don't delete both edges?
+const (
+	// pruneTipBytes is the total size of the value which stores the
+	// current prune tip of the graph. The prune tip indicates if the
+	// channel graph is in sync with the current UTXO state. The structure
+	// is: blockHash || blockHeight, taking 36 bytes total.
+	pruneTipBytes = 32 + 4
+)
 
-	return r.db.Update(func(tx *bolt.Tx) error {
+// PruneGraph prunes newly closed channels from the channel graph in response
+// to a new block being solved on the network. Any transactions which spend the
+// funding output of any known channels withint he graph will be deleted.
+// Additionally, the "prune tip", or the last block which has been used to
+// prune the graph is stored so callers can ensure the graph is fully in sync
+// with the current UTXO state. An integer is returned which reflects the
+// number of channels pruned due to the new incoming block.
+func (r *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
+	blockHash *wire.ShaHash, blockHeight uint32) (uint32, error) {
+
+	var numChans uint32
+
+	err := r.db.Update(func(tx *bolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
 		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
@@ -464,52 +491,159 @@ func (r *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 			return err
 		}
 
-		var b bytes.Buffer
-		if err := writeOutpoint(&b, chanPoint); err != nil {
-			return err
-		}
+		// For each of the outpoints that've been spent within the
+		// block, we attempt to delete them from the graph as if that
+		// outpoint was a channel, then it has now been closed.
+		for _, chanPoint := range spentOutputs {
+			// TODO(roasbeef): load channel bloom filter, continue
+			// if NOT if filter
 
-		// If the channel's outpoint doesn't exist within the outpoint
-		// index, then the edge does not exist.
-		chanID := chanIndex.Get(b.Bytes())
-		if chanID == nil {
-			return ErrEdgeNotFound
-		}
-
-		// Otherwise we obtain the two public keys from the mapping:
-		// chanID -> pubKey1 || pubKey2. With this, we can construct
-		// the keys which house both of the directed edges for this
-		// channel.
-		nodeKeys := edgeIndex.Get(chanID)
-
-		// The edge key is of the format pubKey || chanID. First we
-		// construct the latter half, populating the channel ID.
-		var edgeKey [33 + 8]byte
-		copy(edgeKey[33:], chanID)
-
-		// With the latter half constructed, copy over the first public
-		// key to delete the edge in this direction, then the second to
-		// delete the edge in the opposite direction.
-		copy(edgeKey[:33], nodeKeys[:33])
-		if edges.Get(edgeKey[:]) != nil {
-			if err := edges.Delete(edgeKey[:]); err != nil {
+			// Attempt to delete the channel, and ErrEdgeNotFound
+			// will be returned if that outpoint isn't known to be
+			// a channel. If no error is returned, then a channel
+			// was successfully pruned.
+			err := delChannelByEdge(edges, edgeIndex, chanIndex,
+				chanPoint)
+			if err != nil && err != ErrEdgeNotFound {
 				return err
-			}
-		}
-		copy(edgeKey[:33], nodeKeys[33:])
-		if edges.Get(edgeKey[:]) != nil {
-			if err := edges.Delete(edgeKey[:]); err != nil {
-				return err
+			} else if err == nil {
+				numChans += 1
 			}
 		}
 
-		// Finally, with the edge data deleted, we can purge the
-		// information from the two edge indexes.
-		if err := edgeIndex.Delete(chanID); err != nil {
+		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
+		if err != nil {
 			return err
 		}
-		return chanIndex.Delete(b.Bytes())
+
+		// With the graph pruned, update the current "prune tip" which
+		// can eb used to check if the graph is fully synced with the
+		// current UTXO state.
+		var newTip [pruneTipBytes]byte
+		copy(newTip[:], blockHash[:])
+		byteOrder.PutUint32(newTip[32:], uint32(blockHeight))
+
+		return metaBucket.Put(pruneTipKey, newTip[:])
 	})
+	if err != nil {
+		return 0, err
+	}
+
+	return numChans, nil
+}
+
+// PruneTip returns the block height and hash of the latest block that has been
+// used to prune channels in the graph. Knowing the "prune tip" allows callers
+// to tell if the graph is currently in sync with the current best known UTXO
+// state.
+func (r *ChannelGraph) PruneTip() (*wire.ShaHash, uint32, error) {
+	var (
+		currentTip [pruneTipBytes]byte
+		tipHash    wire.ShaHash
+		tipHeight  uint32
+	)
+
+	err := r.db.View(func(tx *bolt.Tx) error {
+		graphMeta := tx.Bucket(graphMetaBucket)
+		if graphMeta == nil {
+			return ErrGraphNotFound
+		}
+
+		tipBytes := graphMeta.Get(pruneTipKey)
+		if tipBytes == nil {
+			return ErrGraphNeverPruned
+		}
+		copy(currentTip[:], tipBytes)
+
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Once we have the prune tip, the first 32 bytes are the block hash,
+	// with the latter 4 bytes being the block height.
+	copy(tipHash[:], currentTip[:32])
+	tipHeight = byteOrder.Uint32(currentTip[32:])
+
+	return &tipHash, tipHeight, nil
+}
+
+// DeleteChannelEdge removes an edge from the database as identified by it's
+// funding outpoint. If the edge does not exist within the database, then this
+func (r *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
+	// TODO(roasbeef): possibly delete from node bucket if node has no more
+	// channels
+	// TODO(roasbeef): don't delete both edges?
+
+	return r.db.Update(func(tx *bolt.Tx) error {
+		// First grab the edges bucket which houses the information
+		// we'd like to delete
+		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
+		if err != nil {
+			return err
+		}
+		// Next grab the two edge indexes which will also need to be updated.
+		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
+		if err != nil {
+			return err
+		}
+		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
+		if err != nil {
+			return err
+		}
+
+		return delChannelByEdge(edges, edgeIndex, chanIndex, chanPoint)
+	})
+}
+
+func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
+	chanIndex *bolt.Bucket, chanPoint *wire.OutPoint) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, chanPoint); err != nil {
+		return err
+	}
+
+	// If the channel's outpoint doesn't exist within the outpoint
+	// index, then the edge does not exist.
+	chanID := chanIndex.Get(b.Bytes())
+	if chanID == nil {
+		return ErrEdgeNotFound
+	}
+
+	// Otherwise we obtain the two public keys from the mapping:
+	// chanID -> pubKey1 || pubKey2. With this, we can construct
+	// the keys which house both of the directed edges for this
+	// channel.
+	nodeKeys := edgeIndex.Get(chanID)
+
+	// The edge key is of the format pubKey || chanID. First we
+	// construct the latter half, populating the channel ID.
+	var edgeKey [33 + 8]byte
+	copy(edgeKey[33:], chanID)
+
+	// With the latter half constructed, copy over the first public
+	// key to delete the edge in this direction, then the second to
+	// delete the edge in the opposite direction.
+	copy(edgeKey[:33], nodeKeys[:33])
+	if edges.Get(edgeKey[:]) != nil {
+		if err := edges.Delete(edgeKey[:]); err != nil {
+			return err
+		}
+	}
+	copy(edgeKey[:33], nodeKeys[33:])
+	if edges.Get(edgeKey[:]) != nil {
+		if err := edges.Delete(edgeKey[:]); err != nil {
+			return err
+		}
+	}
+
+	// Finally, with the edge data deleted, we can purge the
+	// information from the two edge indexes.
+	if err := edgeIndex.Delete(chanID); err != nil {
+		return err
+	}
+	return chanIndex.Delete(b.Bytes())
 }
 
 // UpdateEdgeInfo updates the edge information for a single directed edge

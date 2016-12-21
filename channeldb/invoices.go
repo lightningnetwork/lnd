@@ -116,8 +116,7 @@ func validateInvoice(i *Invoice) error {
 // insertion will be aborted and rejected due to the strict policy banning any
 // duplicate payment hashes.
 func (d *DB) AddInvoice(i *Invoice) error {
-	err := validateInvoice(i)
-	if err != nil {
+	if err := validateInvoice(i); err != nil {
 		return err
 	}
 	return d.Update(func(tx *bolt.Tx) error {

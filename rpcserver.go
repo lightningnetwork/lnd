@@ -598,15 +598,22 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 }
 
 func constructPayment(path []graph.Vertex, amount btcutil.Amount, rHash []byte) *channeldb.OutgoingPayment {
+
 	payment := &channeldb.OutgoingPayment{}
+
+	// When we create payment we do not know preImage.
+	// So we need to save rHash
 	copy(payment.RHash[:], rHash)
+
 	payment.Invoice.Terms.Value = btcutil.Amount(amount)
 	payment.Invoice.CreationDate = time.Now()
-	pathBytes := make([][]byte, len(path))
+	payment.Timestamp = time.Now()
+
+	pathBytes33 := make([][33]byte, len(path))
 	for i:=0; i<len(path); i++ {
-		pathBytes[i] = path[i].ToByte()
+		pathBytes33[i] = path[i].ToByte33()
 	}
-	payment.Path = pathBytes
+	payment.Path = pathBytes33
 	return payment
 }
 
@@ -687,9 +694,12 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					errChan <- err
 					return
 				}
+
 				// Save payment to DB.
-				payment := constructPayment(path, btcutil.Amount(nextPayment.Amt), rHash[:])
+				payment := constructPayment(path,
+					btcutil.Amount(nextPayment.Amt), rHash[:])
 				r.server.chanDB.AddPayment(payment)
+
 				// TODO(roasbeef): proper responses
 				resp := &lnrpc.SendResponse{}
 				if err := paymentStream.Send(resp); err != nil {
@@ -1136,22 +1146,25 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 // ListPayments returns a list of all outgoing payments.
 func (r *rpcServer) ListPayments(context.Context,
 	*lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
+
 	rpcsLog.Debugf("[ListPayments]")
+
 	payments, err := r.server.chanDB.FetchAllPayments()
 	if err != nil {
 		return nil, err
 	}
+
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		Payments: make([]*lnrpc.Payment, len(payments)),
 	}
-	for i:=0; i<len(payments); i++{
+	for i:=0; i<len(payments); i++ {
 		p := &lnrpc.Payment{}
 		p.CreationDate = payments[i].CreationDate.Unix()
 		p.Value = int64(payments[i].Terms.Value)
 		p.RHash = hex.EncodeToString(payments[i].RHash[:])
 		path := make([]string, len(payments[i].Path))
 		for j:=0; j<len(path); j++ {
-			path[j] = hex.EncodeToString(payments[i].Path[j])
+			path[j] = hex.EncodeToString(payments[i].Path[j][:])
 		}
 		p.Path = path
 		paymentsResp.Payments[i] = p
@@ -1163,7 +1176,9 @@ func (r *rpcServer) ListPayments(context.Context,
 // DeleteAllPayments deletes all outgoing payments from DB.
 func (r *rpcServer) DeleteAllPayments(context.Context,
 	*lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
+
 	rpcsLog.Debugf("[DeleteAllPayments]")
+
 	err := r.server.chanDB.DeleteAllPayments()
 	resp := &lnrpc.DeleteAllPaymentsResponse{}
 	return resp, err

@@ -3,11 +3,12 @@ package lnwire
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"net"
+
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
-	"io"
-	"net"
 )
 
 var (
@@ -72,7 +73,7 @@ type NodeAnnouncement struct {
 	// the node is accepting incoming connections.
 	Address *net.TCPAddr
 
-	// NodeID is a public key which is used as node identificator.
+	// NodeID is a public key which is used as node identification.
 	NodeID *btcec.PublicKey
 
 	// RGBColor is used to customize their node's appearance in maps and graphs

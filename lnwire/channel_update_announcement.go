@@ -158,7 +158,7 @@ func (c *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 func (c *ChannelUpdateAnnouncement) String() string {
 	return fmt.Sprintf("\n--- Begin ChannelUpdateAnnouncement ---\n") +
 		fmt.Sprintf("Signature:\t\t%v\n", c.Signature) +
-		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.String()) +
+		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.ToUint64()) +
 		fmt.Sprintf("Timestamp:\t\t%v\n", c.Timestamp) +
 		fmt.Sprintf("Flags:\t\t%v\n", c.Flags) +
 		fmt.Sprintf("Expiry:\t\t%v\n", c.Expiry) +

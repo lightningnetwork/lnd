@@ -2,10 +2,11 @@ package lnwire
 
 import (
 	"bytes"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 	"reflect"
 	"testing"
+
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 )
 
 func TestChannelAnnoucementEncodeDecode(t *testing.T) {

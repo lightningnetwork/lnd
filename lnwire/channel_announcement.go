@@ -3,34 +3,12 @@ package lnwire
 import (
 	"bytes"
 	"fmt"
+	"io"
+
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
-	"io"
 )
-
-// ChannelID represent the set of data which is needed to retrieve all
-// necessary data to validate the channel existance.
-type ChannelID struct {
-	// BlockHeight is the height of the block where funding
-	// transaction located.
-	// NOTE: This field is limited to 3 bytes.
-	BlockHeight uint32
-
-	// TxIndex is a position of funding transaction within a block.
-	// NOTE: This field is limited to 3 bytes.
-	TxIndex uint32
-
-	// TxPosition indicating transaction output which pays to the
-	// channel.
-	TxPosition uint16
-}
-
-func (c *ChannelID) String() string {
-	return fmt.Sprintf("BlockHeight:\t\t\t%v\n", c.BlockHeight) +
-		fmt.Sprintf("TxIndex:\t\t\t%v\n", c.TxIndex) +
-		fmt.Sprintf("TxPosition:\t\t\t%v\n", c.TxPosition)
-}
 
 // ChannelAnnouncement message is used to announce the existence of a channel
 // between two peers in the overlay, which is propagated by the discovery
@@ -200,7 +178,7 @@ func (c *ChannelAnnouncement) String() string {
 	return fmt.Sprintf("\n--- Begin ChannelAnnouncement ---\n") +
 		fmt.Sprintf("FirstNodeSig:\t\t%v\n", c.FirstNodeSig) +
 		fmt.Sprintf("SecondNodeSig:\t\t%v\n", c.SecondNodeSig) +
-		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.String()) +
+		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.ToUint64()) +
 		fmt.Sprintf("FirstBitcoinSig:\t\t%v\n", c.FirstBitcoinSig) +
 		fmt.Sprintf("SecondBitcoinSig:\t\t%v\n", c.SecondBitcoinSig) +
 		fmt.Sprintf("FirstNodeSig:\t\t%v\n", c.FirstNodeSig) +

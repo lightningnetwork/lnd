@@ -42,10 +42,10 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -96,10 +96,10 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 func TestAliasLookup(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -140,10 +140,10 @@ func TestAliasLookup(t *testing.T) {
 
 func TestSourceNode(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -180,10 +180,10 @@ func TestSourceNode(t *testing.T) {
 
 func TestEdgeInsertionDeletion(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -238,10 +238,10 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 func TestEdgeInfoUpdates(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -378,10 +378,10 @@ func randEdge(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdge {
 
 func TestGraphTraversal(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 
@@ -544,10 +544,10 @@ func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func TestGraphPruning(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	graph := db.ChannelGraph()
 

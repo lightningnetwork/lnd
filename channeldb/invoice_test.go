@@ -33,10 +33,10 @@ func randInvoice(value btcutil.Amount) (*Invoice, error) {
 
 func TestInvoiceWorkflow(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
-	defer cleanUp()
 
 	// Create a fake invoice which we'll use several times in the tests
 	// below.

@@ -13,10 +13,10 @@ import (
 // database.
 func TestVersionFetchPut(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanUp()
 
 	meta, err := db.FetchMeta(nil)
 	if err != nil {
@@ -117,10 +117,10 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	migrationFunc migration, shouldFail bool) {
 
 	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanUp()
 
 	// beforeMigration usually used for populating the database
 	// with test data.

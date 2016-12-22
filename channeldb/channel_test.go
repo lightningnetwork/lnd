@@ -98,8 +98,8 @@ func makeTestDB() (*DB, func(), error) {
 	}
 
 	cleanUp := func() {
-		os.RemoveAll(tempDirName)
 		cdb.Close()
+		os.RemoveAll(tempDirName)
 	}
 
 	return cdb, cleanUp, nil
@@ -172,10 +172,10 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 
 func TestOpenChannelPutGetDelete(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
-	if err != nil {
-		t.Fatalf("uanble to make test database: %v", err)
-	}
 	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
 
 	// Create the test channel state, then add an additional fake HTLC
 	// before syncing to disk.
@@ -362,10 +362,10 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 
 func TestChannelStateTransition(t *testing.T) {
 	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
-	defer cleanUp()
 
 	// First create a minimal channel, then perform a full sync in order to
 	// persist the data.

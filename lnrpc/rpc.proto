@@ -256,16 +256,18 @@ message ListPeersResponse {
 message GetInfoRequest{}
 message GetInfoResponse {
     string identity_pubkey = 1;
+    string alias = 2;
 
-    uint32 num_pending_channels = 2;
-    uint32 num_active_channels = 3;
+    uint32 num_pending_channels = 3;
+    uint32 num_active_channels = 4;
 
-    uint32 num_peers = 4;
+    uint32 num_peers = 5;
 
-    uint32 block_height = 5;
+    uint32 block_height = 6;
+    string block_hash  = 8;
 
-    bool synced_to_chain = 6;
-    bool testnet = 7;
+    bool synced_to_chain = 9;
+    bool testnet = 10;
 }
 
 message ConfirmationUpdate {

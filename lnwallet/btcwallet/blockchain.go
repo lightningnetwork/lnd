@@ -6,17 +6,12 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
-// GetCurrentHeight returns the current height of the known block within the
-// main chain.
+// GetBestBlock returns the current height and hash of the best known block
+// within the main chain.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetCurrentHeight() (int32, error) {
-	_, height, err := b.rpc.GetBestBlock()
-	if err != nil {
-		return 0, err
-	}
-
-	return height, nil
+func (b *BtcWallet) GetBestBlock() (*wire.ShaHash, int32, error) {
+	return b.rpc.GetBestBlock()
 }
 
 // GetTxOut returns the original output referenced by the passed outpoint.

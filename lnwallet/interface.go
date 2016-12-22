@@ -114,7 +114,7 @@ type WalletController interface {
 	ConfirmedBalance(confs int32, witness bool) (btcutil.Amount, error)
 
 	// NewAddress returns the next external or internal address for the
-	// wallet dicatated by the value of the `change` paramter. If change is
+	// wallet dictated by the value of the `change` parameter. If change is
 	// true, then an internal address should be used, otherwise an external
 	// address should be returned. The type of address returned is dictated
 	// by the wallet's capabilities, and may be of type: p2sh, p2pkh,
@@ -162,7 +162,7 @@ type WalletController interface {
 	LockOutpoint(o wire.OutPoint)
 
 	// UnlockOutpoint unlocks an previously locked output, marking it
-	// eligible for coin seleciton.
+	// eligible for coin selection.
 	UnlockOutpoint(o wire.OutPoint)
 
 	// PublishTransaction performs cursory validation (dust checks, etc),
@@ -201,23 +201,24 @@ type WalletController interface {
 // TODO(roasbeef): move to diff package perhaps?
 // TODO(roasbeef): move publish txn here?
 type BlockChainIO interface {
-	// GetCurrentHeight returns the current height of the valid most-work
-	// chain the implementation is aware of.
-	GetCurrentHeight() (int32, error)
+	// GetBestBlock returns the current height and block hash of the valid
+	// most-work chain the implementation is aware of.
+	GetBestBlock() (*wire.ShaHash, int32, error)
 
 	// GetTxOut returns the original output referenced by the passed
 	// outpoint.
 	GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, error)
 
 	// GetTransaction returns the full transaction identified by the passed
- 	// transaction ID.
- 	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
+	// transaction ID.
+	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
 
-	// GetBlockHash returns the hash of the block in the best block chain at the
-	// given height.
+	// GetBlockHash returns the hash of the block in the best block chain
+	// at the given height.
 	GetBlockHash(blockHeight int64) (*wire.ShaHash, error)
 
-	// GetBlock returns a block by the given hash.
+	// GetBlock returns the block in the main chain identified by the given
+	// hash.
 	GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error)
 }
 
@@ -278,14 +279,14 @@ type Signer interface {
 	// transaction with the signature as defined within the passed
 	// SignDescriptor. This method should be capable of generating the
 	// proper input script for both regular p2wkh output and p2wkh outputs
-	// nested within a regualr p2sh output.
+	// nested within a regular p2sh output.
 	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete
-// WalletController implementation. A driver is indentified by a globally
-// unique string identifier along with a 'New()' method which is responsible
-// for initializing a particular WalletController concrete implementation.
+// WalletController implementation. A driver is identified by a globally unique
+// string identifier along with a 'New()' method which is responsible for
+// initializing a particular WalletController concrete implementation.
 type WalletDriver struct {
 	// WalletType is a string which uniquely identifes the WalletController
 	// that this driver, drives.
@@ -293,8 +294,8 @@ type WalletDriver struct {
 
 	// New creates a new instance of a concrete WalletController
 	// implementation given a variadic set up arguments. The function takes
-	// a varidaic number of interface paramters in order to provide
-	// initialization flexibility, thereby accomodating several potential
+	// a varidaic number of interface parameters in order to provide
+	// initialization flexibility, thereby accommodating several potential
 	// WalletController implementations.
 	New func(args ...interface{}) (WalletController, error)
 }
@@ -337,7 +338,7 @@ func RegisterWallet(driver *WalletDriver) error {
 	return nil
 }
 
-// SupportedWallets returns a slice of strings that represents the walelt
+// SupportedWallets returns a slice of strings that represents the wallet
 // drivers that have been registered and are therefore supported.
 //
 // NOTE: This function is safe for concurrent access.

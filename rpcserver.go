@@ -422,7 +422,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	pendingChannels := r.server.fundingMgr.NumPendingChannels()
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
-	currentHeight, err := r.server.bio.GetCurrentHeight()
+	bestHash, bestHeight, err := r.server.bio.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +437,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		NumPendingChannels: pendingChannels,
 		NumActiveChannels:  activeChannels,
 		NumPeers:           uint32(len(serverPeers)),
-		BlockHeight:        uint32(currentHeight),
+		BlockHeight:        uint32(bestHeight),
+		BlockHash:          bestHash.String(),
 		SyncedToChain:      isSynced,
 		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
 	}, nil

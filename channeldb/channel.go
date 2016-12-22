@@ -456,6 +456,8 @@ type ChannelDelta struct {
 	RemoteBalance btcutil.Amount
 	UpdateNum     uint32
 
+	// TODO(roasbeef): add blockhash or timestamp?
+
 	Htlcs []*HTLC
 }
 
@@ -690,8 +692,9 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	channel *OpenChannel) error {
 
 	// First write out all the "common" fields using the field's prefix
-	// appened with the channel's ID. These fields go into a top-level bucket
-	// to allow for ease of metric aggregation via efficient prefix scans.
+	// append with the channel's ID. These fields go into a top-level
+	// bucket to allow for ease of metric aggregation via efficient prefix
+	// scans.
 	if err := putChanCapacity(openChanBucket, channel); err != nil {
 		return err
 	}

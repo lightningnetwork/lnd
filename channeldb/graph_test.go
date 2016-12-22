@@ -74,6 +74,12 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		t.Fatalf("unable to locate node: %v", err)
 	}
 
+	if _, exists, err := graph.HasLightningNode(testPub); err != nil {
+		t.Fatalf("unable to query for node: %v", err)
+	} else if !exists {
+		t.Fatalf("node should be found but wasn't")
+	}
+
 	// The two nodes should match exactly!
 	if !reflect.DeepEqual(node, dbNode) {
 		t.Fatalf("retrieved node doesn't match: expected %#v\n, got %#v\n",
@@ -213,15 +219,6 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 
-	// Check for existence of the edge within the database, it should be
-	// found.
-	found, err := graph.HasChannelEdge(chanID)
-	if err != nil {
-		t.Fatalf("unable to query for edge: %v", err)
-	} else if !found {
-		t.Fatalf("graph should have of inserted edge")
-	}
-
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
 	if err := graph.DeleteChannelEdge(&outpoint); err != nil {
@@ -327,6 +324,15 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	}
 	if err := graph.UpdateEdgeInfo(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Check for existence of the edge within the database, it should be
+	// found.
+	_, _, found, err := graph.HasChannelEdge(chanID)
+	if err != nil {
+		t.Fatalf("unable to query for edge: %v", err)
+	} else if !found {
+		t.Fatalf("graph should have of inserted edge")
 	}
 
 	// With the edges inserted, perform some queries to ensure that they've

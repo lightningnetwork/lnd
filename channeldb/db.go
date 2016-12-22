@@ -10,7 +10,6 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -56,13 +55,12 @@ var bufPool = &sync.Pool{
 // schedules, and reputation data.
 type DB struct {
 	*bolt.DB
-	netParams *chaincfg.Params
-	dbPath    string
+	dbPath string
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
 // udpates will take plave as necessary.
-func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
+func Open(dbPath string) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
 	if !fileExists(path) {
@@ -77,9 +75,8 @@ func Open(dbPath string, netParams *chaincfg.Params) (*DB, error) {
 	}
 
 	chanDB := &DB{
-		DB:        bdb,
-		netParams: netParams,
-		dbPath:    dbPath,
+		DB:     bdb,
+		dbPath: dbPath,
 	}
 
 	// Synchronize the version of database and apply migrations if needed.

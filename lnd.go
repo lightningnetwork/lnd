@@ -60,7 +60,7 @@ func lndMain() error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related meta-data.
-	chanDB, err := channeldb.Open(cfg.DataDir, activeNetParams.Params)
+	chanDB, err := channeldb.Open(cfg.DataDir)
 	if err != nil {
 		fmt.Println("unable to open channeldb: ", err)
 		return err

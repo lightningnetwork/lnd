@@ -92,7 +92,7 @@ func makeTestDB() (*DB, func(), error) {
 	}
 
 	// Next, create channeldb for the first time.
-	cdb, err := Open(tempDirName, netParams)
+	cdb, err := Open(tempDirName)
 	if err != nil {
 		return nil, nil, err
 	}

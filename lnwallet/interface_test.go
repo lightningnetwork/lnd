@@ -326,7 +326,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	bio lnwallet.BlockChainIO) (*lnwallet.LightningWallet, error) {
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	cdb, err := channeldb.Open(dbDir, &chaincfg.SegNet4Params)
+	cdb, err := channeldb.Open(dbDir)
 	if err != nil {
 		return nil, err
 	}

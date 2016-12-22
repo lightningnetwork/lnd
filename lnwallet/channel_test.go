@@ -16,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -231,13 +230,13 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 
 	alicePath, err := ioutil.TempDir("", "alicedb")
-	dbAlice, err := channeldb.Open(alicePath, &chaincfg.TestNet3Params)
+	dbAlice, err := channeldb.Open(alicePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	bobPath, err := ioutil.TempDir("", "bobdb")
-	dbBob, err := channeldb.Open(bobPath, &chaincfg.TestNet3Params)
+	dbBob, err := channeldb.Open(bobPath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -871,7 +870,7 @@ func TestCheckDustLimit(t *testing.T) {
 	bobDustLimit := bobChannel.channelState.OurDustLimit
 	htlcAmount := btcutil.Amount(500)
 
-	if !((htlcAmount > aliceDustLimit) && (bobDustLimit  > htlcAmount)) {
+	if !((htlcAmount > aliceDustLimit) && (bobDustLimit > htlcAmount)) {
 		t.Fatal("htlc amount needs to be above Alice's dust limit, but " +
 			"below Bob's dust limit .")
 	}

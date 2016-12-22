@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/roasbeef/btcd/btcec"
 	"io"
+
+	"github.com/roasbeef/btcd/btcec"
 )
 
 // ChannelUpdateAnnouncement message is used after channel has been initially
@@ -18,7 +19,7 @@ type ChannelUpdateAnnouncement struct {
 	Signature *btcec.Signature
 
 	// ChannelID is the unique description of the funding transaction.
-	ChannelID *ChannelID
+	ChannelID ChannelID
 
 	// Timestamp allows ordering in the case of multiple announcements.
 	// We should ignore the message if timestamp is not greater than

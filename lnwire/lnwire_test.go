@@ -7,10 +7,11 @@ import (
 	"reflect"
 	"testing"
 
+	"net"
+
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"net"
 )
 
 // Common variables and functions for the message tests
@@ -103,7 +104,7 @@ var (
 
 	someAddress = &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8333}
 
-	someChannelID = &ChannelID{
+	someChannelID = ChannelID{
 		BlockHeight: maxUint24,
 		TxIndex:     maxUint24,
 		TxPosition:  maxUint16,

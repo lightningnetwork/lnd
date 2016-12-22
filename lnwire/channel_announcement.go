@@ -44,7 +44,7 @@ type ChannelAnnouncement struct {
 	SecondNodeSig *btcec.Signature
 
 	// ChannelID is the unique description of the funding transaction.
-	ChannelID *ChannelID
+	ChannelID ChannelID
 
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring the bitcoin

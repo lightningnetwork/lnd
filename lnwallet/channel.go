@@ -432,6 +432,15 @@ type LightningChannel struct {
 	// counter party has broadcast a prior *revoked* state.
 	ContractBreach chan *BreachRetribution
 
+	// LocalFundingKey is the public key under control by the wallet that
+	// was used for the 2-of-2 funding output which created this channel.
+	LocalFundingKey *btcec.PublicKey
+
+	// RemoteFundingKey is the public key for the remote channel counter
+	// party  which used for the 2-of-2 funding output which created this
+	// channel.
+	RemoteFundingKey *btcec.PublicKey
+
 	started  int32
 	shutdown int32
 
@@ -468,6 +477,8 @@ func NewLightningChannel(signer Signer, bio BlockChainIO,
 		ForceCloseSignal:      make(chan struct{}),
 		UnilateralCloseSignal: make(chan struct{}),
 		ContractBreach:        make(chan *BreachRetribution, 1),
+		LocalFundingKey:       state.OurMultiSigKey,
+		RemoteFundingKey:      state.TheirMultiSigKey,
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for

@@ -3,6 +3,7 @@ package btcwallet
 import (
 	"encoding/hex"
 
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -73,3 +74,7 @@ func (b *BtcWallet) GetBlockHash(blockHeight int64) (*wire.ShaHash, error) {
 
 	return blockHash, nil
 }
+
+// A compile time check to ensure that BtcWallet implements the BlockChainIO
+// interface.
+var _ lnwallet.WalletController = (*BtcWallet)(nil)

@@ -199,3 +199,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 
 	return inputScript, nil
 }
+
+// A compile time check to ensure that BtcWallet implements the Signer
+// interface.
+var _ lnwallet.Signer = (*BtcWallet)(nil)

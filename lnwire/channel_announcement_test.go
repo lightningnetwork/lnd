@@ -28,6 +28,13 @@ func TestChannelAnnoucementEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to encode ChannelAnnouncement: %v", err)
 	}
 
+	// Ensure the max payload estimate is correct.
+	serializedLength := uint32(b.Len())
+	if serializedLength != ca.MaxPayloadLength(0) {
+		t.Fatalf("payload length estimate is incorrect: expected %v "+
+			"got %v", serializedLength, ca.MaxPayloadLength(0))
+	}
+
 	// Deserialize the encoded CA message into a new empty struct.
 	ca2 := &ChannelAnnouncement{}
 	if err := ca2.Decode(&b, 0); err != nil {

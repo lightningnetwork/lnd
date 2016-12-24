@@ -24,39 +24,51 @@ type RGB struct {
 	blue  uint8
 }
 
-// Alias a hex encoded UTF-8 string that may be displayed
-// as an alternative to the node's ID. Notice that aliases are not
-// unique and may be freely chosen by the node operators.
-type Alias [32]byte
+// Alias a hex encoded UTF-8 string that may be displayed as an alternative to
+// the node's ID. Notice that aliases are not unique and may be freely chosen
+// by the node operators.
+type Alias struct {
+	data     [32]byte
+	aliasLen int
+}
 
 // NewAlias create the alias from string and also checks spec requirements.
 func NewAlias(s string) (Alias, error) {
-	var a Alias
-
 	data := []byte(s)
-	if len(data) > aliasSpecLen {
-		return a, errors.Errorf("alias too long the size "+
-			"must be less than %v", aliasSpecLen)
+	return newAlias(data)
+}
+
+func newAlias(data []byte) (Alias, error) {
+	var a [32]byte
+
+	aliasEnd := len(data)
+	for data[aliasEnd-1] == 0 && aliasEnd > 0 {
+		aliasEnd--
 	}
 
-	copy(a[:], data)
-	return a, nil
+	copy(a[:aliasEnd], data[:aliasEnd])
+
+	return Alias{
+		data:     a,
+		aliasLen: aliasEnd,
+	}, nil
 }
 
 func (a *Alias) String() string {
-	return string(a[:])
+	return string(a.data[:a.aliasLen])
 }
 
-// Validate check that alias data lenght is lower than spec size.
+// Validate check that alias data length is lower than spec size.
 func (a *Alias) Validate() error {
-	nonzero := len(a)
-	for a[nonzero-1] == 0 && nonzero > 0 {
+	nonzero := len(a.data)
+	for a.data[nonzero-1] == 0 && nonzero > 0 {
 		nonzero--
 	}
 
 	if nonzero > aliasSpecLen {
 		return errors.New("alias should be less then 21 bytes")
 	}
+
 	return nil
 }
 

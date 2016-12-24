@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io"
 
+	"net"
+
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"net"
 )
 
 // MaxSliceLength is the maximum allowed lenth for any opaque byte slices in
@@ -379,7 +380,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case Alias:
-		if err := writeElements(w, ([32]byte)(e)); err != nil {
+		if err := writeElements(w, ([32]byte)(e.data)); err != nil {
 			return err
 		}
 
@@ -720,8 +721,11 @@ func readElement(r io.Reader, element interface{}) error {
 		if err := readElements(r, &a); err != nil {
 			return err
 		}
-		*e = (Alias)(a)
 
+		*e, err = newAlias(a[:])
+		if err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

@@ -51,6 +51,9 @@ var _ Message = (*ChannelAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Validate() error {
+	// TODO(roasbeef): move validation to discovery service
+	return nil
+
 	var sigHash []byte
 
 	sigHash = wire.DoubleSha256(a.FirstNodeID.SerializeCompressed())

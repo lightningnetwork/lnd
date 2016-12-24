@@ -95,6 +95,9 @@ var _ Message = (*NodeAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Validate() error {
+	// TODO(roasbeef): move validation to discovery service
+	return nil
+
 	if err := a.Alias.Validate(); err != nil {
 		return err
 	}

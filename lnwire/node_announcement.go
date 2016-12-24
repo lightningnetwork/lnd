@@ -178,11 +178,11 @@ func (c *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	// Ipv6 - 16 bytes
 	length += 16
 
-	// Port - 2 bytes
-	length += 2
+	// Port - 4 bytes
+	length += 4
 
-	// NodeID - 32 bytes
-	length += 32
+	// NodeID - 33 bytes
+	length += 33
 
 	// RGBColor - 3 bytes
 	length += 3
@@ -193,6 +193,7 @@ func (c *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	// Alias - 32 bytes
 	length += 32
 
+	// 158
 	return length
 }
 

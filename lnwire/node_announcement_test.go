@@ -2,10 +2,11 @@ package lnwire
 
 import (
 	"bytes"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 	"reflect"
 	"testing"
+
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
 )
 
 func TestNodeAnnouncementEncodeDecode(t *testing.T) {
@@ -90,5 +91,28 @@ func TestNodeAnnoucementBadValidation(t *testing.T) {
 
 	if err := na.Validate(); err == nil {
 		t.Fatal("error wasn't raised")
+	}
+}
+
+func TestNodeAnnoucementPayloadLength(t *testing.T) {
+	na := &NodeAnnouncement{
+		Signature: someSig,
+		Timestamp: maxUint32,
+		Address:   someAddress,
+		NodeID:    pubKey,
+		RGBColor:  someRGB,
+		pad:       maxUint16,
+		Alias:     someAlias,
+	}
+
+	var b bytes.Buffer
+	if err := na.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to encode node: %v", err)
+	}
+
+	serializedLength := uint32(b.Len())
+	if serializedLength != na.MaxPayloadLength(0) {
+		t.Fatalf("payload length estimate is incorrect: expected %v "+
+			"got %v", serializedLength, na.MaxPayloadLength(0))
 	}
 }

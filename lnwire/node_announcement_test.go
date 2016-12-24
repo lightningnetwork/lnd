@@ -68,32 +68,6 @@ func TestNodeAnnoucementValidation(t *testing.T) {
 	}
 }
 
-func TestNodeAnnoucementBadValidation(t *testing.T) {
-	getKeys := func(s string) (*btcec.PrivateKey, *btcec.PublicKey) {
-		return btcec.PrivKeyFromBytes(btcec.S256(), []byte(s))
-	}
-
-	na := &NodeAnnouncement{
-		Timestamp: maxUint32,
-		Address:   someAddress,
-		NodeID:    pubKey, // wrong pubkey
-		RGBColor:  someRGB,
-		pad:       maxUint16,
-		Alias:     someAlias,
-	}
-
-	nodePrivKey, _ := getKeys("node-id-1")
-	dataToSign, _ := na.DataToSign()
-	hash := wire.DoubleSha256(dataToSign)
-
-	signature, _ := nodePrivKey.Sign(hash)
-	na.Signature = signature
-
-	if err := na.Validate(); err == nil {
-		t.Fatal("error wasn't raised")
-	}
-}
-
 func TestNodeAnnoucementPayloadLength(t *testing.T) {
 	na := &NodeAnnouncement{
 		Signature: someSig,

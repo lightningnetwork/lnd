@@ -23,8 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/routing/rt/graph"
 )
 
-// server is the main server of the Lightning Network Daemon. The server
-// houses global state pertianing to the wallet, database, and the rpcserver.
+// server is the main server of the Lightning Network Daemon. The server houses
+// global state pertaining to the wallet, database, and the rpcserver.
 // Additionally, the server is also used as a central messaging bus to interact
 // with any of its companion objects.
 type server struct {
@@ -339,6 +339,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 
 	// If this was an RPC initiated outbound connection that was
 	// successfully established, then send a response back to the client so
+	// they won't be blocked indefinitely.
 	pubStr := string(peerAddr.IdentityKey.SerializeCompressed())
 	s.pendingConnMtx.RLock()
 	msg, ok := s.pendingConnRequests[pubStr]
@@ -380,7 +381,6 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	// up with a duplicate connecting to the same peer.
 	s.pendingConnMtx.RLock()
 	if connReq, ok := s.persistentConnReqs[pubStr]; ok {
-		fmt.Println("trying to cancel out attempt")
 		s.connMgr.Remove(connReq.ID())
 	}
 	s.pendingConnMtx.RUnlock()
@@ -581,7 +581,7 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 	// If there's not already a pending or active connection to this node,
 	// then instruct the connection manager to attempt to establish a
 	// persistent connection to the peer.
-	srvrLog.Debugf("connecting to %v", addr)
+	srvrLog.Debugf("Connecting to %v", addr)
 	go s.connMgr.Connect(&connmgr.ConnReq{
 		Addr:      addr,
 		Permanent: true,

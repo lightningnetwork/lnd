@@ -157,7 +157,7 @@ func (i *invoiceRegistry) SettleInvoice(rHash wire.ShaHash) error {
 	return nil
 }
 
-// notifyClients notifies all currently registered invoice notificaiton clients
+// notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
 func (i *invoiceRegistry) notifyClients(invoice *channeldb.Invoice, settle bool) {
 	i.clientMtx.Lock()

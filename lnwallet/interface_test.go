@@ -475,9 +475,13 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 		t.Fatalf("channel state not properly saved")
 	}
 
-	// Assert that tha channel opens after a single block.
-	lnc := assertChannelOpen(t, miner, uint32(numReqConfs),
-		chanReservation.DispatchChan())
+	// Assert that the channel opens after a single block.
+	lnChan := make(chan *lnwallet.LightningChannel, 1)
+	go func() {
+		channel, _, _ := chanReservation.DispatchChan()
+		lnChan <- channel
+	}()
+	lnc := assertChannelOpen(t, miner, uint32(numReqConfs), lnChan)
 
 	// Now that the channel is open, execute a cooperative closure of the
 	// now open channel.
@@ -611,7 +615,7 @@ func testCancelNonExistantReservation(miner *rpctest.Harness,
 }
 
 func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
-	lnwallet *lnwallet.LightningWallet, t *testing.T) {
+	wallet *lnwallet.LightningWallet, t *testing.T) {
 
 	t.Log("Running single funder workflow initiator test")
 
@@ -627,7 +631,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 
 	// Initialize a reservation for a channel with 4 BTC funded solely by us.
 	fundingAmt := btcutil.Amount(4 * 1e8)
-	chanReservation, err := lnwallet.InitChannelReservation(fundingAmt,
+	chanReservation, err := wallet.InitChannelReservation(fundingAmt,
 		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4, 540)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
@@ -729,7 +733,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	// TODO(roasbeef): de-duplicate
 	fundingTx := chanReservation.FinalFundingTx()
 	fundingSha := fundingTx.TxSha()
-	channels, err := lnwallet.ChannelDB.FetchOpenChannels(bobNode.id)
+	channels, err := wallet.ChannelDB.FetchOpenChannels(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
 	}
@@ -746,7 +750,12 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 			channeldb.SingleFunder, channels[0].ChanType)
 	}
 
-	assertChannelOpen(t, miner, uint32(numReqConfs), chanReservation.DispatchChan())
+	lnChan := make(chan *lnwallet.LightningChannel, 1)
+	go func() {
+		channel, _, _ := chanReservation.DispatchChan()
+		lnChan <- channel
+	}()
+	assertChannelOpen(t, miner, uint32(numReqConfs), lnChan)
 }
 
 func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,

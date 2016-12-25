@@ -934,6 +934,17 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	return
 }
 
+// openChanDetails contains a "finalized" channel which can be considered
+// "open" according to the requested confirmation depth at reservation
+// initialization. Additionally, the struct contains additional details
+// pertaining to the exact location in the main chain in-which the transaction
+// was confirmed.
+type openChanDetails struct {
+	channel     *LightningChannel
+	blockHeight uint32
+	txIndex     uint32
+}
+
 // handleFundingCounterPartySigs is the final step in the channel reservation
 // workflow. During this step, we validate *all* the received signatures for
 // inputs to the funding transaction. If any of these are invalid, we bail,
@@ -1212,7 +1223,9 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
 
-	res.chanOpen <- channel
+	res.chanOpen <- &openChanDetails{
+		channel: channel,
+	}
 	req.err <- nil
 }
 
@@ -1231,9 +1244,13 @@ func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation)
 
 	// Wait until the specified number of confirmations has been reached,
 	// or the wallet signals a shutdown.
+	var (
+		confDetails *chainntnfs.TxConfirmation
+		ok          bool
+	)
 out:
 	select {
-	case _, ok := <-confNtfn.Confirmed:
+	case confDetails, ok = <-confNtfn.Confirmed:
 		// Reading a falsey value for the second parameter indicates that
 		// the notifier is in the process of shutting down. Therefore, we
 		// don't count this as the signal that the funding transaction has
@@ -1253,7 +1270,11 @@ out:
 	// TODO(roasbeef): CreationTime once tx is 'open'
 	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
-	res.chanOpen <- channel
+	res.chanOpen <- &openChanDetails{
+		channel:     channel,
+		blockHeight: confDetails.BlockHeight,
+		txIndex:     confDetails.TxIndex,
+	}
 }
 
 // selectCoinsAndChange performs coin selection in order to obtain witness

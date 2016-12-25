@@ -121,10 +121,11 @@ type ChannelReservation struct {
 	// channel should be considered open.
 	numConfsToOpen uint16
 
-	// A channel which will be sent on once the channel is considered
-	// 'open'. A channel is open once the funding transaction has reached
-	// a sufficient number of confirmations.
-	chanOpen chan *LightningChannel
+	// chanOpen houses a struct containing the channel and additional
+	// confirmation details will be sent on once the channel is considered
+	// 'open'. A channel is open once the funding transaction has reached a
+	// sufficient number of confirmations.
+	chanOpen chan *openChanDetails
 
 	wallet *LightningWallet
 }
@@ -208,7 +209,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		},
 		numConfsToOpen: numConfs,
 		reservationID:  id,
-		chanOpen:       make(chan *LightningChannel, 1),
+		chanOpen:       make(chan *openChanDetails, 1),
 		wallet:         wallet,
 	}
 }
@@ -437,8 +438,12 @@ func (r *ChannelReservation) Cancel() error {
 //
 // NOTE: If this method is called before .CompleteReservation(), it will block
 // indefinitely.
-func (r *ChannelReservation) DispatchChan() <-chan *LightningChannel {
-	return r.chanOpen
+func (r *ChannelReservation) DispatchChan() (*LightningChannel, uint32, uint32) {
+	// TODO(roasbeef): goroutine sending in wallet should be lifted up into
+	// the fundingMgr
+	openDetails := <-r.chanOpen
+
+	return openDetails.channel, openDetails.blockHeight, openDetails.txIndex
 }
 
 // FinalizeReservation completes the pending reservation, returning an active
@@ -455,5 +460,5 @@ func (r *ChannelReservation) FinalizeReservation() (*LightningChannel, error) {
 		err:              errChan,
 	}
 
-	return <-r.chanOpen, <-errChan
+	return (<-r.chanOpen).channel, <-errChan
 }

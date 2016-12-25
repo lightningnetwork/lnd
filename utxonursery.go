@@ -137,17 +137,18 @@ out:
 				// the output back to the incubator once the
 				// source txn has been confirmed.
 				go func() {
-					confHeight, ok := <-confChan.Confirmed
+					confDetails, ok := <-confChan.Confirmed
 					if !ok {
 						utxnLog.Errorf("notification chan "+
 							"closed, can't advance output %v", outpoint)
 						return
 					}
 
+					confHeight := uint32(confDetails.BlockHeight)
 					utxnLog.Infof("Outpoint %v confirmed in "+
 						"block %v moving to mid-stage",
 						outpoint, confHeight)
-					immatureUtxo.confHeight = uint32(confHeight)
+					immatureUtxo.confHeight = confHeight
 					midStageOutputs <- immatureUtxo
 				}()
 			}

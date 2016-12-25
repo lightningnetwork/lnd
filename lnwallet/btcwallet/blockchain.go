@@ -32,7 +32,7 @@ func (b *BtcWallet) GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, erro
 	return &wire.TxOut{
 		// Sadly, gettxout returns the output value in BTC
 		// instead of satoshis.
-		Value:    int64(txout.Value) * 1e8,
+		Value:    int64(txout.Value * 1e8),
 		PkScript: pkScript,
 	}, nil
 }

@@ -126,8 +126,13 @@ func (b *BtcdNotifier) Start() error {
 		return err
 	}
 
+	_, currentHeight, err := b.chainConn.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
 	b.wg.Add(1)
-	go b.notificationDispatcher()
+	go b.notificationDispatcher(currentHeight)
 
 	return nil
 }
@@ -213,9 +218,7 @@ func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetai
 
 // notificationDispatcher is the primary goroutine which handles client
 // notification registrations, as well as notification dispatches.
-func (b *BtcdNotifier) notificationDispatcher() {
-	var currentHeight int32
-
+func (b *BtcdNotifier) notificationDispatcher(currentHeight int32) {
 out:
 	for {
 		select {
@@ -276,7 +279,7 @@ out:
 				update.blockHash)
 
 			newHeight := update.blockHeight
-			for _, tx := range newBlock.Transactions {
+			for i, tx := range newBlock.Transactions {
 				// Check if the inclusion of this transaction
 				// within a block by itself triggers a block
 				// confirmation threshold, if so send a
@@ -285,7 +288,7 @@ out:
 				// the future once additional confirmations are
 				// attained.
 				txSha := tx.TxSha()
-				b.checkConfirmationTrigger(&txSha, newHeight)
+				b.checkConfirmationTrigger(&txSha, update, i)
 			}
 
 			// A new block has been connected to the main
@@ -354,20 +357,26 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 		return false
 	}
 
+	// TODO(roasbeef): need to obtain proper hash+index info
+	confDetails := &chainntnfs.TxConfirmation{
+		BlockHeight: uint32(currentHeight) - uint32(tx.Confirmations),
+	}
+
 	// If the transaction has more that enough confirmations, then we can
-	// dispatch it immediately after obtaininig for information w.r.t
+	// dispatch it immediately after obtaining for information w.r.t
 	// exaclty *when* if got all its confirmations.
 	if uint32(tx.Confirmations) >= msg.numConfirmations {
-		msg.finConf <- int32(tx.Confirmations)
+		msg.finConf <- confDetails
 		return true
 	}
 
-	// Otherwise, the transaciton has only been *partially* confirmed, so
-	// we need to insert it into the confirmationheap.
+	// Otherwise, the transaction has only been *partially* confirmed, so
+	// we need to insert it into the confirmation heap.
 	confsLeft := msg.numConfirmations - uint32(tx.Confirmations)
 	confHeight := uint32(currentHeight) + confsLeft
 	heapEntry := &confEntry{
 		msg,
+		confDetails,
 		confHeight,
 	}
 	heap.Push(b.confHeap, heapEntry)
@@ -411,7 +420,9 @@ func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 	// is eligible until there are no more eligible entries.
 	nextConf := heap.Pop(b.confHeap).(*confEntry)
 	for nextConf.triggerHeight <= uint32(newBlockHeight) {
-		nextConf.finConf <- newBlockHeight
+		// TODO(roasbeef): shake out possible of by one in height calc
+		// for historical dispatches
+		nextConf.finConf <- nextConf.initialConfDetails
 
 		if b.confHeap.Len() == 0 {
 			return
@@ -428,7 +439,8 @@ func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 // matches, yet needs additional confirmations, it is added to the confirmation
 // heap to be triggered at a later time.
 // TODO(roasbeef): perhaps lookup, then track by inputs instead?
-func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight int32) {
+func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash,
+	newTip *chainUpdate, txIndex int) {
 
 	// If a confirmation notification has been registered
 	// for this txid, then either trigger a notification
@@ -445,11 +457,17 @@ func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight
 		}()
 
 		for _, confClient := range confClients {
+			confDetails := &chainntnfs.TxConfirmation{
+				BlockHash:   newTip.blockHash,
+				BlockHeight: uint32(newTip.blockHeight),
+				TxIndex:     uint32(txIndex),
+			}
+
 			if confClient.numConfirmations == 1 {
 				chainntnfs.Log.Infof("Dispatching single conf "+
 					"notification, sha=%v, height=%v", txSha,
-					blockHeight)
-				confClient.finConf <- blockHeight
+					newTip.blockHeight)
+				confClient.finConf <- confDetails
 				continue
 			}
 
@@ -459,10 +477,11 @@ func (b *BtcdNotifier) checkConfirmationTrigger(txSha *wire.ShaHash, blockHeight
 			// The heapConf allows us to easily keep track of
 			// which notification(s) we should fire off with
 			// each incoming block.
-			confClient.initialConfirmHeight = uint32(blockHeight)
+			confClient.initialConfirmHeight = uint32(newTip.blockHeight)
 			finalConfHeight := uint32(confClient.initialConfirmHeight + confClient.numConfirmations - 1)
 			heapEntry := &confEntry{
 				confClient,
+				confDetails,
 				finalConfHeight,
 			}
 			heap.Push(b.confHeap, heapEntry)
@@ -533,7 +552,7 @@ type confirmationsNotification struct {
 	initialConfirmHeight uint32
 	numConfirmations     uint32
 
-	finConf      chan int32
+	finConf      chan *chainntnfs.TxConfirmation
 	negativeConf chan int32 // TODO(roasbeef): re-org funny business
 }
 
@@ -546,7 +565,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *wire.ShaHash,
 	ntfn := &confirmationsNotification{
 		txid:             txid,
 		numConfirmations: numConfs,
-		finConf:          make(chan int32, 1),
+		finConf:          make(chan *chainntnfs.TxConfirmation, 1),
 		negativeConf:     make(chan int32, 1),
 	}
 

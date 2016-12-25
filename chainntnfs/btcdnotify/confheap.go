@@ -1,8 +1,12 @@
 package btcdnotify
 
+import "github.com/lightningnetwork/lnd/chainntnfs"
+
 // confEntry represents an entry in the min-confirmation heap. .
 type confEntry struct {
 	*confirmationsNotification
+
+	initialConfDetails *chainntnfs.TxConfirmation
 
 	triggerHeight uint32
 }

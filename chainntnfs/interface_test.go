@@ -74,7 +74,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan int32)
+	confSent := make(chan *chainntnfs.TxConfirmation)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()
@@ -113,7 +113,7 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan int32)
+	confSent := make(chan *chainntnfs.TxConfirmation)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()
@@ -173,7 +173,7 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 			t.Fatalf("unable to generate single block: %v", err)
 		}
 
-		confSent := make(chan int32)
+		confSent := make(chan *chainntnfs.TxConfirmation)
 		go func() {
 			confSent <- <-confIntents[i].Confirmed
 		}()
@@ -445,7 +445,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	confSent := make(chan int32)
+	confSent := make(chan *chainntnfs.TxConfirmation)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()
@@ -487,7 +487,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
-	confSent = make(chan int32)
+	confSent = make(chan *chainntnfs.TxConfirmation)
 	go func() {
 		confSent <- <-confIntent.Confirmed
 	}()

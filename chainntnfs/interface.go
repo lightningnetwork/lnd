@@ -57,7 +57,21 @@ type ChainNotifier interface {
 	Stop() error
 }
 
-// TODO(roasbeef): all chans should be receive only.
+// TxConfirmation carries some additional block-level details of the exact
+// block that specified transactions was confirmed wihtin.
+type TxConfirmation struct {
+	// BlockHash is the hash of the block that confirmed the original
+	// transition.
+	BlockHash *wire.ShaHash
+
+	// BlockHeight is the height of the block in which the transaction was
+	// confirmed within.
+	BlockHeight uint32
+
+	// TxIndex is the index within the block of the ultimate confirmed
+	// transaction.
+	TxIndex uint32
+}
 
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
@@ -71,7 +85,11 @@ type ChainNotifier interface {
 // chain, the 'NegativeConf' will be sent upon with a value representing the
 // depth of the re-org.
 type ConfirmationEvent struct {
-	Confirmed chan int32 // MUST be buffered.
+	// Confirmed is a channel that will be sent upon once the transaction
+	// has been fully confirmed. The struct sent will contain all the
+	// details of the channel's confirmation.
+	Confirmed chan *TxConfirmation // MUST be buffered.
+
 	// TODO(roasbeef): all goroutines on ln channel updates should also
 	// have a struct chan that's closed if funding gets re-org out. Need
 	// to sync, to request another confirmation event ntfn, then re-open

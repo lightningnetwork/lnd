@@ -131,11 +131,11 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdge, *ChannelEdge) error)
 		// logically.
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {
-			return ErrGraphNodesNotFound
+			return ErrGraphNoEdgesFound
 		}
 		edgeIndex := edges.Bucket(edgeIndexBucket)
 		if edgeIndex == nil {
-			return ErrGraphNodesNotFound
+			return ErrGraphNoEdgesFound
 		}
 
 		// For each edge pair within the edge index, we fetch each edge
@@ -161,6 +161,10 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdge, *ChannelEdge) error)
 			}
 			edge2.db = c.db
 			edge2.Node.db = c.db
+
+			// TODO(roasbeef): second edge might not have
+			// propagated through network yet (or possibly never
+			// will be)
 
 			// With both edges read, execute the call back. IF this
 			// function returns an error then the transaction will

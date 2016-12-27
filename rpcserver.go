@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"time"
 
@@ -1151,30 +1152,285 @@ func (r *rpcServer) GetTransactions(context.Context,
 	return txDetails, nil
 }
 
-// ShowRoutingTable returns a table-formatted dump of the known routing
-// topology from the PoV of the source node.
-func (r *rpcServer) ShowRoutingTable(ctx context.Context,
-	in *lnrpc.ShowRoutingTableRequest) (*lnrpc.ShowRoutingTableResponse, error) {
+// DescribeGraph returns a description of the latest graph state from the PoV
+// of the node. The graph information is partitioned into two components: all
+// the nodes/vertexes, and all the edges that connect the vertexes themselves.
+// As this is a directed graph, the edges also contain the node directional
+// specific routing policy which includes: the time lock delta, fee
+// information, etc.
+func (r *rpcServer) DescribeGraph(context.Context,
+	*lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
 
-	rpcsLog.Debugf("[ShowRoutingTable]")
+	resp := &lnrpc.ChannelGraph{}
 
-	rtCopy := r.server.routingMgr.GetRTCopy()
+	// Obtain the pinter to the global singleton channel graph, this will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := r.server.chanDB.ChannelGraph()
 
-	var channels []*lnrpc.RoutingTableLink
-	for _, channel := range rtCopy.AllChannels() {
-		channels = append(channels,
-			&lnrpc.RoutingTableLink{
-				Id1:      hex.EncodeToString(channel.Src.ToByte()),
-				Id2:      hex.EncodeToString(channel.Tgt.ToByte()),
-				Outpoint: channel.Id.String(),
-				Capacity: channel.Info.Cpt,
-				Weight:   channel.Info.Wgt,
-			},
-		)
+	// First iterate through all the known nodes (connected or unconnected
+	// within the graph), collating their current state into the RPC
+	// response.
+	err := graph.ForEachNode(func(node *channeldb.LightningNode) error {
+		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
+			LastUpdate: uint32(node.LastUpdate.Unix()),
+			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
+			Address:    node.Address.String(),
+			Alias:      node.Alias,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	return &lnrpc.ShowRoutingTableResponse{
-		Channels: channels,
+	// Next, for each active channel we know of within the graph, create a
+	// similar response which details both the edge information as well as
+	// the routing policies of th nodes connecting the two edges.
+	err = graph.ForEachChannel(func(c1, c2 *channeldb.ChannelEdge) error {
+		edge := marshalDbEdge(c1, c2)
+		resp.Edges = append(resp.Edges, edge)
+		return nil
+	})
+	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func marshalDbEdge(c1, c2 *channeldb.ChannelEdge) *lnrpc.ChannelEdge {
+	node1Pub := c2.Node.PubKey.SerializeCompressed()
+	node2Pub := c1.Node.PubKey.SerializeCompressed()
+
+	edge := &lnrpc.ChannelEdge{
+		ChannelId:  c1.ChannelID,
+		ChanPoint:  c1.ChannelPoint.String(),
+		LastUpdate: uint32(c1.LastUpdate.Unix()),
+		Node1Pub:   hex.EncodeToString(node1Pub),
+		Node2Pub:   hex.EncodeToString(node2Pub),
+		Capacity:   int64(c1.Capacity),
+	}
+
+	edge.Node1Policy = &lnrpc.RoutingPolicy{
+		TimeLockDelta:    uint32(c1.Expiry),
+		MinHtlc:          int64(c1.MinHTLC),
+		FeeBaseMsat:      int64(c1.FeeBaseMSat),
+		FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
+	}
+
+	edge.Node2Policy = &lnrpc.RoutingPolicy{
+		TimeLockDelta:    uint32(c2.Expiry),
+		MinHtlc:          int64(c2.MinHTLC),
+		FeeBaseMsat:      int64(c2.FeeBaseMSat),
+		FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
+	}
+
+	return edge
+}
+
+// GetChainInfo returns the latest authenticated network announcement for the
+// given channel identified by its channel ID: an 8-byte integer which uniquely
+// identifies the location of transaction's funding output within the block
+// chain.
+func (r *rpcServer) GetChanInfo(_ context.Context, in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
+	graph := r.server.chanDB.ChannelGraph()
+
+	edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the database's edge format into the network/RPC edge format
+	// which couples the edge itself along with the directional node
+	// routing policies of each node involved within the channel.
+	channelEdge := marshalDbEdge(edge1, edge2)
+
+	return channelEdge, nil
+}
+
+// GetNodeInfo returns the latest advertised and aggregate authenticated
+// channel information for the specified node identified by its public key.
+func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
+
+	graph := r.server.chanDB.ChannelGraph()
+
+	// First, parse the hex-encoded public key into a full in-memory public
+	// key object we can work with for querying.
+	pubKeyBytes, err := hex.DecodeString(in.PubKey)
+	if err != nil {
+		return nil, err
+	}
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	// With the public key decoded, attempt to fetch the node corresponding
+	// to this public key. If the node cannot be found, then an error will
+	// be returned.
+	node, err := graph.FetchLightningNode(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the node obtained, we'll now iterate through all its out going
+	// edges to gather some basic statistics about its out going channels.
+	var (
+		numChannels  uint32
+		totalCapcity btcutil.Amount
+	)
+	if err := node.ForEachChannel(nil, func(edge *channeldb.ChannelEdge) error {
+		numChannels++
+		totalCapcity += edge.Capacity
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.NodeInfo{
+		Node: &lnrpc.LightningNode{
+			LastUpdate: uint32(node.LastUpdate.Unix()),
+			PubKey:     in.PubKey,
+			Address:    node.Address.String(),
+			Alias:      node.Alias,
+		},
+		NumChannels:   numChannels,
+		TotalCapacity: int64(totalCapcity),
+	}, nil
+}
+
+// QueryRoute attempts to query the daemons' Channel Router for a possible
+// route to a target destination capable of carrying a specific amount of
+// satoshis within the route's flow. The retuned route contains the full
+// details required to craft and send an HTLC, also including the necessary
+// information that should be present within the Sphinx packet encapsualted
+// within the HTLC.
+//
+// TODO(roasbeef): should return a slice of routes in reality
+//  * create separate PR to send based on well formatted route
+func (r *rpcServer) QueryRoute(_ context.Context, in *lnrpc.RouteRequest) (*lnrpc.Route, error) {
+	// First parse the hex-encdoed public key into a full public key objet
+	// we can properly manipulate.
+	pubKeyBytes, err := hex.DecodeString(in.PubKey)
+	if err != nil {
+		return nil, err
+	}
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	// Query the channel router for a possible path to the destination that
+	// can carry `in.Amt` satoshis _including_ the total fee required on
+	// the route.
+	route, err := r.server.chanRouter.FindRoute(pubKey,
+		btcutil.Amount(in.Amt))
+	if err != nil {
+		return nil, err
+	}
+
+	// If a route exsits within the network that is able to support our
+	// request, then we'll convert the result into the format required by
+	// the RPC system.
+	resp := &lnrpc.Route{
+		TotalTimeLock: route.TotalTimeLock,
+		TotalFees:     int64(route.TotalFees),
+		TotalAmt:      int64(route.TotalAmount),
+		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
+	}
+	for i, hop := range route.Hops {
+		resp.Hops[i] = &lnrpc.Hop{
+			ChanId:       hop.Channel.ChannelID,
+			ChanCapacity: int64(hop.Channel.Capacity),
+			AmtToForward: int64(hop.AmtToForward),
+			Fee:          int64(hop.Fee),
+		}
+	}
+
+	return resp, nil
+}
+
+// GetNetworkInfo returns some basic stats about the known channel graph from
+// the PoV of the node.
+func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
+
+	graph := r.server.chanDB.ChannelGraph()
+
+	var (
+		numNodes             uint32
+		numChannels          uint32
+		maxChanOut           uint32
+		totalNetworkCapacity btcutil.Amount
+		minChannelSize       btcutil.Amount = math.MaxInt64
+		maxChannelSize       btcutil.Amount
+	)
+
+	// TODO(roasbeef): ideally all below is completed in a single
+	// transaction
+
+	// First run through all the known nodes in the within our view of the
+	// network, tallying up the total number of nodes, and also gathering
+	// each node so we can measure the graph diamter and degree stats
+	// below.
+	var nodes []*channeldb.LightningNode
+	if err := graph.ForEachNode(func(node *channeldb.LightningNode) error {
+		numNodes++
+		nodes = append(nodes, node)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// With all the nodes gathered, we can now perform a basic traversal to
+	// ascertain the graph's diameter, and also the max out-degree of a
+	// node.
+	for _, node := range nodes {
+		var outDegree uint32
+		err := node.ForEachChannel(nil, func(c *channeldb.ChannelEdge) error {
+			outDegree++
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if outDegree > maxChanOut {
+			outDegree = maxChanOut
+		}
+	}
+
+	// Finally, we traverse each channel visiting both channel edges at
+	// once to avoid double counting any stats we're attempting to gather.
+	if err := graph.ForEachChannel(func(c1, c2 *channeldb.ChannelEdge) error {
+		chanCapacity := c1.Capacity
+
+		if chanCapacity < minChannelSize {
+			minChannelSize = chanCapacity
+		}
+		if chanCapacity > maxChannelSize {
+			maxChannelSize = chanCapacity
+		}
+
+		totalNetworkCapacity += chanCapacity
+
+		numChannels++
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): also add oldest channel?
+	return &lnrpc.NetworkInfo{
+		MaxOutDegree:         maxChanOut,
+		AvgOutDegree:         float64(numChannels) / float64(numNodes),
+		NumNodes:             numNodes,
+		NumChannels:          numChannels,
+		TotalNetworkCapacity: int64(totalNetworkCapacity),
+		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
+		MinChannelSize:       int64(minChannelSize),
+		MaxChannelSize:       int64(maxChannelSize),
 	}, nil
 }
 
@@ -1217,4 +1473,9 @@ func (r *rpcServer) DeleteAllPayments(context.Context,
 	err := r.server.chanDB.DeleteAllPayments()
 	resp := &lnrpc.DeleteAllPaymentsResponse{}
 	return resp, err
+}
+
+// SetAlias...
+func (r *rpcServer) SetAlias(context.Context, *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
+	return nil, nil
 }

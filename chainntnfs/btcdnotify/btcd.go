@@ -344,27 +344,61 @@ out:
 }
 
 // attemptHistoricalDispatch tries to use historical information to decide if a
-// notificaiton ca be disptahced immediately, or is partially confirmed so it
+// notification ca be dispatched immediately, or is partially confirmed so it
 // can skip straight to the confirmations heap.
 func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 	currentHeight int32) bool {
 
+	chainntnfs.Log.Infof("Attempting to trigger dispatch for %v from "+
+		"historical chain", msg.txid)
+
 	// If the transaction already has some or all of the confirmations,
-	// then we may be able to
-	// dispatch it immediately.
+	// then we may be able to dispatch it immediately.
 	tx, err := b.chainConn.GetRawTransactionVerbose(msg.txid)
-	if err != nil {
+	if err != nil || tx == nil {
 		return false
 	}
 
-	// TODO(roasbeef): need to obtain proper hash+index info
+	// As we need to fully populate the returned TxConfirmation struct,
+	// grab the block in which the transaction was confirmed so we can
+	// locate its exact index within the block.
+	blockHash, err := wire.NewShaHashFromStr(tx.BlockHash)
+	if err != nil {
+		chainntnfs.Log.Errorf("unable to get block hash %v for "+
+			"historical dispatch: %v", tx.BlockHash, err)
+		return false
+	}
+	block, err := b.chainConn.GetBlock(blockHash)
+	if err != nil {
+		chainntnfs.Log.Errorf("unable to get block hash: %v", err)
+		return false
+	}
+
+	txHash, err := wire.NewShaHashFromStr(tx.Hash)
+	if err != nil {
+		chainntnfs.Log.Errorf("unable to convert to hash: %v", err)
+		return false
+	}
+
+	// If the block obtained, locate the transaction's index within the
+	// block so we can give the subscriber full confirmation details.
+	var txIndex uint32
+	for i, t := range block.Transactions {
+		h := t.TxSha()
+		if txHash.IsEqual(&h) {
+			txIndex = uint32(i)
+		}
+	}
+
 	confDetails := &chainntnfs.TxConfirmation{
+		BlockHash:   blockHash,
 		BlockHeight: uint32(currentHeight) - uint32(tx.Confirmations),
+		TxIndex:     txIndex,
 	}
 
 	// If the transaction has more that enough confirmations, then we can
 	// dispatch it immediately after obtaining for information w.r.t
-	// exaclty *when* if got all its confirmations.
+	// exactly *when* if got all its confirmations.
 	if uint32(tx.Confirmations) >= msg.numConfirmations {
 		msg.finConf <- confDetails
 		return true

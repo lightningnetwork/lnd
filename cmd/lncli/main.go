@@ -57,7 +57,6 @@ func main() {
 		ListPeersCommand,
 		WalletBalanceCommand,
 		ChannelBalanceCommand,
-		ShellCommand,
 		GetInfoCommand,
 		PendingChannelsCommand,
 		SendPaymentCommand,

@@ -31,14 +31,6 @@ func printRespJson(resp interface{}) {
 	out.WriteTo(os.Stdout)
 }
 
-var ShellCommand = cli.Command{
-	Name:  "shell",
-	Usage: "enter interactive shell",
-	Action: func(c *cli.Context) {
-		println("not implemented yet")
-	},
-}
-
 var NewAddressCommand = cli.Command{
 	Name:   "newaddress",
 	Usage:  "generates a new address. Three address types are supported: p2wkh, np2wkh, p2pkh",
@@ -757,6 +749,7 @@ func describeGraph(ctx *cli.Context) error {
 	client := getClient(ctx)
 
 	req := &lnrpc.ChannelGraphRequest{}
+
 	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {
 		return err

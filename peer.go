@@ -232,7 +232,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		peerLog.Infof("peerID(%v) loaded ChannelPoint(%v)", p.id, chanPoint)
 
-		// TODO(roasbeef): register active channel with breach observer
+		p.server.breachArbiter.newContracts <- lnChan
 
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward

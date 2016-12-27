@@ -146,9 +146,6 @@ func (b *breachArbiter) contractObserver() {
 		chanPoint := channel.ChannelPoint()
 		b.breachObservers[*chanPoint] = settleSignal
 
-		// TODO(roasbeef): possibility of state divergence if updates
-		// conducted after re-connect, need to ensure only one instance
-		// is watched at all times
 		b.wg.Add(1)
 		go b.breachObserver(channel, settleSignal)
 	}
@@ -188,14 +185,30 @@ out:
 			// the detection of attempted contract breaches.
 			settleSignal := make(chan struct{})
 			chanPoint := contract.ChannelPoint()
+
+			// If the contract is already being watched, then an
+			// additional send indicates we have a stale version of
+			// the contract. So we'll cancel active watcher
+			// goroutine to create a new instance with the latest
+			// contract reference.
+			if _, ok := b.breachObservers[*chanPoint]; ok {
+				brarLog.Infof("ChannelPoint(%v) is now live, "+
+					"abandoning state contract for live "+
+					"version", chanPoint)
+				close(settleSignal)
+			}
+
 			b.breachObservers[*chanPoint] = settleSignal
 
-			brarLog.Tracef("New contract detected, launching " +
+			brarLog.Debugf("New contract detected, launching " +
 				"breachObserver")
 
 			b.wg.Add(1)
 			go b.breachObserver(contract, settleSignal)
 
+			// TODO(roasbeef): add doneChan to signal to peer continue
+			//  * peer send over to us on loadActiveChanenls, sync
+			//  until we're aware so no state transitions
 		case chanPoint := <-b.settledContracts:
 			// A new channel has been closed either unilaterally or
 			// cooperatively, as a result we no longer need a
@@ -387,7 +400,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 		// Finally, with the two witness generation funcs created, we
 		// send the retribution information to the utxo nursery.
-		// TODO(roasbeef): populate htlc breacches
+		// TODO(roasbeef): populate htlc breaches
 		b.breachedContracts <- &retributionInfo{
 			commitHash: breachInfo.BreachTransaction.TxSha(),
 			chanPoint:  *chanPoint,
@@ -406,6 +419,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 			doneChan: make(chan struct{}),
 		}
+		// TODO(roasbeef): delete chan state on unilateral close also?
 	case <-b.quit:
 		return
 	}

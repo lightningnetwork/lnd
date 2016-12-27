@@ -185,6 +185,120 @@
         ]
       }
     },
+    "/v1/graph": {
+      "get": {
+        "operationId": "DescribeGraph",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelGraph"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/graph/edge/{chan_id}": {
+      "get": {
+        "operationId": "GetChanInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelEdge"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "chan_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/graph/info": {
+      "get": {
+        "operationId": "GetNetworkInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNetworkInfo"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/graph/node/{pub_key}": {
+      "get": {
+        "operationId": "GetNodeInfo",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeInfo"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pub_key",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/graph/route/{pub_key}/{amt}": {
+      "get": {
+        "operationId": "QueryRoute",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcRoute"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pub_key",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "string"
+          },
+          {
+            "name": "amt",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/invoices": {
       "post": {
         "operationId": "AddInvoice",
@@ -448,6 +562,10 @@
           "type": "string",
           "format": "int64"
         },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        },
         "channel_point": {
           "type": "string",
           "format": "string"
@@ -497,6 +615,15 @@
         }
       }
     },
+    "lnrpcChanInfoRequest": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
     "lnrpcChannelBalanceRequest": {
       "type": "object"
     },
@@ -521,6 +648,61 @@
           "format": "boolean"
         }
       }
+    },
+    "lnrpcChannelEdge": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "chan_point": {
+          "type": "string",
+          "format": "string"
+        },
+        "channel_id": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "last_update": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "node1_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "node1_pub": {
+          "type": "string",
+          "format": "string"
+        },
+        "node2_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "node2_pub": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcChannelGraph": {
+      "type": "object",
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdge"
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcLightningNode"
+          }
+        }
+      }
+    },
+    "lnrpcChannelGraphRequest": {
+      "type": "object"
     },
     "lnrpcChannelPoint": {
       "type": "object",
@@ -624,6 +806,14 @@
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
+        "alias": {
+          "type": "string",
+          "format": "string"
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "string"
+        },
         "block_height": {
           "type": "integer",
           "format": "int64"
@@ -682,6 +872,27 @@
         }
       }
     },
+    "lnrpcHop": {
+      "type": "object",
+      "properties": {
+        "amt_to_forward": {
+          "type": "string",
+          "format": "int64"
+        },
+        "chan_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
     "lnrpcInvoice": {
       "type": "object",
       "properties": {
@@ -730,6 +941,27 @@
           "format": "string"
         },
         "pubkey": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcLightningNode": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "format": "string"
+        },
+        "alias": {
+          "type": "string",
+          "format": "string"
+        },
+        "last_update": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "pub_key": {
           "type": "string",
           "format": "string"
         }
@@ -797,6 +1029,50 @@
         }
       }
     },
+    "lnrpcNetworkInfo": {
+      "type": "object",
+      "properties": {
+        "avg_channel_size": {
+          "type": "number",
+          "format": "double"
+        },
+        "avg_out_degree": {
+          "type": "number",
+          "format": "double"
+        },
+        "graph_diameter": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "max_out_degree": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "min_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "num_nodes": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_network_capacity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcNetworkInfoRequest": {
+      "type": "object"
+    },
     "lnrpcNewAddressResponse": {
       "type": "object",
       "properties": {
@@ -808,6 +1084,31 @@
     },
     "lnrpcNewWitnessAddressRequest": {
       "type": "object"
+    },
+    "lnrpcNodeInfo": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "$ref": "#/definitions/lnrpcLightningNode"
+        },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total_capacity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcNodeInfoRequest": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "format": "string"
+        }
+      }
     },
     "lnrpcOpenChannelRequest": {
       "type": "object",
@@ -945,6 +1246,63 @@
         "txid": {
           "type": "string",
           "format": "byte"
+        }
+      }
+    },
+    "lnrpcRoute": {
+      "type": "object",
+      "properties": {
+        "hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHop"
+          }
+        },
+        "total_amt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_fees": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_time_lock": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcRouteRequest": {
+      "type": "object",
+      "properties": {
+        "amt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcRoutingPolicy": {
+      "type": "object",
+      "properties": {
+        "fee_base_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_rate_milli_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "min_htlc": {
+          "type": "string",
+          "format": "int64"
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

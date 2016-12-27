@@ -8,8 +8,7 @@ import (
 
 func TestSingleFundingOpenProofWire(t *testing.T) {
 	// First create a new SFOP message.
-	spvProof := bytes.Repeat([]byte{0x9}, 500)
-	sfop := NewSingleFundingOpenProof(22, spvProof)
+	sfop := NewSingleFundingOpenProof(22, someChannelID)
 
 	// Next encode the SFOP message into an empty bytes buffer.
 	var b bytes.Buffer

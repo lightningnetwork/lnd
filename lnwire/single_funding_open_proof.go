@@ -9,7 +9,7 @@ import (
 // responder after the previously constructed funding transaction has achieved
 // a sufficient number of confirmations. It is the initiator's duty to present
 // a proof of an open channel to the responder. Otherwise, responding node may
-// be vulnerable to a resource exhaustion attack wherein the a requesting node
+// be vulnerable to a resource exhaustion attack wherein the requesting node
 // repeatedly negotiates funding transactions which are never broadcast. If the
 // responding node commits resources to watch the chain for each funding
 // transaction, then this attack is very cheap for the initiator.
@@ -18,19 +18,18 @@ type SingleFundingOpenProof struct {
 	// the initiated single funder workflow.
 	ChannelID uint64
 
-	// SpvProof is an merkle proof of the inclusion of the funding
-	// transaction within a block.
-	// TODO(roasbeef): spec out format for SPV proof, only of single tx so
-	// can be compact
-	SpvProof []byte
+	// ChanChainID is the channel ID of the completed channel which
+	// compactly encodes the location of the channel within the current
+	// main chain.
+	ChanChainID ChannelID
 }
 
 // NewSingleFundingSignComplete creates a new empty SingleFundingOpenProof
 // message.
-func NewSingleFundingOpenProof(chanID uint64, spvProof []byte) *SingleFundingOpenProof {
+func NewSingleFundingOpenProof(chanID uint64, chainID ChannelID) *SingleFundingOpenProof {
 	return &SingleFundingOpenProof{
-		ChannelID: chanID,
-		SpvProof:  spvProof,
+		ChannelID:   chanID,
+		ChanChainID: chainID,
 	}
 }
 
@@ -41,10 +40,10 @@ func NewSingleFundingOpenProof(chanID uint64, spvProof []byte) *SingleFundingOpe
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingOpenProof) Decode(r io.Reader, pver uint32) error {
 	// ChannelID (8)
-	// SpvProof (?)
+	// ChanChainID (8)
 	err := readElements(r,
 		&s.ChannelID,
-		&s.SpvProof)
+		&s.ChanChainID)
 	if err != nil {
 		return err
 	}
@@ -60,7 +59,7 @@ func (s *SingleFundingOpenProof) Decode(r io.Reader, pver uint32) error {
 func (s *SingleFundingOpenProof) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		s.ChannelID,
-		s.SpvProof)
+		s.ChanChainID)
 	if err != nil {
 		return err
 	}
@@ -99,8 +98,8 @@ func (s *SingleFundingOpenProof) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingOpenProof) String() string {
-	return fmt.Sprintf("\n--- Begin FundingSignComplete ---\n") +
+	return fmt.Sprintf("\n--- Begin SingleFundingOpenProof ---\n") +
 		fmt.Sprintf("ChannelID:\t\t%d\n", s.ChannelID) +
-		fmt.Sprintf("SpvProof\t\t%s\n", s.SpvProof) +
-		fmt.Sprintf("--- End FundingSignComplete ---\n")
+		fmt.Sprintf("ChanChainID\t\t%s\n", s.ChanChainID.ToUint64()) +
+		fmt.Sprintf("--- End SingleFundingOpenProof ---\n")
 }

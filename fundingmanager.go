@@ -1,14 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"encoding/hex"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -135,6 +137,8 @@ type fundingManager struct {
 	// requests from a local sub-system within the daemon.
 	fundingRequests chan *initFundingMsg
 
+	fakeProof *channelProof
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -142,9 +146,22 @@ type fundingManager struct {
 // newFundingManager creates and initializes a new instance of the
 // fundingManager.
 func newFundingManager(w *lnwallet.LightningWallet, b *breachArbiter) *fundingManager {
+	// TODO(roasbeef): remove once we actually sign the funding_locked
+	// stuffs
+	s := "30450221008ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa" +
+		"1bf0314f882d70220299105481d63e0f4bc2a88121167221b6700d72a0e" +
+		"ad154c03be696a292d24ae"
+	fakeSigHex, _ := hex.DecodeString(s)
+	fakeSig, _ := btcec.ParseSignature(fakeSigHex, btcec.S256())
+
 	return &fundingManager{
 		wallet:        w,
 		breachAribter: b,
+
+		fakeProof: &channelProof{
+			nodeSig:    fakeSig,
+			bitcoinSig: fakeSig,
+		},
 
 		activeReservations: make(map[int32]pendingChannels),
 		fundingMsgs:        make(chan interface{}, msgBufferSize),
@@ -179,7 +196,6 @@ func (f *fundingManager) Stop() error {
 	fndgLog.Infof("Funding manager shutting down")
 
 	close(f.quit)
-
 	f.wg.Wait()
 
 	return nil
@@ -229,7 +245,8 @@ func (f *fundingManager) PendingChannels() []*pendingChannel {
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *fundingManager) reservationCoordinator() {
-out:
+	defer f.wg.Done()
+
 	for {
 		select {
 		case msg := <-f.fundingMsgs:
@@ -257,11 +274,9 @@ out:
 				f.handlePendingChannels(msg)
 			}
 		case <-f.quit:
-			break out
+			return
 		}
 	}
-
-	f.wg.Done()
 }
 
 // handleNumPending handles a request for the total number of pending channels.
@@ -561,11 +576,109 @@ func (f *fundingManager) processFundingSignComplete(msg *lnwire.SingleFundingSig
 	f.fundingMsgs <- &fundingSignCompleteMsg{msg, peer}
 }
 
+// channelProof is one half of the proof necessary to create an authenticated
+// announcement on the network. The two signatures individually sign a
+// statement of the existence of a channel.
+type channelProof struct {
+	nodeSig    *btcec.Signature
+	bitcoinSig *btcec.Signature
+}
+
+// chanAnnouncement encapsulates the two authenticated announcements that we
+// send out to the network after a new channel has been created locally.
+type chanAnnouncement struct {
+	chanAnn    *lnwire.ChannelAnnouncement
+	edgeUpdate *lnwire.ChannelUpdateAnnouncement
+}
+
+// newChanAnnouncement creates the authenticated channel announcement messages
+// required to broadcast a newly created channel to the network. The
+// announcement is two part: the first part authenticates the existence of the
+// channel and contains four signatures binding the funding pub keys and
+// identity pub keys of both parties to the channel, and the second segment is
+// authenticated only by us an contains our directional routing policy for the
+// channel.
+func newChanAnnouncement(localIdentity *btcec.PublicKey,
+	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
+	localProof, remoteProof *channelProof) *chanAnnouncement {
+
+	// First obtain the remote party's identity public key, this will be
+	// used to determine the order of the keys and signatures in the
+	// channel announcement.
+	chanInfo := channel.StateSnapshot()
+	remotePub := chanInfo.RemoteIdentity
+	localPub := localIdentity
+
+	// The unconditional section of the announcement is the ChannelID
+	// itself which compactly encodes the location of the funding output
+	// within the blockchain.
+	chanAnn := &lnwire.ChannelAnnouncement{
+		ChannelID: chanID,
+	}
+
+	// The chanFlags field indicates which directed edge of the channel is
+	// being updated within the ChannelUpdateAnnouncement announcement
+	// below. A value of zero means it's the edge of the "first" node and 1
+	// being the other node.
+	var chanFlags uint16
+
+	// The lexicographical ordering of the two identity public keys of the
+	// nodes indicates which of the nodes is "first". If our serialized
+	// identity key is lower than theirs then we're the "first" node and
+	// second otherwise.
+	selfBytes := localIdentity.SerializeCompressed()
+	remoteBytes := remotePub.SerializeCompressed()
+	if bytes.Compare(selfBytes, remoteBytes) == -1 {
+		chanAnn.FirstNodeID = localPub
+		chanAnn.SecondNodeID = &remotePub
+		chanAnn.FirstNodeSig = localProof.nodeSig
+		chanAnn.SecondNodeSig = remoteProof.nodeSig
+		chanAnn.FirstBitcoinSig = localProof.nodeSig
+		chanAnn.SecondBitcoinSig = remoteProof.nodeSig
+		chanAnn.FirstBitcoinKey = channel.LocalFundingKey
+		chanAnn.SecondBitcoinKey = channel.RemoteFundingKey
+
+		// If we're the first node then update the chanFlags to
+		// indicate the "direction" of the update.
+		chanFlags = 0
+	} else {
+		chanAnn.FirstNodeID = &remotePub
+		chanAnn.SecondNodeID = localPub
+		chanAnn.FirstNodeSig = remoteProof.nodeSig
+		chanAnn.SecondNodeSig = localProof.nodeSig
+		chanAnn.FirstBitcoinSig = remoteProof.nodeSig
+		chanAnn.SecondBitcoinSig = localProof.nodeSig
+		chanAnn.FirstBitcoinKey = channel.RemoteFundingKey
+		chanAnn.SecondBitcoinKey = channel.LocalFundingKey
+
+		// If we're the second node then update the chanFlags to
+		// indicate the "direction" of the update.
+		chanFlags = 1
+	}
+
+	// TODO(roasbeef): add real sig, populate proper FeeSchema
+	chanUpdateAnn := &lnwire.ChannelUpdateAnnouncement{
+		Signature:                 localProof.nodeSig,
+		ChannelID:                 chanID,
+		Timestamp:                 uint32(time.Now().Unix()),
+		Flags:                     chanFlags,
+		Expiry:                    1,
+		HtlcMinimumMstat:          0,
+		FeeBaseMstat:              0,
+		FeeProportionalMillionths: 0,
+	}
+
+	return &chanAnnouncement{
+		chanAnn:    chanAnn,
+		edgeUpdate: chanUpdateAnn,
+	}
+}
+
 // handleFundingSignComplete processes the final message received in a single
 // funder workflow. Once this message is processed, the funding transaction is
 // broadcast. Once the funding transaction reaches a sufficient number of
-// confirmations, a message is sent to the responding peer along with an SPV
-// proofs of transaction inclusion.
+// confirmations, a message is sent to the responding peer along with a compact
+// encoding of the location of the channel within the block chain.
 func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg) {
 	chanID := fmsg.msg.ChannelID
 	peerID := fmsg.peer.id
@@ -609,71 +722,86 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	// once it reaches a sufficient number of confirmations.
 	// TODO(roasbeef): semaphore to limit active chan open goroutines
 	go func() {
-		select {
 		// TODO(roasbeef): need to persist pending broadcast channels,
 		// send chan open proof during scan of blocks mined while down.
-		case openChan := <-resCtx.reservation.DispatchChan():
-			// This reservation is no longer pending as the funding
-			// transaction has been fully confirmed.
-			f.deleteReservationCtx(peerID, chanID)
+		openChan, confHeight, confBlockIndex := resCtx.reservation.DispatchChan()
+		// This reservation is no longer pending as the funding
+		// transaction has been fully confirmed.
+		f.deleteReservationCtx(peerID, chanID)
 
-			fndgLog.Infof("ChannelPoint(%v) with peerID(%v) is now active",
-				fundingPoint, peerID)
+		fndgLog.Infof("ChannelPoint(%v) with peerID(%v) is now active",
+			fundingPoint, peerID)
 
-			// Now that the channel is open, we need to notify a
-			// number of parties of this event.
+		// Now that the channel is open, we need to notify a number of
+		// parties of this event.
 
-			// First we send the newly opened channel to the source
-			// server peer.
-			fmsg.peer.newChannels <- openChan
+		// First we send the newly opened channel to the source server
+		// peer.
+		fmsg.peer.newChannels <- openChan
 
-			// Afterwards we send the breach arbiter the new
-			// channel so it can watch for attempts to breach the
-			// channel's contract by the remote party.
-			f.breachAribter.newContracts <- openChan
+		// Afterwards we send the breach arbiter the new channel so it
+		// can watch for attempts to breach the channel's contract by
+		// the remote party.
+		f.breachAribter.newContracts <- openChan
 
-			// Next, we queue a message to notify the remote peer
-			// that the channel is open. We additionally provide an
-			// SPV proof allowing them to verify the transaction
-			// inclusion.
-			// TODO(roasbeef): obtain SPV proof from sub-system.
-			//  * ChainNotifier constructs proof also?
-			spvProof := []byte("fake proof")
-			fundingOpen := lnwire.NewSingleFundingOpenProof(chanID, spvProof)
-			fmsg.peer.queueMsg(fundingOpen, nil)
+		// With the block height and the transaction index known, we
+		// can construct the compact chainID which is used on the
+		// network to unique identify channels.
+		chainID := lnwire.ChannelID{
+			BlockHeight: confHeight,
+			TxIndex:     confBlockIndex,
+			TxPosition:  uint16(fundingPoint.Index),
+		}
 
-			// Register the new link with the L3 routing manager
-			// so this new channel can be utilized during path
-			// finding.
-			chanInfo := openChan.StateSnapshot()
-			capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
-			pubSerialized := fmsg.peer.addr.IdentityKey.SerializeCompressed()
-			fmsg.peer.server.routingMgr.OpenChannel(
-				graph.NewVertex(pubSerialized),
-				graph.NewEdgeID(*fundingPoint),
-				&graph.ChannelInfo{
-					Cpt: capacity,
-				},
-			)
+		// Next, we queue a message to notify the remote peer that the
+		// channel is open. We additionally provide the compact
+		// channelID so they can advertise the channel.
+		fundingOpen := lnwire.NewSingleFundingOpenProof(chanID, chainID)
+		fmsg.peer.queueMsg(fundingOpen, nil)
 
-			// Finally give the caller a final update notifying
-			// them that the channel is now open.
-			// TODO(roasbeef): helper funcs for proto construction
-			resCtx.updates <- &lnrpc.OpenStatusUpdate{
-				Update: &lnrpc.OpenStatusUpdate_ChanOpen{
-					ChanOpen: &lnrpc.ChannelOpenUpdate{
-						ChannelPoint: &lnrpc.ChannelPoint{
-							FundingTxid: fundingPoint.Hash[:],
-							OutputIndex: fundingPoint.Index,
-						},
+		// Register the new link with the L3 routing manager so this
+		// new channel can be utilized during path
+		// finding.
+		// TODO(roasbeef): should include sigs from funding
+		// locked
+		//  * should be moved to after funding locked is recv'd
+		f.announceChannel(fmsg.peer.server, openChan, chainID, f.fakeProof,
+			f.fakeProof)
+
+		// Finally give the caller a final update notifying them that
+		// the channel is now open.
+		// TODO(roasbeef): helper funcs for proto construction
+		resCtx.updates <- &lnrpc.OpenStatusUpdate{
+			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+				ChanOpen: &lnrpc.ChannelOpenUpdate{
+					ChannelPoint: &lnrpc.ChannelPoint{
+						FundingTxid: fundingPoint.Hash[:],
+						OutputIndex: fundingPoint.Index,
 					},
 				},
-			}
-			return
-		case <-f.quit:
-			return
+			},
 		}
+		return
 	}()
+}
+
+// announceChannel announces a newly created channel to the rest of the network
+// by crafting the two authenticated announcement required for the peers on the
+// network to recognize the legitimacy of the channel. The crafted
+// announcements are then send to the channel router to handle broadcasting to
+// the network during its next trickle.
+func (f *fundingManager) announceChannel(s *server,
+	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
+	localProof, remoteProof *channelProof) {
+
+	// TODO(roasbeef): need a Signer.SignMessage method to finalize
+	// advertisements
+	localIdentity := s.identityPriv.PubKey()
+	chanAnnouncement := newChanAnnouncement(localIdentity, channel,
+		chanID, localProof, remoteProof)
+
+	s.chanRouter.ProcessRoutingMessage(chanAnnouncement.chanAnn, localIdentity)
+	s.chanRouter.ProcessRoutingMessage(chanAnnouncement.edgeUpdate, localIdentity)
 }
 
 // processFundingOpenProof sends a message to the fundingManager allowing it
@@ -684,9 +812,7 @@ func (f *fundingManager) processFundingOpenProof(msg *lnwire.SingleFundingOpenPr
 }
 
 // handleFundingOpen processes the final message when the daemon is the
-// responder to a single funder channel workflow. The SPV proofs supplied by
-// the initiating node is verified, which if correct, marks the channel as open
-// to the source peer.
+// responder to a single funder channel workflow.
 func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chanID := fmsg.msg.ChannelID
 	peerID := fmsg.peer.id
@@ -721,19 +847,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		resCtx.reservation.FundingOutpoint, peerID)
 
 	// Notify the L3 routing manager of the newly active channel link.
-	capacity := int64(resCtx.reservation.OurContribution().FundingAmount +
-		resCtx.reservation.TheirContribution().FundingAmount)
-	vertex := fmsg.peer.addr.IdentityKey.SerializeCompressed()
-	fmsg.peer.server.routingMgr.OpenChannel(
-		graph.NewVertex(vertex),
-		graph.NewEdgeID(*resCtx.reservation.FundingOutpoint()),
-		&graph.ChannelInfo{
-			Cpt: capacity,
-		},
-	)
+	// TODO(roasbeef): should have sigs, only after funding_locked is
+	// recv'd
+	//  * also ensure fault tolerance, scan opened chan on start up check
+	//  for graph existence
+	f.announceChannel(fmsg.peer.server, openChan, fmsg.msg.ChanChainID,
+		f.fakeProof, f.fakeProof)
 
 	// Send the newly opened channel to the breach arbiter to it can watch
-	// for uncopperative channel breaches, potentially punishing the
+	// for uncooperative channel breaches, potentially punishing the
 	// counter-party for attempting to cheat us.
 	f.breachAribter.newContracts <- openChan
 

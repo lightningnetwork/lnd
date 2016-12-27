@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -233,17 +232,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		peerLog.Infof("peerID(%v) loaded ChannelPoint(%v)", p.id, chanPoint)
 
-		// Notify the routing table of this newly loaded channel.
-		chanInfo := lnChan.StateSnapshot()
-		capacity := int64(chanInfo.LocalBalance + chanInfo.RemoteBalance)
-		pubSerialized := p.addr.IdentityKey.SerializeCompressed()
-		p.server.routingMgr.OpenChannel(
-			graph.NewVertex(pubSerialized),
-			graph.NewEdgeID(*chanInfo.ChannelPoint),
-			&graph.ChannelInfo{
-				Cpt: capacity,
-			},
-		)
+		// TODO(roasbeef): register active channel with breach observer
 
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
@@ -379,7 +368,6 @@ out:
 		case *lnwire.Ping:
 			p.queueMsg(lnwire.NewPong(msg.Nonce), nil)
 
-		// TODO(roasbeef): consolidate into predicate (single vs dual)
 		case *lnwire.SingleFundingRequest:
 			p.server.fundingMgr.processFundingRequest(msg, p)
 		case *lnwire.SingleFundingResponse:
@@ -392,11 +380,10 @@ out:
 			p.server.fundingMgr.processFundingOpenProof(msg, p)
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
-		// TODO(roasbeef): interface for htlc update msgs
-		//  * .(CommitmentUpdater)
 
 		case *lnwire.ErrorGeneric:
 			p.server.fundingMgr.processErrorGeneric(msg, p)
+
 		case *lnwire.HTLCAddRequest:
 			isChanUpdate = true
 			targetChan = msg.ChannelPoint
@@ -409,14 +396,13 @@ out:
 		case *lnwire.CommitSignature:
 			isChanUpdate = true
 			targetChan = msg.ChannelPoint
-		case *lnwire.NeighborAckMessage,
-			*lnwire.NeighborHelloMessage,
-			*lnwire.NeighborRstMessage,
-			*lnwire.NeighborUpdMessage:
 
-			// Convert to base routing message and set sender and receiver
-			vertex := p.addr.IdentityKey.SerializeCompressed()
-			p.server.routingMgr.ReceiveRoutingMessage(msg, graph.NewVertex(vertex))
+		case *lnwire.NodeAnnouncement,
+			*lnwire.ChannelAnnouncement,
+			*lnwire.ChannelUpdateAnnouncement:
+
+			p.server.chanRouter.ProcessRoutingMessage(msg,
+				p.addr.IdentityKey)
 		}
 
 		if isChanUpdate {

@@ -13,8 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -98,7 +96,7 @@ type paymentCircuit struct {
 	settle *link
 }
 
-// HtlcSwitch is a central messaging bus for all incoming/outgoing HTLC's.
+// htlcSwitch is a central messaging bus for all incoming/outgoing HTLC's.
 // Connected peers with active channels are treated as named interfaces which
 // refer to active channels as links. A link is the switche's message
 // communication point with the goroutine that manages an active channel. New
@@ -151,11 +149,6 @@ type htlcSwitch struct {
 	// fully locked in.
 	htlcPlex chan *htlcPacket
 
-	gateway []byte
-	router  *routing.RoutingManager
-
-	// TODO(roasbeef): messaging chan to/from upper layer (routing - L3)
-
 	// TODO(roasbeef): sampler to log sat/sec and tx/sec
 
 	wg   sync.WaitGroup
@@ -163,10 +156,8 @@ type htlcSwitch struct {
 }
 
 // newHtlcSwitch creates a new htlcSwitch.
-func newHtlcSwitch(gateway []byte, r *routing.RoutingManager) *htlcSwitch {
+func newHtlcSwitch() *htlcSwitch {
 	return &htlcSwitch{
-		router:           r,
-		gateway:          gateway,
 		chanIndex:        make(map[wire.OutPoint]*link),
 		interfaces:       make(map[wire.ShaHash][]*link),
 		onionIndex:       make(map[[ripemd160.Size]byte][]*link),
@@ -495,7 +486,6 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 
 	// A request with a nil channel point indicates that all the current
 	// links for this channel should be cleared.
-	chansRemoved := make([]*wire.OutPoint, 0, len(links))
 	if req.chanPoint == nil {
 		hswcLog.Debugf("purging all active links for interface %v",
 			hex.EncodeToString(chanInterface[:]))
@@ -504,9 +494,8 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 			h.chanIndexMtx.Lock()
 			delete(h.chanIndex, *link.chanPoint)
 			h.chanIndexMtx.Unlock()
-
-			chansRemoved = append(chansRemoved, link.chanPoint)
 		}
+
 		links = nil
 	} else {
 		h.chanIndexMtx.Lock()
@@ -516,8 +505,6 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 		for i := 0; i < len(links); i++ {
 			chanLink := links[i]
 			if chanLink.chanPoint == req.chanPoint {
-				chansRemoved = append(chansRemoved, req.chanPoint)
-
 				// We perform an in-place delete by sliding
 				// every element down one, then slicing off the
 				// last element. Additionally, we update the
@@ -531,22 +518,6 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 
 				break
 			}
-		}
-	}
-
-	// Purge the now inactive channels from the routing table.
-	// TODO(roasbeef): routing layer should only see the links as a
-	// summation of their capacity/etc
-	//  * distinction between connection close and channel close
-	for _, linkChan := range chansRemoved {
-		err := h.router.RemoveChannel(
-			graph.NewVertex(h.gateway),
-			graph.NewVertex(req.remoteID),
-			graph.NewEdgeID(*linkChan),
-		)
-		if err != nil {
-			hswcLog.Errorf("unable to remove channel from "+
-				"routing table: %v", err)
 		}
 	}
 

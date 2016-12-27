@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -20,7 +22,6 @@ import (
 	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -57,7 +58,7 @@ type server struct {
 	invoices      *invoiceRegistry
 	breachArbiter *breachArbiter
 
-	routingMgr *routing.RoutingManager
+	chanRouter *routing.ChannelRouter
 
 	utxoNursery *utxoNursery
 
@@ -68,6 +69,9 @@ type server struct {
 	pendingConnMtx      sync.RWMutex
 	persistentConnReqs  map[string]*connmgr.ConnReq
 	pendingConnRequests map[string]*connectPeerMsg
+
+	broadcastRequests chan *broadcastReq
+	sendRequests      chan *sendReq
 
 	newPeers  chan *peer
 	donePeers chan *peer
@@ -105,6 +109,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 		invoices:    newInvoiceRegistry(chanDB),
 		utxoNursery: newUtxoNursery(notifier, wallet),
+		htlcSwitch:  newHtlcSwitch(),
 
 		identityPriv: privKey,
 
@@ -122,6 +127,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		newPeers:  make(chan *peer, 10),
 		donePeers: make(chan *peer, 10),
 
+		broadcastRequests: make(chan *broadcastReq),
+		sendRequests:      make(chan *sendReq),
+
 		queries: make(chan interface{}),
 		quit:    make(chan struct{}),
 	}
@@ -136,47 +144,37 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			debugPre[:], debugHash[:])
 	}
 
-	s.utxoNursery = newUtxoNursery(notifier, wallet)
-
-	// Create a new routing manager with ourself as the sole node within
-	// the graph.
-	selfVertex := serializedPubKey
-	routingMgrConfig := &routing.RoutingConfig{}
-	routingMgrConfig.SendMessage = func(receiver [33]byte, msg lnwire.Message) error {
-		receiverID := graph.NewVertex(receiver[:])
-		if receiverID == graph.NilVertex {
-			peerLog.Critical("receiverID == graph.NilVertex")
-			return fmt.Errorf("receiverID == graph.NilVertex")
-		}
-
-		var targetPeer *peer
-		for _, peer := range s.peersByID { // TODO: threadsafe API
-			nodePub := peer.addr.IdentityKey.SerializeCompressed()
-			nodeVertex := graph.NewVertex(nodePub[:])
-
-			// We found the target
-			if receiverID == nodeVertex {
-				targetPeer = peer
-				break
-			}
-		}
-
-		if targetPeer != nil {
-			targetPeer.queueMsg(msg, nil)
-		} else {
-			srvrLog.Errorf("Can't find peer to send message %v",
-				receiverID)
-		}
-		return nil
+	// TODO(roasbeef): add --externalip flag?
+	selfAddr, ok := listeners[0].Addr().(*net.TCPAddr)
+	if !ok {
+		return nil, fmt.Errorf("default listener must be TCP")
 	}
-	s.routingMgr = routing.NewRoutingManager(graph.NewVertex(selfVertex), routingMgrConfig)
 
-	s.htlcSwitch = newHtlcSwitch(serializedPubKey, s.routingMgr)
+	chanGraph := chanDB.ChannelGraph()
+	self := &channeldb.LightningNode{
+		LastUpdate: time.Now(),
+		Address:    selfAddr,
+		PubKey:     privKey.PubKey(),
+		// TODO(roasbeef): make alias configurable
+		Alias: hex.EncodeToString(serializedPubKey[:10]),
+	}
+	if err := chanGraph.SetSourceNode(self); err != nil {
+		return nil, err
+	}
+
+	s.chanRouter, err = routing.New(routing.Config{
+		Graph:        chanGraph,
+		Chain:        bio,
+		Notifier:     notifier,
+		Broadcast:    s.broadcastMessage,
+		SendMessages: s.sendToPeer,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	s.rpcServer = newRpcServer(s)
-
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
-
 	s.fundingMgr = newFundingManager(wallet, s.breachArbiter)
 
 	// TODO(roasbeef): introduce closure and config system to decouple the
@@ -268,7 +266,9 @@ func (s *server) Start() error {
 	if err := s.breachArbiter.Start(); err != nil {
 		return err
 	}
-	s.routingMgr.Start()
+	if err := s.chanRouter.Start(); err != nil {
+		return err
+	}
 
 	s.wg.Add(1)
 	go s.queryHandler()
@@ -289,7 +289,7 @@ func (s *server) Stop() error {
 	s.chainNotifier.Stop()
 	s.rpcServer.Stop()
 	s.fundingMgr.Stop()
-	s.routingMgr.Stop()
+	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
@@ -306,6 +306,81 @@ func (s *server) Stop() error {
 // WaitForShutdown blocks all goroutines have been stopped.
 func (s *server) WaitForShutdown() {
 	s.wg.Wait()
+}
+
+// broadcastReq is a message sent to the server by a related sub-system when it
+// wishes to broadcast one or more messages to all connected peers. Thi
+type broadcastReq struct {
+	ignore *btcec.PublicKey
+	msgs   []lnwire.Message
+
+	errChan chan error // MUST be buffered.
+}
+
+// broadcastMessage sends a request to the server to broadcast a set of
+// messages to all peers other than the one specified by the `skip` parameter.
+func (s *server) broadcastMessage(skip *btcec.PublicKey, msgs ...lnwire.Message) error {
+	errChan := make(chan error, 1)
+
+	msgsToSend := make([]lnwire.Message, 0, len(msgs))
+	msgsToSend = append(msgsToSend, msgs...)
+	broadcastReq := &broadcastReq{
+		ignore:  skip,
+		msgs:    msgsToSend,
+		errChan: errChan,
+	}
+
+	select {
+	case s.broadcastRequests <- broadcastReq:
+	case <-s.quit:
+		return errors.New("server shutting down")
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-s.quit:
+		return errors.New("server shutting down")
+	}
+}
+
+// sendReq is  message sent to the server by a related sub-system which it
+// wishes to send a set of messages to a specified peer.
+type sendReq struct {
+	target *btcec.PublicKey
+	msgs   []lnwire.Message
+
+	errChan chan error
+}
+
+// sendToPeer send a message to the server telling it to send the specific set
+// of message to a particular peer. If the peer connect be found, then this
+// method will return a non-nil error.
+func (s *server) sendToPeer(target *btcec.PublicKey, msgs ...lnwire.Message) error {
+	errChan := make(chan error, 1)
+
+	msgsToSend := make([]lnwire.Message, 0, len(msgs))
+	msgsToSend = append(msgsToSend, msgs...)
+	sMsg := &sendReq{
+		target:  target,
+		msgs:    msgsToSend,
+		errChan: errChan,
+	}
+
+	select {
+	case s.sendRequests <- sMsg:
+	case <-s.quit:
+		return errors.New("server shutting down")
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-s.quit:
+		return errors.New("server shutting down")
+	}
+
+	return nil
 }
 
 // peerConnected is a function that handles initialization a newly connected
@@ -415,9 +490,6 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 // addPeer adds the passed peer to the server's global state of all active
 // peers.
 func (s *server) addPeer(p *peer) {
-	s.peersMtx.Lock()
-	defer s.peersMtx.Unlock()
-
 	if p == nil {
 		return
 	}
@@ -428,8 +500,19 @@ func (s *server) addPeer(p *peer) {
 		return
 	}
 
+	// Track the new peer in our indexes so we can quickly look it up either
+	// according to its public key, or it's peer ID.
+	// TODO(roasbeef): pipe all requests through to the
+	// queryHandler/peerManager
+	s.peersMtx.Lock()
 	s.peersByID[p.id] = p
 	s.peersByPub[string(p.addr.IdentityKey.SerializeCompressed())] = p
+	s.peersMtx.Unlock()
+
+	// Once the peer has been added to our indexes, send a message to the
+	// channel router so we can synchronize our view of the channel graph
+	// with this new peer.
+	s.chanRouter.SynchronizeNode(p.addr.IdentityKey)
 }
 
 // removePeer removes the passed peer from the server's state of all active
@@ -508,6 +591,54 @@ out:
 		case p := <-s.donePeers:
 			s.removePeer(p)
 
+		case bMsg := <-s.broadcastRequests:
+			ignore := bMsg.ignore
+
+			srvrLog.Debugf("Broadcasting %v messages", len(bMsg.msgs))
+
+			s.peersMtx.RLock()
+			for _, peer := range s.peersByPub {
+				if ignore != nil &&
+					peer.addr.IdentityKey.IsEqual(ignore) {
+
+					srvrLog.Debugf("Skipping %v in broadcast",
+						ignore.SerializeCompressed())
+
+					continue
+				}
+
+				for _, msg := range bMsg.msgs {
+					peer.queueMsg(msg, nil)
+				}
+			}
+			s.peersMtx.RUnlock()
+
+			bMsg.errChan <- nil
+		case sMsg := <-s.sendRequests:
+			// TODO(roasbeef): use [33]byte everywhere instead
+			//  * eliminate usage of mutexes, funnel all peer
+			//  mutation to this goroutine
+			target := sMsg.target.SerializeCompressed()
+
+			srvrLog.Debugf("Attempting to send msgs %v to: %x",
+				len(sMsg.msgs), target)
+
+			s.peersMtx.RLock()
+			targetPeer, ok := s.peersByPub[string(target)]
+			if !ok {
+				s.peersMtx.RUnlock()
+				srvrLog.Errorf("unable to send message to %x, "+
+					"peer not found", target)
+				sMsg.errChan <- errors.New("peer not found")
+				continue
+			}
+
+			for _, msg := range sMsg.msgs {
+				targetPeer.queueMsg(msg, nil)
+			}
+			s.peersMtx.RUnlock()
+
+			sMsg.errChan <- nil
 		case query := <-s.queries:
 			switch msg := query.(type) {
 			case *connectPeerMsg:
@@ -586,6 +717,9 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 		Addr:      addr,
 		Permanent: true,
 	})
+
+	// TODO(roasbeef): create goroutine to poll state so can report
+	// connection fails
 
 	// Finally, we store the original request keyed by the public key so we
 	// can dispatch the response to the RPC client once a connection has

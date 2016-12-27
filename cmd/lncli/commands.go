@@ -777,6 +777,127 @@ func listPayments(ctx *cli.Context) error {
 	}
 
 	printRespJson(payments)
+	return nil
+}
 
+var GetChanInfoCommand = cli.Command{
+	Name:  "getchaninfo",
+	Usage: "getchaninfo --chand_id=[8_byte_channel_id]",
+	Description: "prints out the latest authenticated state for a " +
+		"particular channel",
+	Flags: []cli.Flag{
+		cli.IntFlag{
+			Name:  "chan_id",
+			Usage: "the 8-byte compact channel ID to query for",
+		},
+	},
+	Action: getChanInfo,
+}
+
+func getChanInfo(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.ChanInfoRequest{
+		ChanId: uint64(ctx.Int("chan_id")),
+	}
+
+	chanInfo, err := client.GetChanInfo(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(chanInfo)
+	return nil
+}
+
+var GetNodeInfoCommand = cli.Command{
+	Name:  "getnodeinfo",
+	Usage: "getnodeinfo --pub_key=[33_byte_serialized_pub_lky]",
+	Description: "prints out the latest authenticated node state for an " +
+		"advertised node",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "pub_key",
+			Usage: "the 33-byte hex-encoded compressed public of the target " +
+				"node",
+		},
+	},
+	Action: getNodeInfo,
+}
+
+func getNodeInfo(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.NodeInfoRequest{
+		PubKey: ctx.String("pub_key"),
+	}
+
+	nodeInfo, err := client.GetNodeInfo(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(nodeInfo)
+	return nil
+}
+
+var QueryRouteCommand = cli.Command{
+	Name:        "queryroute",
+	Usage:       "queryroute --dest=[dest_pub_key] --amt=[amt_to_send_in_satoshis]",
+	Description: "queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "dest",
+			Usage: "the 33-byte hex-encoded public key for the payment " +
+				"destination",
+		},
+		cli.IntFlag{
+			Name:  "amt",
+			Usage: "the amount to send expressed in satoshis",
+		},
+	},
+	Action: queryRoute,
+}
+
+func queryRoute(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.RouteRequest{
+		PubKey: ctx.String("dest"),
+		Amt:    int64(ctx.Int("amt")),
+	}
+
+	route, err := client.QueryRoute(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(route)
+	return nil
+}
+
+var GetNetworkInfoCommand = cli.Command{
+	Name:  "getnetworkinfo",
+	Usage: "getnetworkinfo",
+	Description: "returns a set of statistics pertaining to the known channel " +
+		"graph",
+	Action: getNetworkInfo,
+}
+
+func getNetworkInfo(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.NetworkInfoRequest{}
+
+	netInfo, err := client.GetNetworkInfo(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(netInfo)
 	return nil
 }

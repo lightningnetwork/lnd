@@ -39,7 +39,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
 	app.Version = "0.1"
-	app.Usage = "control plane for your LN daemon"
+	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "rpcserver",
@@ -63,9 +63,13 @@ func main() {
 		AddInvoiceCommand,
 		LookupInvoiceCommand,
 		ListInvoicesCommand,
-		DescribeGraphCommand,
 		ListChannelsCommand,
 		ListPaymentsCommand,
+		DescribeGraphCommand,
+		GetChanInfoCommand,
+		GetNodeInfoCommand,
+		QueryRouteCommand,
+		GetNetworkInfoCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

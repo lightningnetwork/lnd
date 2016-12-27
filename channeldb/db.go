@@ -59,7 +59,7 @@ type DB struct {
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
-// udpates will take plave as necessary.
+// updates will take place as necessary.
 func Open(dbPath string) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
@@ -121,6 +121,10 @@ func (d *DB) Wipe() error {
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
 		}
+		err = tx.DeleteBucket(edgeIndexBucket)
+		if err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
 		err = tx.DeleteBucket(graphMetaBucket)
 		if err != nil && err != bolt.ErrBucketNotFound {
 			return err
@@ -168,6 +172,9 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 		if _, err := tx.CreateBucket(edgeBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucket(edgeIndexBucket); err != nil {
 			return err
 		}
 		if _, err := tx.CreateBucket(graphMetaBucket); err != nil {

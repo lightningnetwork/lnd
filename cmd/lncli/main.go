@@ -64,7 +64,7 @@ func main() {
 		AddInvoiceCommand,
 		LookupInvoiceCommand,
 		ListInvoicesCommand,
-		ShowRoutingTableCommand,
+		DescribeGraphCommand,
 		ListChannelsCommand,
 		ListPaymentsCommand,
 	}

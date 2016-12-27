@@ -6,20 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
-	"github.com/lightningnetwork/lnd/routing/rt/visualizer/prefix_tree"
-	"github.com/lightningnetwork/lnd/routing/rt"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
+
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
-
-	"github.com/lightningnetwork/lnd/routing/rt/visualizer"
-	"strconv"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -752,338 +745,32 @@ func listInvoices(ctx *cli.Context) error {
 	return nil
 }
 
-var ShowRoutingTableCommand = cli.Command{
-	Name:        "showroutingtable",
-	Description: "shows routing table for a node",
-	Usage:       "showroutingtable text|image",
-	Subcommands: []cli.Command{
-		{
-			Name:        "text",
-			Usage:       "[--table|--human]",
-			Description: "Show routing table in textual format. By default in JSON",
-			Flags: []cli.Flag{
-				cli.BoolFlag{
-					Name:  "table",
-					Usage: "Print channels in routing table in table format.",
-				},
-				cli.BoolFlag{
-					Name:  "human",
-					Usage: "Print channels in routing table in table format. Output lightning_id partially - only a few first symbols which uniquelly identifies it.",
-				},
-			},
-			Action: showRoutingTableAsText,
-		},
-		{
-			Name:        "image",
-			Usage:       "[--type <IMAGE_TYPE>] [--dest OUTPUT_FILE] [--open]",
-			Description: "Create image with graphical representation of routing table",
-			Flags: []cli.Flag{
-				cli.StringFlag{
-					Name:  "type",
-					Usage: "Type of image file. Use one of: http://www.graphviz.org/content/output-formats. Usage of this option supresses textual output",
-				},
-				cli.StringFlag{
-					Name:  "dest",
-					Usage: "Specifies where to save the generated file. If don't specified use os.TempDir Usage of this option supresses textual output",
-				},
-				cli.BoolFlag{
-					Name:  "open",
-					Usage: "Open generated file automatically. Uses command line \"open\" command",
-				},
-			},
-			Action: showRoutingTableAsImage,
-		},
-	},
+var DescribeGraphCommand = cli.Command{
+	Name: "describegraph",
+	Description: "prints a human readable version of the known channel " +
+		"graph from the PoV of the node",
+	Usage:  "describegraph",
+	Action: describeGraph,
 }
 
-func outPointFromString(s string) (*wire.OutPoint, error) {
-	split := strings.Split(s, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("Wrong format of OutPoint. Got %v", s)
-	}
-	h, err := wire.NewShaHashFromStr(split[0])
-	if err!=nil {
-		return nil, err
-	}
-	n, err := strconv.Atoi(split[1])
-	if err != nil {
-		return nil, err
-	}
-	if n<0 {
-		return nil, fmt.Errorf("Got incorrect output number %v", n)
-	}
-	return wire.NewOutPoint(h, uint32(n)), nil
-}
-
-
-func getRoutingTable(ctxb context.Context, client lnrpc.LightningClient) (*rt.RoutingTable, error) {
-	req := &lnrpc.ShowRoutingTableRequest{}
-	resp, err := client.ShowRoutingTable(ctxb, req)
-	if err != nil {
-		return nil, err
-	}
-
-	r := rt.NewRoutingTable()
-	for _, channel := range resp.Channels {
-		outPoint, err := outPointFromString(channel.Outpoint)
-		if err != nil {
-			return nil, err
-		}
-		id1, err := hex.DecodeString(channel.Id1)
-		if err != nil {
-			return nil, err
-		}
-		id2, err := hex.DecodeString(channel.Id2)
-		if err != nil {
-			return nil, err
-		}
-		r.AddChannel(
-			graph.NewVertex(id1),
-			graph.NewVertex(id2),
-			graph.NewEdgeID(*outPoint),
-			&graph.ChannelInfo{channel.Capacity, channel.Weight},
-		)
-	}
-	return r, nil
-}
-
-func showRoutingTableAsText(ctx *cli.Context) error {
-	ctxb := context.Background()
+func describeGraph(ctx *cli.Context) error {
 	client := getClient(ctx)
 
-	r, err := getRoutingTable(ctxb, client)
+	req := &lnrpc.ChannelGraphRequest{}
+	graph, err := client.DescribeGraph(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	if ctx.Bool("table") && ctx.Bool("human") {
-		return fmt.Errorf("--table and --human cannot be used at the same time")
-	}
-
-	if ctx.Bool("table") {
-		printRTAsTable(r, false)
-	} else if ctx.Bool("human") {
-		printRTAsTable(r, true)
-	} else {
-		printRTAsJSON(r)
-	}
+	printRespJson(graph)
 	return nil
 }
-
-func showRoutingTableAsImage(ctx *cli.Context) error {
-	ctxb := context.Background()
-	client := getClient(ctx)
-
-	r, err := getRoutingTable(ctxb, client)
-	if err != nil {
-		return err
-	}
-
-	reqGetInfo := &lnrpc.GetInfoRequest{}
-	respGetInfo, err := client.GetInfo(ctxb, reqGetInfo)
-	if err != nil {
-		return err
-	}
-	selfLightningId := respGetInfo.IdentityPubkey
-
-	imgType := ctx.String("type")
-	imgDest := ctx.String("dest")
-	if imgType == "" && imgDest == "" {
-		return fmt.Errorf("One or both of --type or --dest should be specified")
-	}
-
-	tempFile, err := ioutil.TempFile("", "")
-	if err != nil {
-		return err
-	}
-	var imageFile *os.File
-	// if the type is not specified explicitly parse the filename
-	if imgType == "" {
-		imgType = filepath.Ext(imgDest)[1:]
-	}
-	// if the filename is not specified explicitly use tempfile
-	if imgDest == "" {
-		imageFile, err = TempFileWithSuffix("", "rt_", "."+imgType)
-		if err != nil {
-			return err
-		}
-	} else {
-		imageFile, err = os.Create(imgDest)
-		if err != nil {
-			return err
-		}
-	}
-	if _, ok := visualizer.SupportedFormatsAsMap()[imgType]; !ok {
-		fmt.Printf("Format: '%v' not recognized. Use one of: %v\n", imgType, visualizer.SupportedFormats())
-		return nil
-	}
-
-	// generate description graph by dot language
-	if err := writeToTempFile(r, tempFile, selfLightningId); err != nil {
-		return err
-	}
-	if err := writeToImageFile(tempFile, imageFile); err != nil {
-		return err
-	}
-
-	if ctx.Bool("open") {
-		if err := visualizer.Open(imageFile); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeToTempFile(r *rt.RoutingTable, file *os.File, self string) error {
-	slc := []graph.Vertex{graph.NewVertex([]byte(self))}
-	viz := visualizer.New(r.G, slc, nil, nil)
-	viz.ApplyToNode = func(v graph.Vertex) string {
-		return  hex.EncodeToString(v.ToByte())
-	}
-	viz.ApplyToEdge = func(info *graph.ChannelInfo) string {
-		return fmt.Sprintf(`"%v"`, info.Cpt)
-	}
-	// need to call method if plan to use shortcut, autocomplete, etc
-	viz.BuildPrefixTree()
-	viz.EnableShortcut(true)
-	dot := viz.Draw()
-	_, err := file.Write([]byte(dot))
-	if err != nil {
-		return err
-	}
-	err = file.Sync()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func writeToImageFile(TempFile, ImageFile *os.File) error {
-	err := visualizer.Run("neato", TempFile, ImageFile)
-	if err != nil {
-		return err
-	}
-	err = TempFile.Close()
-	if err != nil {
-		return err
-	}
-	err = os.Remove(TempFile.Name())
-	if err != nil {
-		return err
-	}
-	err = ImageFile.Close()
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// get around a bug in the standard library, add suffix param
-func TempFileWithSuffix(dir, prefix, suffix string) (*os.File, error) {
-	f, err := ioutil.TempFile(dir, prefix)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(f.Name())
-	f, err = os.Create(f.Name() + suffix)
-	return f, err
-}
-
-// Prints routing table in human readable table format
-func printRTAsTable(r *rt.RoutingTable, humanForm bool) {
-	// Minimum length of data part to which name can be shortened
-	var minLen int
-	var tmpl string
-	var lightningIdTree, edgeIdTree prefix_tree.PrefixTree
-	if humanForm {
-		tmpl = "%-10v %-10v %-10v %-10v %-10v\n"
-		minLen = 6
-	} else {
-		tmpl = "%-64v %-64v %-66v %-10v %-10v\n"
-		minLen = 100
-	}
-	fmt.Printf(tmpl, "ID1", "ID2", "Outpoint", "Capacity", "Weight")
-	channels := r.AllChannels()
-	if humanForm {
-		// Generate prefix tree for shortcuts
-		lightningIdTree = prefix_tree.NewPrefixTree()
-		for _, node := range r.Nodes() {
-			lightningIdTree.Add(hex.EncodeToString(node.ToByte()))
-		}
-		edgeIdTree = prefix_tree.NewPrefixTree()
-		for _, channel := range channels {
-			edgeIdTree.Add(channel.Id.String())
-		}
-	}
-	for _, channel := range channels {
-		var source, target, edgeId string
-		sourceHex := hex.EncodeToString(channel.Src.ToByte())
-		targetHex := hex.EncodeToString(channel.Tgt.ToByte())
-		edgeIdRaw := channel.Id.String()
-		if humanForm {
-			source = getShortcut(lightningIdTree, sourceHex, minLen)
-			target = getShortcut(lightningIdTree, targetHex, minLen)
-			edgeId = getShortcut(edgeIdTree, edgeIdRaw, minLen)
-		} else {
-			source = sourceHex
-			target = targetHex
-			edgeId = edgeIdRaw
-		}
-		fmt.Printf(tmpl, source, target, edgeId, channel.Info.Cpt, channel.Info.Wgt)
-	}
-}
-
-func getShortcut(tree prefix_tree.PrefixTree, s string, minLen int) string {
-	s1, err := tree.Shortcut(s)
-	if err != nil || s == s1 {
-		return s
-	}
-	if len(s1) < minLen && minLen < len(s) {
-		s1 = s[:minLen]
-	}
-	shortcut := fmt.Sprintf("%v...", s1)
-	if len(shortcut) >= len(s) {
-		shortcut = s
-	}
-	return shortcut
-}
-
-func printRTAsJSON(r *rt.RoutingTable) {
-	type ChannelDesc struct {
-		ID1      string  `json:"lightning_id1"`
-		ID2      string  `json:"lightning_id2"`
-		EdgeId   string  `json:"outpoint"`
-		Capacity int64   `json:"capacity"`
-		Weight   float64 `json:"weight"`
-	}
-	var channels struct {
-		Channels []ChannelDesc `json:"channels"`
-	}
-	channelsRaw := r.AllChannels()
-	channels.Channels = make([]ChannelDesc, 0, len(channelsRaw))
-	for _, channelRaw := range channelsRaw {
-		sourceHex := hex.EncodeToString(channelRaw.Src.ToByte())
-		targetHex := hex.EncodeToString(channelRaw.Tgt.ToByte())
-		channels.Channels = append(channels.Channels,
-			ChannelDesc{
-				ID1:      sourceHex,
-				ID2:      targetHex,
-				EdgeId:   channelRaw.Id.String(),
-				Weight:   channelRaw.Info.Wgt,
-				Capacity: channelRaw.Info.Cpt,
-			},
-		)
-	}
-	printRespJson(channels)
-}
-
-
 
 var ListPaymentsCommand = cli.Command{
 	Name:        "listpayments",
 	Usage:       "listpayments",
 	Description: "list all outgoing payments",
-	Action: listPayments,
+	Action:      listPayments,
 }
 
 func listPayments(ctx *cli.Context) error {

@@ -112,8 +112,6 @@ service Lightning {
         };
     }
 
-    rpc ShowRoutingTable(ShowRoutingTableRequest) returns (ShowRoutingTableResponse);
-
     rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse){
         option (google.api.http) = {
             get: "/v1/payments"
@@ -125,8 +123,39 @@ service Lightning {
             delete: "/v1/payments"
         };
     };
-}
 
+    rpc DescribeGraph(ChannelGraphRequest) returns (ChannelGraph) {
+        option (google.api.http) = {
+            get: "/v1/graph"
+        };
+    }
+
+    rpc GetChanInfo(ChanInfoRequest) returns (ChannelEdge) {
+        option (google.api.http) = {
+            get: "/v1/graph/edge/{chan_id}"
+        };
+    }
+
+    rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfo) {
+        option (google.api.http) = {
+            get: "/v1/graph/node/{pub_key}"
+        };
+    }
+
+    rpc QueryRoute(RouteRequest) returns (Route) {
+        option (google.api.http) = {
+            get: "/v1/graph/route/{pub_key}/{amt}"
+        };
+    }
+
+    rpc GetNetworkInfo(NetworkInfoRequest) returns (NetworkInfo) {
+        option (google.api.http) = {
+            get: "/v1/graph/info"
+        };
+    }
+
+    rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
+}
 
 message Transaction {
     string tx_hash = 1;
@@ -366,20 +395,100 @@ message ChannelBalanceResponse {
     int64 balance = 1;
 }
 
-message RoutingTableLink {
-    string id1 = 1;
-    string id2 = 2;
-    string outpoint = 3;
-    int64 capacity = 4;
-    double weight = 5;
+message RouteRequest {
+    string pub_key = 1;
+    int64 amt = 2;
 }
 
-message ShowRoutingTableRequest {
+message Hop {
+    uint64 chan_id = 1;
+    int64 chan_capacity = 2;
+    int64 amt_to_forward = 3;
+    int64 fee = 4;
 }
 
-message ShowRoutingTableResponse {
-    repeated RoutingTableLink channels = 1;
+message Route {
+    uint32 total_time_lock = 1;
+    int64 total_fees = 2;
+    int64 total_amt = 3;
+
+    repeated Hop hops = 4;
 }
+
+message NodeInfoRequest{
+    string pub_key = 1; 
+}
+
+message NodeInfo {
+    LightningNode node = 1;
+
+    uint32 num_channels = 2;
+    int64 total_capacity = 3;
+}
+
+message LightningNode {
+    uint32 last_update = 1;
+    string pub_key = 2;
+    string address = 3;
+    string alias = 4;
+}
+
+message RoutingPolicy {
+    uint32 time_lock_delta = 1;
+    int64 min_htlc = 2;
+    int64 fee_base_msat = 3;
+    int64 fee_rate_milli_msat = 4;
+}
+
+message ChannelEdge {
+    uint64 channel_id = 1;
+    string chan_point = 2;
+
+    uint32 last_update = 3;
+
+    string node1_pub = 4;
+    string node2_pub = 5;
+
+    int64 capacity = 6;
+
+    RoutingPolicy node1_policy = 7;
+    RoutingPolicy node2_policy = 8;
+}
+
+message ChannelGraphRequest{}
+
+message ChannelGraph {
+    repeated LightningNode nodes = 1;
+    repeated ChannelEdge edges = 2;
+}
+
+message ChanInfoRequest {
+    uint64 chan_id = 1;
+}
+
+message NetworkInfoRequest{}
+message NetworkInfo {
+    uint32 graph_diameter = 1;
+    double avg_out_degree = 2;
+    uint32 max_out_degree = 3;
+
+    uint32 num_nodes = 4;
+    uint32 num_channels = 5;
+
+    int64 total_network_capacity = 6;
+
+    double avg_channel_size = 7;
+    int64 min_channel_size = 8;
+    int64 max_channel_size = 9;
+
+    // TODO(roasbeef): fee rate info, expiry
+    //  * also additional RPC for tracking fee info once in
+}
+
+message SetAliasRequest {
+    string new_alias = 1;
+}
+message SetAliasResponse{}
 
 message Invoice {
     string memo = 1;

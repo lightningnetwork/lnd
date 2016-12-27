@@ -215,18 +215,18 @@ message HTLC {
 message ActiveChannel {
     string remote_pubkey = 1;
     string channel_point = 2;
+    uint64 chan_id = 3;
 
-    int64 capacity = 3;
-    int64 local_balance = 4;
-    int64 remote_balance = 5;
+    int64 capacity = 4;
+    int64 local_balance = 5;
+    int64 remote_balance = 6;
 
-    int64 unsettled_balance = 6;
-    int64 total_satoshis_sent = 7;
-    int64 total_satoshis_received = 8;
-    uint64 num_updates = 9;
+    int64 unsettled_balance = 7;
+    int64 total_satoshis_sent = 8;
+    int64 total_satoshis_received = 9;
+    uint64 num_updates = 10;
 
-    repeated HTLC pending_htlcs = 10;
-    // TODO(roasbeef): other stuffs
+    repeated HTLC pending_htlcs = 11;
 }
 
 message ListChannelsRequest {}

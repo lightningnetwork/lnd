@@ -44,21 +44,13 @@ const (
 	CmdCommitSignature  = uint32(2000)
 	CmdCommitRevocation = uint32(2010)
 
-	// Commands for routing
-	CmdNeighborHelloMessage        = uint32(3000)
-	CmdNeighborUpdMessage          = uint32(3010)
-	CmdNeighborAckMessage          = uint32(3020)
-	CmdNeighborRstMessage          = uint32(3030)
-	CmdRoutingTableRequestMessage  = uint32(3040)
-	CmdRoutingTableTransferMessage = uint32(3050)
-
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
 
 	// Commands for discovery service.
-	CmdChannelAnnoucmentMessage = uint32(5000)
+	CmdChannelAnnoucmentMessage       = uint32(5000)
 	CmdChannelUpdateAnnoucmentMessage = uint32(5010)
-	CmdNodeAnnoucmentMessage = uint32(5020)
+	CmdNodeAnnoucmentMessage          = uint32(5020)
 
 	// Commands for connection keep-alive.
 	CmdPing = uint32(6000)
@@ -111,14 +103,6 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CommitRevocation{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
-	case CmdNeighborHelloMessage:
-		msg = &NeighborHelloMessage{}
-	case CmdNeighborUpdMessage:
-		msg = &NeighborUpdMessage{}
-	case CmdNeighborAckMessage:
-		msg = &NeighborAckMessage{}
-	case CmdNeighborRstMessage:
-		msg = &NeighborRstMessage{}
 	case CmdChannelAnnoucmentMessage:
 		msg = &ChannelAnnouncement{}
 	case CmdChannelUpdateAnnoucmentMessage:

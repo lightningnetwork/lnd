@@ -65,14 +65,6 @@ func (c CreditsAmount) ToSatoshi() int64 {
 	return int64(c / 1000)
 }
 
-type ChannelOperation struct {
-	NodePubKey1, NodePubKey2 [33]byte
-	ChannelId                *wire.OutPoint
-	Capacity                 int64
-	Weight                   float64
-	Operation                byte
-}
-
 // writeElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol. The passed
 // io.Writer should be backed by an appropriatly sized byte slice, or be able
@@ -301,29 +293,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		// TODO(roasbeef): *MsgTx
 	case int64, float64:
 		err := binary.Write(w, binary.BigEndian, e)
-		if err != nil {
-			return err
-		}
-	case []ChannelOperation:
-		err := writeElement(w, uint64(len(e)))
-		if err != nil {
-			return err
-		}
-		for i := 0; i < len(e); i++ {
-			err := writeElement(w, e[i])
-			if err != nil {
-				return err
-			}
-		}
-	case ChannelOperation:
-		err := writeElements(w,
-			e.NodePubKey1,
-			e.NodePubKey2,
-			e.ChannelId,
-			e.Capacity,
-			e.Weight,
-			e.Operation,
-		)
 		if err != nil {
 			return err
 		}
@@ -642,31 +611,6 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = wire.NewOutPoint(hash, index)
 	case *int64, *float64:
 		err := binary.Read(r, binary.BigEndian, e)
-		if err != nil {
-			return err
-		}
-	case *[]ChannelOperation:
-		var nChannels uint64
-		err := readElement(r, &nChannels)
-		if err != nil {
-			return err
-		}
-		*e = make([]ChannelOperation, nChannels)
-		for i := uint64(0); i < nChannels; i++ {
-			err := readElement(r, &((*e)[i]))
-			if err != nil {
-				return err
-			}
-		}
-	case *ChannelOperation:
-		err := readElements(r,
-			&e.NodePubKey1,
-			&e.NodePubKey2,
-			&e.ChannelId,
-			&e.Capacity,
-			&e.Weight,
-			&e.Operation,
-		)
 		if err != nil {
 			return err
 		}

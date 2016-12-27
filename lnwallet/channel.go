@@ -703,7 +703,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	lc.Lock()
 	defer lc.Unlock()
 
-	// TODO(roasbeef): logs duplicated due to breachArbiter...
 	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
 		"detected!", lc.channelState.ChanID)
 
@@ -716,11 +715,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	obsfucator := lc.channelState.StateHintObsfucator
 	broadcastStateNum := uint64(GetStateNumHint(commitTxBroadcast, obsfucator))
 
-	currentStateNum, err := lc.channelState.CommitmentHeight()
-	if err != nil {
-		walletLog.Errorf("unable to obtain commitment height: %v", err)
-		return
-	}
+	currentStateNum := lc.currentHeight
 
 	switch {
 	// If state number spending transaction matches the current latest

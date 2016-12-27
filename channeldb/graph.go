@@ -1075,24 +1075,24 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdge, *Chan
 		channelID [8]byte
 	)
 
-	err := c.db.Update(func(tx *bolt.Tx) error {
+	err := c.db.View(func(tx *bolt.Tx) error {
 		// First, grab the node bucket. This will be used to populate
 		// the Node pointers in each edge read from disk.
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
 		}
 
 		// Next, grab the edge bucket which stores the edges, and also
 		// the index itself so we can group the directed edges together
 		// logically.
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
 		}
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
 		}
 
 		byteOrder.PutUint64(channelID[:], chanID)

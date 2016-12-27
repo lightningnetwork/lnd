@@ -706,44 +706,44 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// with the two channels above recognized as the only links within the
 	// network.
 	time.Sleep(time.Second)
-	req := &lnrpc.ShowRoutingTableRequest{}
-	routingResp, err := carol.ShowRoutingTable(ctxb, req)
+	req := &lnrpc.ChannelGraphRequest{}
+	chanGraph, err := carol.DescribeGraph(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to query for carol's routing table: %v", err)
 	}
-	if len(routingResp.Channels) != 2 {
+	if len(chanGraph.Edges) != 2 {
 		t.Fatalf("only two channels should be seen as active in the "+
-			"network, instead %v are", len(routingResp.Channels))
+			"network, instead %v are", len(chanGraph.Edges))
 	}
-	for _, link := range routingResp.Channels {
+	for _, link := range chanGraph.Edges {
 		switch {
-		case link.Outpoint == aliceFundPoint.String():
+		case link.ChanPoint == aliceFundPoint.String():
 			switch {
-			case link.Id1 == net.Alice.PubKeyStr &&
-				link.Id2 == net.Bob.PubKeyStr:
+			case link.Node1Pub == net.Alice.PubKeyStr &&
+				link.Node2Pub == net.Bob.PubKeyStr:
 				continue
-			case link.Id1 == net.Bob.PubKeyStr &&
-				link.Id2 == net.Alice.PubKeyStr:
+			case link.Node1Pub == net.Bob.PubKeyStr &&
+				link.Node2Pub == net.Alice.PubKeyStr:
 				continue
 			default:
-				t.Fatalf("unkown link within routing "+
+				t.Fatalf("unknown link within routing "+
 					"table: %v", spew.Sdump(link))
 			}
-		case link.Outpoint == carolFundPoint.String():
+		case link.ChanPoint == carolFundPoint.String():
 			switch {
-			case link.Id1 == net.Alice.PubKeyStr &&
-				link.Id2 == carol.PubKeyStr:
+			case link.Node1Pub == net.Alice.PubKeyStr &&
+				link.Node2Pub == carol.PubKeyStr:
 				continue
-			case link.Id1 == carol.PubKeyStr &&
-				link.Id2 == net.Alice.PubKeyStr:
+			case link.Node1Pub == carol.PubKeyStr &&
+				link.Node2Pub == net.Alice.PubKeyStr:
 				continue
 			default:
-				t.Fatalf("unkown link within routing "+
+				t.Fatalf("unknown link within routing "+
 					"table: %v", spew.Sdump(link))
 			}
 		default:
-			t.Fatalf("unkown channel %v found in routing table, "+
-				"only %v and %v should exist", link.Outpoint,
+			t.Fatalf("unknown channel %v found in routing table, "+
+				"only %v and %v should exist", spew.Sdump(link),
 				aliceFundPoint, carolFundPoint)
 		}
 	}
@@ -1310,7 +1310,7 @@ poll:
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	// Finally, obtain Alie's channel state, she shouldn't report any
+	// Finally, obtain Alice's channel state, she shouldn't report any
 	// channel as she just successfully brought Bob to justice by sweeping
 	// all the channel funds.
 	time.Sleep(time.Second * 2)

@@ -439,7 +439,7 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 		exists          bool
 	)
 
-	err := c.db.View(func(tx *bolt.Tx) error {
+	if err := c.db.View(func(tx *bolt.Tx) error {
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -456,6 +456,8 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 			return nil
 		}
 
+		exists = true
+
 		// If the channel has been found in the graph, then retrieve
 		// the edges itself so we can return the last updated
 		// timestmaps.
@@ -469,21 +471,18 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 		if err != nil {
 			// TODO(roasbeef): hack fix to return false until both
 			// edges are populated
-			exists = false
 			return nil
 		}
 
 		node1UpdateTime = e1.LastUpdate
 		node2UpdateTime = e2.LastUpdate
-		exists = true
 
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return time.Time{}, time.Time{}, exists, err
 	}
 
-	return node1UpdateTime, node2UpdateTime, exists, err
+	return node1UpdateTime, node2UpdateTime, exists, nil
 }
 
 const (
@@ -889,6 +888,8 @@ func (c *ChannelGraph) HasLightningNode(pub *btcec.PublicKey) (time.Time, bool, 
 // Otherwise the first argument should be nil and a fresh transaction will be
 // created to execute the graph traversal.
 func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdge) error) error {
+	// TODO(roasbeef): remove the option to pass in a transaction after
+	// all?
 	nodePub := l.PubKey.SerializeCompressed()
 
 	traversal := func(tx *bolt.Tx) error {

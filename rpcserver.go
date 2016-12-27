@@ -609,7 +609,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
-func constructPayment(path []graph.Vertex, amount btcutil.Amount, rHash []byte) *channeldb.OutgoingPayment {
+func constructPayment(route *routing.Route, amount btcutil.Amount,
+	rHash []byte) *channeldb.OutgoingPayment {
 
 	payment := &channeldb.OutgoingPayment{}
 
@@ -621,9 +622,10 @@ func constructPayment(path []graph.Vertex, amount btcutil.Amount, rHash []byte) 
 	payment.Invoice.CreationDate = time.Now()
 	payment.Timestamp = time.Now()
 
-	pathBytes33 := make([][33]byte, len(path))
-	for i:=0; i<len(path); i++ {
-		pathBytes33[i] = path[i].ToByte33()
+	pathBytes33 := make([][33]byte, len(route.Hops))
+	for i, hop := range route.Hops {
+		hopPub := hop.Channel.Node.PubKey.SerializeCompressed()
+		copy(pathBytes33[i][:], hopPub)
 	}
 	payment.Path = pathBytes33
 	return payment
@@ -670,9 +672,15 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		case err := <-errChan:
 			return err
 		case nextPayment := <-payChan:
-			// Query the routing table for a potential path to the
-			// destination node. If a path is ultimately
-			// unavailable, then an error will be returned.
+			// Parse the details of the payment which include the
+			// pubkey of the destination and the payment amount.
+			dest := nextPayment.Dest
+			amt := btcutil.Amount(nextPayment.Amt)
+			destNode, err := btcec.ParsePubKey(dest, btcec.S256())
+			if err != nil {
+				return err
+
+			}
 			// If we're in debug HTLC mode, then all outgoing
 			// HTLC's will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
@@ -683,18 +691,19 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
 			}
+
 			// Construct and HTLC packet which a payment route (if
 			// one is found) to the destination using a Sphinx
-			// onoin packet to encode the route.
-			htlcPkt, path, err := r.constructPaymentRoute([]byte(nextPayment.Dest),
-				nextPayment.Amt, rHash)
+			// onion packet to encode the route.
+			htlcPkt, route, err := r.constructPaymentRoute(destNode, amt,
+				rHash)
 			if err != nil {
 				return err
 			}
-			rpcsLog.Tracef("[sendpayment] selected route: %v", path)
+
 			// We launch a new goroutine to execute the current
 			// payment so we can continue to serve requests while
-			// this payment is being dispatiched.
+			// this payment is being dispatched.
 			//
 			// TODO(roasbeef): semaphore to limit num outstanding
 			// goroutines.
@@ -707,10 +716,13 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
-				// Save payment to DB.
-				payment := constructPayment(path,
-					btcutil.Amount(nextPayment.Amt), rHash[:])
-				r.server.chanDB.AddPayment(payment)
+				// Save the completed payment to the database
+				// for record keeping purposes.
+				payment := constructPayment(route, amt, rHash[:])
+				if err := r.server.chanDB.AddPayment(payment); err != nil {
+					errChan <- err
+					return
+				}
 
 				// TODO(roasbeef): proper responses
 				resp := &lnrpc.SendResponse{}
@@ -747,11 +759,21 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		copy(rHash[:], paymentHash)
 	}
 
+	pubBytes, err := hex.DecodeString(nextPayment.DestString)
+	if err != nil {
+		return nil, err
+	}
+	destPub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	amt := btcutil.Amount(nextPayment.Amt)
+
 	// Construct and HTLC packet which a payment route (if
 	// one is found) to the destination using a Sphinx
 	// onoin packet to encode the route.
-	htlcPkt, path, err := r.constructPaymentRoute([]byte(nextPayment.DestString),
-		nextPayment.Amt, rHash)
+	htlcPkt, route, err := r.constructPaymentRoute(destPub, amt, rHash)
 	if err != nil {
 		return nil, err
 	}
@@ -761,8 +783,12 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 		return nil, err
 	}
-	payment := constructPayment(path, btcutil.Amount(nextPayment.Amt), rHash[:])
-				r.server.chanDB.AddPayment(payment)
+
+	payment := constructPayment(route, amt, rHash[:])
+	if err := r.server.chanDB.AddPayment(payment); err != nil {
+		return nil, err
+	}
+
 	return &lnrpc.SendResponse{}, nil
 }
 
@@ -770,25 +796,24 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // encapsulates a Sphinx onion packet that encodes the end-to-end route any
 // payment instructions necessary to complete an HTLC. If a route is unable to
 // be located, then an error is returned indicating as much.
-func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
-	rHash [32]byte) (*htlcPacket, []graph.Vertex, error) {
+func (r *rpcServer) constructPaymentRoute(destNode *btcec.PublicKey,
+	amt btcutil.Amount, rHash [32]byte) (*htlcPacket, *routing.Route, error) {
 
 	const queryTimeout = time.Duration(time.Second * 10)
 
-	// Query the routing table for a potential path to the destination
-	// node. If a path is ultimately unavailable, then an error will be
-	// returned.
-	targetVertex := graph.NewVertex(destPubkey)
-	path, err := r.server.routingMgr.FindPath(targetVertex)
+	// Query the channel router for a potential path to the destination
+	// node that can support our payment amount. If a path is ultimately
+	// unavailable, then an error will be returned.
+	route, err := r.server.chanRouter.FindRoute(destNode, amt)
 	if err != nil {
 		return nil, nil, err
 	}
-	rpcsLog.Tracef("[sendpayment] selected route: %v", path)
+	rpcsLog.Tracef("[sendpayment] selected route: %#v", route)
 
 	// Generate the raw encoded sphinx packet to be included along with the
 	// HTLC add message.  We snip off the first hop from the path as within
 	// the routing table's star graph, we're always the first hop.
-	sphinxPacket, err := generateSphinxPacket(path[1:], rHash[:])
+	sphinxPacket, err := generateSphinxPacket(route, rHash[:])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -797,39 +822,38 @@ func (r *rpcServer) constructPaymentRoute(destPubkey []byte, amt int64,
 	// meta-data within this packet will be used to route the payment
 	// through the network.
 	htlcAdd := &lnwire.HTLCAddRequest{
-		Amount:           btcutil.Amount(amt),
+		Amount:           route.TotalAmount,
 		RedemptionHashes: [][32]byte{rHash},
 		OnionBlob:        sphinxPacket,
 	}
 
-	firstHopPub := path[1].ToByte()
+	firstHopPub := route.Hops[0].Channel.Node.PubKey.SerializeCompressed()
 	destInterface := wire.ShaHash(fastsha256.Sum256(firstHopPub))
 
 	return &htlcPacket{
 		dest: destInterface,
 		msg:  htlcAdd,
-	}, path, nil
+	}, route, nil
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
-// the onion route specified by the passed list of graph vertexes. The blob
-// returned from this function can immediately be included within an HTLC add
-// packet to be sent to the first hop within the route.
-func generateSphinxPacket(vertexes []graph.Vertex, paymentHash []byte) ([]byte, error) {
-	// First convert all the vertexs from the routing table to in-memory
-	// public key objects. These objects are necessary in order to perform
-	// the series of ECDH operations required to construct the Sphinx
-	// packet below.
-	route := make([]*btcec.PublicKey, len(vertexes))
-	for i, vertex := range vertexes {
-		vertexBytes := vertex.ToByte()
-
-		pub, err := btcec.ParsePubKey(vertexBytes, btcec.S256())
-		if err != nil {
-			return nil, err
+// the onion route specified by the passed layer 3 route. The blob returned
+// from this function can immediately be included within an HTLC add packet to
+// be sent to the first hop within the route.
+func generateSphinxPacket(route *routing.Route, paymentHash []byte) ([]byte, error) {
+	// First obtain all the public keys along the route which are contained
+	// in each hop.
+	nodes := make([]*btcec.PublicKey, len(route.Hops))
+	for i, hop := range route.Hops {
+		// We create a new instance of the public key to avoid possibly
+		// mutating the curve parameters, which are unset in a higher
+		// level in order to avoid spamming the logs.
+		pub := btcec.PublicKey{
+			btcec.S256(),
+			hop.Channel.Node.PubKey.X,
+			hop.Channel.Node.PubKey.Y,
 		}
-
-		route[i] = pub
+		nodes[i] = &pub
 	}
 
 	// Next we generate the per-hop payload which gives each node within
@@ -838,7 +862,7 @@ func generateSphinxPacket(vertexes []graph.Vertex, paymentHash []byte) ([]byte, 
 	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
 	// within hop paylods.
 	var hopPayloads [][]byte
-	for i := 0; i < len(route); i++ {
+	for i := 0; i < len(route.Hops); i++ {
 		payload := bytes.Repeat([]byte{byte('A' + i)},
 			sphinx.HopPayloadSize)
 		hopPayloads = append(hopPayloads, payload)
@@ -852,13 +876,13 @@ func generateSphinxPacket(vertexes []graph.Vertex, paymentHash []byte) ([]byte, 
 	// Next generate the onion routing packet which allows
 	// us to perform privacy preserving source routing
 	// across the network.
-	sphinxPacket, err := sphinx.NewOnionPacket(route, sessionKey,
+	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
 		hopPayloads, paymentHash)
 	if err != nil {
 		return nil, err
 	}
 
-	// Finally, encode Sphinx packet using it's wire represenation to be
+	// Finally, encode Sphinx packet using it's wire representation to be
 	// included within the HTLC add packet.
 	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {
@@ -1154,7 +1178,6 @@ func (r *rpcServer) ShowRoutingTable(ctx context.Context,
 	}, nil
 }
 
-
 // ListPayments returns a list of all outgoing payments.
 func (r *rpcServer) ListPayments(context.Context,
 	*lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
@@ -1169,13 +1192,13 @@ func (r *rpcServer) ListPayments(context.Context,
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		Payments: make([]*lnrpc.Payment, len(payments)),
 	}
-	for i:=0; i<len(payments); i++ {
+	for i := 0; i < len(payments); i++ {
 		p := &lnrpc.Payment{}
 		p.CreationDate = payments[i].CreationDate.Unix()
 		p.Value = int64(payments[i].Terms.Value)
 		p.RHash = hex.EncodeToString(payments[i].RHash[:])
 		path := make([]string, len(payments[i].Path))
-		for j:=0; j<len(path); j++ {
+		for j := 0; j < len(path); j++ {
 			path[j] = hex.EncodeToString(payments[i].Path[j][:])
 		}
 		p.Path = path

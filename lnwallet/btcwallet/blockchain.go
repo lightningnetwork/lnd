@@ -2,9 +2,16 @@ package btcwallet
 
 import (
 	"encoding/hex"
+	"errors"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/wire"
+)
+
+var (
+	// ErrOutputSpent is returned by the GetUtxo method if the target output
+	// for lookup has already been spent.
+	ErrOutputSpent = errors.New("target output has been spent")
 )
 
 // GetBestBlock returns the current height and hash of the best known block
@@ -22,6 +29,8 @@ func (b *BtcWallet) GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, erro
 	txout, err := b.rpc.GetTxOut(txid, index, false)
 	if err != nil {
 		return nil, err
+	} else if txout == nil {
+		return nil, ErrOutputSpent
 	}
 
 	pkScript, err := hex.DecodeString(txout.ScriptPubKey.Hex)

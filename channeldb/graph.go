@@ -630,6 +630,42 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	})
 }
 
+// ChannelID attempt to lookup the 8-byte compact channel ID which maps to the
+// passed channel point (outpoint). If the passed channel doesn't exist within
+// the database, then ErrEdgeNotFound is returned.
+func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+	var chanID uint64
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, chanPoint); err != nil {
+		return 0, nil
+	}
+
+	if err := c.db.View(func(tx *bolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		chanIndex := edges.Bucket(channelPointBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		chanIDBytes := chanIndex.Get(b.Bytes())
+		if chanIDBytes == nil {
+			return ErrEdgeNotFound
+		}
+
+		chanID = byteOrder.Uint64(chanIDBytes)
+
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+
+	return chanID, nil
+}
+
 func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 	chanIndex *bolt.Bucket, chanPoint *wire.OutPoint) error {
 	var b bytes.Buffer

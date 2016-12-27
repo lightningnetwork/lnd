@@ -335,6 +335,17 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		t.Fatalf("graph should have of inserted edge")
 	}
 
+	// We should also be able to retrieved the channelID only knowing the
+	// channel point of the channel.
+	dbChanID, err := graph.ChannelID(&outpoint)
+	if err != nil {
+		t.Fatalf("unable to retrieve channel ID: %v", err)
+	}
+	if dbChanID != chanID {
+		t.Fatalf("chan ID's mismatch, expected %v got %v", dbChanID,
+			chanID)
+	}
+
 	// With the edges inserted, perform some queries to ensure that they've
 	// been inserted properly.
 	dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)

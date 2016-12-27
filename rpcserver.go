@@ -19,7 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/rt/graph"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
@@ -558,6 +558,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	resp := &lnrpc.ListChannelsResponse{}
 
+	graph := r.server.chanDB.ChannelGraph()
+
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
 	if err != nil {
 		return nil, err
@@ -569,10 +571,19 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	for _, dbChannel := range dbChannels {
 		nodePub := dbChannel.IdentityPub.SerializeCompressed()
 		nodeID := hex.EncodeToString(nodePub)
+		chanPoint := dbChannel.ChanID
+
+		// With the channel point known, retrieve the network channel
+		// ID from the database.
+		chanID, err := graph.ChannelID(chanPoint)
+		if err != nil {
+			return nil, err
+		}
 
 		channel := &lnrpc.ActiveChannel{
 			RemotePubkey:          nodeID,
-			ChannelPoint:          dbChannel.ChanID.String(),
+			ChannelPoint:          chanPoint.String(),
+			ChanId:                chanID,
 			Capacity:              int64(dbChannel.Capacity),
 			LocalBalance:          int64(dbChannel.OurBalance),
 			RemoteBalance:         int64(dbChannel.TheirBalance),

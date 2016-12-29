@@ -393,7 +393,7 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 
 	confDetails := &chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
-		BlockHeight: uint32(currentHeight) - uint32(tx.Confirmations),
+		BlockHeight: uint32(currentHeight) - uint32(tx.Confirmations) + 1,
 		TxIndex:     txIndex,
 	}
 

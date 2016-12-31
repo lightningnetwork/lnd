@@ -1161,7 +1161,7 @@
             "format": "string"
           }
         },
-        "r_hash": {
+        "payment_hash": {
           "type": "string",
           "format": "string"
         },

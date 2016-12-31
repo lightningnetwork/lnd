@@ -522,12 +522,13 @@ message InvoiceSubscription {}
 
 
 message Payment {
-    string r_hash = 1;
-
+    string payment_hash = 1;
     int64 value = 2;
 
     int64 creation_date = 3;
+
     repeated string path = 4;
+
     int64 fee = 5;
 }
 

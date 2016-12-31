@@ -1,5 +1,5 @@
 hash: faa87f5b7fca5bd929174fa19119f484d9f8d8fbe132c41b5130b88e88498271
-updated: 2016-12-14T17:39:46.624821339-08:00
+updated: 2016-12-30T16:43:39.303527204-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -7,20 +7,12 @@ imports:
   - chacha
 - name: github.com/aead/poly1305
   version: 7ab7663051fa9fa57de391f966a859e781d48b0a
-- name: github.com/awalterschulze/gographviz
-  version: 609eb77bad9f92f83854891fba4a0d03f075f5aa
-  subpackages:
-  - ast
-  - parser
-  - token
-  - errors
-  - lexer
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/bolt
   version: da4838c39653ed69caa78c99ca68001a89eb973f
 - name: github.com/btcsuite/btcd
-  version: 602232500e50bc3b7f1e3d606331ef14d6f3e1ef
+  version: 9f962b60d68c1e0d7ccfc9898c9c5b514253d753
   subpackages:
   - connmgr
   - chaincfg
@@ -99,7 +91,7 @@ imports:
   - txsort
   - base58
 - name: github.com/roasbeef/btcwallet
-  version: e3a31a83163961cf972719746a7bba134775c26c
+  version: 1c2db395c742c77ba865467d5e7a6d3214188d1c
   subpackages:
   - chain
   - waddrmgr
@@ -119,7 +111,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 9a6f0a01987842989747adff311d80750ba25530
+  version: f6b343c37ca80bfa8ea539da67a0b621f84fab1d
   subpackages:
   - hkdf
   - nacl/secretbox
@@ -130,7 +122,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: cfae461cedfdcab6e261a26eb77db53695623303
+  version: 8fd7f25955530b92e73e9e1932a41b522b22ccd9
   subpackages:
   - context
   - http2

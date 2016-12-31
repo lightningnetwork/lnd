@@ -191,11 +191,11 @@ out:
 			// the contract. So we'll cancel active watcher
 			// goroutine to create a new instance with the latest
 			// contract reference.
-			if _, ok := b.breachObservers[*chanPoint]; ok {
+			if oldSignal, ok := b.breachObservers[*chanPoint]; ok {
 				brarLog.Infof("ChannelPoint(%v) is now live, "+
 					"abandoning state contract for live "+
 					"version", chanPoint)
-				close(settleSignal)
+				close(oldSignal)
 			}
 
 			b.breachObservers[*chanPoint] = settleSignal

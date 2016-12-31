@@ -3,55 +3,50 @@ package channeldb
 import (
 	"bytes"
 	"fmt"
-	"github.com/btcsuite/fastsha256"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcutil"
 	"math/rand"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/roasbeef/btcutil"
 )
 
 func makeFakePayment() *OutgoingPayment {
-	// Create a fake invoice which
-	// we'll use several times in the tests below.
 	fakeInvoice := &Invoice{
 		CreationDate: time.Now(),
+		Memo:         []byte("fake memo"),
+		Receipt:      []byte("fake receipt"),
 	}
-	fakeInvoice.Memo = []byte("memo")
-	fakeInvoice.Receipt = []byte("recipt")
+
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = btcutil.Amount(10000)
-	// Make fake path
+
 	fakePath := make([][33]byte, 3)
 	for i := 0; i < 3; i++ {
-		for j := 0; j < 33; j++ {
-			fakePath[i][j] = byte(i)
-		}
+		copy(fakePath[i][:], bytes.Repeat([]byte{byte(i)}, 33))
 	}
-	var rHash [32]byte = fastsha256.Sum256(rev[:])
-	fakePayment := &OutgoingPayment{
+
+	return &OutgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            101,
 		Path:           fakePath,
 		TimeLockLength: 1000,
-		RHash:          rHash,
-		Timestamp:      time.Unix(100000, 0),
+		PaymentHash:    fastsha256.Sum256(rev[:]),
 	}
-	return fakePayment
 }
 
-// randomBytes creates random []byte with length
-// in range [minLen, maxLen)
+// randomBytes creates random []byte with length in range [minLen, maxLen)
 func randomBytes(minLen, maxLen int) ([]byte, error) {
-	l := minLen + rand.Intn(maxLen-minLen)
-	b := make([]byte, l)
-	_, err := rand.Read(b)
-	if err != nil {
+	randBuf := make([]byte, minLen+rand.Intn(maxLen-minLen))
+
+	if _, err := rand.Read(randBuf); err != nil {
 		return nil, fmt.Errorf("Internal error. "+
 			"Cannot generate random string: %v", err)
 	}
-	return b, nil
+
+	return randBuf, nil
 }
 
 func makeRandomFakePayment() (*OutgoingPayment, error) {
@@ -78,7 +73,6 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 
 	fakeInvoice.Terms.Value = btcutil.Amount(rand.Intn(10000))
 
-	// Make fake path
 	fakePathLen := 1 + rand.Intn(5)
 	fakePath := make([][33]byte, fakePathLen)
 	for i := 0; i < fakePathLen; i++ {
@@ -89,31 +83,29 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		copy(fakePath[i][:], b)
 	}
 
-	var rHash [32]byte = fastsha256.Sum256(
-		fakeInvoice.Terms.PaymentPreimage[:],
-	)
+	rHash := fastsha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
 	fakePayment := &OutgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            btcutil.Amount(rand.Intn(1001)),
 		Path:           fakePath,
 		TimeLockLength: uint32(rand.Intn(10000)),
-		RHash:          rHash,
-		Timestamp:      time.Unix(rand.Int63n(10000), 0),
+		PaymentHash:    rHash,
 	}
+
 	return fakePayment, nil
 }
 
 func TestOutgoingPaymentSerialization(t *testing.T) {
 	fakePayment := makeFakePayment()
-	b := new(bytes.Buffer)
-	err := serializeOutgoingPayment(b, fakePayment)
-	if err != nil {
-		t.Fatalf("Can't serialize outgoing payment: %v", err)
+
+	var b bytes.Buffer
+	if err := serializeOutgoingPayment(&b, fakePayment); err != nil {
+		t.Fatalf("unable to serialize outgoing payment: %v", err)
 	}
 
-	newPayment, err := deserializeOutgoingPayment(b)
+	newPayment, err := deserializeOutgoingPayment(&b)
 	if err != nil {
-		t.Fatalf("Can't deserialize outgoing payment: %v", err)
+		t.Fatalf("unable to deserialize outgoing payment: %v", err)
 	}
 
 	if !reflect.DeepEqual(fakePayment, newPayment) {
@@ -127,27 +119,27 @@ func TestOutgoingPaymentSerialization(t *testing.T) {
 
 func TestOutgoingPaymentWorkflow(t *testing.T) {
 	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
-	defer cleanUp()
 
 	fakePayment := makeFakePayment()
-	err = db.AddPayment(fakePayment)
-	if err != nil {
-		t.Fatalf("Can't put payment in DB: %v", err)
+	if err = db.AddPayment(fakePayment); err != nil {
+		t.Fatalf("unable to put payment in DB: %v", err)
 	}
 
 	payments, err := db.FetchAllPayments()
 	if err != nil {
-		t.Fatalf("Can't get payments from DB: %v", err)
+		t.Fatalf("unable to fetch payments from DB: %v", err)
 	}
-	correctPayments := []*OutgoingPayment{fakePayment}
-	if !reflect.DeepEqual(payments, correctPayments) {
+
+	expectedPayments := []*OutgoingPayment{fakePayment}
+	if !reflect.DeepEqual(payments, expectedPayments) {
 		t.Fatalf("Wrong payments after reading from DB."+
 			"Got %v, want %v",
 			spew.Sdump(payments),
-			spew.Sdump(correctPayments),
+			spew.Sdump(expectedPayments),
 		)
 	}
 
@@ -157,11 +149,12 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Internal error in tests: %v", err)
 		}
-		err = db.AddPayment(randomPayment)
-		if err != nil {
-			t.Fatalf("Can't put payment in DB: %v", err)
+
+		if err = db.AddPayment(randomPayment); err != nil {
+			t.Fatalf("unable to put payment in DB: %v", err)
 		}
-		correctPayments = append(correctPayments, randomPayment)
+
+		expectedPayments = append(expectedPayments, randomPayment)
 	}
 
 	payments, err = db.FetchAllPayments()
@@ -169,18 +162,17 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 		t.Fatalf("Can't get payments from DB: %v", err)
 	}
 
-	if !reflect.DeepEqual(payments, correctPayments) {
+	if !reflect.DeepEqual(payments, expectedPayments) {
 		t.Fatalf("Wrong payments after reading from DB."+
 			"Got %v, want %v",
 			spew.Sdump(payments),
-			spew.Sdump(correctPayments),
+			spew.Sdump(expectedPayments),
 		)
 	}
 
 	// Delete all payments.
-	err = db.DeleteAllPayments()
-	if err != nil {
-		t.Fatalf("Can't delete payments from DB: %v", err)
+	if err = db.DeleteAllPayments(); err != nil {
+		t.Fatalf("unable to delete payments from DB: %v", err)
 	}
 
 	// Check that there is no payments after deletion

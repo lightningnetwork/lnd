@@ -469,13 +469,17 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 		e1, e2, err := fetchEdges(edgeIndex, edges, nodes,
 			channelID[:], c.db)
 		if err != nil {
-			// TODO(roasbeef): hack fix to return false until both
-			// edges are populated
-			return nil
+			return err
 		}
 
-		node1UpdateTime = e1.LastUpdate
-		node2UpdateTime = e2.LastUpdate
+		// As we may have only one of the edges populated, only set the
+		// update time if the edge was found in the database.
+		if e1 != nil {
+			node1UpdateTime = e1.LastUpdate
+		}
+		if e2 != nil {
+			node2UpdateTime = e2.LastUpdate
+		}
 
 		return nil
 	}); err != nil {
@@ -1278,24 +1282,33 @@ func fetchEdges(edgeIndex *bolt.Bucket, edges *bolt.Bucket, nodes *bolt.Bucket,
 	}
 
 	// The first node is contained within the first half of the
-	// edge information.
+	// edge information. We only propgate the error here and below if it's
+	// something other than edge non-existance.
 	node1Pub := edgeInfo[:33]
 	edge1, err := fetchChannelEdge(edges, chanID, node1Pub, nodes)
-	if err != nil {
+	if err != nil && err != ErrEdgeNotFound {
 		return nil, nil, err
 	}
-	edge1.db = db
-	edge1.Node.db = db
+
+	// As we may have a signle direction of the edge but not the other,
+	// only fill in the datbase pointers if the edge is found.
+	if edge1 != nil {
+		edge1.db = db
+		edge1.Node.db = db
+	}
 
 	// Similarly, the second node is contained within the latter
 	// half of the edge information.
 	node2Pub := edgeInfo[33:]
 	edge2, err := fetchChannelEdge(edges, chanID, node2Pub, nodes)
-	if err != nil {
+	if err != nil && err != ErrEdgeNotFound {
 		return nil, nil, err
 	}
-	edge2.db = db
-	edge2.Node.db = db
+
+	if edge2 != nil {
+		edge2.db = db
+		edge2.Node.db = db
+	}
 
 	return edge1, edge2, nil
 }

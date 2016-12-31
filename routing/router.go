@@ -535,7 +535,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 		}
 
 		// As edges are directional edge node has a unique policy for
-		// the direction of th edge they control. Therefore we first
+		// the direction of the edge they control. Therefore we first
 		// check if we already have the most up to date information for
 		// that edge. If so, then we can exit early.
 		updateTimestamp := time.Unix(int64(msg.Timestamp), 0)

@@ -610,26 +610,31 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
-func constructPayment(route *routing.Route, amount btcutil.Amount,
-	rHash []byte) *channeldb.OutgoingPayment {
+// savePayment saves a successfully completed payment to the database for
+// historical record keeping.
+func (r *rpcServer) savePayment(route *routing.Route, amount btcutil.Amount,
+	rHash []byte) error {
 
-	payment := &channeldb.OutgoingPayment{}
-
-	// When we create payment we do not know preImage.
-	// So we need to save rHash
-	copy(payment.RHash[:], rHash)
-
-	payment.Invoice.Terms.Value = btcutil.Amount(amount)
-	payment.Invoice.CreationDate = time.Now()
-	payment.Timestamp = time.Now()
-
-	pathBytes33 := make([][33]byte, len(route.Hops))
+	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
 		hopPub := hop.Channel.Node.PubKey.SerializeCompressed()
-		copy(pathBytes33[i][:], hopPub)
+		copy(paymentPath[i][:], hopPub)
 	}
-	payment.Path = pathBytes33
-	return payment
+
+	payment := &channeldb.OutgoingPayment{
+		Invoice: channeldb.Invoice{
+			Terms: channeldb.ContractTerm{
+				Value: btcutil.Amount(amount),
+			},
+			CreationDate: time.Now(),
+		},
+		Path:           paymentPath,
+		Fee:            route.TotalFees,
+		TimeLockLength: route.TotalTimeLock,
+	}
+	copy(payment.PaymentHash[:], rHash)
+
+	return r.server.chanDB.AddPayment(payment)
 }
 
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
@@ -719,8 +724,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				payment := constructPayment(route, amt, rHash[:])
-				if err := r.server.chanDB.AddPayment(payment); err != nil {
+				if err := r.savePayment(route, amt, rHash[:]); err != nil {
 					errChan <- err
 					return
 				}
@@ -779,14 +783,15 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		return nil, err
 	}
 
-	// Finally, send this next packet to the routing layer in order to
+	// Next, send this next packet to the routing layer in order to
 	// complete the next payment.
 	if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 		return nil, err
 	}
 
-	payment := constructPayment(route, amt, rHash[:])
-	if err := r.server.chanDB.AddPayment(payment); err != nil {
+	// With the payment completed successfully, we now ave the details of
+	// the completed payment to the databse for historical record keeping.
+	if err := r.savePayment(route, amt, rHash[:]); err != nil {
 		return nil, err
 	}
 
@@ -1448,17 +1453,18 @@ func (r *rpcServer) ListPayments(context.Context,
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		Payments: make([]*lnrpc.Payment, len(payments)),
 	}
-	for i := 0; i < len(payments); i++ {
-		p := &lnrpc.Payment{}
-		p.CreationDate = payments[i].CreationDate.Unix()
-		p.Value = int64(payments[i].Terms.Value)
-		p.RHash = hex.EncodeToString(payments[i].RHash[:])
-		path := make([]string, len(payments[i].Path))
-		for j := 0; j < len(path); j++ {
-			path[j] = hex.EncodeToString(payments[i].Path[j][:])
+	for i, payment := range payments {
+		path := make([]string, len(payment.Path))
+		for i, hop := range payment.Path {
+			path[i] = hex.EncodeToString(hop[:])
 		}
-		p.Path = path
-		paymentsResp.Payments[i] = p
+
+		paymentsResp.Payments[i] = &lnrpc.Payment{
+			PaymentHash:  hex.EncodeToString(payment.PaymentHash[:]),
+			Value:        int64(payment.Terms.Value),
+			CreationDate: payment.CreationDate.Unix(),
+			Path:         path,
+		}
 	}
 
 	return paymentsResp, nil
@@ -1470,9 +1476,11 @@ func (r *rpcServer) DeleteAllPayments(context.Context,
 
 	rpcsLog.Debugf("[DeleteAllPayments]")
 
-	err := r.server.chanDB.DeleteAllPayments()
-	resp := &lnrpc.DeleteAllPaymentsResponse{}
-	return resp, err
+	if err := r.server.chanDB.DeleteAllPayments(); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.DeleteAllPaymentsResponse{}, nil
 }
 
 // SetAlias...

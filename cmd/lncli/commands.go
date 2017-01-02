@@ -546,10 +546,9 @@ var SendPaymentCommand = cli.Command{
 			Name:  "debug_send",
 			Usage: "use the debug rHash when sending the HTLC",
 		},
-		cli.BoolFlag{
-			Name: "fast, f",
-			Usage: "skip the HTLC trickle logic, immediately creating a " +
-				"new commitment",
+		cli.StringFlag{
+			Name:  "pay_req",
+			Usage: "a zbase32-check encoded payment request to fulfill",
 		},
 	},
 	Action: sendPaymentCommand,
@@ -558,31 +557,37 @@ var SendPaymentCommand = cli.Command{
 func sendPaymentCommand(ctx *cli.Context) error {
 	client := getClient(ctx)
 
-	destNode, err := hex.DecodeString(ctx.String("dest"))
-	if err != nil {
-		return err
-	}
-	if len(destNode) != 33 {
-		return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
-			"instead: %v", len(destNode))
-	}
-
-	req := &lnrpc.SendRequest{
-		Dest:     destNode,
-		Amt:      int64(ctx.Int("amt")),
-		FastSend: ctx.Bool("fast"),
-	}
-
-	if !ctx.Bool("debug_send") {
-		rHash, err := hex.DecodeString(ctx.String("payment_hash"))
+	var req *lnrpc.SendRequest
+	if ctx.String("pay_req") != "" {
+		req = &lnrpc.SendRequest{
+			PaymentRequest: ctx.String("pay_req"),
+		}
+	} else {
+		destNode, err := hex.DecodeString(ctx.String("dest"))
 		if err != nil {
 			return err
 		}
-		if len(rHash) != 32 {
-			return fmt.Errorf("payment hash must be exactly 32 "+
-				"bytes, is instead %v", len(rHash))
+		if len(destNode) != 33 {
+			return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
+				"instead: %v", len(destNode))
 		}
-		req.PaymentHash = rHash
+
+		req = &lnrpc.SendRequest{
+			Dest: destNode,
+			Amt:  int64(ctx.Int("amt")),
+		}
+
+		if !ctx.Bool("debug_send") {
+			rHash, err := hex.DecodeString(ctx.String("payment_hash"))
+			if err != nil {
+				return err
+			}
+			if len(rHash) != 32 {
+				return fmt.Errorf("payment hash must be exactly 32 "+
+					"bytes, is instead %v", len(rHash))
+			}
+			req.PaymentHash = rHash
+		}
 	}
 
 	paymentStream, err := client.SendPayment(context.Background())

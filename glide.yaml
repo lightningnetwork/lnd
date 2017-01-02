@@ -60,3 +60,4 @@ import:
 - package: github.com/btcsuite/btcd
   subpackages:
   - connmgr
+- package: github.com/tv42/zbase32

@@ -1,5 +1,5 @@
-hash: faa87f5b7fca5bd929174fa19119f484d9f8d8fbe132c41b5130b88e88498271
-updated: 2016-12-30T16:43:39.303527204-08:00
+hash: 7207127b46b6c3902703280eb7dd230a2feec69740fb084a1e2de6eb6c9f990f
+updated: 2017-01-02T15:14:12.437819837-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -108,6 +108,8 @@ imports:
   - internal/helpers
   - wallet/internal/txsizes
   - internal/legacy/rename
+- name: github.com/tv42/zbase32
+  version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
@@ -122,7 +124,7 @@ imports:
   - pbkdf2
   - ssh/terminal
 - name: golang.org/x/net
-  version: 8fd7f25955530b92e73e9e1932a41b522b22ccd9
+  version: 69d4b8aa71caaaa75c3dfc11211d1be495abec7c
   subpackages:
   - context
   - http2

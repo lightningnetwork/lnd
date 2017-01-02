@@ -181,7 +181,7 @@ message SendRequest {
     bytes payment_hash = 4;
     string payment_hash_string = 5;
 
-    bool fast_send = 6;
+    string payment_request = 6;
 }
 message SendResponse {
     // TODO(roasbeef): info about route? stats?
@@ -506,6 +506,8 @@ message Invoice {
 }
 message AddInvoiceResponse {
     bytes r_hash = 1;
+
+    string payment_request = 2;
 }
 message PaymentHash {
     string r_hash_str = 1;

@@ -470,7 +470,10 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 			bobBalance, paymentAmt)
 	}
 
-	aliceListChannels, err := net.Alice.ListChannels(ctxb, &lnrpc.ListChannelsRequest{})
+	// Both channels should also have properly accunted from the amount
+	// that has been sent/received over the channel.
+	listReq := &lnrpc.ListChannelsRequest{}
+	aliceListChannels, err := net.Alice.ListChannels(ctxb, listReq)
 	if err != nil {
 		t.Fatalf("unable to query for alice's channel list: %v", err)
 	}
@@ -480,7 +483,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 			aliceSatoshisSent, paymentAmt)
 	}
 
-	bobListChannels, err := net.Bob.ListChannels(ctxb, &lnrpc.ListChannelsRequest{})
+	bobListChannels, err := net.Bob.ListChannels(ctxb, listReq)
 	if err != nil {
 		t.Fatalf("unable to query for bob's channel list: %v", err)
 	}
@@ -1052,6 +1055,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 			Hash:  *fundingTxID,
 			Index: fundingChanPoint.OutputIndex,
 		}
+		time.Sleep(time.Millisecond * 500)
 		if err := net.AssertChannelExists(ctx, net.Alice, &chanPoint); err != nil {
 			t.Fatalf("unable to assert channel existence: %v", err)
 		}

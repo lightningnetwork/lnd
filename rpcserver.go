@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/txscript"
@@ -668,6 +669,25 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
+				// If the payment request field isn't blank,
+				// then the details of the invoice are encoded
+				// entirely within the encode payReq. So we'll
+				// attempt to decode it, populating the
+				// nextPayment accordingly.
+				if nextPayment.PaymentRequest != "" {
+					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					// TODO(roasbeef): eliminate necessary
+					// encode/decode
+					nextPayment.Dest = payReq.Destination.SerializeCompressed()
+					nextPayment.Amt = int64(payReq.Amount)
+					nextPayment.PaymentHash = payReq.PaymentHash[:]
+				}
+
 				payChan <- nextPayment
 			}
 		}
@@ -749,31 +769,51 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
 
-	// If we're in debug HTLC mode, then all outgoing HTLC's will pay to
-	// the same debug rHash. Otherwise, we pay to the rHash specified
-	// within the RPC request.
-	var rHash [32]byte
-	if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
-		rHash = debugHash
+	var (
+		destPub *btcec.PublicKey
+		amt     btcutil.Amount
+		rHash   [32]byte
+	)
+
+	// If the proto request has an encoded payment request, then we we'll
+	// use that solely to dipatch the payment.
+	if nextPayment.PaymentRequest != "" {
+		payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
+		if err != nil {
+			return nil, err
+		}
+		destPub = payReq.Destination
+		amt = payReq.Amount
+		rHash = payReq.PaymentHash
+
+		// Otherwise, the payment conditions have been manually specified in
+		// the proto.
 	} else {
-		paymentHash, err := hex.DecodeString(nextPayment.PaymentHashString)
+		// If we're in debug HTLC mode, then all outgoing HTLC's will pay to
+		// the same debug rHash. Otherwise, we pay to the rHash specified
+		// within the RPC request.
+		if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
+			rHash = debugHash
+		} else {
+			paymentHash, err := hex.DecodeString(nextPayment.PaymentHashString)
+			if err != nil {
+				return nil, err
+			}
+
+			copy(rHash[:], paymentHash)
+		}
+
+		pubBytes, err := hex.DecodeString(nextPayment.DestString)
+		if err != nil {
+			return nil, err
+		}
+		destPub, err = btcec.ParsePubKey(pubBytes, btcec.S256())
 		if err != nil {
 			return nil, err
 		}
 
-		copy(rHash[:], paymentHash)
+		amt = btcutil.Amount(nextPayment.Amt)
 	}
-
-	pubBytes, err := hex.DecodeString(nextPayment.DestString)
-	if err != nil {
-		return nil, err
-	}
-	destPub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	amt := btcutil.Amount(nextPayment.Amt)
 
 	// Construct and HTLC packet which a payment route (if
 	// one is found) to the destination using a Sphinx

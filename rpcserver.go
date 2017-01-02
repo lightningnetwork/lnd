@@ -965,13 +965,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	// Finally generate the payment hash itself from the pre-image. This
-	// will be used by clients to query for the state of a particular
-	// invoice.
+	// Next, generate the payment hash itself from the pre-image. This will
+	// be used by clients to query for the state of a particular invoice.
 	rHash := fastsha256.Sum256(paymentPreimage[:])
 
+	// Finally we also create an encoded payment request which allows the
+	// caller to comactly send the invoice to the payer.
+	payReqString := zpay32.Encode(&zpay32.PaymentRequest{
+		Destination: r.server.identityPriv.PubKey(),
+		PaymentHash: rHash,
+		Amount:      btcutil.Amount(invoice.Value),
+	})
+
 	return &lnrpc.AddInvoiceResponse{
-		RHash: rHash[:],
+		RHash:          rHash[:],
+		PaymentRequest: payReqString,
 	}, nil
 }
 

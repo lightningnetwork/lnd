@@ -945,6 +945,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			"(maxsize=%v)", len(invoice.Receipt), channeldb.MaxReceiptSize)
 	}
 
+	// Finally, the value of an invoice MUST NOT be zero.
+	if invoice.Value == 0 {
+		return nil, fmt.Errorf("zero value invoices are disallowed")
+	}
+
 	i := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Memo:         []byte(invoice.Memo),

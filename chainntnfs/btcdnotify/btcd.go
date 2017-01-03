@@ -395,6 +395,7 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 		h := t.TxHash()
 		if txHash.IsEqual(&h) {
 			txIndex = uint32(i)
+			break
 		}
 	}
 

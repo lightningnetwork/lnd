@@ -690,39 +690,6 @@ out:
 	p.wg.Done()
 }
 
-// executeForceClose executes a unilateral close of the target channel by
-// broadcasting the current commitment state directly on-chain. Once the
-// commitment transaction has been broadcast, a struct describing the final
-// state of the channel is sent to the utxoNursery in order to ultimately sweep
-// the immature outputs.
-func (p *peer) executeForceClose(channel *lnwallet.LightningChannel) (*wire.ShaHash, error) {
-	// Execute a unilateral close shutting down all further channel
-	// operation.
-	closeSummary, err := channel.ForceClose()
-	if err != nil {
-		return nil, err
-	}
-
-	closeTx := closeSummary.CloseTx
-	txid := closeTx.TxSha()
-
-	// With the close transaction in hand, broadcast the transaction to the
-	// network, thereby entering the psot channel resolution state.
-	peerLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
-		channel.ChannelPoint(), newLogClosure(func() string {
-			return spew.Sdump(closeTx)
-		}))
-	if err := p.server.lnwallet.PublishTransaction(closeTx); err != nil {
-		return nil, err
-	}
-
-	// Send the closed channel summary over to the utxoNursery in order to
-	// have its outputs swept back into the wallet once they're mature.
-	p.server.utxoNursery.incubateOutputs(closeSummary)
-
-	return &txid, nil
-}
-
 // executeCooperativeClose executes the initial phase of a user-executed
 // cooperative channel close. The channel state machine is transitioned to the
 // closing phase, then our half of the closing witness is sent over to the
@@ -771,13 +738,6 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	p.activeChanMtx.RUnlock()
 
 	switch req.CloseType {
-	// A type of CloseForce indicates that the user has opted for
-	// unilaterally close the channel on-chain.
-	case CloseForce:
-		closingTxid, err = p.executeForceClose(channel)
-		peerLog.Infof("Force closing ChannelPoint(%v) with txid: %v",
-			req.chanPoint, closingTxid)
-
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chian, so we execute the cooperative channel
 	// closre workflow.

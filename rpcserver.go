@@ -359,29 +359,106 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return err
 	}
-	targetChannelPoint := wire.NewOutPoint(txid, index)
+	chanPoint := wire.NewOutPoint(txid, index)
 
 	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
-		targetChannelPoint)
+		chanPoint)
 
-	var closeType LinkCloseType
-	switch force {
-	case true:
-		// TODO(roasbeef): should be able to force close w/o connection
-		// to peer
-		closeType = CloseForce
-	case false:
-		closeType = CloseRegular
+	var (
+		updateChan chan *lnrpc.CloseStatusUpdate
+		errChan    chan error
+	)
+
+	// If a force closure was requested, then we'll handle all the details
+	// around the creation and broadcast of the unilateral closure
+	// transaction here rather than going to the switch as we don't require
+	// interaction from the peer.
+	if force {
+		// As the first part of the force closure, we first fetch the
+		// channel from the database, then execute a direct force
+		// closure broadcasting our current commitment transaction.
+		channel, err := r.fetchActiveChannel(*chanPoint)
+		if err != nil {
+			return err
+		}
+		closingTxid, err := r.forceCloseChan(channel)
+		if err != nil {
+			return err
+		}
+
+		updateChan = make(chan *lnrpc.CloseStatusUpdate)
+		errChan = make(chan error)
+		go func() {
+			// With the transaction broadcast, we send our first
+			// update to the client.
+			updateChan <- &lnrpc.CloseStatusUpdate{
+				Update: &lnrpc.CloseStatusUpdate_ClosePending{
+					ClosePending: &lnrpc.PendingUpdate{
+						Txid: closingTxid[:],
+					},
+				},
+			}
+
+			// Next, we enter the second phase, waiting for the
+			// channel to be confirmed before we finalize the force
+			// closure.
+			notifier := r.server.chainNotifier
+			confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxid, 1)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			select {
+			case txConf, ok := <-confNtfn.Confirmed:
+				if !ok {
+					return
+				}
+
+				// As the channel has been closed, we can now
+				// delete it's state from the database.
+				rpcsLog.Infof("ChannelPoint(%v) is now "+
+					"closed at height %v", chanPoint,
+					txConf.BlockHeight)
+				if err := channel.DeleteState(); err != nil {
+					errChan <- err
+					return
+				}
+			case <-r.quit:
+				return
+			}
+
+			// Respond to the local sub-system which requested the
+			// channel closure.
+			updateChan <- &lnrpc.CloseStatusUpdate{
+				Update: &lnrpc.CloseStatusUpdate_ChanClose{
+					ChanClose: &lnrpc.ChannelCloseUpdate{
+						ClosingTxid: closingTxid[:],
+						Success:     true,
+					},
+				},
+			}
+
+			// Finally, signal to the breachArbiter that it no
+			// longer needs to watch the channel as it's been
+			// closed.
+			r.server.breachArbiter.settledContracts <- chanPoint
+		}()
+
+	} else {
+		// Otherwise, the caller has requested a regular interactive
+		// cooperative channel closure. So we'll forward the request to
+		// the htlc switch which will handle the negotiation and
+		// broadcast details.
+		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
+			CloseRegular)
 	}
-
-	updateChan, errChan := r.server.htlcSwitch.CloseLink(targetChannelPoint, closeType)
-
 out:
 	for {
 		select {
 		case err := <-errChan:
 			rpcsLog.Errorf("[closechannel] unable to close "+
-				"ChannelPoint(%v): %v", targetChannelPoint, err)
+				"ChannelPoint(%v): %v", chanPoint, err)
 			return err
 		case closingUpdate := <-updateChan:
 			rpcsLog.Tracef("[closechannel] sending update: %v",
@@ -406,6 +483,69 @@ out:
 	}
 
 	return nil
+}
+
+// fetchActiveChannel attempts to locate a channel identified by it's channel
+// point from the database's set of all currently opened channels.
+func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
+	dbChannels, err := r.server.chanDB.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the channels fetched, attempt to locate the target channel
+	// according to its channel point.
+	var dbChan *channeldb.OpenChannel
+	for _, dbChannel := range dbChannels {
+		if *dbChannel.ChanID == chanPoint {
+			dbChan = dbChannel
+			break
+		}
+	}
+
+	// If the channel cannot be located, then we exit with an error to the
+	// caller.
+	if dbChan == nil {
+		return nil, fmt.Errorf("unable to find channel")
+	}
+
+	// Otherwise, we create a fully populated channel state machine which
+	// uses the db channel as backing storage.
+	return lnwallet.NewLightningChannel(r.server.lnwallet.Signer,
+		r.server.bio, r.server.chainNotifier, dbChan)
+}
+
+// forceCloseChan executes a unilateral close of the target channel by
+// broadcasting the current commitment state directly on-chain. Once the
+// commitment transaction has been broadcast, a struct describing the final
+// state of the channel is sent to the utxoNursery in order to ultimately sweep
+// the immature outputs.
+func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*wire.ShaHash, error) {
+	// Execute a unilateral close shutting down all further channel
+	// operation.
+	closeSummary, err := channel.ForceClose()
+	if err != nil {
+		return nil, err
+	}
+
+	closeTx := closeSummary.CloseTx
+	txid := closeTx.TxSha()
+
+	// With the close transaction in hand, broadcast the transaction to the
+	// network, thereby entering the psot channel resolution state.
+	rpcsLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
+		channel.ChannelPoint(), newLogClosure(func() string {
+			return spew.Sdump(closeTx)
+		}))
+	if err := r.server.lnwallet.PublishTransaction(closeTx); err != nil {
+		return nil, err
+	}
+
+	// Send the closed channel summary over to the utxoNursery in order to
+	// have its outputs swept back into the wallet once they're mature.
+	r.server.utxoNursery.incubateOutputs(closeSummary)
+
+	return &txid, nil
 }
 
 // GetInfo serves a request to the "getinfo" RPC call. This call returns

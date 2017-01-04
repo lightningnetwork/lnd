@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1235,16 +1234,10 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
 	}
 
-	err = net.ConnectNodes(ctxb, net.Alice, net.Bob)
-	if err != nil && !strings.Contains(err.Error(), "already connected") {
-		t.Fatalf("unable to connect bob and alice: %v", err)
-	}
-
 	// Now force Bob to execute a *force* channel closure by unilaterally
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
-	time.Sleep(time.Second * 2)
 	breachTXID := closeChannelAndAssert(t, net, ctxb, net.Bob, chanPoint,
 		true)
 
@@ -1340,7 +1333,7 @@ var testsCases = []*testCase{
 		test: testSingleHopInvoice,
 	},
 	{
-		name: "list of outgoing payments",
+		name: "list outgoing payments",
 		test: testListPayments,
 	},
 	{

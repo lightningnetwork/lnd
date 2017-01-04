@@ -185,7 +185,7 @@ type OpenChannel struct {
 	// StateHintObsfucator are the btyes selected by the initiator (derived
 	// from their shachain root) to obsfucate the state-hint encoded within
 	// the commitment transaction.
-	StateHintObsfucator [4]byte
+	StateHintObsfucator [6]byte
 
 	// ChanType denotes which type of channel this is.
 	ChanType ChannelType

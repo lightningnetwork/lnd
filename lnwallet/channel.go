@@ -875,7 +875,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
 	obsfucator := lc.channelState.StateHintObsfucator
-	broadcastStateNum := uint64(GetStateNumHint(commitTxBroadcast, obsfucator))
+	broadcastStateNum := GetStateNumHint(commitTxBroadcast, obsfucator)
 
 	currentStateNum := lc.currentHeight
 
@@ -1125,7 +1125,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// quickly recovering the necessary penalty state in the case of an
 	// uncooperative broadcast.
 	obsfucator := lc.channelState.StateHintObsfucator
-	stateNum := uint32(nextHeight)
+	stateNum := nextHeight
 	if err := SetStateNumHint(commitTx, stateNum, obsfucator); err != nil {
 		return nil, err
 	}

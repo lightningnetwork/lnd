@@ -1397,7 +1397,7 @@ func deriveStateHintObsfucator(elkremRoot *elkrem.ElkremSender) ([StateHintSize]
 	return obsfucator, nil
 }
 
-// initStateHints properly sets the obsfucated state ints ob both commitment
+// initStateHints properly sets the obsfucated state hints on both commitment
 // transactions using the passed obsfucator.
 func initStateHints(commit1, commit2 *wire.MsgTx,
 	obsfucator [StateHintSize]byte) error {

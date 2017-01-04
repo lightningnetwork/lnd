@@ -29,12 +29,12 @@ const (
 	// StateHintSize is the total number of bytes used between the sequence
 	// number and locktime of the commitment transaction use to encode a hint
 	// to the state number of a particular commitment transaction.
-	StateHintSize = 4
+	StateHintSize = 6
 
 	// maxStateHint is the maximum state number we're able to encode using
 	// StateHintSize bytes amongst the sequence number and locktime fields
 	// of the commitment transaction.
-	maxStateHint = (1 << 31) - 1
+	maxStateHint = (1 << 48) - 1
 )
 
 // witnessScriptHash generates a pay-to-witness-script-hash public key script
@@ -770,18 +770,19 @@ func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 }
 
 // SetStateNumHint encodes the current state number within the passed
-// commitment transaction by re-purposing the sequence fields in the input of
-// the commitment transaction to encode the obfuscated state number. The state
-// number is encoded using 31-bits of the sequence number, with the top bit set
-// in order to disable BIP0068 (sequence locks) semantics. Finally before
-// encoding, the obfuscater is XOR'd against the state number in order to hide
-// the exact state number from the PoV of outside parties.
+// commitment transaction by re-purposing the locktime and sequence fields
+// in the commitment transaction to encode the obfuscated state number.
+// The state number is encoded using 48 bits. The lower 24 bits of the
+// locktime are the lower 24 bits of the obfuscated state number and the
+// lower 24 bits of the sequence field are the higher 24 bits. Finally
+// before encoding, the obfuscater is XOR'd against the state number in
+// order to hide the exact state number from the PoV of outside parties.
 // TODO(roasbeef): unexport function after bobNode is gone
-func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
+func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obsfucator [StateHintSize]byte) error {
 
 	// With the current schema we are only able able to encode state num
-	// hints up to 2^31. Therefore if the passed height is greater than our
+	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
 	if stateNum >= maxStateHint {
 		return fmt.Errorf("unable to encode state, %v is greater "+
@@ -793,16 +794,20 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
 			"instead has %v", len(commitTx.TxIn))
 	}
 
-	// Convert the obfuscater into a uint32, then XOR that against the
+	// Convert the obfuscator into a uint64, then XOR that against the
 	// targeted height in order to obfuscate the state number of the
 	// commitment transaction in the case that either commitment
 	// transaction is broadcast directly on chain.
-	xorInt := binary.BigEndian.Uint32(obsfucator[:]) & (^wire.SequenceLockTimeDisabled)
+	var obfs [8]byte
+	copy(obfs[2:], obsfucator[:])
+	xorInt := binary.BigEndian.Uint64(obfs[:])
+
 	stateNum = stateNum ^ xorInt
 
 	// Set the height bit of the sequence number in order to disable any
 	// sequence locks semantics.
-	commitTx.TxIn[0].Sequence = stateNum | wire.SequenceLockTimeDisabled
+	commitTx.TxIn[0].Sequence = uint32(stateNum>>24) | wire.SequenceLockTimeDisabled
+	commitTx.LockTime = uint32(stateNum & 0xFFFFFF)
 
 	return nil
 }
@@ -813,14 +818,17 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint32,
 //
 // See setStateNumHint for further details w.r.t exactly how the state-hints
 // are encoded.
-func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint32 {
-	// Convert the obfuscater into a uint32, this will be used to
+func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint64 {
+	// Convert the obfuscater into a uint64, this will be used to
 	// de-obfuscate the final recovered state number.
-	xorInt := binary.BigEndian.Uint32(obsfucator[:]) & (^wire.SequenceLockTimeDisabled)
+	var obfs [8]byte
+	copy(obfs[2:], obsfucator[:])
+	xorInt := binary.BigEndian.Uint64(obfs[:])
 
-	// Retrieve the sole state hint from the sequence number of the
-	// transaction. In the process un-set the top bit.
-	stateNumXor := commitTx.TxIn[0].Sequence & (^wire.SequenceLockTimeDisabled)
+	// Retrieve the state hint from the sequence number and locktime
+	// of the transaction.
+	stateNumXor := uint64(commitTx.TxIn[0].Sequence&0xFFFFFF) << 24
+	stateNumXor |= uint64(commitTx.LockTime & 0xFFFFFF)
 
 	// Finally, to obtain the final state number, we XOR by the obfuscater
 	// value to de-obfuscate the state number.

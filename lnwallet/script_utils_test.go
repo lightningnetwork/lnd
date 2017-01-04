@@ -571,7 +571,7 @@ func TestCommitTxStateHint(t *testing.T) {
 	copy(obsfucator[:], testHdSeed[:StateHintSize])
 
 	for i := 0; i < 10000; i++ {
-		stateNum := uint32(i)
+		stateNum := uint64(i)
 
 		err := SetStateNumHint(commitTx, stateNum, obsfucator)
 		if err != nil {

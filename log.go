@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/roasbeef/btcd/connmgr"
 )
 
 // Loggers per subsystem.  Note that backendLog is a seelog logger that all of

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"golang.org/x/net/context"
 
@@ -90,13 +91,16 @@ func lndMain() error {
 		}
 	}
 
-	rpcIP, err := net.LookupHost(cfg.RPCHost)
-	if err != nil {
-		fmt.Printf("unable to resolve rpc host: %v", err)
-		return err
+	// If the specified host for the btcd RPC server already has a port
+	// specified, then we use that directly. Otherwise, we assume the
+	// default port according to the selected chain parameters.
+	var btcdHost string
+	if strings.Contains(cfg.RPCHost, ":") {
+		btcdHost = cfg.RPCHost
+	} else {
+		btcdHost = fmt.Sprintf("%v:%v", cfg.RPCHost, activeNetParams.rpcPort)
 	}
 
-	btcdHost := fmt.Sprintf("%v:%v", cfg.RPCHost, activeNetParams.rpcPort)
 	btcdUser := cfg.RPCUser
 	btcdPass := cfg.RPCPass
 
@@ -120,7 +124,7 @@ func lndMain() error {
 	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(cfg.DataDir, "lnwallet"),
-		RpcHost:     fmt.Sprintf("%v:%v", rpcIP[0], activeNetParams.rpcPort),
+		RpcHost:     btcdHost,
 		RpcUser:     cfg.RPCUser,
 		RpcPass:     cfg.RPCPass,
 		CACert:      rpcCert,

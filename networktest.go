@@ -106,7 +106,7 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 	var err error
 
 	cfg := &config{
-		RPCHost: "127.0.0.1",
+		RPCHost: rpcConfig.Host,
 		RPCUser: rpcConfig.User,
 		RPCPass: rpcConfig.Pass,
 	}

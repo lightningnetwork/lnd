@@ -22,34 +22,35 @@ import (
 var (
 	// preschoolBucket stores outputs from commitment transactions that
 	// have been broadcast, but not yet confirmed. This set of outputs is
-	// persisted in case the system is shut down between the time when
-	// the commitment has been broadcast and the time the transaction
-	// has been confirmed on the blockchain.
+	// persisted in case the system is shut down between the time when the
+	// commitment has been broadcast and the time the transaction has been
+	// confirmed on the blockchain.
 	preschoolBucket = []byte("psc")
 
 	// kindergartenBucket stores outputs from commitment transactions that
-	// have received an initial confirmation, but which aren't yet spendable
-	// because they require additional confirmations enforced by Check
-	// Sequence Verify. Once required additional confirmations have been reported,
-	// a sweep transaction will be created to move the funds out of these
-	// outputs. After a further six confirmations have been reported, the outputs
-	// will be deleted from this bucket. The purpose of this additional wait
-	// time is to ensure that a block reorganization doesn't result in the
-	// sweep transaction getting re-organized out of the chain.
+	// have received an initial confirmation, but which aren't yet
+	// spendable because they require additional confirmations enforced by
+	// Check Sequence Verify. Once required additional confirmations have
+	// been reported, a sweep transaction will be created to move the funds
+	// out of these outputs. After a further six confirmations have been
+	// reported, the outputs will be deleted from this bucket. The purpose
+	// of this additional wait time is to ensure that a block
+	// reorganization doesn't result in the sweep transaction getting
+	// re-organized out of the chain.
 	kindergartenBucket = []byte("kdg")
 
 	// lastGraduatedHeightKey is used to persist the last blockheight that
-	// has been checked for graduating outputs. When the nursery is restarted,
-	// lastGraduatedHeightKey is used to determine the point from which it's
-	// necessary to catch up.
+	// has been checked for graduating outputs. When the nursery is
+	// restarted, lastGraduatedHeightKey is used to determine the point
+	// from which it's necessary to catch up.
 	lastGraduatedHeightKey = []byte("lgh")
 
 	byteOrder = binary.BigEndian
 )
 
-// witnessType determines how an output's witness will be generated. The default
-// commitmentTimeLock type will generate a witness that will allow spending of a
-// time-locked transaction enforced by CheckSequenceVerify.
+// witnessType determines how an output's witness will be generated. The
+// default commitmentTimeLock type will generate a witness that will allow
+// spending of a time-locked transaction enforced by CheckSequenceVerify.
 type witnessType uint16
 
 const (
@@ -62,11 +63,13 @@ const (
 // utxoNursery.
 type witnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes, inputIndex int) ([][]byte, error)
 
-// generateFunc will return the witnessGenerator function that a kidOutput uses to
-// generate the witness for a sweep transaction. Currently there is only one witnessType
-// but this will be expanded.
-func (wt *witnessType) generateFunc(signer *lnwallet.Signer, descriptor *lnwallet.SignDescriptor) witnessGenerator {
-	switch *wt {
+// generateFunc will return the witnessGenerator function that a kidOutput uses
+// to generate the witness for a sweep transaction. Currently there is only one
+// witnessType but this will be expanded.
+func (wt witnessType) generateFunc(signer *lnwallet.Signer,
+	descriptor *lnwallet.SignDescriptor) witnessGenerator {
+
+	switch wt {
 	case commitmentTimeLock:
 		return func(tx *wire.MsgTx, hc *txscript.TxSigHashes, inputIndex int) ([][]byte, error) {
 			desc := descriptor
@@ -152,12 +155,13 @@ func (u *utxoNursery) Start() error {
 // reloadPreschool re-initializes the chain notifier with all of the outputs
 // that had been saved to the "preschool" database bucket prior to shutdown.
 func (u *utxoNursery) reloadPreschool() error {
-	err := u.db.View(func(tx *bolt.Tx) error {
+	return u.db.View(func(tx *bolt.Tx) error {
 		psclBucket := tx.Bucket(preschoolBucket)
 		if psclBucket == nil {
 			return nil
 		}
-		if err := psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
+
+		return psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
 			psclOutput, err := deserializeKidOutput(bytes.NewBuffer(kidBytes))
 
 			outpoint := psclOutput.outPoint
@@ -172,16 +176,8 @@ func (u *utxoNursery) reloadPreschool() error {
 				"notification.", psclOutput.outPoint)
 			go psclOutput.waitForPromotion(u.db, confChan)
 			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
+		})
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // catchUpKindergarten handles the graduation of kindergarten outputs from
@@ -214,20 +210,21 @@ func (u *utxoNursery) catchUpKindergarten() error {
 		return err
 	}
 
+	// If we haven't yet seen any registered force closes, or we're already
+	// caught up with the current best chain, then we can exit early.
+	if lastGraduatedHeight == 0 || uint32(bestHeight) == lastGraduatedHeight {
+		return nil
+	}
+
+	utxnLog.Infof("Processing outputs from missed blocks. Starting with "+
+		"blockHeight: %v, to current blockHeight: %v", lastGraduatedHeight,
+		bestHeight)
+
 	// Loop through and check for graduating outputs at each of the missed
 	// block heights.
-	if lastGraduatedHeight != 0 {
-		graduationHeight := lastGraduatedHeight + 1
-
-		utxnLog.Infof("Processing outputs from missed blocks. Starting with "+
-			"blockheight: %v, to current blockheight: %v", graduationHeight,
-			bestHeight)
-
-		for graduationHeight <= uint32(bestHeight) {
-			if err := u.graduateKindergarten(graduationHeight); err != nil {
-				return err
-			}
-			graduationHeight = graduationHeight + 1
+	for graduationHeight := lastGraduatedHeight + 1; graduationHeight <= uint32(bestHeight); graduationHeight++ {
+		if err := u.graduateKindergarten(graduationHeight); err != nil {
+			return err
 		}
 	}
 
@@ -250,10 +247,9 @@ func (u *utxoNursery) Stop() error {
 }
 
 // kidOutput represents an output that's waiting for a required blockheight
-// before its funds will be available to be moved into the user's wallet.
-// The struct includes a witnessGenerator closure which will be used to
-// generate the witness required to sweep the output once it's mature.
-// TODO(roasbeef): make into interface?  can't gob functions
+// before its funds will be available to be moved into the user's wallet.  The
+// struct includes a witnessGenerator closure which will be used to generate
+// the witness required to sweep the output once it's mature.
 type kidOutput struct {
 	amt      btcutil.Amount
 	outPoint wire.OutPoint
@@ -294,14 +290,14 @@ func (u *utxoNursery) incubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 	}
 }
 
-// incubator is tasked with watching over all outputs from channel closes as they
-// transition from being broadcast (at which point they move into the "preschool
-// state"), then confirmed and waiting for the necessary number of blocks to
-// be confirmed (as specified as kidOutput.blocksToMaturity and enforced by
-// CheckSequenceVerify). When the necessary block height has been reached, the
-// output has "matured" and the waitForGraduation function will generate a
-// sweep transaction to move funds from the commitment transaction into the
-// user's wallet.
+// incubator is tasked with watching over all outputs from channel closes as
+// they transition from being broadcast (at which point they move into the
+// "preschool state"), then confirmed and waiting for the necessary number of
+// blocks to be confirmed (as specified as kidOutput.blocksToMaturity and
+// enforced by CheckSequenceVerify). When the necessary block height has been
+// reached, the output has "matured" and the waitForGraduation function will
+// generate a sweep transaction to move funds from the commitment transaction
+// into the user's wallet.
 func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
 	defer u.wg.Done()
 
@@ -321,9 +317,10 @@ out:
 					continue
 				}
 
-				// Register for a notification that will trigger graduation from
-				// preschool to kindergarten when the channel close transaction
-				// has been confirmed.
+				// Register for a notification that will
+				// trigger graduation from preschool to
+				// kindergarten when the channel close
+				// transaction has been confirmed.
 				confChan, err := u.notifier.RegisterConfirmationsNtfn(&sourceTxid, 1)
 				if err != nil {
 					utxnLog.Errorf("unable to register output for confirmation: %v",
@@ -331,16 +328,18 @@ out:
 					continue
 				}
 
-				// Launch a dedicated goroutine that will move the output from
-				// the preschool bucket to the kindergarten bucket once the
-				// channel close transaction has been confirmed.
+				// Launch a dedicated goroutine that will move
+				// the output from the preschool bucket to the
+				// kindergarten bucket once the channel close
+				// transaction has been confirmed.
 				go output.waitForPromotion(u.db, confChan)
 			}
 		case epoch, ok := <-newBlockChan.Epochs:
 			// If the epoch channel has been closed, then the
 			// ChainNotifier is exiting which means the daemon is
 			// as well. Therefore, we exit early also in order to
-			// ensure the daemon shutsdown gracefully, yet swiftly.
+			// ensure the daemon shuts down gracefully, yet
+			// swiftly.
 			if !ok {
 				return
 			}
@@ -360,7 +359,7 @@ out:
 // "preschool" stage, the daemon is waiting for the initial confirmation of the
 // commitment transaction.
 func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
-	err := db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		psclBucket, err := tx.CreateBucketIfNotExists(preschoolBucket)
 		if err != nil {
 			return err
@@ -385,19 +384,14 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
-// waitForPromotion is intended to be run as a goroutine that will wait until
-// a channel force close commitment transaction has been included in a
-// confirmed block. Once the transaction has been confirmed (as reported by
-// the Chain Notifier), waitForPromotion will delete the output from the
-// "preschool" database bucket and atomically add it to the "kindergarten"
-// database bucket. This is the second step in the output incubation process.
+// waitForPromotion is intended to be run as a goroutine that will wait until a
+// channel force close commitment transaction has been included in a confirmed
+// block. Once the transaction has been confirmed (as reported by the Chain
+// Notifier), waitForPromotion will delete the output from the "preschool"
+// database bucket and atomically add it to the "kindergarten" database bucket.
+// This is the second step in the output incubation process.
 func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.ConfirmationEvent) {
 	txConfirmation, ok := <-confChan.Confirmed
 	if !ok {
@@ -411,10 +405,10 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 
 	k.confHeight = uint32(txConfirmation.BlockHeight)
 
-	// The following block deletes a kidOutput from the preschool database bucket
-	// and adds it to the kindergarten database bucket which is keyed by block
-	// height. Keys and values are serialized into byte array form prior to
-	// database insertion.
+	// The following block deletes a kidOutput from the preschool database
+	// bucket and adds it to the kindergarten database bucket which is
+	// keyed by block height. Keys and values are serialized into byte
+	// array form prior to database insertion.
 	err := db.Update(func(tx *bolt.Tx) error {
 		psclBucket := tx.Bucket(preschoolBucket)
 		if psclBucket == nil {
@@ -466,12 +460,12 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	}
 }
 
-// graduateKindergarten handles the steps involed with moving funds
-// from a force close commitment transaction into a user's wallet after the output
+// graduateKindergarten handles the steps invoked with moving funds from a
+// force close commitment transaction into a user's wallet after the output
 // from the commitment transaction has become spendable. graduateKindergarten
-// is called both when a new block notification has been received and also
-// at startup in order to process graduations from blocks missed while the
-// UTXO nursery was offline.
+// is called both when a new block notification has been received and also at
+// startup in order to process graduations from blocks missed while the UTXO
+// nursery was offline.
 func (u *utxoNursery) graduateKindergarten(blockHeight uint32) error {
 	kgtnOutputs, err := fetchGraduatingOutputs(u.db, u.wallet, blockHeight)
 	if err != nil {
@@ -489,25 +483,22 @@ func (u *utxoNursery) graduateKindergarten(blockHeight uint32) error {
 		return err
 	}
 
-	if err := putLastHeightGraduated(u.db, blockHeight); err != nil {
-		return err
-	}
-
-	return nil
+	return putLastHeightGraduated(u.db, blockHeight)
 }
 
 // fetchGraduatingOutputs checks the "kindergarten" database bucket whenever a
 // new block is received in order to determine if commitment transaction
-// outputs have become newly spendable. If fetchGraduatingOutputs finds
-// outputs that are ready for "graduation," it passes them on to be swept.
-// This is the third step in the output incubation process.
-func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet, blockHeight uint32) ([]*kidOutput, error) {
+// outputs have become newly spendable. If fetchGraduatingOutputs finds outputs
+// that are ready for "graduation," it passes them on to be swept.  This is the
+// third step in the output incubation process.
+func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
+	blockHeight uint32) ([]*kidOutput, error) {
+
 	var results []byte
 
-	err := db.View(func(tx *bolt.Tx) error {
-		// A new block has just been connected, check to see if
-		// we have any new outputs that can be swept into the
-		// wallet.
+	if err := db.View(func(tx *bolt.Tx) error {
+		// A new block has just been connected, check to see if we have
+		// any new outputs that can be swept into the wallet.
 		kgtnBucket := tx.Bucket(kindergartenBucket)
 		if kgtnBucket == nil {
 			return nil
@@ -519,44 +510,44 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet, 
 		results = kgtnBucket.Get(heightBytes)
 
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
-	if len(results) > 0 {
-		kgtnOutputs, err := deserializeKidList(bytes.NewBuffer(results))
-		if err != nil {
-			utxnLog.Errorf("error while deserializing list of kidOutputs: %v", err)
-		}
-
-		for _, kgtnOutput := range kgtnOutputs {
-			kgtnOutput.witnessFunc =
-				kgtnOutput.witnessType.generateFunc(&wallet.Signer, kgtnOutput.signDescriptor)
-		}
-
-		utxnLog.Infof("New block: height=%v, sweeping %v mature outputs",
-			blockHeight, len(kgtnOutputs))
-
-		return kgtnOutputs, nil
+	if len(results) == 0 {
+		return nil, nil
 	}
 
-	return nil, nil
+	kgtnOutputs, err := deserializeKidList(bytes.NewReader(results))
+	if err != nil {
+		utxnLog.Errorf("error while deserializing list of kidOutputs: %v", err)
+	}
+
+	for _, kgtnOutput := range kgtnOutputs {
+		kgtnOutput.witnessFunc = kgtnOutput.witnessType.generateFunc(
+			&wallet.Signer, kgtnOutput.signDescriptor,
+		)
+	}
+
+	utxnLog.Infof("New block: height=%v, sweeping %v mature outputs",
+		blockHeight, len(kgtnOutputs))
+
+	return kgtnOutputs, nil
 }
 
 // sweepGraduatingOutputs generates and broadcasts the transaction that
 // transfers control of funds from a channel commitment transaction to the
 // user's wallet.
 func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kidOutput) error {
-	// Create a transation which sweeps all the newly
-	// mature outputs into a output controlled by the
-	// wallet.
-	// TODO(roasbeef): can be more intelligent about
-	// buffering outputs to be more efficient on-chain.
+	// Create a transaction which sweeps all the newly mature outputs into
+	// a output controlled by the wallet.
+	// TODO(roasbeef): can be more intelligent about buffering outputs to
+	// be more efficient on-chain.
 	sweepTx, err := createSweepTx(wallet, kgtnOutputs)
 	if err != nil {
 		// TODO(roasbeef): retry logic?
 		utxnLog.Errorf("unable to create sweep tx: %v", err)
+		return err
 	}
 
 	utxnLog.Infof("Sweeping %v time-locked outputs "+
@@ -565,12 +556,10 @@ func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kid
 			return spew.Sdump(sweepTx)
 		}))
 
-	// With the sweep transaction fully signed, broadcast
-	// the transaction to the network. Additionally, we can
-	// stop tracking these outputs as they've just been
-	// sweeped.
-	err = wallet.PublishTransaction(sweepTx)
-	if err != nil {
+	// With the sweep transaction fully signed, broadcast the transaction
+	// to the network. Additionally, we can stop tracking these outputs as
+	// they've just been swept.
+	if err := wallet.PublishTransaction(sweepTx); err != nil {
 		utxnLog.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(sweepTx))
 	}
@@ -651,7 +640,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 			return err
 		}
 
-		utxnLog.Info("Deleting %v swept outputs from kindergarten bucket "+
+		utxnLog.Infof("Deleting %v swept outputs from kindergarten bucket "+
 			"at block height: %v", len(sweptOutputs), deleteHeight)
 
 		return nil

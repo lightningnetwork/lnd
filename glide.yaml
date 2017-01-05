@@ -16,6 +16,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
+  version: master
   subpackages:
   - blockchain
   - btcec
@@ -23,9 +24,11 @@ import:
   - chaincfg
   - txscript
   - wire
+  - connmgr
 - package: github.com/roasbeef/btcrpcclient
   version: master
 - package: github.com/roasbeef/btcutil
+  version: master
   subpackages:
   - bloom
   - coinset
@@ -57,7 +60,4 @@ import:
   version: ^1.1.0
 - package: github.com/aead/chacha20
 - package: github.com/go-errors/errors
-- package: github.com/btcsuite/btcd
-  subpackages:
-  - connmgr
 - package: github.com/tv42/zbase32

@@ -41,14 +41,14 @@ type SingleFundingComplete struct {
 	// the commitment transaction's only input. The initiator generates
 	// this value by hashing the 0th' state derived from the revocation PRF
 	// an additional time.
-	StateHintObsfucator [4]byte
+	StateHintObsfucator [6]byte
 }
 
 // NewSingleFundingComplete creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingComplete(chanID uint64, fundingPoint wire.OutPoint,
 	commitSig *btcec.Signature, revokeKey *btcec.PublicKey,
-	obsfucator [4]byte) *SingleFundingComplete {
+	obsfucator [6]byte) *SingleFundingComplete {
 
 	return &SingleFundingComplete{
 		ChannelID:           chanID,

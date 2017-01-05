@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -19,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/lightningnetwork/lnd/routing"

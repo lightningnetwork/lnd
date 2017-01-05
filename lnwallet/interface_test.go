@@ -1283,6 +1283,13 @@ func TestLightningWallet(t *testing.T) {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
 
+	// Next mine enough blocks in order for segwit and the CSV package
+	// soft-fork to activate on SimNet.
+	numBlocks := netParams.MinerConfirmationWindow * 2
+	if _, err := miningNode.Node.Generate(numBlocks); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
 	rpcConfig := miningNode.RPCConfig()
 
 	chainNotifier, err := btcdnotify.New(&rpcConfig)

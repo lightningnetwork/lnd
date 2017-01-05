@@ -795,16 +795,12 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 			Amt:         paymentAmt,
 		}
 
-		wg.Add(1)
-		go func() {
-			if err := carolPayStream.Send(sendReq); err != nil {
-				t.Fatalf("unable to send payment: %v", err)
-			}
-			if _, err := carolPayStream.Recv(); err != nil {
-				t.Fatalf("unable to recv pay resp: %v", err)
-			}
-			wg.Done()
-		}()
+		if err := carolPayStream.Send(sendReq); err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+		if _, err := carolPayStream.Recv(); err != nil {
+			t.Fatalf("unable to recv pay resp: %v", err)
+		}
 	}
 
 	finClear := make(chan struct{})

@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -32,7 +32,7 @@ type HyperShaChain struct {
 
 	chainBranches [64]chainBranch
 
-	lastHash wire.ShaHash
+	lastHash chainhash.Hash
 }
 
 // NewHyperShaChain
@@ -145,14 +145,14 @@ func (h *HyperShaChain) AddNextHash(hash [32]byte) error {
 }
 
 // CurrentPreImage...
-func (h *HyperShaChain) CurrentPreImage() *wire.ShaHash {
+func (h *HyperShaChain) CurrentPreImage() *chainhash.Hash {
 	h.RLock()
 	defer h.RUnlock()
 	return &h.lastHash
 }
 
 // CurrentRevocationHash...
-// TODO(roasbeef): *wire.ShaHash vs [wire.HashSize]byte ?
+// TODO(roasbeef): *chainhash.Hash vs [wire.HashSize]byte ?
 func (h *HyperShaChain) CurrentRevocationHash() []byte {
 	h.RLock()
 	defer h.RUnlock()

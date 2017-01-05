@@ -10,6 +10,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -505,7 +506,7 @@ const (
 // with the current UTXO state. An integer is returned which reflects the
 // number of channels pruned due to the new incoming block.
 func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
-	blockHash *wire.ShaHash, blockHeight uint32) (uint32, error) {
+	blockHash *chainhash.Hash, blockHeight uint32) (uint32, error) {
 
 	var numChans uint32
 
@@ -572,10 +573,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // used to prune channels in the graph. Knowing the "prune tip" allows callers
 // to tell if the graph is currently in sync with the current best known UTXO
 // state.
-func (c *ChannelGraph) PruneTip() (*wire.ShaHash, uint32, error) {
+func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 	var (
 		currentTip [pruneTipBytes]byte
-		tipHash    wire.ShaHash
+		tipHash    chainhash.Hash
 		tipHeight  uint32
 	)
 

@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 /* Serialization and Deserialization methods for the Elkrem structs.
@@ -49,7 +49,7 @@ func (e *ElkremReceiver) ToBytes() ([]byte, error) {
 			return nil, fmt.Errorf("node %d has nil hash", node.i)
 		}
 		// write 32 byte sha hash
-		n, err := buf.Write(node.sha.Bytes())
+		n, err := buf.Write(node.sha[:])
 		if err != nil {
 			return nil, err
 		}
@@ -86,7 +86,7 @@ func ElkremReceiverFromBytes(b []byte) (*ElkremReceiver, error) {
 	e.s = make([]ElkremNode, numOfNodes)
 
 	for j, _ := range e.s {
-		e.s[j].sha = new(wire.ShaHash)
+		e.s[j].sha = new(chainhash.Hash)
 		// read 1 byte height
 		err := binary.Read(buf, binary.BigEndian, &e.s[j].h)
 		if err != nil {

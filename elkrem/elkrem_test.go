@@ -3,14 +3,14 @@ package elkrem
 import (
 	"testing"
 
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // TestElkremBig tries 10K hashes
 func TestElkremBig(t *testing.T) {
 	var rcv ElkremReceiver
 
-	sndr := NewElkremSender(wire.DoubleSha256SH([]byte("elktest")))
+	sndr := NewElkremSender(chainhash.DoubleHashH([]byte("elktest")))
 
 	for n := uint64(0); n < 10000; n++ {
 		sha, err := sndr.AtIndex(n)
@@ -36,7 +36,7 @@ func TestElkremBig(t *testing.T) {
 func TestElkremLess(t *testing.T) {
 	var rcv ElkremReceiver
 
-	sndr := NewElkremSender(wire.DoubleSha256SH([]byte("elktest2")))
+	sndr := NewElkremSender(chainhash.DoubleHashH([]byte("elktest2")))
 
 	for n := uint64(0); n < 5000; n++ {
 		sha, err := sndr.AtIndex(n)

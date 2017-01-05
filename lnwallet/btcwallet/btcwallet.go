@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -308,7 +309,7 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 // outputs are non-standard, a non-nil error will be be returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut) (*wire.ShaHash, error) {
+func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash, error) {
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1)
 }
 
@@ -355,7 +356,7 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 		// the wallet are nested p2sh...
 		if txscript.IsPayToWitnessPubKeyHash(pkScript) ||
 			txscript.IsPayToScriptHash(pkScript) {
-			txid, err := wire.NewShaHashFromStr(output.TxID)
+			txid, err := chainhash.NewHashFromStr(output.TxID)
 			if err != nil {
 				return nil, err
 			}
@@ -384,7 +385,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 // extractBalanceDelta extracts the net balance delta from the PoV of the
 // wallet given a TransactionSummary.
 func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, error) {
-	tx := wire.NewMsgTx()
+	tx := wire.NewMsgTx(1)
 	txReader := bytes.NewReader(txSummary.Transaction)
 	if err := tx.Deserialize(txReader); err != nil {
 		return -1, nil

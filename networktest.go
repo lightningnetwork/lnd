@@ -24,6 +24,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -314,7 +315,7 @@ type networkHarness struct {
 	Alice *lightningNode
 	Bob   *lightningNode
 
-	seenTxns      chan wire.ShaHash
+	seenTxns      chan chainhash.Hash
 	watchRequests chan *watchRequest
 
 	// Channel for transmitting stderr output from failed lightning node
@@ -331,7 +332,7 @@ type networkHarness struct {
 func newNetworkHarness() (*networkHarness, error) {
 	return &networkHarness{
 		activeNodes:   make(map[int]*lightningNode),
-		seenTxns:      make(chan wire.ShaHash),
+		seenTxns:      make(chan chainhash.Hash),
 		watchRequests: make(chan *watchRequest),
 		lndErrorChan:  make(chan error),
 	}, nil
@@ -442,7 +443,7 @@ func (n *networkHarness) SetUp() error {
 				PkScript: addrScript,
 				Value:    btcutil.SatoshiPerBitcoin,
 			}
-			if _, err := n.Miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
+			if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
 				return err
 			}
 		}
@@ -568,7 +569,7 @@ func (n *networkHarness) RestartNode(node *lightningNode, callback func() error)
 // dispatch a notification once a transaction with the target txid is seen
 // within the test network.
 type watchRequest struct {
-	txid      wire.ShaHash
+	txid      chainhash.Hash
 	eventChan chan struct{}
 }
 
@@ -576,8 +577,8 @@ type watchRequest struct {
 // the broadcast of a target transaction, and then dispatches the transaction
 // once its seen on the network.
 func (n *networkHarness) networkWatcher() {
-	seenTxns := make(map[wire.ShaHash]struct{})
-	clients := make(map[wire.ShaHash][]chan struct{})
+	seenTxns := make(map[chainhash.Hash]struct{})
+	clients := make(map[chainhash.Hash][]chan struct{})
 
 	for {
 
@@ -618,7 +619,7 @@ func (n *networkHarness) networkWatcher() {
 
 // OnTxAccepted is a callback to be called each time a new transaction has been
 // broadcast on the network.
-func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
+func (n *networkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) {
 	go func() {
 		n.seenTxns <- *hash
 	}()
@@ -628,7 +629,7 @@ func (n *networkHarness) OnTxAccepted(hash *wire.ShaHash, amt btcutil.Amount) {
 // the transaction isn't seen within the network before the passed timeout,
 // then an error is returned.
 // TODO(roasbeef): add another method which creates queue of all seen transactions
-func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid wire.ShaHash) error {
+func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.Hash) error {
 	eventChan := make(chan struct{})
 
 	n.watchRequests <- &watchRequest{txid, eventChan}
@@ -734,7 +735,7 @@ func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
 // pending, then an error is returned.
 func (n *networkHarness) CloseChannel(ctx context.Context,
 	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
-	force bool) (lnrpc.Lightning_CloseChannelClient, *wire.ShaHash, error) {
+	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
 
 	closeReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: cp,
@@ -746,7 +747,7 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	}
 
 	errChan := make(chan error)
-	fin := make(chan *wire.ShaHash)
+	fin := make(chan *chainhash.Hash)
 	go func() {
 		// Consume the "channel close" update in order to wait for the closing
 		// transaction to be broadcast, then wait for the closing tx to be seen
@@ -763,7 +764,7 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 			return
 		}
 
-		closeTxid, err := wire.NewShaHash(pendingClose.ClosePending.Txid)
+		closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
 		if err != nil {
 			errChan <- err
 			return
@@ -793,7 +794,7 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 // passed context has a timeout, then if the timeout is reached before the
 // notification is received then an error is returned.
 func (n *networkHarness) WaitForChannelClose(ctx context.Context,
-	closeChanStream lnrpc.Lightning_CloseChannelClient) (*wire.ShaHash, error) {
+	closeChanStream lnrpc.Lightning_CloseChannelClient) (*chainhash.Hash, error) {
 
 	errChan := make(chan error)
 	updateChan := make(chan *lnrpc.CloseStatusUpdate_ChanClose)
@@ -822,7 +823,7 @@ func (n *networkHarness) WaitForChannelClose(ctx context.Context,
 	case err := <-errChan:
 		return nil, err
 	case update := <-updateChan:
-		return wire.NewShaHash(update.ChanClose.ClosingTxid)
+		return chainhash.NewHash(update.ChanClose.ClosingTxid)
 	}
 }
 
@@ -898,7 +899,7 @@ func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	if _, err := n.Miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
+	if _, err := n.Miner.SendOutputs([]*wire.TxOut{output}, 30); err != nil {
 		return err
 	}
 

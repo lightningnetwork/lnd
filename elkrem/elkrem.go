@@ -3,7 +3,7 @@ package elkrem
 import (
 	"fmt"
 
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 /* elkrem is a simpler alternative to the 64 dimensional sha-chain.
@@ -39,27 +39,27 @@ const maxHeight = uint8(47)
 // You can calculate h from i but I can't figure out how without taking
 // O(i) ops.  Feels like there should be a clever O(h) way.  1 byte, whatever.
 type ElkremNode struct {
-	h   uint8         // height of this node
-	i   uint64        // index (i'th node)
-	sha *wire.ShaHash // hash
+	h   uint8           // height of this node
+	i   uint64          // index (i'th node)
+	sha *chainhash.Hash // hash
 }
 type ElkremSender struct {
-	root *wire.ShaHash // root hash of the tree
+	root *chainhash.Hash // root hash of the tree
 }
 type ElkremReceiver struct {
 	s []ElkremNode // store of received hashes
 }
 
-func LeftSha(in wire.ShaHash) wire.ShaHash {
-	return wire.DoubleSha256SH(in.Bytes()) // left is sha(sha(in))
+func LeftSha(in chainhash.Hash) chainhash.Hash {
+	return chainhash.DoubleHashH(in[:]) // left is sha(sha(in))
 }
-func RightSha(in wire.ShaHash) wire.ShaHash {
-	return wire.DoubleSha256SH(append(in.Bytes(), 0x01)) // sha(sha(in, 1))
+func RightSha(in chainhash.Hash) chainhash.Hash {
+	return chainhash.DoubleHashH(append(in[:], 0x01)) // sha(sha(in, 1))
 }
 
 // iterative descent of sub-tree. w = hash number you want. i = input index
 // h = height of input index. sha = input hash
-func descend(w, i uint64, h uint8, sha wire.ShaHash) (wire.ShaHash, error) {
+func descend(w, i uint64, h uint8, sha chainhash.Hash) (chainhash.Hash, error) {
 	for w < i {
 		if w <= i-(1<<h) { // left
 			sha = LeftSha(sha)
@@ -80,7 +80,7 @@ func descend(w, i uint64, h uint8, sha wire.ShaHash) (wire.ShaHash, error) {
 }
 
 // Creates an Elkrem Sender from a root hash.
-func NewElkremSender(r wire.ShaHash) *ElkremSender {
+func NewElkremSender(r chainhash.Hash) *ElkremSender {
 	var e ElkremSender
 	e.root = &r
 	return &e
@@ -88,14 +88,14 @@ func NewElkremSender(r wire.ShaHash) *ElkremSender {
 
 // AtIndex skips to the requested index
 // should never error; remove error..?
-func (e *ElkremSender) AtIndex(w uint64) (*wire.ShaHash, error) {
+func (e *ElkremSender) AtIndex(w uint64) (*chainhash.Hash, error) {
 	out, err := descend(w, maxIndex, maxHeight, *e.root)
 	return &out, err
 }
 
 // AddNext inserts the next hash in the tree.  Returns an error if
 // the incoming hash doesn't fit.
-func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
+func (e *ElkremReceiver) AddNext(sha *chainhash.Hash) error {
 	// note: careful about atomicity / disk writes here
 	var n ElkremNode
 	n.sha = sha
@@ -123,7 +123,7 @@ func (e *ElkremReceiver) AddNext(sha *wire.ShaHash) error {
 }
 
 // AtIndex returns the w'th hash in the receiver.
-func (e *ElkremReceiver) AtIndex(w uint64) (*wire.ShaHash, error) {
+func (e *ElkremReceiver) AtIndex(w uint64) (*chainhash.Hash, error) {
 	if e == nil || e.s == nil {
 		return nil, fmt.Errorf("nil elkrem receiver")
 	}

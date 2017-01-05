@@ -10,6 +10,7 @@ import (
 	"net"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -63,18 +64,18 @@ var (
 	// echo -n | openssl sha256
 	// This stuff gets reversed!!!
 	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-	shaHash1, _      = wire.NewShaHash(shaHash1Bytes)
+	shaHash1, _      = chainhash.NewHash(shaHash1Bytes)
 	outpoint1        = wire.NewOutPoint(shaHash1, 0)
 	// echo | openssl sha256
 	// This stuff gets reversed!!!
 	shaHash2Bytes, _ = hex.DecodeString("01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b")
-	shaHash2, _      = wire.NewShaHash(shaHash2Bytes)
+	shaHash2, _      = chainhash.NewHash(shaHash2Bytes)
 	outpoint2        = wire.NewOutPoint(shaHash2, 1)
 	// create inputs from outpoint1 and outpoint2
 	inputs = []*wire.TxIn{wire.NewTxIn(outpoint1, nil, nil), wire.NewTxIn(outpoint2, nil, nil)}
 
 	// Commitment Signature
-	tx           = wire.NewMsgTx()
+	tx           = wire.NewMsgTx(1)
 	emptybytes   = new([]byte)
 	sigStr, _    = txscript.RawTxInSignature(tx, 0, *emptybytes, txscript.SigHashAll, privKey)
 	commitSig, _ = btcec.ParseSignature(sigStr, btcec.S256())
@@ -93,7 +94,7 @@ var (
 	ptrFundingTXSigs = append(*new([]*btcec.Signature), commitSig1, commitSig2)
 
 	// TxID
-	txid = new(wire.ShaHash)
+	txid = new(chainhash.Hash)
 	// Reversed when displayed
 	txidBytes, _ = hex.DecodeString("fd95c6e5c9d5bcf9cfc7231b6a438e46c518c724d0b04b75cc8fddf84a254e3a")
 	_            = copy(txid[:], txidBytes)

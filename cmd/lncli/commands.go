@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 )
@@ -250,7 +250,7 @@ func openChannel(ctx *cli.Context) error {
 		switch update := resp.Update.(type) {
 		case *lnrpc.OpenStatusUpdate_ChanOpen:
 			channelPoint := update.ChanOpen.ChannelPoint
-			txid, err := wire.NewShaHash(channelPoint.FundingTxid)
+			txid, err := chainhash.NewHash(channelPoint.FundingTxid)
 			if err != nil {
 				return err
 			}
@@ -306,7 +306,7 @@ func closeChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client := getClient(ctx)
 
-	txid, err := wire.NewShaHashFromStr(ctx.String("funding_txid"))
+	txid, err := chainhash.NewHashFromStr(ctx.String("funding_txid"))
 	if err != nil {
 		return err
 	}
@@ -340,7 +340,7 @@ func closeChannel(ctx *cli.Context) error {
 		switch update := resp.Update.(type) {
 		case *lnrpc.CloseStatusUpdate_ChanClose:
 			closingHash := update.ChanClose.ClosingTxid
-			txid, err := wire.NewShaHash(closingHash)
+			txid, err := chainhash.NewHash(closingHash)
 			if err != nil {
 				return err
 			}

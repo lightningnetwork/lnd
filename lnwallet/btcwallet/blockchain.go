@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -18,14 +19,14 @@ var (
 // within the main chain.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetBestBlock() (*wire.ShaHash, int32, error) {
+func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return b.rpc.GetBestBlock()
 }
 
 // GetTxOut returns the original output referenced by the passed outpoint.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, error) {
+func (b *BtcWallet) GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error) {
 	txout, err := b.rpc.GetTxOut(txid, index, false)
 	if err != nil {
 		return nil, err
@@ -50,7 +51,7 @@ func (b *BtcWallet) GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, erro
 // transaction ID.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error) {
+func (b *BtcWallet) GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error) {
 	tx, err := b.rpc.GetRawTransaction(txid)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func (b *BtcWallet) GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error) {
 // GetBlock returns a raw block from the server given its hash.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error) {
+func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	block, err := b.rpc.GetBlock(blockHash)
 	if err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ func (b *BtcWallet) GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error) {
 // given height.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetBlockHash(blockHeight int64) (*wire.ShaHash, error) {
+func (b *BtcWallet) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	blockHash, err := b.rpc.GetBlockHash(blockHeight)
 	if err != nil {
 		return nil, err

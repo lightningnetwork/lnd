@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // ChannelAnnouncement message is used to announce the existence of a channel
@@ -56,12 +56,12 @@ func (a *ChannelAnnouncement) Validate() error {
 
 	var sigHash []byte
 
-	sigHash = wire.DoubleSha256(a.FirstNodeID.SerializeCompressed())
+	sigHash = chainhash.DoubleHashB(a.FirstNodeID.SerializeCompressed())
 	if !a.FirstBitcoinSig.Verify(sigHash, a.FirstBitcoinKey) {
 		return errors.New("can't verify first bitcoin signature")
 	}
 
-	sigHash = wire.DoubleSha256(a.SecondNodeID.SerializeCompressed())
+	sigHash = chainhash.DoubleHashB(a.SecondNodeID.SerializeCompressed())
 	if !a.SecondBitcoinSig.Verify(sigHash, a.SecondBitcoinKey) {
 		return errors.New("can't verify second bitcoin signature")
 	}
@@ -70,7 +70,7 @@ func (a *ChannelAnnouncement) Validate() error {
 	if err != nil {
 		return err
 	}
-	dataHash := wire.DoubleSha256(data)
+	dataHash := chainhash.DoubleHashB(data)
 
 	if !a.FirstNodeSig.Verify(dataHash, a.FirstNodeID) {
 		return errors.New("can't verify data in first node signature")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -175,7 +176,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err = w.Write(b[:]); err != nil {
 			return err
 		}
-	case *wire.ShaHash:
+	case *chainhash.Hash:
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
@@ -425,8 +426,8 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = btcutil.Amount(int64(binary.BigEndian.Uint64(b[:])))
-	case **wire.ShaHash:
-		var b wire.ShaHash
+	case **chainhash.Hash:
+		var b chainhash.Hash
 		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
@@ -576,7 +577,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if _, err = io.ReadFull(r, h[:]); err != nil {
 			return err
 		}
-		hash, err := wire.NewShaHash(h[:])
+		hash, err := chainhash.NewHash(h[:])
 		if err != nil {
 			return err
 		}
@@ -596,7 +597,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if _, err = io.ReadFull(r, h[:]); err != nil {
 			return err
 		}
-		hash, err := wire.NewShaHash(h[:])
+		hash, err := chainhash.NewHash(h[:])
 		if err != nil {
 			return err
 		}

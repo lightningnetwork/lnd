@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -104,7 +105,7 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
-func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*wire.ShaHash, error) {
+func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*chainhash.Hash, error) {
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
@@ -271,7 +272,7 @@ out:
 			switch update := fundingUpdate.Update.(type) {
 			case *lnrpc.OpenStatusUpdate_ChanOpen:
 				chanPoint := update.ChanOpen.ChannelPoint
-				h, _ := wire.NewShaHash(chanPoint.FundingTxid)
+				h, _ := chainhash.NewHash(chanPoint.FundingTxid)
 				outpoint = wire.OutPoint{
 					Hash:  *h,
 					Index: chanPoint.OutputIndex,
@@ -354,7 +355,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := wire.NewShaHash(in.ChannelPoint.FundingTxid)
+	txid, err := chainhash.NewHash(in.ChannelPoint.FundingTxid)
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return err
@@ -472,7 +473,7 @@ out:
 			// longer need to process any further updates.
 			switch closeUpdate := closingUpdate.Update.(type) {
 			case *lnrpc.CloseStatusUpdate_ChanClose:
-				h, _ := wire.NewShaHash(closeUpdate.ChanClose.ClosingTxid)
+				h, _ := chainhash.NewHash(closeUpdate.ChanClose.ClosingTxid)
 				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
 				break out
@@ -520,7 +521,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 // commitment transaction has been broadcast, a struct describing the final
 // state of the channel is sent to the utxoNursery in order to ultimately sweep
 // the immature outputs.
-func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*wire.ShaHash, error) {
+func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainhash.Hash, error) {
 	// Execute a unilateral close shutting down all further channel
 	// operation.
 	closeSummary, err := channel.ForceClose()
@@ -529,7 +530,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*wire.Sh
 	}
 
 	closeTx := closeSummary.CloseTx
-	txid := closeTx.TxSha()
+	txid := closeTx.TxHash()
 
 	// With the close transaction in hand, broadcast the transaction to the
 	// network, thereby entering the psot channel resolution state.
@@ -1014,7 +1015,7 @@ func (r *rpcServer) constructPaymentRoute(destNode *btcec.PublicKey,
 	}
 
 	firstHopPub := route.Hops[0].Channel.Node.PubKey.SerializeCompressed()
-	destInterface := wire.ShaHash(fastsha256.Sum256(firstHopPub))
+	destInterface := chainhash.Hash(fastsha256.Sum256(firstHopPub))
 
 	return &htlcPacket{
 		dest: destInterface,

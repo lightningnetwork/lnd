@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 	"golang.org/x/crypto/ripemd160"
@@ -48,7 +49,7 @@ type link struct {
 type htlcPacket struct {
 	sync.RWMutex
 
-	dest wire.ShaHash
+	dest chainhash.Hash
 
 	index   uint32
 	srcLink wire.OutPoint
@@ -120,7 +121,7 @@ type htlcSwitch struct {
 	// currently have open with that peer.
 	// TODO(roasbeef): combine w/ onionIndex?
 	interfaceMtx sync.RWMutex
-	interfaces   map[wire.ShaHash][]*link
+	interfaces   map[chainhash.Hash][]*link
 
 	// onionIndex is an index used to properly forward a message
 	// to the next hop within a Sphinx circuit. Within the sphinx packets,
@@ -159,7 +160,7 @@ type htlcSwitch struct {
 func newHtlcSwitch() *htlcSwitch {
 	return &htlcSwitch{
 		chanIndex:        make(map[wire.OutPoint]*link),
-		interfaces:       make(map[wire.ShaHash][]*link),
+		interfaces:       make(map[chainhash.Hash][]*link),
 		onionIndex:       make(map[[ripemd160.Size]byte][]*link),
 		paymentCircuits:  make(map[circuitKey]*paymentCircuit),
 		linkControl:      make(chan interface{}),

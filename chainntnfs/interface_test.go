@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -33,14 +34,14 @@ var (
 	testAddr = addrPk.AddressPubKeyHash()
 )
 
-func getTestTxId(miner *rpctest.Harness) (*wire.ShaHash, error) {
+func getTestTxId(miner *rpctest.Harness) (*chainhash.Hash, error) {
 	script, err := txscript.PayToAddrScript(testAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	outputs := []*wire.TxOut{&wire.TxOut{2e8, script}}
-	return miner.CoinbaseSpend(outputs)
+	return miner.SendOutputs(outputs, 10)
 }
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
@@ -246,7 +247,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	}
 
 	// Next, create a new transaction spending that output.
-	spendingTx := wire.NewMsgTx()
+	spendingTx := wire.NewMsgTx(1)
 	spendingTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: *outpoint,
 	})
@@ -293,10 +294,10 @@ func testSpendNotification(miner *rpctest.Harness,
 					"%v instead of %v",
 					ntfn.SpentOutPoint, outpoint)
 			}
-			if !bytes.Equal(ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes()) {
+			if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
 				t.Fatalf("ntfn includes wrong spender tx sha, "+
 					"reports %v intead of %v",
-					ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes())
+					ntfn.SpenderTxHash[:], spenderSha[:])
 			}
 			if ntfn.SpenderInputIndex != 0 {
 				t.Fatalf("ntfn includes wrong spending input "+
@@ -549,7 +550,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	outpoint := wire.NewOutPoint(txid, uint32(outIndex))
 
 	// Next, create a new transaction spending that output.
-	spendingTx := wire.NewMsgTx()
+	spendingTx := wire.NewMsgTx(1)
 	spendingTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: *outpoint,
 	})
@@ -596,9 +597,9 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 			t.Fatalf("ntfn includes wrong output, reports %v instead of %v",
 				ntfn.SpentOutPoint, outpoint)
 		}
-		if !bytes.Equal(ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes()) {
+		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
 			t.Fatalf("ntfn includes wrong spender tx sha, reports %v intead of %v",
-				ntfn.SpenderTxHash.Bytes(), spenderSha.Bytes())
+				ntfn.SpenderTxHash[:], spenderSha[:])
 		}
 		if ntfn.SpenderInputIndex != 0 {
 			t.Fatalf("ntfn includes wrong spending input index, reports %v, should be %v",

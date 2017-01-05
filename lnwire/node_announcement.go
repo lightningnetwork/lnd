@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 var (
@@ -119,7 +119,7 @@ func (a *NodeAnnouncement) Validate() error {
 		return err
 	}
 
-	dataHash := wire.DoubleSha256(data)
+	dataHash := chainhash.DoubleHashB(data)
 	if !a.Signature.Verify(dataHash, a.NodeID) {
 		return errors.New("can't check the node annoucement signature")
 	}

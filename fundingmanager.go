@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -331,7 +332,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	if len(f.activeReservations[fmsg.peer.id]) >= cfg.MaxPendingChannels {
 		errMsg := &lnwire.ErrorGeneric{
 			ChannelPoint: &wire.OutPoint{
-				Hash:  wire.ShaHash{},
+				Hash:  chainhash.Hash{},
 				Index: 0,
 			},
 			Problem:          "Number of pending channels exceed maximum",

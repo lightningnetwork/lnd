@@ -11,6 +11,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/elkrem"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -1274,7 +1275,7 @@ func fetchChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 
 	txnBytes := bytes.NewReader(nodeChanBucket.Get(txnsKey))
 
-	channel.OurCommitTx = wire.NewMsgTx()
+	channel.OurCommitTx = wire.NewMsgTx(2)
 	if err = channel.OurCommitTx.Deserialize(txnBytes); err != nil {
 		return err
 	}
@@ -1502,7 +1503,7 @@ func fetchChanElkremState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	if err != nil {
 		return err
 	}
-	elkremRoot, err := wire.NewShaHash(senderBytes)
+	elkremRoot, err := chainhash.NewHash(senderBytes)
 	if err != nil {
 		return err
 	}

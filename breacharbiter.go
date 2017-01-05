@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -292,7 +293,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// dispatched once the justice tx is confirmed. After confirmation we
 	// notify the caller that initiated the retribution work low that the
 	// deed has been done.
-	justiceTXID := justiceTx.TxSha()
+	justiceTXID := justiceTx.TxHash()
 	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1)
 	if err != nil {
 		brarLog.Errorf("unable to register for conf for txid: %v",
@@ -404,7 +405,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// send the retribution information to the utxo nursery.
 		// TODO(roasbeef): populate htlc breaches
 		b.breachedContracts <- &retributionInfo{
-			commitHash: breachInfo.BreachTransaction.TxSha(),
+			commitHash: breachInfo.BreachTransaction.TxHash(),
 			chanPoint:  *chanPoint,
 
 			selfOutput: &breachedOutput{
@@ -444,7 +445,7 @@ type breachedOutput struct {
 // transaction which spends all outputs of the commitment transaction into an
 // output controlled by the wallet.
 type retributionInfo struct {
-	commitHash wire.ShaHash
+	commitHash chainhash.Hash
 	chanPoint  wire.OutPoint
 
 	selfOutput *breachedOutput
@@ -478,7 +479,7 @@ func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error)
 
 	// With the fee calculate, we can now create the justice transaction
 	// using the information gathered above.
-	justiceTx := wire.NewMsgTx()
+	justiceTx := wire.NewMsgTx(2)
 	justiceTx.AddTxOut(&wire.TxOut{
 		PkScript: pkScriptOfJustice,
 		Value:    sweepedAmt,

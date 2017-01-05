@@ -14,6 +14,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -201,7 +202,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 
 		fundingTXID := strings.Split(edge.ChannelPoint, ":")[0]
-		txidBytes, err := wire.NewShaHashFromStr(fundingTXID)
+		txidBytes, err := chainhash.NewHashFromStr(fundingTXID)
 		if err != nil {
 			return nil, nil, nil, err
 		}

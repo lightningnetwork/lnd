@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil/txsort"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
@@ -209,7 +210,7 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 
 	// Give bobNode one 7 BTC output for use in creating channels.
 	output := &wire.TxOut{7e8, bobAddrScript}
-	mainTxid, err := miner.CoinbaseSpend([]*wire.TxOut{output})
+	mainTxid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +248,7 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 	copy(obsfucator[:], revocation[:])
 
 	// His ID is just as creative...
-	var id [wire.HashSize]byte
+	var id [chainhash.HashSize]byte
 	id[0] = 0xff
 
 	return &bobNode{
@@ -283,7 +284,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet, numOut
 		addrs = append(addrs, walletAddr)
 
 		output := &wire.TxOut{satoshiPerOutput, script}
-		if _, err := miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
+		if _, err := miner.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
 			return err
 		}
 	}
@@ -466,7 +467,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	// txn hits a "comfortable" depth.
 
 	// The resulting active channel state should have been persisted to the DB.
-	fundingSha := fundingTx.TxSha()
+	fundingSha := fundingTx.TxHash()
 	channels, err := wallet.ChannelDB.FetchOpenChannels(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
@@ -732,7 +733,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	// The resulting active channel state should have been persisted to the DB.
 	// TODO(roasbeef): de-duplicate
 	fundingTx := chanReservation.FinalFundingTx()
-	fundingSha := fundingTx.TxSha()
+	fundingSha := fundingTx.TxHash()
 	channels, err := wallet.ChannelDB.FetchOpenChannels(bobNode.id)
 	if err != nil {
 		t.Fatalf("unable to retrieve channel from DB: %v", err)
@@ -854,7 +855,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// At this point, we send Bob our contribution, allowing him to
 	// construct the funding transaction, and sign our version of the
 	// commitment transaction.
-	fundingTx := wire.NewMsgTx()
+	fundingTx := wire.NewMsgTx(1)
 	fundingTx.AddTxIn(bobNode.availableOutputs[0])
 	fundingTx.AddTxOut(bobNode.changeOutputs[0])
 	fundingTx.AddTxOut(multiOut)
@@ -866,7 +867,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// Locate the output index of the 2-of-2 in order to send back to the
 	// wallet so it can finalize the transaction by signing bob's commitment
 	// transaction.
-	fundingTxID := fundingTx.TxSha()
+	fundingTxID := fundingTx.TxHash()
 	_, multiSigIndex := lnwallet.FindScriptOutputIndex(fundingTx, multiOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	bobObsfucator := bobNode.obsfucator
@@ -923,7 +924,7 @@ func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.Lightni
 	// Create 5 new outputs spendable by the wallet.
 	const numTxns = 5
 	const outputAmt = btcutil.SatoshiPerBitcoin
-	txids := make(map[wire.ShaHash]struct{})
+	txids := make(map[chainhash.Hash]struct{})
 	for i := 0; i < numTxns; i++ {
 		addr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
 		if err != nil {
@@ -935,7 +936,7 @@ func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.Lightni
 		}
 
 		output := &wire.TxOut{outputAmt, script}
-		txid, err := miner.CoinbaseSpend([]*wire.TxOut{output})
+		txid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
 		if err != nil {
 			t.Fatalf("unable to send coinbase: %v", err)
 		}
@@ -1083,7 +1084,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 		}
 
 		output := &wire.TxOut{outputAmt, script}
-		if _, err := miner.CoinbaseSpend([]*wire.TxOut{output}); err != nil {
+		if _, err := miner.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
 			t.Fatalf("unable to send coinbase: %v", err)
 		}
 	}
@@ -1183,10 +1184,10 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	/// WIth the index located, we can create a transaction spending the
 	//referenced output.
-	sweepTx := wire.NewMsgTx()
+	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
-			Hash:  tx.TxSha(),
+			Hash:  tx.TxHash(),
 			Index: outputIndex,
 		},
 	})

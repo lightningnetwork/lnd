@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -42,7 +43,7 @@ type Utxo struct {
 // the wallet, or has outputs that pay to the wallet.
 type TransactionDetail struct {
 	// Hash is the transaction hash of the transaction.
-	Hash wire.ShaHash
+	Hash chainhash.Hash
 
 	// Value is the net value of this transaction (in satoshis) from the
 	// PoV of the wallet. If this transaction purely spends from the
@@ -58,7 +59,7 @@ type TransactionDetail struct {
 	// BlockHeight is the hash of the block which includes this
 	// transaction. Unconfirmed transactions will have a nil value for this
 	// field.
-	BlockHash *wire.ShaHash
+	BlockHash *chainhash.Hash
 
 	// BlockHeight is the height of the block including this transaction.
 	// Unconfirmed transaction will show a height of zero.
@@ -142,7 +143,7 @@ type WalletController interface {
 	// paying out to the specified outputs. In the case the wallet has
 	// insufficient funds, or the outputs are non-standard, an error
 	// should be returned.
-	SendOutputs(outputs []*wire.TxOut) (*wire.ShaHash, error)
+	SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'confirms' parameter indicates the minimum
@@ -203,23 +204,23 @@ type WalletController interface {
 type BlockChainIO interface {
 	// GetBestBlock returns the current height and block hash of the valid
 	// most-work chain the implementation is aware of.
-	GetBestBlock() (*wire.ShaHash, int32, error)
+	GetBestBlock() (*chainhash.Hash, int32, error)
 
 	// GetTxOut returns the original output referenced by the passed
 	// outpoint.
-	GetUtxo(txid *wire.ShaHash, index uint32) (*wire.TxOut, error)
+	GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error)
 
 	// GetTransaction returns the full transaction identified by the passed
 	// transaction ID.
-	GetTransaction(txid *wire.ShaHash) (*wire.MsgTx, error)
+	GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error)
 
 	// GetBlockHash returns the hash of the block in the best block chain
 	// at the given height.
-	GetBlockHash(blockHeight int64) (*wire.ShaHash, error)
+	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
 
 	// GetBlock returns the block in the main chain identified by the given
 	// hash.
-	GetBlock(blockHash *wire.ShaHash) (*wire.MsgBlock, error)
+	GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully sign

@@ -661,7 +661,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Create a blank, fresh transaction. Soon to be a complete funding
 	// transaction which will allow opening a lightning channel.
-	pendingReservation.fundingTx = wire.NewMsgTx()
+	pendingReservation.fundingTx = wire.NewMsgTx(1)
 	fundingTx := pendingReservation.fundingTx
 
 	// Some temporary variables to cut down on the resolution verbosity.
@@ -739,7 +739,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Locate the index of the multi-sig outpoint in order to record it
 	// since the outputs are canonically sorted. If this is a single funder
 	// workflow, then we'll also need to send this to the remote node.
-	fundingTxID := fundingTx.TxSha()
+	fundingTxID := fundingTx.TxHash()
 	_, multiSigIndex := FindScriptOutputIndex(fundingTx, multiSigOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = fundingOutpoint
@@ -1235,7 +1235,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 func (l *LightningWallet) openChannelAfterConfirmations(res *ChannelReservation) {
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
-	txid := res.fundingTx.TxSha()
+	txid := res.fundingTx.TxHash()
 	numConfs := uint32(res.numConfsToOpen)
 	confNtfn, _ := l.chainNotifier.RegisterConfirmationsNtfn(&txid, numConfs)
 

@@ -67,9 +67,8 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create target output: %v")
 	}
-	sweepTx := wire.NewMsgTx()
-	sweepTx.Version = 2
-	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{commitmentTx.TxSha(), 0}, nil, nil))
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{commitmentTx.TxHash(), 0}, nil, nil))
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: targetOutput,
 		Value:    0.5 * 10e8,
@@ -267,7 +266,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// This will be Alice's commitment transaction. In this scenario Alice
 	// is sending an HTLC to a node she has a a path to (could be Bob,
 	// could be multiple hops down, it doesn't really matter).
-	senderCommitTx := wire.NewMsgTx()
+	senderCommitTx := wire.NewMsgTx(2)
 	senderCommitTx.AddTxIn(fakeFundingTxIn)
 	senderCommitTx.AddTxOut(&wire.TxOut{
 		Value:    int64(paymentAmt),
@@ -275,11 +274,11 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	})
 
 	prevOut := &wire.OutPoint{
-		Hash:  senderCommitTx.TxSha(),
+		Hash:  senderCommitTx.TxHash(),
 		Index: 0,
 	}
 
-	sweepTx := wire.NewMsgTx()
+	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(wire.NewTxIn(prevOut, nil, nil))
 	sweepTx.AddTxOut(
 		&wire.TxOut{
@@ -439,7 +438,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// This will be Bob's commitment transaction. In this scenario Alice
 	// is sending an HTLC to a node she has a a path to (could be Bob,
 	// could be multiple hops down, it doesn't really matter).
-	recieverCommitTx := wire.NewMsgTx()
+	recieverCommitTx := wire.NewMsgTx(2)
 	recieverCommitTx.AddTxIn(fakeFundingTxIn)
 	recieverCommitTx.AddTxOut(&wire.TxOut{
 		Value:    int64(paymentAmt),
@@ -447,11 +446,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	})
 
 	prevOut := &wire.OutPoint{
-		Hash:  recieverCommitTx.TxSha(),
+		Hash:  recieverCommitTx.TxHash(),
 		Index: 0,
 	}
 
-	sweepTx := wire.NewMsgTx()
+	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(wire.NewTxIn(prevOut, nil, nil))
 	sweepTx.AddTxOut(
 		&wire.TxOut{
@@ -559,7 +558,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 }
 
 func TestCommitTxStateHint(t *testing.T) {
-	commitTx := wire.NewMsgTx()
+	commitTx := wire.NewMsgTx(2)
 	commitTx.AddTxIn(&wire.TxIn{})
 
 	var obsfucator [StateHintSize]byte

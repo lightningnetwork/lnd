@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -69,7 +70,7 @@ type peer struct {
 	conn    net.Conn
 
 	addr        *lnwire.NetAddress
-	lightningID wire.ShaHash
+	lightningID chainhash.Hash
 
 	inbound bool
 	id      int32
@@ -157,7 +158,7 @@ func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
 
 	p := &peer{
 		conn:        conn,
-		lightningID: wire.ShaHash(fastsha256.Sum256(nodePub.SerializeCompressed())),
+		lightningID: chainhash.Hash(fastsha256.Sum256(nodePub.SerializeCompressed())),
 		addr:        addr,
 
 		id:      atomic.AddInt32(&numNodes, 1),
@@ -694,7 +695,7 @@ out:
 // cooperative channel close. The channel state machine is transitioned to the
 // closing phase, then our half of the closing witness is sent over to the
 // remote peer.
-func (p *peer) executeCooperativeClose(channel *lnwallet.LightningChannel) (*wire.ShaHash, error) {
+func (p *peer) executeCooperativeClose(channel *lnwallet.LightningChannel) (*chainhash.Hash, error) {
 	// Shift the channel state machine into a 'closing' state. This
 	// generates a signature for the closing tx, as well as a txid of the
 	// closing tx itself, allowing us to watch the network to determine
@@ -730,7 +731,7 @@ func (p *peer) executeCooperativeClose(channel *lnwallet.LightningChannel) (*wir
 func (p *peer) handleLocalClose(req *closeLinkReq) {
 	var (
 		err         error
-		closingTxid *wire.ShaHash
+		closingTxid *chainhash.Hash
 	)
 
 	p.activeChanMtx.RLock()
@@ -1417,7 +1418,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// with this latest commitment update.
 		// TODO(roasbeef): wait until next transition?
 		for invoice, _ := range settledPayments {
-			err := p.server.invoices.SettleInvoice(wire.ShaHash(invoice))
+			err := p.server.invoices.SettleInvoice(chainhash.Hash(invoice))
 			if err != nil {
 				peerLog.Errorf("unable to settle invoice: %v", err)
 			}

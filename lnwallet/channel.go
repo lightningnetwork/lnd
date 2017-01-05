@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
@@ -19,7 +20,7 @@ import (
 	"github.com/roasbeef/btcutil/txsort"
 )
 
-var zeroHash wire.ShaHash
+var zeroHash chainhash.Hash
 
 var (
 	ErrChanClosing = fmt.Errorf("channel is being closed, operation disallowed")
@@ -584,7 +585,7 @@ type BreachRetribution struct {
 func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	broadcastCommitment *wire.MsgTx) (*BreachRetribution, error) {
 
-	commitHash := broadcastCommitment.TxSha()
+	commitHash := broadcastCommitment.TxHash()
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num.
@@ -1408,7 +1409,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 
 	ourCommitKey := lc.channelState.OurCommitKey
 	currentRevocationKey := lc.channelState.TheirCurrentRevocation
-	pendingRevocation := wire.ShaHash(revMsg.Revocation)
+	pendingRevocation := chainhash.Hash(revMsg.Revocation)
 
 	// Ensure the new pre-image fits in properly within the elkrem receiver
 	// tree. If this fails, then all other checks are skipped.
@@ -1929,7 +1930,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	return &ForceCloseSummary{
 		CloseTx: commitTx,
 		SelfOutpoint: wire.OutPoint{
-			Hash:  commitTx.TxSha(),
+			Hash:  commitTx.TxHash(),
 			Index: delayIndex,
 		},
 		SelfOutputMaturity: csvTimeout,
@@ -1951,7 +1952,7 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 //
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any inflight.
-func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error) {
+func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -1969,7 +1970,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *wire.ShaHash, error
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
-	closeTxSha := closeTx.TxSha()
+	closeTxSha := closeTx.TxHash()
 
 	// Finally, sign the completed cooperative closure transaction. As the
 	// initiator we'll simply send our signature over the the remote party,
@@ -2095,8 +2096,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	// Now that both output scripts have been created, we can finally create
 	// the transaction itself. We use a transaction version of 2 since CSV
 	// will fail unless the tx version is >= 2.
-	commitTx := wire.NewMsgTx()
-	commitTx.Version = 2
+	commitTx := wire.NewMsgTx(2)
 	commitTx.AddTxIn(fundingOutput)
 
 	// Avoid creating zero value outputs within the commitment transaction.
@@ -2125,7 +2125,7 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	// channel. In the event that one side doesn't have any settled funds
 	// within the channel then a refund output for that particular side can
 	// be omitted.
-	closeTx := wire.NewMsgTx()
+	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(fundingTxIn)
 
 	// The initiator the a cooperative closure pays the fee in entirety.

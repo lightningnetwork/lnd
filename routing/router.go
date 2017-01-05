@@ -752,7 +752,7 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ChannelID) (*wire.OutPoint
 	// transaction index to obtain the funding output and txid.
 	fundingTx := fundingBlock.Transactions[chanID.TxIndex]
 	return &wire.OutPoint{
-		Hash:  fundingTx.TxSha(),
+		Hash:  fundingTx.TxHash(),
 		Index: uint32(chanID.TxPosition),
 	}, nil
 }

@@ -6,7 +6,7 @@ import (
 
 const (
 	WitnessFactor              = blockchain.WitnessScaleFactor
-	MaxTransactionWeightPolicy = blockchain.MaxBlockCost / 10
+	MaxTransactionWeightPolicy = blockchain.MaxBlockWeight / 10
 
 	// The weight(cost), which is different from the !size! (see BIP-141),
 	// is calculated as:

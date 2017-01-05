@@ -581,8 +581,7 @@ func createSweepTx(wallet *lnwallet.LightningWallet, matureOutputs []*kidOutput)
 		totalSum += o.amt
 	}
 
-	sweepTx := wire.NewMsgTx()
-	sweepTx.Version = 2
+	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: pkScript,
 		Value:    int64(totalSum - 5000),

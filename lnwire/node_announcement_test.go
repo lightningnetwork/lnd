@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 func TestNodeAnnouncementEncodeDecode(t *testing.T) {
@@ -58,7 +58,7 @@ func TestNodeAnnoucementValidation(t *testing.T) {
 	}
 
 	dataToSign, _ := na.DataToSign()
-	hash = wire.DoubleSha256(dataToSign)
+	hash = chainhash.DoubleHashB(dataToSign)
 
 	signature, _ := nodePrivKey.Sign(hash)
 	na.Signature = signature

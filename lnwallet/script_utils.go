@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -749,7 +750,7 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 // [2]: https://tools.ietf.org/html/rfc5869
 func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	localMultiSigKey *btcec.PublicKey,
-	remoteMultiSigKey *btcec.PublicKey) wire.ShaHash {
+	remoteMultiSigKey *btcec.PublicKey) chainhash.Hash {
 
 	secret := elkremDerivationRoot.Serialize()
 	salt := localMultiSigKey.SerializeCompressed()
@@ -760,7 +761,7 @@ func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	// It's safe to ignore the error her as we know for sure that we won't
 	// be draining the HKDF past its available entropy horizon.
 	// TODO(roasbeef): revisit...
-	var elkremRoot wire.ShaHash
+	var elkremRoot chainhash.Hash
 	rootReader.Read(elkremRoot[:])
 
 	return elkremRoot

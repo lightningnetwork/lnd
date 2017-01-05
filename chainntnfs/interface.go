@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -26,7 +27,7 @@ type ChainNotifier interface {
 	//
 	// NOTE: Dispatching notifications to multiple clients subscribed to
 	// the same (txid, numConfs) tuple MUST be supported.
-	RegisterConfirmationsNtfn(txid *wire.ShaHash, numConfs uint32) (*ConfirmationEvent, error)
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
 	// outpoint is succesfully spent within a confirmed transaction. The
@@ -62,7 +63,7 @@ type ChainNotifier interface {
 type TxConfirmation struct {
 	// BlockHash is the hash of the block that confirmed the original
 	// transition.
-	BlockHash *wire.ShaHash
+	BlockHash *chainhash.Hash
 
 	// BlockHeight is the height of the block in which the transaction was
 	// confirmed within.
@@ -105,7 +106,7 @@ type ConfirmationEvent struct {
 // target output.
 type SpendDetail struct {
 	SpentOutPoint     *wire.OutPoint
-	SpenderTxHash     *wire.ShaHash
+	SpenderTxHash     *chainhash.Hash
 	SpendingTx        *wire.MsgTx
 	SpenderInputIndex uint32
 	SpendingHeight    int32
@@ -122,7 +123,7 @@ type SpendEvent struct {
 // main chain.
 type BlockEpoch struct {
 	Height int32
-	Hash   *wire.ShaHash
+	Hash   *chainhash.Hash
 }
 
 // BlockEpochEvent encapsulates an on-going stream of block epoch

@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -87,7 +88,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 type mockNotfier struct {
 }
 
-func (m *mockNotfier) RegisterConfirmationsNtfn(txid *wire.ShaHash, numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
+func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }
 func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
@@ -199,7 +200,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 
 	prevOut := &wire.OutPoint{
-		Hash:  wire.ShaHash(testHdSeed),
+		Hash:  chainhash.Hash(testHdSeed),
 		Index: 0,
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
@@ -614,7 +615,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 			t.Fatalf("unable to initiate alice force close: %v", err)
 		}
 
-		actualCost := blockchain.GetMsgTxCost(commitTx)
+		actualCost := blockchain.GetTransactionWeight(btcutil.NewTx(commitTx))
 		estimatedCost := estimateCommitTxCost(count, false)
 
 		diff := int(estimatedCost - actualCost)
@@ -709,7 +710,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to complete alice cooperative close: %v", err)
 	}
-	bobCloseSha := closeTx.TxSha()
+	bobCloseSha := closeTx.TxHash()
 	if !bobCloseSha.IsEqual(txid) {
 		t.Fatalf("alice's transactions doesn't match: %x vs %x",
 			bobCloseSha[:], txid[:])
@@ -729,7 +730,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to complete bob cooperative close: %v", err)
 	}
-	aliceCloseSha := closeTx.TxSha()
+	aliceCloseSha := closeTx.TxHash()
 	if !aliceCloseSha.IsEqual(txid) {
 		t.Fatalf("bob's closure transactions don't match: %x vs %x",
 			aliceCloseSha[:], txid[:])

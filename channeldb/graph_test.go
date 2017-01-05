@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -524,7 +525,7 @@ func TestGraphTraversal(t *testing.T) {
 	}
 }
 
-func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *wire.ShaHash,
+func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *chainhash.Hash,
 	blockHeight uint32) {
 
 	pruneHash, pruneHeight, err := graph.PruneTip()
@@ -629,7 +630,7 @@ func TestGraphPruning(t *testing.T) {
 
 	// First we create a mock block that ends up closing the first two
 	// channels.
-	var blockHash wire.ShaHash
+	var blockHash chainhash.Hash
 	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
 	blockHeight := uint32(1)
 	block := channelPoints[:2]

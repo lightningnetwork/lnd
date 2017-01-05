@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 func TestChannelAnnoucementEncodeDecode(t *testing.T) {
@@ -60,10 +60,10 @@ func TestChannelAnnoucementValidation(t *testing.T) {
 
 	var hash []byte
 
-	hash = wire.DoubleSha256(firstNodePubKey.SerializeCompressed())
+	hash = chainhash.DoubleHashB(firstNodePubKey.SerializeCompressed())
 	firstBitcoinSig, _ := firstBitcoinPrivKey.Sign(hash)
 
-	hash = wire.DoubleSha256(secondNodePubKey.SerializeCompressed())
+	hash = chainhash.DoubleHashB(secondNodePubKey.SerializeCompressed())
 	secondBitcoinSig, _ := secondBitcoinPrivKey.Sign(hash)
 
 	ca := &ChannelAnnouncement{
@@ -77,7 +77,7 @@ func TestChannelAnnoucementValidation(t *testing.T) {
 	}
 
 	dataToSign, _ := ca.DataToSign()
-	hash = wire.DoubleSha256(dataToSign)
+	hash = chainhash.DoubleHashB(dataToSign)
 
 	firstNodeSign, _ := firstNodePrivKey.Sign(hash)
 	ca.FirstNodeSig = firstNodeSign

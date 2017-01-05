@@ -20,6 +20,8 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
@@ -89,9 +91,9 @@ func (h *harnessTest) Log(args ...interface{}) {
 	h.t.Log(args...)
 }
 
-func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *wire.ShaHash) {
+func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash) {
 	for _, tx := range block.Transactions {
-		sha := tx.TxSha()
+		sha := tx.TxHash()
 		if bytes.Equal(txid[:], sha[:]) {
 			return
 		}
@@ -144,7 +146,7 @@ func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Conte
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+	fundingTxID, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -170,7 +172,7 @@ func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Conte
 // detected as closed, an assertion checks that the transaction is found within
 // a block.
 func closeChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Context,
-	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *wire.ShaHash {
+	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
 	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
 	if err != nil {
@@ -371,8 +373,8 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	// At this point, the sweeping transaction should now be broadcast. So
 	// we fetch the node's mempool to ensure it has been properly
 	// broadcast.
-	var sweepingTXID *wire.ShaHash
-	var mempool []*wire.ShaHash
+	var sweepingTXID *chainhash.Hash
+	var mempool []*chainhash.Hash
 	mempoolTimeout := time.After(3 * time.Second)
 	checkMempoolTick := time.Tick(100 * time.Millisecond)
 mempoolPoll:
@@ -427,7 +429,7 @@ mempoolPoll:
 		t.Fatalf("unable to get block: %v", err)
 	}
 
-	assertTxInBlock(t, block, sweepTx.Sha())
+	assertTxInBlock(t, block, sweepTx.Hash())
 }
 
 func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
@@ -672,7 +674,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	chanPointAlice := openChannelAndAssert(t, net, ctxt, net.Alice,
 		net.Bob, chanAmt)
 
-	aliceChanTXID, err := wire.NewShaHash(chanPointAlice.FundingTxid)
+	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -701,7 +703,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	chanPointCarol := openChannelAndAssert(t, net, ctxt, carol,
 		net.Alice, chanAmt)
 
-	carolChanTXID, err := wire.NewShaHash(chanPointCarol.FundingTxid)
+	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -1079,7 +1081,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 			t.Fatalf("error while waiting for channel open: %v", err)
 		}
 
-		fundingTxID, err := wire.NewShaHash(fundingChanPoint.FundingTxid)
+		fundingTxID, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
 		if err != nil {
 			t.Fatalf("unable to create sha hash: %v", err)
 		}
@@ -1282,7 +1284,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// Query the mempool for Alice's justice transaction, this should be
 	// broadcast as Bob's contract breaching transaction gets confirmed
 	// above.
-	var justiceTXID *wire.ShaHash
+	var justiceTXID *chainhash.Hash
 	breakTimeout := time.After(time.Second * 5)
 poll:
 	for {
@@ -1328,8 +1330,8 @@ poll:
 	if len(block.Transactions) != 2 {
 		t.Fatalf("transaction wasn't mined")
 	}
-	justiceSha := block.Transactions[1].TxSha()
-	if !bytes.Equal(justiceTx.Sha()[:], justiceSha[:]) {
+	justiceSha := block.Transactions[1].TxHash()
+	if !bytes.Equal(justiceTx.Hash()[:], justiceSha[:]) {
 		t.Fatalf("justice tx wasn't mined")
 	}
 

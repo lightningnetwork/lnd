@@ -128,8 +128,10 @@ func (b *breachArbiter) contractObserver() {
 		brarLog.Errorf("unable to fetch active channels: %v", err)
 	}
 
-	brarLog.Infof("Retrieved %v channels from database, watching with "+
-		"vigilance!", len(activeChannels))
+	if len(activeChannels) > 0 {
+		brarLog.Infof("Retrieved %v channels from database, watching "+
+			"with vigilance!", len(activeChannels))
+	}
 
 	// For each active channel found within the database, we launch a
 	// detected breachObserver goroutine for that channel and also track

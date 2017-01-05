@@ -1446,6 +1446,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		ht.Fatalf("unable to request transaction notifications: %v", err)
 	}
 
+	// Next mine enough blocks in order for segwit and the CSV package
+	// soft-fork to activate on SimNet.
+	numBlocks := chaincfg.SimNetParams.MinerConfirmationWindow * 2
+	if _, err := btcdHarness.Node.Generate(numBlocks); err != nil {
+		ht.Fatalf("unable to generate blocks: %v", err)
+	}
+
 	// With the btcd harness created, we can now complete the
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"

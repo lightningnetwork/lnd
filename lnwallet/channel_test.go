@@ -1180,12 +1180,12 @@ func TestCancelHTLC(t *testing.T) {
 		Amount:           htlcAmt,
 		Expiry:           10,
 	}
+	paymentHash := htlc.RedemptionHashes[0]
 
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("unable to add alice htlc: %v", err)
 	}
-	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
-	if err != nil {
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
 		t.Fatalf("unable to add bob htlc: %v", err)
 	}
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
@@ -1202,10 +1202,11 @@ func TestCancelHTLC(t *testing.T) {
 
 	// Now, with the HTLC committed on both sides, trigger a cancellation
 	// from Bob to Alice, removing the HTLC.
-	if err := bobChannel.CancelHTLC(bobHtlcIndex); err != nil {
+	htlcCancelIndex, err := bobChannel.CancelHTLC(paymentHash)
+	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
 	}
-	if err := aliceChannel.ReceiveCancelHTLC(bobHtlcIndex); err != nil {
+	if err := aliceChannel.ReceiveCancelHTLC(htlcCancelIndex); err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 

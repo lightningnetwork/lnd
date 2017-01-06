@@ -89,7 +89,7 @@ type updateType uint8
 
 const (
 	Add updateType = iota
-	Timeout
+	Cancel
 	Settle
 )
 
@@ -1100,9 +1100,9 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	// the HTLC amount.
 	case isIncoming && htlc.EntryType == Settle:
 		*ourBalance += htlc.Amount
-	// Otherwise, this HTLC is being timed out, therefore the value of the
+	// Otherwise, this HTLC is being cancelled, therefore the value of the
 	// HTLC should return to the remote party.
-	case isIncoming && htlc.EntryType == Timeout:
+	case isIncoming && htlc.EntryType == Cancel:
 		*theirBalance += htlc.Amount
 	// If an outgoing HTLC is being settled, then this means that the
 	// downstream party resented the preimage or learned of it via a
@@ -1110,9 +1110,9 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	// the value of the HTLC.
 	case !isIncoming && htlc.EntryType == Settle:
 		*theirBalance += htlc.Amount
-	// Otherwise, one of our outgoing HTLC's has timed out, so the value of
-	// the HTLC should be returned to our settled balance.
-	case !isIncoming && htlc.EntryType == Timeout:
+	// Otherwise, one of our outgoing HTLC's has been cancelled, so the
+	// value of the HTLC should be returned to our settled balance.
+	case !isIncoming && htlc.EntryType == Cancel:
 		*ourBalance += htlc.Amount
 	}
 
@@ -1715,8 +1715,58 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint32
 	return nil
 }
 
-// TimeoutHTLC...
-func (lc *LightningChannel) TimeoutHTLC() error {
+// CancelHTLC attempts to cancel a targeted HTLC by its log index, inserting an
+// entry which will remove the target log entry within the next commitment
+// update. This method is intended to be called in order to cancel in
+// _incoming_ HTLC.
+func (lc *LightningChannel) CancelHTLC(logIndex uint32) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	addEntry, ok := lc.theirLogIndex[logIndex]
+	if !ok {
+		return fmt.Errorf("unable to find HTLC to cancel")
+	}
+
+	htlc := addEntry.Value.(*PaymentDescriptor)
+
+	pd := &PaymentDescriptor{
+		Amount:      htlc.Amount,
+		Index:       lc.ourLogCounter,
+		ParentIndex: htlc.Index,
+		EntryType:   Cancel,
+	}
+
+	lc.ourUpdateLog.PushBack(pd)
+	lc.ourLogCounter++
+
+	return nil
+}
+
+// ReceiveCancelHTLC attempts to cancel a targeted HTLC by its log index,
+// inserting an entry which will remove the target log entry within the next
+// commitment update. This method should be called in response to the upstream
+// party cancelling an outgoing HTLC.
+func (lc *LightningChannel) ReceiveCancelHTLC(logIndex uint32) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	addEntry, ok := lc.ourLogIndex[logIndex]
+	if !ok {
+		return fmt.Errorf("unable to find HTLC to cancel")
+	}
+
+	htlc := addEntry.Value.(*PaymentDescriptor)
+	pd := &PaymentDescriptor{
+		Amount:      htlc.Amount,
+		ParentIndex: htlc.Index,
+		Index:       lc.theirLogCounter,
+		EntryType:   Cancel,
+	}
+
+	lc.theirUpdateLog.PushBack(pd)
+	lc.theirLogCounter++
+
 	return nil
 }
 

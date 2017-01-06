@@ -1158,3 +1158,89 @@ func TestStateUpdatePersistence(t *testing.T) {
 			3000, bobChannel.channelState.TotalSatoshisSent)
 	}
 }
+
+func TestCancelHTLC(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Add a new HTLC from Alice to Bob, then trigger a new state
+	// transition in order to include it in the latest state.
+	const htlcAmt = btcutil.SatoshiPerBitcoin
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{0xaa}, 32))
+	htlc := &lnwire.HTLCAddRequest{
+		RedemptionHashes: [][32]byte{fastsha256.Sum256(preImage[:])},
+		Amount:           htlcAmt,
+		Expiry:           10,
+	}
+
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add alice htlc: %v", err)
+	}
+	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
+	if err != nil {
+		t.Fatalf("unable to add bob htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to create new commitment state: %v", err)
+	}
+
+	// With the HTLC committed, Alice's balance should reflect the clearing
+	// of the new HTLC.
+	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 4)
+	if aliceChannel.channelState.OurBalance != aliceExpectedBalance {
+		t.Fatalf("Alice's balance is wrong: expected %v, got %v",
+			aliceExpectedBalance, aliceChannel.channelState.OurBalance)
+	}
+
+	// Now, with the HTLC committed on both sides, trigger a cancellation
+	// from Bob to Alice, removing the HTLC.
+	if err := bobChannel.CancelHTLC(bobHtlcIndex); err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	if err := aliceChannel.ReceiveCancelHTLC(bobHtlcIndex); err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// Now trigger another state transition, the HTLC should now be removed
+	// from both sides, with balances reflected.
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("unable to create new commitment: %v", err)
+	}
+
+	// Now HTLC's should be present on the commitment transaction for
+	// either side.
+	if len(aliceChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
+		len(aliceChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
+		t.Fatalf("htlc's still active from alice's POV")
+	}
+	if len(bobChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
+		len(bobChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
+		t.Fatalf("htlc's still active from bob's POV")
+	}
+
+	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 5)
+	if aliceChannel.channelState.OurBalance != expectedBalance {
+		t.Fatalf("balance is wrong: expected %v, got %v",
+			aliceChannel.channelState.OurBalance, expectedBalance)
+	}
+	if aliceChannel.channelState.TheirBalance != expectedBalance {
+		t.Fatalf("balance is wrong: expected %v, got %v",
+			aliceChannel.channelState.TheirBalance, expectedBalance)
+	}
+	if bobChannel.channelState.OurBalance != expectedBalance {
+		t.Fatalf("balance is wrong: expected %v, got %v",
+			bobChannel.channelState.OurBalance, expectedBalance)
+	}
+	if bobChannel.channelState.TheirBalance != expectedBalance {
+		t.Fatalf("balance is wrong: expected %v, got %v",
+			bobChannel.channelState.TheirBalance, expectedBalance)
+	}
+}

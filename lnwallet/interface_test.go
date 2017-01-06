@@ -1103,7 +1103,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 			txDetail := <-txClient.ConfirmedTransactions()
 			if txDetail.NumConfirmations != 1 {
 				t.Fatalf("incorrect number of confs, expected %v got %v",
-					0, txDetail.NumConfirmations)
+					1, txDetail.NumConfirmations)
 			}
 			if txDetail.Value != outputAmt {
 				t.Fatalf("incorrect output amt, expected %v got %v",

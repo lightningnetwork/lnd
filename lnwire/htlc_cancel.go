@@ -7,10 +7,68 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
+// CancelReason specifies the precise reason that an upstream HTLC was
+// cancelled. Each CancelHTLC message carries a CancelReason which is to be
+// passed back unaltered to the source of the HTLC within the route.
+//
+// TODO(roasbeef): implement proper encrypted error messages as defined in spec
+//  * these errors as it stands reveal the error cause to all links in the
+//    route and are horrible for privacy
+type CancelReason uint16
+
+const (
+	// InsufficientCapacity indicates that a payment failed due to a link
+	// in the ultimate route not having enough satoshi flow to successfully
+	// carry the payment.
+	InsufficientCapacity = 0
+
+	// UpstreamTimeout indicates that an upstream link had to enforce the
+	// absolute HTLC timeout, removing the HTLC.
+	UpstreamTimeout = 1
+
+	// UnkownPaymentHash indicates that the destination did not recognize
+	// the payment hash.
+	UnkownPaymentHash = 2
+
+	// UnkownDestination indicates that the specified next hop within the
+	// Sphinx packet at a point in the route contained an unknown or
+	// invalid "next hop".
+	UnkownDestination = 3
+
+	// SphinxParseError indicates that an intermediate node was unable
+	// properly parse the HTLC.
+	SphinxParseError = 4
+)
+
+// String returns a human-readable version of the CancelReason type.
+func (c CancelReason) String() string {
+	switch c {
+	case InsufficientCapacity:
+		return "InsufficientCapacity: next hop had insufficient " +
+			"capacity for payment"
+
+	case UpstreamTimeout:
+		return "UpstreamTimeout: HTLC has timed out upstream"
+
+	case UnkownPaymentHash:
+		return "UnkownPaymentHash: the destination did not know the " +
+			"preimage"
+
+	case UnkownDestination:
+		return "UnkownDestination: next hop unknown"
+
+	case SphinxParseError:
+		return "SphinxParseError: unable to parse sphinx packet"
+
+	default:
+		return "unknown reason"
+	}
+}
+
 // CancelHTLC is sent by Alice to Bob in order to remove a previously added
 // HTLC. Upon receipt of an CancelHTLC the HTLC should be removed from the next
-// commitment transaction, with the CancelHTLC propgated backwards in the route
-// to fully un-clear the HTLC.
+// commitment transaction, with the CancelHTLC propagated backwards in the
+// route to fully un-clear the HTLC.
 type CancelHTLC struct {
 	// ChannelPoint is the particular active channel that this CancelHTLC
 	// is binded to.
@@ -19,6 +77,10 @@ type CancelHTLC struct {
 	// HTLCKey references which HTLC on the remote node's commitment
 	// transaction has timed out.
 	HTLCKey HTLCKey
+
+	// Reason described the event that caused the HTLC to be cancelled
+	// within the route.
+	Reason CancelReason
 }
 
 // Decode deserializes a serialized CancelHTLC message stored in the passed
@@ -31,6 +93,7 @@ func (c *CancelHTLC) Decode(r io.Reader, pver uint32) error {
 	err := readElements(r,
 		&c.ChannelPoint,
 		&c.HTLCKey,
+		&c.Reason,
 	)
 	if err != nil {
 		return err
@@ -56,6 +119,7 @@ func (c *CancelHTLC) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelPoint,
 		c.HTLCKey,
+		c.Reason,
 	)
 	if err != nil {
 		return err
@@ -77,8 +141,8 @@ func (c *CancelHTLC) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CancelHTLC) MaxPayloadLength(uint32) uint32 {
-	// 36 + 8
-	return 44
+	// 36 + 8 + 2
+	return 46
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -96,5 +160,6 @@ func (c *CancelHTLC) String() string {
 	return fmt.Sprintf("\n--- Begin CancelHTLC ---\n") +
 		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
 		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
+		fmt.Sprintf("Reason:\t%v\n", c.Reason) +
 		fmt.Sprintf("--- End CancelHTLC ---\n")
 }

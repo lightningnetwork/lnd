@@ -442,6 +442,51 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	chanAmt := btcutil.Amount(100000)
 	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob, chanAmt)
 
+	assertPaymentBalance := func(amt btcutil.Amount) {
+		balReq := &lnrpc.ChannelBalanceRequest{}
+
+		// The balances of Alice and Bob should be updated accordingly.
+		aliceBalance, err := net.Alice.ChannelBalance(ctxb, balReq)
+		if err != nil {
+			t.Fatalf("unable to query for alice's balance: %v", err)
+		}
+		bobBalance, err := net.Bob.ChannelBalance(ctxb, balReq)
+		if err != nil {
+			t.Fatalf("unable to query for bob's balance: %v", err)
+		}
+		if aliceBalance.Balance != int64(chanAmt-amt) {
+			t.Fatalf("Alice's balance is incorrect got %v, expected %v",
+				aliceBalance, int64(chanAmt-amt))
+		}
+		if bobBalance.Balance != int64(amt) {
+			t.Fatalf("Bob's balance is incorrect got %v, expected %v",
+				bobBalance, amt)
+		}
+
+		// Both channels should also have properly accunted from the amount
+		// that has been sent/received over the channel.
+		listReq := &lnrpc.ListChannelsRequest{}
+		aliceListChannels, err := net.Alice.ListChannels(ctxb, listReq)
+		if err != nil {
+			t.Fatalf("unable to query for alice's channel list: %v", err)
+		}
+		aliceSatoshisSent := aliceListChannels.Channels[0].TotalSatoshisSent
+		if aliceSatoshisSent != int64(amt) {
+			t.Fatalf("Alice's satoshis sent is incorrect got %v, expected %v",
+				aliceSatoshisSent, amt)
+		}
+
+		bobListChannels, err := net.Bob.ListChannels(ctxb, listReq)
+		if err != nil {
+			t.Fatalf("unable to query for bob's channel list: %v", err)
+		}
+		bobSatoshisReceived := bobListChannels.Channels[0].TotalSatoshisReceived
+		if bobSatoshisReceived != int64(amt) {
+			t.Fatalf("Bob's satoshis received is incorrect got %v, expected %v",
+				bobSatoshisReceived, amt)
+		}
+	}
+
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
 	// pre-image.
@@ -490,47 +535,36 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 			spew.Sdump(dbInvoice))
 	}
 
-	// The balances of Alice and Bob should be updated accordingly.
-	aliceBalance, err := net.Alice.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
-	if err != nil {
-		t.Fatalf("unable to query for alice's balance: %v", err)
+	// With the payment completed all balance related stats should be
+	// properly updated.
+	assertPaymentBalance(paymentAmt)
+
+	// Create another invoice for Bob, this time leaving off the preimage
+	// to one will be randomly generated. We'll test the proper
+	// encoding/decoding of the zpay32 payment requests.
+	invoice = &lnrpc.Invoice{
+		Memo:  "test3",
+		Value: paymentAmt,
 	}
-	bobBalance, err := net.Bob.ChannelBalance(ctxb, &lnrpc.ChannelBalanceRequest{})
+	invoiceResp, err = net.Bob.AddInvoice(ctxb, invoice)
 	if err != nil {
-		t.Fatalf("unable to query for bob's balance: %v", err)
+		t.Fatalf("unable to add invoice: %v", err)
 	}
 
-	if aliceBalance.Balance != int64(chanAmt-paymentAmt) {
-		t.Fatalf("Alice's balance is incorrect got %v, expected %v",
-			aliceBalance, int64(chanAmt-paymentAmt))
+	// Next send another payment, but this time using a zpay32 encoded
+	// invoice rather than manually specifying the payment details.
+	if err := sendStream.Send(&lnrpc.SendRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+	}); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
 	}
-	if bobBalance.Balance != paymentAmt {
-		t.Fatalf("Bob's balance is incorrect got %v, expected %v",
-			bobBalance, paymentAmt)
-	}
-
-	// Both channels should also have properly accunted from the amount
-	// that has been sent/received over the channel.
-	listReq := &lnrpc.ListChannelsRequest{}
-	aliceListChannels, err := net.Alice.ListChannels(ctxb, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for alice's channel list: %v", err)
-	}
-	aliceSatoshisSent := aliceListChannels.Channels[0].TotalSatoshisSent
-	if aliceSatoshisSent != paymentAmt {
-		t.Fatalf("Alice's satoshis sent is incorrect got %v, expected %v",
-			aliceSatoshisSent, paymentAmt)
+	if _, err := sendStream.Recv(); err != nil {
+		t.Fatalf("error when attempting recv: %v", err)
 	}
 
-	bobListChannels, err := net.Bob.ListChannels(ctxb, listReq)
-	if err != nil {
-		t.Fatalf("unable to query for bob's channel list: %v", err)
-	}
-	bobSatoshisReceived := bobListChannels.Channels[0].TotalSatoshisReceived
-	if bobSatoshisReceived != paymentAmt {
-		t.Fatalf("Bob's satoshis received is incorrect got %v, expected %v",
-			bobSatoshisReceived, paymentAmt)
-	}
+	// The second payment should also have succeeded, with the balances
+	// being update accordingly.
+	assertPaymentBalance(paymentAmt * 2)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)

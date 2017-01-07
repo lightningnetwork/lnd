@@ -930,6 +930,13 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol, false)
+
+	// Finally, shutdown the node we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := carol.shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
 }
 
 func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
@@ -1132,11 +1139,18 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 		chanPoints[i] = fundingChanPoint
 	}
 
-	// Finally close the channel between Alice and Carol, asserting that
-	// the channel has been properly closed on-chain.
+	// Next, close the channel between Alice and Carol, asserting that the
+	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctxt, _ := context.WithTimeout(context.Background(), timeout)
 		closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+	}
+
+	// Finally, shutdown the node we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := carol.shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 }
 

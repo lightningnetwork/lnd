@@ -51,12 +51,14 @@ type htlcPacket struct {
 
 	dest chainhash.Hash
 
-	index   uint32
 	srcLink wire.OutPoint
 	onion   *sphinx.ProcessedPacket
 
 	msg lnwire.Message
-	amt btcutil.Amount
+
+	// TODO(roasbeef): refactor and add type to pkt message
+	payHash [32]byte
+	amt     btcutil.Amount
 
 	err chan error
 }
@@ -70,16 +72,16 @@ type circuitKey [32]byte
 
 // paymentCircuit represents an active Sphinx (onion routing) circuit between
 // two active links within the htlcSwitch. A payment circuit is created once a
-// link forwards an HTLC add request which initites the creation of the ciruit.
-// The onion routing informtion contained within this message is used to
-// identify the settle/clear ends of the circuit. A circuit may be re-used (not
-// torndown) in the case that multiple HTLC's with the send RHash are sent.
+// link forwards an HTLC add request which initiates the creation of the
+// circuit.  The onion routing information contained within this message is
+// used to identify the settle/clear ends of the circuit. A circuit may be
+// re-used (not torndown) in the case that multiple HTLC's with the send RHash
+// are sent.
 type paymentCircuit struct {
 	// TODO(roasbeef): add reference count so know when to delete?
 	//  * atomic int re
 	//  * due to same r-value being re-used?
 
-	// NOTE: This integer must be used *atomically*.
 	refCount uint32
 
 	// clear is the link the htlcSwitch will forward the HTLC add message
@@ -290,6 +292,8 @@ out:
 			// state so we can properly forward the ultimate
 			// settle message.
 			case *lnwire.HTLCAddRequest:
+				payHash := wireMsg.RedemptionHashes[0]
+
 				// Create the two ends of the payment circuit
 				// required to ensure completion of this new
 				// payment.
@@ -300,6 +304,27 @@ out:
 				if !ok {
 					hswcLog.Errorf("unable to find dest end of "+
 						"circuit: %x", nextHop)
+
+					// We we're unable to locate the
+					// next-hop as encoded within the
+					// Sphinx packet. Therefore, we send a
+					// cancellation message back to the
+					// source of the packet so they can
+					// propagate the message back to the
+					// origin.
+					cancelPkt := &htlcPacket{
+						payHash: payHash,
+						msg: &lnwire.CancelHTLC{
+							Reason: lnwire.UnknownDestination,
+						},
+						err: make(chan error, 1),
+					}
+
+					h.chanIndexMtx.RLock()
+					cancelLink := h.chanIndex[pkt.srcLink]
+					h.chanIndexMtx.RUnlock()
+
+					cancelLink.linkChan <- cancelPkt
 					continue
 				}
 
@@ -307,8 +332,30 @@ out:
 				settleLink := h.chanIndex[pkt.srcLink]
 				h.chanIndexMtx.RUnlock()
 
-				// TODO(roasbeef): examine per-hop info to decide on link?
-				//  * check clear has enough available sat
+				// If the link we're attempting to forward the
+				// HTLC over has insufficient capacity, then
+				// we'll cancel the HTLC as the payment cannot
+				// succeed.
+				linkBandwidth := atomic.LoadInt64(&clearLink[0].availableBandwidth)
+				if linkBandwidth < int64(wireMsg.Amount) {
+					hswcLog.Errorf("unable to forward HTLC "+
+						"link %v has insufficient "+
+						"capacity, have %v need %v",
+						clearLink[0].chanPoint, linkBandwidth,
+						int64(wireMsg.Amount))
+
+					pkt := &htlcPacket{
+						payHash: payHash,
+						msg: &lnwire.CancelHTLC{
+							Reason: lnwire.InsufficientCapacity,
+						},
+						err: make(chan error, 1),
+					}
+
+					settleLink.linkChan <- pkt
+					continue
+				}
+
 				circuit := &paymentCircuit{
 					clear:  clearLink[0],
 					settle: settleLink,
@@ -380,6 +427,45 @@ out:
 					circuit.settle.chanPoint, n)
 
 				satSent += pkt.amt
+
+				delete(h.paymentCircuits, cKey)
+
+			// We've just received an HTLC cancellation triggered
+			// by an upstream peer somewhere within the ultimate
+			// route. In response, we'll terminate the payment
+			// circuit and propagate the error backwards.
+			case *lnwire.CancelHTLC:
+				// In order to properly handle the error, well
+				// need to look up the original circuit that
+				// the incoming HTLC created.
+				circuit, ok := h.paymentCircuits[pkt.payHash]
+				if !ok {
+					hswcLog.Debugf("No existing circuit "+
+						"for %x to cancel", pkt.payHash)
+					continue
+				}
+
+				// Since an outgoing HTLC we sent on the clear
+				// link as he cancelled, we update the
+				// bandwidth of the clear link, restoring the
+				// value of the HTLC worth.
+				n := atomic.AddInt64(&circuit.clear.availableBandwidth,
+					int64(pkt.amt))
+				hswcLog.Debugf("HTLC %x has been cancelled, "+
+					"incrementing link %v bandwidth to %v", pkt.payHash,
+					circuit.clear.chanPoint, n)
+
+				// With our link info updated, we now continue
+				// the error propagation by sending the
+				// cancellation message over the link that sent
+				// us the incoming HTLC.
+				circuit.settle.linkChan <- &htlcPacket{
+					msg:     wireMsg,
+					payHash: pkt.payHash,
+					err:     make(chan error, 1),
+				}
+
+				delete(h.paymentCircuits, pkt.payHash)
 			}
 		case <-logTicker.C:
 			if numUpdates == 0 {

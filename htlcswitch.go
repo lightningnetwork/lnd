@@ -256,7 +256,7 @@ out:
 				//  * avoid full channel depletion at higher
 				//    level (here) instead of within state
 				//    machine?
-				if link.availableBandwidth < int64(amt) {
+				if atomic.LoadInt64(&link.availableBandwidth) < int64(amt) {
 					continue
 				}
 

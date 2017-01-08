@@ -718,10 +718,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 		// With the channel point known, retrieve the network channel
 		// ID from the database.
-		chanID, err := graph.ChannelID(chanPoint)
-		if err != nil {
-			return nil, err
-		}
+		var chanID uint64
+		chanID, _ = graph.ChannelID(chanPoint)
 
 		channel := &lnrpc.ActiveChannel{
 			RemotePubkey:          nodeID,

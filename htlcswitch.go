@@ -99,7 +99,7 @@ type paymentCircuit struct {
 
 // htlcSwitch is a central messaging bus for all incoming/outgoing HTLC's.
 // Connected peers with active channels are treated as named interfaces which
-// refer to active channels as links. A link is the switche's message
+// refer to active channels as links. A link is the switch's message
 // communication point with the goroutine that manages an active channel. New
 // links are registered each time a channel is created, and unregistered once
 // the channel is closed. The switch manages the hand-off process for multi-hop
@@ -113,7 +113,7 @@ type htlcSwitch struct {
 
 	// chanIndex maps a channel's outpoint to a link which contains
 	// additional information about the channel, and additionally houses a
-	// pointer to the peer mangaing the channel.
+	// pointer to the peer managing the channel.
 	chanIndexMtx sync.RWMutex
 	chanIndex    map[wire.OutPoint]*link
 
@@ -346,7 +346,6 @@ out:
 			// circuit.
 			case *lnwire.HTLCSettleRequest:
 				rHash := fastsha256.Sum256(wireMsg.RedemptionProofs[0][:])
-
 				var cKey circuitKey
 				copy(cKey[:], rHash[:])
 
@@ -356,7 +355,7 @@ out:
 				circuit, ok := h.paymentCircuits[cKey]
 				if !ok {
 					hswcLog.Debugf("No existing circuit "+
-						"for %x", rHash[:])
+						"for %x to settle", rHash[:])
 					satSent += pkt.amt
 					continue
 				}
@@ -373,7 +372,7 @@ out:
 
 				// Increase the available bandwidth for the
 				// link as it will settle the above HTLC,
-				// subtracting from the limbo balacne and
+				// subtracting from the limbo balance and
 				// incrementing its local balance.
 				n := atomic.AddInt64(&circuit.settle.availableBandwidth,
 					int64(pkt.amt))
@@ -485,6 +484,12 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 	links := h.interfaces[chanInterface]
 	h.interfaceMtx.RUnlock()
 
+	h.chanIndexMtx.Lock()
+	defer h.chanIndexMtx.Unlock()
+
+	h.onionMtx.Lock()
+	defer h.onionMtx.Unlock()
+
 	// A request with a nil channel point indicates that all the current
 	// links for this channel should be cleared.
 	if req.chanPoint == nil {
@@ -492,16 +497,12 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 			hex.EncodeToString(chanInterface[:]))
 
 		for _, link := range links {
-			h.chanIndexMtx.Lock()
 			delete(h.chanIndex, *link.chanPoint)
-			h.chanIndexMtx.Unlock()
 		}
 
 		links = nil
 	} else {
-		h.chanIndexMtx.Lock()
 		delete(h.chanIndex, *req.chanPoint)
-		h.chanIndexMtx.Unlock()
 
 		for i := 0; i < len(links); i++ {
 			chanLink := links[i]
@@ -522,15 +523,23 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 		}
 	}
 
-	// TODO(roasbeef): clean up/modify onion links
-	//  * just have the interfaces index be keyed on hash160?
-
 	if len(links) == 0 {
 		hswcLog.Debugf("interface %v has no active links, destroying",
 			hex.EncodeToString(chanInterface[:]))
+
+		// Delete the peer from the onion index so that the
+		// htlcForwarder knows not attempt to forward any further
+		// HTLC's in this direction.
+		var onionId [ripemd160.Size]byte
+		copy(onionId[:], btcutil.Hash160(req.remoteID))
+		delete(h.onionIndex, onionId)
+
+		// Finally, delete the interface itself so that outgoing
+		// payments don't select this path.
 		h.interfaceMtx.Lock()
 		delete(h.interfaces, chanInterface)
 		h.interfaceMtx.Unlock()
+
 	}
 
 	if req.done != nil {
@@ -546,7 +555,8 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 	h.chanIndexMtx.RUnlock()
 
 	if !ok {
-		req.err <- fmt.Errorf("channel point %v not found", req.chanPoint)
+		req.err <- fmt.Errorf("channel point %v not found, or peer "+
+			"offline", req.chanPoint)
 		return
 	}
 

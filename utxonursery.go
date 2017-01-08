@@ -61,7 +61,8 @@ const (
 // witness for a particular public key script. This function acts as an
 // abstraction layer, hiding the details of the underlying script from the
 // utxoNursery.
-type witnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes, inputIndex int) ([][]byte, error)
+type witnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
+	inputIndex int) ([][]byte, error)
 
 // generateFunc will return the witnessGenerator function that a kidOutput uses
 // to generate the witness for a sweep transaction. Currently there is only one
@@ -71,7 +72,9 @@ func (wt witnessType) generateFunc(signer *lnwallet.Signer,
 
 	switch wt {
 	case commitmentTimeLock:
-		return func(tx *wire.MsgTx, hc *txscript.TxSigHashes, inputIndex int) ([][]byte, error) {
+		return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
+			inputIndex int) ([][]byte, error) {
+
 			desc := descriptor
 			desc.SigHashes = hc
 			desc.InputIndex = inputIndex
@@ -344,8 +347,14 @@ out:
 				return
 			}
 
-			if err := u.graduateKindergarten(uint32(epoch.Height)); err != nil {
-				utxnLog.Errorf("error while graduating kindergarten outputs: %v", err)
+			// A new block has just been connected to the main
+			// chain which means we might be able to graduate some
+			// outputs out of the kindergarten bucket. Graduation
+			// entails successfully sweeping a time-locked output.
+			height := uint32(epoch.Height)
+			if err := u.graduateKindergarten(height); err != nil {
+				utxnLog.Errorf("error while graduating "+
+					"kindergarten outputs: %v", err)
 			}
 
 		case <-u.quit:
@@ -430,11 +439,14 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 			return err
 		}
 
-		maturityHeight := k.confHeight +
-			k.blocksToMaturity
+		maturityHeight := k.confHeight + k.blocksToMaturity
+
 		heightBytes := make([]byte, 4)
 		byteOrder.PutUint32(heightBytes, uint32(maturityHeight))
 
+		// If there're any existing outputs for this particular block
+		// height target, then we'll append this new output to the
+		// serialized list of outputs.
 		var existingOutputs []byte
 		if results := kgtnBucket.Get(heightBytes); results != nil {
 			existingOutputs = results
@@ -444,7 +456,6 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		if err := serializeKidOutput(b, k); err != nil {
 			return err
 		}
-
 		if err := kgtnBucket.Put(heightBytes, b.Bytes()); err != nil {
 			return err
 		}
@@ -467,22 +478,31 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 // startup in order to process graduations from blocks missed while the UTXO
 // nursery was offline.
 func (u *utxoNursery) graduateKindergarten(blockHeight uint32) error {
+	// First fetch the set of outputs that we can "graduate" at this
+	// particular block height. We can graduate an output once we've
+	// reached its height maturity.
 	kgtnOutputs, err := fetchGraduatingOutputs(u.db, u.wallet, blockHeight)
 	if err != nil {
 		return err
 	}
 
+	// If we're able to graduate any outputs, then create a single
+	// transaction which sweeps them all into the wallet.
 	if len(kgtnOutputs) > 0 {
 		if err := sweepGraduatingOutputs(u.wallet, kgtnOutputs); err != nil {
 			return err
 		}
 	}
 
+	// Using a re-org safety margin of 6-blocks, delete any outputs which
+	// have graduated 6 blocks ago.
 	deleteHeight := blockHeight - 6
 	if err := deleteGraduatedOutputs(u.db, deleteHeight); err != nil {
 		return err
 	}
 
+	// Finally, record the last height at which we graduated outputs so we
+	// can reconcile our state with that of the main-chain during restarts.
 	return putLastHeightGraduated(u.db, blockHeight)
 }
 
@@ -495,7 +515,6 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	blockHeight uint32) ([]*kidOutput, error) {
 
 	var results []byte
-
 	if err := db.View(func(tx *bolt.Tx) error {
 		// A new block has just been connected, check to see if we have
 		// any new outputs that can be swept into the wallet.
@@ -508,21 +527,28 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 		byteOrder.PutUint32(heightBytes, blockHeight)
 
 		results = kgtnBucket.Get(heightBytes)
-
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
+	// If no time-locked outputs can be sweeped at this point, ten we can
+	// exit early.
 	if len(results) == 0 {
 		return nil, nil
 	}
 
+	// Otherwise, we deserialize the list of kid outputs into their full
+	// forms.
 	kgtnOutputs, err := deserializeKidList(bytes.NewReader(results))
 	if err != nil {
 		utxnLog.Errorf("error while deserializing list of kidOutputs: %v", err)
 	}
 
+	// For each of the outputs, we also generate its proper witness
+	// function based on its witness type. This varies if the output is on
+	// our commitment transaction or theirs, and also if it's an HTLC
+	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
 		kgtnOutput.witnessFunc = kgtnOutput.witnessType.generateFunc(
 			&wallet.Signer, kgtnOutput.signDescriptor,
@@ -562,6 +588,7 @@ func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kid
 	if err := wallet.PublishTransaction(sweepTx); err != nil {
 		utxnLog.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(sweepTx))
+		return err
 	}
 
 	return nil
@@ -570,7 +597,9 @@ func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kid
 // createSweepTx creates a final sweeping transaction with all witnesses in
 // place for all inputs. The created transaction has a single output sending
 // all the funds back to the source wallet.
-func createSweepTx(wallet *lnwallet.LightningWallet, matureOutputs []*kidOutput) (*wire.MsgTx, error) {
+func createSweepTx(wallet *lnwallet.LightningWallet,
+	matureOutputs []*kidOutput) (*wire.MsgTx, error) {
+
 	pkScript, err := newSweepPkScript(wallet)
 	if err != nil {
 		return nil, err
@@ -608,6 +637,7 @@ func createSweepTx(wallet *lnwallet.LightningWallet, matureOutputs []*kidOutput)
 
 		txIn.Witness = witness
 	}
+
 	return sweepTx, nil
 }
 

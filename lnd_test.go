@@ -753,11 +753,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	const paymentAmt = 1000
 	rHashes := make([][]byte, numPayments)
 	for i := 0; i < numPayments; i++ {
-		preimage := bytes.Repeat([]byte{byte(i)}, 32)
 		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     paymentAmt,
+			Memo:  "testing",
+			Value: paymentAmt,
 		}
 		resp, err := net.Bob.AddInvoice(ctxb, invoice)
 		if err != nil {
@@ -1596,6 +1594,7 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 	if err := carol.shutdown(); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
+	time.Sleep(time.Second * 2)
 	alicePayStream, err = net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream: %v", err)

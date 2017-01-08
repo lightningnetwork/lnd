@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1394,6 +1395,240 @@ poll:
 	}
 }
 
+func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
+	// In this test we wish to exercise the daemon's correct parsing,
+	// handling, and propagation of errors that occur while processing a
+	// multi-hop payment.
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	const chanAmt = btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+
+	// First establish a channel with a capacity of 0.5 BTC between Alice
+	// and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+		chanAmt)
+
+	assertBaseBalance := func() {
+		balReq := &lnrpc.ChannelBalanceRequest{}
+		aliceBal, err := net.Alice.ChannelBalance(ctxb, balReq)
+		if err != nil {
+			t.Fatalf("unable to get channel balance: %v", err)
+		}
+		bobBal, err := net.Bob.ChannelBalance(ctxb, balReq)
+		if err != nil {
+			t.Fatalf("unable to get channel balance: %v", err)
+		}
+		if aliceBal.Balance != int64(chanAmt) {
+			t.Fatalf("alice has an incorrect balance: expected %v got %v",
+				int64(chanAmt), aliceBal)
+		}
+		if bobBal.Balance != int64(chanAmt) {
+			t.Fatalf("bob has an incorrect balance: expected %v got %v",
+				int64(chanAmt), bobBal)
+		}
+	}
+
+	// Since we'd like to test some multi-hop failure scenarios, we'll
+	// introduce another node into our test network: Carol.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	// Next, we'll create a connection from Bob to Carol, and open a
+	// channel between them so we have the topology: Alice -> Bob -> Carol.
+	// The channel created will be of lower capacity that the one created
+	// above.
+	if err := net.ConnectNodes(ctxb, net.Bob, carol); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	const bobChanAmt = btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	chanPointBob := openChannelAndAssert(t, net, ctxt, net.Bob, carol,
+		chanAmt)
+
+	// TODO(roasbeef): remove sleep once topology notification hooks are
+	// in.
+	time.Sleep(time.Second * 1)
+
+	// With the channels, open we can now start to test our multi-hop error
+	// scenarios. First, we'll generate an invoice from carol that we'll
+	// use to test some error cases.
+	const payAmt = 10000
+	invoiceReq := &lnrpc.Invoice{
+		Memo:  "kek99",
+		Value: payAmt,
+	}
+	carolInvoice, err := carol.AddInvoice(ctxb, invoiceReq)
+	if err != nil {
+		t.Fatalf("unable to generate carol invoice: %v", err)
+	}
+
+	// TODO(roasbeef): return failure response rather than failing entire
+	// stream on payment error.
+	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream: %v", err)
+	}
+
+	// For the first scenario, we'll test the cancellation of an HTLC with
+	// an unknown payment hash.
+	sendReq := &lnrpc.SendRequest{
+		PaymentHash: bytes.Repeat([]byte("Z"), 32), // Wrong hash.
+		Dest:        carol.PubKey[:],
+		Amt:         payAmt,
+	}
+	if err := alicePayStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// The payment should've resulted in an error since we went it with the
+	// wrong payment hash.
+	_, err = alicePayStream.Recv()
+	if err == nil {
+		t.Fatalf("payment should have been rejected due to invalid " +
+			"payment hash")
+	} else if !strings.Contains(err.Error(), "preimage") {
+		// TODO(roasbeef): make into proper gRPC error code
+		t.Fatalf("payment should have failed due to unknown preimage, "+
+			"instead failed due to : %v", err)
+	}
+
+	// The balances of all parties should be the same as initially since
+	// the HTLC was cancelled.
+	assertBaseBalance()
+
+	// We need to create another payment stream since the first one was
+	// closed due to an error.
+	alicePayStream, err = net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream: %v", err)
+	}
+
+	// Next, we'll test the case of a recognized payHash but, an incorrect
+	// value on the extended HTLC.
+	sendReq = &lnrpc.SendRequest{
+		PaymentHash: carolInvoice.RHash,
+		Dest:        carol.PubKey[:],
+		Amt:         1000, // 10k satoshis are expected.
+	}
+	if err := alicePayStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// The payment should fail with an error since we sent 1k satoshis
+	// isn't of 10k as was requested.
+	_, err = alicePayStream.Recv()
+	if err == nil {
+		t.Fatalf("payment should have been rejected due to wrong " +
+			"HTLC amount")
+	} else if !strings.Contains(err.Error(), "htlc value") {
+		t.Fatalf("payment should have failed due to unknown preimage, "+
+			"instead failed due to : %v", err)
+	}
+
+	// The balances of all parties should be the same as initially since
+	// the HTLC was cancelled.
+	assertBaseBalance()
+
+	// Next we'll test an error that occurs mid-route due to an outgoing
+	// link having insufficient capacity. In order to do so, we'll first
+	// need to unbalance the link connecting Bob<->Carol.
+	bobPayStream, err := net.Bob.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream: %v", err)
+	}
+
+	// To do so, we'll push most of the funds in the channel over to
+	// Alice's side, leaving on 10k satoshis of available balance for bob.
+	invoiceReq = &lnrpc.Invoice{
+		Value: int64(chanAmt) - 10000,
+	}
+	carolInvoice2, err := carol.AddInvoice(ctxb, invoiceReq)
+	if err != nil {
+		t.Fatalf("unable to generate carol invoice: %v", err)
+	}
+	if err := bobPayStream.Send(&lnrpc.SendRequest{
+		PaymentRequest: carolInvoice2.PaymentRequest,
+	}); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if _, err := bobPayStream.Recv(); err != nil {
+		t.Fatalf("bob's payment failed: %v", err)
+	}
+
+	// At this point, Alice has 50mil satoshis on her side of the channel,
+	// but Bob only has 10k available on his side of the channel. So a
+	// payment from Alice to Carol worth 100k satoshis should fail.
+	alicePayStream, err = net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream: %v", err)
+	}
+	invoiceReq = &lnrpc.Invoice{
+		Value: 100000,
+	}
+	carolInvoice3, err := carol.AddInvoice(ctxb, invoiceReq)
+	if err != nil {
+		t.Fatalf("unable to generate carol invoice: %v", err)
+	}
+	if err := alicePayStream.Send(&lnrpc.SendRequest{
+		PaymentRequest: carolInvoice3.PaymentRequest,
+	}); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	_, err = alicePayStream.Recv()
+	if err == nil {
+		t.Fatalf("payment should fail due to insufficient "+
+			"capacity: %v", err)
+	} else if !strings.Contains(err.Error(), "capacity") {
+		t.Fatalf("payment should fail due to insufficient capacity, "+
+			"instead: %v", err)
+	}
+
+	// For our final test, we'll ensure that if a target link isn't
+	// available for what ever reason then the payment fails accordingly.
+	//
+	// We'll attempt to complete the original invoice we created with Carol
+	// above, but before we do so, Carol will go offline, resulting in a
+	// failed payment.
+	if err := carol.shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+	alicePayStream, err = net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream: %v", err)
+	}
+	if err := alicePayStream.Send(&lnrpc.SendRequest{
+		PaymentRequest: carolInvoice.PaymentRequest,
+	}); err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	_, err = alicePayStream.Recv()
+	if err == nil {
+		t.Fatalf("payment should have failed")
+	} else if !strings.Contains(err.Error(), "hop unknown") {
+		t.Fatalf("payment should fail due to unknown hop, instead: %v",
+			err)
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice, false)
+
+	// Force close Bob's final channel, also mining enough blocks to
+	// trigger a sweep of the funds by the utxoNursery.
+	// TODO(roasbeef): use config value for default CSV here.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(t, net, ctxt, net.Bob, chanPointBob, true)
+	if _, err := net.Miner.Node.Generate(5); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -1435,6 +1670,10 @@ var testsCases = []*testCase{
 	{
 		name: "invoice update subscription",
 		test: testInvoiceSubscriptions,
+	},
+	{
+		name: "multi-hop htlc error propagation",
+		test: testHtlcErrorPropagation,
 	},
 	{
 		// TODO(roasbeef): test always needs to be last as Bob's state

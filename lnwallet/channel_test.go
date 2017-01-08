@@ -1222,8 +1222,16 @@ func TestCancelHTLC(t *testing.T) {
 		len(aliceChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
 		t.Fatalf("htlc's still active from alice's POV")
 	}
+	if len(aliceChannel.localCommitChain.tip().incomingHTLCs) != 0 ||
+		len(aliceChannel.remoteCommitChain.tip().incomingHTLCs) != 0 {
+		t.Fatalf("htlc's still active from alice's POV")
+	}
 	if len(bobChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
 		len(bobChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
+		t.Fatalf("htlc's still active from bob's POV")
+	}
+	if len(bobChannel.localCommitChain.tip().incomingHTLCs) != 0 ||
+		len(bobChannel.remoteCommitChain.tip().incomingHTLCs) != 0 {
 		t.Fatalf("htlc's still active from bob's POV")
 	}
 

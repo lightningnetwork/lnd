@@ -1736,11 +1736,11 @@ func (lc *LightningChannel) CancelHTLC(rHash [32]byte) (uint32, error) {
 	if addEntry == nil {
 		return 0, fmt.Errorf("unable to find HTLC to cancel")
 	}
-
 	pd := &PaymentDescriptor{
 		Amount:      addEntry.Amount,
-		Index:       lc.ourLogCounter,
+		RHash:       addEntry.RHash,
 		ParentIndex: addEntry.Index,
+		Index:       lc.ourLogCounter,
 		EntryType:   Cancel,
 	}
 
@@ -1766,6 +1766,7 @@ func (lc *LightningChannel) ReceiveCancelHTLC(logIndex uint32) error {
 	htlc := addEntry.Value.(*PaymentDescriptor)
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
+		RHash:       htlc.RHash,
 		ParentIndex: htlc.Index,
 		Index:       lc.theirLogCounter,
 		EntryType:   Cancel,

@@ -285,7 +285,7 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 
 				// Since we're going to visit this node, we can
 				// remove it from the set of unvisited nodes.
-				unvisited[i] = unvisited[len(unvisited)-1]
+				copy(unvisited[i:], unvisited[i+1:])
 				unvisited[len(unvisited)-1] = nil // Avoid GC leak.
 				unvisited = unvisited[:len(unvisited)-1]
 

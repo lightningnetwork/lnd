@@ -63,6 +63,7 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 
 	return localConn, remoteConn, nil
 }
+
 func TestConnectionCorrectness(t *testing.T) {
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
@@ -130,9 +131,9 @@ func TestMaxPayloadLength(t *testing.T) {
 			"should have been rejected")
 	}
 
-	// Generate another payload which with the MAC acounted for, should be
-	// accepted as a valid payload.
-	payloadToAccept := make([]byte, math.MaxUint16-macSize)
+	// Generate another payload which should be accepted as a valid
+	// payload.
+	payloadToAccept := make([]byte, math.MaxUint16-1)
 	if err := b.WriteMessage(&buf, payloadToAccept); err != nil {
 		t.Fatalf("write for payload was rejected, should have been " +
 			"accepted")
@@ -140,7 +141,7 @@ func TestMaxPayloadLength(t *testing.T) {
 
 	// Generate a final payload which is juuust over the max payload length
 	// when the MAC is accounted for.
-	payloadToReject = make([]byte, math.MaxUint16-macSize+1)
+	payloadToReject = make([]byte, math.MaxUint16+1)
 
 	// This payload should be rejected.
 	err = b.WriteMessage(&buf, payloadToReject)
@@ -171,7 +172,7 @@ func TestWriteMessageChunking(t *testing.T) {
 	go func() {
 		bytesWritten, err := localConn.Write(largeMessage)
 		if err != nil {
-			t.Fatalf("unable to write message")
+			t.Fatalf("unable to write message: %v", err)
 		}
 
 		// The entire message should have been written out to the remote
@@ -186,7 +187,7 @@ func TestWriteMessageChunking(t *testing.T) {
 	// Attempt to read the entirety of the message generated above.
 	buf := make([]byte, len(largeMessage))
 	if _, err := io.ReadFull(remoteConn, buf); err != nil {
-		t.Fatalf("unable to read message")
+		t.Fatalf("unable to read message: %v", err)
 	}
 
 	wg.Wait()

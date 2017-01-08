@@ -117,14 +117,13 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 func (c *Conn) Write(b []byte) (n int, err error) {
 	// If the message doesn't require any chunking, then we can go ahead
 	// with a single write.
-	if len(b)+macSize <= math.MaxUint16 {
+	if len(b) <= math.MaxUint16 {
 		return len(b), c.noise.WriteMessage(c.conn, b)
 	}
 
 	// If we need to split the message into fragments, then we'll write
-	// chunks which maximize usage of the available payload. To do so, we
-	// subtract the added overhead of the MAC at the end of the message.
-	chunkSize := math.MaxUint16 - macSize
+	// chunks which maximize usage of the available payload.
+	chunkSize := math.MaxUint16
 
 	bytesToWrite := len(b)
 	bytesWritten := 0

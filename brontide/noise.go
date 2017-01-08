@@ -641,12 +641,13 @@ func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
 	// The total length of each message payload including the MAC size
 	// payload exceed the largest number encodable within a 16-bit unsigned
 	// integer.
-	if len(p)+macSize > math.MaxUint16 {
+	if len(p) > math.MaxUint16 {
 		return ErrMaxMessageLengthExceeded
 	}
 
-	// The full length of the packet includes the 16 byte MAC.
-	fullLength := uint16(len(p) + macSize)
+	// The full length of the packet is only the packet length, and does
+	// NOT include the MAC.
+	fullLength := uint16(len(p))
 
 	var pktLen [2]byte
 	binary.BigEndian.PutUint16(pktLen[:], fullLength)
@@ -684,11 +685,11 @@ func (b *BrontideMachine) ReadMessage(r io.Reader) ([]byte, error) {
 
 	// Next, using the length read from the packet header, read the
 	// encrypted packet itself.
-	pktLen := binary.BigEndian.Uint16(pktLenBytes)
-	ciperText := make([]byte, pktLen)
-	if _, err := io.ReadFull(r, ciperText[:]); err != nil {
+	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
+	cipherText := make([]byte, pktLen)
+	if _, err := io.ReadFull(r, cipherText[:]); err != nil {
 		return nil, err
 	}
 
-	return b.recvCipher.Decrypt(nil, nil, ciperText)
+	return b.recvCipher.Decrypt(nil, nil, cipherText)
 }

@@ -26,18 +26,22 @@ const (
 	// absolute HTLC timeout, removing the HTLC.
 	UpstreamTimeout = 1
 
-	// UnkownPaymentHash indicates that the destination did not recognize
+	// UnknownPaymentHash indicates that the destination did not recognize
 	// the payment hash.
-	UnkownPaymentHash = 2
+	UnknownPaymentHash = 2
 
-	// UnkownDestination indicates that the specified next hop within the
+	// UnknownDestination indicates that the specified next hop within the
 	// Sphinx packet at a point in the route contained an unknown or
 	// invalid "next hop".
-	UnkownDestination = 3
+	UnknownDestination = 3
 
 	// SphinxParseError indicates that an intermediate node was unable
 	// properly parse the HTLC.
 	SphinxParseError = 4
+
+	// IncorrectValue indicates that the HTLC ultimately extended to the
+	// destination did not match the value that was expected.
+	IncorrectValue = 5
 )
 
 // String returns a human-readable version of the CancelReason type.
@@ -50,15 +54,18 @@ func (c CancelReason) String() string {
 	case UpstreamTimeout:
 		return "UpstreamTimeout: HTLC has timed out upstream"
 
-	case UnkownPaymentHash:
-		return "UnkownPaymentHash: the destination did not know the " +
+	case UnknownPaymentHash:
+		return "UnknownPaymentHash: the destination did not know the " +
 			"preimage"
 
-	case UnkownDestination:
-		return "UnkownDestination: next hop unknown"
+	case UnknownDestination:
+		return "UnknownDestination: next hop unknown"
 
 	case SphinxParseError:
 		return "SphinxParseError: unable to parse sphinx packet"
+
+	case IncorrectValue:
+		return "IncorrectValue: htlc value was wrong"
 
 	default:
 		return "unknown reason"

@@ -41,7 +41,7 @@ type SingleFundingRequest struct {
 	// channel is open.
 	FeePerKb btcutil.Amount
 
-	// FundingAmount is the number of satoshis the the initiator would like
+	// FundingAmount is the number of satoshis the initiator would like
 	// to commit to the channel.
 	FundingAmount btcutil.Amount
 

@@ -11,7 +11,7 @@ func TestCancelHTLCEncodeDecode(t *testing.T) {
 	cancelMsg := &CancelHTLC{
 		ChannelPoint: outpoint1,
 		HTLCKey:      22,
-		Reason:       UpstreamTimeout,
+		Reason:       UnknownPaymentHash,
 	}
 
 	// Next encode the HTLCTR message into an empty bytes buffer.

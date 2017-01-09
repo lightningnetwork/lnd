@@ -132,7 +132,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		}
 	}
 
-	var obsfucator [4]byte
+	var obsfucator [6]byte
 	copy(obsfucator[:], key[:])
 
 	return &OpenChannel{

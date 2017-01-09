@@ -174,6 +174,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
+	case [6]byte:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
 	case []byte:
 		if _, err := w.Write(e[:]); err != nil {
 			return err
@@ -465,6 +469,10 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = OpaqueReason(make([]byte, reasonLen))
 		if _, err := io.ReadFull(r, *e); err != nil {
+			return err
+		}
+	case *[6]byte:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
 	case []byte:

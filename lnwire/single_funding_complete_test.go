@@ -7,8 +7,8 @@ import (
 )
 
 func TestSingleFundingCompleteWire(t *testing.T) {
-	var obsfucator [4]byte
-	copy(obsfucator[:], bytes.Repeat([]byte("k"), 4))
+	var obsfucator [6]byte
+	copy(obsfucator[:], bytes.Repeat([]byte("k"), 6))
 
 	// First create a new SFC message.
 	sfc := NewSingleFundingComplete(22, *outpoint1, commitSig1, pubKey,

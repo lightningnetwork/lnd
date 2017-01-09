@@ -74,8 +74,8 @@ security and performance implications.
 <a name="ReqReading" />
 ### 3. Required Reading
 
-- [Effective Go](http://golang.org/doc/effective_go.html) - The entire btcd
-  suite follows the guidelines in this document.  For your code to be accepted,
+- [Effective Go](http://golang.org/doc/effective_go.html) - The entire lnd 
+  project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](http://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&cad=rja&ved=0CCkQFjAA&url=http%3A%2F%2Fbitcoin.org%2Fbitcoin.pdf&ei=os3VUuH8G4SlsASV74GoAg&usg=AFQjCNEipPLigou_1MfB7DQjXCNdlylrBg&sig2=FaHDuT5z36GMWDEnybDJLg&bvm=bv.59378465,d.b2I) - This is the white paper that started it all.  Having a solid
   foundation to build on will make the code much more comprehensible.
@@ -260,7 +260,7 @@ Further paragraphs come after blank lines.
 Here are some of the reasons why wrapping your commit messages to 72 columns is
 a good thing.
 
-- git log doesn’t do any special special wrapping of the commit messages. With
+- git log doesn’t do any special wrapping of the commit messages. With
   the default pager of less -S, this means your paragraphs flow far off the edge
   of the screen, making them difficult to read. On an 80 column terminal, if we
   subtract 4 columns for the indent on the left and 4 more for symmetry on the
@@ -332,7 +332,7 @@ should _not_ just be layed out as a bare contigious block of code.
 ### 5. Code Approval Process
 
 This section describes the code approval process that is used for code
-contributions.  This is how to get your changes into btcd.
+contributions.  This is how to get your changes into lnd.
 
 <a name="CodeReview" />
 ### 5.1 Code Review

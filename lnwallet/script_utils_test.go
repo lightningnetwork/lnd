@@ -583,5 +583,27 @@ func TestCommitTxStateHint(t *testing.T) {
 			t.Fatalf("state number mismatched, expected %v, got %v",
 				stateNum, extractedStateNum)
 		}
+
+		//Test from maximum allowed state
+		stateNum = uint64(maxStateHint - i)
+		err = SetStateNumHint(commitTx, stateNum, obsfucator)
+		if err != nil {
+			t.Fatalf("unable to set state num %v: %v", i, err)
+		}
+
+		extractedStateNum = GetStateNumHint(commitTx, obsfucator)
+		if extractedStateNum != stateNum {
+			t.Fatalf("state number mismatched, expected %v, got %v",
+				stateNum, extractedStateNum)
+		}
+	}
+
+	if err := SetStateNumHint(commitTx, maxStateHint+1, obsfucator); err == nil {
+		t.Fatalf("state number should not exceed %X", maxStateHint)
+	}
+
+	commitTx.AddTxIn(&wire.TxIn{})
+	if err := SetStateNumHint(commitTx, 0, obsfucator); err == nil {
+		t.Fatalf("more than one input in commit transaction should not be valid")
 	}
 }

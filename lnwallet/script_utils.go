@@ -784,7 +784,7 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	// With the current schema we are only able able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
 	// state hint ceiling, then exit early.
-	if stateNum >= maxStateHint {
+	if stateNum > maxStateHint {
 		return fmt.Errorf("unable to encode state, %v is greater "+
 			"state num that max of %v", stateNum, maxStateHint)
 	}

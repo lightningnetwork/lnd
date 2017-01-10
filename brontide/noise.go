@@ -87,7 +87,7 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 	defer func() {
 		c.nonce++
 
-		if c.nonce > keyRotationInterval {
+		if c.nonce == keyRotationInterval {
 			c.rotateKey()
 		}
 	}()
@@ -105,7 +105,7 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 	defer func() {
 		c.nonce++
 
-		if c.nonce > keyRotationInterval {
+		if c.nonce == keyRotationInterval {
 			c.rotateKey()
 		}
 	}()

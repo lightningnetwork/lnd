@@ -403,7 +403,7 @@ func (c *ChannelGraph) AddChannelEdge(from, to *btcec.PublicKey,
 		// First, attempt to check if this edge has already been
 		// created. If so, then we can exit early as this method is
 		// meant to be idempotent.
-		if edgeInfo := edgeIndex.Get(chanIDKey[:]); edgeInfo != nil {
+		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo != nil {
 			return nil
 		}
 

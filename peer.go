@@ -263,6 +263,8 @@ func (p *peer) Start() error {
 		return nil
 	}
 
+	atomic.AddInt32(&p.connected, 1)
+
 	peerLog.Tracef("peer %v starting", p)
 
 	p.wg.Add(5)

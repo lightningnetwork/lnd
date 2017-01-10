@@ -215,15 +215,13 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		ChainNet:    activeNetParams.Net,
 	}
 
-	peerID, err := r.server.ConnectToPeer(peerAddr)
-	if err != nil {
+	if err := r.server.ConnectToPeer(peerAddr, in.Perm); err != nil {
 		rpcsLog.Errorf("(connectpeer): error connecting to peer: %v", err)
 		return nil, err
 	}
 
-	// TODO(roasbeef): add pubkey return
 	rpcsLog.Debugf("Connected to peer: %v", peerAddr.String())
-	return &lnrpc.ConnectPeerResponse{peerID}, nil
+	return &lnrpc.ConnectPeerResponse{}, nil
 }
 
 // OpenChannel attempts to open a singly funded channel specified in the

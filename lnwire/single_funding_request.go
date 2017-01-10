@@ -45,6 +45,10 @@ type SingleFundingRequest struct {
 	// to commit to the channel.
 	FundingAmount btcutil.Amount
 
+	// PushSatoshis is the number of satoshis that will be pushed to the
+	// responder as a part of the first commitment state.
+	PushSatoshis btcutil.Amount
+
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
 	CsvDelay uint32
@@ -80,7 +84,7 @@ type SingleFundingRequest struct {
 func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
 	cdp *btcec.PublicKey, deliveryScript PkScript,
-	dustLimit btcutil.Amount) *SingleFundingRequest {
+	dustLimit btcutil.Amount, pushSat btcutil.Amount) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
 		ChannelID:              chanID,
@@ -93,6 +97,7 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 		ChannelDerivationPoint: cdp,
 		DeliveryPkScript:       deliveryScript,
 		DustLimit:              dustLimit,
+		PushSatoshis:           pushSat,
 	}
 }
 
@@ -118,6 +123,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.CoinType,
 		&c.FeePerKb,
 		&c.FundingAmount,
+		&c.PushSatoshis,
 		&c.CsvDelay,
 		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
@@ -152,6 +158,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.CoinType,
 		c.FeePerKb,
 		c.FundingAmount,
+		c.PushSatoshis,
 		c.CsvDelay,
 		c.CommitmentKey,
 		c.ChannelDerivationPoint,
@@ -176,12 +183,12 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 + 8 =
-// 166.
+// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 + 8
+// + 9 = 166.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 166
+	return 174
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -247,6 +254,7 @@ func (c *SingleFundingRequest) String() string {
 		fmt.Sprintf("CoinType:\t\t\t%d\n", c.CoinType) +
 		fmt.Sprintf("FeePerKb:\t\t\t%s\n", c.FeePerKb.String()) +
 		fmt.Sprintf("FundingAmount:\t\t\t%s\n", c.FundingAmount.String()) +
+		fmt.Sprintf("PushSatoshis:\t\t%v\n", c.PushSatoshis) +
 		fmt.Sprintf("CsvDelay:\t\t\t%d\n", c.CsvDelay) +
 		fmt.Sprintf("ChannelDerivationPoint:\t\t\t%x\n", serializedPubkey) +
 		fmt.Sprintf("DeliveryPkScript:\t\t\t%x\n", c.DeliveryPkScript) +

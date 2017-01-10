@@ -105,6 +105,10 @@ type initFundingReserveMsg struct {
 	// this amount are not enforceable onchain from our point of view.
 	ourDustLimit btcutil.Amount
 
+	// pushSat is the number of satoshis that should be pushed over the the
+	// responder as part of the initial channel creation.
+	pushSat btcutil.Amount
+
 	// The delay on the "pay-to-self" output(s) of the commitment transaction.
 	csvDelay uint32
 
@@ -489,7 +493,11 @@ out:
 func (l *LightningWallet) InitChannelReservation(capacity,
 	ourFundAmt btcutil.Amount, theirID *btcec.PublicKey,
 	theirAddr *net.TCPAddr, numConfs uint16,
-	csvDelay uint32, ourDustLimit btcutil.Amount) (*ChannelReservation, error) {
+	csvDelay uint32, ourDustLimit btcutil.Amount,
+	pushSat btcutil.Amount) (*ChannelReservation, error) {
+
+	// TODO(roasbeef): make the above into an initial config as part of the
+	// refactor to implement spec compliant funding flow
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -500,6 +508,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 		fundingAmount: ourFundAmt,
 		csvDelay:      csvDelay,
 		ourDustLimit:  ourDustLimit,
+		pushSat:       pushSat,
 		nodeID:        theirID,
 		nodeAddr:      theirAddr,
 		err:           errChan,
@@ -523,7 +532,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	totalCapacity := req.capacity + commitFee
 	reservation := NewChannelReservation(totalCapacity, req.fundingAmount,
-		req.minFeeRate, l, id, req.numConfs)
+		req.minFeeRate, l, id, req.numConfs, req.pushSat)
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -778,8 +787,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// With the funding tx complete, create both commitment transactions.
 	// TODO(roasbeef): much cleanup + de-duplication
-	ourBalance := ourContribution.FundingAmount
-	theirBalance := theirContribution.FundingAmount
+	ourBalance := pendingReservation.partialState.OurBalance
+	theirBalance := pendingReservation.partialState.TheirBalance
 	ourCommitKey := ourContribution.CommitKey
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		ourRevokeKey, ourContribution.CsvDelay,
@@ -1099,8 +1108,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	ourCommitKey := pendingReservation.ourContribution.CommitKey
 	theirCommitKey := pendingReservation.theirContribution.CommitKey
-	ourBalance := pendingReservation.ourContribution.FundingAmount
-	theirBalance := pendingReservation.theirContribution.FundingAmount
+	ourBalance := pendingReservation.partialState.OurBalance
+	theirBalance := pendingReservation.partialState.TheirBalance
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		pendingReservation.ourContribution.RevocationKey,
 		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance)

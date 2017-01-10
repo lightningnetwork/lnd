@@ -121,6 +121,11 @@ type ChannelReservation struct {
 	// channel should be considered open.
 	numConfsToOpen uint16
 
+	// pushSat the amount of satoshis that should be pushed to the
+	// responder of a single funding channel as part of the initial
+	// commitment state.
+	pushSat btcutil.Amount
+
 	// chanOpen houses a struct containing the channel and additional
 	// confirmation details will be sent on once the channel is considered
 	// 'open'. A channel is open once the funding transaction has reached a
@@ -131,11 +136,12 @@ type ChannelReservation struct {
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
-// used only internally by lnwallet. In order to concurrent safety, the creation
-// of all channel reservations should be carried out via the
+// used only internally by lnwallet. In order to concurrent safety, the
+// creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcutil.Amount,
-	wallet *LightningWallet, id uint64, numConfs uint16) *ChannelReservation {
+	wallet *LightningWallet, id uint64, numConfs uint16,
+	pushSat btcutil.Amount) *ChannelReservation {
 
 	var (
 		ourBalance   btcutil.Amount
@@ -143,10 +149,11 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 	)
 
 	// If we're the responder to a single-funder reservation, then we have
-	// no initial balance in the channel.
+	// no initial balance in the channel unless the remote party is pushing
+	// some funds to us within the first commitment state.
 	if fundingAmt == 0 {
-		ourBalance = 0
-		theirBalance = capacity - commitFee
+		ourBalance = pushSat
+		theirBalance = capacity - commitFee - pushSat
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
@@ -154,8 +161,9 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		if capacity == fundingAmt+commitFee {
 			// If we're initiating a single funder workflow, then
 			// we pay all the initial fees within the commitment
-			// transaction.
-			ourBalance = capacity - commitFee
+			// transaction. We also deduct our balance by the
+			// amount pushed as part of the initial state.
+			ourBalance = capacity - commitFee - pushSat
 		} else {
 			// Otherwise, this is a dual funder workflow where both
 			// slides split the amount funded and the commitment
@@ -163,7 +171,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 			ourBalance = fundingAmt - commitFee
 		}
 
-		theirBalance = capacity - fundingAmt - commitFee
+		theirBalance = capacity - fundingAmt - commitFee + pushSat
 	}
 
 	var (
@@ -171,14 +179,19 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		chanType  channeldb.ChannelType
 	)
 	switch {
-	// If our balance is zero, then we're the responder to a single funder
+	// If our balance is zero, or we're being pushed our entire balance in
+	// the first state,  then we're the responder to a single funder
 	// channel workflow.
+	case pushSat != 0 && ourBalance-pushSat == 0:
+		fallthrough
 	case ourBalance == 0:
 		initiator = false
 		chanType = channeldb.SingleFunder
 
-	// Or, if their balance is zero, then we're the initiator to a single
-	// funder channel workflow.
+	// If their balance is zero, or being pushed entirely to them, then
+	// we're the initiator to a single funder channel workflow.
+	case pushSat != 0 && theirBalance-pushSat == 0:
+		fallthrough
 	case theirBalance == 0:
 		initiator = true
 		chanType = channeldb.SingleFunder
@@ -208,6 +221,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 			Db:           wallet.ChannelDB,
 		},
 		numConfsToOpen: numConfs,
+		pushSat:        pushSat,
 		reservationID:  id,
 		chanOpen:       make(chan *openChanDetails, 1),
 		wallet:         wallet,

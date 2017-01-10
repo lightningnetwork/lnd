@@ -648,11 +648,12 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 // received, an error is returned.
 func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
-	numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
+	pushAmt btcutil.Amount, numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	openReq := &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
+		PushSat:            int64(pushAmt),
 		NumConfs:           numConfs,
 	}
 

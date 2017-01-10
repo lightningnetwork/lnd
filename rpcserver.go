@@ -233,10 +233,18 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
-		in.LocalFundingAmount, in.RemoteFundingAmount, in.NumConfs)
+		in.LocalFundingAmount, in.PushSat, in.NumConfs)
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
-	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+	remoteInitialBalance := btcutil.Amount(in.PushSat)
+
+	// Ensure that the initial balance of the remote party (if pushing
+	// satoshis) does not execeed the amount the local party has requested
+	// for funding.
+	if remoteInitialBalance >= localFundingAmt {
+		return fmt.Errorf("amount pushed to remote peer for initial " +
+			"state must be below the local funding amount")
+	}
 
 	// TODO(roasbeef): make it optional
 	nodepubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
@@ -248,7 +256,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		nodepubKey, localFundingAmt, remoteFundingAmt, in.NumConfs)
+		nodepubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
 
 	var outpoint wire.OutPoint
 out:
@@ -257,7 +265,8 @@ out:
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to "+
 				"identityPub(%x) nor peerID(%v): %v",
-				nodepubKey, in.TargetPeerId, err)
+				nodepubKey.SerializeCompressed(),
+				in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -299,7 +308,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
-		in.LocalFundingAmount, in.RemoteFundingAmount, in.NumConfs)
+		in.LocalFundingAmount, in.PushSat, in.NumConfs)
 
 	// Decode the provided target node's public key, parsing it into a pub
 	// key object. For all sync call, byte slices are expected to be
@@ -314,10 +323,18 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
-	remoteFundingAmt := btcutil.Amount(in.RemoteFundingAmount)
+	remoteInitialBalance := btcutil.Amount(in.PushSat)
+
+	// Ensure that the initial balance of the remote party (if pushing
+	// satoshis) does not execeed the amount the local party has requested
+	// for funding.
+	if remoteInitialBalance >= localFundingAmt {
+		return nil, fmt.Errorf("amount pushed to remote peer for " +
+			"initial state must be below the local funding amount")
+	}
 
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		nodepubKey, localFundingAmt, remoteFundingAmt, in.NumConfs)
+		nodepubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
 
 	select {
 	// If an error occurs them immediately return the error to the client.

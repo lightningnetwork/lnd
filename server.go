@@ -566,6 +566,8 @@ type openChanReq struct {
 	localFundingAmt  btcutil.Amount
 	remoteFundingAmt btcutil.Amount
 
+	pushAmt btcutil.Amount
+
 	numConfs uint32
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -777,20 +779,20 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress) (int32, error) {
 // OpenChannel sends a request to the server to open a channel to the specified
 // peer identified by ID with the passed channel funding paramters.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
-	localAmt, remoteAmt btcutil.Amount,
+	localAmt, pushAmt btcutil.Amount,
 	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 
 	req := &openChanReq{
-		targetPeerID:     peerID,
-		targetPubkey:     nodeKey,
-		localFundingAmt:  localAmt,
-		remoteFundingAmt: remoteAmt,
-		numConfs:         numConfs,
-		updates:          updateChan,
-		err:              errChan,
+		targetPeerID:    peerID,
+		targetPubkey:    nodeKey,
+		localFundingAmt: localAmt,
+		pushAmt:         pushAmt,
+		numConfs:        numConfs,
+		updates:         updateChan,
+		err:             errChan,
 	}
 
 	s.queries <- req

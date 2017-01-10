@@ -348,8 +348,9 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	delay := msg.CsvDelay
 
 	// TODO(roasbeef): error if funding flow already ongoing
-	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%v) "+
-		"from peerID(%v)", amt, delay, msg.ChannelID, fmsg.peer.id)
+	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, pendingId=%v) "+
+		"from peerID(%v)", amt, msg.PushSatoshis, delay, msg.ChannelID,
+		fmsg.peer.id)
 
 	ourDustLimit := lnwallet.DefaultDustLimit()
 	theirDustlimit := msg.DustLimit
@@ -364,7 +365,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// port with default advertised port
 	reservation, err := f.wallet.InitChannelReservation(amt, 0,
 		fmsg.peer.addr.IdentityKey, fmsg.peer.addr.Address, 1, delay,
-		ourDustLimit)
+		ourDustLimit, msg.PushSatoshis)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -890,14 +891,15 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
 		"capacity=%v, numConfs=%v, addr=%v, dustLimit=%v)", localAmt,
-		remoteAmt, ourDustLimit, capacity, numConfs,
-		msg.peer.addr.Address)
+		msg.pushAmt, capacity, numConfs, msg.peer.addr.Address,
+		ourDustLimit)
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
 	reservation, err := f.wallet.InitChannelReservation(capacity, localAmt,
-		nodeID, msg.peer.addr.Address, uint16(numConfs), 4, ourDustLimit)
+		nodeID, msg.peer.addr.Address, uint16(numConfs), 4,
+		ourDustLimit, msg.pushAmt)
 	if err != nil {
 		msg.err <- err
 		return
@@ -951,6 +953,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		contribution.MultiSigKey,
 		deliveryScript,
 		ourDustLimit,
+		msg.pushAmt,
 	)
 	msg.peer.queueMsg(fundingReq, nil)
 }

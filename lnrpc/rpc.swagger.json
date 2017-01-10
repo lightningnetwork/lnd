@@ -786,6 +786,10 @@
       "properties": {
         "addr": {
           "$ref": "#/definitions/lnrpcLightningAddress"
+        },
+        "perm": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },
@@ -1117,10 +1121,6 @@
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
-        "commission_size": {
-          "type": "string",
-          "format": "int64"
-        },
         "local_funding_amount": {
           "type": "string",
           "format": "int64"
@@ -1137,7 +1137,7 @@
           "type": "integer",
           "format": "int64"
         },
-        "remote_funding_amount": {
+        "push_sat": {
           "type": "string",
           "format": "int64"
         },

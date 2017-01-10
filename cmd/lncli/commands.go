@@ -188,8 +188,9 @@ var OpenChannelCommand = cli.Command{
 			Usage: "the number of satoshis the wallet should commit to the channel",
 		},
 		cli.IntFlag{
-			Name:  "remote_amt",
-			Usage: "the number of satoshis the remote peer should commit to the channel",
+			Name: "push_amt",
+			Usage: "the number of satoshis to push to the remote " +
+				"side as part of the initial commitment state",
 		},
 		cli.IntFlag{
 			Name: "num_confs",
@@ -215,9 +216,9 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.OpenChannelRequest{
-		LocalFundingAmount:  int64(ctx.Int("local_amt")),
-		RemoteFundingAmount: int64(ctx.Int("remote_amt")),
-		NumConfs:            uint32(ctx.Int("num_confs")),
+		LocalFundingAmount: int64(ctx.Int("local_amt")),
+		PushSat:            int64(ctx.Int("push_amt")),
+		NumConfs:           uint32(ctx.Int("num_confs")),
 	}
 
 	if ctx.Int("peer_id") != 0 {

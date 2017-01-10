@@ -228,6 +228,7 @@ message NewAddressResponse {
 
 message ConnectPeerRequest {
     LightningAddress addr = 1;
+    bool perm = 2;
 }
 message ConnectPeerResponse {
     int32 peer_id = 1;

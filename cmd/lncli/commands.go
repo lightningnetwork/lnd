@@ -133,8 +133,16 @@ func sendMany(ctx *cli.Context) error {
 }
 
 var ConnectCommand = cli.Command{
-	Name:   "connect",
-	Usage:  "connect to a remote lnd peer: <pubkey>@host",
+	Name:  "connect",
+	Usage: "connect to a remote lnd peer: <pubkey>@host (--perm=true|false])",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "perm",
+			Usage: "If true, then the daemon will attempt to persistently " +
+				"connect to the target peer. If false then the call " +
+				"will be synchronous.",
+		},
+	},
 	Action: connectPeer,
 }
 
@@ -153,7 +161,10 @@ func connectPeer(ctx *cli.Context) error {
 		Pubkey: splitAddr[0],
 		Host:   splitAddr[1],
 	}
-	req := &lnrpc.ConnectPeerRequest{addr}
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: addr,
+		Perm: ctx.Bool("perm"),
+	}
 
 	lnid, err := client.ConnectPeer(ctxb, req)
 	if err != nil {

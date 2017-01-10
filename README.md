@@ -1,5 +1,8 @@
 # `lnd` - the Lightning Network Daemon
-[![Build Status](https://travis-ci.org/lightningnetwork/lnd.svg?branch=master)](https://travis-ci.org/lightningnetwork/lnd)
+
+[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)]
+(https://travis-ci.org/lightningnetwork/lnd) 
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)]
 
 
 `lnd` is a complete implementation of a node on the [Lightning

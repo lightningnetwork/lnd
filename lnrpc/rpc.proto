@@ -336,17 +336,13 @@ message PendingUpdate {
 
 message OpenChannelRequest {
     int32 target_peer_id = 1;
-
     bytes node_pubkey = 2;
-
     string node_pubkey_string = 3;
 
     int64 local_funding_amount = 4;
-    int64 remote_funding_amount = 5;
+    int64 push_sat = 5;
 
-    int64 commission_size = 6;
-
-    uint32 num_confs = 7;
+    uint32 num_confs = 6;
 }
 message OpenStatusUpdate {
     oneof update {

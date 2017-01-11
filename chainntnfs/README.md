@@ -7,7 +7,7 @@ chainntnfs
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)]
 (http://godoc.org/github.com/lightningnetwork/lnd/chainntnfs)
 
-The chainntnfs package implements as set of interfaces which allow callers to
+The chainntnfs package implements a set of interfaces which allow callers to
 receive notifications in response to specific on-chain events. The set of
 notifications available include: 
 
@@ -22,7 +22,7 @@ closures, channel contract breaches, sweeping time-locked outputs, and finally
 pruning the channel graph. 
 
 This package is intentionally general enough to be applicable outside the
-specific use cases within `lnd` outline above. The current sole concrete
+specific use cases within `lnd` outlined above. The current sole concrete
 implementation of the `ChainNotifier` interface depends on `btcd`.
 
 ## Installation and Updating

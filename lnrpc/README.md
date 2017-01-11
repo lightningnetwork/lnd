@@ -28,7 +28,7 @@ description):
      * Returns a list of on-chain transactions that pay to or are spends from
        `lnd`.
   * SendCoins
-     * Sends an amount of satoshis to a specific addresses.
+     * Sends an amount of satoshis to a specific address.
   * SubscribeTransactions
      * Returns a stream which sends async notifications each time a transaction
        is created or one is received that pays to us.
@@ -36,7 +36,7 @@ description):
      * Allows the caller to create a transaction with an arbitrary fan-out
        (many outputs).
   * NewAddress
-     * Returns a new addresses, the following address types are supported:
+     * Returns a new address, the following address types are supported:
        pay-to-public-key-hash (p2pkh), pay-to-witness-key-hash (p2wkh), and
        nested-pay-to-witness-key-hash (np2wkh).
   * ConnectPeer
@@ -80,7 +80,7 @@ description):
   * GetNetworkInfo
      * Returns some network level statistics.
   * SetAlias
-     * Sets the node alias whchi is to be advertised on the network.
+     * Sets the node alias which is to be advertised on the network.
 
 ## Installation and Updating
 

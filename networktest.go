@@ -864,8 +864,8 @@ func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
 	return string(buf), nil
 }
 
-// SendCoins attemps to send amt satoshis from the internal mining node to the
-// targetted lightning node.
+// SendCoins attempts to send amt satoshis from the internal mining node to the
+// targeted lightning node.
 func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 	target *lightningNode) error {
 

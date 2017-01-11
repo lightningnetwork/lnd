@@ -10,7 +10,7 @@ lnwire
 The lnwire package implements the Lightning Network wire protocol.
 
 This package has intentionally been designed so it can be used as a standalone
-package for any projects needing to interface with lighting peers at the wire
+package for any projects needing to interface with lightning peers at the wire
 protocol level.
 
 ## Installation and Updating

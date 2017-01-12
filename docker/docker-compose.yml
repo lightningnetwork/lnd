@@ -1,28 +1,56 @@
 version: '2'
 services:
+
+    btc:
+      image: btcd
+      build:
+        context: btcd/
+      volumes:
+            - shared:/rpc
+      environment:
+        - RPCUSER="devuser"
+        - RPCPASS="devpass"
+
     btcd:
+        extends: btc
+        container_name: btcd
         environment:
-            - RPCUSER=devuser
-            - RPCPASS=devpass
-        build: 
-            context: btcd/
-        expose:
-            - "18336"
-        volumes:
-            - shared-volume:/rpc
-    lnd:
-        environment:
-            - RPCUSER=devuser
-            - RPCPASS=devpass
-        build: 
-            context: ../
-            dockerfile: docker/lnd/Dockerfile
-        expose:
-            - "10009"
-            - "10011"
-        volumes:
-            - shared-volume:/rpc
+          - DEBUG="debug"
+          - MINING_ADDRESS
+        entrypoint: ["./start-btcd.sh"]
+
+    btcctl:
+        extends: btc
+        container_name: btcctl
         links:
+            - "btcd:rpcserver"
+        entrypoint: ["./start-btcctl.sh"]
+
+    lnd:
+        image: lnd
+        build:
+          context: ../
+          dockerfile: docker/lnd/Dockerfile
+        environment:
+          - RPCUSER="devuser"
+          - RPCPASS="devpass"
+          - DEBUG="debug"
+        volumes:
+            - shared:/rpc
+        entrypoint: ["./start-lnd.sh"]
+
+    alice:
+      extends: lnd
+      container_name: alice
+      links:
             - btcd
+
+    bob:
+      extends: lnd
+      container_name: bob
+      links:
+            - btcd
+
 volumes:
-  shared-volume: {}
+  shared:
+    driver: local

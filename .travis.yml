@@ -1,7 +1,7 @@
 language: go
 go:
   - 1.6.3
-  - 1.7.3
+  - 1.7.4
 sudo: false
 install:
   - go get -v github.com/roasbeef/btcd # Required for the rpc test package.

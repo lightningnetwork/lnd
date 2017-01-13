@@ -42,9 +42,10 @@ set_default() {
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "info")
+BITCOIN_NETWORK=$(set_default "$BITCOIN_NETWORK" "simnet")
 
 PARAMS=$(echo \
-    "--simnet" \
+    "--$BITCOIN_NETWORK" \
     "--debuglevel=$DEBUG" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \

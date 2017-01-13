@@ -1,6 +1,9 @@
 version: '2'
 services:
 
+    # btc is an image of bitcoin node which used as base image for btcd and
+    # btccli. The environment variables default values determined on stage of
+    # container start within starting script.
     btc:
       image: btcd
       build:
@@ -8,14 +11,14 @@ services:
       volumes:
             - shared:/rpc
       environment:
-        - RPCUSER="devuser"
-        - RPCPASS="devpass"
+        - RPCUSER
+        - RPCPASS
 
     btcd:
         extends: btc
         container_name: btcd
         environment:
-          - DEBUG="debug"
+          - DEBUG
           - MINING_ADDRESS
         entrypoint: ["./start-btcd.sh"]
 
@@ -32,9 +35,9 @@ services:
           context: ../
           dockerfile: docker/lnd/Dockerfile
         environment:
-          - RPCUSER="devuser"
-          - RPCPASS="devpass"
-          - DEBUG="debug"
+          - RPCUSER
+          - RPCPASS
+          - DEBUG
         volumes:
             - shared:/rpc
         entrypoint: ["./start-lnd.sh"]
@@ -43,14 +46,16 @@ services:
       extends: lnd
       container_name: alice
       links:
-            - btcd
+          - "btcd:btcd"
 
     bob:
       extends: lnd
       container_name: bob
       links:
-            - btcd
+          - "btcd:btcd"
 
 volumes:
+  # shared volume is need to store the btcd rpc certificates and us it within
+  # btcctl and lnd containers.
   shared:
     driver: local

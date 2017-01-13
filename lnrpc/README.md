@@ -53,6 +53,10 @@ description):
   * OpenChannel
      * Attempts to open a channel to a target peer with a specific amount and
        push amount.
+  * CloseChannel
+     * Attempts to close a target channel. A channel can either be closed
+       cooperatively if the channel peer is online, or using a "force" close to
+       broadcast the latest channel state.
   * SendPayment
      * Send a payment over Lightning to a target peer.
   * AddInvoice

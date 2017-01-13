@@ -1746,8 +1746,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// First create an instance of the btcd's rpctest.Harness. This will be
 	// used to fund the wallets of the nodes within the test network and to
-	// drive blockchain related events within the network.
-	btcdHarness, err := rpctest.New(harnessNetParams, handlers, nil)
+	// drive blockchain related events within the network. Revert the default
+	// setting of accepting non-standard transactions on simnet to reject them.
+	// Transactions on the lightning network should always be standard to get
+	// better guarantees of getting included in to blocks.
+	args := []string{"--rejectnonstd"}
+	btcdHarness, err := rpctest.New(harnessNetParams, handlers, args)
 	if err != nil {
 		ht.Fatalf("unable to create mining node: %v", err)
 	}

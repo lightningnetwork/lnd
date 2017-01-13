@@ -372,18 +372,16 @@ message PendingChannelRequest {
 }
 message PendingChannelResponse {
     message PendingChannel {
-        int32 peer_id = 1;
+        string identity_key = 1;
+        string channel_point = 2;
 
-        string identity_key = 2;
-        string channel_point = 3;
+        int64 capacity = 3;
+        int64 local_balance = 4;
+        int64 remote_balance = 5;
 
-        int64 capacity = 4;
-        int64 local_balance = 5;
-        int64 remote_balance = 6;
+        string closing_txid = 6;
 
-        string closing_txid = 7;
-
-        ChannelStatus status = 8;
+        ChannelStatus status = 7;
     }
 
     repeated PendingChannel pending_channels = 1;

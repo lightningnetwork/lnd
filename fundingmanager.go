@@ -846,7 +846,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	f.deleteReservationCtx(peerID, chanID)
 
 	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerID(%v) is now open",
-		resCtx.reservation.FundingOutpoint, peerID)
+		resCtx.reservation.FundingOutpoint(), peerID)
 
 	// Notify the L3 routing manager of the newly active channel link.
 	// TODO(roasbeef): should have sigs, only after funding_locked is

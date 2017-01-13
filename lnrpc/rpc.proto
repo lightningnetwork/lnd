@@ -500,6 +500,8 @@ message Invoice {
 
     int64 creation_date = 7;
     int64 settle_date = 8;
+
+    string payment_request = 9;
 }
 message AddInvoiceResponse {
     bytes r_hash = 1;

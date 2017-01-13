@@ -912,6 +912,10 @@
           "type": "string",
           "format": "string"
         },
+        "payment_request": {
+          "type": "string",
+          "format": "string"
+        },
         "r_hash": {
           "type": "string",
           "format": "byte"

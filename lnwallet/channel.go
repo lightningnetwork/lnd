@@ -695,7 +695,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// If we've already initiated a local cooperative or unilateral close
 	// locally, then we have nothing more to do.
 	lc.RLock()
-	if lc.status == channelClosed || lc.status == channelDispute {
+	if lc.status == channelClosed || lc.status == channelDispute ||
+		lc.status == channelClosing {
 		lc.RUnlock()
 		return
 	}
@@ -2031,7 +2032,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 	closeTxSha := closeTx.TxHash()
 
 	// Finally, sign the completed cooperative closure transaction. As the
-	// initiator we'll simply send our signature over the the remote party,
+	// initiator we'll simply send our signature over to the remote party,
 	// using the generated txid to be notified once the closure transaction
 	// has been confirmed.
 	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
@@ -2186,7 +2187,7 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(fundingTxIn)
 
-	// The initiator the a cooperative closure pays the fee in entirety.
+	// The initiator of a cooperative closure pays the fee in entirety.
 	// Determine if we're the initiator so we can compute fees properly.
 	if initiator {
 		// TODO(roasbeef): take sat/byte here instead of properly calc

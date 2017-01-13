@@ -89,6 +89,7 @@
     },
     "/v1/channels/pending": {
       "get": {
+        "summary": "TODO(roasbeef): merge with below with bool?",
         "operationId": "PendingChannels",
         "responses": {
           "200": {
@@ -131,7 +132,6 @@
     },
     "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}": {
       "delete": {
-        "summary": "TODO(roasbeef): merge with below with bool?",
         "operationId": "CloseChannel",
         "responses": {
           "200": {
@@ -544,36 +544,41 @@
     }
   },
   "definitions": {
+    "NewAddressRequestAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH",
+        "PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH"
+    },
     "PendingChannelResponsePendingChannel": {
       "type": "object",
       "properties": {
-        "capacity": {
+        "identity_key": {
           "type": "string",
-          "format": "int64"
+          "format": "string"
         },
         "channel_point": {
           "type": "string",
           "format": "string"
         },
-        "closing_txid": {
+        "capacity": {
           "type": "string",
-          "format": "string"
-        },
-        "identity_key": {
-          "type": "string",
-          "format": "string"
+          "format": "int64"
         },
         "local_balance": {
           "type": "string",
           "format": "int64"
         },
-        "peer_id": {
-          "type": "integer",
-          "format": "int32"
-        },
         "remote_balance": {
           "type": "string",
           "format": "int64"
+        },
+        "closing_txid": {
+          "type": "string",
+          "format": "string"
         },
         "status": {
           "$ref": "#/definitions/lnrpcChannelStatus"
@@ -583,19 +588,39 @@
     "lnrpcActiveChannel": {
       "type": "object",
       "properties": {
-        "capacity": {
+        "remote_pubkey": {
           "type": "string",
-          "format": "int64"
-        },
-        "chan_id": {
-          "type": "string",
-          "format": "uint64"
+          "format": "string"
         },
         "channel_point": {
           "type": "string",
           "format": "string"
         },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
         "local_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "remote_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "unsettled_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_satoshis_sent": {
+          "type": "string",
+          "format": "int64"
+        },
+        "total_satoshis_received": {
           "type": "string",
           "format": "int64"
         },
@@ -608,39 +633,19 @@
           "items": {
             "$ref": "#/definitions/lnrpcHTLC"
           }
-        },
-        "remote_balance": {
-          "type": "string",
-          "format": "int64"
-        },
-        "remote_pubkey": {
-          "type": "string",
-          "format": "string"
-        },
-        "total_satoshis_received": {
-          "type": "string",
-          "format": "int64"
-        },
-        "total_satoshis_sent": {
-          "type": "string",
-          "format": "int64"
-        },
-        "unsettled_balance": {
-          "type": "string",
-          "format": "int64"
         }
       }
     },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
       "properties": {
-        "payment_request": {
-          "type": "string",
-          "format": "string"
-        },
         "r_hash": {
           "type": "string",
           "format": "byte"
+        },
+        "payment_request": {
+          "type": "string",
+          "format": "string"
         }
       }
     },
@@ -681,57 +686,65 @@
     "lnrpcChannelEdge": {
       "type": "object",
       "properties": {
-        "capacity": {
+        "channel_id": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "chan_point": {
           "type": "string",
           "format": "string"
         },
-        "channel_id": {
-          "type": "string",
-          "format": "uint64"
-        },
         "last_update": {
           "type": "integer",
           "format": "int64"
-        },
-        "node1_policy": {
-          "$ref": "#/definitions/lnrpcRoutingPolicy"
         },
         "node1_pub": {
           "type": "string",
           "format": "string"
         },
-        "node2_policy": {
-          "$ref": "#/definitions/lnrpcRoutingPolicy"
-        },
         "node2_pub": {
           "type": "string",
           "format": "string"
+        },
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "node1_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "node2_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
         }
       }
     },
     "lnrpcChannelGraph": {
       "type": "object",
       "properties": {
-        "edges": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/lnrpcChannelEdge"
-          }
-        },
         "nodes": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcLightningNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdge"
           }
         }
       }
     },
     "lnrpcChannelGraphRequest": {
       "type": "object"
+    },
+    "lnrpcChannelOpenUpdate": {
+      "type": "object",
+      "properties": {
+        "channel_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        }
+      }
     },
     "lnrpcChannelPoint": {
       "type": "object",
@@ -765,40 +778,40 @@
         "channel_point": {
           "$ref": "#/definitions/lnrpcChannelPoint"
         },
-        "force": {
-          "type": "boolean",
-          "format": "boolean"
-        },
         "time_limit": {
           "type": "string",
           "format": "int64"
+        },
+        "force": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },
     "lnrpcCloseStatusUpdate": {
       "type": "object",
       "properties": {
-        "chan_close": {
-          "$ref": "#/definitions/lnrpcChannelCloseUpdate"
-        },
         "close_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
         "confirmation": {
           "$ref": "#/definitions/lnrpcConfirmationUpdate"
+        },
+        "chan_close": {
+          "$ref": "#/definitions/lnrpcChannelCloseUpdate"
         }
       }
     },
     "lnrpcConfirmationUpdate": {
       "type": "object",
       "properties": {
-        "block_height": {
-          "type": "integer",
-          "format": "int32"
-        },
         "block_sha": {
           "type": "string",
           "format": "byte"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int32"
         },
         "num_confs_left": {
           "type": "integer",
@@ -827,6 +840,28 @@
         }
       }
     },
+    "lnrpcDebugLevelRequest": {
+      "type": "object",
+      "properties": {
+        "show": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "level_spec": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcDebugLevelResponse": {
+      "type": "object",
+      "properties": {
+        "sub_systems": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
     "lnrpcDeleteAllPaymentsRequest": {
       "type": "object"
     },
@@ -839,21 +874,17 @@
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
+        "identity_pubkey": {
+          "type": "string",
+          "format": "string"
+        },
         "alias": {
           "type": "string",
           "format": "string"
         },
-        "block_hash": {
-          "type": "string",
-          "format": "string"
-        },
-        "block_height": {
+        "num_pending_channels": {
           "type": "integer",
           "format": "int64"
-        },
-        "identity_pubkey": {
-          "type": "string",
-          "format": "string"
         },
         "num_active_channels": {
           "type": "integer",
@@ -863,9 +894,13 @@
           "type": "integer",
           "format": "int64"
         },
-        "num_pending_channels": {
+        "block_height": {
           "type": "integer",
           "format": "int64"
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "string"
         },
         "synced_to_chain": {
           "type": "boolean",
@@ -883,21 +918,21 @@
     "lnrpcHTLC": {
       "type": "object",
       "properties": {
+        "incoming": {
+          "type": "boolean",
+          "format": "boolean"
+        },
         "amount": {
           "type": "string",
-          "format": "int64"
-        },
-        "expiration_height": {
-          "type": "integer",
           "format": "int64"
         },
         "hash_lock": {
           "type": "string",
           "format": "byte"
         },
-        "incoming": {
-          "type": "boolean",
-          "format": "boolean"
+        "expiration_height": {
+          "type": "integer",
+          "format": "int64"
         },
         "revocation_delay": {
           "type": "integer",
@@ -908,17 +943,17 @@
     "lnrpcHop": {
       "type": "object",
       "properties": {
-        "amt_to_forward": {
+        "chan_id": {
           "type": "string",
-          "format": "int64"
+          "format": "uint64"
         },
         "chan_capacity": {
           "type": "string",
           "format": "int64"
         },
-        "chan_id": {
+        "amt_to_forward": {
           "type": "string",
-          "format": "uint64"
+          "format": "int64"
         },
         "fee": {
           "type": "string",
@@ -929,19 +964,11 @@
     "lnrpcInvoice": {
       "type": "object",
       "properties": {
-        "creation_date": {
-          "type": "string",
-          "format": "int64"
-        },
         "memo": {
           "type": "string",
           "format": "string"
         },
-        "payment_request": {
-          "type": "string",
-          "format": "string"
-        },
-        "r_hash": {
+        "receipt": {
           "type": "string",
           "format": "byte"
         },
@@ -949,11 +976,11 @@
           "type": "string",
           "format": "byte"
         },
-        "receipt": {
+        "r_hash": {
           "type": "string",
           "format": "byte"
         },
-        "settle_date": {
+        "value": {
           "type": "string",
           "format": "int64"
         },
@@ -961,9 +988,17 @@
           "type": "boolean",
           "format": "boolean"
         },
-        "value": {
+        "creation_date": {
           "type": "string",
           "format": "int64"
+        },
+        "settle_date": {
+          "type": "string",
+          "format": "int64"
+        },
+        "payment_request": {
+          "type": "string",
+          "format": "string"
         }
       }
     },
@@ -973,11 +1008,11 @@
     "lnrpcLightningAddress": {
       "type": "object",
       "properties": {
-        "host": {
+        "pubkey": {
           "type": "string",
           "format": "string"
         },
-        "pubkey": {
+        "host": {
           "type": "string",
           "format": "string"
         }
@@ -986,19 +1021,19 @@
     "lnrpcLightningNode": {
       "type": "object",
       "properties": {
-        "address": {
-          "type": "string",
-          "format": "string"
-        },
-        "alias": {
-          "type": "string",
-          "format": "string"
-        },
         "last_update": {
           "type": "integer",
           "format": "int64"
         },
         "pub_key": {
+          "type": "string",
+          "format": "string"
+        },
+        "address": {
+          "type": "string",
+          "format": "string"
+        },
+        "alias": {
           "type": "string",
           "format": "string"
         }
@@ -1069,31 +1104,15 @@
     "lnrpcNetworkInfo": {
       "type": "object",
       "properties": {
-        "avg_channel_size": {
-          "type": "number",
-          "format": "double"
+        "graph_diameter": {
+          "type": "integer",
+          "format": "int64"
         },
         "avg_out_degree": {
           "type": "number",
           "format": "double"
         },
-        "graph_diameter": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "max_channel_size": {
-          "type": "string",
-          "format": "int64"
-        },
         "max_out_degree": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "min_channel_size": {
-          "type": "string",
-          "format": "int64"
-        },
-        "num_channels": {
           "type": "integer",
           "format": "int64"
         },
@@ -1101,7 +1120,23 @@
           "type": "integer",
           "format": "int64"
         },
+        "num_channels": {
+          "type": "integer",
+          "format": "int64"
+        },
         "total_network_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "avg_channel_size": {
+          "type": "number",
+          "format": "double"
+        },
+        "min_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "max_channel_size": {
           "type": "string",
           "format": "int64"
         }
@@ -1109,6 +1144,14 @@
     },
     "lnrpcNetworkInfoRequest": {
       "type": "object"
+    },
+    "lnrpcNewAddressRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/NewAddressRequestAddressType"
+        }
+      }
     },
     "lnrpcNewAddressResponse": {
       "type": "object",
@@ -1150,9 +1193,9 @@
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
-        "local_funding_amount": {
-          "type": "string",
-          "format": "int64"
+        "target_peer_id": {
+          "type": "integer",
+          "format": "int32"
         },
         "node_pubkey": {
           "type": "string",
@@ -1162,17 +1205,31 @@
           "type": "string",
           "format": "string"
         },
-        "num_confs": {
-          "type": "integer",
+        "local_funding_amount": {
+          "type": "string",
           "format": "int64"
         },
         "push_sat": {
           "type": "string",
           "format": "int64"
         },
-        "target_peer_id": {
+        "num_confs": {
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcOpenStatusUpdate": {
+      "type": "object",
+      "properties": {
+        "chan_pending": {
+          "$ref": "#/definitions/lnrpcPendingUpdate"
+        },
+        "confirmation": {
+          "$ref": "#/definitions/lnrpcConfirmationUpdate"
+        },
+        "chan_open": {
+          "$ref": "#/definitions/lnrpcChannelOpenUpdate"
         }
       }
     },
@@ -1183,13 +1240,13 @@
           "type": "string",
           "format": "string"
         },
-        "num_satoshis": {
-          "type": "string",
-          "format": "int64"
-        },
         "payment_hash": {
           "type": "string",
           "format": "string"
+        },
+        "num_satoshis": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },
@@ -1205,11 +1262,15 @@
     "lnrpcPayment": {
       "type": "object",
       "properties": {
-        "creation_date": {
+        "payment_hash": {
+          "type": "string",
+          "format": "string"
+        },
+        "value": {
           "type": "string",
           "format": "int64"
         },
-        "fee": {
+        "creation_date": {
           "type": "string",
           "format": "int64"
         },
@@ -1220,11 +1281,7 @@
             "format": "string"
           }
         },
-        "payment_hash": {
-          "type": "string",
-          "format": "string"
-        },
-        "value": {
+        "fee": {
           "type": "string",
           "format": "int64"
         }
@@ -1233,52 +1290,52 @@
     "lnrpcPaymentHash": {
       "type": "object",
       "properties": {
-        "r_hash": {
-          "type": "string",
-          "format": "byte"
-        },
         "r_hash_str": {
           "type": "string",
           "format": "string"
+        },
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },
     "lnrpcPeer": {
       "type": "object",
       "properties": {
-        "address": {
+        "pub_key": {
           "type": "string",
           "format": "string"
-        },
-        "bytes_recv": {
-          "type": "string",
-          "format": "uint64"
-        },
-        "bytes_sent": {
-          "type": "string",
-          "format": "uint64"
-        },
-        "inbound": {
-          "type": "boolean",
-          "format": "boolean"
         },
         "peer_id": {
           "type": "integer",
           "format": "int32"
         },
-        "ping_time": {
-          "type": "string",
-          "format": "int64"
-        },
-        "pub_key": {
+        "address": {
           "type": "string",
           "format": "string"
+        },
+        "bytes_sent": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "bytes_recv": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "sat_sent": {
+          "type": "string",
+          "format": "int64"
         },
         "sat_recv": {
           "type": "string",
           "format": "int64"
         },
-        "sat_sent": {
+        "inbound": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "ping_time": {
           "type": "string",
           "format": "int64"
         }
@@ -1315,56 +1372,56 @@
     "lnrpcRoute": {
       "type": "object",
       "properties": {
-        "hops": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/lnrpcHop"
-          }
-        },
-        "total_amt": {
-          "type": "string",
+        "total_time_lock": {
+          "type": "integer",
           "format": "int64"
         },
         "total_fees": {
           "type": "string",
           "format": "int64"
         },
-        "total_time_lock": {
-          "type": "integer",
+        "total_amt": {
+          "type": "string",
           "format": "int64"
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHop"
+          }
         }
       }
     },
     "lnrpcRouteRequest": {
       "type": "object",
       "properties": {
-        "amt": {
-          "type": "string",
-          "format": "int64"
-        },
         "pub_key": {
           "type": "string",
           "format": "string"
+        },
+        "amt": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },
     "lnrpcRoutingPolicy": {
       "type": "object",
       "properties": {
-        "fee_base_msat": {
-          "type": "string",
-          "format": "int64"
-        },
-        "fee_rate_milli_msat": {
-          "type": "string",
+        "time_lock_delta": {
+          "type": "integer",
           "format": "int64"
         },
         "min_htlc": {
           "type": "string",
           "format": "int64"
         },
-        "time_lock_delta": {
-          "type": "integer",
+        "fee_base_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_rate_milli_msat": {
+          "type": "string",
           "format": "int64"
         }
       }
@@ -1391,13 +1448,30 @@
         }
       }
     },
+    "lnrpcSendManyRequest": {
+      "type": "object",
+      "properties": {
+        "AddrToAmount": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "int64"
+          }
+        }
+      }
+    },
+    "lnrpcSendManyResponse": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
     "lnrpcSendRequest": {
       "type": "object",
       "properties": {
-        "amt": {
-          "type": "string",
-          "format": "int64"
-        },
         "dest": {
           "type": "string",
           "format": "byte"
@@ -1405,6 +1479,10 @@
         "dest_string": {
           "type": "string",
           "format": "string"
+        },
+        "amt": {
+          "type": "string",
+          "format": "int64"
         },
         "payment_hash": {
           "type": "string",
@@ -1432,22 +1510,38 @@
         }
       }
     },
+    "lnrpcSetAliasRequest": {
+      "type": "object",
+      "properties": {
+        "new_alias": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcSetAliasResponse": {
+      "type": "object"
+    },
     "lnrpcTransaction": {
       "type": "object",
       "properties": {
+        "tx_hash": {
+          "type": "string",
+          "format": "string"
+        },
         "amount": {
           "type": "number",
           "format": "double"
+        },
+        "num_confirmations": {
+          "type": "integer",
+          "format": "int32"
         },
         "block_hash": {
           "type": "string",
           "format": "string"
         },
         "block_height": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "num_confirmations": {
           "type": "integer",
           "format": "int32"
         },
@@ -1458,10 +1552,6 @@
         "total_fees": {
           "type": "string",
           "format": "int64"
-        },
-        "tx_hash": {
-          "type": "string",
-          "format": "string"
         }
       }
     },

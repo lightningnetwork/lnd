@@ -440,20 +440,20 @@ out:
 			p.queueMsg(lnwire.NewPong(msg.Nonce), nil)
 
 		case *lnwire.SingleFundingRequest:
-			p.server.fundingMgr.processFundingRequest(msg, p)
+			p.server.fundingMgr.processFundingRequest(msg, p.addr)
 		case *lnwire.SingleFundingResponse:
-			p.server.fundingMgr.processFundingResponse(msg, p)
+			p.server.fundingMgr.processFundingResponse(msg, p.addr)
 		case *lnwire.SingleFundingComplete:
-			p.server.fundingMgr.processFundingComplete(msg, p)
+			p.server.fundingMgr.processFundingComplete(msg, p.addr)
 		case *lnwire.SingleFundingSignComplete:
-			p.server.fundingMgr.processFundingSignComplete(msg, p)
+			p.server.fundingMgr.processFundingSignComplete(msg, p.addr)
 		case *lnwire.SingleFundingOpenProof:
-			p.server.fundingMgr.processFundingOpenProof(msg, p)
+			p.server.fundingMgr.processFundingOpenProof(msg, p.addr)
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
 
 		case *lnwire.ErrorGeneric:
-			p.server.fundingMgr.processErrorGeneric(msg, p)
+			p.server.fundingMgr.processErrorGeneric(msg, p.addr)
 
 		// TODO(roasbeef): create ChanUpdater interface for the below
 		case *lnwire.UpdateAddHTLC:
@@ -1764,6 +1764,17 @@ func (p *peer) updateCommitTx(state *commitmentState, reply bool) error {
 	}
 
 	return nil
+}
+
+// fetchNextPendingChanID provides unique IDs for each channel opened between
+// two peers
+func (p *peer) fetchNextPendingChanID() uint64 {
+	p.pendingChannelMtx.Lock()
+	defer p.pendingChannelMtx.Unlock()
+
+	chanID := p.nextPendingChannelID
+	p.nextPendingChannelID++
+	return chanID
 }
 
 // logEntryToHtlcPkt converts a particular Lightning Commitment Protocol (LCP)

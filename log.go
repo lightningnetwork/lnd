@@ -159,7 +159,7 @@ func setLogLevel(subsystemID string, logLevel string) {
 // level. It also dynamically creates the subsystem loggers as needed, so it
 // can be used to initialize the logging system.
 func setLogLevels(logLevel string) {
-	// Configure all sub-systems with the new logging level. Dynamically
+	// Configure all subsystems with the new logging level. Dynamically
 	// create loggers as needed.
 	for subsystemID := range subsystemLoggers {
 		setLogLevel(subsystemID, logLevel)

@@ -398,7 +398,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 	// Alice then processes this revocation, sending her own recovation for
-	// her prior commitment transaction. Alice shouldn't have any HTLC's to
+	// her prior commitment transaction. Alice shouldn't have any HTLCs to
 	// forward since she's sending an outgoing HTLC.
 	if htlcs, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
 		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
@@ -497,7 +497,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	if htlcs, err := bobChannel.ReceiveRevocation(aliceRevocation2); err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	} else if len(htlcs) != 0 {
-		t.Fatalf("bob shouldn't forward any HTLC's after outgoing settle, "+
+		t.Fatalf("bob shouldn't forward any HTLCs after outgoing settle, "+
 			"instead can forward: %v", spew.Sdump(htlcs))
 	}
 	if htlcs, err := aliceChannel.ReceiveRevocation(bobRevocation2); err != nil {
@@ -566,7 +566,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// The logs of both sides should now be cleared since the entry adding
-	// the HTLC should have been removed once both sides recieve the
+	// the HTLC should have been removed once both sides receive the
 	// revocation.
 	if aliceChannel.ourUpdateLog.Len() != 0 {
 		t.Fatalf("alice's local not updated, should be empty, has %v entries "+
@@ -977,7 +977,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	const numHtlcs = 4
 
-	// Alice adds 3 HTLC's to the update log, while Bob adds a single HTLC.
+	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
 	var alicePreimage [32]byte
 	copy(alicePreimage[:], bytes.Repeat([]byte{0xaa}, 32))
 	var bobPreimage [32]byte
@@ -1002,9 +1002,9 @@ func TestStateUpdatePersistence(t *testing.T) {
 	bobChannel.AddHTLC(bobh)
 	aliceChannel.ReceiveHTLC(bobh)
 
-	// Next, Alice initiates a state transition to lock in the above HTLC's.
+	// Next, Alice initiates a state transition to lock in the above HTLCs.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
-		t.Fatalf("unable to lock in HTLC's: %v", err)
+		t.Fatalf("unable to lock in HTLCs: %v", err)
 	}
 
 	// The balances of both channels should be updated accordingly.
@@ -1021,7 +1021,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 			bobBalance)
 	}
 
-	// The latest commitment from both sides should have all the HTLC's.
+	// The latest commitment from both sides should have all the HTLCs.
 	numAliceOutgoing := aliceChannel.localCommitChain.tail().outgoingHTLCs
 	numAliceIncoming := aliceChannel.localCommitChain.tail().incomingHTLCs
 	if len(numAliceOutgoing) != 3 {
@@ -1065,7 +1065,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 
 	// The state update logs of the new channels and the old channels
-	// should now be identical other than the height the HTLC's were added.
+	// should now be identical other than the height the HTLCs were added.
 	if aliceChannel.ourLogCounter != aliceChannelNew.ourLogCounter {
 		t.Fatalf("alice log counter: expected %v, got %v",
 			aliceChannel.ourLogCounter, aliceChannelNew.ourLogCounter)
@@ -1101,7 +1101,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 			bobChannel.theirUpdateLog.Len(), bobChannelNew.theirUpdateLog.Len())
 	}
 
-	// Now settle all the HTLC's, then force a state update. The state
+	// Now settle all the HTLCs, then force a state update. The state
 	// update should suceed as both sides have identical.
 	for i := 0; i < 3; i++ {
 		settleIndex, err := bobChannelNew.SettleHTLC(alicePreimage)
@@ -1216,7 +1216,7 @@ func TestCancelHTLC(t *testing.T) {
 		t.Fatalf("unable to create new commitment: %v", err)
 	}
 
-	// Now HTLC's should be present on the commitment transaction for
+	// Now HTLCs should be present on the commitment transaction for
 	// either side.
 	if len(aliceChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
 		len(aliceChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {

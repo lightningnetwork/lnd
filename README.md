@@ -12,7 +12,7 @@
 (https://godoc.org/github.com/lightningnetwork/lnd)
 
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a 
-[Lightning Network](http://lightning.network) node and currently 
+[Lightning Network](https://lightning.network) node and currently 
 deployed on `testnet4` - the Bitcoin Test Network. It utilizes an 
 upcoming upgrade to Bitcoin: Segregated Witness (`segwit`). The 
 project's codebase uses the [btcsuite](https://github.com/btcsuite/) set
@@ -56,7 +56,7 @@ said, `lnd` the current status of `lnd`'s BOLT compliance is:
   - [X] BOLT 8: Encrypted and Authenticated Transport
 
 ## Installation
-  In order to build form source, the following build dependencies are 
+  In order to build from source, the following build dependencies are 
   required:
   
   * **Go:** Installation instructions can be found [here](http://golang.org/doc/install). 

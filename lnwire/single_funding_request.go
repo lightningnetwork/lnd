@@ -27,7 +27,7 @@ type SingleFundingRequest struct {
 	// ChannelType represents the type of channel this request would like
 	// to open. At this point, the only supported channels are type 0
 	// channels, which are channels with regular commitment transactions
-	// utilizing HTLC's for payments.
+	// utilizing HTLCs for payments.
 	ChannelType uint8
 
 	// CoinType represents which blockchain the channel will be opened

@@ -467,7 +467,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				return
 			}
 
-			// Respond to the local sub-system which requested the
+			// Respond to the local subsystem which requested the
 			// channel closure.
 			updateChan <- &lnrpc.CloseStatusUpdate{
 				Update: &lnrpc.CloseStatusUpdate_ChanClose{
@@ -886,7 +886,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 			}
 			// If we're in debug HTLC mode, then all outgoing
-			// HTLC's will pay to the same debug rHash. Otherwise,
+			// HTLCs will pay to the same debug rHash. Otherwise,
 			// we pay to the rHash specified within the RPC
 			// request.
 			var rHash [32]byte
@@ -969,7 +969,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		// Otherwise, the payment conditions have been manually specified in
 		// the proto.
 	} else {
-		// If we're in debug HTLC mode, then all outgoing HTLC's will pay to
+		// If we're in debug HTLC mode, then all outgoing HTLCs will pay to
 		// the same debug rHash. Otherwise, we pay to the rHash specified
 		// within the RPC request.
 		if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
@@ -1044,8 +1044,8 @@ func (r *rpcServer) constructPaymentRoute(destNode *btcec.PublicKey,
 		return nil, nil, err
 	}
 
-	// Craft an HTLC packet to send to the routing sub-system. The
-	// meta-data within this packet will be used to route the payment
+	// Craft an HTLC packet to send to the routing subsystem. The
+	// metadata within this packet will be used to route the payment
 	// through the network.
 	htlcAdd := &lnwire.HTLCAddRequest{
 		Amount:           route.TotalAmount,
@@ -1190,7 +1190,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	// Next, generate the payment hash itself from the pre-image. This will
+	// Next, generate the payment hash itself from the preimage. This will
 	// be used by clients to query for the state of a particular invoice.
 	rHash := fastsha256.Sum256(paymentPreimage[:])
 

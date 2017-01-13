@@ -135,7 +135,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
 	// invoice which all outgoing payments will be sent and all incoming
-	// HTLC's with the debug R-Hash immediately settled.
+	// HTLCs with the debug R-Hash immediately settled.
 	if cfg.DebugHTLC {
 		kiloCoin := btcutil.Amount(btcutil.SatoshiPerBitcoin * 1000)
 		s.invoices.AddDebugInvoice(kiloCoin, *debugPre)
@@ -198,7 +198,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// In order to promote liveness of our active channels, instruct the
 	// connection manager to attempt to establish and maintain persistent
-	// connections to all our direct channel counter parties.
+	// connections to all our direct channel counterparties.
 	linkNodes, err := s.chanDB.FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
 		return nil, err
@@ -240,7 +240,7 @@ func (s *server) Start() error {
 	// goroutines can be notified when a funding transaction reaches a
 	// sufficient number of confirmations, or when the input for the
 	// funding transaction is spent in an attempt at an uncooperative close
-	// by the counter party.
+	// by the counterparty.
 	if err := s.chainNotifier.Start(); err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (s *server) WaitForShutdown() {
 	s.wg.Wait()
 }
 
-// broadcastReq is a message sent to the server by a related sub-system when it
+// broadcastReq is a message sent to the server by a related subsystem when it
 // wishes to broadcast one or more messages to all connected peers. Thi
 type broadcastReq struct {
 	ignore *btcec.PublicKey
@@ -338,7 +338,7 @@ func (s *server) broadcastMessage(skip *btcec.PublicKey, msgs ...lnwire.Message)
 	}
 }
 
-// sendReq is  message sent to the server by a related sub-system which it
+// sendReq is  message sent to the server by a related subsystem which it
 // wishes to send a set of messages to a specified peer.
 type sendReq struct {
 	target *btcec.PublicKey

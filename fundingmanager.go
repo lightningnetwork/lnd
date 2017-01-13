@@ -40,8 +40,8 @@ type reservationWithCtx struct {
 	err     chan error
 }
 
-// initFundingMsg is sent by an outside sub-system to the funding manager in
-// order to kick-off a funding workflow with a specified target peer. The
+// initFundingMsg is sent by an outside subsystem to the funding manager in
+// order to kick off a funding workflow with a specified target peer. The
 // original request which defines the parameters of the funding workflow are
 // embedded within this message giving the funding manager full context w.r.t
 // the workflow.
@@ -92,7 +92,7 @@ type fundingOpenMsg struct {
 
 // fundingErrorMsg couples an lnwire.ErrorGeneric message
 // with the peer who sent the message. This allows the funding
-// manager properly process the error.
+// manager to properly process the error.
 type fundingErrorMsg struct {
 	err  *lnwire.ErrorGeneric
 	peer *peer
@@ -105,7 +105,7 @@ type pendingChannels map[uint64]*reservationWithCtx
 // fundingManager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
-// either kicked-off locally, or remotely is handled by the funding manager.
+// either kicked-off locally or remotely handled by the funding manager.
 // Once a channel's funding workflow has been completed, any local callers, the
 // local peer, and possibly the remote peer are notified of the completion of
 // the channel workflow. Additionally, any temporary or permanent access
@@ -135,7 +135,7 @@ type fundingManager struct {
 	queries chan interface{}
 
 	// fundingRequests is a channel used to receive channel initiation
-	// requests from a local sub-system within the daemon.
+	// requests from a local subsystem within the daemon.
 	fundingRequests chan *initFundingMsg
 
 	fakeProof *channelProof
@@ -187,7 +187,7 @@ func (f *fundingManager) Start() error {
 	return nil
 }
 
-// Start signals all helper goroutines to execute a graceful shutdown. This
+// Stop signals all helper goroutines to execute a graceful shutdown. This
 // method will block until all goroutines have exited.
 func (f *fundingManager) Stop() error {
 	if atomic.AddInt32(&f.stopped, 1) != 1 {
@@ -388,7 +388,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	}
 	f.resMtx.Unlock()
 
-	// With our portion of the reservation initialied, process the
+	// With our portion of the reservation initialized, process the
 	// initiators contribution to the channel.
 	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
 	if err != nil {
@@ -410,7 +410,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	fndgLog.Infof("Sending fundingResp for pendingID(%v)", msg.ChannelID)
 
-	// With the initiator's contribution recorded, response with our
+	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
 	ourContribution := reservation.OurContribution()
 	deliveryScript, err := txscript.PayToAddrScript(ourContribution.DeliveryAddress)
@@ -443,7 +443,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 
 	resCtx, err := f.getReservationCtx(peerID, chanID)
 	if err != nil {
-		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+		fndgLog.Warnf("Can't find reservation (peerID:%v, chanID:%v)",
 			peerID, chanID)
 		return
 	}
@@ -518,7 +518,7 @@ func (f *fundingManager) processFundingComplete(msg *lnwire.SingleFundingComplet
 func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	resCtx, err := f.getReservationCtx(fmsg.peer.id, fmsg.msg.ChannelID)
 	if err != nil {
-		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
 			fmsg.peer.id, fmsg.msg.ChannelID)
 		return
 	}
@@ -598,7 +598,7 @@ type chanAnnouncement struct {
 // announcement is two part: the first part authenticates the existence of the
 // channel and contains four signatures binding the funding pub keys and
 // identity pub keys of both parties to the channel, and the second segment is
-// authenticated only by us an contains our directional routing policy for the
+// authenticated only by us and contains our directional routing policy for the
 // channel.
 func newChanAnnouncement(localIdentity *btcec.PublicKey,
 	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
@@ -680,14 +680,14 @@ func newChanAnnouncement(localIdentity *btcec.PublicKey,
 // funder workflow. Once this message is processed, the funding transaction is
 // broadcast. Once the funding transaction reaches a sufficient number of
 // confirmations, a message is sent to the responding peer along with a compact
-// encoding of the location of the channel within the block chain.
+// encoding of the location of the channel within the blockchain.
 func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg) {
 	chanID := fmsg.msg.ChannelID
 	peerID := fmsg.peer.id
 
 	resCtx, err := f.getReservationCtx(peerID, chanID)
 	if err != nil {
-		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
 			peerID, chanID)
 		return
 	}
@@ -709,7 +709,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 
 	// Send an update to the upstream client that the negotiation process
 	// is over.
-	// TODO(roasbeef): add abstraction over updates to accomdate
+	// TODO(roasbeef): add abstraction over updates to accommodate
 	// long-polling, or SSE, etc.
 	resCtx.updates <- &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
@@ -788,7 +788,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 }
 
 // announceChannel announces a newly created channel to the rest of the network
-// by crafting the two authenticated announcement required for the peers on the
+// by crafting the two authenticated announcements required for the peers on the
 // network to recognize the legitimacy of the channel. The crafted
 // announcements are then send to the channel router to handle broadcasting to
 // the network during its next trickle.
@@ -807,7 +807,7 @@ func (f *fundingManager) announceChannel(s *server,
 }
 
 // processFundingOpenProof sends a message to the fundingManager allowing it
-// to process the final message recieved when the daemon is on the responding
+// to process the final message received when the daemon is on the responding
 // side of a single funder channel workflow.
 func (f *fundingManager) processFundingOpenProof(msg *lnwire.SingleFundingOpenProof, peer *peer) {
 	f.fundingMsgs <- &fundingOpenMsg{msg, peer}
@@ -821,7 +821,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	resCtx, err := f.getReservationCtx(peerID, chanID)
 	if err != nil {
-		fndgLog.Warnf("can' find reservation (peerID:%v, chanID:%v)",
+		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
 			peerID, chanID)
 		return
 	}
@@ -829,7 +829,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// The channel initiator has claimed the channel is now open, so we'll
 	// verify the contained SPV proof for validity.
 	// TODO(roasbeef): send off to the spv proof verifier, in the routing
-	// sub-module.
+	// submodule.
 
 	// Now that we've verified the initiator's proof, we'll commit the
 	// channel state to disk, and notify the source peer of a newly opened
@@ -858,10 +858,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// Send the newly opened channel to the breach arbiter to it can watch
 	// for uncooperative channel breaches, potentially punishing the
-	// counter-party for attempting to cheat us.
+	// counterparty for attempting to cheat us.
 	f.breachAribter.newContracts <- openChan
 
-	// Finally, notify the target peer of the newly open channel.
+	// Finally, notify the target peer of the newly opened channel.
 	fmsg.peer.newChannels <- openChan
 }
 
@@ -967,8 +967,8 @@ func (f *fundingManager) processErrorGeneric(err *lnwire.ErrorGeneric,
 }
 
 // handleErrorGenericMsg process the error which was received from remote peer,
-// depends on the type of error we should do different clean up steps and
-// inform user about it.
+// depending on the type of error we should do different clean up steps and
+// inform the user about it.
 func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 	e := fmsg.err
 

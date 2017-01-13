@@ -23,7 +23,7 @@ var (
 	// invoiceBucket which indexes all invoices by their payment hash. The
 	// payment hash is the sha256 of the invoice's payment preimage. This
 	// index is used to detect duplicates, and also to provide a fast path
-	// for looking up incoming HTLC's to determine if we're able to settle
+	// for looking up incoming HTLCs to determine if we're able to settle
 	// them fully.
 	invoiceIndexBucket = []byte("paymenthashes")
 

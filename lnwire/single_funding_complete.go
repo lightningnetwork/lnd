@@ -32,7 +32,7 @@ type SingleFundingComplete struct {
 	// RevocationKey is the initial key to be used for the revocation
 	// clause within the self-output of the initiators's commitment
 	// transaction. Once an initial new state is created, the initiator
-	// will send a pre-image which will allow the initiator to sweep the
+	// will send a preimage which will allow the initiator to sweep the
 	// initiator's funds if the violate the contract.
 	RevocationKey *btcec.PublicKey
 

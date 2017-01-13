@@ -20,7 +20,7 @@ var (
 	// openChanBucket stores all the currently open channels. This bucket
 	// has a second, nested bucket which is keyed by a node's ID. Additionally,
 	// at the base level of this bucket several prefixed keys are stored which
-	// house channel meta-data such as total satoshis sent, number of updates
+	// house channel metadata such as total satoshis sent, number of updates
 	// etc. These fields are stored at this top level rather than within a
 	// node's channel bucket in order to facilitate sequential prefix scans
 	// to gather stats such as total satoshis received.
@@ -41,7 +41,7 @@ var (
 
 	// channelLogBucket is dedicated for storing the necessary delta state
 	// between channel updates required to re-construct a past state in
-	// order to punish a counter party attempting a non-cooperative channel
+	// order to punish a counterparty attempting a non-cooperative channel
 	// closure. A channel log bucket is created for each node and is nested
 	// within a node's ID bucket.
 	channelLogBucket = []byte("clb")
@@ -81,7 +81,7 @@ var (
 	// commitment transactions in addition to the csvDelay for both.
 	commitTxnsKey = []byte("ctk")
 
-	// currentHtlcKey stores the set of fully locked-in HTLC's on our
+	// currentHtlcKey stores the set of fully locked-in HTLCs on our
 	// latest commitment state.
 	currentHtlcKey = []byte("chk")
 
@@ -90,7 +90,7 @@ var (
 	fundingTxnKey = []byte("fsk")
 
 	// elkremStateKey stores their current revocation hash, and our elkrem
-	// sender, and their elkrem reciever.
+	// sender, and their elkrem receiver.
 	elkremStateKey = []byte("esk")
 
 	// deliveryScriptsKey stores the scripts for the final delivery in the
@@ -101,7 +101,7 @@ var (
 // ChannelType is an enum-like type that describes one of several possible
 // channel types. Each open channel is associated with a particular type as the
 // channel type may determine how higher level operations are conducted such as
-// fee negotiation, channel closing, the format of HTLC's, etc.
+// fee negotiation, channel closing, the format of HTLCs, etc.
 // TODO(roasbeef): split up per-chain?
 type ChannelType uint8
 
@@ -221,7 +221,7 @@ type OpenChannel struct {
 	RemoteCsvDelay uint32
 
 	// Current revocation for their commitment transaction. However, since
-	// this the derived public key, we don't yet have the pre-image so we
+	// this the derived public key, we don't yet have the preimage so we
 	// aren't yet able to verify that it's actually in the hash chain.
 	TheirCurrentRevocation     *btcec.PublicKey
 	TheirCurrentRevocationHash [32]byte
@@ -251,7 +251,7 @@ type OpenChannel struct {
 	// CreationTime is the time this channel was initially created.
 	CreationTime time.Time
 
-	// Htlcs is the list of active, uncleared HTLC's currently pending
+	// Htlcs is the list of active, uncleared HTLCs currently pending
 	// within the channel.
 	Htlcs []*HTLC
 
@@ -342,7 +342,7 @@ func (c *OpenChannel) FullSyncWithAddr(addr *net.TCPAddr) error {
 		}
 
 		// Next, we need to establish a (possibly) new LinkNode
-		// relationship for this channel. The LinkNode meta-data contains
+		// relationship for this channel. The LinkNode metadata contains
 		// reachability, up-time, and service bits related information.
 		// TODO(roasbeef): net info shuld be in lnwire.NetAddress
 		linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addr)
@@ -407,7 +407,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 	})
 }
 
-// HTLC is the on-disk representation of a hash time-locked contract. HTLC's
+// HTLC is the on-disk representation of a hash time-locked contract. HTLCs
 // are contained within ChannelDeltas which encode the current state of the
 // commitment between state updates.
 type HTLC struct {
@@ -451,7 +451,7 @@ func (h *HTLC) Copy() HTLC {
 
 // ChannelDelta is a snapshot of the commitment state at a particular point in
 // the commitment chain. With each state transition, a snapshot of the current
-// state along with all non-settled HTLC's are recorded.
+// state along with all non-settled HTLCs are recorded.
 type ChannelDelta struct {
 	LocalBalance  btcutil.Amount
 	RemoteBalance btcutil.Amount
@@ -514,7 +514,7 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 	}
 
 	err := c.Db.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
+		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
@@ -569,7 +569,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // entails deleting all saved state within the database concerning this
 // channel, as well as created a small channel summary for record keeping
 // purposes.
-// TODO(roasbeef): delete on-disk set of HTLC's
+// TODO(roasbeef): delete on-disk set of HTLCs
 func (c *OpenChannel) CloseChannel() error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, c.ChanID); err != nil {
@@ -614,7 +614,7 @@ func (c *OpenChannel) CloseChannel() error {
 		}
 
 		// Now that the index to this channel has been deleted, purge
-		// the remaining channel meta-data from the database.
+		// the remaining channel metadata from the database.
 		if err := deleteOpenChannel(chanBucket, nodeChanBucket,
 			outPointBytes); err != nil {
 			return err
@@ -648,7 +648,7 @@ type ChannelSnapshot struct {
 
 // Snapshot returns a read-only snapshot of the current channel state. This
 // snapshot includes information concerning the current settled balance within
-// the channel, meta-data detailing total flows, and any outstanding HTLCs.
+// the channel, metadata detailing total flows, and any outstanding HTLCs.
 func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	c.RLock()
 	defer c.RUnlock()
@@ -664,7 +664,7 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		TotalSatoshisReceived: c.TotalSatoshisReceived,
 	}
 
-	// Copy over the current set of HTLC's to ensure the caller can't
+	// Copy over the current set of HTLCs to ensure the caller can't
 	// mutate our internal state.
 	snapshot.Htlcs = make([]HTLC, len(c.Htlcs))
 	for i, h := range c.Htlcs {

@@ -215,7 +215,7 @@ func fileExists(path string) bool {
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 	err := d.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
+		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
@@ -295,14 +295,14 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
 	err := d.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the meta-data for open
+		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
 			return ErrNoActiveChannels
 		}
 
-		// Next, fetch the bucket dedicated to storing meta-data
+		// Next, fetch the bucket dedicated to storing metadata
 		// related to all nodes. All keys within this bucket are the
 		// serialized public keys of all our direct counterparties.
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)

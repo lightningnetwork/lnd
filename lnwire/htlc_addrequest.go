@@ -12,7 +12,7 @@ import (
 // HTLC to his remote commitment transaction. In addition to information
 // detailing the value, and contract type of the HTLC, and onion blob is also
 // included which allows Bob to derive the next hop in the route. The HTLC
-// added by this message is to be added to the remote node's "pending" HTLC's.
+// added by this message is to be added to the remote node's "pending" HTLCs.
 // A subsequent CommitSignature message will move the pending HTLC to the newly
 // created commitment transaction, marking them as "staged".
 type HTLCAddRequest struct {
@@ -40,8 +40,8 @@ type HTLCAddRequest struct {
 
 	// RedemptionHashes are the hashes to be used within the HTLC script.
 	// An HTLC is only fufilled once Bob is provided with the required
-	// number of pre-images for each of the listed hashes. For regular HTLC's
-	// this slice only has one hash. However, for "multi-sig" HTLC's, the
+	// number of preimages for each of the listed hashes. For regular HTLCs
+	// this slice only has one hash. However, for "multi-sig" HTLCs, the
 	// length of this slice should be N.
 	RedemptionHashes [][32]byte
 

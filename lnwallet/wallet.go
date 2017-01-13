@@ -241,10 +241,10 @@ type channelOpenMsg struct {
 // as a regular Bitcoin wallet which uses HD keys. The wallet is highly concurrent
 // internally. All communication, and requests towards the wallet are
 // dispatched as messages over channels, ensuring thread safety across all
-// operations. Interaction has been designed independant of any peer-to-peer
+// operations. Interaction has been designed independent of any peer-to-peer
 // communication protocol, allowing the wallet to be self-contained and embeddable
 // within future projects interacting with the Lightning Network.
-// NOTE: At the moment the wallet requires a btcd full node, as it's dependant
+// NOTE: At the moment the wallet requires a btcd full node, as it's dependent
 // on btcd's websockets notifications as even triggers during the lifetime of
 // a channel. However, once the chainntnfs package is complete, the wallet
 // will be compatible with multiple RPC/notification services such as Electrum,
@@ -261,7 +261,7 @@ type LightningWallet struct {
 	coinSelectMtx sync.RWMutex
 
 	// A wrapper around a namespace within boltdb reserved for ln-based
-	// wallet meta-data. See the 'channeldb' package for further
+	// wallet metadata. See the 'channeldb' package for further
 	// information.
 	ChannelDB *channeldb.DB
 
@@ -480,7 +480,7 @@ out:
 // same inputs in the funding transaction. If reservation initialization is
 // successful, a ChannelReservation containing our completed contribution is
 // returned. Our contribution contains all the items necessary to allow the
-// counter party to build the funding transaction, and both versions of the
+// counterparty to build the funding transaction, and both versions of the
 // commitment transaction. Otherwise, an error occurred a nil pointer along with
 // an error are returned.
 //
@@ -608,7 +608,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// Funding reservation request successfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
-	// completed, or canceled.
+	// completed, or cancelled.
 	req.resp <- reservation
 	req.err <- nil
 }
@@ -754,7 +754,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.partialState.FundingOutpoint = fundingOutpoint
 
 	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the pre-image so we can't add it
+	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
 	e := &elkrem.ElkremReceiver{}
 	pendingReservation.partialState.RemoteElkrem = e
@@ -921,7 +921,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	ourRevokeKey := DeriveRevocationPubkey(theirCommitKey, firstPreimage[:])
 
 	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the pre-image so we can't add it
+	// revocation hash (we don't yet know the preimage so we can't add it
 	// to the chain).
 	remoteElkrem := &elkrem.ElkremReceiver{}
 	pendingReservation.partialState.RemoteElkrem = remoteElkrem

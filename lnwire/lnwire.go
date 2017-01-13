@@ -24,8 +24,8 @@ const MaxSliceLength = 65535
 // key script.
 type PkScript []byte
 
-// HTLCKey is an identifier used to uniquely identify any HTLC's transmitted
-// between Alice and Bob. In order to cancel, timeout, or settle HTLC's this
+// HTLCKey is an identifier used to uniquely identify any HTLCs transmitted
+// between Alice and Bob. In order to cancel, timeout, or settle HTLCs this
 // identifier should be used to allow either side to easily locate and modify
 // any staged or pending HTLCs.
 // TODO(roasbeef): change to HTLCIdentifier?
@@ -36,7 +36,7 @@ type HTLCKey int64
 // HTLC lists on either side will increment this height. As a result this value
 // should always be monotonically increasing. Any CommitSignature or
 // CommitRevocation messages will reference a value for the commitment height
-// up to which it covers. HTLC's are only explicitly excluded by sending
+// up to which it covers. HTLCs are only explicitly excluded by sending
 // HTLCReject messages referencing a particular HTLCKey.
 type CommitHeight uint64
 

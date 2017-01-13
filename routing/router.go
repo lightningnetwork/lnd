@@ -609,7 +609,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 	return true
 }
 
-// syncRequest represents a request from an outside sub-system to the wallet to
+// syncRequest represents a request from an outside subsystem to the wallet to
 // sync a new node to the latest graph state.
 type syncRequest struct {
 	node *btcec.PublicKey

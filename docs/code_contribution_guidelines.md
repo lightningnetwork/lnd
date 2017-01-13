@@ -7,11 +7,11 @@
 4.2. [Testing](#Testing)<br />
 4.3. [Code Documentation and Commenting](#CodeDocumentation)<br />
 4.4. [Model Git Commit Messages](#ModelGitCommitMessages)<br />
-4.5  [Code Spacing](#CodeSpacing)<br />
+4.5. [Code Spacing](#CodeSpacing)<br />
 5. [Code Approval Process](#CodeApproval)<br />
-5.1 [Code Review](#CodeReview)<br />
-5.2 [Rework Code (if needed)](#CodeRework)<br />
-5.3 [Acceptance](#CodeAcceptance)<br />
+5.1. [Code Review](#CodeReview)<br />
+5.2. [Rework Code (if needed)](#CodeRework)<br />
+5.3. [Acceptance](#CodeAcceptance)<br />
 6. [Contribution Standards](#Standards)<br />
 6.1. [Contribution Checklist](#Checklist)<br />
 6.2. [Licensing of Contributions](#Licensing)<br />
@@ -26,7 +26,7 @@ threat-modeling, and RPC systems. They also represent a radical shift to the
 current fiscal system and as a result provide an opportunity to help reshape
 the entire financial system. With the advent of the [Lightning Network
 (LN)](https://lightning.network/), new layers are being constructed upon the
-base blockchain layer which have the potential to aleviate many of the
+base blockchain layer which have the potential to alleviate many of the
 limitations and constraints inherent in the design of blockchains. There are
 few projects that offer this level of diversity and impact all in one code
 base. 
@@ -77,10 +77,10 @@ security and performance implications.
 - [Effective Go](http://golang.org/doc/effective_go.html) - The entire lnd 
   project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
-- [Original Satoshi Whitepaper](http://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=1&cad=rja&ved=0CCkQFjAA&url=http%3A%2F%2Fbitcoin.org%2Fbitcoin.pdf&ei=os3VUuH8G4SlsASV74GoAg&usg=AFQjCNEipPLigou_1MfB7DQjXCNdlylrBg&sig2=FaHDuT5z36GMWDEnybDJLg&bvm=bv.59378465,d.b2I) - This is the white paper that started it all.  Having a solid
+- [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
   foundation to build on will make the code much more comprehensible.
-- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good graps of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bi-directional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
-    - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible suplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLC's): 
+- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bi-directional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
+    - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible supplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLCs): 
          - [Lightning Network Summary](https://lightning.network/lightning-network-summary.pdf)
         - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/articles/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791) 
         - [Deployable Lightning](https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf) 
@@ -93,7 +93,7 @@ above may be a bit out of date. Many implementers are currently working on an
 initial [Version 1 Specification](https://medium.com/@lightningnetwork/lightning-network-meeting-on-interoperability-and-specifications-ea49e47696a4).
 Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
-be recommened for new comers to read first in order to get up to speed. 
+be recommened for newcomers to read first in order to get up to speed. 
 
 <a name="DevelopmentPractices" />
 ### 4. Development Practices
@@ -103,7 +103,7 @@ they feel their feature or bug fix is ready for integration into the  master
 branch.
 
 <a name="ShareEarly" />
-### 4.1 Share Early, Share Often
+### 4.1. Share Early, Share Often
 
 We firmly believe in the share early, share often approach.  The basic premise
 of the approach is to announce your plans **before** you start work, and once
@@ -123,7 +123,7 @@ This approach has several benefits:
   spend rebasing and otherwise trying to keep up with the main code base
 
 <a name="Testing" />
-### 4.2 Testing
+### 4.2. Testing
 
 One of the major design goals of all of lnd's packages and the daemon itself is
 to aim for a high degree of test coverage.  This is financial software so bugs
@@ -139,7 +139,7 @@ code works correctly when it is fed correct data as well as incorrect data
 
 
 Go provides an excellent test framework that makes writing test code and
-checking coverage statistics straight forward.  For more information about the
+checking coverage statistics straightforward.  For more information about the
 test coverage tools, see the [golang cover blog post](http://blog.golang.org/cover).
 
 A quick summary of test practices follows:
@@ -150,7 +150,7 @@ A quick summary of test practices follows:
   to both prove it has been resolved and to prevent future regressions
 - Changes to publicly exported packages such as
   [brontide](https://github.com/lightningnetwork/lnd/tree/master/brontide) should
-  be accompanied by unittest excersising the new or changed behavior.
+  be accompanied by unit tests exercising the new or changed behavior.
 - Changes to behavior within the daemon's interaction with the P2P protocol,
   or RPC's will need to be accompanied by integration tests which use the
   [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/networktest.go)
@@ -158,7 +158,7 @@ A quick summary of test practices follows:
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 
 <a name="CodeDocumentation" />
-### 4.3 Code Documentation and Commenting
+### 4.3. Code Documentation and Commenting
 
 - At a minimum every function must be commented with its intended purpose and
   any assumptions that it makes
@@ -181,10 +181,10 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 **RIGHT**
 ```go
 // DeriveRevocationPubkey derives the revocation public key given the
-// counter-party's commitment key, and revocation pre-image derived via a
+// counterparty's commitment key, and revocation preimage derived via a
 // pseudo-random-function. In the event that we (for some reason) broadcast a
 // revoked commitment transaction, then if the other party knows the revocation
-// pre-image, then they'll be able to derive the corresponding private key to
+// preimage, then they'll be able to derive the corresponding private key to
 // this private key by exploiting the homomorphism in the elliptic curve group:
 //    * https://en.wikipedia.org/wiki/Group_homomorphism#Homomorphisms_of_abelian_groups
 //
@@ -194,7 +194,7 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 //             := G*k + G*h
 //             := G * (k+h)
 //
-// Therefore, once we divulge the revocation pre-image, the remote peer is able to
+// Therefore, once we divulge the revocation preimage, the remote peer is able to
 // compute the proper private key for the revokeKey by computing:
 //   revokePriv := commitPriv + revokePreimge mod N
 //
@@ -225,7 +225,7 @@ but it was left as a magic number to show how much of a difference a good
 comment can make.
 
 <a name="ModelGitCommitMessages" />
-### 4.4 Code Documentation and Commenting
+### 4.4. Model Git Commit Messages
 
 This project prefers to keep a clean commit history with well-formed commit
 messages.  This section illustrates a model commit message and provides a bit
@@ -273,20 +273,20 @@ a good thing.
 In addition to the Git commit message structure adhered to within the daemon
 all short-[commit messages are to be prefixed according to the convention
 outlined in the Go project](https://golang.org/doc/contribute.html#change). All
-commits should begin with the sub-system or package primarliy affected by the
+commits should begin with the subsystem or package primarily affected by the
 change. In the case of a widespread change, the packages are to be delimited by
-either a '+' or a ','. This prefix seems minor but can be extremly helpful it
+either a '+' or a ','. This prefix seems minor but can be extremly helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
 commit which introduced a bug or regression. 
 
 <a name="CodeSpacing" />
-### 4.5 Code Spacing 
+### 4.5. Code Spacing 
 
 Blocks of code within lnd should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
-uncessary line noise. Coupled commenting scheme specified above, proper spacing
-allows readers to quickly scan code, extracting semantics quickly. Functions
-should _not_ just be layed out as a bare contigious block of code. 
+unnecessary line noise. Coupled with the commenting scheme specified above,
+proper spacing allows readers to quickly scan code, extracting semantics quickly.
+Functions should _not_ just be layed out as a bare contiguous block of code. 
 
 - **Wrong**   
 ```go
@@ -312,7 +312,7 @@ should _not_ just be layed out as a bare contigious block of code.
 
 	// When initially generating the witnessScript, we sorted the serialized
 	// public keys in descending order. So we do a quick comparison in order
-	// ensure the signatures appear on the Script Virtual Machine stack in
+	// to ensure the signatures appear on the Script Virtual Machine stack in
 	// the correct order.
 	if bytes.Compare(pubA, pubB) == -1 {
 		witness[1] = sigB
@@ -322,7 +322,7 @@ should _not_ just be layed out as a bare contigious block of code.
 		witness[2] = sigB
 	}
 
-	// Finally, add the pre-image as the last witness element.
+	// Finally, add the preimage as the last witness element.
 	witness[3] = witnessScript
 
 	return witness
@@ -335,7 +335,7 @@ This section describes the code approval process that is used for code
 contributions.  This is how to get your changes into lnd.
 
 <a name="CodeReview" />
-### 5.1 Code Review
+### 5.1. Code Review
 
 All code which is submitted will need to be reviewed before inclusion into the
 master branch.  This process is performed by the project maintainers and usually
@@ -354,7 +354,7 @@ manageable, commits.
 
 Keeping the above in mind, most small changes will be reviewed within a few
 days, while large or far reaching changes may take weeks.  This is a good reason
-to stick with the [Share Early, Share Often](#ShareOften) development practice
+to stick with the [Share Early, Share Often](#ShareEarly) development practice
 outlined above.
 
 ##### What is the review looking for?
@@ -370,7 +370,7 @@ checks which are generally performed as follows:
   consensus
 
 <a name="CodeRework" />
-### 5.2 Rework Code (if needed)
+### 5.2. Rework Code (if needed)
 
 After the code review, the change will be accepted immediately if no issues are
 found.  If there are any concerns or questions, you will be provided with
@@ -382,7 +382,7 @@ make the necessary changes.
 This process will continue until the code is finally accepted.
 
 <a name="CodeAcceptance" />
-### 5.3 Acceptance
+### 5.3. Acceptance
 
 Once your code is accepted, it will be integrated with the master branch.
 Typically it will be rebased and fast-forward merged to master as we prefer to
@@ -421,7 +421,7 @@ All contributions must be licensed with the
 the same license as all of the code found within lnd.
 
 
-## Aknolwedgements
+## Acknowledgements
 This document was heavily inspired by a [similar document outlining the code
 contribution](https://github.com/btcsuite/btcd/blob/master/docs/code_contribution_guidelines.md)
 guidelines for btcd. 

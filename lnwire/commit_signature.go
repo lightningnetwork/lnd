@@ -9,13 +9,13 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// CommitSignature is sent by either side to stage any pending HTLC's in the
+// CommitSignature is sent by either side to stage any pending HTLCs in the
 // receiver's pending set which has not explicitly been rejected via an
 // HTLCAddReject message. Implicitly, the new commitment transaction constructed
-// which has been signed by CommitSig includes all HTLC's in the remote node's
+// which has been signed by CommitSig includes all HTLCs in the remote node's
 // pending set. A CommitSignature message may be sent after a series of HTLCAdd
-// messages in order to batch add several HTLC's with a single signature
-// covering all implicitly accepted HTLC's.
+// messages in order to batch add several HTLCs with a single signature
+// covering all implicitly accepted HTLCs.
 type CommitSignature struct {
 	// ChannelPoint uniquely identifies to which currently active channel this
 	// CommitSignature applies to.
@@ -23,7 +23,7 @@ type CommitSignature struct {
 
 	// LogIndex is the index into the receiver's HTLC log to which this
 	// commitment signature covers. In order to properly verify this
-	// signature, the receiver should include all the HTLC's within their
+	// signature, the receiver should include all the HTLCs within their
 	// log with an index less-than-or-equal to the listed log-index.
 	LogIndex uint64
 

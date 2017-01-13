@@ -118,7 +118,7 @@ func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 		witness[2] = sigB
 	}
 
-	// Finally, add the pre-image as the last witness element.
+	// Finally, add the preimage as the last witness element.
 	witness[3] = witnessScript
 
 	return witness
@@ -191,9 +191,9 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 
 	// Alternatively, the receiver can place a 0 as the second item of the
 	// witness stack if they wish to claim the HTLC with the proper
-	// pre-image as normal. In order to prevent an over-sized pre-image
+	// preimage as normal. In order to prevent an over-sized preimage
 	// attack (which can create undesirable redemption asymmetries), we
-	// strongly require that all HTLC pre-images are exactly 32 bytes.
+	// strongly require that all HTLC preimages are exactly 32 bytes.
 	builder.AddOp(txscript.OP_ELSE)
 	builder.AddOp(txscript.OP_SIZE)
 	builder.AddInt64(32)
@@ -218,7 +218,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// In this case, the sender will need to wait for an absolute HTLC
 	// timeout, then afterwards a relative timeout before we claim re-claim
 	// the unsettled funds. This delay gives the other party a chance to
-	// present the pre-image to the revocation hash in the event that the
+	// present the preimage to the revocation hash in the event that the
 	// sender (at this time) broadcasts this commitment transaction after
 	// it has been revoked.
 	builder.AddInt64(int64(absoluteTimeout))
@@ -237,7 +237,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 // senderHtlcSpendRevoke constructs a valid witness allowing the receiver of an
 // HTLC to claim the output with knowledge of the revocation preimage in the
 // scenario that the sender of the HTLC broadcasts a previously revoked
-// commitment transaction. A valid spend requires knowledge of the pre-image to
+// commitment transaction. A valid spend requires knowledge of the preimage to
 // the commitment transaction's revocation hash, and a valid signature under
 // the receiver's public key.
 func senderHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
@@ -268,7 +268,7 @@ func senderHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 // senderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
 // HTLC to redeem the pending output in the scenario that the sender broadcasts
 // their version of the commitment transaction. A valid spend requires
-// knowledge of the payment pre-image, and a valid signature under the
+// knowledge of the payment preimage, and a valid signature under the
 // receivers public key.
 func senderHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
 	reciverKey *btcec.PrivateKey, sweepTx *wire.MsgTx,
@@ -364,7 +364,7 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 //     <sender key> OP_CHECKSIG
 // OP_ENDIF
 // TODO(roasbeef): go back to revocation keys in the HTLC outputs?
-//  * also could combine pre-image with their key?
+//  * also could combine preimage with their key?
 func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
 
@@ -380,7 +380,7 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	// opportunity to re-claim the pending HTLC in the event that the
 	// receiver (at this time) broadcasts this old commitment transaction
 	// after it has been revoked. Additionally, we require that the
-	// pre-image is exactly 32-bytes in order to avoid undesirable
+	// preimage is exactly 32-bytes in order to avoid undesirable
 	// redemption asymmetries in the multi-hop scenario.
 	builder.AddOp(txscript.OP_SIZE)
 	builder.AddInt64(32)
@@ -549,7 +549,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 
 // commitScriptToSelf constructs the public key script for the output on the
 // commitment transaction paying to the "owner" of said commitment transaction.
-// If the other party learns of the pre-image to the revocation hash, then they
+// If the other party learns of the preimage to the revocation hash, then they
 // can claim all the settled funds in the channel, plus the unsettled funds.
 //
 // Possible Input Scripts:
@@ -641,7 +641,7 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 }
 
 // CommitSpendRevoke constructs a valid witness allowing a node to sweep the
-// settled output of a malicious counter-party who broadcasts a revoked
+// settled output of a malicious counterparty who broadcasts a revoked
 // commitment transaction.
 func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
@@ -662,7 +662,7 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 }
 
 // CommitSpendNoDelay constructs a valid witness allowing a node to spend their
-// settled no-delay output on the counter-party's commitment transaction.
+// settled no-delay output on the counterparty's commitment transaction.
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
@@ -677,10 +677,10 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 }
 
 // DeriveRevocationPubkey derives the revocation public key given the
-// counter-party's commitment key, and revocation pre-image derived via a
+// counterparty's commitment key, and revocation preimage derived via a
 // pseudo-random-function. In the event that we (for some reason) broadcast a
 // revoked commitment transaction, then if the other party knows the revocation
-// pre-image, then they'll be able to derive the corresponding private key to
+// preimage, then they'll be able to derive the corresponding private key to
 // this private key by exploiting the homomorphism in the elliptic curve group:
 //    * https://en.wikipedia.org/wiki/Group_homomorphism#Homomorphisms_of_abelian_groups
 //
@@ -690,7 +690,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 //             := G*k + G*h
 //             := G * (k+h)
 //
-// Therefore, once we divulge the revocation pre-image, the remote peer is able to
+// Therefore, once we divulge the revocation preimage, the remote peer is able to
 // compute the proper private key for the revokeKey by computing:
 //   revokePriv := commitPriv + revokePreimge mod N
 //
@@ -710,7 +710,7 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 }
 
 // DeriveRevocationPrivKey derives the revocation private key given a node's
-// commitment private key, and the pre-image to a previously seen revocation
+// commitment private key, and the preimage to a previously seen revocation
 // hash. Using this derived private key, a node is able to claim the output
 // within the commitment transaction of a node in the case that they broadcast
 // a previously revoked commitment transaction.
@@ -722,12 +722,12 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 	revokePreimage []byte) *btcec.PrivateKey {
 
-	// Convert the revocation pre-image into a scalar value so we can
+	// Convert the revocation preimage into a scalar value so we can
 	// manipulate it within the curve's defined finite field.
 	revokeScalar := new(big.Int).SetBytes(revokePreimage)
 
 	// To derive the revocation private key, we simply add the revocation
-	// pre-image to the commitment private key.
+	// preimage to the commitment private key.
 	//
 	// This works since:
 	//  P = G*a + G*b

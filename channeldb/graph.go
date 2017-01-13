@@ -214,7 +214,7 @@ func (c *ChannelGraph) ForEachNode(cb func(*LightningNode) error) error {
 }
 
 // SourceNode returns the source node of the graph. The source node is treated
-// as the center node within a star-graph. This method may be used to kick-off
+// as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
@@ -996,7 +996,7 @@ type ChannelEdge struct {
 	FeeBaseMSat btcutil.Amount
 
 	// FeeProportionalMillionths is the rate that the node will charge for
-	// HTLC's for each millionth of a satoshi forwarded.
+	// HTLCs for each millionth of a satoshi forwarded.
 	FeeProportionalMillionths btcutil.Amount
 
 	// Capacity is the total capacity of the channel, this is determined by

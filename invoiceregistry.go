@@ -15,8 +15,8 @@ import (
 var (
 	// debugPre is the default debug preimage which is inserted into the
 	// invoice registry if the --debughtlc flag is activated on start up.
-	// All nodes initialize with the flag active will immediately settle
-	// any incoming HTLC whose rHash is corresponds with the debug
+	// All nodes initialized with the flag active will immediately settle
+	// any incoming HTLC whose rHash corresponds with the debug
 	// preimage.
 	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
 
@@ -35,7 +35,7 @@ type invoiceRegistry struct {
 	nextClientID        uint32
 	notificationClients map[uint32]*invoiceSubscription
 
-	// debugInvoices is a mp which stores special "debug" invoices which
+	// debugInvoices is a map which stores special "debug" invoices which
 	// should be only created/used when manual tests require an invoice
 	// that *all* nodes are able to fully settle.
 	debugInvoices map[chainhash.Hash]*channeldb.Invoice
@@ -43,7 +43,7 @@ type invoiceRegistry struct {
 
 // newInvoiceRegistry creates a new invoice registry. The invoice registry
 // wraps the persistent on-disk invoice storage with an additional in-memory
-// layer. The in-memory layer is in pace such that debug invoices can be added
+// layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
 func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 	return &invoiceRegistry{
@@ -54,8 +54,8 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 }
 
 // addDebugInvoice adds a debug invoice for the specified amount, identified
-// by the passed preimage. Once this invoice is added, sub-systems within the
-// daemon add/forward HTLC's are able to obtain the proper preimage required
+// by the passed preimage. Once this invoice is added, subsystems within the
+// daemon add/forward HTLCs are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
 	paymentHash := chainhash.Hash(fastsha256.Sum256(preimage[:]))
@@ -78,9 +78,9 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 }
 
 // AddInvoice adds a regular invoice for the specified amount, identified by
-// the passed preimage. Additionally, any memo or recipt data provided will
-// also be stored on-disk. Once this invoice is added, sub-systems within the
-// daemon add/forward HTLC's are able to obtain the proper preimage required
+// the passed preimage. Additionally, any memo or receipt data provided will
+// also be stored on-disk. Once this invoice is added, subsystems within the
+// daemon add/forward HTLCs are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 	ltndLog.Debugf("Adding invoice %v", newLogClosure(func() string {
@@ -98,7 +98,7 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 	return nil
 }
 
-// lookupInvoice looks up an invoice by it's payment hash (R-Hash), if found
+// lookupInvoice looks up an invoice by its payment hash (R-Hash), if found
 // then we're able to pull the funds pending within an HTLC.
 // TODO(roasbeef): ignore if settled?
 func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
@@ -119,7 +119,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoic
 }
 
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a
-// dbueg invoice, then this method is a nooop as debug invoices are never fully
+// debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
 func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 	ltndLog.Debugf("Settling invoice %x", rHash[:])
@@ -192,7 +192,7 @@ type invoiceSubscription struct {
 	id  uint32
 }
 
-// Cancel unregisters the invoiceSubscription, freeing any previously allocate
+// Cancel unregisters the invoiceSubscription, freeing any previously allocated
 // resources.
 func (i *invoiceSubscription) Cancel() {
 	i.inv.clientMtx.Lock()

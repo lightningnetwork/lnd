@@ -214,7 +214,7 @@ type BlockChainIO interface {
 	// transaction ID.
 	GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error)
 
-	// GetBlockHash returns the hash of the block in the best block chain
+	// GetBlockHash returns the hash of the block in the best blockchain
 	// at the given height.
 	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
 

@@ -378,8 +378,8 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
-	// Add some HTLC's which were added during this new state transition.
-	// Half of the HTLC's are incoming, while the other half are outgoing.
+	// Add some HTLCs which were added during this new state transition.
+	// Half of the HTLCs are incoming, while the other half are outgoing.
 	var htlcs []*HTLC
 	for i := uint32(0); i < 10; i++ {
 		var incoming bool
@@ -397,7 +397,7 @@ func TestChannelStateTransition(t *testing.T) {
 		htlcs = append(htlcs, htlc)
 	}
 
-	// Create a new channel delta which includes the above HTLC's, some
+	// Create a new channel delta which includes the above HTLCs, some
 	// balance updates, and an increment of the current commitment height.
 	// Additionally, modify the signature and commitment transaction.
 	newSequence := uint32(129498)
@@ -416,7 +416,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to update commitment: %v", err)
 	}
 
-	// The balances, new update, the HTLC's and the changes to the fake
+	// The balances, new update, the HTLCs and the changes to the fake
 	// commitment transaction along with the modified signature should all
 	// have been updated.
 	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)

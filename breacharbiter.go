@@ -14,14 +14,14 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// breachArbiter is a special sub-system which is responsible for watching and
+// breachArbiter is a special subsystem which is responsible for watching and
 // acting on the detection of any attempted uncooperative channel breaches by
-// channel counter-parties. This file essentially acts as deterrence code for
+// channel counterparties. This file essentially acts as deterrence code for
 // those attempting to launch attacks against the daemon. In practice it's
 // expected that the logic in this file never gets executed, but it is
 // important to have it in place just in case we encounter cheating channel
-// counter-parties.
-// TODO(roasbeef): closures in config for sub-system pointers to decouple?
+// counterparties.
+// TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
 	wallet     *lnwallet.LightningWallet
 	db         *channeldb.DB
@@ -32,22 +32,22 @@ type breachArbiter struct {
 	// observers we're currently managing. The key of the map is the
 	// funding outpoint of the channel, and the value is a channel which
 	// will be closed once we detect that the channel has been
-	// cooperatively closed, there by killing the goroutine and freeing up
-	// resource.
+	// cooperatively closed, thereby killing the goroutine and freeing up
+	// resources.
 	breachObservers map[wire.OutPoint]chan struct{}
 
 	// breachedContracts is a channel which is used internally within the
 	// struct to send the necessary information required to punish a
-	// counter-party once a channel breach is detected. Breach observers
+	// counterparty once a channel breach is detected. Breach observers
 	// use this to communicate with the main contractObserver goroutine.
 	breachedContracts chan *retributionInfo
 
-	// newContracts is a channel which is used by outside sub-systems to
+	// newContracts is a channel which is used by outside subsystems to
 	// notify the breachArbiter of a new contract (a channel) that should
 	// be watched.
 	newContracts chan *lnwallet.LightningChannel
 
-	// settledContracts is a channel by outside sub-subsystems to notify
+	// settledContracts is a channel by outside subsystems to notify
 	// the breachArbiter that a channel has peacefully been closed. Once a
 	// channel has been closed the arbiter no longer needs to watch for
 	// breach closes.
@@ -59,8 +59,8 @@ type breachArbiter struct {
 	wg      sync.WaitGroup
 }
 
-// newBreachArbiter creates a new instance of a breachArbiter initialize with
-// its dependant objects.
+// newBreachArbiter creates a new instance of a breachArbiter initialized with
+// its dependent objects.
 func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
 	notifier chainntnfs.ChainNotifier, h *htlcSwitch) *breachArbiter {
 
@@ -250,7 +250,7 @@ out:
 
 // exactRetribution is a goroutine which is executed once a contract breach has
 // been detected by a breachObserver. This function is responsible for
-// punishing a counter-party for violating the channel contract by sweeping ALL
+// punishing a counterparty for violating the channel contract by sweeping ALL
 // the lingering funds within the channel into the daemon's wallet.
 //
 // NOTE: This MUST be run as a goroutine.
@@ -259,7 +259,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 
 	defer b.wg.Done()
 
-	// TODO(roasbeef): state needs to be check-pointed here
+	// TODO(roasbeef): state needs to be checkpointed here
 
 	select {
 	case _, ok := <-confChan.Confirmed:
@@ -270,7 +270,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 		}
 
 		// Otherwise, if this is a real confirmation notification, then
-		// we fall through to complete out duty.
+		// we fall through to complete our duty.
 	case <-b.quit:
 		return
 	}
@@ -291,7 +291,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	}))
 
 	// Finally, broadcast the transaction, finalizing the channels'
-	// retribution against the cheating counter-party.
+	// retribution against the cheating counterparty.
 	if err := b.wallet.PublishTransaction(justiceTx); err != nil {
 		brarLog.Errorf("unable to broadcast "+
 			"justice tx: %v", err)
@@ -300,7 +300,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 
 	// As a conclusionary step, we register for a notification to be
 	// dispatched once the justice tx is confirmed. After confirmation we
-	// notify the caller that initiated the retribution work low that the
+	// notify the caller that initiated the retribution workflow that the
 	// deed has been done.
 	justiceTXID := justiceTx.TxHash()
 	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1)
@@ -316,7 +316,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			return
 		}
 
-		// TODO(roasbeef): factor in HTLC's
+		// TODO(roasbeef): factor in HTLCs
 		revokedFunds := breachInfo.revokedOutput.amt
 		totalFunds := revokedFunds + breachInfo.selfOutput.amt
 
@@ -338,7 +338,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 }
 
 // breachObserver notifies the breachArbiter contract observer goroutine that a
-// channel's contract has been breached by the prior counter party. Once
+// channel's contract has been breached by the prior counterparty. Once
 // notified the breachArbiter will attempt to sweep ALL funds within the
 // channel using the information provided within the BreachRetribution
 // generated due to the breach of channel contract. The funds will be swept
@@ -361,7 +361,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the
-	// information needed to bring the counter-party to justice.
+	// information needed to bring the counterparty to justice.
 	case breachInfo := <-contract.ContractBreach:
 		brarLog.Warnf("REVOKED STATE #%v FOR ChannelPoint(%v) "+
 			"broadcast, REMOTE PEER IS DOING SOMETHING "+
@@ -370,7 +370,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 		// Immediately notify the HTLC switch that this link has been
 		// breached in order to ensure any incoming or outgoing
-		// multi-hop HTLC's aren't sent over this link, nor any other
+		// multi-hop HTLCs aren't sent over this link, nor any other
 		// links associated with this peer.
 		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
 		if err := contract.DeleteState(); err != nil {
@@ -396,7 +396,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		}
 
 		// Next we create the witness generation function that will be
-		// used to sweep the cheating counter party's output by taking
+		// used to sweep the cheating counterparty's output by taking
 		// advantage of the revocation clause within the output's
 		// witness script.
 		remoteSignDesc := breachInfo.RemoteOutputSignDesc
@@ -438,7 +438,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 }
 
 // breachedOutput contains all the information needed to sweep a breached
-// output. A breach output is an output that were now entitled to due to a
+// output. A breached output is an output that we are now entitled to due to a
 // revoked commitment transaction being broadcast.
 type breachedOutput struct {
 	amt         btcutil.Amount
@@ -450,7 +450,7 @@ type breachedOutput struct {
 
 // retributionInfo encapsulates all the data needed to sweep all the contested
 // funds within a channel whose contract has been breached by the prior
-// counter-party. This struct is used by the utxoNursery to create the justice
+// counterparty. This struct is used by the utxoNursery to create the justice
 // transaction which spends all outputs of the commitment transaction into an
 // output controlled by the wallet.
 type retributionInfo struct {
@@ -468,7 +468,7 @@ type retributionInfo struct {
 
 // createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
 // the funds within the channel which we are now entitled to due to a breach of
-// the channel's contract by the counter-party. This function returns a *fully*
+// the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
 func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error) {
 	// First, we obtain a new public key script from the wallet which we'll
@@ -480,13 +480,13 @@ func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error)
 		return nil, err
 	}
 
-	// Before creating the actual TxOut, we'll need to calculate proper fee
+	// Before creating the actual TxOut, we'll need to calculate the proper fee
 	// to attach to the transaction to ensure a timely confirmation.
 	// TODO(roasbeef): remove hard-coded fee
 	totalAmt := r.selfOutput.amt + r.revokedOutput.amt
 	sweepedAmt := int64(totalAmt - 5000)
 
-	// With the fee calculate, we can now create the justice transaction
+	// With the fee calculated, we can now create the justice transaction
 	// using the information gathered above.
 	justiceTx := wire.NewMsgTx(2)
 	justiceTx.AddTxOut(&wire.TxOut{
@@ -504,9 +504,9 @@ func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error)
 
 	// Finally, using the witness generation functions attached to the
 	// retribution information, we'll populate the inputs with fully valid
-	// witnesses for both commitment outputs, and all the pending HTLC's at
+	// witnesses for both commitment outputs, and all the pending HTLCs at
 	// this state in the channel's history.
-	// TODO(roasbeef): handle the 2-layer HTLC's
+	// TODO(roasbeef): handle the 2-layer HTLCs
 	localWitness, err := r.selfOutput.witnessFunc(justiceTx, hashCache, 0)
 	if err != nil {
 		return nil, err

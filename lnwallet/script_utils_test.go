@@ -215,10 +215,10 @@ func makeWitnessTestCase(t *testing.T, f func() (wire.TxWitness, error)) func() 
 //
 // The following cases are exercised by this test:
 // sender script:
-//  * reciever spends
+//  * receiver spends
 //    * revoke w/ sig
-//    * HTLC with invalid pre-image size
-//    * HTLC with valid pre-image size + sig
+//    * HTLC with invalid preimage size
+//    * HTLC with valid preimage size + sig
 //  * sender spends
 //    * invalid lock-time for CLTV
 //    * invalid sequence for CSV
@@ -235,14 +235,14 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
-	// Generate a payment and revocation pre-image to be used below.
+	// Generate a payment and revocation preimage to be used below.
 	revokePreimage := testHdSeed[:]
 	revokeHash := fastsha256.Sum256(revokePreimage)
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
 	paymentHash := fastsha256.Sum256(paymentPreimage[:])
 
-	// We'll also need some tests keys for alice and bob, and meta-data of
+	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
@@ -302,18 +302,18 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			true,
 		},
 		{
-			// HTLC with invalid pre-image size
+			// HTLC with invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				return senderHtlcSpendRedeem(htlcScript, paymentAmt,
 					bobKeyPriv, sweepTx,
-					// Invalid pre-image length
+					// Invalid preimage length
 					bytes.Repeat([]byte{1}, 45))
 			}),
 			false,
 		},
 		{
-			// HTLC with valid pre-image size + sig
-			// TODO(roabeef): invalid pre-image
+			// HTLC with valid preimage size + sig
+			// TODO(roabeef): invalid preimage
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
 				return senderHtlcSpendRedeem(htlcScript, paymentAmt,
 					bobKeyPriv, sweepTx,
@@ -385,11 +385,11 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 }
 
 // TestHTLCReceiverSpendValidation tests all possible valid+invalid redemption
-// paths in the script used within the reciever's commitment transaction for an
+// paths in the script used within the receiver's commitment transaction for an
 // incoming HTLC.
 //
 // The following cases are exercised by this test:
-//  * reciever spends
+//  * receiver spends
 //     * HTLC redemption w/ invalid preimage size
 //     * HTLC redemption w/ invalid sequence
 //     * HTLC redemption w/ valid preimage size
@@ -407,14 +407,14 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
-	// Generate a payment and revocation pre-image to be used below.
+	// Generate a payment and revocation preimage to be used below.
 	revokePreimage := testHdSeed[:]
 	revokeHash := fastsha256.Sum256(revokePreimage)
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
 	paymentHash := fastsha256.Sum256(paymentPreimage[:])
 
-	// We'll also need some tests keys for alice and bob, and meta-data of
+	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
@@ -438,15 +438,15 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// This will be Bob's commitment transaction. In this scenario Alice
 	// is sending an HTLC to a node she has a a path to (could be Bob,
 	// could be multiple hops down, it doesn't really matter).
-	recieverCommitTx := wire.NewMsgTx(2)
-	recieverCommitTx.AddTxIn(fakeFundingTxIn)
-	recieverCommitTx.AddTxOut(&wire.TxOut{
+	receiverCommitTx := wire.NewMsgTx(2)
+	receiverCommitTx.AddTxIn(fakeFundingTxIn)
+	receiverCommitTx.AddTxOut(&wire.TxOut{
 		Value:    int64(paymentAmt),
 		PkScript: htlcWitnessScript,
 	})
 
 	prevOut := &wire.OutPoint{
-		Hash:  recieverCommitTx.TxHash(),
+		Hash:  receiverCommitTx.TxHash(),
 		Index: 0,
 	}
 

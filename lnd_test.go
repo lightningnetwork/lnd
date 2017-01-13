@@ -33,7 +33,7 @@ import (
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
 // and propagation. All error will be augmented with a full stack-trace in
-// order to aide in debugging. Additionally, any panics caused by active
+// order to aid in debugging. Additionally, any panics caused by active
 // test cases will also be handled and represented as fatals.
 type harnessTest struct {
 	t *testing.T
@@ -49,8 +49,8 @@ func newHarnessTest(t *testing.T) *harnessTest {
 	return &harnessTest{t, nil}
 }
 
-// Fatalf causes the current active test-case to fail with a fatal error. All
-// integration tests should mark test failures soley with this method due to
+// Fatalf causes the current active test case to fail with a fatal error. All
+// integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
@@ -63,7 +63,7 @@ func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 	}
 }
 
-// RunTestCase executes a harness test-case. Any errors or panics will be
+// RunTestCase executes a harness test case. Any errors or panics will be
 // represented as fatal.
 func (h *harnessTest) RunTestCase(testCase *testCase, net *networkHarness) {
 	h.testCase = testCase
@@ -516,7 +516,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
-	// pre-image.
+	// preimage.
 	const paymentAmt = 1000
 	preimage := bytes.Repeat([]byte("A"), 32)
 	invoice := &lnrpc.Invoice{
@@ -628,7 +628,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
-	// pre-image.
+	// preimage.
 	const paymentAmt = 1000
 	preimage := bytes.Repeat([]byte("B"), 32)
 	invoice := &lnrpc.Invoice{
@@ -870,7 +870,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 
 	select {
 	case <-time.After(time.Second * 10):
-		t.Fatalf("HTLC's not cleared after 10 seconds")
+		t.Fatalf("HTLCs not cleared after 10 seconds")
 	case <-finClear:
 	}
 

@@ -119,7 +119,7 @@ type SpendEvent struct {
 	Spend chan *SpendDetail // MUST be buffered.
 }
 
-// BlockEpoch represents meta-data concerning each new block connected to the
+// BlockEpoch represents metadata concerning each new block connected to the
 // main chain.
 type BlockEpoch struct {
 	Height int32

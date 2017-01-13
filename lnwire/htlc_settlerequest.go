@@ -12,7 +12,7 @@ import (
 // presented in order to support N-of-M HTLC contracts. A subsequent
 // CommitSignature message will be sent by Alice to "lock-in" the removal of the
 // specified HTLC, possible containing a batch signature covering several settled
-// HTLC's.
+// HTLCs.
 type HTLCSettleRequest struct {
 	// ChannelPoint references an active channel which holds the HTLC to be
 	// settled.

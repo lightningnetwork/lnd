@@ -23,7 +23,7 @@ type CommitRevocation struct {
 	// CommitRevocation applies to.
 	ChannelPoint *wire.OutPoint
 
-	// Revocation is the pre-image to the revocation hash of the now prior
+	// Revocation is the preimage to the revocation hash of the now prior
 	// commitment transaction.
 	//
 	// If the received revocation is the all zeroes hash ('0' * 32), then
@@ -41,7 +41,7 @@ type CommitRevocation struct {
 
 	// NextRevocationHash is the next revocation hash which should be added
 	// to the queue on unused revocation hashes for the remote peer. This
-	// revocation hash will be used within any HTLC's included within this
+	// revocation hash will be used within any HTLCs included within this
 	// next commitment transaction.
 	NextRevocationHash [32]byte
 }

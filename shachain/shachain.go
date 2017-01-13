@@ -36,13 +36,13 @@ type HyperShaChain struct {
 }
 
 // NewHyperShaChain
-//  * used to track their pre-images
+//  * used to track their preimages
 func New() *HyperShaChain {
 	return &HyperShaChain{lastChainIndex: 0, numValid: 0}
 }
 
 // NewHyperShaChainFromSeed...
-//  * used to derive your own pre-images
+//  * used to derive your own preimages
 func NewFromSeed(seed *[32]byte, deriveTo uint64) (*HyperShaChain, error) {
 	var shaSeed [32]byte
 
@@ -162,7 +162,7 @@ func (h *HyperShaChain) CurrentRevocationHash() []byte {
 // LocatePreImage...
 // Alice just broadcasted an old commitment tx, we need the revocation hash to
 // claim the funds so we don't get cheated. However, we aren't storing all the
-// pre-images in memory. So which shachain index # did she broadcast?
+// preimages in memory. So which shachain index # did she broadcast?
 func (h *HyperShaChain) LocatePreImage(outputScript []byte) (uint64, *[32]byte) {
 	// TODO(roasbeef): parallel goroutine divide and conquer?
 	//  * need to know which side it is? also proper keys?

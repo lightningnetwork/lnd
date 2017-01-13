@@ -72,7 +72,7 @@ func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 	return block, nil
 }
 
-// GetBlockHash returns the hash of the block in the best block chain at the
+// GetBlockHash returns the hash of the block in the best blockchain at the
 // given height.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.

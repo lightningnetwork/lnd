@@ -12,20 +12,20 @@ import (
 )
 
 var (
-	// nodeInfoBucket stores meta-data pertaining to nodes that we've had
+	// nodeInfoBucket stores metadata pertaining to nodes that we've had
 	// direct channel-based correspondence with. This bucket allows one to
 	// query for all open channels pertaining to the node by exploring each
 	// node's sub-bucket within the openChanBucket.
 	nodeInfoBucket = []byte("nib")
 )
 
-// LinkNode stores meta-data related to node's that we have/had a direct
+// LinkNode stores metadata related to node's that we have/had a direct
 // channel open with. Information such as the Bitcoin network the node
 // advertised, and its identity public key are also stored. Additionally, this
 // struct and the bucket its stored within have store data similar to that of
 // Bitcion's addrmanager. The TCP address information stored within the struct
 // can be used to establish persistent connections will all channel
-// counter-parties on daemon startup.
+// counterparties on daemon startup.
 //
 // TODO(roasbeef): also add current OnionKey plus rotation schedule?
 // TODO(roasbeef): add bitfield for supported services
@@ -123,7 +123,7 @@ func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
 		return err
 	}
 
-	// Finally insert the link-node into the node meta-data bucket keyed
+	// Finally insert the link-node into the node metadata bucket keyed
 	// according to the its pubkey serialized in compressed form.
 	nodePub := l.IdentityPub.SerializeCompressed()
 	return nodeMetaBucket.Put(nodePub, b.Bytes())
@@ -139,7 +139,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 	)
 
 	err = db.View(func(tx *bolt.Tx) error {
-		// First fetch the bucket for storing node meta-data, bailing
+		// First fetch the bucket for storing node metadata, bailing
 		// out early if it hasn't been created yet.
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
 		if nodeMetaBucket == nil {

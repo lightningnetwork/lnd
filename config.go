@@ -72,7 +72,7 @@ type config struct {
 	SPVHostAdr         string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
 	TestNet3           bool   `long:"testnet" description:"Use the test network"`
 	SimNet             bool   `long:"simnet" description:"Use the simulation test network"`
-	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLC's sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 }
 
@@ -150,7 +150,7 @@ func loadConfig() (*config, error) {
 
 	// Multiple networks can't be selected simultaneously.
 	// Count number of network flags passed; assign active network params
-	// while we're at it
+	// while we're at it.
 	numNets := 0
 	if cfg.TestNet3 {
 		numNets++
@@ -167,7 +167,7 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Validate profile port number
+	// Validate profile port number.
 	if cfg.Profile != "" {
 		profilePort, err := strconv.Atoi(cfg.Profile)
 		if err != nil || profilePort < 1024 || profilePort > 65535 {
@@ -218,7 +218,7 @@ func cleanAndExpandPath(path string) string {
 	}
 
 	// NOTE: The os.ExpandEnv doesn't work with Windows-style %VARIABLE%,
-	// but they variables can still be expanded via POSIX-style $VARIABLE.
+	// but the variables can still be expanded via POSIX-style $VARIABLE.
 	return filepath.Clean(os.ExpandEnv(path))
 }
 

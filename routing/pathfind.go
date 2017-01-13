@@ -30,7 +30,7 @@ type Route struct {
 	// route. This is the CLTV value that should be extended to the first
 	// hop in the route. All other hops will decrement the time-lock as
 	// advertised, leaving enough time for all hops to wait for or present
-	// the payment pre-image to complete the payment.
+	// the payment preimage to complete the payment.
 	TotalTimeLock uint32
 
 	// TotalFees is the sum of the fees paid at each hop within the final

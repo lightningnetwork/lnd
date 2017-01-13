@@ -23,6 +23,16 @@ var (
 	SequenceLockTimeSeconds      = uint32(1 << 22)
 	SequenceLockTimeMask         = uint32(0x0000ffff)
 	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
+
+	// TimelockShift is used to make sure the commitment transaction is
+	// spendable by setting the locktime with it so that it is larger than
+	// 500,000,000, thus interpreting it as Unix epoch timestamp and not
+	// a block height. It is also smaller than the current timestamp which
+	// has bit (1 << 30) set, so there is no risk of having the commitment
+	// transaction be rejected. This way we can safely use the lower 24 bits
+	// of the locktime field for part of the obscured commitment transaction
+	// number.
+	TimelockShift = uint32(1 << 29)
 )
 
 const (
@@ -807,7 +817,7 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	// Set the height bit of the sequence number in order to disable any
 	// sequence locks semantics.
 	commitTx.TxIn[0].Sequence = uint32(stateNum>>24) | wire.SequenceLockTimeDisabled
-	commitTx.LockTime = uint32(stateNum & 0xFFFFFF)
+	commitTx.LockTime = uint32(stateNum&0xFFFFFF) | TimelockShift
 
 	return nil
 }

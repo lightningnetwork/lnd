@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
@@ -602,6 +603,7 @@ func TestCommitTxStateHint(t *testing.T) {
 
 	var obsfucator [StateHintSize]byte
 	copy(obsfucator[:], testHdSeed[:StateHintSize])
+	timeYesterday := uint32(time.Now().Unix() - 24*60*60)
 
 	for _, test := range stateHintTests {
 		commitTx := wire.NewMsgTx(2)
@@ -619,6 +621,25 @@ func TestCommitTxStateHint(t *testing.T) {
 				t.Fatalf("unable to set state num %v: %v", i, err)
 			} else if err == nil && test.shouldFail {
 				t.Fatalf("Failed(%v): test should fail but did not", test.name)
+			}
+
+			locktime := commitTx.LockTime
+			sequence := commitTx.TxIn[0].Sequence
+
+			// Locktime should not be less than 500,000,000 and not larger
+			// than the time 24 hours ago. One day should provide a good
+			// enough buffer for the tests.
+			if locktime < 5e8 || locktime > timeYesterday {
+				if !test.shouldFail {
+					t.Fatalf("The value of locktime (%v) may cause the commitment "+
+						"transaction to be unspendable", locktime)
+				}
+			}
+
+			if sequence&wire.SequenceLockTimeDisabled == 0 {
+				if !test.shouldFail {
+					t.Fatalf("Sequence locktime is NOT disabled when it should be")
+				}
 			}
 
 			extractedStateNum := GetStateNumHint(commitTx, obsfucator)

@@ -2,6 +2,7 @@ package sphinx
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
@@ -473,7 +474,14 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 	return &Router{
 		nodeID:   nodeID,
 		nodeAddr: nodeAddr,
-		onionKey: nodeKey,
+		onionKey: &btcec.PrivateKey{
+			PublicKey: ecdsa.PublicKey{
+				Curve: btcec.S256(),
+				X:     nodeKey.X,
+				Y:     nodeKey.Y,
+			},
+			D: nodeKey.D,
+		},
 		// TODO(roasbeef): replace instead with bloom filter?
 		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
 		seenSecrets: make(map[[sharedSecretSize]byte]struct{}),
@@ -518,7 +526,6 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	// Using the derived shared secret, ensure the integrity of the routing
 	// information by checking the attached MAC without leaking timing
 	// information.
-
 	message := append(append(routeInfo[:], mixHeader.HopPayload[:]...), assocData...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {

@@ -1312,6 +1312,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 
 	// Ensure that the newly constructed commitment state has a valid
 	// signature.
+	theirMultiSigKey.Curve = btcec.S256()
 	sig, err := btcec.ParseSignature(rawSig, btcec.S256())
 	if err != nil {
 		return err

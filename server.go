@@ -90,6 +90,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, err
 	}
+	privKey.Curve = btcec.S256()
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {

@@ -600,6 +600,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, err
 	}
 
+	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:     hex.EncodeToString(idPub),
 		NumPendingChannels: pendingChannels,
@@ -1710,4 +1711,30 @@ func (r *rpcServer) DeleteAllPayments(context.Context,
 // SetAlias...
 func (r *rpcServer) SetAlias(context.Context, *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
 	return nil, nil
+}
+
+// DebugLevel allows a caller to programmatically set the logging verbosity of
+// lnd. The logging can be targeted according to a coarse daemon-wide logging
+// level, or in a granular fashion to specify the logging for a target
+// sub-system.
+func (r *rpcServer) DebugLevel(ctx context.Context,
+	req *lnrpc.DebugLevelRequest) (*lnrpc.DebugLevelResponse, error) {
+
+	// If show is set, then we simply print out the list of available
+	// sub-systems.
+	if req.Show {
+		return &lnrpc.DebugLevelResponse{
+			SubSystems: strings.Join(supportedSubsystems(), " "),
+		}, nil
+	}
+
+	rpcsLog.Infof("[debuglevel] changing debug level to: %v", req.LevelSpec)
+
+	// Otherwise, we'll attempt to set the logging level using the
+	// specified level spec.
+	if err := parseAndSetDebugLevels(req.LevelSpec); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.DebugLevelResponse{}, nil
 }

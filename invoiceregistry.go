@@ -151,6 +151,8 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 			return
 		}
 
+		ltndLog.Infof("Payment received: %v", spew.Sdump(invoice))
+
 		i.notifyClients(invoice, true)
 	}()
 

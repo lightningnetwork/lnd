@@ -1,9 +1,6 @@
 package lnwire
 
-import (
-	"fmt"
-	"io"
-)
+import "io"
 
 // SingleFundingOpenProof is the message sent by the channel initiator to the
 // responder after the previously constructed funding transaction has achieved
@@ -92,14 +89,4 @@ func (s *SingleFundingOpenProof) MaxPayloadLength(uint32) uint32 {
 func (s *SingleFundingOpenProof) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the SingleFundingOpenProof.
-//
-// This is part of the lnwire.Message interface.
-func (s *SingleFundingOpenProof) String() string {
-	return fmt.Sprintf("\n--- Begin SingleFundingOpenProof ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", s.ChannelID) +
-		fmt.Sprintf("ChanChainID\t\t%s\n", s.ChanChainID.ToUint64()) +
-		fmt.Sprintf("--- End SingleFundingOpenProof ---\n")
 }

@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
@@ -90,14 +89,4 @@ func (c *HTLCAddReject) MaxPayloadLength(uint32) uint32 {
 func (c *HTLCAddReject) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target HTLCAddReject.
-//
-// This is part of the lnwire.Message interface.
-func (c *HTLCAddReject) String() string {
-	return fmt.Sprintf("\n--- Begin HTLCAddReject ---\n") +
-		fmt.Sprintf("ChannelPoint:\t\t%d\n", c.ChannelPoint) +
-		fmt.Sprintf("HTLCKey:\t\t%d\n", c.HTLCKey) +
-		fmt.Sprintf("--- End HTLCAddReject ---\n")
 }

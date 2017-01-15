@@ -66,7 +66,6 @@ type Message interface {
 	Command() uint32
 	MaxPayloadLength(uint32) uint32
 	Validate() error
-	String() string
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type

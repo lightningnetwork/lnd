@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -120,19 +119,4 @@ func (c *CommitRevocation) MaxPayloadLength(uint32) uint32 {
 func (c *CommitRevocation) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target CommitRevocation.
-//
-// This is part of the lnwire.Message interface.
-// TODO(roasbeef): remote all String() methods...spew should be used instead.
-func (c *CommitRevocation) String() string {
-	keySer := c.NextRevocationKey.SerializeCompressed()
-
-	return fmt.Sprintf("\n--- Begin CommitRevocation ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("Revocation:\t%x\n", c.Revocation) +
-		fmt.Sprintf("NextRevocationKey:\t%x\n", keySer) +
-		fmt.Sprintf("NextRevocationHash:\t%x\n", c.NextRevocationHash) +
-		fmt.Sprintf("--- End CommitRevocation ---\n")
 }

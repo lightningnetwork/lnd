@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
@@ -106,22 +105,4 @@ func (c *HTLCSettleRequest) MaxPayloadLength(uint32) uint32 {
 func (c *HTLCSettleRequest) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target HTLCSettleRequest.
-//
-// This is part of the lnwire.Message interface.
-func (c *HTLCSettleRequest) String() string {
-	var redemptionProofs string
-	for i, rh := range c.RedemptionProofs {
-		redemptionProofs += fmt.Sprintf("\n\tSlice\t%d\n", i)
-		redemptionProofs += fmt.Sprintf("\t\tRedemption Proof: %x\n", rh)
-	}
-
-	return fmt.Sprintf("\n--- Begin HTLCSettleRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("HTLCKey:\t%d\n", c.HTLCKey) +
-		fmt.Sprintf("RedemptionHashes:") +
-		redemptionProofs +
-		fmt.Sprintf("--- End HTLCSettleRequest ---\n")
 }

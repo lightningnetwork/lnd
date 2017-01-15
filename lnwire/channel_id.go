@@ -14,8 +14,7 @@ type ChannelID struct {
 	// NOTE: This field is limited to 3 bytes.
 	TxIndex uint32
 
-	// TxPosition indicating transaction output which pays to the
-	// channel.
+	// TxPosition indicating transaction output which pays to the channel.
 	TxPosition uint16
 }
 

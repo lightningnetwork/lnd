@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 
 	"github.com/go-errors/errors"
@@ -172,23 +171,6 @@ func (c *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	length += 33
 
 	return length
-}
-
-// String returns the string representation of the target ChannelAnnouncement.
-//
-// This is part of the lnwire.Message interface.
-func (c *ChannelAnnouncement) String() string {
-	return fmt.Sprintf("\n--- Begin ChannelAnnouncement ---\n") +
-		fmt.Sprintf("FirstNodeSig:\t\t%v\n", c.FirstNodeSig) +
-		fmt.Sprintf("SecondNodeSig:\t\t%v\n", c.SecondNodeSig) +
-		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.ToUint64()) +
-		fmt.Sprintf("FirstBitcoinSig:\t\t%v\n", c.FirstBitcoinSig) +
-		fmt.Sprintf("SecondBitcoinSig:\t\t%v\n", c.SecondBitcoinSig) +
-		fmt.Sprintf("FirstNodeSig:\t\t%v\n", c.FirstNodeSig) +
-		fmt.Sprintf("SecondNodeID:\t\t%v\n", c.SecondNodeID) +
-		fmt.Sprintf("FirstBitcoinKey:\t\t%v\n", c.FirstBitcoinKey) +
-		fmt.Sprintf("SecondBitcoinKey:\t\t%v\n", c.SecondBitcoinKey) +
-		fmt.Sprintf("--- End ChannelAnnouncement ---\n")
 }
 
 // DataToSign is used to retrieve part of the announcement message which

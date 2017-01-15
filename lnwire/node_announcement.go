@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net"
 
@@ -210,20 +209,6 @@ func (c *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 
 	// 158
 	return length
-}
-
-// String returns the string representation of the target NodeAnnouncement.
-//
-// This is part of the lnwire.Message interface.
-func (c *NodeAnnouncement) String() string {
-	return fmt.Sprintf("\n--- Begin NodeAnnouncement ---\n") +
-		fmt.Sprintf("Signature:\t\t%v\n", c.Signature) +
-		fmt.Sprintf("Timestamp:\t\t%v\n", c.Timestamp) +
-		fmt.Sprintf("Address:\t\t%v\n", c.Address.String()) +
-		fmt.Sprintf("NodeID:\t\t%v\n", c.NodeID) +
-		fmt.Sprintf("RGBColor:\t\t%v\n", c.RGBColor) +
-		fmt.Sprintf("Alias:\t\t%v\n", c.Alias) +
-		fmt.Sprintf("--- End NodeAnnouncement ---\n")
 }
 
 // dataToSign...

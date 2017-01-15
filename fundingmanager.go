@@ -397,8 +397,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	}
 	contribution := &lnwallet.ChannelContribution{
 		FundingAmount:   amt,
-		MultiSigKey:     msg.ChannelDerivationPoint,
-		CommitKey:       msg.CommitmentKey,
+		MultiSigKey:     copyPubKey(msg.ChannelDerivationPoint),
+		CommitKey:       copyPubKey(msg.CommitmentKey),
 		DeliveryAddress: addrs[0],
 		CsvDelay:        delay,
 	}
@@ -464,10 +464,10 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	}
 	contribution := &lnwallet.ChannelContribution{
 		FundingAmount:   0,
-		MultiSigKey:     msg.ChannelDerivationPoint,
-		CommitKey:       msg.CommitmentKey,
+		MultiSigKey:     copyPubKey(msg.ChannelDerivationPoint),
+		CommitKey:       copyPubKey(msg.CommitmentKey),
 		DeliveryAddress: addrs[0],
-		RevocationKey:   msg.RevocationKey,
+		RevocationKey:   copyPubKey(msg.RevocationKey),
 		CsvDelay:        msg.CsvDelay,
 	}
 	if err := resCtx.reservation.ProcessContribution(contribution); err != nil {
@@ -534,7 +534,7 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 		chanID, fundingOut,
 	)
 
-	revokeKey := fmsg.msg.RevocationKey
+	revokeKey := copyPubKey(fmsg.msg.RevocationKey)
 	obsfucator := fmsg.msg.StateHintObsfucator
 	commitSig := fmsg.msg.CommitSignature.Serialize()
 
@@ -1033,4 +1033,12 @@ func (f *fundingManager) getReservationCtx(peerID int32,
 	}
 
 	return resCtx, nil
+}
+
+func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
+	return &btcec.PublicKey{
+		Curve: btcec.S256(),
+		X:     pub.X,
+		Y:     pub.Y,
+	}
 }

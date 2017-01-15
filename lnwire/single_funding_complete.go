@@ -142,21 +142,3 @@ func (s *SingleFundingComplete) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the SingleFundingResponse.
-//
-// This is part of the lnwire.Message interface.
-func (s *SingleFundingComplete) String() string {
-	var rk []byte
-	if s.RevocationKey != nil {
-		rk = s.RevocationKey.SerializeCompressed()
-	}
-
-	return fmt.Sprintf("\n--- Begin SingleFundingComplete ---\n") +
-		fmt.Sprintf("ChannelID:\t\t\t%d\n", s.ChannelID) +
-		fmt.Sprintf("FundingOutPoint:\t\t\t%x\n", s.FundingOutPoint) +
-		fmt.Sprintf("CommitSignature\t\t\t\t%x\n", s.CommitSignature) +
-		fmt.Sprintf("RevocationKey\t\t\t\t%x\n", rk) +
-		fmt.Sprintf("StateHintObsfucator\t\t\t%x\n", s.StateHintObsfucator) +
-		fmt.Sprintf("--- End SingleFundingComplete ---\n")
-}

@@ -3,7 +3,6 @@ package lnwire
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -150,22 +149,6 @@ func (c *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	length += 4
 
 	return length
-}
-
-// String returns the string representation of the target ChannelUpdateAnnouncement.
-//
-// This is part of the lnwire.Message interface.
-func (c *ChannelUpdateAnnouncement) String() string {
-	return fmt.Sprintf("\n--- Begin ChannelUpdateAnnouncement ---\n") +
-		fmt.Sprintf("Signature:\t\t%v\n", c.Signature) +
-		fmt.Sprintf("ChannelID:\t\t%v\n", c.ChannelID.ToUint64()) +
-		fmt.Sprintf("Timestamp:\t\t%v\n", c.Timestamp) +
-		fmt.Sprintf("Flags:\t\t%v\n", c.Flags) +
-		fmt.Sprintf("Expiry:\t\t%v\n", c.Expiry) +
-		fmt.Sprintf("HtlcMinimumMstat:\t\t%v\n", c.HtlcMinimumMstat) +
-		fmt.Sprintf("FeeBaseMstat:\t\t%v\n", c.FeeBaseMstat) +
-		fmt.Sprintf("FeeProportionalMillionths:\t\t%v\n", c.FeeProportionalMillionths) +
-		fmt.Sprintf("--- End ChannelUpdateAnnouncement ---\n")
 }
 
 // DataToSign is used to retrieve part of the announcement message which

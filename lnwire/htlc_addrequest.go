@@ -25,10 +25,7 @@ type HTLCAddRequest struct {
 	// sufficient expiry value to allow her to redeem the incmoing HTLC.
 	Expiry uint32
 
-	// Amount to pay in the hop
-	// Difference between hop and first item in blob is the fee to complete
-
-	// Amount is the number of credits this HTLC is worth.
+	// Amount of BTC that the HTLC is worth.
 	Amount btcutil.Amount
 
 	// RefundContext is for payment cancellation
@@ -147,25 +144,4 @@ func (c *HTLCAddRequest) Validate() error {
 	}
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target HTLCAddRequest.
-//
-// This is part of the lnwire.Message interface.
-func (c *HTLCAddRequest) String() string {
-	var redemptionHashes string
-	for i, rh := range c.RedemptionHashes {
-		redemptionHashes += fmt.Sprintf("\n\tSlice\t%d\n", i)
-		redemptionHashes += fmt.Sprintf("\t\tRedemption Hash: %x\n", rh)
-	}
-
-	return fmt.Sprintf("\n--- Begin HTLCAddRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
-		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
-		fmt.Sprintf("ContractType:\t%d (%b)\n", c.ContractType, c.ContractType) +
-		fmt.Sprintf("RedemptionHashes:") +
-		redemptionHashes +
-		fmt.Sprintf("OnionBlob:\t\t\t\t%x\n", c.OnionBlob) +
-		fmt.Sprintf("--- End HTLCAddRequest ---\n")
 }

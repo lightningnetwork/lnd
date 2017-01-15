@@ -119,20 +119,3 @@ func (c *CommitSignature) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the target CommitSignature.
-//
-// This is part of the lnwire.Message interface.
-func (c *CommitSignature) String() string {
-	var serializedSig []byte
-	if c.CommitSig != nil {
-		serializedSig = c.CommitSig.Serialize()
-	}
-
-	return fmt.Sprintf("\n--- Begin CommitSignature ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("LogIndex:\t\t%v\n", c.LogIndex) +
-		fmt.Sprintf("Fee:\t\t\t%s\n", c.Fee.String()) +
-		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
-		fmt.Sprintf("--- End CommitSignature ---\n")
-}

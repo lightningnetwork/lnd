@@ -29,8 +29,8 @@ type CloseRequest struct {
 	RequesterCloseSig *btcec.Signature
 
 	// Fee is the required fee-per-KB the closing transaction must have.
-	// It is recommended that a "sufficient" fee be paid in order to achieve
-	// timely channel closure.
+	// It is recommended that a "sufficient" fee be paid in order to
+	// achieve timely channel closure.
 	// TODO(roasbeef): if initiator always pays fees, then no longer needed.
 	Fee btcutil.Amount
 }
@@ -116,20 +116,4 @@ func (c *CloseRequest) Validate() error {
 
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target CloseRequest.
-//
-// This is part of the lnwire.Message interface.
-func (c *CloseRequest) String() string {
-	var serializedSig []byte
-	if c.RequesterCloseSig != nil && c.RequesterCloseSig.R != nil {
-		serializedSig = c.RequesterCloseSig.Serialize()
-	}
-
-	return fmt.Sprintf("\n--- Begin CloseRequest ---\n") +
-		fmt.Sprintf("ChannelPoint:\t\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("CloseSig\t\t%x\n", serializedSig) +
-		fmt.Sprintf("Fee:\t\t\t%d\n", c.Fee) +
-		fmt.Sprintf("--- End CloseRequest ---\n")
 }

@@ -236,28 +236,3 @@ func (c *SingleFundingRequest) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the SingleFundingRequest.
-//
-// This is part of the lnwire.Message interface.
-func (c *SingleFundingRequest) String() string {
-	var serializedPubkey []byte
-	if &c.ChannelDerivationPoint != nil && c.ChannelDerivationPoint.X != nil {
-		serializedPubkey = c.ChannelDerivationPoint.SerializeCompressed()
-	}
-
-	// TODO(roasbeef): remove string methods?
-
-	return fmt.Sprintf("\n--- Begin SingleFundingRequest ---\n") +
-		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("ChannelType:\t\t\t%x\n", c.ChannelType) +
-		fmt.Sprintf("CoinType:\t\t\t%d\n", c.CoinType) +
-		fmt.Sprintf("FeePerKb:\t\t\t%s\n", c.FeePerKb.String()) +
-		fmt.Sprintf("FundingAmount:\t\t\t%s\n", c.FundingAmount.String()) +
-		fmt.Sprintf("PushSatoshis:\t\t%v\n", c.PushSatoshis) +
-		fmt.Sprintf("CsvDelay:\t\t\t%d\n", c.CsvDelay) +
-		fmt.Sprintf("ChannelDerivationPoint:\t\t\t%x\n", serializedPubkey) +
-		fmt.Sprintf("DeliveryPkScript:\t\t\t%x\n", c.DeliveryPkScript) +
-		fmt.Sprintf("DustLimit:\t\t\t%d\n", c.DustLimit) +
-		fmt.Sprintf("--- End SingleFundingRequest ---\n")
-}

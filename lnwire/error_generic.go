@@ -128,15 +128,3 @@ func (c *ErrorGeneric) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the target ErrorGeneric.
-//
-// This is part of the lnwire.Message interface.
-func (c *ErrorGeneric) String() string {
-	return fmt.Sprintf("\n--- Begin ErrorGeneric ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
-		fmt.Sprintf("Code:\t%d\n", c.Code) +
-		fmt.Sprintf("Problem:\t%s\n", c.Problem) +
-		fmt.Sprintf("PendingChannelID:\t%s\n", c.PendingChannelID) +
-		fmt.Sprintf("--- End ErrorGeneric ---\n")
-}

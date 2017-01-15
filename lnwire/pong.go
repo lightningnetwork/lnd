@@ -1,9 +1,6 @@
 package lnwire
 
-import (
-	"fmt"
-	"io"
-)
+import "io"
 
 // Ping defines a message which is sent by peers periodically to determine if
 // the connection is still valid. Each ping message should carry a unique nonce
@@ -76,11 +73,4 @@ func (p Ping) MaxPayloadLength(uint32) uint32 {
 // This is part of the lnwire.Message interface.
 func (p *Ping) Validate() error {
 	return nil
-}
-
-// String returns the string representation of the target Ping.
-//
-// This is part of the lnwire.Message interface.
-func (p *Ping) String() string {
-	return fmt.Sprintf("Ping(%v)", p.Nonce)
 }

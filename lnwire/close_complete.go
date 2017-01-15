@@ -1,8 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
-
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 
@@ -96,19 +94,4 @@ func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
 func (c *CloseComplete) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target CloseComplete.
-//
-// This is part of the lnwire.Message interface.
-func (c *CloseComplete) String() string {
-	var serializedSig []byte
-	if c.ResponderCloseSig != nil {
-		serializedSig = c.ResponderCloseSig.Serialize()
-	}
-
-	return fmt.Sprintf("\n--- Begin CloseComplete ---\n") +
-		fmt.Sprintf("ReservationID:\t\t%d\n", c.ChannelPoint) +
-		fmt.Sprintf("ResponderCloseSig:\t%x\n", serializedSig) +
-		fmt.Sprintf("--- End CloseComplete ---\n")
 }

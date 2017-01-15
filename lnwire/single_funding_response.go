@@ -180,31 +180,3 @@ func (c *SingleFundingResponse) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the SingleFundingResponse.
-//
-// This is part of the lnwire.Message interface.
-func (c *SingleFundingResponse) String() string {
-	var cdp []byte
-	var ck []byte
-	var rk []byte
-	if &c.ChannelDerivationPoint != nil {
-		cdp = c.ChannelDerivationPoint.SerializeCompressed()
-	}
-	if &c.CommitmentKey != nil {
-		ck = c.CommitmentKey.SerializeCompressed()
-	}
-	if &c.RevocationKey != nil {
-		rk = c.RevocationKey.SerializeCompressed()
-	}
-
-	return fmt.Sprintf("\n--- Begin SingleFundingResponse ---\n") +
-		fmt.Sprintf("ChannelID:\t\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("ChannelDerivationPoint:\t\t\t\t%x\n", cdp) +
-		fmt.Sprintf("CommitmentKey:\t\t\t\t%x\n", ck) +
-		fmt.Sprintf("RevocationKey:\t\t\t\t%x\n", rk) +
-		fmt.Sprintf("CsvDelay:\t\t%d\n", c.CsvDelay) +
-		fmt.Sprintf("DeliveryPkScript:\t\t%x\n", c.DeliveryPkScript) +
-		fmt.Sprintf("DustLimit:\t\t\t%d\n", c.DustLimit) +
-		fmt.Sprintf("--- End SingleFundingResponse ---\n")
-}

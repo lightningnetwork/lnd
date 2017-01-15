@@ -345,9 +345,7 @@ func (p *peer) readNextMessage() (lnwire.Message, []byte, error) {
 	}
 
 	// TODO(roasbeef): add message summaries
-	peerLog.Tracef("readMessage from %v: %v", p, newLogClosure(func() string {
-		return spew.Sdump(nextMsg)
-	}))
+	p.logWireMessage(nextMsg, true)
 
 	return nextMsg, rawPayload, nil
 }
@@ -455,6 +453,43 @@ out:
 	peerLog.Tracef("readHandler for peer %v done", p)
 }
 
+// logWireMessage logs the receipt or sending of particular wire message. This
+// function is used rather than just logging the message in order to produce
+// less spammy log messages in trace mode by setting the 'Curve" parameter to
+// nil. Doing this avoids printing out each of the field elements in the curve
+// parameters for secp256k1.
+func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
+	switch m := msg.(type) {
+	case *lnwire.CommitRevocation:
+		m.NextRevocationKey.Curve = nil
+	case *lnwire.NodeAnnouncement:
+		m.NodeID.Curve = nil
+	case *lnwire.ChannelAnnouncement:
+		m.FirstNodeID.Curve = nil
+		m.SecondNodeID.Curve = nil
+		m.FirstBitcoinKey.Curve = nil
+		m.SecondBitcoinKey.Curve = nil
+	case *lnwire.SingleFundingComplete:
+		m.RevocationKey.Curve = nil
+	case *lnwire.SingleFundingRequest:
+		m.CommitmentKey.Curve = nil
+		m.ChannelDerivationPoint.Curve = nil
+	case *lnwire.SingleFundingResponse:
+		m.ChannelDerivationPoint.Curve = nil
+		m.CommitmentKey.Curve = nil
+		m.RevocationKey.Curve = nil
+	}
+
+	prefix := "readMessage"
+	if !read {
+		prefix = "writeMessage"
+	}
+
+	peerLog.Tracef(prefix+" to %v: %v", p, newLogClosure(func() string {
+		return spew.Sdump(msg)
+	}))
+}
+
 // writeMessage writes the target lnwire.Message to the remote peer.
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
@@ -463,9 +498,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	}
 
 	// TODO(roasbeef): add message summaries
-	peerLog.Tracef("writeMessage to %v: %v", p, newLogClosure(func() string {
-		return spew.Sdump(msg)
-	}))
+	p.logWireMessage(msg, false)
 
 	n, err := lnwire.WriteMessage(p.conn, msg, 0, p.addr.ChainNet)
 	atomic.AddUint64(&p.bytesSent, uint64(n))

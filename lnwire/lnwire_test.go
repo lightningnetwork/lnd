@@ -1,11 +1,7 @@
 package lnwire
 
 import (
-	"bytes"
 	"encoding/hex"
-	"io/ioutil"
-	"reflect"
-	"testing"
 
 	"net"
 
@@ -117,71 +113,3 @@ var (
 		blue:  255,
 	}
 )
-
-func SerializeTest(t *testing.T, message Message, expectedString string, filename string) *bytes.Buffer {
-	var err error
-
-	b := new(bytes.Buffer)
-	err = message.Encode(b, 0)
-
-	if err != nil {
-		t.Errorf(err.Error())
-	} else {
-		t.Logf("Encoded Bytes: %x\n", b.Bytes())
-		// Check if we serialized correctly
-		if expectedString != hex.EncodeToString(b.Bytes()) {
-			t.Error("Serialization does not match expected")
-		}
-
-		// So I can do: hexdump -C /dev/shm/fundingRequest.raw
-		if WRITE_FILE {
-			err = ioutil.WriteFile(filename, b.Bytes(), 0644)
-			if err != nil {
-				t.Error(err.Error())
-			}
-		}
-	}
-	return b
-}
-
-func DeserializeTest(t *testing.T, buf *bytes.Buffer, message Message, originalMessage Message) {
-	var err error
-	// Make a new buffer just to be clean
-	c := new(bytes.Buffer)
-	c.Write(buf.Bytes())
-
-	err = message.Decode(c, 0)
-	if err != nil {
-		t.Error("Decoding Error")
-		t.Error(err.Error())
-	} else {
-		if !reflect.DeepEqual(message, originalMessage) {
-			t.Error("Decoding does not match!")
-		}
-		// Show the struct
-		t.Log(message.String())
-	}
-}
-
-func MessageSerializeDeserializeTest(t *testing.T, message Message, expectedString string) {
-	var err error
-
-	b := new(bytes.Buffer)
-	_, err = WriteMessage(b, message, uint32(1), wire.TestNet3)
-	t.Logf("%x\n", b.Bytes())
-	if hex.EncodeToString(b.Bytes()) != expectedString {
-		t.Error("Message encoding error")
-	}
-	// Deserialize/Decode
-	c := new(bytes.Buffer)
-	c.Write(b.Bytes())
-	_, newMsg, _, err := ReadMessage(c, uint32(1), wire.TestNet3)
-	if err != nil {
-		t.Errorf(err.Error())
-	} else {
-		if !reflect.DeepEqual(newMsg, message) {
-			t.Error("Message decoding does not match!")
-		}
-		t.Logf(newMsg.String())
-	}
-}

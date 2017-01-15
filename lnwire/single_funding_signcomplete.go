@@ -96,13 +96,3 @@ func (s *SingleFundingSignComplete) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the SingleFundingSignComplete.
-//
-// This is part of the lnwire.Message interface.
-func (c *SingleFundingSignComplete) String() string {
-	return fmt.Sprintf("\n--- Begin FundingSignComplete ---\n") +
-		fmt.Sprintf("ChannelID:\t\t%d\n", c.ChannelID) +
-		fmt.Sprintf("CommitSignature\t\t%s\n", c.CommitSignature) +
-		fmt.Sprintf("--- End FundingSignComplete ---\n")
-}

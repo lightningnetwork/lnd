@@ -87,8 +87,37 @@ func (b *breachArbiter) Start() error {
 
 	brarLog.Tracef("Starting breach aribter")
 
+	// First we need to query that database state for all currently active
+	// channels, each of these channels will need a goroutine assigned to
+	// it to watch for channel breaches.
+	activeChannels, err := b.db.FetchAllChannels()
+	if err != nil && err != channeldb.ErrNoActiveChannels {
+		brarLog.Errorf("unable to fetch active channels")
+		return err
+	}
+
+	if len(activeChannels) > 0 {
+		brarLog.Infof("Retrieved %v channels from database, watching "+
+			"with vigilance!", len(activeChannels))
+	}
+
+	// For each of the channels read from disk, we'll create a channel
+	// state machine in order to watch for any potential channel closures.
+	channelsToWatch := make([]*lnwallet.LightningChannel,
+		len(activeChannels))
+	for i, chanState := range activeChannels {
+		channel, err := lnwallet.NewLightningChannel(nil, nil,
+			b.notifier, chanState)
+		if err != nil {
+			brarLog.Errorf("unable to load channel from disk")
+			return err
+		}
+
+		channelsToWatch[i] = channel
+	}
+
 	b.wg.Add(1)
-	go b.contractObserver()
+	go b.contractObserver(channelsToWatch)
 
 	return nil
 }
@@ -117,34 +146,14 @@ func (b *breachArbiter) Stop() error {
 // channel into the daemon's wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) contractObserver() {
+func (b *breachArbiter) contractObserver(activeChannels []*lnwallet.LightningChannel) {
 	defer b.wg.Done()
-
-	// First we need to query that database state for all currently active
-	// channels, each of these channels will need a goroutine assigned to
-	// it to watch for channel breaches.
-	activeChannels, err := b.db.FetchAllChannels()
-	if err != nil {
-		// TODO(roasbeef): this is a fatal error...
-		brarLog.Errorf("unable to fetch active channels: %v", err)
-	}
-
-	if len(activeChannels) > 0 {
-		brarLog.Infof("Retrieved %v channels from database, watching "+
-			"with vigilance!", len(activeChannels))
-	}
 
 	// For each active channel found within the database, we launch a
 	// detected breachObserver goroutine for that channel and also track
 	// the new goroutine within the breachObservers map so we can cancel it
 	// later if necessary.
-	for _, chanState := range activeChannels {
-		channel, err := lnwallet.NewLightningChannel(nil, nil,
-			b.notifier, chanState)
-		if err != nil {
-			brarLog.Errorf("unable to load channel: %v", err)
-		}
-
+	for _, channel := range activeChannels {
 		settleSignal := make(chan struct{})
 		chanPoint := channel.ChannelPoint()
 		b.breachObservers[*chanPoint] = settleSignal

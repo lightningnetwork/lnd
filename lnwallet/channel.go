@@ -697,6 +697,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	lc.RLock()
 	if lc.status == channelClosed || lc.status == channelDispute ||
 		lc.status == channelClosing {
+
 		lc.RUnlock()
 		return
 	}
@@ -727,6 +728,17 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	case broadcastStateNum == currentStateNum:
 		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
 			"detected", lc.channelState.ChanID)
+
+		// As we've deleted that the channel has been closed,
+		// immediately delete the state from disk, creating a close
+		// summary for future usage by related sub-systems.
+		if err := lc.DeleteState(); err != nil {
+			walletLog.Errorf("unable to delete channel state: %v",
+				err)
+		}
+
+		// Notify any subscribers that we've detected a unilateral
+		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
 
 	// If the state number broadcast is lower than the remote node's

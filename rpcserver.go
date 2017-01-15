@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"strings"
 	"time"
 
 	"sync"
@@ -244,10 +245,19 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"state must be below the local funding amount")
 	}
 
-	// TODO(roasbeef): make it optional
-	nodepubKey, err := btcec.ParsePubKey(in.NodePubkey, btcec.S256())
-	if err != nil {
-		return err
+	var (
+		nodepubKey *btcec.PublicKey
+		err        error
+	)
+
+	// If the node key is set, the we'll parse the raw bytes into a pubkey
+	// object so we can easily manipulate it. If this isn't set, then we
+	// expected the TargetPeerId to be set accordingly.
+	if len(in.NodePubkey) != 0 {
+		nodepubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+		if err != nil {
+			return err
+		}
 	}
 
 	// Instruct the server to trigger the necessary events to attempt to

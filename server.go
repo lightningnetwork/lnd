@@ -713,9 +713,17 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 // request to the funding manager allowing it to initiate the channel funding
 // workflow.
 func (s *server) handleOpenChanReq(req *openChanReq) {
-	var targetPeer *peer
+	var (
+		targetPeer *peer
+		pubStr     string
+	)
 
-	pubStr := string(req.targetPubkey.SerializeCompressed())
+	// If the user is targeting the peer by public key, then we'll need to
+	// convert that into a string for our map. Otherwise, we expect them to
+	// target by peer ID instead.
+	if req.targetPubkey != nil {
+		pubStr = string(req.targetPubkey.SerializeCompressed())
+	}
 
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.

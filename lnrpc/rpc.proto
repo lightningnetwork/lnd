@@ -155,6 +155,8 @@ service Lightning {
     }
 
     rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
+
+    rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
 }
 
 message Transaction {
@@ -544,4 +546,12 @@ message DeleteAllPaymentsRequest {
 }
 
 message DeleteAllPaymentsResponse {
+}
+
+message DebugLevelRequest {
+    bool show = 1;
+    string level_spec = 2;
+}
+message DebugLevelResponse {
+    string sub_systems = 1;
 }

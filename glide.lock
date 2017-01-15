@@ -1,5 +1,5 @@
 hash: 601b36a9a83b5ecb4321722fbacc45cf8d8dfbe8466e72a427f7acaf664a12ed
-updated: 2017-01-05T14:07:43.065234285-08:00
+updated: 2017-01-14T19:45:16.042430337-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -59,11 +59,11 @@ imports:
   - utilities
   - runtime/internal
 - name: github.com/howeyc/gopass
-  version: f5387c492211eb133053880d23dfae62aa14123d
+  version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/lightningnetwork/lightning-onion
-  version: f38a054899049d1f5bdb6550c17724060384161b
+  version: a527838cac5e47260fb61ed155b9b24a6d6a10cc
 - name: github.com/roasbeef/btcd
-  version: f7bfaddd7395f856b29060c9d90dadadbbf15c37
+  version: 707a14a79daeb2440fe92feaeceb0fae68ab3e9b
   subpackages:
   - blockchain
   - btcec
@@ -108,14 +108,14 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 5b4074c2c416448b5d06e287167144493aabda43
+  version: 2f8be38b9a7533b8763d48273737ff6e90428a96
   subpackages:
   - hkdf
   - nacl/secretbox
   - ripemd160
   - scrypt
 - name: golang.org/x/net
-  version: 67957fd0b1868d2b9f4fd2b3a3474c83bc3d49c3
+  version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
   subpackages:
   - context
   - http2
@@ -128,13 +128,6 @@ imports:
   version: d75a52659825e75fff6158388dddc6a5b04f9ba5
   subpackages:
   - unix
-- name: golang.org/x/text
-  version: 44f4f658a783b0cee41fe0a23b8fc91d9c120558
-  subpackages:
-  - secure/bidirule
-  - unicode/norm
-  - transform
-  - unicode/bidi
 - name: google.golang.org/grpc
   version: 708a7f9f3283aa2d4f6132d287d78683babe55c8
   subpackages:

@@ -9,7 +9,7 @@ $ go get -u github.com/Masterminds/glide
 ```
 $ cd $GOPATH
 $ git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
-$ cd lightningnetwork/lnd
+$ cd $GOPATH/src/github.com/lightningnetwork/lnd
 $ glide install
 $ go install . ./cmd/...
 ```
@@ -45,7 +45,7 @@ $ go install . ./cmd/...
 
 ###Start btcd (will create rpc.cert and default btcd.conf):
 ```
-$ btcd --testnet
+$ btcd --testnet --txindex --rpcuser=kek --rpcpass=kek
 ```
 (Note: It may take several minutes to find segwit-enabled peers.)
 
@@ -86,7 +86,7 @@ $ lnd --simnet --debughtlc
 ```
 
 ####Accurate as of:
-roasbeef/btcd commit: f7259f6
+roasbeef/btcd commit: 707a14a
 
 roasbeef/btcutil commit: d347e49
 

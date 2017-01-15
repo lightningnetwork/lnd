@@ -920,3 +920,38 @@ func getNetworkInfo(ctx *cli.Context) error {
 	printRespJson(netInfo)
 	return nil
 }
+
+var DebugLevel = cli.Command{
+	Name:        "debuglevel",
+	Usage:       "debuglevel [--show|--level=<level_spec>]",
+	Description: "Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "show",
+			Usage: "if true, then the list of available sub-systems will be printed out",
+		},
+		cli.StringFlag{
+			Name:  "level",
+			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with loggin levels for each",
+		},
+	},
+	Action: debugLevel,
+}
+
+func debugLevel(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.DebugLevelRequest{
+		Show:      ctx.Bool("show"),
+		LevelSpec: ctx.String("level"),
+	}
+
+	resp, err := client.DebugLevel(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}

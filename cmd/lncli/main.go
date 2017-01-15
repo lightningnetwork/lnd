@@ -70,6 +70,7 @@ func main() {
 		GetNodeInfoCommand,
 		QueryRouteCommand,
 		GetNetworkInfoCommand,
+		DebugLevel,
 	}
 
 	if err := app.Run(os.Args); err != nil {

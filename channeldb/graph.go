@@ -116,6 +116,9 @@ type ChannelGraph struct {
 // edges as since this is a directed graph, both the in/out edges are visited.
 // If the callback returns an error, then the transaction is aborted and the
 // iteration stops early.
+//
+// NOTE: If an edge can't be found, ro wasn't advertised, then a nil pointer
+// will be passed into the callback.
 func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdge, *ChannelEdge) error) error {
 	// TODO(roasbeef): ptr map to reduce # of allocs? no duplicates
 
@@ -147,25 +150,39 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdge, *ChannelEdge) error)
 			// the edge information.
 			node1Pub := edgeInfo[:33]
 			edge1, err := fetchChannelEdge(edges, chanID, node1Pub, nodes)
-			if err != nil {
+			if err != nil && err != ErrEdgeNotFound &&
+				err != ErrGraphNodeNotFound {
 				return err
 			}
-			edge1.db = c.db
-			edge1.Node.db = c.db
+
+			// The targeted edge may have not been advertised
+			// within the network, so we ensure it's non-nil before
+			// deferencing its attributes.
+			if edge1 != nil {
+				edge1.db = c.db
+				if edge1.Node != nil {
+					edge1.Node.db = c.db
+				}
+			}
 
 			// Similarly, the second node is contained within the
 			// latter half of the edge information.
 			node2Pub := edgeInfo[33:]
 			edge2, err := fetchChannelEdge(edges, chanID, node2Pub, nodes)
-			if err != nil {
+			if err != nil && err != ErrEdgeNotFound &&
+				err != ErrGraphNodeNotFound {
 				return err
 			}
-			edge2.db = c.db
-			edge2.Node.db = c.db
 
-			// TODO(roasbeef): second edge might not have
-			// propagated through network yet (or possibly never
-			// will be)
+			// The targeted edge may have not been advertised
+			// within the network, so we ensure it's non-nil before
+			// deferencing its attributes.
+			if edge2 != nil {
+				edge2.db = c.db
+				if edge2.Node != nil {
+					edge2.Node.db = c.db
+				}
+			}
 
 			// With both edges read, execute the call back. IF this
 			// function returns an error then the transaction will

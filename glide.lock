@@ -1,5 +1,5 @@
-hash: 601b36a9a83b5ecb4321722fbacc45cf8d8dfbe8466e72a427f7acaf664a12ed
-updated: 2017-01-14T19:45:16.042430337-08:00
+hash: 63c8e025e68860690ecd8c0f5d6a2ce0c20aae601f23add3cb41d702f07c2980
+updated: 2017-01-16T17:29:52.63308745-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -108,7 +108,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 2f8be38b9a7533b8763d48273737ff6e90428a96
+  version: 91902e332b9d47760598861512d2ae148f94ca58
   subpackages:
   - hkdf
   - nacl/secretbox

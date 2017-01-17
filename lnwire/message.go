@@ -57,6 +57,20 @@ const (
 	CmdPong = uint32(6010)
 )
 
+// UnknownMessage is an implementation of the error interface that allows the
+// creation of an error in response to an unknown message.
+type UnknownMessage struct {
+	messageType uint32
+}
+
+// Error returns a human readable string describing the error.
+//
+// This is part of the error interface.
+func (u *UnknownMessage) Error() string {
+	return fmt.Sprintf("unable to parse message of unknown type: %v",
+		u.messageType)
+}
+
 // Message is an interface that defines a lightning wire protocol message. The
 // interface is general in order to allow implementing types full control over
 // the representation of its data.
@@ -267,8 +281,9 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	msg, err := makeEmptyMessage(command)
 	if err != nil {
 		discardInput(r, hdr.length)
-		return totalBytes, nil, nil, fmt.Errorf("ReadMessage %s",
-			err.Error())
+		return totalBytes, nil, nil, &UnknownMessage{
+			messageType: command,
+		}
 	}
 
 	// Check for maximum length based on the message type.

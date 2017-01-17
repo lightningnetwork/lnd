@@ -360,7 +360,21 @@ out:
 		nextMsg, _, err := p.readNextMessage()
 		if err != nil {
 			peerLog.Infof("unable to read message: %v", err)
-			break out
+
+			switch err.(type) {
+			// If this is just a message we don't yet recognize,
+			// we'll continue processing as normal as this allows
+			// us to introduce new messages in a forwards
+			// compatible manner.
+			case *lnwire.UnknownMessage:
+				continue
+
+			// If the error we encountered wasn't just a message we
+			// didn't recognize, then we'll stop all processing s
+			// this is a fatal error.
+			default:
+				break out
+			}
 		}
 
 		var isChanUpdate bool

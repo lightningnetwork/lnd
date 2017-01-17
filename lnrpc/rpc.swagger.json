@@ -1366,7 +1366,12 @@
       }
     },
     "lnrpcSendResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "payment_route": {
+          "$ref": "#/definitions/lnrpcRoute"
+        }
+      }
     },
     "lnrpcTransaction": {
       "type": "object",

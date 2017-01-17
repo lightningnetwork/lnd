@@ -186,7 +186,7 @@ message SendRequest {
     string payment_request = 6;
 }
 message SendResponse {
-    // TODO(roasbeef): info about route? stats?
+    Route payment_route = 1;
 }
 
 message ChannelPoint {

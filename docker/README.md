@@ -1,12 +1,22 @@
-### Getting started
 This document is written for people who are eager to do something with 
 the Lightning Network Daemon (`lnd`). This folder uses `docker-compose` to
 package `lnd` and `btcd` together to make deploying the two daemons as easy as
 typing a few commands. All configuration between `lnd` and `btcd` are handled
 automatically by their `docker-compose` config file.
 
+### Prerequisites
+    Name  | Version 
+  --------|---------
+  docker-compose | 1.9.0
+  docker | 1.13.0
+  
+### Table of content
+ * [Create lightning network cluster](#create-lightning-network-cluster)
+ * [Connect to faucet lightning node](#connect-to-faucet-lightning-node)
+ * [Questions](#questions)
 
-This document describes a workflow on `simnet`, a development/test network
+### Create lightning network cluster
+This section describes a workflow on `simnet`, a development/test network
 that's similar to Bitcoin Core's `regtest` mode. In `simnet` mode blocks can be
 generated as will, as the difficulty is very low. This makes it an ideal
 environment for testing as one doesn't need to wait tens of minutes for blocks
@@ -29,18 +39,12 @@ topology, and send a payment from `Alice` to `Bob`.
     |                          |            
     + - - - -  - + - - - - - - +            
                  |
-        + ---------------- +
-        | Bitcoin network  |  <---  In current scenario for simplicity we create only one  
-        + ---------------- +        "btcd" node which represents the Bitcoin network, in  
+        + --------------- +
+        | Bitcoin network |  <---  In current scenario for simplicity we create only one  
+        + --------------- +        "btcd" node which represents the Bitcoin network, in  
                                     real situation Alice and Bob will likely be 
                                     connected to different Bitcoin nodes.
 ```
-
-#### Prerequisites
-    Name  | Version 
-  --------|---------
-  docker-compose | 1.9.0
-  docker | 1.13.0
 
 **General workflow is following:** 
 
@@ -55,22 +59,25 @@ topology, and send a payment from `Alice` to `Bob`.
 Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
 ```bash
-# Create "btcd" node:
+# Init bitcoin network env variable:
+$ export BITCOIN_NETWORK="simnet" 
+
+# Run "btcd" node:
 $ docker-compose up -d "btcd"
 
 # Run the "Alice" container and log into it:
 $ docker-compose up -d "alice"
 $ docker exec -i -t "alice" bash
 
-# Generate a new backward compatible nested p2sh for from Alice:
+# Generate a new backward compatible nested p2sh address for Alice:
 alice$ lncli newaddress np2wkh 
 
 # Recreate "btcd" node and set Alice's address as mining address:
 $ MINING_ADDRESS=<alice_address> docker-compose up -d "btcd"
 
-# Generate 201 block (we need at least "100 >=" blocks because of coinbase 
-# block maturity and "250 >=" in order to activate segwit):
-$ docker-compose run btcctl generate 250
+# Generate 400 block (we need at least "100 >=" blocks because of coinbase 
+# block maturity and "300 ~=" in order to activate segwit):
+$ docker-compose run btcctl generate 400
 
 # Check that segwit is active:
 $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
@@ -146,7 +153,7 @@ bob$ lncli listpeers
 Create the `Alice<->Bob` channel.
 ```bash
 # Open the channel with "Bob":
-alice$ lncli openchannel --node_key=<bob_lightning_id> --num_confs=1 --local_amt=1000000
+alice$ lncli openchannel --node_key=<bob_identity_pubkey> --num_confs=1 --local_amt=1000000
 
 # Include funding transaction in block thereby open the channel:
 $ docker-compose run btcctl generate 1
@@ -167,33 +174,33 @@ alice$ lncli listchannels
 
 ```
 
-Send the payment form "Alice" to "Bob".
-```
+Send the payment form `Alice` to `Bob`.
+```bash
 # Add invoice on "Bob" side:
-bob> lncli addinvoice --value=10000
+bob$ lncli addinvoice --value=10000
 {
         "r_hash": "<your_random_rhash_here>", 
         "pay_req": "<encoded_invoice>", 
 }
 
 # Send payment from "Alice" to "Bob":
-alice> lncli sendpayment --pay_req=<encoded_invoice>
+alice$ lncli sendpayment --pay_req=<encoded_invoice>
 
 # Check "Alice"'s channel balance was decremented accordingly by the payment
 # amount
-alice> lncli listchannels
+alice$ lncli listchannels
 
 # Check "Bob"'s channel balance was credited with the payment amount
-bob> lncli listchannels
+bob$ lncli listchannels
 ```
 
 Now we have open channel in which we sent only one payment, lets imagine
 that we sent a lots of them and we'll now like to close the channel. Lets do
 it!
-```
+```bash
 # List the "Alice" channel and retrieve "channel_point" which represent
 # the opened channel:
-alice> lncli listchannels
+alice$ lncli listchannels
 {
 	"channels": [
 		{
@@ -202,29 +209,91 @@ alice> lncli listchannels
 			"chan_id": 1170330072213225472,
 			"capacity": 1005000,
 			"local_balance": 900000,
-                        "remote_balance": 10000, 
+			"remote_balance": 10000, 
 		}
 	]
 }
 
-# Channel point consist of two numbers separated by colon the first on is
-# "funding_txid" and the second one is "output_index":
-alice> lncli closechannel --funding_txid=<funding_txid> --output_index=<output_index>
+# Channel point consist of two numbers separated by colon the first one 
+# is "funding_txid" and the second one is "output_index":
+alice$ lncli closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
 # Include close transaction in block thereby close the channel:
 $ docker-compose run btcctl generate 1
 
 # Check "Alice" on-chain balance was credited by her settled amount in the channel:
-alice> lncli walletbalance
+alice$ lncli walletbalance
 
 # Check "Bob" on-chain balance was credited with the funds he received in the
 # channel:
-bob> lncli walletbalance
+bob$ lncli walletbalance
 ```
 
+### Connect to faucet lightning node
+In order to be more confident with `lnd` commands I suggest you to try 
+create mini lightnint network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
+
+In this section we will try to connect our node to the faucent/hub node 
+which will create with as the channel and send as some amount of 
+bitcoins. The schema will be following:
+
+```
++ ----- +                   + ------ +         (1)        + --- +
+| Alice | <--- channel ---> | Faucet |  <--- channel ---> | Bob |    
++ ----- +                   + ------ +                    + --- +        
+    |                            |                           |           
+    |                            |                           |      <---  (2)         
+    + - - - -  - - - - - - - - - + - - - - - - - - - - - - - +            
+                                 |
+                       + --------------- +
+                       | Bitcoin network |  <---  (3)   
+                       + --------------- +        
+        
+        
+ (1) You may connect an additinal node "Bob" and make the multihope 
+ payment Alice->Faucet->Bob
+  
+ (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 
+ creates the channel and interact with each other using Bitcoin network 
+ as source of truth.
+ 
+ (3) In current scenario "Alice" and "Faucet" lightning network nodes 
+ connected to different Bitcoin nodes. If you decide to connect "Bob"
+ to "Faucet" than already created "btcd" node would be sufficient.
+```
+
+First of all you need to run `btcd` node in `testnet` and wait it to be 
+synced with test network (`May the Force and Patience be with you` ᕦ(ò_óˇ)ᕤ).
+```bash 
+# Init bitcoin network env variable:
+$ export BITCOIN_NETWORK="testnet"
+
+# Run "btcd" node:
+$ docker-compose up -d "btcd"
+```
+
+After `btcd` synced, connect `Alice` to the `Faucet` node.
+```bash 
+# Run "Alice" container and log into it:
+$ docker-compose up -d "alice"; docker exec -i -t "alice" bash
+
+# Connect "Alice" to the "Faucet" node:
+alice$ lncli connect <faucet_identity_address>@<faucet_host>:10011
+```
+
+After connection was achieved the `Faucet` node should create the channel
+and send some amount of bitcoins to `Alice`.
+
+**What you may do next?:**
+- Send some amount to `Faucet` node back.
+- Connect `Bob` node to the `Faucet` and make multihop payment (`Alice->Faucet->Bob`)
+- Close channel with `Faucet` and check the onchain balance.
 
 ### Questions
+[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)]
+(https://webchat.freenode.net/?channels=lnd)
+
 * How to see `alice` | `bob` | `btcd` logs?
-```
+```bash
 docker-compose logs <alice|bob|btcd> 
 ```

@@ -253,7 +253,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// channnel size that allows us to safely sit above the dust threshold
 	// after fees are applied
 	// TODO(roasbeef): remove after dynamic fees are in
-	if localFundingAmt > minChannelSize {
+	if localFundingAmt < minChannelSize {
 		return fmt.Errorf("channel is too small, the minimum channel "+
 			"size is: %v (6k sat)", minChannelSize)
 	}

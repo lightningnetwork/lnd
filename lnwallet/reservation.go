@@ -146,6 +146,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 	var (
 		ourBalance   btcutil.Amount
 		theirBalance btcutil.Amount
+		initiator    bool
 	)
 
 	// If we're the responder to a single-funder reservation, then we have
@@ -154,6 +155,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 	if fundingAmt == 0 {
 		ourBalance = pushSat
 		theirBalance = capacity - commitFee - pushSat
+		initiator = false
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
@@ -172,34 +174,21 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		}
 
 		theirBalance = capacity - fundingAmt - commitFee + pushSat
+		initiator = true
 	}
 
-	var (
-		initiator bool
-		chanType  channeldb.ChannelType
-	)
-	switch {
-	// If our balance is zero, or we're being pushed our entire balance in
-	// the first state,  then we're the responder to a single funder
-	// channel workflow.
-	case pushSat != 0 && ourBalance-pushSat == 0:
-		fallthrough
-	case ourBalance == 0:
-		initiator = false
-		chanType = channeldb.SingleFunder
+	// Next we'll set the channel type based on what we can ascertain about
+	// the balances/push amount within the channel.
+	var chanType channeldb.ChannelType
 
-	// If their balance is zero, or being pushed entirely to them, then
-	// we're the initiator to a single funder channel workflow.
-	case pushSat != 0 && theirBalance-pushSat == 0:
-		fallthrough
-	case theirBalance == 0:
-		initiator = true
+	// If either of the balances are zero at this point, or we have a
+	// non-zero push amt (there's no pushing for dual funder), then this is
+	// a single-funder channel.
+	if ourBalance == 0 || theirBalance == 0 || pushSat != 0 {
 		chanType = channeldb.SingleFunder
-
-	// Otherwise, if both sides are starting out with a non-zero balance,
-	// then neither of us is technically the "initiator" and this is a dual
-	// funder channel.
-	default:
+	} else {
+		// Otherwise, this is a dual funder channel, and no side is
+		// technically the "initiator"
 		initiator = false
 		chanType = channeldb.DualFunder
 	}

@@ -1445,30 +1445,55 @@ func (r *rpcServer) DescribeGraph(context.Context,
 }
 
 func marshalDbEdge(c1, c2 *channeldb.ChannelEdge) *lnrpc.ChannelEdge {
-	node1Pub := c2.Node.PubKey.SerializeCompressed()
-	node2Pub := c1.Node.PubKey.SerializeCompressed()
+	var (
+		node1Pub, node2Pub []byte
+		capacity           btcutil.Amount
+		lastUpdate         int64
+		chanID             uint64
+		chanPoint          string
+	)
+
+	if c2 != nil {
+		node1Pub = c2.Node.PubKey.SerializeCompressed()
+		lastUpdate = c2.LastUpdate.Unix()
+		capacity = c2.Capacity
+		chanID = c2.ChannelID
+		chanPoint = c2.ChannelPoint.String()
+	}
+	if c1 != nil {
+		node2Pub = c1.Node.PubKey.SerializeCompressed()
+		lastUpdate = c1.LastUpdate.Unix()
+		capacity = c1.Capacity
+		chanID = c1.ChannelID
+		chanPoint = c1.ChannelPoint.String()
+	}
 
 	edge := &lnrpc.ChannelEdge{
-		ChannelId:  c1.ChannelID,
-		ChanPoint:  c1.ChannelPoint.String(),
-		LastUpdate: uint32(c1.LastUpdate.Unix()),
+		ChannelId: chanID,
+		ChanPoint: chanPoint,
+		// TODO(roasbeef): update should be on edge info itself
+		LastUpdate: uint32(lastUpdate),
 		Node1Pub:   hex.EncodeToString(node1Pub),
 		Node2Pub:   hex.EncodeToString(node2Pub),
-		Capacity:   int64(c1.Capacity),
+		Capacity:   int64(capacity),
 	}
 
-	edge.Node1Policy = &lnrpc.RoutingPolicy{
-		TimeLockDelta:    uint32(c1.Expiry),
-		MinHtlc:          int64(c1.MinHTLC),
-		FeeBaseMsat:      int64(c1.FeeBaseMSat),
-		FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
+	if c1 != nil {
+		edge.Node1Policy = &lnrpc.RoutingPolicy{
+			TimeLockDelta:    uint32(c1.Expiry),
+			MinHtlc:          int64(c1.MinHTLC),
+			FeeBaseMsat:      int64(c1.FeeBaseMSat),
+			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
+		}
 	}
 
-	edge.Node2Policy = &lnrpc.RoutingPolicy{
-		TimeLockDelta:    uint32(c2.Expiry),
-		MinHtlc:          int64(c2.MinHTLC),
-		FeeBaseMsat:      int64(c2.FeeBaseMSat),
-		FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
+	if c2 != nil {
+		edge.Node2Policy = &lnrpc.RoutingPolicy{
+			TimeLockDelta:    uint32(c2.Expiry),
+			MinHtlc:          int64(c2.MinHTLC),
+			FeeBaseMsat:      int64(c2.FeeBaseMSat),
+			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
+		}
 	}
 
 	return edge
@@ -1533,6 +1558,7 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 		return nil, err
 	}
 
+	// TODO(roasbeef): list channels as well?
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
@@ -1645,14 +1671,22 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 		}
 
 		if outDegree > maxChanOut {
-			outDegree = maxChanOut
+			maxChanOut = outDegree
 		}
 	}
 
 	// Finally, we traverse each channel visiting both channel edges at
 	// once to avoid double counting any stats we're attempting to gather.
 	if err := graph.ForEachChannel(func(c1, c2 *channeldb.ChannelEdge) error {
-		chanCapacity := c1.Capacity
+		var chanCapacity btcutil.Amount
+		switch {
+		case c1 == nil:
+			chanCapacity = c2.Capacity
+		case c2 == nil:
+			chanCapacity = c1.Capacity
+		default:
+			chanCapacity = c1.Capacity
+		}
 
 		if chanCapacity < minChannelSize {
 			minChannelSize = chanCapacity
@@ -1671,6 +1705,7 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 	}
 
 	// TODO(roasbeef): also add oldest channel?
+	//  * also add median channel size
 	return &lnrpc.NetworkInfo{
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),

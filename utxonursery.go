@@ -231,6 +231,8 @@ func (u *utxoNursery) catchUpKindergarten() error {
 		}
 	}
 
+	utxnLog.Infof("UTXO Nursery is now fully synced")
+
 	return nil
 }
 

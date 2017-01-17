@@ -915,7 +915,9 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				}
 
 				// TODO(roasbeef): proper responses
-				resp := &lnrpc.SendResponse{}
+				resp := &lnrpc.SendResponse{
+					PaymentRoute: marshalRoute(route),
+				}
 				if err := paymentStream.Send(resp); err != nil {
 					errChan <- err
 					return
@@ -1560,9 +1562,13 @@ func (r *rpcServer) QueryRoute(_ context.Context, in *lnrpc.RouteRequest) (*lnrp
 		return nil, err
 	}
 
-	// If a route exsits within the network that is able to support our
+	// If a route exists within the network that is able to support our
 	// request, then we'll convert the result into the format required by
 	// the RPC system.
+	return marshalRoute(route), nil
+}
+
+func marshalRoute(route *routing.Route) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees),
@@ -1578,7 +1584,7 @@ func (r *rpcServer) QueryRoute(_ context.Context, in *lnrpc.RouteRequest) (*lnrp
 		}
 	}
 
-	return resp, nil
+	return resp
 }
 
 // GetNetworkInfo returns some basic stats about the known channel graph from

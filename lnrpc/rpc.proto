@@ -111,6 +111,11 @@ service Lightning {
             get: "/v1/invoices/subscribe"
         };
     }
+    rpc DecodePayReq(PayReqString) returns (PayReq) {
+        option (google.api.http) = {
+            get: "/v1/payreq/{pay_req}"
+        };
+    }
 
     rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse){
         option (google.api.http) = {
@@ -554,4 +559,13 @@ message DebugLevelRequest {
 }
 message DebugLevelResponse {
     string sub_systems = 1;
+}
+
+message PayReqString {
+    string pay_req = 1;
+}
+message PayReq {
+    string destination = 1;
+    string payment_hash = 2;
+    int64 num_satoshis = 3;
 }

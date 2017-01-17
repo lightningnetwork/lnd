@@ -437,6 +437,31 @@
         ]
       }
     },
+    "/v1/payreq/{pay_req}": {
+      "get": {
+        "operationId": "DecodePayReq",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPayReq"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pay_req",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/peers": {
       "get": {
         "operationId": "ListPeers",
@@ -1148,6 +1173,32 @@
         "target_peer_id": {
           "type": "integer",
           "format": "int32"
+        }
+      }
+    },
+    "lnrpcPayReq": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string",
+          "format": "string"
+        },
+        "num_satoshis": {
+          "type": "string",
+          "format": "int64"
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "string"
+        }
+      }
+    },
+    "lnrpcPayReqString": {
+      "type": "object",
+      "properties": {
+        "pay_req": {
+          "type": "string",
+          "format": "string"
         }
       }
     },

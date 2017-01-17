@@ -675,45 +675,83 @@ func (r *ChannelRouter) syncChannelGraph(syncReq *syncRequest) error {
 	// TODO(roasbeef): multi-sig keys should also be stored in DB
 	var numEdges uint32
 	if err := r.cfg.Graph.ForEachChannel(func(e1, e2 *channeldb.ChannelEdge) error {
-		chanID := lnwire.NewChanIDFromInt(e1.ChannelID)
+		// First we'll need to obtain the channel ID for the channel
+		// advertisement. As an edge may not be advertised, we'll grab
+		// the channel ID from the edge that was.
+		var chanID lnwire.ChannelID
+		switch {
+		case e1 != nil:
+			chanID = lnwire.NewChanIDFromInt(e1.ChannelID)
+		case e2 != nil:
+			chanID = lnwire.NewChanIDFromInt(e2.ChannelID)
+		default:
+			chanID = lnwire.NewChanIDFromInt(e1.ChannelID)
+		}
+
 		chanAnn := &lnwire.ChannelAnnouncement{
 			FirstNodeSig:     r.fakeSig,
 			SecondNodeSig:    r.fakeSig,
 			ChannelID:        chanID,
 			FirstBitcoinSig:  r.fakeSig,
 			SecondBitcoinSig: r.fakeSig,
-			FirstNodeID:      e1.Node.PubKey,
-			SecondNodeID:     e2.Node.PubKey,
-			FirstBitcoinKey:  e1.Node.PubKey,
-			SecondBitcoinKey: e2.Node.PubKey,
 		}
 
-		chanUpdate1 := &lnwire.ChannelUpdateAnnouncement{
-			Signature:                 r.fakeSig,
-			ChannelID:                 chanID,
-			Timestamp:                 uint32(e1.LastUpdate.Unix()),
-			Flags:                     0,
-			Expiry:                    e1.Expiry,
-			HtlcMinimumMstat:          uint32(e1.MinHTLC),
-			FeeBaseMstat:              uint32(e1.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(e1.FeeProportionalMillionths),
+		// If the edge was advertised, then we'll use the node's
+		// identity within the announcement we send to the sync node.
+		// Otherwise, we'll fill in a dummy key.
+		//
+		// TODO(roasbeef): both else clauses need to be removed
+		// once we fully validate, andrew's PR will reconcile
+		// this
+		if e1 != nil {
+			chanAnn.FirstNodeID = e1.Node.PubKey
+			chanAnn.FirstBitcoinKey = e1.Node.PubKey
+		} else {
+			chanAnn.FirstNodeID = e2.Node.PubKey
+			chanAnn.FirstBitcoinKey = e2.Node.PubKey
 		}
-		chanUpdate2 := &lnwire.ChannelUpdateAnnouncement{
-			Signature:                 r.fakeSig,
-			ChannelID:                 chanID,
-			Timestamp:                 uint32(e2.LastUpdate.Unix()),
-			Flags:                     1,
-			Expiry:                    e2.Expiry,
-			HtlcMinimumMstat:          uint32(e2.MinHTLC),
-			FeeBaseMstat:              uint32(e2.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(e2.FeeProportionalMillionths),
+		if e2 != nil {
+			chanAnn.SecondNodeID = e2.Node.PubKey
+			chanAnn.SecondBitcoinKey = e2.Node.PubKey
+		} else {
+			chanAnn.SecondNodeID = e1.Node.PubKey
+			chanAnn.SecondBitcoinKey = e1.Node.PubKey
+		}
+
+		// We'll unconditionally queue the channel's existence proof as
+		// it will need to be processed before either of the channel
+		// update announcements.
+		announceMessages = append(announceMessages, chanAnn)
+
+		// Since it's up to a node's policy as to whether they
+		// advertise the edge in dire direction, we don't create an
+		// advertisement if the edge is nil.
+		if e1 != nil {
+			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
+				Signature:                 r.fakeSig,
+				ChannelID:                 chanID,
+				Timestamp:                 uint32(e1.LastUpdate.Unix()),
+				Flags:                     0,
+				Expiry:                    e1.Expiry,
+				HtlcMinimumMstat:          uint32(e1.MinHTLC),
+				FeeBaseMstat:              uint32(e1.FeeBaseMSat),
+				FeeProportionalMillionths: uint32(e1.FeeProportionalMillionths),
+			})
+		}
+		if e2 != nil {
+			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
+				Signature:                 r.fakeSig,
+				ChannelID:                 chanID,
+				Timestamp:                 uint32(e2.LastUpdate.Unix()),
+				Flags:                     1,
+				Expiry:                    e2.Expiry,
+				HtlcMinimumMstat:          uint32(e2.MinHTLC),
+				FeeBaseMstat:              uint32(e2.FeeBaseMSat),
+				FeeProportionalMillionths: uint32(e2.FeeProportionalMillionths),
+			})
 		}
 
 		numEdges++
-
-		announceMessages = append(announceMessages, chanAnn)
-		announceMessages = append(announceMessages, chanUpdate1)
-		announceMessages = append(announceMessages, chanUpdate2)
 		return nil
 	}); err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		log.Errorf("unable to sync edges w/ peer: %v", err)

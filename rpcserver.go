@@ -245,6 +245,19 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			"state must be below the local funding amount")
 	}
 
+	const minChannelSize = btcutil.Amount(6000)
+
+	// Restrict the size of the channel we'll actually open. Atm, we
+	// require the amount to be above 6k satoahis s we currently hard-coded
+	// a 5k satoshi fee in several areas. As a result 6k sat is the min
+	// channnel size that allows us to safely sit above the dust threshold
+	// after fees are applied
+	// TODO(roasbeef): remove after dynamic fees are in
+	if localFundingAmt > minChannelSize {
+		return fmt.Errorf("channel is too small, the minimum channel "+
+			"size is: %v (6k sat)", minChannelSize)
+	}
+
 	var (
 		nodepubKey *btcec.PublicKey
 		err        error

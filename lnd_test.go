@@ -231,11 +231,11 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to get bobs's balance: %v", err)
 	}
 	if aliceBal.Balance != int64(chanAmt-pushAmt) {
-		t.Fatalf("alice's balance is incorrect: expected %v got %x",
+		t.Fatalf("alice's balance is incorrect: expected %v got %v",
 			chanAmt-pushAmt, aliceBal)
 	}
 	if bobBal.Balance != int64(pushAmt) {
-		t.Fatalf("bob's balance is incorrect: expected %v got %x",
+		t.Fatalf("bob's balance is incorrect: expected %v got %v",
 			pushAmt, bobBal)
 	}
 

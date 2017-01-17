@@ -1792,3 +1792,25 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 
 	return &lnrpc.DebugLevelResponse{}, nil
 }
+
+// DecodePayReq takes an encoded payment request string and attempts to decode
+// it, returning a full description of the conditions encoded within the
+// payment request.
+func (r *rpcServer) DecodePayReq(ctx context.Context,
+	req *lnrpc.PayReqString) (*lnrpc.PayReq, error) {
+
+	// Fist we'll attempt to decode the payment request string, if the
+	// request is invalid or the checksum doesn't match, then we'll exit
+	// here with an error.
+	payReq, err := zpay32.Decode(req.PayReq)
+	if err != nil {
+		return nil, err
+	}
+
+	dest := payReq.Destination.SerializeCompressed()
+	return &lnrpc.PayReq{
+		Destination: hex.EncodeToString(dest),
+		PaymentHash: hex.EncodeToString(payReq.PaymentHash[:]),
+		NumSatoshis: int64(payReq.Amount),
+	}, nil
+}

@@ -1020,6 +1020,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 
 	// With the assertion above set up, send a payment from Alice to Bob
 	// which should finalize and settle the invoice.
+	time.Sleep(time.Millisecond * 500)
 	sendStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create alice payment stream: %v", err)

@@ -71,6 +71,7 @@ func main() {
 		QueryRouteCommand,
 		GetNetworkInfoCommand,
 		DebugLevel,
+		DecodePayReq,
 	}
 
 	if err := app.Run(os.Args); err != nil {

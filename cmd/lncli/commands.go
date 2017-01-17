@@ -531,6 +531,8 @@ func listChannels(ctx *cli.Context) error {
 		return err
 	}
 
+	// TODO(roasbeef): defer close the client for the all
+
 	printRespJson(resp)
 
 	return nil
@@ -948,6 +950,36 @@ func debugLevel(ctx *cli.Context) error {
 	}
 
 	resp, err := client.DebugLevel(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}
+
+var DecodePayReq = cli.Command{
+	Name:        "decodepayreq",
+	Usage:       "decodepayreq --pay_req=[encoded_pay_req]",
+	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "pay_req",
+			Usage: "the zpay32 encoded payment request",
+		},
+	},
+	Action: decodePayReq,
+}
+
+func decodePayReq(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client := getClient(ctx)
+
+	req := &lnrpc.PayReqString{
+		PayReq: ctx.String("pay_req"),
+	}
+
+	resp, err := client.DecodePayReq(ctxb, req)
 	if err != nil {
 		return err
 	}

@@ -1172,7 +1172,7 @@ func fetchLightningNode(nodeBucket *bolt.Bucket,
 
 	nodeBytes := nodeBucket.Get(nodePub)
 	if nodeBytes == nil {
-		return nil, ErrGraphNodesNotFound
+		return nil, ErrGraphNodeNotFound
 	}
 
 	nodeReader := bytes.NewReader(nodeBytes)

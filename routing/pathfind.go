@@ -295,7 +295,7 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 
 		// If we've reached our target, then we're done here and can
 		// exit the graph traversal early.
-		if bestNode.PubKey.IsEqual(target) {
+		if bestNode == nil || bestNode.PubKey.IsEqual(target) {
 			break
 		}
 

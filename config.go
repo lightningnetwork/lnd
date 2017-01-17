@@ -60,16 +60,13 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
-	PeerPort int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort  int    `long:"rpcport" description:"The port for the rpc server"`
-	SPVMode  bool   `long:"spv" description:"assert to enter spv wallet mode"`
-	RPCHost  string `long:"btcdhost" description:"The btcd rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
-	RPCUser  string `short:"u" long:"rpcuser" description:"Username for RPC connections"`
-	RPCPass  string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
-
+	PeerPort           int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
+	RPCPort            int    `long:"rpcport" description:"The port for the rpc server"`
+	RPCHost            string `long:"btcdhost" description:"The btcd rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
+	RPCUser            string `short:"u" long:"rpcuser" description:"Username for RPC connections"`
+	RPCPass            string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 	RPCCert            string `long:"rpccert" description:"File containing btcd's certificate file"`
 	RawRPCCert         string `long:"rawrpccert" description:"The raw bytes of btcd's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
-	SPVHostAdr         string `long:"spvhostadr" description:"Address of full bitcoin node. It is used in SPV mode."`
 	TestNet3           bool   `long:"testnet" description:"Use the test network"`
 	SimNet             bool   `long:"simnet" description:"Use the simulation test network"`
 	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLC's sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
@@ -92,12 +89,10 @@ func loadConfig() (*config, error) {
 		LogDir:             defaultLogDir,
 		PeerPort:           defaultPeerPort,
 		RPCPort:            defaultRPCPort,
-		SPVMode:            defaultSPVMode,
 		RPCHost:            defaultRPCHost,
 		RPCUser:            defaultRPCUser,
 		RPCPass:            defaultRPCPass,
 		RPCCert:            defaultRPCCertFile,
-		SPVHostAdr:         defaultSPVHostAdr,
 		MaxPendingChannels: defaultMaxPendingChannels,
 	}
 

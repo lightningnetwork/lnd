@@ -314,6 +314,13 @@ out:
 				len(preschoolRequest.outputs))
 
 			for _, output := range preschoolRequest.outputs {
+				// We'll skip any zero value'd outputs as this
+				// indicates we don't have a settled balance
+				// within the commitment transaction.
+				if output.amt == 0 {
+					continue
+				}
+
 				sourceTxid := output.outPoint.Hash
 
 				if err := output.enterPreschool(u.db); err != nil {

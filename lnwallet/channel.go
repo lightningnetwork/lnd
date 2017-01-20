@@ -148,10 +148,10 @@ type PaymentDescriptor struct {
 	removeCommitHeightRemote uint64
 	removeCommitHeightLocal  uint64
 
-	// isForwarded denotes if an incoming HTLC has been forwarded to any
-	// possible upstream peers in the route.
-	isForwarded bool
-	settled     bool
+	// isIncluded denotes if an incoming HTLC has been included in both
+	// commit tx and now it is eligable for forwarding.
+	isIncluded bool
+	settled    bool
 
 	// pkScript is the raw public key  script that encodes the redemption
 	// rules for this particular HTLC. This field will only be populated
@@ -1489,11 +1489,11 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	// Now that we've verified the revocation update the state of the HTLC
 	// log as we may be able to prune portions of it now, and update their
 	// balance.
-	var htlcsToForward []*PaymentDescriptor
+	var includedHtlcs []*PaymentDescriptor
 	for e := lc.theirUpdateLog.Front(); e != nil; e = e.Next() {
 		htlc := e.Value.(*PaymentDescriptor)
 
-		if htlc.isForwarded {
+		if htlc.isIncluded {
 			continue
 		}
 
@@ -1508,20 +1508,20 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 		if htlc.EntryType == Add &&
 			remoteChainTail >= htlc.addCommitHeightRemote &&
 			localChainTail >= htlc.addCommitHeightLocal {
-			htlc.isForwarded = true
-			htlcsToForward = append(htlcsToForward, htlc)
+			htlc.isIncluded = true
+			includedHtlcs = append(includedHtlcs, htlc)
 		} else if htlc.EntryType != Add &&
 			remoteChainTail >= htlc.removeCommitHeightRemote &&
 			localChainTail >= htlc.removeCommitHeightLocal {
-			htlc.isForwarded = true
-			htlcsToForward = append(htlcsToForward, htlc)
+			htlc.isIncluded = true
+			includedHtlcs = append(includedHtlcs, htlc)
 		}
 	}
 
 	lc.compactLogs(lc.ourUpdateLog, lc.theirUpdateLog,
 		localChainTail, remoteChainTail)
 
-	return htlcsToForward, nil
+	return includedHtlcs, nil
 }
 
 // compactLogs performs garbage collection within the log removing HTLCs which

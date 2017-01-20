@@ -501,8 +501,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
-		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
-			CloseRegular)
+		updateChan, errChan = r.server.CloseChannel(chanPoint, closeRegular)
 	}
 out:
 	for {

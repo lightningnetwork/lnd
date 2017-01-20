@@ -1328,19 +1328,15 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	return nil
 }
 
-// PendingUpdates returns a boolean value reflecting if there are any pending
-// updates which need to be committed. The state machine has pending updates if
-// the local log index on the local and remote chain tip aren't identical. This
-// indicates that either we have pending updates they need to commit, or vice
-// versa.
-func (lc *LightningChannel) PendingUpdates() bool {
+// NeedUpdate returns a boolean value reflecting if there are any pending
+// updates which need to be committed. The commitment transaction should
+// be updated if we have htlcs which are not committed in remote chain.
+func (lc *LightningChannel) NeedUpdate() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	fullySynced := (lc.localCommitChain.tip().ourMessageIndex ==
-		lc.remoteCommitChain.tip().ourMessageIndex)
-
-	return !fullySynced
+	return	lc.remoteCommitChain.tip().ourMessageIndex != lc.ourLogCounter ||
+		lc.remoteCommitChain.tip().theirMessageIndex != lc.theirLogCounter
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

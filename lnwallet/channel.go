@@ -260,8 +260,9 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 	// purposes, we create a small helper function to locate the output
 	// index of a particular HTLC within the current commitment
 	// transaction.
-	locateOutputIndex := func(p *PaymentDescriptor) uint16 {
+	locateOutputIndex := func(p *PaymentDescriptor) (uint16, error) {
 		var idx uint16
+		var found bool
 
 		pkScript := p.theirPrevPkScript
 		if ourCommit {
@@ -272,13 +273,17 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 				if contains(dups[p.RHash], uint16(i)) {
 					continue
 				}
-
+				found = true
 				idx = uint16(i)
 				dups[p.RHash] = append(dups[p.RHash], idx)
 				break
 			}
 		}
-		return idx
+		if !found {
+			return 0, fmt.Errorf("could not find a matching output for the HTLC " +
+				"in the commitment transaction")
+		}
+		return idx, nil
 	}
 
 	for _, htlc := range c.outgoingHTLCs {
@@ -288,7 +293,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			RHash:           htlc.RHash,
 			RefundTimeout:   htlc.Timeout,
 			RevocationDelay: 0,
-			OutputIndex:     locateOutputIndex(htlc),
+			OutputIndex:     index,
 		}
 		delta.Htlcs = append(delta.Htlcs, h)
 	}
@@ -299,7 +304,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			RHash:           htlc.RHash,
 			RefundTimeout:   htlc.Timeout,
 			RevocationDelay: 0,
-			OutputIndex:     locateOutputIndex(htlc),
+			OutputIndex:     index,
 		}
 		delta.Htlcs = append(delta.Htlcs, h)
 	}

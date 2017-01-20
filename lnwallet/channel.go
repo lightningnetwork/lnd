@@ -87,6 +87,20 @@ type PaymentHash [32]byte
 // UpdateType is the exact type of an entry within the shared HTLC log.
 type updateType uint8
 
+// String represent type in string format.
+func (t updateType) String() string {
+	switch t {
+	case Add:
+		return "Add"
+	case Cancel:
+		return "Cancel"
+	case Settle:
+		return "Settle"
+	default:
+		return "unknown"
+	}
+}
+
 const (
 	Add updateType = iota
 	Cancel

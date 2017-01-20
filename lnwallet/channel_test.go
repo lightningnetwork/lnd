@@ -205,14 +205,14 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	bobElkrem := elkrem.NewElkremSender(deriveElkremRoot(bobKeyPriv, bobKeyPub, aliceKeyPub))
+	bobElkrem := elkrem.NewElkremSender(DeriveElkremRoot(bobKeyPriv, bobKeyPub, aliceKeyPub))
 	bobFirstRevoke, err := bobElkrem.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	bobRevokeKey := DeriveRevocationPubkey(aliceKeyPub, bobFirstRevoke[:])
 
-	aliceElkrem := elkrem.NewElkremSender(deriveElkremRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub))
+	aliceElkrem := elkrem.NewElkremSender(DeriveElkremRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub))
 	aliceFirstRevoke, err := aliceElkrem.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err

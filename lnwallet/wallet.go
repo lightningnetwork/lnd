@@ -771,7 +771,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// key for the first version of our commitment transaction. To do so,
 	// we'll first create our elkrem root, then grab the first pre-iamge
 	// from it.
-	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
+	elkremRoot := DeriveElkremRoot(masterElkremRoot, ourKey, theirKey)
 	elkremSender := elkrem.NewElkremSender(elkremRoot)
 	pendingReservation.partialState.LocalElkrem = elkremSender
 	firstPreimage, err := elkremSender.AtIndex(0)
@@ -910,7 +910,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	// Now that we know their commitment key, we can create the revocation
 	// key for our version of the initial commitment transaction.
-	elkremRoot := deriveElkremRoot(masterElkremRoot, ourKey, theirKey)
+	elkremRoot := DeriveElkremRoot(masterElkremRoot, ourKey, theirKey)
 	elkremSender := elkrem.NewElkremSender(elkremRoot)
 	firstPreimage, err := elkremSender.AtIndex(0)
 	if err != nil {

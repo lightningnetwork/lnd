@@ -740,7 +740,7 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 	return privRevoke
 }
 
-// deriveElkremRoot derives an elkrem root unique to a channel given the
+// DeriveElkremRoot derives an elkrem root unique to a channel given the
 // private key for our public key in the 2-of-2 multi-sig, and the remote
 // node's multi-sig public key. The root is derived using the HKDF[1][2]
 // instantiated with sha-256. The secret data used is our multi-sig private
@@ -748,7 +748,7 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 //
 // [1]: https://eprint.iacr.org/2010/264.pdf
 // [2]: https://tools.ietf.org/html/rfc5869
-func deriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
+func DeriveElkremRoot(elkremDerivationRoot *btcec.PrivateKey,
 	localMultiSigKey *btcec.PublicKey,
 	remoteMultiSigKey *btcec.PublicKey) chainhash.Hash {
 

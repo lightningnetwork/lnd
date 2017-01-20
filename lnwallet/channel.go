@@ -92,7 +92,9 @@ const (
 // payments requested by the wallet/daemon.
 type PaymentHash [32]byte
 
-// updateType is the exact type of an entry within the shared HTLC log.
+const maxUint16 uint16 = ^uint16(0)
+
+// UpdateType is the exact type of an entry within the shared HTLC log.
 type updateType uint8
 
 const (
@@ -185,6 +187,11 @@ type PaymentDescriptor struct {
 	ourPkScript       []byte
 	theirPkScript     []byte
 	theirPrevPkScript []byte
+
+	// isDust[Local|Remote] denotes if this HTLC is below the dust limit in
+	// locally or remotely.
+	isDustLocal  bool
+	isDustRemote bool
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -286,7 +293,16 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		return idx, nil
 	}
 
+	var index uint16
+	var err error
 	for _, htlc := range c.outgoingHTLCs {
+		if (ourCommit && htlc.isDustLocal) ||
+			(!ourCommit && htlc.isDustRemote) {
+			index = maxUint16
+		} else if index, err = locateOutputIndex(htlc); err != nil {
+			return nil, err
+		}
+
 		h := &channeldb.HTLC{
 			Incoming:        false,
 			Amt:             htlc.Amount,
@@ -298,6 +314,13 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		delta.Htlcs = append(delta.Htlcs, h)
 	}
 	for _, htlc := range c.incomingHTLCs {
+		if (ourCommit && htlc.isDustLocal) ||
+			(!ourCommit && htlc.isDustRemote) {
+			index = maxUint16
+		} else if index, err = locateOutputIndex(htlc); err != nil {
+			return nil, err
+		}
+
 		h := &channeldb.HTLC{
 			Incoming:        true,
 			Amt:             htlc.Amount,
@@ -1014,6 +1037,8 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
+			isDustLocal:           htlc.Amt < lc.channelState.OurDustLimit,
+			isDustRemote:          htlc.Amt < lc.channelState.TheirDustLimit,
 		}
 
 		if !htlc.Incoming {
@@ -1144,8 +1169,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	if err != nil {
 		return nil, err
 	}
+	//var isDust bool
+	//if ourCommitTx {
+	//isDust =
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlc.Amount < dustLimit {
+		if (ourCommitTx && htlc.isDustLocal) ||
+			(!ourCommitTx && htlc.isDustRemote) {
 			continue
 		}
 
@@ -1156,7 +1185,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		}
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlc.Amount < dustLimit {
+		if (ourCommitTx && htlc.isDustLocal) ||
+			(!ourCommitTx && htlc.isDustRemote) {
 			continue
 		}
 
@@ -1874,11 +1904,13 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	}
 
 	pd := &PaymentDescriptor{
-		EntryType: Add,
-		RHash:     PaymentHash(htlc.PaymentHash),
-		Timeout:   htlc.Expiry,
-		Amount:    htlc.Amount,
-		Index:     lc.localUpdateLog.logIndex,
+		EntryType:    Add,
+		RHash:        PaymentHash(htlc.PaymentHash),
+		Timeout:      htlc.Expiry,
+		Amount:       htlc.Amount,
+		Index:        lc.localUpdateLog.logIndex,
+		isDustLocal:  htlc.Amount < lc.channelState.OurDustLimit,
+		isDustRemote: htlc.Amount < lc.channelState.TheirDustLimit,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -1899,11 +1931,13 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	}
 
 	pd := &PaymentDescriptor{
-		EntryType: Add,
-		RHash:     PaymentHash(htlc.PaymentHash),
-		Timeout:   htlc.Expiry,
-		Amount:    htlc.Amount,
-		Index:     lc.remoteUpdateLog.logIndex,
+		EntryType:    Add,
+		RHash:        PaymentHash(htlc.PaymentHash),
+		Timeout:      htlc.Expiry,
+		Amount:       htlc.Amount,
+		Index:        lc.remoteUpdateLog.logIndex,
+		isDustLocal:  htlc.Amount < lc.channelState.OurDustLimit,
+		isDustRemote: htlc.Amount < lc.channelState.TheirDustLimit,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)

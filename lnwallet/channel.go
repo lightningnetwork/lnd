@@ -176,10 +176,15 @@ type PaymentDescriptor struct {
 	// possible upstream peers in the route.
 	isForwarded bool
 
-	// pkScript is the raw public key  script that encodes the redemption
-	// rules for this particular HTLC. This field will only be populated
-	// iff the EntryType of this PaymentDescriptor is Add.
-	pkScript []byte
+	// [our|their|theirPrev]PkScript are the raw public key scripts that
+	// encodes the redemption rules for this particular HTLC. These fields
+	// will only be populated iff the EntryType of this PaymentDescriptor
+	// is Add. ourPkScript is the ourPkScript from the context of our local
+	// commitment chain. [their|theirPrev]PkScript are the two latest
+	// pkScripts from the context of the remote commitment chain.
+	ourPkScript       []byte
+	theirPkScript     []byte
+	theirPrevPkScript []byte
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -228,7 +233,7 @@ type commitment struct {
 // toChannelDelta converts the target commitment into a format suitable to be
 // written to disk after an accepted state transition.
 // TODO(roasbeef): properly fill in refund timeouts
-func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
+func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, error) {
 	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
 
 	// Save output indexes for RHash values found, so we don't return the
@@ -257,8 +262,13 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 	// transaction.
 	locateOutputIndex := func(p *PaymentDescriptor) uint16 {
 		var idx uint16
+
+		pkScript := p.theirPrevPkScript
+		if ourCommit {
+			pkScript = p.ourPkScript
+		}
 		for i, txOut := range c.txn.TxOut {
-			if bytes.Equal(txOut.PkScript, p.pkScript) {
+			if bytes.Equal(txOut.PkScript, pkScript) {
 				if contains(dups[p.RHash], uint16(i)) {
 					continue
 				}
@@ -1636,7 +1646,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	// Additionally, generate a channel delta for this state transition for
 	// persistent storage.
 	tail := lc.localCommitChain.tail()
-	delta, err := tail.toChannelDelta()
+	delta, err := tail.toChannelDelta(true)
 	if err != nil {
 		return nil, err
 	}
@@ -1731,7 +1741,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	// sync now to ensure the revocation producer state is consistent with
 	// the current commitment height.
 	tail := lc.remoteCommitChain.tail()
-	delta, err := tail.toChannelDelta()
+	delta, err := tail.toChannelDelta(false)
 	if err != nil {
 		return nil, err
 	}
@@ -2093,7 +2103,12 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 
 	// Store the pkScript of this particular PaymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.
-	paymentDesc.pkScript = htlcP2WSH
+	if ourCommit {
+		paymentDesc.ourPkScript = htlcP2WSH
+	} else {
+		paymentDesc.theirPrevPkScript = paymentDesc.theirPkScript
+		paymentDesc.theirPkScript = htlcP2WSH
+	}
 
 	return nil
 }

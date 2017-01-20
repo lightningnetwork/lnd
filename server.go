@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -21,7 +20,10 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
 
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -54,7 +56,7 @@ type server struct {
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
 
-	htlcSwitch    *htlcSwitch
+	htlcSwitch    *htlcswitch.HTLCSwitch
 	invoices      *invoiceRegistry
 	breachArbiter *breachArbiter
 
@@ -109,7 +111,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 		invoices:    newInvoiceRegistry(chanDB),
 		utxoNursery: newUtxoNursery(chanDB, notifier, wallet),
-		htlcSwitch:  newHtlcSwitch(),
 
 		identityPriv: privKey,
 
@@ -195,6 +196,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, err
 	}
 	s.connMgr = cmgr
+
+	htlcSwitch, err := htlcswitch.NewHTLCSwitch()
+	if err != nil {
+		return nil, err
+	}
+	s.htlcSwitch = htlcSwitch
 
 	// In order to promote liveness of our active channels, instruct the
 	// connection manager to attempt to establish and maintain persistent

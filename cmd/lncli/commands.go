@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -54,8 +53,13 @@ func printRespJson(resp proto.Message) {
 }
 
 var NewAddressCommand = cli.Command{
-	Name:   "newaddress",
-	Usage:  "generates a new address. Three address types are supported: p2wkh, np2wkh, p2pkh",
+	Name:      "newaddress",
+	Usage:     "generates a new address.",
+	ArgsUsage: "address-type",
+	Description: "Generate a wallet new address. Address-types has to be one of:\n" +
+		"   - p2wkh:  Push to witness key hash\n" +
+		"   - np2wkh: Push to nested witness key hash\n" +
+		"   - p2pkh:  Push to public key hash",
 	Action: newAddress,
 }
 
@@ -63,7 +67,7 @@ func newAddress(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	stringAddrType := ctx.Args().Get(0)
+	stringAddrType := ctx.Args().First()
 
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
@@ -93,16 +97,18 @@ func newAddress(ctx *cli.Context) error {
 }
 
 var SendCoinsCommand = cli.Command{
-	Name:        "sendcoins",
-	Description: "send a specified amount of bitcoin to the passed address",
-	Usage:       "sendcoins --addr=<bitcoin addresss> --amt=<num coins in satoshis>",
+	Name:      "sendcoins",
+	Usage:     "send bitcoin on-chain to an address",
+	ArgsUsage: "addr amt",
+	Description: "Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.\n\n" +
+		"   Positional arguments and flags can be used interchangeably but not at the same time!",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "addr",
-			Usage: "the bitcoin address to send coins to on-chain",
+			Usage: "the BASE58 encoded bitcoin address to send coins to on-chain",
 		},
 		// TODO(roasbeef): switch to BTC on command line? int may not be sufficient
-		cli.IntFlag{
+		cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the number of bitcoin denominated in satoshis to send",
 		},
@@ -111,13 +117,48 @@ var SendCoinsCommand = cli.Command{
 }
 
 func sendCoins(ctx *cli.Context) error {
+	var (
+		addr string
+		amt  int64
+		err  error
+	)
+	args := ctx.Args()
+
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "sendcoins")
+		return nil
+	}
+
+	switch {
+	case ctx.IsSet("addr"):
+		addr = ctx.String("addr")
+	case args.Present():
+		addr = args.First()
+		args = args.Tail()
+	default:
+		return fmt.Errorf("Address argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("amt"):
+		amt = ctx.Int64("amt")
+	case args.Present():
+		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	default:
+		return fmt.Errorf("Amount argument missing")
+	}
+
+	if err != nil {
+		return fmt.Errorf("unable to decode amount: %v", err)
+	}
+
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	req := &lnrpc.SendCoinsRequest{
-		Addr:   ctx.String("addr"),
-		Amount: int64(ctx.Int("amt")),
+		Addr:   addr,
+		Amount: amt,
 	}
 	txid, err := client.SendCoins(ctxb, req)
 	if err != nil {
@@ -129,17 +170,21 @@ func sendCoins(ctx *cli.Context) error {
 }
 
 var SendManyCommand = cli.Command{
-	Name: "sendmany",
+	Name:      "sendmany",
+	Usage:     "send bitcoin on-chain to multiple addresses.",
+	ArgsUsage: "send-json-string",
 	Description: "create and broadcast a transaction paying the specified " +
-		"amount(s) to the passed address(es)",
-	Usage:  `sendmany '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'`,
+		"amount(s) to the passed address(es)\n" +
+		"   'send-json-string' decodes addresses and the amount to send " +
+		"respectively in the following format.\n" +
+		`   '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'`,
 	Action: sendMany,
 }
 
 func sendMany(ctx *cli.Context) error {
 	var amountToAddr map[string]int64
 
-	jsonMap := ctx.Args().Get(0)
+	jsonMap := ctx.Args().First()
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		return err
 	}
@@ -158,14 +203,15 @@ func sendMany(ctx *cli.Context) error {
 }
 
 var ConnectCommand = cli.Command{
-	Name:  "connect",
-	Usage: "connect to a remote lnd peer: <pubkey>@host (--perm=true|false])",
+	Name:      "connect",
+	Usage:     "connect to a remote lnd peer",
+	ArgsUsage: "<pubkey>@host",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "perm",
-			Usage: "If true, then the daemon will attempt to persistently " +
-				"connect to the target peer. If false then the call " +
-				"will be synchronous.",
+			Usage: "If set, the daemon will attempt to persistently " +
+				"connect to the target peer.\n" +
+				"           If not, the call will be synchronous.",
 		},
 	},
 	Action: connectPeer,
@@ -176,7 +222,7 @@ func connectPeer(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	targetAddress := ctx.Args().Get(0)
+	targetAddress := ctx.Args().First()
 	splitAddr := strings.Split(targetAddress, "@")
 	if len(splitAddr) != 2 {
 		return fmt.Errorf("target address expected in format: " +
@@ -201,15 +247,18 @@ func connectPeer(ctx *cli.Context) error {
 	return nil
 }
 
-// TODO(roasbeef): default number of confirmations
+// TODO(roasbeef): change default number of confirmations
 var OpenChannelCommand = cli.Command{
-	Name: "openchannel",
-	Description: "Attempt to open a new channel to an existing peer, " +
-		"optionally blocking until the channel is 'open'. Once the " +
+	Name:  "openchannel",
+	Usage: "Open a channel to an existing peer.",
+	Description: "Attempt to open a new channel to an existing peer with the key node-key, " +
+		"optionally blocking until the channel is 'open'. " +
+		"The channel will be initialized with local-amt satoshis local and push-amt " +
+		"satoshis for the remote node. Once the " +
 		"channel is open, a channelPoint (txid:vout) of the funding " +
 		"output is returned. NOTE: peer_id and node_key are " +
 		"mutually exclusive, only one should be used, not both.",
-	Usage: "openchannel --node_key=X --local_amt=N --push_amt=N --num_confs=N",
+	ArgsUsage: "node-key local-amt push-amt [num-confs]",
 	Flags: []cli.Flag{
 		cli.IntFlag{
 			Name:  "peer_id",
@@ -233,6 +282,7 @@ var OpenChannelCommand = cli.Command{
 			Name: "num_confs",
 			Usage: "the number of confirmations required before the " +
 				"channel is considered 'open'",
+			Value: 1,
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -247,26 +297,67 @@ func openChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
+	args := ctx.Args()
+	var err error
 
-	if ctx.Int("peer_id") != 0 && ctx.String("node_key") != "" {
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "openchannel")
+		return nil
+	}
+
+	if ctx.IsSet("peer_id") && ctx.IsSet("node_key") {
 		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
 			"at the same time, only one can be specified")
 	}
 
 	req := &lnrpc.OpenChannelRequest{
-		LocalFundingAmount: int64(ctx.Int("local_amt")),
-		PushSat:            int64(ctx.Int("push_amt")),
-		NumConfs:           uint32(ctx.Int("num_confs")),
+		NumConfs: uint32(ctx.Int("num_confs")),
 	}
 
-	if ctx.Int("peer_id") != 0 {
+	switch {
+	case ctx.IsSet("peer_id"):
 		req.TargetPeerId = int32(ctx.Int("peer_id"))
-	} else {
+	case ctx.IsSet("node_key"):
 		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
 		if err != nil {
-			return fmt.Errorf("unable to decode lightning id: %v", err)
+			return fmt.Errorf("unable to decode node public key: %v", err)
 		}
 		req.NodePubkey = nodePubHex
+	case args.Present():
+		nodePubHex, err := hex.DecodeString(args.First())
+		if err != nil {
+			return fmt.Errorf("unable to decode node public key: %v", err)
+		}
+		args = args.Tail()
+		req.NodePubkey = nodePubHex
+	default:
+		return fmt.Errorf("lightning id argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("local_amt"):
+		req.LocalFundingAmount = int64(ctx.Int("local_amt"))
+	case args.Present():
+		req.LocalFundingAmount, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode local amt: %v", err)
+		}
+		args = args.Tail()
+	default:
+		return fmt.Errorf("local amt argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("push_amt"):
+		req.PushSat = int64(ctx.Int("push_amt"))
+	case args.Present():
+		req.PushSat, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode push amt: %v", err)
+		}
+	default:
+		return fmt.Errorf("push amt argument missing")
 	}
 
 	stream, err := client.OpenChannel(ctxb, req)
@@ -322,10 +413,11 @@ func openChannel(ctx *cli.Context) error {
 
 // TODO(roasbeef): also allow short relative channel ID.
 var CloseChannelCommand = cli.Command{
-	Name: "closechannel",
+	Name:  "closechannel",
+	Usage: "Close an existing channel.",
 	Description: "Close an existing channel. The channel can be closed either " +
 		"cooperatively, or uncooperatively (forced).",
-	Usage: "closechannel funding_txid output_index time_limit allow_force",
+	ArgsUsage: "funding_txid [output_index [time_limit]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "funding_txid",
@@ -359,18 +451,51 @@ func closeChannel(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	txid, err := chainhash.NewHashFromStr(ctx.String("funding_txid"))
-	if err != nil {
-		return err
+	args := ctx.Args()
+	var (
+		txid string
+		err  error
+	)
+
+	// Show command help if no arguments provieded
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "closeChannel")
+		return nil
 	}
 
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
-		ChannelPoint: &lnrpc.ChannelPoint{
-			FundingTxid: txid[:],
-			OutputIndex: uint32(ctx.Int("output_index")),
-		},
-		Force: ctx.Bool("force"),
+		ChannelPoint: &lnrpc.ChannelPoint{},
+		Force:        ctx.Bool("force"),
+	}
+
+	switch {
+	case ctx.IsSet("funding_txid"):
+		txid = ctx.String("funding_txid")
+	case args.Present():
+		txid = args.First()
+		args = args.Tail()
+	default:
+		return fmt.Errorf("funding txid argument missing")
+	}
+
+	txidhash, err := chainhash.NewHashFromStr(txid)
+	if err != nil {
+		return err
+	}
+	req.ChannelPoint.FundingTxid = txidhash[:]
+
+	switch {
+	case ctx.IsSet("output_index"):
+		req.ChannelPoint.OutputIndex = uint32(ctx.Int("output_index"))
+	case args.Present():
+		index, err := strconv.ParseInt(args.First(), 10, 32)
+		if err != nil {
+			return fmt.Errorf("unable to decode output index: %v", err)
+		}
+		req.ChannelPoint.OutputIndex = uint32(index)
+	default:
+		req.ChannelPoint.OutputIndex = 0
 	}
 
 	stream, err := client.CloseChannel(ctxb, req)
@@ -423,9 +548,9 @@ func closeChannel(ctx *cli.Context) error {
 }
 
 var ListPeersCommand = cli.Command{
-	Name:        "listpeers",
-	Description: "List all active, currently connected peers.",
-	Action:      listPeers,
+	Name:   "listpeers",
+	Usage:  "List all active, currently connected peers.",
+	Action: listPeers,
 }
 
 func listPeers(ctx *cli.Context) error {
@@ -444,9 +569,8 @@ func listPeers(ctx *cli.Context) error {
 }
 
 var WalletBalanceCommand = cli.Command{
-	Name:        "walletbalance",
-	Description: "compute and display the wallet's current balance",
-	Usage:       "walletbalance --witness_only=[true|false]",
+	Name:  "walletbalance",
+	Usage: "compute and display the wallet's current balance",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "witness_only",
@@ -475,9 +599,9 @@ func walletBalance(ctx *cli.Context) error {
 }
 
 var ChannelBalanceCommand = cli.Command{
-	Name:        "channelbalance",
-	Description: "returns the sum of the total available channel balance across all open channels",
-	Action:      channelBalance,
+	Name:   "channelbalance",
+	Usage:  "returns the sum of the total available channel balance across all open channels",
+	Action: channelBalance,
 }
 
 func channelBalance(ctx *cli.Context) error {
@@ -496,9 +620,9 @@ func channelBalance(ctx *cli.Context) error {
 }
 
 var GetInfoCommand = cli.Command{
-	Name:        "getinfo",
-	Description: "returns basic information related to the active daemon",
-	Action:      getInfo,
+	Name:   "getinfo",
+	Usage:  "returns basic information related to the active daemon",
+	Action: getInfo,
 }
 
 func getInfo(ctx *cli.Context) error {
@@ -517,9 +641,8 @@ func getInfo(ctx *cli.Context) error {
 }
 
 var PendingChannelsCommand = cli.Command{
-	Name:        "pendingchannels",
-	Description: "display information pertaining to pending channels",
-	Usage:       "pendingchannels --status=[all|opening|closing]",
+	Name:  "pendingchannels",
+	Usage: "display information pertaining to pending channels",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "open, o",
@@ -567,9 +690,8 @@ func pendingChannels(ctx *cli.Context) error {
 }
 
 var ListChannelsCommand = cli.Command{
-	Name:        "listchannels",
-	Description: "list all open channels",
-	Usage:       "listchannels --active_only",
+	Name:  "listchannels",
+	Usage: "list all open channels",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "active_only, a",
@@ -598,16 +720,17 @@ func listChannels(ctx *cli.Context) error {
 }
 
 var SendPaymentCommand = cli.Command{
-	Name:        "sendpayment",
-	Description: "send a payment over lightning",
-	Usage:       "sendpayment --dest=[node_key] --amt=[in_satoshis] --payment_hash=[hash] --debug_send=[true|false]",
+	Name:  "sendpayment",
+	Usage: "send a payment over lightning",
+	ArgsUsage: "(destination amount payment_hash " +
+		"| --pay_req=[payment request])",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest, d",
 			Usage: "the compressed identity pubkey of the " +
 				"payment recipient",
 		},
-		cli.IntFlag{ // TODO(roasbeef): float64?
+		cli.Int64Flag{
 			Name:  "amt, a",
 			Usage: "number of satoshis to send",
 		},
@@ -631,28 +754,73 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	// Show command help if no arguments provieded
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "sendpayment")
+		return nil
+	}
+
 	var req *lnrpc.SendRequest
-	if ctx.String("pay_req") != "" {
+	if ctx.IsSet("pay_req") {
 		req = &lnrpc.SendRequest{
 			PaymentRequest: ctx.String("pay_req"),
 		}
 	} else {
-		destNode, err := hex.DecodeString(ctx.String("dest"))
+		args := ctx.Args()
+
+		var (
+			destNode []byte
+			err      error
+			amount   int64
+		)
+
+		switch {
+		case ctx.IsSet("dest"):
+			destNode, err = hex.DecodeString(ctx.String("dest"))
+		case args.Present():
+			destNode, err = hex.DecodeString(args.First())
+			args = args.Tail()
+		default:
+			return fmt.Errorf("destination txid argument missing")
+		}
 		if err != nil {
 			return err
 		}
+
 		if len(destNode) != 33 {
 			return fmt.Errorf("dest node pubkey must be exactly 33 bytes, is "+
 				"instead: %v", len(destNode))
 		}
 
-		req = &lnrpc.SendRequest{
-			Dest: destNode,
-			Amt:  int64(ctx.Int("amt")),
+		if ctx.IsSet("amt") {
+			amount = ctx.Int64("amt")
+		} else if args.Present() {
+			amount, err = strconv.ParseInt(args.First(), 10, 64)
+			args = args.Tail()
+			if err != nil {
+				return fmt.Errorf("unable to decode payment amount: %v", err)
+			}
 		}
 
-		if !ctx.Bool("debug_send") {
-			rHash, err := hex.DecodeString(ctx.String("payment_hash"))
+		req = &lnrpc.SendRequest{
+			Dest: destNode,
+			Amt:  amount,
+		}
+
+		if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
+			return fmt.Errorf("do not provide a payment hash with debug send")
+		} else if !ctx.Bool("debug_send") {
+			var rHash []byte
+
+			switch {
+			case ctx.IsSet("payment_hash"):
+				rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+			case args.Present():
+				rHash, err = hex.DecodeString(args.First())
+			default:
+				return fmt.Errorf("payment hash argument missing")
+			}
+
 			if err != nil {
 				return err
 			}
@@ -692,9 +860,11 @@ func sendPaymentCommand(ctx *cli.Context) error {
 }
 
 var AddInvoiceCommand = cli.Command{
-	Name:        "addinvoice",
-	Description: "add a new invoice, expressing intent for a future payment",
-	Usage:       "addinvoice --memo=[note] --receipt=[sig+contract hash] --value=[in_satoshis] --preimage=[32_byte_hash]",
+	Name:  "addinvoice",
+	Usage: "add a new invoice.",
+	Description: "Add a new invoice, expressing intent for a future payment. " +
+		"The value of the invoice in satoshis and a 32 byte hash preimage are neccesary for the creation",
+	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "memo",
@@ -706,9 +876,9 @@ var AddInvoiceCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name:  "preimage",
-			Usage: "the hex-encoded preimage which will allow settling an incoming HTLC payable to this preimage",
+			Usage: "the hex-encoded preimage (32 byte) which will allow settling an incoming HTLC payable to this preimage",
 		},
-		cli.IntFlag{
+		cli.Int64Flag{
 			Name:  "value",
 			Usage: "the value of this invoice in satoshis",
 		},
@@ -717,15 +887,43 @@ var AddInvoiceCommand = cli.Command{
 }
 
 func addInvoice(ctx *cli.Context) error {
+	var (
+		preimage []byte
+		receipt  []byte
+		value    int64
+		err      error
+	)
+
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	preimage, err := hex.DecodeString(ctx.String("preimage"))
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("value"):
+		value = ctx.Int64("value")
+	case args.Present():
+		value, err = strconv.ParseInt(args.First(), 10, 64)
+		args = args.Tail()
+		if err != nil {
+			return fmt.Errorf("unable to decode value argument: %v", err)
+		}
+	default:
+		return fmt.Errorf("value argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("preimage"):
+		preimage, err = hex.DecodeString(ctx.String("preimage"))
+	case args.Present():
+		preimage, err = hex.DecodeString(args.First())
+	}
+
 	if err != nil {
 		return fmt.Errorf("unable to parse preimage: %v", err)
 	}
 
-	receipt, err := hex.DecodeString(ctx.String("receipt"))
+	receipt, err = hex.DecodeString(ctx.String("receipt"))
 	if err != nil {
 		return fmt.Errorf("unable to parse receipt: %v", err)
 	}
@@ -734,7 +932,7 @@ func addInvoice(ctx *cli.Context) error {
 		Memo:      ctx.String("memo"),
 		Receipt:   receipt,
 		RPreimage: preimage,
-		Value:     int64(ctx.Int("value")),
+		Value:     value,
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)
@@ -754,13 +952,13 @@ func addInvoice(ctx *cli.Context) error {
 }
 
 var LookupInvoiceCommand = cli.Command{
-	Name:        "lookupinvoice",
-	Description: "lookup an existing invoice by its payment hash",
-	Usage:       "lookupinvoice --rhash=[32_byte_hash]",
+	Name:      "lookupinvoice",
+	Usage:     "Lookup an existing invoice by its payment hash.",
+	ArgsUsage: "rhash",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "rhash",
-			Usage: "the payment hash of the invoice to query for, the hash " +
+			Usage: "the 32 byte payment hash of the invoice to query for, the hash " +
 				"should be a hex-encoded string",
 		},
 	},
@@ -771,9 +969,22 @@ func lookupInvoice(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	rHash, err := hex.DecodeString(ctx.String("rhash"))
+	var (
+		rHash []byte
+		err   error
+	)
+
+	switch {
+	case ctx.IsSet("rhash"):
+		rHash, err = hex.DecodeString(ctx.String("rhash"))
+	case ctx.Args().Present():
+		rHash, err = hex.DecodeString(ctx.Args().First())
+	default:
+		return fmt.Errorf("rhash argument missing")
+	}
+
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to decode rhash argument: %v", err)
 	}
 
 	req := &lnrpc.PaymentHash{
@@ -791,9 +1002,8 @@ func lookupInvoice(ctx *cli.Context) error {
 }
 
 var ListInvoicesCommand = cli.Command{
-	Name:        "listinvoices",
-	Usage:       "listinvoice --pending_only=[true|false]",
-	Description: "list all invoices currently stored",
+	Name:  "listinvoices",
+	Usage: "List all invoices currently stored.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "pending_only",
@@ -831,11 +1041,11 @@ var DescribeGraphCommand = cli.Command{
 	Name: "describegraph",
 	Description: "prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage: "describegraph",
+	Usage: "describe the network graph",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "render",
-			Usage: "If true, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
+			Usage: "If set, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
 		},
 	},
 	Action: describeGraph,
@@ -1011,10 +1221,9 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 }
 
 var ListPaymentsCommand = cli.Command{
-	Name:        "listpayments",
-	Usage:       "listpayments",
-	Description: "list all outgoing payments",
-	Action:      listPayments,
+	Name:   "listpayments",
+	Usage:  "list all outgoing payments",
+	Action: listPayments,
 }
 
 func listPayments(ctx *cli.Context) error {
@@ -1034,11 +1243,12 @@ func listPayments(ctx *cli.Context) error {
 
 var GetChanInfoCommand = cli.Command{
 	Name:  "getchaninfo",
-	Usage: "getchaninfo --chan_id=[8_byte_channel_id]",
+	Usage: "get the state of a channel",
 	Description: "prints out the latest authenticated state for a " +
 		"particular channel",
+	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
-		cli.IntFlag{
+		cli.Int64Flag{
 			Name:  "chan_id",
 			Usage: "the 8-byte compact channel ID to query for",
 		},
@@ -1051,8 +1261,22 @@ func getChanInfo(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	var (
+		chan_id int64
+		err     error
+	)
+
+	switch {
+	case ctx.IsSet("chan_id"):
+		chan_id = ctx.Int64("chan_id")
+	case ctx.Args().Present():
+		chan_id, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
+	default:
+		return fmt.Errorf("chan_id argument missing")
+	}
+
 	req := &lnrpc.ChanInfoRequest{
-		ChanId: uint64(ctx.Int("chan_id")),
+		ChanId: uint64(chan_id),
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxb, req)
@@ -1066,7 +1290,7 @@ func getChanInfo(ctx *cli.Context) error {
 
 var GetNodeInfoCommand = cli.Command{
 	Name:  "getnodeinfo",
-	Usage: "getnodeinfo --pub_key=[33_byte_serialized_pub_lky]",
+	Usage: "Get information on a specific node.",
 	Description: "prints out the latest authenticated node state for an " +
 		"advertised node",
 	Flags: []cli.Flag{
@@ -1084,6 +1308,10 @@ func getNodeInfo(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	if !ctx.IsSet("pub_key") {
+		return fmt.Errorf("pub_key argument missing")
+	}
+
 	req := &lnrpc.NodeInfoRequest{
 		PubKey: ctx.String("pub_key"),
 	}
@@ -1099,15 +1327,16 @@ func getNodeInfo(ctx *cli.Context) error {
 
 var QueryRouteCommand = cli.Command{
 	Name:        "queryroute",
-	Usage:       "queryroute --dest=[dest_pub_key] --amt=[amt_to_send_in_satoshis]",
-	Description: "queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
+	Usage:       "Query a route to a destination.",
+	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
+	ArgsUsage:   "dest amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest",
 			Usage: "the 33-byte hex-encoded public key for the payment " +
 				"destination",
 		},
-		cli.IntFlag{
+		cli.Int64Flag{
 			Name:  "amt",
 			Usage: "the amount to send expressed in satoshis",
 		},
@@ -1120,9 +1349,39 @@ func queryRoute(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	var (
+		dest string
+		amt  int64
+		err  error
+	)
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("dest"):
+		dest = ctx.String("dest")
+	case args.Present():
+		dest = args.First()
+		args = args.Tail()
+	default:
+		return fmt.Errorf("dest argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("amt"):
+		amt = ctx.Int64("amt")
+	case args.Present():
+		amt, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode amt argument: %v", err)
+		}
+	default:
+		return fmt.Errorf("amt argument missing")
+	}
+
 	req := &lnrpc.RouteRequest{
-		PubKey: ctx.String("dest"),
-		Amt:    int64(ctx.Int("amt")),
+		PubKey: dest,
+		Amt:    amt,
 	}
 
 	route, err := client.QueryRoute(ctxb, req)
@@ -1160,7 +1419,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 
 var DebugLevel = cli.Command{
 	Name:        "debuglevel",
-	Usage:       "debuglevel [--show|--level=<level_spec>]",
+	Usage:       "Set the debug level.",
 	Description: "Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
@@ -1196,8 +1455,9 @@ func debugLevel(ctx *cli.Context) error {
 
 var DecodePayReq = cli.Command{
 	Name:        "decodepayreq",
-	Usage:       "decodepayreq --pay_req=[encoded_pay_req]",
+	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
+	ArgsUsage:   "pay_req",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "pay_req",
@@ -1212,12 +1472,19 @@ func decodePayReq(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	if ctx.String("pay_req") == "" {
-		return errors.New("the --pay_req argument cannot be empty")
+	var payreq string
+
+	switch {
+	case ctx.IsSet("pay_req"):
+		payreq = ctx.String("pay_req")
+	case ctx.Args().Present():
+		payreq = ctx.Args().First()
+	default:
+		return fmt.Errorf("pay_req argument missing")
 	}
 
 	resp, err := client.DecodePayReq(ctxb, &lnrpc.PayReqString{
-		PayReq: ctx.String("pay_req"),
+		PayReq: payreq,
 	})
 	if err != nil {
 		return err

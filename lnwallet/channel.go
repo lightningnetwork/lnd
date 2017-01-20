@@ -1169,9 +1169,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	if err != nil {
 		return nil, err
 	}
-	//var isDust bool
-	//if ourCommitTx {
-	//isDust =
+
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if (ourCommitTx && htlc.isDustLocal) ||
 			(!ourCommitTx && htlc.isDustRemote) {
@@ -1972,6 +1970,12 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
 
 	lc.localUpdateLog.appendUpdate(pd)
 
+	// Since we will not be adding this HTLC to any commitment transaction
+	// anymore, we should properly set theirPrevPkScript so we can generate
+	// a valid ChannelDelta for a revoked remote commitment.
+	addEntry := lc.remoteUpdateLog.lookup(targetHTLC.Index)
+	addEntry.theirPrevPkScript = addEntry.theirPkScript
+
 	lc.rHashMap[paymentHash][0] = nil
 	lc.rHashMap[paymentHash] = lc.rHashMap[paymentHash][1:]
 	if len(lc.rHashMap[paymentHash]) == 0 {
@@ -2009,6 +2013,11 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 
 	lc.remoteUpdateLog.appendUpdate(pd)
 
+	// Since we will not be adding this HTLC to any commitment transaction
+	// anymore, we should properly set theirPrevPkScript so we can generate
+	// a valid ChannelDelta for a revoked remote commitment.
+	htlc.theirPrevPkScript = htlc.theirPkScript
+
 	return nil
 }
 
@@ -2035,6 +2044,11 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
+
+	// Since we will not be adding this HTLC to any commitment transaction
+	// anymore, we should properly set theirPrevPkScript so we can generate
+	// a valid ChannelDelta for a revoked remote commitment.
+	addEntry.theirPrevPkScript = addEntry.theirPkScript
 
 	lc.rHashMap[rHash][0] = nil
 	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
@@ -2067,6 +2081,11 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// Since we will not be adding this HTLC to any commitment transaction
+	// anymore, we should properly set theirPrevPkScript so we can generate
+	// a valid ChannelDelta for a revoked remote commitment.
+	htlc.theirPrevPkScript = htlc.theirPkScript
 
 	return nil
 }

@@ -230,11 +230,25 @@ type commitment struct {
 // TODO(roasbeef): properly fill in refund timeouts
 func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
+
+	// Save output indexes for RHash values found, so we don't return the
+	// same output index more than once.
+	dups := make(map[PaymentHash][]uint16)
 	delta := &channeldb.ChannelDelta{
 		LocalBalance:  c.ourBalance,
 		RemoteBalance: c.theirBalance,
 		UpdateNum:     c.height,
 		Htlcs:         make([]*channeldb.HTLC, 0, numHtlcs),
+	}
+
+	// Check to see if element (e) exists in slice (s)
+	contains := func(s []uint16, e uint16) bool {
+		for _, a := range s {
+			if a == e {
+				return true
+			}
+		}
+		return false
 	}
 
 	// As we also store the output index of the HTLC for continence
@@ -244,9 +258,13 @@ func (c *commitment) toChannelDelta() (*channeldb.ChannelDelta, error) {
 	locateOutputIndex := func(p *PaymentDescriptor) uint16 {
 		var idx uint16
 		for i, txOut := range c.txn.TxOut {
-			// TODO(roasbeef): duplicated payment hashes...
 			if bytes.Equal(txOut.PkScript, p.pkScript) {
+				if contains(dups[p.RHash], uint16(i)) {
+					continue
+				}
+
 				idx = uint16(i)
+				dups[p.RHash] = append(dups[p.RHash], idx)
 				break
 			}
 		}

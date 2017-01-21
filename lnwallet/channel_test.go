@@ -1246,7 +1246,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		rHash := sha256.Sum256(alicePreimage[:])
 		h := &lnwire.UpdateAddHTLC{
 			PaymentHash: rHash,
-			Amount:      btcutil.Amount(1000),
+			Amount:      btcutil.Amount(500),
 			Expiry:      uint32(10),
 		}
 
@@ -1260,7 +1260,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	rHash := sha256.Sum256(bobPreimage[:])
 	bobh := &lnwire.UpdateAddHTLC{
 		PaymentHash: rHash,
-		Amount:      btcutil.Amount(1000),
+		Amount:      btcutil.Amount(500),
 		Expiry:      uint32(10),
 	}
 	if _, err := bobChannel.AddHTLC(bobh); err != nil {
@@ -1286,9 +1286,9 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The balances of both channels should be updated accordingly.
 	aliceBalance := aliceChannel.channelState.OurBalance
-	expectedAliceBalance := aliceStartingBalance - btcutil.Amount(3000)
+	expectedAliceBalance := aliceStartingBalance - btcutil.Amount(1500)
 	bobBalance := bobChannel.channelState.OurBalance
-	expectedBobBalance := bobStartingBalance - btcutil.Amount(1000)
+	expectedBobBalance := bobStartingBalance - btcutil.Amount(500)
 	if aliceBalance != expectedAliceBalance {
 		t.Fatalf("expected %v alice balance, got %v", int64(expectedAliceBalance),
 			int64(aliceBalance))
@@ -1384,6 +1384,56 @@ func TestStateUpdatePersistence(t *testing.T) {
 			bobChannelNew.remoteUpdateLog.Len())
 	}
 
+	// Newly generated pkScripts for HTLCs should be the same as in the old channel.
+	for _, entry := range aliceChannel.localUpdateLog.updateIndex {
+		htlc := entry.Value.(*PaymentDescriptor)
+		restoredHtlc := aliceChannelNew.localUpdateLog.lookup(htlc.Index)
+		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
+			t.Fatalf("alice ourPkScript in ourLog: expected %X..., got %X...",
+				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
+		}
+		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
+			t.Fatalf("alice theirPkScript in ourLog: expected %X..., got %X...",
+				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
+		}
+	}
+	for _, entry := range aliceChannel.remoteUpdateLog.updateIndex {
+		htlc := entry.Value.(*PaymentDescriptor)
+		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookup(htlc.Index)
+		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
+			t.Fatalf("alice ourPkScript in theirLog: expected %X..., got %X...",
+				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
+		}
+		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
+			t.Fatalf("alice theirPkScript in theirLog: expected %X..., got %X...",
+				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
+		}
+	}
+	for _, entry := range bobChannel.localUpdateLog.updateIndex {
+		htlc := entry.Value.(*PaymentDescriptor)
+		restoredHtlc := bobChannelNew.localUpdateLog.lookup(htlc.Index)
+		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
+			t.Fatalf("bob ourPkScript in ourLog: expected %X..., got %X...",
+				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
+		}
+		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
+			t.Fatalf("bob theirPkScript in ourLog: expected %X..., got %X...",
+				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
+		}
+	}
+	for _, entry := range bobChannel.remoteUpdateLog.updateIndex {
+		htlc := entry.Value.(*PaymentDescriptor)
+		restoredHtlc := bobChannelNew.remoteUpdateLog.lookup(htlc.Index)
+		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
+			t.Fatalf("bob ourPkScript in theirLog: expected %X..., got %X...",
+				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
+		}
+		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
+			t.Fatalf("bob theirPkScript in theirLog: expected %X..., got %X...",
+				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
+		}
+	}
+
 	// Now settle all the HTLCs, then force a state update. The state
 	// update should suceed as both sides have identical.
 	for i := 0; i < 3; i++ {
@@ -1418,9 +1468,9 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The balances of both sides should have been updated accordingly.
 	aliceBalance = aliceChannelNew.channelState.OurBalance
-	expectedAliceBalance = aliceStartingBalance - btcutil.Amount(2000)
+	expectedAliceBalance = aliceStartingBalance - btcutil.Amount(1000)
 	bobBalance = bobChannelNew.channelState.OurBalance
-	expectedBobBalance = bobStartingBalance + btcutil.Amount(2000)
+	expectedBobBalance = bobStartingBalance + btcutil.Amount(1000)
 	if aliceBalance != expectedAliceBalance {
 		t.Fatalf("expected %v alice balance, got %v", expectedAliceBalance,
 			aliceBalance)
@@ -1432,19 +1482,19 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The amounts transferred should been updated as per the amounts in
 	// the HTLCs
-	if aliceChannelNew.channelState.TotalSatoshisSent != 3000 {
+	if aliceChannelNew.channelState.TotalSatoshisSent != 1500 {
 		t.Fatalf("expected %v alice satoshis sent, got %v",
 			3000, aliceChannelNew.channelState.TotalSatoshisSent)
 	}
-	if aliceChannelNew.channelState.TotalSatoshisReceived != 1000 {
+	if aliceChannelNew.channelState.TotalSatoshisReceived != 500 {
 		t.Fatalf("expected %v alice satoshis received, got %v",
 			1000, aliceChannelNew.channelState.TotalSatoshisReceived)
 	}
-	if bobChannelNew.channelState.TotalSatoshisSent != 1000 {
+	if bobChannelNew.channelState.TotalSatoshisSent != 500 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
 			1000, bobChannel.channelState.TotalSatoshisSent)
 	}
-	if bobChannelNew.channelState.TotalSatoshisReceived != 3000 {
+	if bobChannelNew.channelState.TotalSatoshisReceived != 1500 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
 			3000, bobChannel.channelState.TotalSatoshisSent)
 	}

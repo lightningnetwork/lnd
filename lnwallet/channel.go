@@ -1017,7 +1017,7 @@ func (lc *LightningChannel) Stop() {
 
 // restoreStateLogs runs through the current locked-in HTLCs from the point of
 // view of the channel and insert corresponding log entries (both local and
-// remote) for each HTLC read from disk. This method is required sync the
+// remote) for each HTLC read from disk. This method is required to sync the
 // in-memory state of the state machine with that read from persistent storage.
 func (lc *LightningChannel) restoreStateLogs() error {
 	var pastHeight uint64
@@ -1025,20 +1025,63 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		pastHeight = lc.currentHeight - 1
 	}
 
+	localKey := lc.channelState.OurCommitKey
+	remoteKey := lc.channelState.TheirCommitKey
+	ourDelay := lc.channelState.LocalCsvDelay
+	theirDelay := lc.channelState.RemoteCsvDelay
+
+	ourRevPreImage, err := lc.channelState.RevocationProducer.AtIndex(lc.currentHeight)
+	if err != nil {
+		return err
+	}
+	ourRevocation := sha256.Sum256(ourRevPreImage[:])
+
+	theirRevocation := lc.channelState.TheirCurrentRevocationHash
+
 	var ourCounter, theirCounter uint64
+
 	for _, htlc := range lc.channelState.Htlcs {
 		// TODO(roasbeef): set isForwarded to false for all? need to
 		// persist state w.r.t to if forwarded or not, or can
 		// inadvertently trigger replays
+
+		// The proper pkScripts for this PaymentDescriptor must be
+		// generated.
+		var ourP2WSH, theirP2WSH []byte
+		timeout := htlc.RefundTimeout
+		rHash := htlc.RHash
+		amt := htlc.Amt
+		isDustLocal := amt < lc.channelState.OurDustLimit
+		isDustRemote := amt < lc.channelState.TheirDustLimit
+
+		// It is unnecessary to generate pkScripts for dust outputs.
+		if !isDustLocal {
+			ourP2WSH, err = lc.genHtlcScript(htlc.Incoming, true, timeout,
+				ourDelay, remoteKey, localKey, ourRevocation, rHash)
+			if err != nil {
+				return err
+			}
+		}
+		// It is unnecessary to generate pkScripts for dust outputs.
+		if !isDustRemote {
+			theirP2WSH, err = lc.genHtlcScript(htlc.Incoming, false, timeout,
+				theirDelay, remoteKey, localKey, theirRevocation, rHash)
+			if err != nil {
+				return err
+			}
+		}
+
 		pd := &PaymentDescriptor{
-			RHash:                 htlc.RHash,
-			Timeout:               htlc.RefundTimeout,
-			Amount:                htlc.Amt,
+			RHash:                 rHash,
+			Timeout:               timeout,
+			Amount:                amt,
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
-			isDustLocal:           htlc.Amt < lc.channelState.OurDustLimit,
-			isDustRemote:          htlc.Amt < lc.channelState.TheirDustLimit,
+			isDustLocal:           isDustLocal,
+			isDustRemote:          isDustRemote,
+			ourPkScript:           ourP2WSH,
+			theirPkScript:         theirP2WSH,
 		}
 
 		if !htlc.Incoming {
@@ -2097,22 +2140,12 @@ func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
 	return lc.channelState.ChanID
 }
 
-// addHTLC adds a new HTLC to the passed commitment transaction. One of four
-// full scripts will be generated for the HTLC output depending on if the HTLC
-// is incoming and if it's being applied to our commitment transaction or that
-// of the remote node's. Additionally, in order to be able to efficiently
-// locate the added HTLC on the commitment transaction from the
-// PaymentDescriptor that generated it, the generated script is stored within
-// the descriptor itself.
-func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
-	paymentDesc *PaymentDescriptor, revocation [32]byte, delay uint32,
-	isIncoming bool) error {
-
-	localKey := lc.channelState.OurCommitKey
-	remoteKey := lc.channelState.TheirCommitKey
-	timeout := paymentDesc.Timeout
-	rHash := paymentDesc.RHash
-
+// genHtlcScript generates the proper P2WSH public key scripts for the
+// HTLC output modified by two-bits denoting if this is an incoming HTLC, and
+// if the HTLC is being applied to their commitment transaction or ours.
+func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
+	timeout, delay uint32, remoteKey, localKey *btcec.PublicKey, revocation,
+	rHash [32]byte) ([]byte, error) {
 	// Generate the proper redeem scripts for the HTLC output modified by
 	// two-bits denoting if this is an incoming HTLC, and if the HTLC is
 	// being applied to their commitment transaction or ours.
@@ -2145,12 +2178,35 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 			remoteKey, revocation[:], rHash[:])
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	// Now that we have the redeem scripts, create the P2WSH public key
 	// script for the output itself.
 	htlcP2WSH, err := witnessScriptHash(pkScript)
+	if err != nil {
+		return nil, err
+	}
+	return htlcP2WSH, nil
+}
+
+// addHTLC adds a new HTLC to the passed commitment transaction. One of four
+// full scripts will be generated for the HTLC output depending on if the HTLC
+// is incoming and if it's being applied to our commitment transaction or that
+// of the remote node's. Additionally, in order to be able to efficiently
+// locate the added HTLC on the commitment transaction from the
+// PaymentDescriptor that generated it, the generated script is stored within
+// the descriptor itself.
+func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
+	paymentDesc *PaymentDescriptor, revocation [32]byte, delay uint32,
+	isIncoming bool) error {
+
+	localKey := lc.channelState.OurCommitKey
+	remoteKey := lc.channelState.TheirCommitKey
+	timeout := paymentDesc.Timeout
+	rHash := paymentDesc.RHash
+
+	htlcP2WSH, err := lc.genHtlcScript(isIncoming, ourCommit, timeout,
+		delay, remoteKey, localKey, revocation, rHash)
 	if err != nil {
 		return err
 	}

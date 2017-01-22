@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"encoding/hex"
 	"sync"
 	"sync/atomic"
@@ -92,7 +93,7 @@ type ChannelRouter struct {
 
 	cfg *Config
 
-	self *channeldb.LightningNode
+	selfNode *channeldb.LightningNode
 
 	// TODO(roasbeef): make LRU, invalidate upon new block connect
 	shortestPathCache map[[33]byte][]*Route
@@ -133,14 +134,14 @@ func New(cfg Config) (*ChannelRouter, error) {
 		return nil, err
 	}
 
-	self, err := cfg.Graph.SourceNode()
+	selfNode, err := cfg.Graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
 
 	return &ChannelRouter{
 		cfg:          &cfg,
-		self:         self,
+		selfNode:     selfNode,
 		fakeSig:      fakeSig,
 		networkMsgs:  make(chan *routingMsg),
 		syncRequests: make(chan *syncRequest),
@@ -301,6 +302,9 @@ func (r *ChannelRouter) networkHandler() {
 	trickleTimer := time.NewTicker(time.Millisecond * 300)
 	defer trickleTimer.Stop()
 
+	retransmitTimer := time.NewTicker(time.Minute * 30)
+	defer retransmitTimer.Stop()
+
 	for {
 		select {
 		// A new fully validated network message has just arrived. As a
@@ -370,6 +374,55 @@ func (r *ChannelRouter) networkHandler() {
 
 			log.Infof("Block %v (height=%v) closed %v channels",
 				newBlock.Hash, newBlock.Height, numClosed)
+
+		// The retransmission timer has ticked which indicates that we
+		// should broadcast our personal channel sot the network. This
+		// addresses the case of channel advertisements whether being
+		// dropped, or not properly propagated through the network.
+		case <-retransmitTimer.C:
+			var selfChans []lnwire.Message
+
+			selfPub := r.selfNode.PubKey.SerializeCompressed()
+			err := r.selfNode.ForEachChannel(nil, func(c *channeldb.ChannelEdge) error {
+				chanNodePub := c.Node.PubKey.SerializeCompressed()
+
+				// Compare our public key with that of the
+				// channel peer. If our key is "less" than
+				// theirs, then we're the "first" node in the
+				// advertisement, otherwise we're the second.
+				flags := uint16(1)
+				if bytes.Compare(selfPub, chanNodePub) == -1 {
+					flags = 0
+				}
+
+				selfChans = append(selfChans, &lnwire.ChannelUpdateAnnouncement{
+					Signature:                 r.fakeSig,
+					ChannelID:                 lnwire.NewChanIDFromInt(c.ChannelID),
+					Timestamp:                 uint32(c.LastUpdate.Unix()),
+					Flags:                     flags,
+					Expiry:                    c.Expiry,
+					HtlcMinimumMstat:          uint32(c.MinHTLC),
+					FeeBaseMstat:              uint32(c.FeeBaseMSat),
+					FeeProportionalMillionths: uint32(c.FeeProportionalMillionths),
+				})
+				return nil
+			})
+			if err != nil {
+				log.Errorf("unable to retransmit "+
+					"channels: %v", err)
+				continue
+			}
+
+			log.Infof("Retransmitting %v outgoing channels",
+				len(selfChans))
+
+			// With all the wire messages properly crafted, we'll
+			// broadcast our known outgoing channel to all our
+			// immediate peers.
+			if err := r.cfg.Broadcast(nil, selfChans...); err != nil {
+				log.Errorf("unable to re-broadcast "+
+					"channels: %v", err)
+			}
 
 		// The trickle timer has ticked, which indicates we should
 		// flush to the network the pending batch of new announcements

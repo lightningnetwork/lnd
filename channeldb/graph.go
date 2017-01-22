@@ -1295,21 +1295,21 @@ func fetchEdges(edgeIndex *bolt.Bucket, edges *bolt.Bucket, nodes *bolt.Bucket,
 	chanID []byte, db *DB) (*ChannelEdge, *ChannelEdge, error) {
 
 	edgeInfo := edgeIndex.Get(chanID)
-	if edgeIndex == nil {
+	if edgeInfo == nil {
 		return nil, nil, ErrEdgeNotFound
 	}
 
-	// The first node is contained within the first half of the
-	// edge information. We only propgate the error here and below if it's
-	// something other than edge non-existance.
+	// The first node is contained within the first half of the edge
+	// information. We only propagate the error here and below if it's
+	// something other than edge non-existence.
 	node1Pub := edgeInfo[:33]
 	edge1, err := fetchChannelEdge(edges, chanID, node1Pub, nodes)
 	if err != nil && err != ErrEdgeNotFound {
 		return nil, nil, err
 	}
 
-	// As we may have a signle direction of the edge but not the other,
-	// only fill in the datbase pointers if the edge is found.
+	// As we may have a single direction of the edge but not the other,
+	// only fill in the database pointers if the edge is found.
 	if edge1 != nil {
 		edge1.db = db
 		edge1.Node.db = db

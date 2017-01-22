@@ -33,7 +33,7 @@ var (
 
 const (
 	// pingInterval is the interval at which ping messages are sent.
-	pingInterval = 30 * time.Second
+	pingInterval = 1 * time.Minute
 
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside

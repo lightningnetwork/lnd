@@ -23,3 +23,4 @@ RUN glide install
 RUN go install . ./cmd/...
 
 COPY "docker/lnd/start-lnd.sh" .
+RUN chmod +x start-lnd.sh

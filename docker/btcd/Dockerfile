@@ -35,3 +35,7 @@ VOLUME ["/rpc"]
 
 COPY "start-btcctl.sh" .
 COPY "start-btcd.sh" .
+
+RUN chmod +x start-btcctl.sh
+RUN chmod +x start-btcd.sh
+

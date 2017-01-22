@@ -1003,7 +1003,7 @@ func listPayments(ctx *cli.Context) error {
 
 var GetChanInfoCommand = cli.Command{
 	Name:  "getchaninfo",
-	Usage: "getchaninfo --chand_id=[8_byte_channel_id]",
+	Usage: "getchaninfo --chan_id=[8_byte_channel_id]",
 	Description: "prints out the latest authenticated state for a " +
 		"particular channel",
 	Flags: []cli.Flag{

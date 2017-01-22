@@ -206,7 +206,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	for _, node := range linkNodes {
 		// Create a wrapper address which couples the IP and the pubkey
 		// so the brontide authenticated connection can be established.
-		node.Addresses[0].Port = defaultPeerPort
 		lnAddr := &lnwire.NetAddress{
 			IdentityKey: node.IdentityPub,
 			Address:     node.Addresses[0],

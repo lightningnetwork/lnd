@@ -450,14 +450,14 @@ out:
 			// Dispatch the commitment update message to the proper
 			// active goroutine dedicated to this channel.
 			p.htlcManMtx.Lock()
-			targetChan, ok := p.htlcManagers[*targetChan]
+			channel, ok := p.htlcManagers[*targetChan]
 			p.htlcManMtx.Unlock()
 			if !ok {
-				peerLog.Errorf("recv'd update for unknown channel %v",
-					targetChan)
+				peerLog.Errorf("recv'd update for unknown "+
+					"channel %v from %v", targetChan, p)
 				continue
 			}
-			targetChan <- nextMsg
+			channel <- nextMsg
 		}
 	}
 

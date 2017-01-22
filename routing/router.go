@@ -593,7 +593,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 			FeeProportionalMillionths: btcutil.Amount(msg.FeeProportionalMillionths),
 			// TODO(roasbeef): this is a hack, needs to be removed
 			// after commitment fees are dynamic.
-			Capacity: btcutil.Amount(utxo.Value) - 5000,
+			Capacity: btcutil.Amount(utxo.Value) - btcutil.Amount(5000),
 		}
 
 		err = r.cfg.Graph.UpdateEdgeInfo(chanUpdate)

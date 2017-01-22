@@ -206,6 +206,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	for _, node := range linkNodes {
 		// Create a wrapper address which couples the IP and the pubkey
 		// so the brontide authenticated connection can be established.
+		node.Addresses[0].Port = defaultPeerPort
 		lnAddr := &lnwire.NetAddress{
 			IdentityKey: node.IdentityPub,
 			Address:     node.Addresses[0],
@@ -215,8 +216,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			"peer %v", lnAddr)
 
 		// Send the persistent connection request to the connection
-		// manager, saving the request itself so we can
-		// cancel/restart the process as needed.
+		// manager, saving the request itself so we can cancel/restart
+		// the process as needed.
 		connReq := &connmgr.ConnReq{
 			Addr:      lnAddr,
 			Permanent: true,

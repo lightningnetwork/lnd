@@ -726,7 +726,13 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	go func() {
 		// TODO(roasbeef): need to persist pending broadcast channels,
 		// send chan open proof during scan of blocks mined while down.
-		openChan, confHeight, confBlockIndex := resCtx.reservation.DispatchChan()
+		openChanDetails, err := resCtx.reservation.DispatchChan()
+		if err != nil {
+			fndgLog.Errorf("Unable to dispatch "+
+				"ChannelPoint(%v): %v", fundingPoint, err)
+			return
+		}
+
 		// This reservation is no longer pending as the funding
 		// transaction has been fully confirmed.
 		f.deleteReservationCtx(peerID, chanID)
@@ -739,19 +745,19 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 
 		// First we send the newly opened channel to the source server
 		// peer.
-		fmsg.peer.newChannels <- openChan
+		fmsg.peer.newChannels <- openChanDetails.Channel
 
 		// Afterwards we send the breach arbiter the new channel so it
 		// can watch for attempts to breach the channel's contract by
 		// the remote party.
-		f.breachAribter.newContracts <- openChan
+		f.breachAribter.newContracts <- openChanDetails.Channel
 
 		// With the block height and the transaction index known, we
 		// can construct the compact chainID which is used on the
 		// network to unique identify channels.
 		chainID := lnwire.ChannelID{
-			BlockHeight: confHeight,
-			TxIndex:     confBlockIndex,
+			BlockHeight: openChanDetails.ConfirmationHeight,
+			TxIndex:     openChanDetails.TransactionIndex,
 			TxPosition:  uint16(fundingPoint.Index),
 		}
 
@@ -767,8 +773,8 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 		// TODO(roasbeef): should include sigs from funding
 		// locked
 		//  * should be moved to after funding locked is recv'd
-		f.announceChannel(fmsg.peer.server, openChan, chainID, f.fakeProof,
-			f.fakeProof)
+		f.announceChannel(fmsg.peer.server, openChanDetails.Channel,
+			chainID, f.fakeProof, f.fakeProof)
 
 		// Finally give the caller a final update notifying them that
 		// the channel is now open.

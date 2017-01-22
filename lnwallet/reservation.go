@@ -130,7 +130,8 @@ type ChannelReservation struct {
 	// confirmation details will be sent on once the channel is considered
 	// 'open'. A channel is open once the funding transaction has reached a
 	// sufficient number of confirmations.
-	chanOpen chan *openChanDetails
+	chanOpen    chan *openChanDetails
+	chanOpenErr chan error
 
 	wallet *LightningWallet
 }
@@ -213,6 +214,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		pushSat:        pushSat,
 		reservationID:  id,
 		chanOpen:       make(chan *openChanDetails, 1),
+		chanOpenErr:    make(chan error, 1),
 		wallet:         wallet,
 	}
 }
@@ -434,6 +436,23 @@ func (r *ChannelReservation) Cancel() error {
 	return <-errChan
 }
 
+// OpenChannelDetails wraps the finalized fully confirmed channel which
+// resulted from a ChannelReservation instance with details concerning exactly
+// _where_ in the chain the channel was ultimately opened.
+type OpenChannelDetails struct {
+	// Channel is the active channel created by an instance of a
+	// ChannelReservation and the required funding workflow.
+	Channel *LightningChannel
+
+	// ConfirmationHeight is the block height within the chain that included
+	// the channel.
+	ConfirmationHeight uint32
+
+	// TransactionIndex is the index within the confirming block that the
+	// transaction resides.
+	TransactionIndex uint32
+}
+
 // DispatchChan returns a channel which will be sent on once the funding
 // transaction for this pending payment channel obtains the configured number
 // of confirmations. Once confirmations have been obtained, a fully initialized
@@ -441,12 +460,17 @@ func (r *ChannelReservation) Cancel() error {
 //
 // NOTE: If this method is called before .CompleteReservation(), it will block
 // indefinitely.
-func (r *ChannelReservation) DispatchChan() (*LightningChannel, uint32, uint32) {
-	// TODO(roasbeef): goroutine sending in wallet should be lifted up into
-	// the fundingMgr
-	openDetails := <-r.chanOpen
+func (r *ChannelReservation) DispatchChan() (*OpenChannelDetails, error) {
+	if err := <-r.chanOpenErr; err != nil {
+		return nil, err
+	}
 
-	return openDetails.channel, openDetails.blockHeight, openDetails.txIndex
+	openDetails := <-r.chanOpen
+	return &OpenChannelDetails{
+		Channel:            openDetails.channel,
+		ConfirmationHeight: openDetails.blockHeight,
+		TransactionIndex:   openDetails.txIndex,
+	}, nil
 }
 
 // FinalizeReservation completes the pending reservation, returning an active
@@ -463,5 +487,9 @@ func (r *ChannelReservation) FinalizeReservation() (*LightningChannel, error) {
 		err:              errChan,
 	}
 
-	return (<-r.chanOpen).channel, <-errChan
+	if err := <-errChan; err != nil {
+		return nil, err
+	}
+
+	return (<-r.chanOpen).channel, nil
 }

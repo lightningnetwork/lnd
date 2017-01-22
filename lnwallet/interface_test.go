@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -479,8 +480,12 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	// Assert that the channel opens after a single block.
 	lnChan := make(chan *lnwallet.LightningChannel, 1)
 	go func() {
-		channel, _, _ := chanReservation.DispatchChan()
-		lnChan <- channel
+		openDetails, err := chanReservation.DispatchChan()
+		if err != nil {
+			t.Fatalf("unable to finalize reservation: %v", err)
+		}
+
+		lnChan <- openDetails.Channel
 	}()
 	lnc := assertChannelOpen(t, miner, uint32(numReqConfs), lnChan)
 
@@ -757,8 +762,12 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 
 	lnChan := make(chan *lnwallet.LightningChannel, 1)
 	go func() {
-		channel, _, _ := chanReservation.DispatchChan()
-		lnChan <- channel
+		openDetails, err := chanReservation.DispatchChan()
+		if err != nil {
+			t.Fatalf("unable to open channel: %v", err)
+		}
+
+		lnChan <- openDetails.Channel
 	}()
 	assertChannelOpen(t, miner, uint32(numReqConfs), lnChan)
 }
@@ -915,7 +924,8 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// Some period of time later, Bob presents us with an SPV proof
 	// attesting to an open channel. At this point Alice recognizes the
 	// channel, saves the state to disk, and creates the channel itself.
-	if _, err := chanReservation.FinalizeReservation(); err != nil {
+	_, err = chanReservation.FinalizeReservation()
+	if err != nil && !strings.Contains(err.Error(), "No information") {
 		t.Fatalf("unable to finalize reservation: %v", err)
 	}
 

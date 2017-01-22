@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -1229,13 +1230,18 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
+	channel, err := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
+	if err != nil {
+		req.err <- err
+		res.chanOpen <- nil
+		return
+	}
 
+	req.err <- nil
 	res.chanOpen <- &openChanDetails{
 		channel: channel,
 	}
-	req.err <- nil
 }
 
 // openChannelAfterConfirmations creates, and opens a payment channel after
@@ -1265,20 +1271,28 @@ out:
 		// don't count this as the signal that the funding transaction has
 		// been confirmed.
 		if !ok {
+			res.chanOpenErr <- errors.New("wallet shutting down")
 			res.chanOpen <- nil
 			return
 		}
 
 		break out
 	case <-l.quit:
+		res.chanOpenErr <- errors.New("wallet shutting down")
 		res.chanOpen <- nil
 		return
 	}
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, _ := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
+	channel, err := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
 		res.partialState)
+	if err != nil {
+		res.chanOpenErr <- err
+		res.chanOpen <- nil
+	}
+
+	res.chanOpenErr <- nil
 	res.chanOpen <- &openChanDetails{
 		channel:     channel,
 		blockHeight: confDetails.BlockHeight,

@@ -783,14 +783,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	ourCommitKey := ourContribution.CommitKey
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		ourRevokeKey, ourContribution.CsvDelay,
-		ourBalance, theirBalance)
+		ourBalance, theirBalance, pendingReservation.partialState.OurDustLimit)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
 		theirContribution.RevocationKey, theirContribution.CsvDelay,
-		theirBalance, ourBalance)
+		theirBalance, ourBalance, pendingReservation.partialState.TheirDustLimit)
 	if err != nil {
 		req.err <- err
 		return
@@ -1100,14 +1100,15 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	theirBalance := pendingReservation.partialState.TheirBalance
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
 		pendingReservation.ourContribution.RevocationKey,
-		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance)
+		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance,
+		pendingReservation.partialState.OurDustLimit)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
 		req.revokeKey, pendingReservation.theirContribution.CsvDelay,
-		theirBalance, ourBalance)
+		theirBalance, ourBalance, pendingReservation.partialState.TheirDustLimit)
 	if err != nil {
 		req.err <- err
 		return

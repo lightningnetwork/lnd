@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"io/ioutil"
+	"net"
 	"os"
 	"reflect"
 	"testing"
@@ -136,6 +137,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 
 	return &OpenChannel{
 		IsInitiator:                true,
+		IsPending:                  true,
 		ChanType:                   SingleFunder,
 		IdentityPub:                pubKey,
 		ChanID:                     id,
@@ -581,5 +583,52 @@ func TestChannelStateTransition(t *testing.T) {
 	_, err = updatedChannel[0].FindPreviousState(uint64(delta.UpdateNum))
 	if err == nil {
 		t.Fatal("revocation log search should've failed")
+	}
+}
+
+func TestFetchPendingChannels(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("uanble to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// Create first test channel state
+	state, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+
+	if err := state.SyncPending(addr); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
+	}
+
+	pendingChannels, err := cdb.FetchPendingChannels()
+	if err != nil {
+		t.Fatalf("unable to list pending channels: %v", err)
+	}
+
+	if len(pendingChannels) != 1 {
+		t.Fatalf("incorrect number of pending channels: expecting %v,"+
+			"got %v", 1, len(pendingChannels))
+	}
+
+	if err := cdb.MarkChannelAsOpen(pendingChannels[0].ChanID); err != nil {
+		t.Fatalf("unable to mark channel as open: %v", err)
+	}
+
+	pendingChannels, err = cdb.FetchPendingChannels()
+	if err != nil {
+		t.Fatalf("unable to list pending channels: %v", err)
+	}
+
+	if len(pendingChannels) != 0 {
+		t.Fatalf("incorrect number of pending channels: expecting %v,"+
+			"got %v", 0, len(pendingChannels))
 	}
 }

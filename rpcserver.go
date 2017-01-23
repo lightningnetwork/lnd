@@ -631,7 +631,11 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
 	}
 
-	pendingChannels := r.server.fundingMgr.NumPendingChannels()
+	pendingChannels, err := r.server.fundingMgr.NumPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
 	bestHash, bestHeight, err := r.server.bio.GetBestBlock()
@@ -760,7 +764,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 	var pendingChannels []*lnrpc.PendingChannelResponse_PendingChannel
 	if includeOpen {
-		pendingOpenChans := r.server.fundingMgr.PendingChannels()
+		pendingOpenChans, err := r.server.fundingMgr.PendingChannels()
+		if err != nil {
+			return nil, err
+		}
 		for _, pendingOpen := range pendingOpenChans {
 			channelPointStr := "<non initialized yet>"
 			if pendingOpen.channelPoint != nil {

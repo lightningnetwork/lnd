@@ -204,6 +204,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		partialState: &channeldb.OpenChannel{
 			Capacity:     capacity,
 			IsInitiator:  initiator,
+			IsPending:    true,
 			ChanType:     chanType,
 			OurBalance:   ourBalance,
 			TheirBalance: theirBalance,

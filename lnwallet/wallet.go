@@ -1066,7 +1066,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// which will be used for the lifetime of this channel.
 	// TODO(roasbeef): revisit faul-tolerance of this flow
 	nodeAddr := res.nodeAddr
-	if err := res.partialState.FullSyncWithAddr(nodeAddr); err != nil {
+	if err := res.partialState.SyncPending(nodeAddr); err != nil {
 		msg.err <- err
 		return
 	}
@@ -1220,7 +1220,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	if err := res.partialState.FullSyncWithAddr(res.nodeAddr); err != nil {
+	if err := res.partialState.SyncPending(res.nodeAddr); err != nil {
 		req.err <- err
 		res.chanOpen <- nil
 		return

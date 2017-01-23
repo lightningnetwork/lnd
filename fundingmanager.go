@@ -241,17 +241,22 @@ func (f *fundingManager) Stop() error {
 
 type numPendingReq struct {
 	resp chan uint32
+	err  chan error
 }
 
 // NumPendingChannels returns the number of pending channels currently
 // progressing through the reservation workflow.
-func (f *fundingManager) NumPendingChannels() uint32 {
-	resp := make(chan uint32, 1)
+func (f *fundingManager) NumPendingChannels() (uint32, error) {
+	respChan := make(chan uint32, 1)
+	errChan := make(chan error)
 
-	req := &numPendingReq{resp}
+	req := &numPendingReq{
+		resp: respChan,
+		err:  errChan,
+	}
 	f.queries <- req
 
-	return <-resp
+	return <-respChan, <-errChan
 }
 
 type pendingChannel struct {
@@ -264,17 +269,22 @@ type pendingChannel struct {
 
 type pendingChansReq struct {
 	resp chan []*pendingChannel
+	err  chan error
 }
 
 // PendingChannels returns a slice describing all the channels which are
 // currently pending at the last state of the funding workflow.
-func (f *fundingManager) PendingChannels() []*pendingChannel {
-	resp := make(chan []*pendingChannel, 1)
+func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
+	respChan := make(chan []*pendingChannel, 1)
+	errChan := make(chan error)
 
-	req := &pendingChansReq{resp}
+	req := &pendingChansReq{
+		resp: respChan,
+		err:  errChan,
+	}
 	f.queries <- req
 
-	return <-resp
+	return <-respChan, <-errChan
 }
 
 // reservationCoordinator is the primary goroutine tasked with progressing the
@@ -322,7 +332,18 @@ func (f *fundingManager) handleNumPending(msg *numPendingReq) {
 	for _, peerChannels := range f.activeReservations {
 		numPending += uint32(len(peerChannels))
 	}
+
+	dbPendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
+	if err != nil {
+		close(msg.resp)
+		msg.err <- err
+		return
+	}
+
+	numPending = numPending + uint32(len(dbPendingChannels))
+
 	msg.resp <- numPending
+	msg.err <- nil
 }
 
 // handlePendingChannels responds to a request for details concerning all
@@ -346,7 +367,28 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 			pendingChannels = append(pendingChannels, pendingChan)
 		}
 	}
+
+	dbPendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
+	if err != nil {
+		msg.resp <- nil
+		msg.err <- err
+		return
+	}
+
+	for _, dbPendingChan := range dbPendingChannels {
+		pendingChan := &pendingChannel{
+			identityPub:   dbPendingChan.IdentityPub,
+			channelPoint:  dbPendingChan.ChanID,
+			capacity:      dbPendingChan.Capacity,
+			localBalance:  dbPendingChan.OurBalance,
+			remoteBalance: dbPendingChan.TheirBalance,
+		}
+
+		pendingChannels = append(pendingChannels, pendingChan)
+	}
+
 	msg.resp <- pendingChannels
+	msg.err <- nil
 }
 
 // processFundingRequest sends a message to the fundingManager allowing it to

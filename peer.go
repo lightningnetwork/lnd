@@ -119,17 +119,9 @@ type peer struct {
 	htlcManMtx   sync.RWMutex
 	htlcManagers map[wire.OutPoint]chan lnwire.Message
 
-	// newChanBarriers is a map from a channel point to a 'barrier' which
-	// will be signalled once the channel is fully open. This barrier acts
-	// as a synchronization point for any incoming/outgoing HTLCs before
-	// the channel has been fully opened.
-	barrierMtx      sync.RWMutex
-	newChanBarriers map[wire.OutPoint]chan struct{}
-	barrierInits    chan wire.OutPoint
-
 	// newChannels is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
-	newChannels chan *lnwallet.LightningChannel
+	newChannels chan *newChannelReq
 
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
@@ -190,12 +182,10 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		sendQueue:     make(chan outgoinMsg, 1),
 		outgoingQueue: make(chan outgoinMsg, outgoingQueueLen),
 
-		barrierInits:     make(chan wire.OutPoint),
-		newChanBarriers:  make(map[wire.OutPoint]chan struct{}),
 		activeChannels:   make(map[wire.OutPoint]*lnwallet.LightningChannel),
 		htlcManagers:     make(map[wire.OutPoint]chan lnwire.Message),
 		chanSnapshotReqs: make(chan *chanSnapshotReq),
-		newChannels:      make(chan *lnwallet.LightningChannel, 1),
+		newChannels:      make(chan *newChannelReq, 1),
 
 		localCloseChanReqs:  make(chan *closeLinkReq),
 		remoteCloseChanReqs: make(chan *lnwire.CloseRequest),
@@ -482,27 +472,7 @@ out:
 		}
 
 		if isChanUpdate {
-			// We might be receiving an update to a newly funded
-			// channel in which we were the responder. Therefore
-			// we need to possibly block until the new channel has
-			// propagated internally through the system.
-			// TODO(roasbeef): replace with atomic load from/into
-			// map?
-			p.barrierMtx.RLock()
-			barrier, ok := p.newChanBarriers[targetChan]
-			p.barrierMtx.RUnlock()
-			if ok {
-				peerLog.Tracef("waiting for chan barrier "+
-					"signal for ChannelPoint(%v)", targetChan)
-				select {
-				case <-barrier:
-				case <-p.quit: // TODO(roasbeef): add timer?
-					break out
-				}
-				peerLog.Tracef("barrier for ChannelPoint(%v) "+
-					"closed", targetChan)
-			}
-
+			p.server.fundingMgr.waitUntilChannelOpen(targetChan)
 			// Dispatch the commitment update message to the proper
 			// active goroutine dedicated to this channel.
 			p.htlcManMtx.Lock()
@@ -746,23 +716,11 @@ out:
 			p.activeChanMtx.RUnlock()
 			req.resp <- snapshots
 
-		case pendingChanPoint := <-p.barrierInits:
-			// A new channel has almost finished the funding
-			// process. In order to properly synchronize with the
-			// writeHandler goroutine, we add a new channel to the
-			// barriers map which will be closed once the channel
-			// is fully open.
-			p.barrierMtx.Lock()
-			peerLog.Tracef("Creating chan barrier for "+
-				"ChannelPoint(%v)", pendingChanPoint)
-			p.newChanBarriers[pendingChanPoint] = make(chan struct{})
-			p.barrierMtx.Unlock()
-
-		case newChan := <-p.newChannels:
-			chanPoint := *newChan.ChannelPoint()
+		case newChanReq := <-p.newChannels:
+			chanPoint := *newChanReq.channel.ChannelPoint()
 
 			p.activeChanMtx.Lock()
-			p.activeChannels[chanPoint] = newChan
+			p.activeChannels[chanPoint] = newChanReq.channel
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
@@ -770,7 +728,7 @@ out:
 
 			// Now that the channel is open, notify the Htlc
 			// Switch of a new active link.
-			chanSnapShot := newChan.StateSnapshot()
+			chanSnapShot := newChanReq.channel.StateSnapshot()
 			downstreamLink := make(chan *htlcPacket, 10)
 			plexChan := p.server.htlcSwitch.RegisterLink(p,
 				chanSnapShot, downstreamLink)
@@ -784,16 +742,9 @@ out:
 			p.htlcManMtx.Unlock()
 
 			p.wg.Add(1)
-			go p.htlcManager(newChan, plexChan, downstreamLink, upstreamLink)
+			go p.htlcManager(newChanReq.channel, plexChan, downstreamLink, upstreamLink)
 
-			// Close the active channel barrier signalling the
-			// readHandler that commitment related modifications to
-			// this channel can now proceed.
-			p.barrierMtx.Lock()
-			peerLog.Tracef("Closing chan barrier for ChannelPoint(%v)", chanPoint)
-			close(p.newChanBarriers[chanPoint])
-			delete(p.newChanBarriers, chanPoint)
-			p.barrierMtx.Unlock()
+			close(newChanReq.done)
 
 		case req := <-p.localCloseChanReqs:
 			p.handleLocalClose(req)

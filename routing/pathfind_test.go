@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+
 	"io/ioutil"
 	"net"
 	"os"
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -24,6 +25,9 @@ const (
 	// the tests. The basic graph consists of 5 nodes with 5 channels
 	// connecting them.
 	basicGraphFilePath = "testdata/basic_graph.json"
+
+	// failureGraphFilePath...
+	failureGraphFilePath = "testdata/failure_graph.json"
 )
 
 // testGraph is the struct which coresponds to the JSON format used to encode
@@ -41,15 +45,15 @@ type testGraph struct {
 // for our tests.
 type testNode struct {
 	Source bool   `json:"source"`
-	PubKey string `json:"pubkey"`
+	PubKey string `json:"pub_key"`
 	Alias  string `json:"alias"`
 }
 
 // testChan represents the JSON version of a payment channel. This struct
 // matches the Json that's encoded under the "edges" key within the test graph.
 type testChan struct {
-	Node1        string  `json:"node_1"`
-	Node2        string  `json:"node_2"`
+	Node1        string  `json:"node1_pub"`
+	Node2        string  `json:"node2_pub"`
 	ChannelID    uint64  `json:"channel_id"`
 	ChannelPoint string  `json:"channel_point"`
 	Flags        uint16  `json:"flags"`
@@ -129,6 +133,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
 		pub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
 		if err != nil {
 			return nil, nil, nil, err
@@ -388,6 +393,38 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	_, err = findRoute(graph, target, payAmt)
 	if err != ErrInsufficientCapacity {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+}
+
+func TestUserBug(t *testing.T) {
+	graph, cleanUp, _, err := parseTestGraph(failureGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	// Next, test that attempting to find a path in which the current
+	// channel graph cannot support due to insufficient capacity triggers
+	// an error.
+
+	// To test his we'll attempt to make a payment of 1 BTC, or 100 million
+	// satoshis. The largest channel in the basic graph is of size 100k
+	// satoshis, so we shouldn't be able to find a path to sophon even
+	// though we have a 2-hop link.
+
+	b, err := hex.DecodeString("03d03ec0f146f0f568a88b6c26ae8b816dab6749f46e177f7ae884c09e42709aab")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target, err := btcec.ParsePubKey(b, btcec.S256())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = findRoute(graph, target, 100)
+	if err != nil {
+		t.Fatalf("graph should be able to support payment: %v", err)
 	}
 }
 

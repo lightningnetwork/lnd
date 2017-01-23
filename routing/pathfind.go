@@ -105,7 +105,8 @@ func newRoute(amtToSend btcutil.Amount, source, target vertex,
 	// timelock and fee values.
 	pathEdges := make([]*channeldb.ChannelEdge, 0, len(prevHop))
 	prev := target
-	for prev != source { // TODO(roasbeef): assumes no cycles
+	for prev != source {
+		// TODO(roasbeef): assumes no cycles
 		// Add the current hop to the limit of path edges then walk
 		// backwards from this hop via the prev pointer for this hop
 		// within the prevHop map.

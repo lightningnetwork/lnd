@@ -843,7 +843,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	aliceCommitTx, err := lnwallet.CreateCommitTx(fundingTxIn,
 		ourContribution.CommitKey, bobContribution.CommitKey,
 		ourContribution.RevocationKey, ourContribution.CsvDelay, 0,
-		capacity)
+		capacity, 540)
 	if err != nil {
 		t.Fatalf("unable to create alice's commit tx: %v", err)
 	}

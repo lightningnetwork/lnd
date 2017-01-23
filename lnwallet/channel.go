@@ -1095,7 +1095,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// unsettled/un-timed out HTLCs.
 	ourCommitTx := !remoteChain
 	commitTx, err := CreateCommitTx(lc.fundingTxIn, selfKey, remoteKey,
-		revocationKey, delay, delayBalance, p2wkhBalance)
+		revocationKey, delay, delayBalance, p2wkhBalance, dustLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -2361,7 +2361,7 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 // counterparty within the channel, which can be spent immediately.
 func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
 	revokeKey *btcec.PublicKey, csvTimeout uint32, amountToSelf,
-	amountToThem btcutil.Amount) (*wire.MsgTx, error) {
+	amountToThem, dustLimit btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -2391,11 +2391,11 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	commitTx := wire.NewMsgTx(2)
 	commitTx.AddTxIn(fundingOutput)
 
-	// Avoid creating zero value outputs within the commitment transaction.
-	if amountToSelf != 0 {
+	// Avoid creating dust outputs within the commitment transaction.
+	if amountToSelf >= dustLimit {
 		commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
 	}
-	if amountToThem != 0 {
+	if amountToThem >= dustLimit {
 		commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
 	}
 

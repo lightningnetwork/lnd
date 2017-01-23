@@ -54,7 +54,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
 	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceKeyPub,
-		bobKeyPub, revokePubKey, csvTimeout, channelBalance, channelBalance)
+		bobKeyPub, revokePubKey, csvTimeout, channelBalance, channelBalance, 540)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
 	}

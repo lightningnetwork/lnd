@@ -359,7 +359,8 @@ out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, _, err := p.readNextMessage()
 		if err != nil {
-			peerLog.Infof("unable to read message: %v", err)
+			peerLog.Infof("unable to read message from %v: %v",
+				p, err)
 
 			switch err.(type) {
 			// If this is just a message we don't yet recognize,

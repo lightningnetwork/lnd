@@ -199,6 +199,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
 		Wallet:      wallet,
+		Notifier:    s.chainNotifier,
 		ArbiterChan: s.breachArbiter.newContracts,
 		SendToPeer:  s.sendToPeer,
 		FindPeer:    s.findPeer,

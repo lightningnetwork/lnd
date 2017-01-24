@@ -687,8 +687,8 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("timeout reached before chan pending " +
-			"update sent")
+		return nil, fmt.Errorf("timeout reached before chan pending "+
+			"update sent: %v", err)
 	case err := <-errChan:
 		return nil, err
 	case <-chanOpen:

@@ -281,17 +281,28 @@ type incubationRequest struct {
 // defined within the summary of a closed channel. Individually, as all outputs
 // reach maturity they'll be swept back into the wallet.
 func (u *utxoNursery) incubateOutputs(closeSummary *lnwallet.ForceCloseSummary) {
-	outputAmt := btcutil.Amount(closeSummary.SelfOutputSignDesc.Output.Value)
-	selfOutput := &kidOutput{
-		amt:              outputAmt,
-		outPoint:         closeSummary.SelfOutpoint,
-		blocksToMaturity: closeSummary.SelfOutputMaturity,
-		signDescriptor:   closeSummary.SelfOutputSignDesc,
-		witnessType:      commitmentTimeLock,
+	var incReq incubationRequest
+
+	// It could be that our to-self output was below the dust limit. In that
+	// case the SignDescriptor would be nil and we would not have that output
+	// to incubate.
+	if closeSummary.SelfOutputSignDesc != nil {
+		outputAmt := btcutil.Amount(closeSummary.SelfOutputSignDesc.Output.Value)
+		selfOutput := &kidOutput{
+			amt:              outputAmt,
+			outPoint:         closeSummary.SelfOutpoint,
+			blocksToMaturity: closeSummary.SelfOutputMaturity,
+			signDescriptor:   closeSummary.SelfOutputSignDesc,
+			witnessType:      commitmentTimeLock,
+		}
+
+		incReq.outputs = append(incReq.outputs, selfOutput)
 	}
 
-	u.requests <- &incubationRequest{
-		outputs: []*kidOutput{selfOutput},
+	// If there are no outputs to incubate, there is nothing to send to the
+	// request channel.
+	if len(incReq.outputs) != 0 {
+		u.requests <- &incReq
 	}
 }
 

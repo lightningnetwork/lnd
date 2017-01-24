@@ -541,6 +541,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	reservation.nodeAddr = req.nodeAddr
 	reservation.ourContribution.CsvDelay = req.csvDelay
 
+	reservation.partialState.NumConfsRequired = req.numConfs
 	reservation.partialState.IdentityPub = req.nodeID
 	reservation.partialState.LocalCsvDelay = req.csvDelay
 	reservation.partialState.OurDustLimit = req.ourDustLimit

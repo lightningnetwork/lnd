@@ -9,6 +9,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -83,11 +85,11 @@ type fundingSignCompleteMsg struct {
 	peerAddress *lnwire.NetAddress
 }
 
-// fundingOpenMsg couples an lnwire.SingleFundingOpenProof message
-// with the peer who sent the message. This allows the funding manager to
-// queue a response directly to the peer, progressing the funding workflow.
-type fundingOpenMsg struct {
-	msg         *lnwire.SingleFundingOpenProof
+// fundingLockedMsg couples an lnwire.FundingLocked message with the peer who
+// sent the message. This allows the funding manager to finalize the funding
+// process and announce the existence of the new channel.
+type fundingLockedMsg struct {
+	msg         *lnwire.FundingLocked
 	peerAddress *lnwire.NetAddress
 }
 
@@ -97,11 +99,6 @@ type fundingOpenMsg struct {
 type fundingErrorMsg struct {
 	err         *lnwire.ErrorGeneric
 	peerAddress *lnwire.NetAddress
-}
-
-type newChannelReq struct {
-	channel *lnwallet.LightningChannel
-	done    chan struct{}
 }
 
 // pendingChannels is a map instantiated per-peer which tracks all active
@@ -125,6 +122,10 @@ func newSerializedKey(pubKey *btcec.PublicKey) serializedPubKey {
 // within the configuration MUST be non-nil for the FundingManager to carry out
 // its duties.
 type fundingConfig struct {
+	// IDKey is the PublicKey that is used to identify this node within the
+	// Lightning Network.
+	IDKey *btcec.PublicKey
+
 	// Wallet handles the parts of the funding process that involves moving
 	// funds from on-chain transaction outputs into Lightning channels.
 	Wallet *lnwallet.LightningWallet
@@ -135,6 +136,15 @@ type fundingConfig struct {
 	// commitment transaction.
 	ArbiterChan chan<- *lnwallet.LightningChannel
 
+	// Notifier is used by the FundingManager to determine when the
+	// channel's funding transaction has been confirmed on the blockchain
+	// so that the channel creation process can be completed.
+	Notifier chainntnfs.ChainNotifier
+
+	// ProcessRoutingMessage is used by the FundingManager to announce newly created
+	// channels to the rest of the Lightning Network.
+	ProcessRoutingMessage func(msg lnwire.Message, src *btcec.PublicKey)
+
 	// SendToPeer allows the FundingManager to send messages to the peer
 	// node during the multiple steps involved in the creation of the
 	// channel's funding transaction and initial commitment transaction.
@@ -144,6 +154,10 @@ type fundingConfig struct {
 	// the FundingManager can notify other daemon subsystems as necessary
 	// during the funding process.
 	FindPeer func(peerKey *btcec.PublicKey) (*peer, error)
+
+	// FindChannel queries the database for the channel with the given
+	// funding transaction outpoint.
+	FindChannel func(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error)
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -230,6 +244,30 @@ func (f *fundingManager) Start() error {
 	}
 
 	fndgLog.Tracef("Funding manager running")
+
+	// Upon restart, the Funding Manager will check the database to load any
+	// channels that were  waiting for their funding transactions to be
+	// confirmed on the blockchain at the time when the daemon last went
+	// down.
+	pendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
+	if err != nil {
+		return err
+	}
+
+	// For any channels that were in a pending state when the daemon was last
+	// connected, the Funding Manager will re-initialize the channel barriers
+	// and will also launch waitForFundingConfirmation to wait for the
+	// channel's funding transaction to be confirmed on the blockchain.
+	for _, channel := range pendingChannels {
+		f.barrierMtx.Lock()
+		fndgLog.Tracef("Creating chan barrier for "+
+			"ChannelPoint(%v)", *channel.FundingOutpoint)
+		f.newChanBarriers[*channel.FundingOutpoint] = make(chan struct{})
+		f.barrierMtx.Unlock()
+
+		doneChan := make(chan struct{})
+		go f.waitForFundingConfirmation(channel, doneChan)
+	}
 
 	f.wg.Add(1) // TODO(roasbeef): tune
 	go f.reservationCoordinator()
@@ -319,8 +357,8 @@ func (f *fundingManager) reservationCoordinator() {
 				f.handleFundingComplete(fmsg)
 			case *fundingSignCompleteMsg:
 				f.handleFundingSignComplete(fmsg)
-			case *fundingOpenMsg:
-				f.handleFundingOpen(fmsg)
+			case *fundingLockedMsg:
+				f.handleFundingLocked(fmsg)
 			case *fundingErrorMsg:
 				f.handleErrorGenericMsg(fmsg)
 			}
@@ -364,22 +402,6 @@ func (f *fundingManager) handleNumPending(msg *numPendingReq) {
 // workflow (funding txn confirmation).
 func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 	var pendingChannels []*pendingChannel
-	for _, peerChannels := range f.activeReservations {
-		for _, pendingChan := range peerChannels {
-			res := pendingChan.reservation
-			localFund := res.OurContribution().FundingAmount
-			remoteFund := res.TheirContribution().FundingAmount
-
-			pendingChan := &pendingChannel{
-				identityPub:   pendingChan.peerAddress.IdentityKey,
-				channelPoint:  res.FundingOutpoint(),
-				capacity:      localFund + remoteFund,
-				localBalance:  localFund,
-				remoteBalance: remoteFund,
-			}
-			pendingChannels = append(pendingChannels, pendingChan)
-		}
-	}
 
 	dbPendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
 	if err != nil {
@@ -484,8 +506,9 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// TODO(roasbeef): assuming this was an inbound connection, replace
 	// port with default advertised port
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
-		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address, 1, delay,
-		ourDustLimit, msg.PushSatoshis)
+		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
+		uint16(fmsg.msg.ConfirmationDepth), delay, ourDustLimit,
+		msg.PushSatoshis)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -550,7 +573,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	fundingResp := lnwire.NewSingleFundingResponse(msg.ChannelID,
 		ourContribution.RevocationKey, ourContribution.CommitKey,
 		ourContribution.MultiSigKey, ourContribution.CsvDelay,
-		deliveryScript, ourDustLimit)
+		deliveryScript, ourDustLimit, msg.ConfirmationDepth)
 
 	if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingResp); err != nil {
 		fndgLog.Errorf("unable to send funding response to peer: %v", err)
@@ -704,8 +727,8 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
-	err = resCtx.reservation.CompleteReservationSingle(revokeKey, &fundingOut,
-		commitSig, obsfucator)
+	completeChan, err := resCtx.reservation.CompleteReservationSingle(
+		revokeKey, &fundingOut, commitSig, obsfucator)
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
@@ -744,6 +767,14 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 		cancelReservation()
 		return
 	}
+
+	go func() {
+		doneChan := make(chan struct{})
+		go f.waitForFundingConfirmation(completeChan, doneChan)
+
+		<-doneChan
+		f.deleteReservationCtx(peerKey, fmsg.msg.ChannelID)
+	}()
 }
 
 // processFundingSignComplete sends a single funding sign complete message
@@ -751,6 +782,193 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 func (f *fundingManager) processFundingSignComplete(msg *lnwire.SingleFundingSignComplete,
 	peerAddress *lnwire.NetAddress) {
 	f.fundingMsgs <- &fundingSignCompleteMsg{msg, peerAddress}
+}
+
+// handleFundingSignComplete processes the final message received in a single
+// funder workflow. Once this message is processed, the funding transaction is
+// broadcast. Once the funding transaction reaches a sufficient number of
+// confirmations, a message is sent to the responding peer along with a compact
+// encoding of the location of the channel within the blockchain.
+func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg) {
+	chanID := fmsg.msg.ChannelID
+	peerKey := fmsg.peerAddress.IdentityKey
+
+	resCtx, err := f.getReservationCtx(peerKey, chanID)
+	if err != nil {
+		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
+			peerKey, chanID)
+		return
+	}
+
+	// The remote peer has responded with a signature for our commitment
+	// transaction. We'll verify the signature for validity, then commit
+	// the state to disk as we can now open the channel.
+	commitSig := fmsg.msg.CommitSignature.Serialize()
+	completeChan, err := resCtx.reservation.CompleteReservation(nil, commitSig)
+	if err != nil {
+		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
+		resCtx.err <- err
+		return
+	}
+
+	fundingPoint := resCtx.reservation.FundingOutpoint()
+	fndgLog.Infof("Finalizing pendingID(%v) over ChannelPoint(%v), "+
+		"waiting for channel open on-chain", chanID, fundingPoint)
+
+	// Send an update to the upstream client that the negotiation process
+	// is over.
+	// TODO(roasbeef): add abstraction over updates to accommodate
+	// long-polling, or SSE, etc.
+	resCtx.updates <- &lnrpc.OpenStatusUpdate{
+		Update: &lnrpc.OpenStatusUpdate_ChanPending{
+			ChanPending: &lnrpc.PendingUpdate{
+				Txid:        fundingPoint.Hash[:],
+				OutputIndex: fundingPoint.Index,
+			},
+		},
+	}
+
+	go func() {
+		doneChan := make(chan struct{})
+		go f.waitForFundingConfirmation(completeChan, doneChan)
+
+		<-doneChan
+
+		// Finally give the caller a final update notifying them that
+		// the channel is now open.
+		// TODO(roasbeef): helper funcs for proto construction
+		resCtx.updates <- &lnrpc.OpenStatusUpdate{
+			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+				ChanOpen: &lnrpc.ChannelOpenUpdate{
+					ChannelPoint: &lnrpc.ChannelPoint{
+						FundingTxid: fundingPoint.Hash[:],
+						OutputIndex: fundingPoint.Index,
+					},
+				},
+			},
+		}
+
+		f.deleteReservationCtx(peerKey, fmsg.msg.ChannelID)
+	}()
+}
+
+// waitForFundingConfirmation handles the final stages of the channel funding
+// process once the funding transaction has been broadcast. The primary
+// function of waitForFundingConfirmation is to wait for blockchain
+// confirmation, and then to notify the other systems that must be notified
+// when a channel has become active for lightning transactions.
+func (f *fundingManager) waitForFundingConfirmation(
+	completeChan *channeldb.OpenChannel, doneChan chan struct{}) {
+
+	// Register with the ChainNotifier for a notification once the funding
+	// transaction reaches `numConfs` confirmations.
+	txid := completeChan.FundingOutpoint.Hash
+	numConfs := uint32(completeChan.NumConfsRequired)
+	confNtfn, _ := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid, numConfs)
+
+	fndgLog.Infof("Waiting for funding tx (%v) to reach %v confirmations",
+		txid, numConfs)
+
+	// Wait until the specified number of confirmations has been reached,
+	// or the wallet signals a shutdown.
+	confDetails := <-confNtfn.Confirmed
+
+	fundingPoint := *completeChan.FundingOutpoint
+	fndgLog.Infof("ChannelPoint(%v) is now active",
+		fundingPoint)
+
+	completeChan.IsPending = false
+	err := f.cfg.Wallet.ChannelDB.MarkChannelAsOpen(&fundingPoint)
+	if err != nil {
+		fndgLog.Errorf("error setting channel pending flag to false: "+
+			"%v", err)
+		return
+	}
+
+	// Finally, create and officially open the payment channel!
+	// TODO(roasbeef): CreationTime once tx is 'open'
+	channel, err := lnwallet.NewLightningChannel(f.cfg.Wallet.Signer,
+		f.cfg.Notifier, completeChan)
+	if err != nil {
+		fndgLog.Errorf("error creating new lightning channel: %v", err)
+		return
+	}
+
+	// Now that the channel is open, we need to notify a number of
+	// parties of this event.
+
+	// First we send the newly opened channel to the source server
+	peer, err := f.cfg.FindPeer(completeChan.IdentityPub)
+	if err != nil {
+		fndgLog.Errorf("Unable to find peer: %v", err)
+		return
+	}
+
+	newChanDone := make(chan struct{})
+	newChanMsg := &newChannelMsg{
+		channel: channel,
+		done:    newChanDone,
+	}
+	peer.newChannels <- newChanMsg
+
+	<-newChanDone
+
+	// Close the active channel barrier signalling the
+	// readHandler that commitment related modifications to
+	// this channel can now proceed.
+	f.barrierMtx.Lock()
+	fndgLog.Tracef("Closing chan barrier for ChannelPoint(%v)", fundingPoint)
+	close(f.newChanBarriers[fundingPoint])
+	delete(f.newChanBarriers, fundingPoint)
+	f.barrierMtx.Unlock()
+
+	// Afterwards we send the breach arbiter the new channel so it
+	// can watch for attempts to breach the channel's contract by
+	// the remote party.
+	f.cfg.ArbiterChan <- channel
+
+	// With the block height and the transaction index known, we
+	// can construct the compact chainID which is used on the
+	// network to unique identify channels.
+	chanID := lnwire.ChannelID{
+		BlockHeight: confDetails.BlockHeight,
+		TxIndex:     confDetails.TxIndex,
+		TxPosition:  uint16(fundingPoint.Index),
+	}
+
+	// When the funding transaction has been confirmed, the FundingLocked
+	// message is sent to the remote peer so that the existence of the
+	// channel can be announced to the network.
+	fundingLockedMsg := lnwire.NewFundingLocked(fundingPoint, chanID,
+		f.cfg.IDKey)
+	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
+
+	close(doneChan)
+	return
+}
+
+// processFundingLocked sends a message to the fundingManager allowing it to finish
+// the funding workflow.
+func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
+	peerAddress *lnwire.NetAddress) {
+	f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}
+}
+
+// handleFundingLocked finalizes the channel funding process and enables the channel
+// to enter normal operating mode.
+func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
+	fundingPoint := fmsg.msg.ChannelOutpoint
+	channel, err := f.cfg.FindChannel(fundingPoint)
+	if err != nil {
+		fndgLog.Errorf("error looking up channel for outpoint: %v", fundingPoint)
+		return
+	}
+
+	// Register the new link with the L3 routing manager so this
+	// new channel can be utilized during path
+	// finding.
+	f.announceChannel(f.cfg.IDKey, fmsg.peerAddress.IdentityKey, channel,
+		fmsg.msg.ChannelID, f.fakeProof, f.fakeProof)
 }
 
 // channelProof is one half of the proof necessary to create an authenticated
@@ -775,16 +993,9 @@ type chanAnnouncement struct {
 // identity pub keys of both parties to the channel, and the second segment is
 // authenticated only by us and contains our directional routing policy for the
 // channel.
-func newChanAnnouncement(localIdentity *btcec.PublicKey,
+func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
 	localProof, remoteProof *channelProof) *chanAnnouncement {
-
-	// First obtain the remote party's identity public key, this will be
-	// used to determine the order of the keys and signatures in the
-	// channel announcement.
-	chanInfo := channel.StateSnapshot()
-	remotePub := chanInfo.RemoteIdentity
-	localPub := localIdentity
 
 	// The unconditional section of the announcement is the ChannelID
 	// itself which compactly encodes the location of the funding output
@@ -806,8 +1017,8 @@ func newChanAnnouncement(localIdentity *btcec.PublicKey,
 	selfBytes := localIdentity.SerializeCompressed()
 	remoteBytes := remotePub.SerializeCompressed()
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
-		chanAnn.FirstNodeID = localPub
-		chanAnn.SecondNodeID = &remotePub
+		chanAnn.FirstNodeID = localIdentity
+		chanAnn.SecondNodeID = remotePub
 		chanAnn.FirstNodeSig = localProof.nodeSig
 		chanAnn.SecondNodeSig = remoteProof.nodeSig
 		chanAnn.FirstBitcoinSig = localProof.nodeSig
@@ -819,8 +1030,8 @@ func newChanAnnouncement(localIdentity *btcec.PublicKey,
 		// indicate the "direction" of the update.
 		chanFlags = 0
 	} else {
-		chanAnn.FirstNodeID = &remotePub
-		chanAnn.SecondNodeID = localPub
+		chanAnn.FirstNodeID = remotePub
+		chanAnn.SecondNodeID = localIdentity
 		chanAnn.FirstNodeSig = remoteProof.nodeSig
 		chanAnn.SecondNodeSig = localProof.nodeSig
 		chanAnn.FirstBitcoinSig = remoteProof.nodeSig
@@ -851,253 +1062,22 @@ func newChanAnnouncement(localIdentity *btcec.PublicKey,
 	}
 }
 
-// handleFundingSignComplete processes the final message received in a single
-// funder workflow. Once this message is processed, the funding transaction is
-// broadcast. Once the funding transaction reaches a sufficient number of
-// confirmations, a message is sent to the responding peer along with a compact
-// encoding of the location of the channel within the blockchain.
-func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg) {
-	chanID := fmsg.msg.ChannelID
-	peerKey := fmsg.peerAddress.IdentityKey
-
-	resCtx, err := f.getReservationCtx(peerKey, chanID)
-	if err != nil {
-		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
-			peerKey, chanID)
-		return
-	}
-
-	// The remote peer has responded with a signature for our commitment
-	// transaction. We'll verify the signature for validity, then commit
-	// the state to disk as we can now open the channel.
-	commitSig := fmsg.msg.CommitSignature.Serialize()
-	if err := resCtx.reservation.CompleteReservation(nil, commitSig); err != nil {
-		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
-		resCtx.err <- err
-
-		if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
-			fndgLog.Errorf("unable to cancel reservation: %v", err)
-		}
-		return
-	}
-
-	fundingPoint := resCtx.reservation.FundingOutpoint()
-	fndgLog.Infof("Finalizing pendingID(%v) over ChannelPoint(%v), "+
-		"waiting for channel open on-chain", chanID, fundingPoint)
-
-	// Send an update to the upstream client that the negotiation process
-	// is over.
-	// TODO(roasbeef): add abstraction over updates to accommodate
-	// long-polling, or SSE, etc.
-	resCtx.updates <- &lnrpc.OpenStatusUpdate{
-		Update: &lnrpc.OpenStatusUpdate_ChanPending{
-			ChanPending: &lnrpc.PendingUpdate{
-				Txid: fundingPoint.Hash[:],
-			},
-		},
-	}
-
-	// Spawn a goroutine which will send the newly open channel to the
-	// source peer once the channel is open. A channel is considered "open"
-	// once it reaches a sufficient number of confirmations.
-	// TODO(roasbeef): semaphore to limit active chan open goroutines
-	go func() {
-		// As this is the final step in the life-time of a single
-		// funder channel workflow, ensure that the reservation's state
-		// is cleaned up.
-		defer f.deleteReservationCtx(peerKey, chanID)
-
-		// TODO(roasbeef): need to persist pending broadcast channels,
-		// send chan open proof during scan of blocks mined while down.
-		openChanDetails, err := resCtx.reservation.DispatchChan()
-		if err != nil {
-			fndgLog.Errorf("Unable to dispatch "+
-				"ChannelPoint(%v): %v", fundingPoint, err)
-			return
-		}
-
-		// This reservation is no longer pending as the funding
-		// transaction has been fully confirmed.
-		f.deleteReservationCtx(peerKey, chanID)
-
-		fndgLog.Infof("ChannelPoint(%v) with peerID(%v) is now active",
-			fundingPoint, peerKey)
-
-		// Now that the channel is open, we need to notify a number of
-		// parties of this event.
-
-		// First we send the newly opened channel to the source server
-		// peer.
-		peer, err := f.cfg.FindPeer(peerKey)
-		if err != nil {
-			fndgLog.Errorf("Error finding peer: %v", err)
-			return
-		}
-		newChanDone := make(chan struct{})
-		newChanReq := &newChannelReq{
-			channel: openChanDetails.Channel,
-			done:    newChanDone,
-		}
-		peer.newChannels <- newChanReq
-
-		<-newChanDone
-
-		// Close the active channel barrier signalling the readHandler
-		// that commitment related modifications to this channel can
-		// now proceed.
-		f.barrierMtx.Lock()
-		fndgLog.Debugf("Closing chan barrier for ChannelPoint(%v)", fundingPoint)
-		close(f.newChanBarriers[*fundingPoint])
-		delete(f.newChanBarriers, *fundingPoint)
-		f.barrierMtx.Unlock()
-
-		// Afterwards we send the breach arbiter the new channel so it
-		// can watch for attempts to breach the channel's contract by
-		// the remote party.
-		f.cfg.ArbiterChan <- openChanDetails.Channel
-
-		// With the block height and the transaction index known, we
-		// can construct the compact chainID which is used on the
-		// network to unique identify channels.
-		chainID := lnwire.ChannelID{
-			BlockHeight: openChanDetails.ConfirmationHeight,
-			TxIndex:     openChanDetails.TransactionIndex,
-			TxPosition:  uint16(fundingPoint.Index),
-		}
-
-		// Next, we queue a message to notify the remote peer that the
-		// channel is open. We additionally provide the compact
-		// channelID so they can advertise the channel.
-		fundingOpen := lnwire.NewSingleFundingOpenProof(chanID, chainID)
-		if err := f.cfg.SendToPeer(peerKey, fundingOpen); err != nil {
-			fndgLog.Errorf("unable to send fundingOpen message %v", err)
-			resCtx.err <- err
-			return
-		}
-
-		// Register the new link with the L3 routing manager so this
-		// new channel can be utilized during path
-		// finding.
-		// TODO(roasbeef): should include sigs from funding
-		// locked
-		//  * should be moved to after funding locked is recv'd
-		f.announceChannel(peer.server, openChanDetails.Channel, chainID, f.fakeProof,
-			f.fakeProof)
-
-		// Finally give the caller a final update notifying them that
-		// the channel is now open.
-		// TODO(roasbeef): helper funcs for proto construction
-		resCtx.updates <- &lnrpc.OpenStatusUpdate{
-			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
-				ChanOpen: &lnrpc.ChannelOpenUpdate{
-					ChannelPoint: &lnrpc.ChannelPoint{
-						FundingTxid: fundingPoint.Hash[:],
-						OutputIndex: fundingPoint.Index,
-					},
-				},
-			},
-		}
-		return
-	}()
-}
-
 // announceChannel announces a newly created channel to the rest of the network
 // by crafting the two authenticated announcements required for the peers on the
 // network to recognize the legitimacy of the channel. The crafted
 // announcements are then send to the channel router to handle broadcasting to
 // the network during its next trickle.
-func (f *fundingManager) announceChannel(s *server,
-	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
-	localProof, remoteProof *channelProof) {
+func (f *fundingManager) announceChannel(idKey, remoteIdKey *btcec.PublicKey,
+	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID, localProof,
+	remoteProof *channelProof) {
 
 	// TODO(roasbeef): need a Signer.SignMessage method to finalize
 	// advertisements
-	localIdentity := s.identityPriv.PubKey()
-	chanAnnouncement := newChanAnnouncement(localIdentity, channel,
-		chanID, localProof, remoteProof)
+	chanAnnouncement := newChanAnnouncement(idKey, remoteIdKey, channel, chanID,
+		localProof, remoteProof)
 
-	s.chanRouter.ProcessRoutingMessage(chanAnnouncement.chanAnn, localIdentity)
-	s.chanRouter.ProcessRoutingMessage(chanAnnouncement.edgeUpdate, localIdentity)
-}
-
-// processFundingOpenProof sends a message to the fundingManager allowing it
-// to process the final message received when the daemon is on the responding
-// side of a single funder channel workflow.
-func (f *fundingManager) processFundingOpenProof(msg *lnwire.SingleFundingOpenProof,
-	peerAddress *lnwire.NetAddress) {
-	f.fundingMsgs <- &fundingOpenMsg{msg, peerAddress}
-}
-
-// handleFundingOpen processes the final message when the daemon is the
-// responder to a single funder channel workflow.
-func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
-	chanID := fmsg.msg.ChannelID
-	peerKey := fmsg.peerAddress.IdentityKey
-
-	resCtx, err := f.getReservationCtx(peerKey, chanID)
-	if err != nil {
-		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
-			peerKey, chanID)
-		return
-	}
-
-	// The channel initiator has claimed the channel is now open, so we'll
-	// verify the contained SPV proof for validity.
-	// TODO(roasbeef): send off to the spv proof verifier, in the routing
-	// submodule.
-
-	// Now that we've verified the initiator's proof, we'll commit the
-	// channel state to disk, and notify the source peer of a newly opened
-	// channel.
-	openChan, err := resCtx.reservation.FinalizeReservation()
-	if err != nil {
-		fndgLog.Errorf("unable to finalize reservation: %v", err)
-		return
-	}
-
-	// The reservation has been completed, therefore we can stop tracking
-	// it within our active reservations map.
-	f.deleteReservationCtx(peerKey, chanID)
-
-	fndgLog.Infof("FundingOpen: ChannelPoint(%v) with peerKey(%v) is now open",
-		resCtx.reservation.FundingOutpoint(), peerKey)
-
-	// Notify the L3 routing manager of the newly active channel link.
-	// TODO(roasbeef): should have sigs, only after funding_locked is
-	// recv'd
-	//  * also ensure fault tolerance, scan opened chan on start up check
-	//  for graph existence
-	peer, err := f.cfg.FindPeer(peerKey)
-	if err != nil {
-		fndgLog.Errorf("Error finding peer: %v", err)
-		return
-	}
-	f.announceChannel(peer.server, openChan, fmsg.msg.ChanChainID,
-		f.fakeProof, f.fakeProof)
-
-	// Send the newly opened channel to the breach arbiter to it can watch
-	// for uncooperative channel breaches, potentially punishing the
-	// counterparty for attempting to cheat us.
-	f.cfg.ArbiterChan <- openChan
-
-	// Finally, notify the target peer of the newly opened channel.
-	newChanDone := make(chan struct{})
-	newChanReq := &newChannelReq{
-		channel: openChan,
-		done:    newChanDone,
-	}
-	peer.newChannels <- newChanReq
-
-	<-newChanDone
-
-	// Close the active channel barrier signalling the readHandler that
-	// commitment related modifications to this channel can now proceed.
-	fundingPoint := resCtx.reservation.FundingOutpoint()
-	f.barrierMtx.Lock()
-	fndgLog.Debugf("Closing chan barrier for ChannelPoint(%v)", fundingPoint)
-	close(f.newChanBarriers[*fundingPoint])
-	delete(f.newChanBarriers, *fundingPoint)
-	f.barrierMtx.Unlock()
+	f.cfg.ProcessRoutingMessage(chanAnnouncement.chanAnn, idKey)
+	f.cfg.ProcessRoutingMessage(chanAnnouncement.edgeUpdate, idKey)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it
@@ -1127,13 +1107,15 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
 		"capacity=%v, numConfs=%v, addr=%v, dustLimit=%v)", localAmt,
-		msg.pushAmt, capacity, numConfs, msg.peerAddress.Address, ourDustLimit)
+		msg.pushAmt, capacity, numConfs, msg.peerAddress.Address,
+		ourDustLimit)
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
-	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity, localAmt,
-		peerKey, msg.peerAddress.Address, uint16(numConfs), 4, ourDustLimit, msg.pushAmt)
+	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
+		localAmt, peerKey, msg.peerAddress.Address, uint16(numConfs), 4,
+		ourDustLimit, msg.pushAmt)
 	if err != nil {
 		msg.err <- err
 		return
@@ -1192,6 +1174,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		deliveryScript,
 		ourDustLimit,
 		msg.pushAmt,
+		numConfs,
 	)
 	if err := f.cfg.SendToPeer(peerKey, fundingReq); err != nil {
 		fndgLog.Errorf("Unable to send funding request message: %v", err)
@@ -1248,8 +1231,8 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 			return
 		}
 
-		fndgLog.Errorf("Received funding error from %v: %v", peerKey.SerializeCompressed(),
-			newLogClosure(func() string {
+		fndgLog.Errorf("Received funding error from %v: %v",
+			peerKey.SerializeCompressed(), newLogClosure(func() string {
 				return spew.Sdump(e)
 			}),
 		)

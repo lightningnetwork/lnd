@@ -77,14 +77,18 @@ type SingleFundingRequest struct {
 	// this amount are not enforceable onchain from our point view.
 	DustLimit btcutil.Amount
 
-	// TODO(roasbeef): confirmation depth
+	// ConfirmationDepth is the number of confirmations that the initiator
+	// of a funding workflow is requesting be required before the channel
+	// is considered fully open.
+	ConfirmationDepth uint32
 }
 
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
 func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
 	cdp *btcec.PublicKey, deliveryScript PkScript,
-	dustLimit btcutil.Amount, pushSat btcutil.Amount) *SingleFundingRequest {
+	dustLimit btcutil.Amount, pushSat btcutil.Amount,
+	confDepth uint32) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
 		ChannelID:              chanID,
@@ -98,6 +102,7 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 		DeliveryPkScript:       deliveryScript,
 		DustLimit:              dustLimit,
 		PushSatoshis:           pushSat,
+		ConfirmationDepth:      confDepth,
 	}
 }
 
@@ -107,16 +112,6 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
-	// ChannelType (1)
-	// CoinType	(8)
-	// FeePerKb (8)
-	// PaymentAmount (8)
-	// Delay (4)
-	// Pubkey (33)
-	// Pubkey (33)
-	// DeliveryPkScript (final delivery)
-	// DustLimit (8)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.ChannelType,
@@ -128,7 +123,8 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.CommitmentKey,
 		&c.ChannelDerivationPoint,
 		&c.DeliveryPkScript,
-		&c.DustLimit)
+		&c.DustLimit,
+		&c.ConfirmationDepth)
 	if err != nil {
 		return err
 	}
@@ -142,16 +138,6 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
-	// ChannelID (8)
-	// ChannelType (1)
-	// CoinType	(8)
-	// FeePerKb (8)
-	// PaymentAmount (8)
-	// Delay (4)
-	// Pubkey (33)
-	// Pubkey (33)
-	// DeliveryPkScript (final delivery)
-	// DustLimit (8)
 	err := writeElements(w,
 		c.ChannelID,
 		c.ChannelType,
@@ -163,7 +149,8 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.CommitmentKey,
 		c.ChannelDerivationPoint,
 		c.DeliveryPkScript,
-		c.DustLimit)
+		c.DustLimit,
+		c.ConfirmationDepth)
 	if err != nil {
 		return err
 	}
@@ -183,12 +170,48 @@ func (c *SingleFundingRequest) Command() uint32 {
 // SingleFundingRequest. This is calculated by summing the max length of all
 // the fields within a SingleFundingRequest. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + 1 + 8 + 8 + 8 + 4 + 33 + 33 + 25 + 8
-// + 9 = 166.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
-	return 174
+	var length uint32
+
+	// ChannelID - 8 bytes
+	length += 8
+
+	// ChannelType - 1 byte
+	length += 1
+
+	// CoinType - 8 bytes
+	length += 8
+
+	// FeePerKb - 8 bytes
+	length += 8
+
+	// FundingAmount - 8 bytes
+	length += 8
+
+	// PushSatoshis - 8 bytes
+	length += 8
+
+	// CsvDelay - 4 bytes
+	length += 4
+
+	// CommitmentKey - 33 bytes
+	length += 33
+
+	// ChannelDerivationPoint - 33 bytes
+	length += 33
+
+	// DeliveryPkScript - 25 bytes
+	length += 25
+
+	// DustLimit - 8 bytes
+	length += 8
+
+	// ConfirmationDepth - 4 bytes
+	length += 4
+
+	return length
 }
 
 // Validate examines each populated field within the SingleFundingRequest for
@@ -231,6 +254,10 @@ func (c *SingleFundingRequest) Validate() error {
 
 	if c.DustLimit <= 0 {
 		return fmt.Errorf("Dust limit should be greater than zero.")
+	}
+
+	if c.ConfirmationDepth == 0 {
+		return fmt.Errorf("ConfirmationDepth must be non-zero")
 	}
 
 	// We're good!

@@ -51,13 +51,18 @@ type SingleFundingResponse struct {
 	// generated for remote commitment transaction; ie. HTLCs below
 	// this amount are not enforceable onchain for their point of view.
 	DustLimit btcutil.Amount
+
+	// ConfirmationDepth is the number of confirmations that the initiator
+	// of a funding workflow is requesting be required before the channel
+	// is considered fully open.
+	ConfirmationDepth uint32
 }
 
 // NewSingleFundingResponse creates, and returns a new empty
 // SingleFundingResponse.
 func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
 	delay uint32, deliveryScript PkScript,
-	dustLimit btcutil.Amount) *SingleFundingResponse {
+	dustLimit btcutil.Amount, confDepth uint32) *SingleFundingResponse {
 
 	return &SingleFundingResponse{
 		ChannelID:              chanID,
@@ -67,6 +72,7 @@ func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
 		CsvDelay:               delay,
 		DeliveryPkScript:       deliveryScript,
 		DustLimit:              dustLimit,
+		ConfirmationDepth:      confDepth,
 	}
 }
 
@@ -87,6 +93,7 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	// CsvDelay (4)
 	// DeliveryPkScript (final delivery)
 	// DustLimit (8)
+	// ConfirmationDepth (4)
 	err := readElements(r,
 		&c.ChannelID,
 		&c.ChannelDerivationPoint,
@@ -94,7 +101,8 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 		&c.RevocationKey,
 		&c.CsvDelay,
 		&c.DeliveryPkScript,
-		&c.DustLimit)
+		&c.DustLimit,
+		&c.ConfirmationDepth)
 	if err != nil {
 		return err
 	}
@@ -108,13 +116,6 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
-	// ChannelID (8)
-	// ChannelDerivationPoint (33)
-	// CommitmentKey (33)
-	// RevocationKey (33)
-	// CsvDelay (4)
-	// DeliveryPkScript (final delivery)
-	// DustLimit (8)
 	err := writeElements(w,
 		c.ChannelID,
 		c.ChannelDerivationPoint,
@@ -122,7 +123,8 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 		c.RevocationKey,
 		c.CsvDelay,
 		c.DeliveryPkScript,
-		c.DustLimit)
+		c.DustLimit,
+		c.ConfirmationDepth)
 	if err != nil {
 		return err
 	}
@@ -142,11 +144,36 @@ func (c *SingleFundingResponse) Command() uint32 {
 // SingleFundingResponse. This is calculated by summing the max length of all
 // the fields within a SingleFundingResponse. To enforce a maximum
 // DeliveryPkScript size, the size of a P2PKH public key script is used.
-// Therefore, the final breakdown is: 8 + (33 * 3) + 8 + 25 + 8
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
-	return 148
+	var length uint32
+
+	// ChannelID - 8 bytes
+	length += 8
+
+	// ChannelDerivationPoint - 33 bytes
+	length += 33
+
+	// CommitmentKey - 33 bytes
+	length += 33
+
+	// RevocationKey - 33 bytes
+	length += 33
+
+	// CsvDelay - 4 bytes
+	length += 4
+
+	// DeliveryPkScript - 25 bytes
+	length += 25
+
+	// DustLimit - 8 bytes
+	length += 8
+
+	// ConfirmationDepth - 4 bytes
+	length += 4
+
+	return length
 }
 
 // Validate examines each populated field within the SingleFundingResponse for
@@ -175,6 +202,10 @@ func (c *SingleFundingResponse) Validate() error {
 	if c.DustLimit <= 0 {
 		return fmt.Errorf("Dust limit shouldn't be below or equal to " +
 			"zero.")
+	}
+
+	if c.ConfirmationDepth == 0 {
+		return fmt.Errorf("ConfirmationDepth must be non-zero")
 	}
 
 	// We're good!

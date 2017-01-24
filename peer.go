@@ -49,6 +49,14 @@ type outgoinMsg struct {
 	sentChan chan struct{} // MUST be buffered.
 }
 
+// newChannelMsg packages a lnwallet.LightningChannel with a channel that
+// allows the receiver of the request to report when the funding transaction
+// has been confirmed and the channel creation process completed.
+type newChannelMsg struct {
+	channel *lnwallet.LightningChannel
+	done    chan struct{}
+}
+
 // chanSnapshotReq is a message sent by outside subsystems to a peer in order
 // to gain a snapshot of the peer's currently active channels.
 type chanSnapshotReq struct {
@@ -121,7 +129,7 @@ type peer struct {
 
 	// newChannels is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
-	newChannels chan *newChannelReq
+	newChannels chan *newChannelMsg
 
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
@@ -185,7 +193,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		activeChannels:   make(map[wire.OutPoint]*lnwallet.LightningChannel),
 		htlcManagers:     make(map[wire.OutPoint]chan lnwire.Message),
 		chanSnapshotReqs: make(chan *chanSnapshotReq),
-		newChannels:      make(chan *newChannelReq, 1),
+		newChannels:      make(chan *newChannelMsg, 1),
 
 		localCloseChanReqs:  make(chan *closeLinkReq),
 		remoteCloseChanReqs: make(chan *lnwire.CloseRequest),
@@ -438,8 +446,6 @@ out:
 			p.server.fundingMgr.processFundingComplete(msg, p.addr)
 		case *lnwire.SingleFundingSignComplete:
 			p.server.fundingMgr.processFundingSignComplete(msg, p.addr)
-		case *lnwire.SingleFundingOpenProof:
-			p.server.fundingMgr.processFundingOpenProof(msg, p.addr)
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
 

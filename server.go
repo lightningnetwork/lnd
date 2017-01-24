@@ -459,6 +459,7 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			"already connected, dropping conn",
 			nodePub.SerializeCompressed())
 		s.connMgr.Remove(connReq.ID())
+		conn.Close()
 		return
 	}
 

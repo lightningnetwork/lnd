@@ -2146,28 +2146,12 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 		return nil, err
 	}
 
-	// Locate the output index of the delayed commitment output back to us.
-	// We'll return the details of this output to the caller so they can
-	// sweep it once it's mature.
-	// TODO(roasbeef): also return HTLC info, assumes only p2wsh is commit
-	// tx
-	var delayIndex uint32
-	var delayScript []byte
-	for i, txOut := range commitTx.TxOut {
-		if !txscript.IsPayToWitnessScriptHash(txOut.PkScript) {
-			continue
-		}
-
-		delayIndex = uint32(i)
-		delayScript = txOut.PkScript
-	}
-
+	// Re-derive the original pkScript for to-self output within the
+	// commitment transaction. We'll need this to find the corresponding
+	// output in the commitment transaction and potentially for creating
+	// the sign descriptor.
 	csvTimeout := lc.channelState.LocalCsvDelay
 	selfKey := lc.channelState.OurCommitKey
-
-	// Re-derive the original pkScript for out to-self output within the
-	// commitment transaction. We'll need this for the created sign
-	// descriptor.
 	producer := lc.channelState.RevocationProducer
 	unusedRevocation, err := producer.AtIndex(lc.currentHeight)
 	if err != nil {
@@ -2179,19 +2163,44 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	payToUsScriptHash, err := witnessScriptHash(selfScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// Locate the output index of the delayed commitment output back to us.
+	// We'll return the details of this output to the caller so they can
+	// sweep it once it's mature.
+	// TODO(roasbeef): also return HTLC info, assumes only p2wsh is commit
+	// tx
+	var delayIndex uint32
+	var delayScript []byte
+	var selfSignDesc *SignDescriptor
+	for i, txOut := range commitTx.TxOut {
+		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
+			continue
+		}
+
+		delayIndex = uint32(i)
+		delayScript = txOut.PkScript
+		break
+	}
 
 	// With the necessary information gathered above, create a new sign
 	// descriptor which is capable of generating the signature the caller
 	// needs to sweep this output. The hash cache, and input index are not
 	// set as the caller will decide these values once sweeping the output.
-	selfSignDesc := &SignDescriptor{
-		PubKey:        selfKey,
-		WitnessScript: selfScript,
-		Output: &wire.TxOut{
-			PkScript: delayScript,
-			Value:    int64(lc.channelState.OurBalance),
-		},
-		HashType: txscript.SigHashAll,
+	// If the output is non-existant (dust), have the sign descriptor be nil.
+	if len(delayScript) != 0 {
+		selfSignDesc = &SignDescriptor{
+			PubKey:        selfKey,
+			WitnessScript: selfScript,
+			Output: &wire.TxOut{
+				PkScript: delayScript,
+				Value:    int64(lc.channelState.OurBalance),
+			},
+			HashType: txscript.SigHashAll,
+		}
 	}
 
 	// Finally, close the channel force close signal which notifies any

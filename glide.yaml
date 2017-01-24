@@ -7,7 +7,6 @@ import:
 - package: github.com/btcsuite/go-flags
 - package: github.com/btcsuite/seelog
   version: ^2.1.0
-- package: github.com/codahale/chacha20poly1305
 - package: github.com/davecgh/go-spew
   subpackages:
   - spew
@@ -61,3 +60,5 @@ import:
 - package: github.com/aead/chacha20
 - package: github.com/go-errors/errors
 - package: github.com/tv42/zbase32
+- package: github.com/awalterschulze/gographviz
+  version: ^1.0.0

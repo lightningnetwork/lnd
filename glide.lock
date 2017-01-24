@@ -1,5 +1,5 @@
-hash: 63c8e025e68860690ecd8c0f5d6a2ce0c20aae601f23add3cb41d702f07c2980
-updated: 2017-01-16T17:29:52.63308745-08:00
+hash: a292fd48b31862c25e68915190bd53af1c2a5138151e45a38ffa7f192b8456ac
+updated: 2017-01-23T20:26:07.380822159-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -7,6 +7,13 @@ imports:
   - chacha
 - name: github.com/aead/poly1305
   version: 7ab7663051fa9fa57de391f966a859e781d48b0a
+- name: github.com/awalterschulze/gographviz
+  version: 761fd5fbb34e4c2c138c280395b65b48e4ff5a53
+  subpackages:
+  - ast
+  - parser
+  - scanner
+  - token
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/bolt
@@ -37,8 +44,6 @@ imports:
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/codahale/chacha20
   version: ec07b4f69a3f70b1dd2a8ad77230deb1ba5d6953
-- name: github.com/codahale/chacha20poly1305
-  version: f8a5c48301822c3d7dd26d78e68ea2968db0ab20
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:

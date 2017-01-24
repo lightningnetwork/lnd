@@ -6,11 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 
+	"github.com/awalterschulze/gographviz"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 )
@@ -762,7 +767,13 @@ var DescribeGraphCommand = cli.Command{
 	Name: "describegraph",
 	Description: "prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
-	Usage:  "describegraph",
+	Usage: "describegraph",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "draw",
+			Usage: "If true, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.png'",
+		},
+	},
 	Action: describeGraph,
 }
 
@@ -776,7 +787,111 @@ func describeGraph(ctx *cli.Context) error {
 		return err
 	}
 
+	// If the draw flag is on, then we'll use the 'dot' command to create a
+	// visualization of the graph itself.
+	if ctx.Bool("draw") {
+		return drawChannelGraph(graph)
+	}
+
 	printRespJson(graph)
+	return nil
+}
+
+func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
+	// First we'll create a temporary file that we'll write the compiled
+	// string that describes our graph in the dot format to.
+	tempDotFile, err := ioutil.TempFile("", "")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempDotFile.Name())
+
+	// Next, we'll create (or re-create) the file that the final graph
+	// image will be written to.
+	imageFile, err := os.Create("graph.png")
+	if err != nil {
+		return err
+	}
+
+	// With our temporary files set up, we'll initialize the graphviz
+	// object that we'll use to draw our graph.
+	graphName := "LightningNetwork"
+	graphCanvas := gographviz.NewGraph()
+	graphCanvas.SetName(graphName)
+	graphCanvas.SetDir(true)
+
+	// For each node within the graph, we'll add a new vertex to the graph.
+	for _, node := range graph.Nodes {
+		// Rather than using the entire hex-encoded string, we'll only
+		// use the first 10 characters. We also add a prefix of "Z" as
+		// graphviz is unable to parse the compressed pubkey as a
+		// non-integer.
+		//
+		// TODO(roasbeef): should be able to get around this?
+		nodeID := "Z" + node.PubKey[:10]
+
+		graphCanvas.AddNode(graphName, nodeID, gographviz.Attrs{})
+	}
+
+	// Similarly, for each edge we'll add an edge between the corresponding
+	// nodes added to the graph above.
+	for _, edge := range graph.Edges {
+		// Once again, we add a 'Z' prefix so we're compliant with the
+		// dot grammar.
+		src := "Z" + edge.Node1Pub[:10]
+		dest := "Z" + edge.Node2Pub[:10]
+
+		// The weight for our edge will be the total capacity of the
+		// channel, in BTC.
+		amt := btcutil.Amount(edge.Capacity).ToBTC()
+		edgeWeight := strconv.FormatFloat(amt, 'f', -1, 64)
+
+		// The label for each edge will simply be a truncated version
+		// of it's channel ID.
+		edgeLabel := strconv.FormatUint(edge.ChannelId, 10)[:10]
+
+		// We'll only draw an edge from a source to a destination if
+		// the source is currently advertising a route in that
+		// direction.
+		if edge.Node1Policy.TimeLockDelta != 0 {
+			graphCanvas.AddEdge(src, dest, true, gographviz.Attrs{
+				"weight": edgeWeight,
+				"label":  edgeLabel,
+			})
+		}
+		if edge.Node2Policy.TimeLockDelta != 0 {
+			graphCanvas.AddEdge(dest, src, true, gographviz.Attrs{
+				"weight": edgeWeight,
+				"label":  edgeLabel,
+			})
+		}
+	}
+
+	// With the declarative generation of the graph complete, we now write
+	// the dot-string description of the graph
+	graphDotString := graphCanvas.String()
+	if _, err := tempDotFile.WriteString(graphDotString); err != nil {
+		return err
+	}
+	if err := tempDotFile.Sync(); err != nil {
+		return err
+	}
+
+	// Once our dot file has been written to disk, we can use the dot
+	// command itself to generate the drawn rendering of the graph
+	// described.
+	drawCmd := exec.Command("dot", "-T"+"png", "-o"+imageFile.Name(),
+		tempDotFile.Name())
+	if err := drawCmd.Run(); err != nil {
+		return err
+	}
+
+	// Finally, we'll open the drawn graph to display to the user.
+	openCmd := exec.Command("open", imageFile.Name())
+	if err := openCmd.Run(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

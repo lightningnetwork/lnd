@@ -842,9 +842,185 @@ func TestCheckHTLCNumberConstraint(t *testing.T) {
 
 }
 
-// TestCheckDustLimit checks that unsettled HTLC with dust limit not included
-// in commitment transaction as output, but sender balance is decreased
-// (thereby all unsettled dust HTLCs will go to miners fee).
+// TestForceClose checks that the resulting ForceCloseSummary is correct when
+// a peer is ForceClosing the channel. Will check outputs both above and below
+// the dust limit.
+// TODO(cjamthagen): Check HTLCs when implemented.
+func TestForceClose(t *testing.T) {
+	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
+		[32]byte) {
+		preimage := bytes.Repeat([]byte{byte(data)}, 32)
+		paymentHash := fastsha256.Sum256(preimage)
+
+		var returnPreimage [32]byte
+		copy(returnPreimage[:], preimage)
+
+		return &lnwire.UpdateAddHTLC{
+			PaymentHash: paymentHash,
+			Amount:      amount,
+			Expiry:      uint32(5),
+		}, returnPreimage
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	htlcAmount := btcutil.Amount(500)
+
+	aliceAmount := aliceChannel.channelState.OurBalance
+	bobAmount := bobChannel.channelState.OurBalance
+
+	closeSummary, err := aliceChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close channel: %v", err)
+	}
+
+	// The SelfOutputSignDesc should be non-nil since the outout to-self is non-dust.
+	if closeSummary.SelfOutputSignDesc == nil {
+		t.Fatalf("alice fails to include to-self output in ForceCloseSummary")
+	} else {
+		if closeSummary.SelfOutputSignDesc.PubKey != aliceChannel.channelState.OurCommitKey {
+			t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
+		}
+		if closeSummary.SelfOutputSignDesc.Output.Value != int64(aliceAmount) {
+			t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
+				"expected %v, got %v", aliceChannel.channelState.OurBalance,
+				closeSummary.SelfOutputSignDesc.Output.Value)
+		}
+	}
+
+	if closeSummary.SelfOutputMaturity != aliceChannel.channelState.LocalCsvDelay {
+		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
+			"expected %v, got %v", aliceChannel.channelState.LocalCsvDelay,
+			closeSummary.SelfOutputMaturity)
+	}
+
+	closeTxHash := closeSummary.CloseTx.TxHash()
+	commitTxHash := aliceChannel.channelState.OurCommitTx.TxHash()
+	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
+		t.Fatalf("alice: incorrect close transaction txid")
+	}
+
+	// Check the same for Bobs' ForceCloseSummary
+	closeSummary, err = bobChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close channel: %v", err)
+	}
+	if closeSummary.SelfOutputSignDesc == nil {
+		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
+	} else {
+		if closeSummary.SelfOutputSignDesc.PubKey != bobChannel.channelState.OurCommitKey {
+			t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
+		}
+		if closeSummary.SelfOutputSignDesc.Output.Value != int64(bobAmount) {
+			t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
+				"expected %v, got %v", bobChannel.channelState.OurBalance,
+				closeSummary.SelfOutputSignDesc.Output.Value)
+		}
+	}
+
+	if closeSummary.SelfOutputMaturity != bobChannel.channelState.LocalCsvDelay {
+		t.Fatalf("bob: incorrect local CSV delay in ForceCloseSummary, "+
+			"expected %v, got %v", bobChannel.channelState.LocalCsvDelay,
+			closeSummary.SelfOutputMaturity)
+	}
+
+	closeTxHash = closeSummary.CloseTx.TxHash()
+	commitTxHash = bobChannel.channelState.OurCommitTx.TxHash()
+	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
+		t.Fatalf("bob: incorrect close transaction txid")
+	}
+
+	// "re-open" channels
+	aliceChannel.status = channelOpen
+	bobChannel.status = channelOpen
+	aliceChannel.ForceCloseSignal = make(chan struct{})
+	bobChannel.ForceCloseSignal = make(chan struct{})
+
+	// Have Bobs' to-self output be below her dust limit and check ForceCloseSummary again on both peers.
+	htlc, preimage := createHTLC(0, bobAmount-htlcAmount)
+	if _, err := bobChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to receive htlc: %v", err)
+	}
+	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Settle HTLC and sign new commitment.
+	settleIndex, err := aliceChannel.SettleHTLC(preimage)
+	if err != nil {
+		t.Fatalf("bob unable to settle inbound htlc: %v", err)
+	}
+	err = bobChannel.ReceiveHTLCSettle(preimage, settleIndex)
+	if err != nil {
+		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	aliceAmount = aliceChannel.channelState.OurBalance
+	bobAmount = bobChannel.channelState.OurBalance
+
+	closeSummary, err = aliceChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close channel: %v", err)
+	}
+
+	// Alices' to-self output should still be in the commitment transaction.
+	if closeSummary.SelfOutputSignDesc == nil {
+		t.Fatalf("alice fails to include to-self output in ForceCloseSummary")
+	} else {
+		if closeSummary.SelfOutputSignDesc.PubKey != aliceChannel.channelState.OurCommitKey {
+			t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
+		}
+		if closeSummary.SelfOutputSignDesc.Output.Value != int64(aliceAmount) {
+			t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
+				"expected %v, got %v", aliceChannel.channelState.OurBalance,
+				closeSummary.SelfOutputSignDesc.Output.Value)
+		}
+	}
+
+	if closeSummary.SelfOutputMaturity != aliceChannel.channelState.LocalCsvDelay {
+		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
+			"expected %v, got %v", aliceChannel.channelState.LocalCsvDelay,
+			closeSummary.SelfOutputMaturity)
+	}
+
+	closeTxHash = closeSummary.CloseTx.TxHash()
+	commitTxHash = aliceChannel.channelState.OurCommitTx.TxHash()
+	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
+		t.Fatalf("alice: incorrect close transaction txid")
+	}
+
+	closeSummary, err = bobChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close channel: %v", err)
+	}
+	// Bob's to-self output is below Bob's dust value and should be reflected in the ForceCloseSummary.
+	if closeSummary.SelfOutputSignDesc != nil {
+		t.Fatalf("bob incorrectly includes to-self output in ForceCloseSummary")
+	}
+
+	closeTxHash = closeSummary.CloseTx.TxHash()
+	commitTxHash = bobChannel.channelState.OurCommitTx.TxHash()
+	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
+		t.Fatalf("bob: incorrect close transaction txid")
+	}
+}
+
+// TestCheckDustLimit checks that unsettled HTLC with dust limit not included in
+// commitment transaction as output, but sender balance is decreased (thereby all
+// unsettled dust HTLCs will go to miners fee).
 func TestCheckDustLimit(t *testing.T) {
 	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
 		[32]byte) {

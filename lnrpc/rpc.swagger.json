@@ -1366,6 +1366,10 @@
         "txid": {
           "type": "string",
           "format": "byte"
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

@@ -188,7 +188,7 @@ var OpenChannelCommand = cli.Command{
 		"channel is open, a channelPoint (txid:vout) of the funding " +
 		"output is returned. NOTE: peer_id and node_key are " +
 		"mutually exclusive, only one should be used, not both.",
-	Usage: "openchannel --node_key=X --local_amt=N --remote_amt=N --num_confs=N",
+	Usage: "openchannel --node_key=X --local_amt=N --push_amt=N --num_confs=N",
 	Flags: []cli.Flag{
 		cli.IntFlag{
 			Name:  "peer_id",

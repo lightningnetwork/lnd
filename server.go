@@ -643,10 +643,14 @@ out:
 // handleListPeers sends a lice of all currently active peers to the original
 // caller.
 func (s *server) handleListPeers(msg *listPeersMsg) {
+	s.peersMtx.RLock()
+
 	peers := make([]*peer, 0, len(s.peersByID))
 	for _, peer := range s.peersByID {
 		peers = append(peers, peer)
 	}
+
+	s.peersMtx.RUnlock()
 
 	msg.resp <- peers
 }
@@ -795,7 +799,7 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 
 // Peers returns a slice of all active peers.
 func (s *server) Peers() []*peer {
-	resp := make(chan []*peer)
+	resp := make(chan []*peer, 1)
 
 	s.queries <- &listPeersMsg{resp}
 

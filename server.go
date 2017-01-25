@@ -578,49 +578,60 @@ out:
 
 			srvrLog.Debugf("Broadcasting %v messages", len(bMsg.msgs))
 
-			s.peersMtx.RLock()
-			for _, peer := range s.peersByPub {
-				if ignore != nil &&
-					peer.addr.IdentityKey.IsEqual(ignore) {
+			// Launch a new goroutine to handle the broadcast
+			// request, this allows us process this request
+			// asynchronously without blocking subsequent broadcast
+			// requests.
+			go func() {
+				s.peersMtx.RLock()
+				for _, peer := range s.peersByPub {
+					if ignore != nil &&
+						peer.addr.IdentityKey.IsEqual(ignore) {
 
-					srvrLog.Debugf("Skipping %v in broadcast",
-						ignore.SerializeCompressed())
+						srvrLog.Debugf("Skipping %v in broadcast",
+							ignore.SerializeCompressed())
 
-					continue
+						continue
+					}
+
+					for _, msg := range bMsg.msgs {
+						peer.queueMsg(msg, nil)
+					}
 				}
+				s.peersMtx.RUnlock()
 
-				for _, msg := range bMsg.msgs {
-					peer.queueMsg(msg, nil)
-				}
-			}
-			s.peersMtx.RUnlock()
-
-			bMsg.errChan <- nil
+				bMsg.errChan <- nil
+			}()
 		case sMsg := <-s.sendRequests:
 			// TODO(roasbeef): use [33]byte everywhere instead
 			//  * eliminate usage of mutexes, funnel all peer
-			//  mutation to this goroutine
+			//    mutation to this goroutine
 			target := sMsg.target.SerializeCompressed()
 
 			srvrLog.Debugf("Attempting to send msgs %v to: %x",
 				len(sMsg.msgs), target)
 
-			s.peersMtx.RLock()
-			targetPeer, ok := s.peersByPub[string(target)]
-			if !ok {
+			// Launch a new goroutine to handle this send request,
+			// this allows us process this request asynchronously
+			// without blocking future send requests.
+			go func() {
+				s.peersMtx.RLock()
+				targetPeer, ok := s.peersByPub[string(target)]
+				if !ok {
+					s.peersMtx.RUnlock()
+					srvrLog.Errorf("unable to send message to %x, "+
+						"peer not found", target)
+					sMsg.errChan <- errors.New("peer not found")
+					return
+				}
+
+				for _, msg := range sMsg.msgs {
+					targetPeer.queueMsg(msg, nil)
+				}
 				s.peersMtx.RUnlock()
-				srvrLog.Errorf("unable to send message to %x, "+
-					"peer not found", target)
-				sMsg.errChan <- errors.New("peer not found")
-				continue
-			}
 
-			for _, msg := range sMsg.msgs {
-				targetPeer.queueMsg(msg, nil)
-			}
-			s.peersMtx.RUnlock()
-
-			sMsg.errChan <- nil
+				sMsg.errChan <- nil
+			}()
 		case query := <-s.queries:
 			switch msg := query.(type) {
 			case *connectPeerMsg:
@@ -695,6 +706,7 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 			Addr:      addr,
 			Permanent: true,
 		})
+		msg.err <- nil
 	} else {
 		// If we're not making a persistent connection, then we'll
 		// attempt to connect o the target peer, returning an error

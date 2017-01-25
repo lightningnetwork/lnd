@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -771,7 +772,7 @@ var DescribeGraphCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "draw",
-			Usage: "If true, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.png'",
+			Usage: "If true, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
 		},
 	},
 	Action: describeGraph,
@@ -797,6 +798,36 @@ func describeGraph(ctx *cli.Context) error {
 	return nil
 }
 
+// normalizeFunc is a factory function which returns a function that normalizes
+// the capacity of of edges within the graph. The value of the returned
+// function can be used to either plot the capacities, or to use a weight in a
+// rendering of the graph.
+func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) float64 {
+	var (
+		min float64 = math.MaxInt64
+		max float64
+	)
+
+	for _, edge := range edges {
+		// In order to obtain saner values, we reduce the capacity of a
+		// channel to it's base 2 logarithm.
+		z := math.Log2(float64(edge.Capacity))
+
+		if z < min {
+			min = z
+		}
+		if z > max {
+			max = z
+		}
+	}
+
+	return func(x int64) float64 {
+		y := math.Log2(float64(x))
+
+		return float64(y-min) / float64(max-min) * scaleFactor
+	}
+}
+
 func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	// First we'll create a temporary file that we'll write the compiled
 	// string that describes our graph in the dot format to.
@@ -808,7 +839,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 
 	// Next, we'll create (or re-create) the file that the final graph
 	// image will be written to.
-	imageFile, err := os.Create("graph.png")
+	imageFile, err := os.Create("graph.svg")
 	if err != nil {
 		return err
 	}
@@ -818,7 +849,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	graphName := "LightningNetwork"
 	graphCanvas := gographviz.NewGraph()
 	graphCanvas.SetName(graphName)
-	graphCanvas.SetDir(true)
+	graphCanvas.SetDir(false)
 
 	// For each node within the graph, we'll add a new vertex to the graph.
 	for _, node := range graph.Nodes {
@@ -833,6 +864,8 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		graphCanvas.AddNode(graphName, nodeID, gographviz.Attrs{})
 	}
 
+	normalize := normalizeFunc(graph.Edges, 3)
+
 	// Similarly, for each edge we'll add an edge between the corresponding
 	// nodes added to the graph above.
 	for _, edge := range graph.Edges {
@@ -843,6 +876,8 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 
 		// The weight for our edge will be the total capacity of the
 		// channel, in BTC.
+		// TODO(roasbeef): can also factor in the edges time-lock delta
+		// and fee information
 		amt := btcutil.Amount(edge.Capacity).ToBTC()
 		edgeWeight := strconv.FormatFloat(amt, 'f', -1, 64)
 
@@ -850,21 +885,17 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		// of it's channel ID.
 		edgeLabel := strconv.FormatUint(edge.ChannelId, 10)[:10]
 
-		// We'll only draw an edge from a source to a destination if
-		// the source is currently advertising a route in that
-		// direction.
-		if edge.Node1Policy.TimeLockDelta != 0 {
-			graphCanvas.AddEdge(src, dest, true, gographviz.Attrs{
-				"weight": edgeWeight,
-				"label":  edgeLabel,
-			})
-		}
-		if edge.Node2Policy.TimeLockDelta != 0 {
-			graphCanvas.AddEdge(dest, src, true, gographviz.Attrs{
-				"weight": edgeWeight,
-				"label":  edgeLabel,
-			})
-		}
+		// We'll also use a normalized version of the channels'
+		// capacity in satoshis in order to modulate the "thickness" of
+		// the line that creates the edge within the graph.
+		normalizedCapacity := normalize(edge.Capacity)
+		edgeThickness := strconv.FormatFloat(normalizedCapacity, 'f', -1, 64)
+
+		graphCanvas.AddEdge(src, dest, false, gographviz.Attrs{
+			"penwidth": edgeThickness,
+			"weight":   edgeWeight,
+			"label":    edgeLabel,
+		})
 	}
 
 	// With the declarative generation of the graph complete, we now write
@@ -880,7 +911,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	// Once our dot file has been written to disk, we can use the dot
 	// command itself to generate the drawn rendering of the graph
 	// described.
-	drawCmd := exec.Command("dot", "-T"+"png", "-o"+imageFile.Name(),
+	drawCmd := exec.Command("dot", "-T"+"svg", "-o"+imageFile.Name(),
 		tempDotFile.Name())
 	if err := drawCmd.Run(); err != nil {
 		return err

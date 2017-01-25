@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -336,7 +337,29 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 				Index: 0,
 			},
 			Problem:          "Number of pending channels exceed maximum",
-			Code:             lnwire.ErrorMaxPendingChannels,
+			Code:             lnwire.ErrMaxPendingChannels,
+			PendingChannelID: fmsg.msg.ChannelID,
+		}
+		fmsg.peer.queueMsg(errMsg, nil)
+		return
+	}
+
+	// We'll also reject any requests to create channels until we're fully
+	// synced to the network as we won't be able to properly validate the
+	// confirmation of the funding transaction.
+	isSynced, err := f.wallet.IsSynced()
+	if err != nil {
+		fndgLog.Errorf("unable to query wallet: %v", err)
+		return
+	}
+	if !isSynced {
+		errMsg := &lnwire.ErrorGeneric{
+			ChannelPoint: &wire.OutPoint{
+				Hash:  chainhash.Hash{},
+				Index: 0,
+			},
+			Problem:          "Synchronizing blockchain",
+			Code:             lnwire.ErrSynchronizingChain,
 			PendingChannelID: fmsg.msg.ChannelID,
 		}
 		fmsg.peer.queueMsg(errMsg, nil)
@@ -979,17 +1002,26 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 	e := fmsg.err
 
 	switch e.Code {
-	case lnwire.ErrorMaxPendingChannels:
+	case lnwire.ErrMaxPendingChannels:
+		fallthrough
+	case lnwire.ErrSynchronizingChain:
 		peerID := fmsg.peer.id
 		chanID := fmsg.err.PendingChannelID
 
-		if ctx, err := f.cancelReservationCtx(peerID, chanID); err != nil {
+		resCtx, err := f.cancelReservationCtx(peerID, chanID)
+		if err != nil {
 			fndgLog.Warnf("unable to delete reservation: %v", err)
 			return
-		} else {
-			ctx.err <- grpc.Errorf(e.Code.ToGrpcCode(), e.Problem)
-			return
 		}
+
+		fndgLog.Errorf("Received funding error from %v: %v", fmsg.peer,
+			newLogClosure(func() string {
+				return spew.Sdump(e)
+			}),
+		)
+
+		resCtx.err <- grpc.Errorf(e.Code.ToGrpcCode(), e.Problem)
+		return
 
 	default:
 		fndgLog.Warnf("unknown funding error (%v:%v)", e.Code, e.Problem)

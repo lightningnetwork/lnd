@@ -236,7 +236,7 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	}
 	if bobBal.Balance != int64(pushAmt) {
 		t.Fatalf("bob's balance is incorrect: expected %v got %v",
-			pushAmt, bobBal)
+			pushAmt, bobBal.Balance)
 	}
 
 	// Finally, immediately close the channel. This function will also
@@ -1124,7 +1124,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 0, 1)
 	if err == nil {
 		t.Fatalf("error wasn't received")
-	} else if grpc.Code(err) != lnwire.ErrorMaxPendingChannels.ToGrpcCode() {
+	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {
 		t.Fatalf("not expected error was received: %v", err)
 	}
 

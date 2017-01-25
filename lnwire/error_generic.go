@@ -21,9 +21,14 @@ func (e ErrorCode) ToGrpcCode() codes.Code {
 }
 
 const (
-	// ErrorMaxPendingChannels is returned by remote peer when the number
-	// of active pending channels exceeds their maximum policy limit.
-	ErrorMaxPendingChannels ErrorCode = 1
+	// ErrMaxPendingChannels is returned by remote peer when the number of
+	// active pending channels exceeds their maximum policy limit.
+	ErrMaxPendingChannels ErrorCode = 1
+
+	// ErrSynchronizingChain is returned by a remote peer that receives a
+	// channel update or a funding request while their still syncing to the
+	// latest state of the blockchain.
+	ErrSynchronizingChain ErrorCode = 2
 )
 
 // ErrorGeneric represents a generic error bound to an exact channel. The

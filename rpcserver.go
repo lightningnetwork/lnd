@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -330,6 +331,17 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
 		in.LocalFundingAmount, in.PushSat, in.NumConfs)
+
+	// Creation of channels before the wallet syncs up is currently
+	// disallowed.
+	isSynced, err := r.server.lnwallet.IsSynced()
+	if err != nil {
+		return nil, err
+	}
+	if !isSynced {
+		return nil, errors.New("channels cannot be created before the " +
+			"wallet is fully synced")
+	}
 
 	// Decode the provided target node's public key, parsing it into a pub
 	// key object. For all sync call, byte slices are expected to be

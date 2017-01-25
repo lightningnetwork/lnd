@@ -495,12 +495,12 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		m.RevocationKey.Curve = nil
 	}
 
-	prefix := "readMessage"
+	prefix := "readMessage from"
 	if !read {
-		prefix = "writeMessage"
+		prefix = "writeMessage to"
 	}
 
-	peerLog.Tracef(prefix+" to %v: %v", p, newLogClosure(func() string {
+	peerLog.Tracef(prefix+" %v: %v", p, newLogClosure(func() string {
 		return spew.Sdump(msg)
 	}))
 }

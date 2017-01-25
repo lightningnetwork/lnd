@@ -44,6 +44,10 @@ var (
 	// maximum number of allowed HTLC's if committed in a state transition
 	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
 		"htlc number")
+
+	// ErrChanReserveBreach is returned when the remote peer tries to
+	// add a HTLC that will put them under their channel reserve limit.
+	ErrChanReserveBreach = fmt.Errorf("channel reserve threshold breached")
 )
 
 const (
@@ -1514,7 +1518,7 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 	// party set up when we initially set up the channel. If we are, then
 	// we'll abort this state transition.
 	err := lc.validateCommitmentSanity(lc.remoteUpdateLog.ackedIndex,
-		lc.localUpdateLog.logIndex, false)
+		lc.localUpdateLog.logIndex, false, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,24 +1585,30 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 // validateCommitmentSanity is used to validate that on current state the commitment
 // transaction is valid in terms of propagating it over Bitcoin network, and
 // also that all outputs are meet Bitcoin spec requirements and they are
-// spendable.
+// spendable. Channel policies are also checked here, such as ensuring that
+// the channel reserve limit is enforced.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
-	ourLogCounter uint64, prediction bool) error {
+	ourLogCounter uint64, prediction bool, amt btcutil.Amount) error {
 
 	htlcCount := 0
+	sum := amt
 
 	if prediction {
 		htlcCount++
 	}
 
 	// Run through all the HTLCs that will be covered by this transaction
-	// in order to calculate theirs count.
+	// in order to calculate their count and total value.
 	htlcView := lc.fetchHTLCView(theirLogCounter, ourLogCounter)
 
 	for _, entry := range htlcView.ourUpdates {
 		if entry.EntryType == Add {
 			htlcCount++
 		} else {
+			if entry.EntryType == Fail &&
+				entry.removeCommitHeightLocal == 0 {
+				sum -= entry.Amount
+			}
 			htlcCount--
 		}
 	}
@@ -1606,9 +1616,22 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	for _, entry := range htlcView.theirUpdates {
 		if entry.EntryType == Add {
 			htlcCount++
+			if entry.addCommitHeightRemote == 0 {
+				sum += entry.Amount
+			}
 		} else {
+			if entry.EntryType == Settle &&
+				entry.addCommitHeightLocal == 0 {
+				sum -= entry.Amount
+			}
 			htlcCount--
 		}
+	}
+
+	// We only have to check the reserve limit when we receive an HTLC.
+	if amt != 0 && lc.channelState.TheirBalance-sum <
+		lc.channelState.TheirChannelReserve {
+		return ErrChanReserveBreach
 	}
 
 	if htlcCount > MaxHTLCNumber {
@@ -1634,7 +1657,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 	// the constraints we specified during initial channel setup. If not,
 	// then we'll abort the channel as they've violated our constraints.
 	err := lc.validateCommitmentSanity(lc.remoteUpdateLog.logIndex,
-		lc.localUpdateLog.ackedIndex, false)
+		lc.localUpdateLog.ackedIndex, false, 0)
 	if err != nil {
 		return err
 	}
@@ -1988,7 +2011,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	defer lc.Unlock()
 
 	if err := lc.validateCommitmentSanity(lc.remoteUpdateLog.logIndex,
-		lc.localUpdateLog.logIndex, true); err != nil {
+		lc.localUpdateLog.logIndex, true, 0); err != nil {
 		return 0, err
 	}
 
@@ -2015,7 +2038,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	defer lc.Unlock()
 
 	if err := lc.validateCommitmentSanity(lc.remoteUpdateLog.logIndex,
-		lc.localUpdateLog.logIndex, true); err != nil {
+		lc.localUpdateLog.logIndex, true, htlc.Amount); err != nil {
 		return 0, err
 	}
 

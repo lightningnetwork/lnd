@@ -652,6 +652,22 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	for _, serverPeer := range serverPeers {
 		// TODO(roasbeef): add a snapshot method which grabs peer read mtx
 
+		var (
+			satSent int64
+			satRecv int64
+		)
+
+		// In order to display the total number of satoshis of outbound
+		// (sent) and inbound (recv'd) satoshis that have been
+		// transported through this peer, we'll sum up the sent/recv'd
+		// values for each of the active channels we ahve with the
+		// peer.
+		chans := serverPeer.ChannelSnapshots()
+		for _, c := range chans {
+			satSent += int64(c.TotalSatoshisSent)
+			satRecv += int64(c.TotalSatoshisReceived)
+		}
+
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub),
@@ -660,6 +676,9 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			Inbound:   serverPeer.inbound,
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
 			BytesSent: atomic.LoadUint64(&serverPeer.bytesSent),
+			SatSent:   satSent,
+			SatRecv:   satRecv,
+			PingTime:  serverPeer.PingTime(),
 		}
 
 		resp.Peers = append(resp.Peers, peer)

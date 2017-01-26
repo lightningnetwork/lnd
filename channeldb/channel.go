@@ -648,6 +648,8 @@ type ChannelSnapshot struct {
 	LocalBalance  btcutil.Amount
 	RemoteBalance btcutil.Amount
 
+	LocalReserveLimit btcutil.Amount
+
 	NumUpdates uint64
 
 	TotalSatoshisSent     uint64
@@ -669,6 +671,7 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		Capacity:              c.Capacity,
 		LocalBalance:          c.OurBalance,
 		RemoteBalance:         c.TheirBalance,
+		LocalReserveLimit:     c.OurChannelReserve,
 		NumUpdates:            c.NumUpdates,
 		TotalSatoshisSent:     c.TotalSatoshisSent,
 		TotalSatoshisReceived: c.TotalSatoshisReceived,

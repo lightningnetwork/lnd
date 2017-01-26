@@ -824,6 +824,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 	return func(x int64) float64 {
 		y := math.Log2(float64(x))
 
+		// TODO(roasbeef): results in min being zero
 		return float64(y-min) / float64(max-min) * scaleFactor
 	}
 }
@@ -851,6 +852,12 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	graphCanvas.SetName(graphName)
 	graphCanvas.SetDir(false)
 
+	const numKeyChars = 10
+
+	truncateStr := func(k string, n uint) string {
+		return k[:n]
+	}
+
 	// For each node within the graph, we'll add a new vertex to the graph.
 	for _, node := range graph.Nodes {
 		// Rather than using the entire hex-encoded string, we'll only
@@ -859,7 +866,8 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		// non-integer.
 		//
 		// TODO(roasbeef): should be able to get around this?
-		nodeID := "Z" + node.PubKey[:10]
+		nodeID := fmt.Sprintf(`"%v"`, truncateStr(node.PubKey, numKeyChars))
+		fmt.Println(nodeID)
 
 		graphCanvas.AddNode(graphName, nodeID, gographviz.Attrs{})
 	}
@@ -871,8 +879,8 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	for _, edge := range graph.Edges {
 		// Once again, we add a 'Z' prefix so we're compliant with the
 		// dot grammar.
-		src := "Z" + edge.Node1Pub[:10]
-		dest := "Z" + edge.Node2Pub[:10]
+		src := fmt.Sprintf(`"%v"`, truncateStr(edge.Node1Pub, numKeyChars))
+		dest := fmt.Sprintf(`"%v"`, truncateStr(edge.Node2Pub, numKeyChars))
 
 		// The weight for our edge will be the total capacity of the
 		// channel, in BTC.
@@ -883,7 +891,8 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 
 		// The label for each edge will simply be a truncated version
 		// of it's channel ID.
-		edgeLabel := strconv.FormatUint(edge.ChannelId, 10)[:10]
+		chanIDStr := strconv.FormatUint(edge.ChannelId, 10)
+		edgeLabel := fmt.Sprintf(`"cid:%v"`, truncateStr(chanIDStr, 7))
 
 		// We'll also use a normalized version of the channels'
 		// capacity in satoshis in order to modulate the "thickness" of
@@ -891,6 +900,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		normalizedCapacity := normalize(edge.Capacity)
 		edgeThickness := strconv.FormatFloat(normalizedCapacity, 'f', -1, 64)
 
+		// TODO(roasbeef): color code based on percentile capacity
 		graphCanvas.AddEdge(src, dest, false, gographviz.Attrs{
 			"penwidth": edgeThickness,
 			"weight":   edgeWeight,

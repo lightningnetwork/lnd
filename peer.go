@@ -76,6 +76,15 @@ type peer struct {
 	inbound bool
 	id      int32
 
+	// pingTime is a rough estimate of the RTT (round-trip-time) between us
+	// and the connected peer. This time is expressed in micro seconds.
+	// TODO(roasbeef): also use a WMA or EMA?
+	pingTime int64
+
+	// pingLastSend is the Unix time expressed in nanoseconds when we sent
+	// our last ping message.
+	pingLastSend int64
+
 	// For purposes of detecting retransmits, etc.
 	lastNMessages map[lnwire.Message]struct{}
 
@@ -382,6 +391,15 @@ out:
 		var targetChan *wire.OutPoint
 
 		switch msg := nextMsg.(type) {
+		case *lnwire.Pong:
+			// When we receive a Pong message in response to our
+			// last ping message, we'll use the time in which we
+			// sent the ping message to measure a rough estimate of
+			// round trip time.
+			pingSendTime := atomic.LoadInt64(&p.pingLastSend)
+			delay := (time.Now().UnixNano() - pingSendTime) / 1000
+			atomic.StoreInt64(&p.pingTime, delay)
+
 		case *lnwire.Ping:
 			p.queueMsg(lnwire.NewPong(msg.Nonce), nil)
 
@@ -531,14 +549,19 @@ out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
-			switch m := outMsg.msg.(type) {
-			// TODO(roasbeef): handle special write cases
-			}
-
 			if err := p.writeMessage(outMsg.msg); err != nil {
-				peerLog.Errorf("unable to write message: %v", err)
+				peerLog.Errorf("unable to write message: %v",
+					err)
 				p.Disconnect()
 				break out
+			}
+
+			switch outMsg.msg.(type) {
+			case *lnwire.Ping:
+				// TODO(roasbeef): do this before the write?
+				// possibly account for processing within func?
+				now := time.Now().UnixNano()
+				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
 			// Synchronize with the writeHandler.
@@ -645,6 +668,11 @@ out:
 	}
 
 	p.wg.Done()
+}
+
+// PingTime returns the estimated ping time to the peer in microseconds.
+func (p *peer) PingTime() int64 {
+	return atomic.LoadInt64(&p.pingTime)
 }
 
 // queueMsg queues a new lnwire.Message to be eventually sent out on the

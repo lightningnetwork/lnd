@@ -283,6 +283,8 @@ message Peer {
     int64 sat_recv = 7;
 
     bool inbound = 8;
+
+    int64 ping_time = 9;
 }
 
 message ListPeersRequest {}

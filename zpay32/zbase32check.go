@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 
@@ -77,6 +78,11 @@ func Encode(payReq *PaymentRequest) string {
 // Decode attempts to decode the zbase32 encoded payment request. If the
 // trailing checksum doesn't match, then an error is returned.
 func Decode(payData string) (*PaymentRequest, error) {
+	if payData == "" {
+		return nil, fmt.Errorf("encoded payment request must be a " +
+			"non-empty string")
+	}
+
 	// First we decode the zbase32 encoded string into a series of raw
 	// bytes.
 	payReqBytes, err := zbase32.DecodeString(payData)

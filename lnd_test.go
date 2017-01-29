@@ -531,6 +531,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
+	time.Sleep(time.Millisecond * 500)
 	sendStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create alice payment stream: %v", err)

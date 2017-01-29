@@ -594,9 +594,11 @@ out:
 						continue
 					}
 
-					for _, msg := range bMsg.msgs {
-						peer.queueMsg(msg, nil)
-					}
+					go func() {
+						for _, msg := range bMsg.msgs {
+							peer.queueMsg(msg, nil)
+						}
+					}()
 				}
 				s.peersMtx.RUnlock()
 
@@ -624,11 +626,11 @@ out:
 					sMsg.errChan <- errors.New("peer not found")
 					return
 				}
+				s.peersMtx.RUnlock()
 
 				for _, msg := range sMsg.msgs {
 					targetPeer.queueMsg(msg, nil)
 				}
-				s.peersMtx.RUnlock()
 
 				sMsg.errChan <- nil
 			}()

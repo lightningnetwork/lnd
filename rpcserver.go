@@ -1735,6 +1735,8 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 		return nil, err
 	}
 
+	// TODO(roasbeef): graph diameter
+
 	// TODO(roasbeef): also add oldest channel?
 	//  * also add median channel size
 	return &lnrpc.NetworkInfo{

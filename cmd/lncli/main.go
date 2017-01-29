@@ -15,9 +15,14 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-func getClient(ctx *cli.Context) lnrpc.LightningClient {
+func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	conn := getClientConn(ctx)
-	return lnrpc.NewLightningClient(conn)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return lnrpc.NewLightningClient(conn), cleanUp
 }
 
 func getClientConn(ctx *cli.Context) *grpc.ClientConn {

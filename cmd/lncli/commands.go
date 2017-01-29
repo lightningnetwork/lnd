@@ -44,7 +44,8 @@ var NewAddressCommand = cli.Command{
 }
 
 func newAddress(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	stringAddrType := ctx.Args().Get(0)
 
@@ -95,7 +96,8 @@ var SendCoinsCommand = cli.Command{
 
 func sendCoins(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.SendCoinsRequest{
 		Addr:   ctx.String("addr"),
@@ -127,7 +129,8 @@ func sendMany(ctx *cli.Context) error {
 	}
 
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{amountToAddr})
 	if err != nil {
@@ -154,7 +157,8 @@ var ConnectCommand = cli.Command{
 
 func connectPeer(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	targetAddress := ctx.Args().Get(0)
 	splitAddr := strings.Split(targetAddress, "@")
@@ -225,7 +229,8 @@ var OpenChannelCommand = cli.Command{
 func openChannel(ctx *cli.Context) error {
 	// TODO(roasbeef): add deadline to context
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	if ctx.Int("peer_id") != 0 && ctx.String("node_key") != "" {
 		return fmt.Errorf("both peer_id and lightning_id cannot be set " +
@@ -322,7 +327,8 @@ var CloseChannelCommand = cli.Command{
 
 func closeChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	txid, err := chainhash.NewHashFromStr(ctx.String("funding_txid"))
 	if err != nil {
@@ -383,7 +389,8 @@ var ListPeersCommand = cli.Command{
 
 func listPeers(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ListPeersRequest{}
 	resp, err := client.ListPeers(ctxb, req)
@@ -411,7 +418,8 @@ var WalletBalanceCommand = cli.Command{
 
 func walletBalance(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.WalletBalanceRequest{
 		WitnessOnly: ctx.Bool("witness_only"),
@@ -433,7 +441,8 @@ var ChannelBalanceCommand = cli.Command{
 
 func channelBalance(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ChannelBalanceRequest{}
 	resp, err := client.ChannelBalance(ctxb, req)
@@ -453,7 +462,8 @@ var GetInfoCommand = cli.Command{
 
 func getInfo(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.GetInfoRequest{}
 	resp, err := client.GetInfo(ctxb, req)
@@ -489,7 +499,8 @@ var PendingChannelsCommand = cli.Command{
 
 func pendingChannels(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	var channelStatus lnrpc.ChannelStatus
 	switch {
@@ -529,7 +540,8 @@ var ListChannelsCommand = cli.Command{
 
 func listChannels(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ListChannelsRequest{}
 	resp, err := client.ListChannels(ctxb, req)
@@ -575,7 +587,8 @@ var SendPaymentCommand = cli.Command{
 }
 
 func sendPaymentCommand(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	var req *lnrpc.SendRequest
 	if ctx.String("pay_req") != "" {
@@ -657,7 +670,8 @@ var AddInvoiceCommand = cli.Command{
 }
 
 func addInvoice(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	preimage, err := hex.DecodeString(ctx.String("preimage"))
 	if err != nil {
@@ -707,7 +721,8 @@ var LookupInvoiceCommand = cli.Command{
 }
 
 func lookupInvoice(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	rHash, err := hex.DecodeString(ctx.String("rhash"))
 	if err != nil {
@@ -743,7 +758,8 @@ var ListInvoicesCommand = cli.Command{
 }
 
 func listInvoices(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	pendingOnly := true
 	if !ctx.Bool("pending_only") {
@@ -779,7 +795,8 @@ var DescribeGraphCommand = cli.Command{
 }
 
 func describeGraph(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ChannelGraphRequest{}
 
@@ -867,7 +884,6 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		//
 		// TODO(roasbeef): should be able to get around this?
 		nodeID := fmt.Sprintf(`"%v"`, truncateStr(node.PubKey, numKeyChars))
-		fmt.Println(nodeID)
 
 		graphCanvas.AddNode(graphName, nodeID, gographviz.Attrs{})
 	}
@@ -955,7 +971,8 @@ var ListPaymentsCommand = cli.Command{
 }
 
 func listPayments(ctx *cli.Context) error {
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ListPaymentsRequest{}
 
@@ -984,7 +1001,8 @@ var GetChanInfoCommand = cli.Command{
 
 func getChanInfo(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.ChanInfoRequest{
 		ChanId: uint64(ctx.Int("chan_id")),
@@ -1016,7 +1034,8 @@ var GetNodeInfoCommand = cli.Command{
 
 func getNodeInfo(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.NodeInfoRequest{
 		PubKey: ctx.String("pub_key"),
@@ -1051,7 +1070,8 @@ var QueryRouteCommand = cli.Command{
 
 func queryRoute(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.RouteRequest{
 		PubKey: ctx.String("dest"),
@@ -1077,7 +1097,8 @@ var GetNetworkInfoCommand = cli.Command{
 
 func getNetworkInfo(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.NetworkInfoRequest{}
 
@@ -1109,7 +1130,8 @@ var DebugLevel = cli.Command{
 
 func debugLevel(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.DebugLevelRequest{
 		Show:      ctx.Bool("show"),
@@ -1140,7 +1162,8 @@ var DecodePayReq = cli.Command{
 
 func decodePayReq(ctx *cli.Context) error {
 	ctxb := context.Background()
-	client := getClient(ctx)
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
 
 	req := &lnrpc.PayReqString{
 		PayReq: ctx.String("pay_req"),

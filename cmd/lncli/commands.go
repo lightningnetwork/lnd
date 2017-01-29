@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/awalterschulze/gographviz"
+	"github.com/golang/protobuf/jsonpb"
+	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
@@ -24,17 +27,30 @@ import (
 // TODO(roasbeef): cli logic for supporting both positional and unix style
 // arguments.
 
-func printRespJson(resp interface{}) {
+func printJson(resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
 		fatal(err)
 	}
 
-	// TODO(roasbeef): disable 'omitempty' like behavior
-
 	var out bytes.Buffer
 	json.Indent(&out, b, "", "\t")
 	out.WriteTo(os.Stdout)
+}
+
+func printRespJson(resp proto.Message) {
+	jsonMarshaler := &jsonpb.Marshaler{
+		EmitDefaults: true,
+		Indent:       "    ",
+	}
+
+	jsonStr, err := jsonMarshaler.MarshalToString(resp)
+	if err != nil {
+		fmt.Println("unable to decode response: ", err)
+		return
+	}
+
+	fmt.Println(jsonStr)
 }
 
 var NewAddressCommand = cli.Command{
@@ -279,7 +295,7 @@ func openChannel(ctx *cli.Context) error {
 			}
 
 			index := channelPoint.OutputIndex
-			printRespJson(struct {
+			printJson(struct {
 				ChannelPoint string `json:"channel_point"`
 			}{
 				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
@@ -369,7 +385,7 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printRespJson(struct {
+			printJson(struct {
 				ClosingTXID string `json:"closing_txid"`
 			}{
 				ClosingTXID: txid.String(),
@@ -695,7 +711,7 @@ func addInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(struct {
+	printJson(struct {
 		RHash  string `json:"r_hash"`
 		PayReq string `json:"pay_req"`
 	}{
@@ -1165,11 +1181,13 @@ func decodePayReq(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.PayReqString{
-		PayReq: ctx.String("pay_req"),
+	if ctx.String("pay_req") == "" {
+		return errors.New("the --pay_req argument cannot be empty")
 	}
 
-	resp, err := client.DecodePayReq(ctxb, req)
+	resp, err := client.DecodePayReq(ctxb, &lnrpc.PayReqString{
+		PayReq: ctx.String("pay_req"),
+	})
 	if err != nil {
 		return err
 	}

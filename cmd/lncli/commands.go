@@ -803,7 +803,7 @@ var DescribeGraphCommand = cli.Command{
 	Usage: "describegraph",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
-			Name:  "draw",
+			Name:  "render",
 			Usage: "If true, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
 		},
 	},
@@ -823,7 +823,7 @@ func describeGraph(ctx *cli.Context) error {
 
 	// If the draw flag is on, then we'll use the 'dot' command to create a
 	// visualization of the graph itself.
-	if ctx.Bool("draw") {
+	if ctx.Bool("render") {
 		return drawChannelGraph(graph)
 	}
 

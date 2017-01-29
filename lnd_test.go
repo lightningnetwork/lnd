@@ -795,7 +795,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// Carol's routing table should show a path from Carol -> Alice -> Bob,
 	// with the two channels above recognized as the only links within the
 	// network.
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 2)
 	req := &lnrpc.ChannelGraphRequest{}
 	chanGraph, err := carol.DescribeGraph(ctxb, req)
 	if err != nil {
@@ -1508,6 +1508,7 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 		Dest:        carol.PubKey[:],
 		Amt:         payAmt,
 	}
+	time.Sleep(time.Millisecond * 500)
 	if err := alicePayStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}

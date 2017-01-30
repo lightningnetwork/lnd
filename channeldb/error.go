@@ -1,33 +1,39 @@
 package channeldb
 
-import "fmt"
+import (
+	"errors"
+)
 
 var (
-	ErrNoChanDBExists    = fmt.Errorf("channel db has not yet been created")
-	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")
+	ErrNoChanDBExists    = errors.New("channel db has not yet been created")
+	ErrLinkNodesNotFound = errors.New("no link nodes exist")
 
-	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
-	ErrChannelNoExist   = fmt.Errorf("this channel does not exist")
-	ErrNoPastDeltas     = fmt.Errorf("channel has no recorded deltas")
+	ErrNoActiveChannels = errors.New("no active channels exist")
+	ErrChannelNoExist   = errors.New("this channel does not exist")
+	ErrNoPastDeltas     = errors.New("channel has no recorded deltas")
 
-	ErrInvoiceNotFound   = fmt.Errorf("unable to locate invoice")
-	ErrNoInvoicesCreated = fmt.Errorf("there are no existing invoices")
-	ErrDuplicateInvoice  = fmt.Errorf("invoice with payment hash already exists")
+	ErrInvoiceNotFound   = errors.New("unable to locate invoice")
+	ErrNoInvoicesCreated = errors.New("there are no existing invoices")
+	ErrDuplicateInvoice  = errors.New("invoice with payment hash already exists")
 
-	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
+	ErrNoPaymentsCreated = errors.New("there are no existing payments")
 
-	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
-	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
+	ErrNodeNotFound = errors.New("link node with target identity not found")
+	ErrMetaNotFound = errors.New("unable to locate meta information")
 
-	ErrGraphNotFound      = fmt.Errorf("graph bucket not initialized")
-	ErrGraphNodesNotFound = fmt.Errorf("no graph nodes exist")
-	ErrGraphNoEdgesFound  = fmt.Errorf("no graph edges exist")
-	ErrGraphNodeNotFound  = fmt.Errorf("unable to find node")
-	ErrGraphNeverPruned   = fmt.Errorf("graph never pruned")
+	ErrGraphNotFound      = errors.New("graph bucket not initialized")
+	ErrGraphNodesNotFound = errors.New("no graph nodes exist")
+	ErrGraphNoEdgesFound  = errors.New("no graph edges exist")
+	ErrGraphNodeNotFound  = errors.New("unable to find node")
+	ErrGraphNeverPruned   = errors.New("graph never pruned")
 
-	ErrEdgeNotFound = fmt.Errorf("edge for chanID not found")
+	ErrEdgeNotFound = errors.New("edge for chanID not found")
 
-	ErrNodeAliasNotFound = fmt.Errorf("alias for node not found")
+	ErrNodeAliasNotFound = errors.New("alias for node not found")
 
-	ErrSourceNodeNotSet = fmt.Errorf("source node does not exist")
+	ErrSourceNodeNotSet = errors.New("source node does not exist")
+
+	ErrCircuitsNotFound  = errors.New("unable to locate circuits")
+	ErrNoCircuitsCreated = errors.New("there are no existing circuits")
+	ErrDuplicateCircuit  = errors.New("circuit already exists")
 )

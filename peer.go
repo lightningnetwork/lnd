@@ -62,6 +62,19 @@ type chanSnapshotReq struct {
 // channels.
 // TODO(roasbeef): proper reconnection logic
 type peer struct {
+	// The following fields are only meant to be used *atomically*
+	bytesReceived uint64
+	bytesSent     uint64
+
+	// pingTime is a rough estimate of the RTT (round-trip-time) between us
+	// and the connected peer. This time is expressed in micro seconds.
+	// TODO(roasbeef): also use a WMA or EMA?
+	pingTime int64
+
+	// pingLastSend is the Unix time expressed in nanoseconds when we sent
+	// our last ping message.
+	pingLastSend int64
+
 	// MUST be used atomically.
 	started    int32
 	connected  int32
@@ -76,15 +89,6 @@ type peer struct {
 	inbound bool
 	id      int32
 
-	// pingTime is a rough estimate of the RTT (round-trip-time) between us
-	// and the connected peer. This time is expressed in micro seconds.
-	// TODO(roasbeef): also use a WMA or EMA?
-	pingTime int64
-
-	// pingLastSend is the Unix time expressed in nanoseconds when we sent
-	// our last ping message.
-	pingLastSend int64
-
 	// For purposes of detecting retransmits, etc.
 	lastNMessages map[lnwire.Message]struct{}
 
@@ -93,12 +97,6 @@ type peer struct {
 	timeConnected time.Time
 	lastSend      time.Time
 	lastRecv      time.Time
-
-	// The following fields are only meant to be used *atomically*
-	bytesReceived    uint64
-	bytesSent        uint64
-	satoshisSent     uint64
-	satoshisReceived uint64
 
 	// sendQueue is the channel which is used to queue outgoing to be
 	// written onto the wire. Note that this channel is unbuffered.

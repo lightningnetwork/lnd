@@ -402,13 +402,14 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	var sweepingTXID *chainhash.Hash
 	var mempool []*chainhash.Hash
 	mempoolTimeout := time.After(3 * time.Second)
-	checkMempoolTick := time.Tick(100 * time.Millisecond)
+	checkMempoolTick := time.NewTicker(100 * time.Millisecond)
+	defer checkMempoolTick.Stop()
 mempoolPoll:
 	for {
 		select {
 		case <-mempoolTimeout:
 			t.Fatalf("sweep tx not found in mempool")
-		case <-checkMempoolTick:
+		case <-checkMempoolTick.C:
 			mempool, err = net.Miner.Node.GetRawMempool()
 			if err != nil {
 				t.Fatalf("unable to fetch node's mempool: %v", err)
@@ -1477,9 +1478,31 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 	chanPointBob := openChannelAndAssert(t, net, ctxt, net.Bob, carol,
 		chanAmt, 0)
 
-	// TODO(roasbeef): remove sleep once topology notification hooks are
-	// in.
-	time.Sleep(time.Second * 1)
+	// Ensure that Alice has Carol in her routing table before proceeding.
+	nodeInfoReq := &lnrpc.NodeInfoRequest{
+		PubKey: carol.PubKeyStr,
+	}
+	checkTableTimeout := time.After(time.Second * 10)
+	checkTableTicker := time.NewTicker(100 * time.Millisecond)
+	defer checkTableTicker.Stop()
+
+out:
+	for {
+		select {
+		case <-checkTableTicker.C:
+			_, err := net.Alice.GetNodeInfo(ctxb, nodeInfoReq)
+			if err != nil && strings.Contains(err.Error(),
+				"unable to find") {
+
+				continue
+			}
+
+			break out
+		case <-checkTableTimeout:
+			t.Fatalf("carol's node announcement didn't propagate within " +
+				"the timeout period")
+		}
+	}
 
 	// With the channels, open we can now start to test our multi-hop error
 	// scenarios. First, we'll generate an invoice from carol that we'll
@@ -1508,7 +1531,6 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 		Dest:        carol.PubKey[:],
 		Amt:         payAmt,
 	}
-	time.Sleep(time.Millisecond * 500)
 	if err := alicePayStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}

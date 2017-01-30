@@ -584,9 +584,9 @@ out:
 			// requests.
 			go func() {
 				s.peersMtx.RLock()
-				for _, peer := range s.peersByPub {
+				for _, sPeer := range s.peersByPub {
 					if ignore != nil &&
-						peer.addr.IdentityKey.IsEqual(ignore) {
+						sPeer.addr.IdentityKey.IsEqual(ignore) {
 
 						srvrLog.Debugf("Skipping %v in broadcast",
 							ignore.SerializeCompressed())
@@ -594,11 +594,11 @@ out:
 						continue
 					}
 
-					go func() {
+					go func(p *peer) {
 						for _, msg := range bMsg.msgs {
-							peer.queueMsg(msg, nil)
+							p.queueMsg(msg, nil)
 						}
-					}()
+					}(sPeer)
 				}
 				s.peersMtx.RUnlock()
 

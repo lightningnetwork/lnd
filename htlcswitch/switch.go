@@ -9,6 +9,7 @@ import (
 	"github.com/roasbeef/btcutil"
 	"sync"
 	"time"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 var (
@@ -46,8 +47,8 @@ type HTLCSwitch struct {
 }
 
 // NewHTLCSwitch creates the HTLCSwitch instance.
-func NewHTLCSwitch() (*HTLCSwitch, error) {
-	circuitMap, err := newCircuitMap()
+func NewHTLCSwitch(db *channeldb.DB) (*HTLCSwitch, error) {
+	circuitMap, err := newCircuitMap(db)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func (s *HTLCSwitch) forwardRequest(request *SwitchRequest) error {
 			return nil
 		}
 
-		err = s.circuits.add(NewPaymentCircuit(
+		err = s.circuits.add(channeldb.NewPaymentCircuit(
 			source.ID(),
 			destination.ID(),
 			htlc.RedemptionHashes[0],

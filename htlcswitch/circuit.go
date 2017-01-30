@@ -1,82 +1,11 @@
 package htlcswitch
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/wire"
 	"sync"
 )
-
-// CircuitKey uniquely identifies an active Sphinx (onion routing) circuit
-// between two open channels. Currently, the rHash of the HTLC which created
-// the circuit is used to uniquely identify each circuit.
-type CircuitKey [sha256.Size]byte
-
-func (k *CircuitKey) String() string {
-	return hex.EncodeToString(k[:])
-}
-
-// PaymentCircuit is used by HTLC switch service in order to determine
-// backward path for settle/cancel HTLC messages. A payment circuit is created
-// once a htlc manager forwards an HTLC add request. Channel points contained
-// within this message is used to identify the source/destination HTLC managers.
-//
-// NOTE: In current implementation of HTLC switch, the payment circuit might be
-// uniquely identified by payment hash but in future we implement the payment
-// fragmentation which makes possible for number of payments to have
-// identical payments hashes, but different source and destinations.
-//
-// For example if Alice(A) want to send 2BTC to Bob(B), then payment will be
-// split on two parts and node N3 will have circuit with the same payment hash,
-// and destination, but different source (N1,N2).
-//
-//	    	  1BTC    N1   1BTC
-//    	      + --------- o --------- +
-//      2BTC  |	                      |  2BTC
-// A o ------ o N0	           N3 o ------ o B
-//	      |		              |
-// 	      + --------- o --------- +
-//	         1BTC     N2   1BTC
-//
-type PaymentCircuit struct {
-	// PaymentHash used as uniq identifier of payment (not payment circuit)
-	PaymentHash CircuitKey
-
-	// Src is the channel id from which add HTLC request is came from and
-	// to which settle/cancel HTLC request will be returned back. Once the
-	// switch forwards the settle message to the source the circuit is
-	// considered to be completed.
-	Src *wire.OutPoint
-
-	// Dest is the channel id to which we propagate the HTLC add request
-	// and from which we are expecting to receive HTLC settle request back.
-	Dest *wire.OutPoint
-}
-
-// NewPaymentCircuit creates new payment circuit instance.
-func NewPaymentCircuit(src, dest *wire.OutPoint, key CircuitKey) *PaymentCircuit {
-	return &PaymentCircuit{
-		Src:         src,
-		Dest:        dest,
-		PaymentHash: key,
-	}
-}
-
-// ID returns unique id of payment circuit.
-func (a *PaymentCircuit) ID() string {
-	return a.Src.String() +
-		a.Dest.String() +
-		a.PaymentHash.String()
-}
-
-// isEqual checks the equality of two payment circuits.
-func (a *PaymentCircuit) IsEqual(b *PaymentCircuit) bool {
-	return bytes.Equal(a.PaymentHash[:], b.PaymentHash[:]) &&
-		a.Src.String() == b.Src.String() &&
-		a.Dest.String() == b.Dest.String()
-}
 
 // circuitMap is a thread safe, persistent storage of circuits. Each
 // circuit key (payment hash) might have numbers of circuits corresponding to it
@@ -84,22 +13,38 @@ func (a *PaymentCircuit) IsEqual(b *PaymentCircuit) bool {
 // identified by payment hash (1-1 mapping).
 type circuitMap struct {
 	mutex    sync.RWMutex
-	circuits map[CircuitKey][]*PaymentCircuit
+	circuits map[channeldb.CircuitKey][]*channeldb.PaymentCircuit
+	db       *channeldb.DB
 }
 
 // newCircuitMap initialized circuit map with previously stored circuits and
 // return circuit map instance.
-func newCircuitMap() (*circuitMap, error) {
+func newCircuitMap(db *channeldb.DB) (*circuitMap, error) {
 	m := &circuitMap{
-		circuits: make(map[CircuitKey][]*PaymentCircuit),
+		circuits: make(map[channeldb.CircuitKey][]*channeldb.PaymentCircuit),
 	}
 
+	circuits, err := db.FetchAllCircuits()
+	if err != nil && err != channeldb.ErrNoCircuitsCreated {
+		return nil, err
+	}
+
+	for _, circuit := range circuits {
+		err := m.add(circuit)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// After synchronization circuit map with database, set db - thereby
+	// we are turning on circuits persistence.
+	m.db = db
 	return m, nil
 }
 
 // add function add circuit in circuit map, and also save it in database in
 // thread safe manner.
-func (m *circuitMap) add(circuit *PaymentCircuit) error {
+func (m *circuitMap) add(circuit *channeldb.PaymentCircuit) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -114,7 +59,13 @@ func (m *circuitMap) add(circuit *PaymentCircuit) error {
 		}
 
 	} else {
-		m.circuits[circuit.PaymentHash] = make([]*PaymentCircuit, 1)
+		m.circuits[circuit.PaymentHash] = make([]*channeldb.PaymentCircuit, 1)
+	}
+
+	// If database isn't empty we will sync circuit map with database, by
+	// saving it.
+	if err := m.db.AddCircuit(circuit); err != nil {
+		return err
 	}
 
 	m.circuits[circuit.PaymentHash] = append(circuits, circuit)
@@ -122,8 +73,8 @@ func (m *circuitMap) add(circuit *PaymentCircuit) error {
 }
 
 /// remove function removes circuit from map and database in thread safe manner.
-func (m *circuitMap) remove(key CircuitKey, dest *wire.OutPoint) (
-	*PaymentCircuit, error) {
+func (m *circuitMap) remove(key channeldb.CircuitKey, dest *wire.OutPoint) (
+	*channeldb.PaymentCircuit, error) {
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -132,6 +83,11 @@ func (m *circuitMap) remove(key CircuitKey, dest *wire.OutPoint) (
 	if ok {
 		for i, circuit := range circuits {
 			if circuit.Dest.String() == dest.String() {
+				err := m.db.RemoveCircuit(circuit)
+				if err != nil {
+					return nil, err
+				}
+
 				// Delete without preserving order
 				// Google: Golang slice tricks
 				circuits[i] = circuits[len(circuits)-1]

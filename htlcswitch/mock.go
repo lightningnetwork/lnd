@@ -40,7 +40,7 @@ var _ Peer = (*MockServer)(nil)
 
 func NewMockServer(t *testing.T, name string, debug bool) *MockServer {
 
-	htlcSwitch, err := NewHTLCSwitch()
+	htlcSwitch, err := NewHTLCSwitch(nil)
 	if err != nil {
 		t.Fatalf("can't initialize htlc switch: %v", err)
 	}

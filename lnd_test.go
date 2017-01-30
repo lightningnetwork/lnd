@@ -1554,8 +1554,8 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
 	} else if !strings.Contains(err.Error(), "htlc value") {
-		t.Fatalf("payment should have failed due to unknown preimage, "+
-			"instead failed due to : %v", err)
+		t.Fatalf("payment should have failed due to wrong amount, "+
+			"instead failed due to: %v", err)
 	}
 
 	// The balances of all parties should be the same as initially since

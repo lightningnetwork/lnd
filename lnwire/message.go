@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -315,4 +316,34 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	}
 
 	return totalBytes, msg, payload, nil
+}
+
+// MessageToStringClosure is used to produce less spammy log messages in trace
+// mode by setting the 'Curve" parameter to nil. Doing this avoids printing out
+// each of the field elements in the curve parameters for secp256k1.
+func MessageToStringClosure(msg Message) logClosure {
+	switch m := msg.(type) {
+	case *CommitRevocation:
+		m.NextRevocationKey.Curve = nil
+	case *NodeAnnouncement:
+		m.NodeID.Curve = nil
+	case *ChannelAnnouncement:
+		m.FirstNodeID.Curve = nil
+		m.SecondNodeID.Curve = nil
+		m.FirstBitcoinKey.Curve = nil
+		m.SecondBitcoinKey.Curve = nil
+	case *SingleFundingComplete:
+		m.RevocationKey.Curve = nil
+	case *SingleFundingRequest:
+		m.CommitmentKey.Curve = nil
+		m.ChannelDerivationPoint.Curve = nil
+	case *SingleFundingResponse:
+		m.ChannelDerivationPoint.Curve = nil
+		m.CommitmentKey.Curve = nil
+		m.RevocationKey.Curve = nil
+	}
+
+	return newLogClosure(func() string {
+		return spew.Sdump(msg)
+	})
 }

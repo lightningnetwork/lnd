@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -21,7 +20,10 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
 
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -54,7 +56,7 @@ type server struct {
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
 
-	htlcSwitch    *htlcSwitch
+	htlcSwitch    *htlcswitch.HTLCSwitch
 	invoices      *invoiceRegistry
 	breachArbiter *breachArbiter
 
@@ -109,7 +111,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 		invoices:    newInvoiceRegistry(chanDB),
 		utxoNursery: newUtxoNursery(chanDB, notifier, wallet),
-		htlcSwitch:  newHtlcSwitch(),
 
 		identityPriv: privKey,
 
@@ -149,6 +150,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, fmt.Errorf("default listener must be TCP")
 	}
 
+	htlcSwitch, err := htlcswitch.NewHTLCSwitch(s.chanDB)
+	if err != nil {
+		return nil, errors.Errorf("can't create htlcswicth: %v", err)
+	}
+	s.htlcSwitch = htlcSwitch
+
 	chanGraph := chanDB.ChannelGraph()
 	self := &channeldb.LightningNode{
 		LastUpdate: time.Now(),
@@ -173,7 +180,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.rpcServer = newRpcServer(s)
-	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
+	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s)
 	s.fundingMgr = newFundingManager(wallet, s.breachArbiter)
 
 	// TODO(roasbeef): introduce closure and config system to decouple the
@@ -554,6 +561,35 @@ type openChanReq struct {
 	err     chan error
 }
 
+// channelCloseType is a enum which signals the type of channel closure the
+// peer should execute.
+type channelCloseType uint8
+
+const (
+	// closeRegular indicates a regular cooperative channel closure should be attempted.
+	closeRegular channelCloseType = iota
+
+	// closeForce indicates that the channel should be forcefully closed.
+	// This entails the broadcast of the commitment transaction directly on
+	// chain unilaterally.
+	closeForce
+
+	// closeBreach indicates that a channel breach has been dtected, and
+	// the link should immediately be marked as unavailable.
+	closeBreach
+)
+
+// closeChanReq represents a request to close a particular channel specified by
+// its outpoint.
+type closeChanReq struct {
+	closeType channelCloseType
+
+	chanPoint *wire.OutPoint
+
+	updates chan *lnrpc.CloseStatusUpdate
+	err     chan error
+}
+
 // queryHandler handles any requests to modify the server's internal state of
 // all active peers, or query/mutate the server's global state. Additionally,
 // any queries directed at peers will be handled by this goroutine.
@@ -642,6 +678,8 @@ out:
 				s.handleListPeers(msg)
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
+			case *closeChanReq:
+				s.handleCloseChanReq(msg)
 			}
 		case <-s.quit:
 			break out
@@ -770,6 +808,24 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	go s.fundingMgr.initFundingWorkflow(targetPeer, req)
 }
 
+// handleCloseChanReq...
+func (s *server) handleCloseChanReq(req *closeChanReq) {
+
+	for _, peer := range s.peersByID {
+		peer.activeChanMtx.RLock()
+		_, ok := peer.activeChannels[*req.chanPoint]
+		if ok {
+			peer.localCloseChanReqs <- req
+			peer.activeChanMtx.RUnlock()
+			return
+		}
+
+		peer.activeChanMtx.RUnlock()
+	}
+
+	req.err <- errors.Errorf("can't find channel %v to close", req.chanPoint)
+}
+
 // ConnectToPeer requests that the server connect to a Lightning Network peer
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.
@@ -808,6 +864,23 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 
 	s.queries <- req
 
+	return updateChan, errChan
+}
+
+// CloseChannel...
+func (s *server) CloseChannel(chanPoint *wire.OutPoint,
+	closeType channelCloseType) (chan *lnrpc.CloseStatusUpdate, chan error) {
+
+	errChan := make(chan error, 1)
+	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
+
+	req := &closeChanReq{
+		closeType: closeType,
+		chanPoint: chanPoint,
+		updates:   updateChan,
+		err:       errChan,
+	}
+	s.queries <- req
 	return updateChan, errChan
 }
 

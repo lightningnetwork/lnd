@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/seelog"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/connmgr"
@@ -32,6 +33,7 @@ var (
 	brarLog    = btclog.Disabled
 	cmgrLog    = btclog.Disabled
 	crtrLog    = btclog.Disabled
+	htswLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -48,6 +50,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"UTXN": utxnLog,
 	"BRAR": brarLog,
 	"CMGR": cmgrLog,
+	"PROP": htswLog,
 	"CRTR": crtrLog,
 }
 
@@ -95,6 +98,10 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "BRAR":
 		brarLog = logger
+
+	case "HTSW":
+		htswLog = logger
+		htlcswitch.UseLogger(logger)
 
 	case "CMGR":
 		cmgrLog = logger

@@ -87,6 +87,20 @@ type PaymentHash [32]byte
 // UpdateType is the exact type of an entry within the shared HTLC log.
 type updateType uint8
 
+// String represent type in string format.
+func (t updateType) String() string {
+	switch t {
+	case Add:
+		return "Add"
+	case Cancel:
+		return "Cancel"
+	case Settle:
+		return "Settle"
+	default:
+		return "unknown"
+	}
+}
+
 const (
 	Add updateType = iota
 	Cancel
@@ -148,10 +162,10 @@ type PaymentDescriptor struct {
 	removeCommitHeightRemote uint64
 	removeCommitHeightLocal  uint64
 
-	// isForwarded denotes if an incoming HTLC has been forwarded to any
-	// possible upstream peers in the route.
-	isForwarded bool
-	settled     bool
+	// isIncluded denotes if an incoming HTLC has been included in both
+	// commit tx and now it is eligable for forwarding.
+	isIncluded bool
+	settled    bool
 
 	// pkScript is the raw public key  script that encodes the redemption
 	// rules for this particular HTLC. This field will only be populated
@@ -1328,19 +1342,15 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	return nil
 }
 
-// PendingUpdates returns a boolean value reflecting if there are any pending
-// updates which need to be committed. The state machine has pending updates if
-// the local log index on the local and remote chain tip aren't identical. This
-// indicates that either we have pending updates they need to commit, or vice
-// versa.
-func (lc *LightningChannel) PendingUpdates() bool {
+// NeedUpdate returns a boolean value reflecting if there are any pending
+// updates which need to be committed. The commitment transaction should
+// be updated if we have htlcs which are not committed in remote chain.
+func (lc *LightningChannel) NeedUpdate() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	fullySynced := (lc.localCommitChain.tip().ourMessageIndex ==
-		lc.remoteCommitChain.tip().ourMessageIndex)
-
-	return !fullySynced
+	return	lc.remoteCommitChain.tip().ourMessageIndex != lc.ourLogCounter ||
+		lc.remoteCommitChain.tip().theirMessageIndex != lc.theirLogCounter
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
@@ -1489,11 +1499,11 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 	// Now that we've verified the revocation update the state of the HTLC
 	// log as we may be able to prune portions of it now, and update their
 	// balance.
-	var htlcsToForward []*PaymentDescriptor
+	var includedHtlcs []*PaymentDescriptor
 	for e := lc.theirUpdateLog.Front(); e != nil; e = e.Next() {
 		htlc := e.Value.(*PaymentDescriptor)
 
-		if htlc.isForwarded {
+		if htlc.isIncluded {
 			continue
 		}
 
@@ -1508,20 +1518,20 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 		if htlc.EntryType == Add &&
 			remoteChainTail >= htlc.addCommitHeightRemote &&
 			localChainTail >= htlc.addCommitHeightLocal {
-			htlc.isForwarded = true
-			htlcsToForward = append(htlcsToForward, htlc)
+			htlc.isIncluded = true
+			includedHtlcs = append(includedHtlcs, htlc)
 		} else if htlc.EntryType != Add &&
 			remoteChainTail >= htlc.removeCommitHeightRemote &&
 			localChainTail >= htlc.removeCommitHeightLocal {
-			htlc.isForwarded = true
-			htlcsToForward = append(htlcsToForward, htlc)
+			htlc.isIncluded = true
+			includedHtlcs = append(includedHtlcs, htlc)
 		}
 	}
 
 	lc.compactLogs(lc.ourUpdateLog, lc.theirUpdateLog,
 		localChainTail, remoteChainTail)
 
-	return htlcsToForward, nil
+	return includedHtlcs, nil
 }
 
 // compactLogs performs garbage collection within the log removing HTLCs which

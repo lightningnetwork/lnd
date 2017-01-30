@@ -23,10 +23,10 @@ import (
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
-	wallet     *lnwallet.LightningWallet
-	db         *channeldb.DB
-	notifier   chainntnfs.ChainNotifier
-	htlcSwitch *htlcSwitch
+	wallet   *lnwallet.LightningWallet
+	db       *channeldb.DB
+	notifier chainntnfs.ChainNotifier
+	server   *server
 
 	// breachObservers is a map which tracks all the active breach
 	// observers we're currently managing. The key of the map is the
@@ -62,14 +62,13 @@ type breachArbiter struct {
 // newBreachArbiter creates a new instance of a breachArbiter initialized with
 // its dependent objects.
 func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
-	notifier chainntnfs.ChainNotifier, h *htlcSwitch) *breachArbiter {
+	notifier chainntnfs.ChainNotifier, server *server) *breachArbiter {
 
 	return &breachArbiter{
-		wallet:     wallet,
-		db:         db,
-		notifier:   notifier,
-		htlcSwitch: h,
-
+		wallet:            wallet,
+		db:                db,
+		notifier:          notifier,
+		server:            server,
 		breachObservers:   make(map[wire.OutPoint]chan struct{}),
 		breachedContracts: make(chan *retributionInfo),
 		newContracts:      make(chan *lnwallet.LightningChannel),
@@ -372,7 +371,8 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// breached in order to ensure any incoming or outgoing
 		// multi-hop HTLCs aren't sent over this link, nor any other
 		// links associated with this peer.
-		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
+		b.server.CloseChannel(chanPoint, closeBreach)
+
 		if err := contract.DeleteState(); err != nil {
 			brarLog.Errorf("unable to delete channel state: %v", err)
 		}

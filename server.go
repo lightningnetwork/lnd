@@ -150,6 +150,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, fmt.Errorf("default listener must be TCP")
 	}
 
+	htlcSwitch, err := htlcswitch.NewHTLCSwitch(s.chanDB)
+	if err != nil {
+		return nil, errors.Errorf("can't create htlcswicth: %v", err)
+	}
+	s.htlcSwitch = htlcSwitch
+
 	chanGraph := chanDB.ChannelGraph()
 	self := &channeldb.LightningNode{
 		LastUpdate: time.Now(),
@@ -196,12 +202,6 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, err
 	}
 	s.connMgr = cmgr
-
-	htlcSwitch, err := htlcswitch.NewHTLCSwitch()
-	if err != nil {
-		return nil, err
-	}
-	s.htlcSwitch = htlcSwitch
 
 	// In order to promote liveness of our active channels, instruct the
 	// connection manager to attempt to establish and maintain persistent

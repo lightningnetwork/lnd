@@ -197,6 +197,45 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 	return closingTxid
 }
 
+// numChannelsPending sends an RPC request to a node to get a count of the
+// node's channels that are currently in a pending state (with a broadcast,
+// but not confirmed funding transaction).
+func numChannelsPending(node *lightningNode, ctxt context.Context) (int, error) {
+	pendingChansRequest := &lnrpc.PendingChannelRequest{
+		Status: lnrpc.ChannelStatus_OPENING,
+	}
+	resp, err := node.PendingChannels(ctxt, pendingChansRequest)
+	if err != nil {
+		return 0, err
+	}
+	return len(resp.PendingChannels), nil
+}
+
+// assertNumChannelsPending asserts that a pair of nodes have the expected
+// number of pending channels between them.
+func assertNumChannelsPending(t *harnessTest, ctxt context.Context,
+	alice, bob *lightningNode, expected int) {
+	aliceNumChans, err := numChannelsPending(alice, ctxt)
+	if err != nil {
+		t.Fatalf("error fetching alice's node (%v) pending channels %v",
+			alice.nodeID, err)
+	}
+	bobNumChans, err := numChannelsPending(bob, ctxt)
+	if err != nil {
+		t.Fatalf("error fetching bob's node (%v) pending channels %v",
+			bob.nodeID, err)
+	}
+	if aliceNumChans != expected {
+		t.Fatalf("number of pending channels for alice incorrect. "+
+			"expected %v, got %v", expected, aliceNumChans)
+	}
+	if bobNumChans != expected {
+		t.Fatalf("number of pending channels for bob incorrect. "+
+			"expected %v, got %v",
+			expected, bobNumChans)
+	}
+}
+
 // testBasicChannelFunding performs a test exercising expected behavior from a
 // basic funding workflow. The test creates a new channel between Alice and
 // Bob, then immediately closes the channel after asserting some expected post
@@ -244,6 +283,113 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
+// testFundingPersistence is intended to ensure that the Funding Manager
+// persists the state of new channels prior to broadcasting the channel's
+// funding transaction. This ensures that the daemon maintains an up-to-date
+// representation of channels if the system is restarted or disconnected.
+// testFundingPersistence mirrors testBasicChannelFunding, but adds restarts
+// and checks for the state of channels with unconfirmed funding transactions.
+func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 25)
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	pushAmt := btcutil.Amount(0)
+
+	// Create a new channel, then broadcast the funding transaction.
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
+		chanAmt, pushAmt, 1)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// At this point, the channel's funding transaction will have
+	// been broadcast, but not confirmed. Alice and Bob's nodes
+	// should reflect this when queried via RPC.
+	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 1)
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	if err := net.RestartNode(net.Bob, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
+	if err != nil {
+		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
+			" %v", err)
+	}
+
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the newly mined block.
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, fundingTxID)
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	if err := net.RestartNode(net.Alice, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+	if err := net.RestartNode(net.Bob, nil); err != nil {
+		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	// The following block ensures that after both nodes have restarted,
+	// they have reconnected before the execution of the next test.
+	peersTimeout := time.After(3 * time.Second)
+	checkPeersTick := time.NewTicker(100 * time.Millisecond)
+	defer checkPeersTick.Stop()
+peersPoll:
+	for {
+		select {
+		case <-peersTimeout:
+			t.Fatalf("peers unable to reconnect after restart")
+		case <-checkPeersTick.C:
+			peers, err := net.Bob.ListPeers(ctxt,
+				&lnrpc.ListPeersRequest{})
+			if err != nil {
+				t.Fatalf("ListPeers error: %v\n", err)
+			}
+			if len(peers.Peers) > 0 {
+				break peersPoll
+			}
+		}
+	}
+
+	// At this point, the channel should be fully opened and there should
+	// be no pending channels remaining for either node.
+	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 0)
+
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	outPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: pendingUpdate.OutputIndex,
+	}
+
+	// Check both nodes to ensure that the channel is ready for operation.
+	if err := net.AssertChannelExists(ctxt, net.Alice, &outPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+	if err := net.AssertChannelExists(ctxt, net.Bob, &outPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: pendingUpdate.Txid,
+		OutputIndex: pendingUpdate.OutputIndex,
+	}
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then
@@ -1724,6 +1870,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "funding flow persistence",
+		test: testChannelFundingPersistence,
 	},
 	{
 		name: "channel force closure",

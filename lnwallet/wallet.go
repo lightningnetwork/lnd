@@ -1189,6 +1189,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	req.completeChan <- pendingReservation.partialState
 	req.err <- nil
+
+	l.limboMtx.Lock()
+	delete(l.fundingLimbo, req.pendingFundingID)
+	l.limboMtx.Unlock()
 }
 
 // selectCoinsAndChange performs coin selection in order to obtain witness

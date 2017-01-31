@@ -133,7 +133,7 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a
-// SingleFundingRequest on the wire.
+// SingleFundingResponse on the wire.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Command() uint32 {

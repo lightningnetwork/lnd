@@ -106,7 +106,7 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a
-// SingleFundingRequest on the wire.
+// SingleFundingComplete on the wire.
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) Command() uint32 {
@@ -115,7 +115,7 @@ func (s *SingleFundingComplete) Command() uint32 {
 
 // MaxPayloadLength returns the maximum allowed payload length for a
 // SingleFundingComplete. This is calculated by summing the max length of all
-// the fields within a SingleFundingResponse. Therefore, the final breakdown
+// the fields within a SingleFundingComplete. Therefore, the final breakdown
 // is: 8 + 36 + 33 + 73 + 4 = 154
 //
 // This is part of the lnwire.Message interface.

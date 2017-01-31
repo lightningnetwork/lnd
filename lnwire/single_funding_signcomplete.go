@@ -75,8 +75,8 @@ func (c *SingleFundingSignComplete) Command() uint32 {
 }
 
 // MaxPayloadLength returns the maximum allowed payload length for a
-// SingleFundingComplete. This is calculated by summing the max length of all
-// the fields within a SingleFundingResponse. The final breakdown
+// SingleFundingSignComplete. This is calculated by summing the max length of all
+// the fields within a SingleFundingSignComplete. The final breakdown
 // is: 8 + 73 = 81
 //
 // This is part of the lnwire.Message interface.
@@ -84,8 +84,8 @@ func (c *SingleFundingSignComplete) MaxPayloadLength(uint32) uint32 {
 	return 81
 }
 
-// Validate examines each populated field within the SingleFundingComplete for
-// field sanity.
+// Validate examines each populated field within the SingleFundingSignComplete
+// for field sanity.
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingSignComplete) Validate() error {

@@ -16,7 +16,7 @@ func TestSingleFundingRequestWire(t *testing.T) {
 	// Next encode the SFR message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := sfr.Encode(&b, 0); err != nil {
-		t.Fatalf("unable to encode SingleFundingSignComplete: %v", err)
+		t.Fatalf("unable to encode SingleFundingRequest: %v", err)
 	}
 
 	// Deserialize the encoded SFR message into a new empty struct.

@@ -446,6 +446,8 @@ out:
 			p.server.fundingMgr.processFundingComplete(msg, p.addr)
 		case *lnwire.SingleFundingSignComplete:
 			p.server.fundingMgr.processFundingSignComplete(msg, p.addr)
+		case *lnwire.FundingLocked:
+			p.server.fundingMgr.processFundingLocked(msg, p.addr)
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
 
@@ -524,6 +526,8 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		m.ChannelDerivationPoint.Curve = nil
 		m.CommitmentKey.Curve = nil
 		m.RevocationKey.Curve = nil
+	case *lnwire.FundingLocked:
+		m.NextPerCommitmentPoint.Curve = nil
 	}
 
 	prefix := "readMessage from"

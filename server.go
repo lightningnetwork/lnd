@@ -198,11 +198,14 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
-		Wallet:      wallet,
-		Notifier:    s.chainNotifier,
-		ArbiterChan: s.breachArbiter.newContracts,
-		SendToPeer:  s.sendToPeer,
-		FindPeer:    s.findPeer,
+		IDKey:                 s.identityPriv.PubKey(),
+		Wallet:                wallet,
+		Notifier:              s.chainNotifier,
+		ProcessRoutingMessage: s.chanRouter.ProcessRoutingMessage,
+		ArbiterChan:           s.breachArbiter.newContracts,
+		SendToPeer:            s.sendToPeer,
+		FindPeer:              s.findPeer,
+		FindChannel:           s.rpcServer.fetchActiveChannel,
 	})
 	if err != nil {
 		return nil, err

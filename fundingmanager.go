@@ -967,7 +967,7 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	// Register the new link with the L3 routing manager so this
 	// new channel can be utilized during path
 	// finding.
-	f.announceChannel(f.cfg.IDKey, fmsg.peerAddress.IdentityKey, channel,
+	go f.announceChannel(f.cfg.IDKey, fmsg.peerAddress.IdentityKey, channel,
 		fmsg.msg.ChannelID, f.fakeProof, f.fakeProof)
 }
 

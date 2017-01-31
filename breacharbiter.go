@@ -85,7 +85,7 @@ func (b *breachArbiter) Start() error {
 		return nil
 	}
 
-	brarLog.Tracef("Starting breach aribter")
+	brarLog.Tracef("Starting breach arbiter")
 
 	// First we need to query that database state for all currently active
 	// channels, each of these channels will need a goroutine assigned to

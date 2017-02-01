@@ -90,15 +90,6 @@ func computeFee(amt btcutil.Amount, edge *channeldb.ChannelEdge) btcutil.Amount 
 func newRoute(amtToSend btcutil.Amount, source, target vertex,
 	prevHop map[vertex]edgeWithPrev) (*Route, error) {
 
-	// As an initial sanity check, the potential route is immediately
-	// invalidate if it spans more than 20 hops. The current Sphinx (onion
-	// routing) implementation can only encode up to 20 hops as the entire
-	// packet is fixed size. If this route is more than 20 hops, then it's
-	// invalid.
-	if len(prevHop) > HopLimit {
-		return nil, ErrMaxHopsExceeded
-	}
-
 	// If the potential route if below the max hop limit, then we'll use
 	// the prevHop map to unravel the path. We end up with a list of edges
 	// in the reverse direction which we'll use to properly calculate the
@@ -111,6 +102,14 @@ func newRoute(amtToSend btcutil.Amount, source, target vertex,
 		// within the prevHop map.
 		pathEdges = append(pathEdges, prevHop[prev].edge)
 		prev = newVertex(prevHop[prev].prevNode)
+	}
+
+	// The route is invalid if it spans more than 20 hops. The current
+	// Sphinx (onion routing) implementation can only encode up to 20 hops
+	// as the entire packet is fixed size. If this route is more than 20 hops,
+	// then it's invalid.
+	if len(pathEdges) > HopLimit {
+		return nil, ErrMaxHopsExceeded
 	}
 
 	route := &Route{

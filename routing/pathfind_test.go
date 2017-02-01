@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,7 +22,8 @@ const (
 	// basicGraphFilePath is the file path for a basic graph used within
 	// the tests. The basic graph consists of 5 nodes with 5 channels
 	// connecting them.
-	basicGraphFilePath = "testdata/basic_graph.json"
+	basicGraphFilePath         = "testdata/basic_graph.json"
+	excessiveHopsGraphFilePath = "testdata/excessive_hops.json"
 )
 
 // testGraph is the struct which coresponds to the JSON format used to encode
@@ -329,17 +329,31 @@ func TestBasicGraphPathFinding(t *testing.T) {
 func TestNewRoutePathTooLong(t *testing.T) {
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
-	var v vertex
-	fakePath := make(map[vertex]edgeWithPrev)
-	for i := 0; i < 21; i++ {
-		copy(v[:], bytes.Repeat([]byte{byte(2 + i)}, 33))
-		fakePath[v] = edgeWithPrev{}
+	graph, cleanUp, aliases, err := parseTestGraph(excessiveHopsGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
 	}
 
-	_, err := newRoute(10, v, v, fakePath)
-	if err != ErrMaxHopsExceeded {
-		t.Fatalf("path should have been rejected")
+	const paymentAmt = btcutil.Amount(100)
+
+	// We start by confirminig that routing a payment 20 hops away is possible.
+	// Alice should be able to find a valid route to ursula.
+	target := aliases["ursula"]
+	route, err := findRoute(graph, target, paymentAmt)
+	if err != nil {
+		t.Fatalf("path should have been found")
 	}
+
+	// Vincent is 21 hops away from Alice, and thus no valid route should be
+	// presented to Alice.
+	target = aliases["vincent"]
+	route, err = findRoute(graph, target, paymentAmt)
+	if err == nil {
+		t.Fatalf("should not have been able to find path, supposed to be "+
+			"greater than 20 hops, found route with %v hops", len(route.Hops))
+	}
+
 }
 
 func TestPathNotAvailable(t *testing.T) {

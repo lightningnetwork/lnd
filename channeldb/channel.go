@@ -58,16 +58,18 @@ var (
 	// sequential prefix scans, and second to eliminate write amplification
 	// caused by serializing/deserializing the *entire* struct with each
 	// update.
-	chanCapacityPrefix   = []byte("ccp")
-	selfBalancePrefix    = []byte("sbp")
-	theirBalancePrefix   = []byte("tbp")
-	minFeePerKbPrefix    = []byte("mfp")
-	theirDustLimitPrefix = []byte("tdlp")
-	ourDustLimitPrefix   = []byte("odlp")
-	updatePrefix         = []byte("uup")
-	satSentPrefix        = []byte("ssp")
-	satReceivedPrefix    = []byte("srp")
-	netFeesPrefix        = []byte("ntp")
+	chanCapacityPrefix     = []byte("ccp")
+	selfBalancePrefix      = []byte("sbp")
+	theirBalancePrefix     = []byte("tbp")
+	minFeePerKbPrefix      = []byte("mfp")
+	theirDustLimitPrefix   = []byte("tdlp")
+	ourDustLimitPrefix     = []byte("odlp")
+	theirChanReservePrefix = []byte("tcrp")
+	ourChanReservePrefix   = []byte("ocrp")
+	updatePrefix           = []byte("uup")
+	satSentPrefix          = []byte("ssp")
+	satReceivedPrefix      = []byte("srp")
+	netFeesPrefix          = []byte("ntp")
 
 	// chanIDKey stores the node, and channelID for an active channel.
 	chanIDKey = []byte("cik")
@@ -150,6 +152,14 @@ type OpenChannel struct {
 	// generated for our commitment transaction; ie. HTLCs below
 	// this amount are not enforceable onchain from out point of view.
 	OurDustLimit btcutil.Amount
+
+	// TheirChannelReserve is the threshold which our counterparts channel
+	// balance is not allowed to fall below.
+	TheirChannelReserve btcutil.Amount
+
+	// TheirChannelReserve is the threshold which our channel balance is not
+	// allowed to fall below.
+	OurChannelReserve btcutil.Amount
 
 	// OurCommitKey is the key to be used within our commitment transaction
 	// to generate the scripts for outputs paying to ourself, and
@@ -638,6 +648,8 @@ type ChannelSnapshot struct {
 	LocalBalance  btcutil.Amount
 	RemoteBalance btcutil.Amount
 
+	LocalReserveLimit btcutil.Amount
+
 	NumUpdates uint64
 
 	TotalSatoshisSent     uint64
@@ -659,6 +671,7 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		Capacity:              c.Capacity,
 		LocalBalance:          c.OurBalance,
 		RemoteBalance:         c.TheirBalance,
+		LocalReserveLimit:     c.OurChannelReserve,
 		NumUpdates:            c.NumUpdates,
 		TotalSatoshisSent:     c.TotalSatoshisSent,
 		TotalSatoshisReceived: c.TotalSatoshisReceived,
@@ -706,6 +719,12 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := putChanOurDustLimit(openChanBucket, channel); err != nil {
+		return err
+	}
+	if err := putChanTheirChannelReserve(openChanBucket, channel); err != nil {
+		return err
+	}
+	if err := putChanOurChannelReserve(openChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanNumUpdates(openChanBucket, channel); err != nil {
@@ -789,6 +808,12 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return nil, err
 	}
 	if err = fetchChanOurDustLimit(openChanBucket, channel); err != nil {
+		return nil, err
+	}
+	if err = fetchChanTheirChannelReserve(openChanBucket, channel); err != nil {
+		return nil, err
+	}
+	if err = fetchChanOurChannelReserve(openChanBucket, channel); err != nil {
 		return nil, err
 	}
 	if err = fetchChanNumUpdates(openChanBucket, channel); err != nil {
@@ -965,6 +990,38 @@ func putChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) erro
 	return openChanBucket.Put(keyPrefix, scratch)
 }
 
+func putChanTheirChannelReserve(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	scratch := make([]byte, 8)
+	byteOrder.PutUint64(scratch, uint64(channel.TheirChannelReserve))
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, theirChanReservePrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	return openChanBucket.Put(keyPrefix, scratch)
+}
+
+func putChanOurChannelReserve(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	scratch := make([]byte, 8)
+	byteOrder.PutUint64(scratch, uint64(channel.OurChannelReserve))
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, ourChanReservePrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	return openChanBucket.Put(keyPrefix, scratch)
+}
+
 func deleteChanMinFeePerKb(openChanBucket *bolt.Bucket, chanID []byte) error {
 	keyPrefix := make([]byte, 3+len(chanID))
 	copy(keyPrefix, minFeePerKbPrefix)
@@ -1016,6 +1073,38 @@ func fetchChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) er
 
 	dustLimitBytes := openChanBucket.Get(keyPrefix)
 	channel.OurDustLimit = btcutil.Amount(byteOrder.Uint64(dustLimitBytes))
+
+	return nil
+}
+
+func fetchChanTheirChannelReserve(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, theirChanReservePrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	chanReserveBytes := openChanBucket.Get(keyPrefix)
+	channel.TheirChannelReserve = btcutil.Amount(byteOrder.Uint64(chanReserveBytes))
+
+	return nil
+}
+
+func fetchChanOurChannelReserve(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, ourChanReservePrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	chanReserveBytes := openChanBucket.Get(keyPrefix)
+	channel.OurChannelReserve = btcutil.Amount(byteOrder.Uint64(chanReserveBytes))
 
 	return nil
 }

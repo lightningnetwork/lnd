@@ -839,6 +839,118 @@ func TestCheckHTLCNumberConstraint(t *testing.T) {
 
 }
 
+// TestChannelReserveLimit checks that channel balances of either peer remain above the
+// negotiated channel reserve limit.
+func TestChannelReserveLimit(t *testing.T) {
+	createHTLC := func(data, amount btcutil.Amount) (*lnwire.HTLCAddRequest,
+		[32]byte) {
+		preimage := bytes.Repeat([]byte{byte(data)}, 32)
+		paymentHash := fastsha256.Sum256(preimage)
+
+		var returnPreimage [32]byte
+		copy(returnPreimage[:], preimage)
+
+		return &lnwire.HTLCAddRequest{
+			RedemptionHashes: [][32]byte{paymentHash},
+			Amount:           amount,
+			Expiry:           uint32(5),
+		}, returnPreimage
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC. Set the respective channel reserves.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+	aliceChannelReserve := btcutil.Amount(1000)
+	bobChannelReserve := btcutil.Amount(2000)
+	aliceChannel.channelState.OurChannelReserve = aliceChannelReserve
+	aliceChannel.channelState.TheirChannelReserve = bobChannelReserve
+	bobChannel.channelState.OurChannelReserve = bobChannelReserve
+	bobChannel.channelState.TheirChannelReserve = aliceChannelReserve
+
+	aliceAmount := aliceChannel.channelState.OurBalance
+	bobAmount := bobChannel.channelState.OurBalance
+
+	// Alice creates an HTLC which leaves her with the minimum channel
+	// reserve allowed.
+	htlc, preimage := createHTLC(0, aliceAmount-aliceChannelReserve)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to receive htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Settle HTLC and sign new commitment.
+	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	if err != nil {
+		t.Fatalf("bob unable to settle inbound htlc: %v", err)
+	}
+	err = aliceChannel.ReceiveHTLCSettle(preimage, settleIndex)
+	if err != nil {
+		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Alice tries to add a 1 satoshi HTLC which should not be possible,
+	// as she would go below her channel reserve limit.
+	htlc, _ = createHTLC(0, 1)
+	if _, err := aliceChannel.AddHTLC(htlc); err == nil {
+		t.Fatalf("alice able to add htlc when she should not")
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err == nil {
+		t.Fatalf("bob able to receive htlc when he should not")
+	}
+
+	aliceAmount = aliceChannel.channelState.OurBalance
+	bobAmount = bobChannel.channelState.OurBalance
+
+	// Bob creates an HTLC which leaves him with the minimum channel
+	// reserve allowed.
+	htlc, preimage = createHTLC(0, bobAmount-bobChannelReserve)
+	if _, err := bobChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to add htlc: %v", err)
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to receive htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Settle HTLC and sign new commitment.
+	settleIndex, err = aliceChannel.SettleHTLC(preimage)
+	if err != nil {
+		t.Fatalf("bob unable to settle inbound htlc: %v", err)
+	}
+	err = bobChannel.ReceiveHTLCSettle(preimage, settleIndex)
+	if err != nil {
+		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Bob tries to add a 1 satoshi HTLC which should not be possible,
+	// as he would go below his channel reserve limit.
+	htlc, _ = createHTLC(0, 1)
+	if _, err := bobChannel.AddHTLC(htlc); err == nil {
+		t.Fatalf("bob able to add htlc when she should not")
+	}
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err == nil {
+		t.Fatalf("alice able to receive htlc when he should not")
+	}
+}
+
 // TestCheckDustLimit checks that unsettled HTLC with dust limit not included in
 // commitment transaction as output, but sender balance is decreased (thereby all
 // unsettled dust HTLCs will go to miners fee).

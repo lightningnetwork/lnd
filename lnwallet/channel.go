@@ -30,6 +30,7 @@ var (
 		"available weight")
 	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
 		"htlc number")
+	ErrChanReserveBreach = fmt.Errorf("channel reserve threshold breached")
 )
 
 const (
@@ -1612,6 +1613,12 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.HTLCAddRequest) (uint32, error)
 		return 0, err
 	}
 
+	// If the amount of the HTLC brings our channel balance below that of our
+	// channel reserve limit, we return an error.
+	if lc.channelState.OurBalance-htlc.Amount < lc.channelState.OurChannelReserve {
+		return 0, ErrChanReserveBreach
+	}
+
 	pd := &PaymentDescriptor{
 		EntryType: Add,
 		RHash:     PaymentHash(htlc.RedemptionHashes[0]),
@@ -1636,6 +1643,12 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.HTLCAddRequest) (uint32, er
 	err := lc.validateCommitmentSanity(lc.theirLogCounter, lc.ourLogCounter, true)
 	if err != nil {
 		return 0, err
+	}
+
+	// If the amount of the HTLC brings their channel balance below that of their
+	// channel reserve limit, we return an error.
+	if lc.channelState.TheirBalance-htlc.Amount < lc.channelState.TheirChannelReserve {
+		return 0, ErrChanReserveBreach
 	}
 
 	pd := &PaymentDescriptor{

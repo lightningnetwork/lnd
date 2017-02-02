@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -916,24 +914,15 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				return err
 
 			}
-			// If we're in debug HTLC mode, then all outgoing
-			// HTLCs will pay to the same debug rHash. Otherwise,
-			// we pay to the rHash specified within the RPC
-			// request.
+
+			// If we're in debug HTLC mode, then all outgoing HTLCs
+			// will pay to the same debug rHash. Otherwise, we pay
+			// to the rHash specified within the RPC request.
 			var rHash [32]byte
 			if cfg.DebugHTLC && len(nextPayment.PaymentHash) == 0 {
 				rHash = debugHash
 			} else {
 				copy(rHash[:], nextPayment.PaymentHash)
-			}
-
-			// Construct and HTLC packet which a payment route (if
-			// one is found) to the destination using a Sphinx
-			// onion packet to encode the route.
-			htlcPkt, route, err := r.constructPaymentRoute(destNode, amt,
-				rHash)
-			if err != nil {
-				return err
 			}
 
 			// We launch a new goroutine to execute the current
@@ -943,10 +932,18 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// TODO(roasbeef): semaphore to limit num outstanding
 			// goroutines.
 			go func() {
-				// Finally, send this next packet to the
-				// routing layer in order to complete the next
-				// payment.
-				if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
+				// Construct a payment request to send to the
+				// channel router. If the payment is
+				// successful, the the route chosen will be
+				// returned. Otherwise, we'll get a non-nil
+				// error.
+				payment := &routing.LightningPayment{
+					Target:      destNode,
+					Amount:      amt,
+					PaymentHash: rHash,
+				}
+				route, err := r.server.chanRouter.SendPayment(payment)
+				if err != nil {
 					errChan <- err
 					return
 				}
@@ -958,11 +955,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
-				// TODO(roasbeef): proper responses
-				resp := &lnrpc.SendResponse{
+				// TODO(roasbeef): tack on payment hash also?
+				err = paymentStream.Send(&lnrpc.SendResponse{
 					PaymentRoute: marshalRoute(route),
-				}
-				if err := paymentStream.Send(resp); err != nil {
+				})
+				if err != nil {
 					errChan <- err
 					return
 				}
@@ -997,12 +994,12 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		amt = payReq.Amount
 		rHash = payReq.PaymentHash
 
-		// Otherwise, the payment conditions have been manually specified in
-		// the proto.
+		// Otherwise, the payment conditions have been manually
+		// specified in the proto.
 	} else {
-		// If we're in debug HTLC mode, then all outgoing HTLCs will pay to
-		// the same debug rHash. Otherwise, we pay to the rHash specified
-		// within the RPC request.
+		// If we're in debug HTLC mode, then all outgoing HTLCs will
+		// pay to the same debug rHash. Otherwise, we pay to the rHash
+		// specified within the RPC request.
 		if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
 			rHash = debugHash
 		} else {
@@ -1026,17 +1023,15 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		amt = btcutil.Amount(nextPayment.Amt)
 	}
 
-	// Construct and HTLC packet which a payment route (if
-	// one is found) to the destination using a Sphinx
-	// onoin packet to encode the route.
-	htlcPkt, route, err := r.constructPaymentRoute(destPub, amt, rHash)
+	// Finally, send a payment request to the channel router. If the
+	// payment succeeds, then the returned route will be that was used
+	// successfully within the payment.
+	route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
+		Target:      destPub,
+		Amount:      amt,
+		PaymentHash: rHash,
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	// Next, send this next packet to the routing layer in order to
-	// complete the next payment.
-	if err := r.server.htlcSwitch.SendHTLC(htlcPkt); err != nil {
 		return nil, err
 	}
 
@@ -1047,114 +1042,6 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	return &lnrpc.SendResponse{}, nil
-}
-
-// constructPaymentRoute attempts to construct a complete HTLC packet which
-// encapsulates a Sphinx onion packet that encodes the end-to-end route any
-// payment instructions necessary to complete an HTLC. If a route is unable to
-// be located, then an error is returned indicating as much.
-func (r *rpcServer) constructPaymentRoute(destNode *btcec.PublicKey,
-	amt btcutil.Amount, rHash [32]byte) (*htlcPacket, *routing.Route, error) {
-
-	const queryTimeout = time.Duration(time.Second * 10)
-
-	// Query the channel router for a potential path to the destination
-	// node that can support our payment amount. If a path is ultimately
-	// unavailable, then an error will be returned.
-	route, err := r.server.chanRouter.FindRoute(destNode, amt)
-	if err != nil {
-		return nil, nil, err
-	}
-	rpcsLog.Tracef("[sendpayment] selected route: %#v", route)
-
-	// Generate the raw encoded sphinx packet to be included along with the
-	// HTLC add message.  We snip off the first hop from the path as within
-	// the routing table's star graph, we're always the first hop.
-	sphinxPacket, err := generateSphinxPacket(route, rHash[:])
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Craft an HTLC packet to send to the routing subsystem. The
-	// metadata within this packet will be used to route the payment
-	// through the network.
-	htlcAdd := &lnwire.HTLCAddRequest{
-		Amount:           route.TotalAmount,
-		RedemptionHashes: [][32]byte{rHash},
-		OnionBlob:        sphinxPacket,
-	}
-
-	firstHopPub := route.Hops[0].Channel.Node.PubKey.SerializeCompressed()
-	destInterface := chainhash.Hash(fastsha256.Sum256(firstHopPub))
-
-	return &htlcPacket{
-		dest: destInterface,
-		msg:  htlcAdd,
-	}, route, nil
-}
-
-// generateSphinxPacket generates then encodes a sphinx packet which encodes
-// the onion route specified by the passed layer 3 route. The blob returned
-// from this function can immediately be included within an HTLC add packet to
-// be sent to the first hop within the route.
-func generateSphinxPacket(route *routing.Route, paymentHash []byte) ([]byte, error) {
-	// First obtain all the public keys along the route which are contained
-	// in each hop.
-	nodes := make([]*btcec.PublicKey, len(route.Hops))
-	for i, hop := range route.Hops {
-		// We create a new instance of the public key to avoid possibly
-		// mutating the curve parameters, which are unset in a higher
-		// level in order to avoid spamming the logs.
-		pub := btcec.PublicKey{
-			btcec.S256(),
-			hop.Channel.Node.PubKey.X,
-			hop.Channel.Node.PubKey.Y,
-		}
-		nodes[i] = &pub
-	}
-
-	// Next we generate the per-hop payload which gives each node within
-	// the route the necessary information (fees, CLTV value, etc) to
-	// properly forward the payment.
-	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
-	// within hop paylods.
-	var hopPayloads [][]byte
-	for i := 0; i < len(route.Hops); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)},
-			sphinx.HopPayloadSize)
-		hopPayloads = append(hopPayloads, payload)
-	}
-
-	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	// Next generate the onion routing packet which allows
-	// us to perform privacy preserving source routing
-	// across the network.
-	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
-		hopPayloads, paymentHash)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, encode Sphinx packet using it's wire representation to be
-	// included within the HTLC add packet.
-	var onionBlob bytes.Buffer
-	if err := sphinxPacket.Encode(&onionBlob); err != nil {
-		return nil, err
-	}
-
-	rpcsLog.Tracef("[sendpayment] generated sphinx packet: %v",
-		newLogClosure(func() string {
-			// We unset the internal curve here in order to keep
-			// the logs from getting noisy.
-			sphinxPacket.Header.EphemeralKey.Curve = nil
-			return spew.Sdump(sphinxPacket)
-		}))
-
-	return onionBlob.Bytes(), nil
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any

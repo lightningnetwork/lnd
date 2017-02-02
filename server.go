@@ -17,11 +17,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
-
-	"github.com/lightningnetwork/lnd/routing"
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -167,6 +167,17 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		Notifier:     notifier,
 		Broadcast:    s.broadcastMessage,
 		SendMessages: s.sendToPeer,
+		SendToSwitch: func(firstHop *btcec.PublicKey,
+			htlcAdd *lnwire.HTLCAddRequest) error {
+
+			firstHopPub := firstHop.SerializeCompressed()
+			destInterface := chainhash.Hash(fastsha256.Sum256(firstHopPub))
+
+			return s.htlcSwitch.SendHTLC(&htlcPacket{
+				dest: destInterface,
+				msg:  htlcAdd,
+			})
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -217,6 +228,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		// Send the persistent connection request to the connection
 		// manager, saving the request itself so we can cancel/restart
 		// the process as needed.
+		// TODO(roasbeef): use default addr
 		connReq := &connmgr.ConnReq{
 			Addr:      lnAddr,
 			Permanent: true,

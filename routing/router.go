@@ -15,6 +15,8 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	"github.com/lightningnetwork/lightning-onion"
 )
 
 // FeeSchema is the set fee configuration for a Lighting Node on the network.
@@ -74,9 +76,12 @@ type Config struct {
 	// key.
 	SendMessages func(target *btcec.PublicKey, msg ...lnwire.Message) error
 
-	// TODO(roasbeef): need a SendToSwitch func
-	//  * possibly lift switch into package?
-	//  *
+	// SendToSwitch is a function that directs a link-layer switch to
+	// forward a fully encoded payment to the first hop in the route
+	// denoted by its public key. A non-nil error is to be returned if the
+	// payment was unsuccessful.
+	SendToSwitch func(firstHop *btcec.PublicKey,
+		htlcAdd *lnwire.HTLCAddRequest) error
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -540,6 +545,11 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 			return false
 		}
 
+		// TODO(roasbeef): check if height > then our known height and
+		// wait for next epoch based on that?
+		//  * or add to "premature" announcement bucket
+		//  * bucket gets checked on each new incoming block
+
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
@@ -911,13 +921,130 @@ func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (
 	return route, nil
 }
 
-// SendPayment...
+// generateSphinxPacket generates then encodes a sphinx packet which encodes
+// the onion route specified by the passed layer 3 route. The blob returned
+// from this function can immediately be included within an HTLC add packet to
+// be sent to the first hop within the route.
 //
-// TODO(roasbeef): pipe through the htlcSwitch, move the payment storage info
-// to the router, add interface for payment storage
-// TODO(roasbeef): add version that takes a route object
-func (r *ChannelRouter) SendPayment() error {
-	return nil
+// TODO(roasbeef): add params for the per-hop payloads
+func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
+	// First obtain all the public keys along the route which are contained
+	// in each hop.
+	nodes := make([]*btcec.PublicKey, len(route.Hops))
+	for i, hop := range route.Hops {
+		// We create a new instance of the public key to avoid possibly
+		// mutating the curve parameters, which are unset in a higher
+		// level in order to avoid spamming the logs.
+		pub := btcec.PublicKey{
+			btcec.S256(),
+			hop.Channel.Node.PubKey.X,
+			hop.Channel.Node.PubKey.Y,
+		}
+		nodes[i] = &pub
+	}
+
+	// Next we generate the per-hop payload which gives each node within
+	// the route the necessary information (fees, CLTV value, etc) to
+	// properly forward the payment.
+	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
+	// within hop payloads.
+	var hopPayloads [][]byte
+	for i := 0; i < len(route.Hops); i++ {
+		payload := bytes.Repeat([]byte{byte('A' + i)},
+			sphinx.HopPayloadSize)
+		hopPayloads = append(hopPayloads, payload)
+	}
+
+	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	// Next generate the onion routing packet which allows us to perform
+	// privacy preserving source routing across the network.
+	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
+		hopPayloads, paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, encode Sphinx packet using it's wire representation to be
+	// included within the HTLC add packet.
+	var onionBlob bytes.Buffer
+	if err := sphinxPacket.Encode(&onionBlob); err != nil {
+		return nil, err
+	}
+
+	log.Tracef("Generated sphinx packet: %v",
+		newLogClosure(func() string {
+			// We unset the internal curve here in order to keep
+			// the logs from getting noisy.
+			sphinxPacket.Header.EphemeralKey.Curve = nil
+			return spew.Sdump(sphinxPacket)
+		}),
+	)
+
+	return onionBlob.Bytes(), nil
+}
+
+// LightningPayment describes a payment to be sent through the network to the
+// final destination.
+type LightningPayment struct {
+	// Target is the node in which the payment should be routed towards.
+	Target *btcec.PublicKey
+
+	// Amount is the value of the payment to send throuhg the network in
+	// satoshis.
+	// TODO(roasbeef): this should be milli satoshis
+	Amount btcutil.Amount
+
+	// PaymentHash is the r-hash value to use within the HTLC extended to
+	// the first hop.
+	PaymentHash [32]byte
+
+	// TODO(roasbeef): add message?
+}
+
+// SendPayment attempts to send a payment as described within the passed
+// LightningPayment. This function is blocking and will return either: when the
+// payment is successful, or all candidates routes have been attempted and
+// resulted in a failed payment. If the payment succeeds, then a non-nil Route
+// will be returned which describes the path the successful payment traversed
+// within the network to reach the destination.
+func (r *ChannelRouter) SendPayment(payment *LightningPayment) (*Route, error) {
+	// Query the graph for a potential path to the destination node that
+	// can support our payment amount. If a path is ultimately unavailable,
+	// then an error will be returned.
+	route, err := r.FindRoute(payment.Target, payment.Amount)
+	if err != nil {
+		return nil, err
+	}
+	log.Tracef("Selected route for payment: %#v", route)
+
+	// Generate the raw encoded sphinx packet to be included along with the
+	// htlcAdd message that we send directly to the switch.
+	sphinxPacket, err := generateSphinxPacket(route, payment.PaymentHash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// Craft an HTLC packet to send to the layer 2 switch. The metadata
+	// within this packet will be used to route the payment through the
+	// network, starting with the first-hop.
+	htlcAdd := &lnwire.HTLCAddRequest{
+		Amount:           route.TotalAmount,
+		RedemptionHashes: [][32]byte{payment.PaymentHash},
+		OnionBlob:        sphinxPacket,
+	}
+
+	// Attempt to send this payment through the network to complete the
+	// payment. If this attempt fails, then we'll bail our early.
+	firstHop := route.Hops[0].Channel.Node.PubKey
+	if err := r.cfg.SendToSwitch(firstHop, htlcAdd); err != nil {
+		return nil, err
+	}
+
+	return route, nil
 }
 
 // TopologyClient...

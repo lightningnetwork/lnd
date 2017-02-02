@@ -586,7 +586,8 @@ func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kid
 	}
 
 	utxnLog.Infof("Sweeping %v time-locked outputs "+
-		"with sweep tx: %v", len(kgtnOutputs),
+		"with sweep tx (txid=%v): %v", len(kgtnOutputs),
+		sweepTx.TxHash(),
 		newLogClosure(func() string {
 			return spew.Sdump(sweepTx)
 		}))

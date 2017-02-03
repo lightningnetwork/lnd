@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
@@ -344,8 +345,6 @@ type LightningChannel struct {
 	signer   Signer
 	signDesc *SignDescriptor
 
-	bio BlockChainIO
-
 	channelEvents chainntnfs.ChainNotifier
 
 	sync.RWMutex
@@ -454,13 +453,11 @@ type LightningChannel struct {
 // settled channel state. Throughout state transitions, then channel will
 // automatically persist pertinent state to the database in an efficient
 // manner.
-func NewLightningChannel(signer Signer, bio BlockChainIO,
-	events chainntnfs.ChainNotifier,
+func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	lc := &LightningChannel{
 		signer:                signer,
-		bio:                   bio,
 		channelEvents:         events,
 		currentHeight:         state.NumUpdates,
 		remoteCommitChain:     newCommitmentChain(state.NumUpdates),

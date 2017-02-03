@@ -226,7 +226,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		chanID := dbChan.ChanID
 		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
-			p.server.bio, p.server.chainNotifier, dbChan)
+			p.server.chainNotifier, dbChan)
 		if err != nil {
 			return err
 		}
@@ -820,7 +820,7 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	switch req.CloseType {
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chian, so we execute the cooperative channel
-	// closre workflow.
+	// closure workflow.
 	case CloseRegular:
 		closingTxid, err = p.executeCooperativeClose(channel)
 		peerLog.Infof("Attempting cooperative close of "+
@@ -828,7 +828,7 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 			closingTxid)
 
 	// A type of CloseBreach indicates that the counterparty has breached
-	// the cahnnel therefore we need to clean up our local state.
+	// the channel therefore we need to clean up our local state.
 	case CloseBreach:
 		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
 			"channel", req.chanPoint)
@@ -1116,7 +1116,8 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 
 	// TODO(roasbeef): check to see if able to settle any currently pending
 	// HTLCs
-	//   * also need signals when new invoices are added by the invoiceRegistry
+	//   * also need signals when new invoices are added by the
+	//   invoiceRegistry
 
 	batchTimer := time.Tick(10 * time.Millisecond)
 out:
@@ -1134,6 +1135,8 @@ out:
 
 			break out
 		case <-channel.ForceCloseSignal:
+			// TODO(roasbeef): path never taken now that server
+			// force closes's directly?
 			peerLog.Warnf("ChannelPoint(%v) has been force "+
 				"closed, disconnecting from peerID(%x)",
 				state.chanPoint, p.id)

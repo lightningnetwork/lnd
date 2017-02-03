@@ -1230,7 +1230,7 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, err := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
+	channel, err := NewLightningChannel(l.Signer, l.chainNotifier,
 		res.partialState)
 	if err != nil {
 		req.err <- err
@@ -1285,7 +1285,7 @@ out:
 
 	// Finally, create and officially open the payment channel!
 	// TODO(roasbeef): CreationTime once tx is 'open'
-	channel, err := NewLightningChannel(l.Signer, l.ChainIO, l.chainNotifier,
+	channel, err := NewLightningChannel(l.Signer, l.chainNotifier,
 		res.partialState)
 	if err != nil {
 		res.chanOpenErr <- err

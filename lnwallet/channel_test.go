@@ -308,11 +308,11 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 
 	notifier := &mockNotfier{}
 
-	channelAlice, err := NewLightningChannel(aliceSigner, nil, notifier, aliceChannelState)
+	channelAlice, err := NewLightningChannel(aliceSigner, notifier, aliceChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(bobSigner, nil, notifier, bobChannelState)
+	channelBob, err := NewLightningChannel(bobSigner, notifier, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1052,11 +1052,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	notifier := aliceChannel.channelEvents
-	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer, nil, notifier, aliceChannels[0])
+	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer, notifier, aliceChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	bobChannelNew, err := NewLightningChannel(bobChannel.signer, nil, notifier, bobChannels[0])
+	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier, bobChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}

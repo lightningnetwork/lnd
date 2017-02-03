@@ -563,8 +563,8 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(r.server.lnwallet.Signer,
-		r.server.bio, r.server.chainNotifier, dbChan)
+	return lnwallet.NewLightningChannel(r.server.lnwallet.Signer, nil,
+		dbChan)
 }
 
 // forceCloseChan executes a unilateral close of the target channel by

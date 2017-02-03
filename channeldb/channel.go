@@ -571,21 +571,16 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // purposes.
 // TODO(roasbeef): delete on-disk set of HTLCs
 func (c *OpenChannel) CloseChannel() error {
-	var b bytes.Buffer
-	if err := writeOutpoint(&b, c.ChanID); err != nil {
-		return err
-	}
-
 	return c.Db.Update(func(tx *bolt.Tx) error {
-		// First fetch the top level bucket which stores all data related to
-		// current, active channels.
+		// First fetch the top level bucket which stores all data
+		// related to current, active channels.
 		chanBucket := tx.Bucket(openChannelBucket)
 		if chanBucket == nil {
 			return ErrNoChanDBExists
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to storing
-		// open channel data specific to the remote node.
+		// Within this top level bucket, fetch the bucket dedicated to
+		// storing open channel data specific to the remote node.
 		nodePub := c.IdentityPub.SerializeCompressed()
 		nodeChanBucket := chanBucket.Bucket(nodePub)
 		if nodeChanBucket == nil {
@@ -596,6 +591,11 @@ func (c *OpenChannel) CloseChannel() error {
 		chanIndexBucket := nodeChanBucket.Bucket(chanIDBucket)
 		if chanIndexBucket == nil {
 			return ErrNoActiveChannels
+		}
+
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, c.ChanID); err != nil {
+			return err
 		}
 
 		// If this channel isn't found within the channel index bucket,

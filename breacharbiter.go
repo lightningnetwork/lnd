@@ -106,8 +106,8 @@ func (b *breachArbiter) Start() error {
 	channelsToWatch := make([]*lnwallet.LightningChannel,
 		len(activeChannels))
 	for i, chanState := range activeChannels {
-		channel, err := lnwallet.NewLightningChannel(nil, nil,
-			b.notifier, chanState)
+		channel, err := lnwallet.NewLightningChannel(nil, b.notifier,
+			chanState)
 		if err != nil {
 			brarLog.Errorf("unable to load channel from disk")
 			return err
@@ -357,6 +357,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 	// A read from this channel indicates that the contract has been
 	// settled cooperatively so we exit as our duties are no longer needed.
 	case <-settleSignal:
+		contract.Stop()
 		return
 
 	// A read from this channel indicates that a channel breach has been

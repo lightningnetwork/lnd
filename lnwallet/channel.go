@@ -441,11 +441,8 @@ type LightningChannel struct {
 	// channel.
 	RemoteFundingKey *btcec.PublicKey
 
-	started  int32
 	shutdown int32
-
-	quit chan struct{}
-	wg   sync.WaitGroup
+	quit     chan struct{}
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -477,6 +474,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		ContractBreach:        make(chan *BreachRetribution, 1),
 		LocalFundingKey:       state.OurMultiSigKey,
 		RemoteFundingKey:      state.TheirMultiSigKey,
+		quit:                  make(chan struct{}),
 	}
 
 	// Initialize both of our chains the current un-revoked commitment for
@@ -519,19 +517,25 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		InputIndex: 0,
 	}
 
-	// Register for a notification to be dispatched if the funding outpoint
-	// has been spent. This indicates that either us or the remote party
-	// has broadcasted a commitment transaction on-chain.
-	fundingOut := &lc.fundingTxIn.PreviousOutPoint
-	channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut)
-	if err != nil {
-		return nil, err
-	}
+	// We'll only launch a close observer if the ChainNotifier
+	// implementation is non-nil. Passing a nil value indicates that the
+	// channel shouldn't be actively watched for.
+	if lc.channelEvents != nil {
+		// Register for a notification to be dispatched if the funding
+		// outpoint has been spent. This indicates that either us or
+		// the remote party has broadcasted a commitment transaction
+		// on-chain.
+		fundingOut := &lc.fundingTxIn.PreviousOutPoint
+		channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut)
+		if err != nil {
+			return nil, err
+		}
 
-	// Launch the close observer which will vigilantly watch the network
-	// for any broadcasts the current or prior commitment transactions,
-	// taking action accordingly.
-	go lc.closeObserver(channelCloseNtfn)
+		// Launch the close observer which will vigilantly watch the
+		// network for any broadcasts the current or prior commitment
+		// transactions, taking action accordingly.
+		go lc.closeObserver(channelCloseNtfn)
+	}
 
 	return lc, nil
 }
@@ -682,10 +686,25 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 //
 // NOTE: This MUST be run as a goroutine.
 func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEvent) {
+	walletLog.Infof("Close observer for ChannelPoint(%v) active",
+		lc.channelState.ChanID)
+
+	var (
+		commitSpend *chainntnfs.SpendDetail
+		ok          bool
+	)
+
+	select {
 	// If the daemon is shutting down, then this notification channel will
 	// be closed, so check the second read-value to avoid a false positive.
-	commitSpend, ok := <-channelCloseNtfn.Spend
-	if !ok {
+	case commitSpend, ok = <-channelCloseNtfn.Spend:
+		if !ok {
+			return
+		}
+
+	// Otherwise, we've be signalled to bail out early by the
+	// caller/maintainer of this channel.
+	case <-lc.quit:
 		return
 	}
 
@@ -767,6 +786,16 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		lc.ContractBreach <- retribution
 	case broadcastStateNum > currentStateNum:
 	}
+}
+
+// Stop gracefully shuts down any active goroutines spawned by the
+// LightningChannel during regular duties.
+func (lc *LightningChannel) Stop() {
+	if !atomic.CompareAndSwapInt32(&lc.shutdown, 0, 1) {
+		return
+	}
+
+	close(lc.quit)
 }
 
 // restoreStateLogs runs through the current locked-in HTLCs from the point of

@@ -554,7 +554,7 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //
 // Possible Input Scripts:
 //     REVOKE:     <sig> 1
-//     SENDRSWEEP: <sig> 0
+//     SENDRSWEEP: <sig> <emptyvector>
 //
 // Output Script:
 //     OP_IF
@@ -630,11 +630,13 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 		return nil, err
 	}
 
-	// Place a zero as the first item in the evaluated witness stack to
-	// force script execution to the timeout spend clause.
+	// Place an empty byte as the first item in the evaluated witness stack
+	// to force script execution to the timeout spend clause. We need to
+	// place an empty byte in order to ensure our script is still valid
+	// from the PoV of nodes that are enforcing minimal OP_IF/OP_NOTIF.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
-	witnessStack[1] = []byte{0}
+	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil

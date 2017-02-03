@@ -258,8 +258,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	}
 
 	var (
-		nodepubKey *btcec.PublicKey
-		err        error
+		nodepubKey      *btcec.PublicKey
+		nodepubKeyBytes []byte
+		err             error
 	)
 
 	// If the node key is set, the we'll parse the raw bytes into a pubkey
@@ -270,6 +271,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		if err != nil {
 			return err
 		}
+		nodepubKeyBytes = nodepubKey.SerializeCompressed()
 	}
 
 	// Instruct the server to trigger the necessary events to attempt to
@@ -285,8 +287,7 @@ out:
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to "+
 				"identityPub(%x) nor peerID(%v): %v",
-				nodepubKey.SerializeCompressed(),
-				in.TargetPeerId, err)
+				nodepubKeyBytes, in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",
@@ -426,6 +427,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// As the first part of the force closure, we first fetch the
 		// channel from the database, then execute a direct force
 		// closure broadcasting our current commitment transaction.
+		// TODO(roasbeef): d/c peer if connected?
+		//  * otherwise safety no guaranteed
 		channel, err := r.fetchActiveChannel(*chanPoint)
 		if err != nil {
 			return err

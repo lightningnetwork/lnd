@@ -640,11 +640,11 @@ out:
 				}
 				s.peersMtx.RUnlock()
 
+				sMsg.errChan <- nil
+
 				for _, msg := range sMsg.msgs {
 					targetPeer.queueMsg(msg, nil)
 				}
-
-				sMsg.errChan <- nil
 			}()
 		case query := <-s.queries:
 			switch msg := query.(type) {

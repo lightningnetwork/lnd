@@ -1648,7 +1648,7 @@ func (r *rpcServer) ListPayments(context.Context,
 	rpcsLog.Debugf("[ListPayments]")
 
 	payments, err := r.server.chanDB.FetchAllPayments()
-	if err != nil {
+	if err != nil && err != channeldb.ErrNoPaymentsCreated {
 		return nil, err
 	}
 

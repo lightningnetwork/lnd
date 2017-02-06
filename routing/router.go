@@ -3,6 +3,7 @@ package routing
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -429,7 +430,7 @@ func (r *ChannelRouter) networkHandler() {
 				newBlock.Hash, blockHeight, numClosed)
 
 		// The retransmission timer has ticked which indicates that we
-		// should broadcast our personal channel sot the network. This
+		// should broadcast our personal channel to the network. This
 		// addresses the case of channel advertisements whether being
 		// dropped, or not properly propagated through the network.
 		case <-retransmitTimer.C:
@@ -714,7 +715,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 		// the UTXO itself so we can store the proper capacity.
 		chanPoint, err := r.fetchChanPoint(&msg.ChannelID)
 		if err != nil {
-			log.Errorf("unable to fetch chan point: %v", err)
+			log.Errorf("unable to fetch chan point for chan_id=%v: %v", chanID, err)
 			return false
 		}
 		utxo, err := r.cfg.Chain.GetUtxo(&chanPoint.Hash,
@@ -926,9 +927,18 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ChannelID) (*wire.OutPoint
 		return nil, err
 	}
 
-	// TODO(roasbeef): skipping validation here as
-	// the discovery service should handle full
-	// validate
+	// As a sanity check, ensure that the advertised transaction index is
+	// within the bounds of the total number of transactions within a
+	// block.
+	numTxns := uint32(len(fundingBlock.Transactions))
+	if chanID.TxIndex > numTxns-1 {
+		return nil, fmt.Errorf("tx_index=#%v is out of range "+
+			"(max_index=%v), network_chan_id=%v\n", chanID.TxIndex,
+			numTxns-1, spew.Sdump(chanID))
+	}
+
+	// TODO(roasbeef): skipping validation here as the discovery service
+	// should handle full validate
 
 	// Finally once we have the block itself, we seek to the targeted
 	// transaction index to obtain the funding output and txid.

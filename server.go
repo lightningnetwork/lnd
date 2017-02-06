@@ -518,9 +518,14 @@ func (s *server) removePeer(p *peer) {
 		return
 	}
 
+	// As the peer is now finished, ensure that the TCP connection is
+	// closed and all of its related goroutines have exited.
+	if err := p.Stop(); err != nil {
+		peerLog.Errorf("unable to stop peer: %v", err)
+	}
+
 	// Ignore deleting peers if we're shutting down.
 	if atomic.LoadInt32(&s.shutdown) != 0 {
-		p.Stop()
 		return
 	}
 

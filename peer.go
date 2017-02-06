@@ -77,7 +77,6 @@ type peer struct {
 
 	// MUST be used atomically.
 	started    int32
-	connected  int32
 	disconnect int32
 
 	connReq *connmgr.ConnReq
@@ -270,8 +269,6 @@ func (p *peer) Start() error {
 		return nil
 	}
 
-	atomic.AddInt32(&p.connected, 1)
-
 	peerLog.Tracef("peer %v starting", p)
 
 	p.wg.Add(5)
@@ -289,14 +286,12 @@ func (p *peer) Start() error {
 // all goroutines have exited.
 func (p *peer) Stop() error {
 	// If we're already disconnecting, just exit.
-	if atomic.AddInt32(&p.disconnect, 1) != 1 {
+	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
 		return nil
 	}
 
-	// Otherwise, close the connection if we're currently connected.
-	if atomic.LoadInt32(&p.connected) != 0 {
-		p.conn.Close()
-	}
+	// Ensure that the TCP connection is properly closed before continuing.
+	p.conn.Close()
 
 	// Signal all worker goroutines to gracefully exit.
 	close(p.quit)
@@ -314,12 +309,14 @@ func (p *peer) Disconnect() {
 	}
 
 	peerLog.Tracef("Disconnecting %s", p)
-	if atomic.LoadInt32(&p.connected) != 0 {
-		p.conn.Close()
-	}
+
+	// Ensure that the TCP connection is properly closed before continuing.
+	p.conn.Close()
 
 	close(p.quit)
 
+	// If this connection was established persistently, then notify the
+	// connection manager that the peer has been disconnected.
 	if p.connReq != nil {
 		p.server.connMgr.Disconnect(p.connReq.ID())
 	}

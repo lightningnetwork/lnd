@@ -503,7 +503,7 @@ func (s *server) addPeer(p *peer) {
 	// Once the peer has been added to our indexes, send a message to the
 	// channel router so we can synchronize our view of the channel graph
 	// with this new peer.
-	s.chanRouter.SynchronizeNode(p.addr.IdentityKey)
+	go s.chanRouter.SynchronizeNode(p.addr.IdentityKey)
 }
 
 // removePeer removes the passed peer from the server's state of all active

@@ -910,8 +910,13 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	}
 
 	p.activeChanMtx.RLock()
-	channel := p.activeChannels[key]
+	channel, ok := p.activeChannels[key]
 	p.activeChanMtx.RUnlock()
+	if !ok {
+		peerLog.Errorf("unable to close channel, ChannelPoint(%v) is "+
+			"unknown", key)
+		return
+	}
 
 	// Now that we have their signature for the closure transaction, we
 	// can assemble the final closure transaction, complete with our

@@ -207,9 +207,9 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	}
 
 	if change {
-		return b.wallet.NewAddress(defaultAccount, addrType)
-	} else {
 		return b.wallet.NewChangeAddress(defaultAccount, addrType)
+	} else {
+		return b.wallet.NewAddress(defaultAccount, addrType)
 	}
 }
 

@@ -293,7 +293,7 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 
 	// Add this channel ID to the node's active channel index if
 	// it doesn't already exist.
-	chanIDBucket, err := nodeChanBucket.CreateBucketIfNotExists(chanIDBucket)
+	chanIndexBucket, err := nodeChanBucket.CreateBucketIfNotExists(chanIDBucket)
 	if err != nil {
 		return err
 	}
@@ -301,8 +301,8 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 	if err := writeOutpoint(&b, c.ChanID); err != nil {
 		return err
 	}
-	if chanIDBucket.Get(b.Bytes()) == nil {
-		if err := chanIDBucket.Put(b.Bytes(), nil); err != nil {
+	if chanIndexBucket.Get(b.Bytes()) == nil {
+		if err := chanIndexBucket.Put(b.Bytes(), nil); err != nil {
 			return err
 		}
 	}
@@ -1579,14 +1579,14 @@ func putChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) e
 		return err
 	}
 
-	return nodeChanBucket.Put(deliveryScriptsKey, b.Bytes())
+	return nodeChanBucket.Put(deliveryKey, b.Bytes())
 }
 
 func deleteChanDeliveryScripts(nodeChanBucket *bolt.Bucket, chanID []byte) error {
 	deliveryKey := make([]byte, len(deliveryScriptsKey)+len(chanID))
 	copy(deliveryKey[:3], deliveryScriptsKey)
 	copy(deliveryKey[3:], chanID)
-	return nodeChanBucket.Delete(deliveryScriptsKey)
+	return nodeChanBucket.Delete(deliveryKey)
 }
 
 func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1599,7 +1599,7 @@ func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 	copy(deliveryKey[3:], b.Bytes())
 
 	var err error
-	deliveryBytes := bytes.NewReader(nodeChanBucket.Get(deliveryScriptsKey))
+	deliveryBytes := bytes.NewReader(nodeChanBucket.Get(deliveryKey))
 
 	channel.OurDeliveryScript, err = wire.ReadVarBytes(deliveryBytes, 0, 520, "")
 	if err != nil {

@@ -276,7 +276,7 @@ func (d *DB) fetchNodeChannels(openChanBucket,
 			nodeChanBucket, chanID)
 		if err != nil {
 			return fmt.Errorf("unable to read channel data for "+
-				"chan_point=%v", chanID)
+				"chan_point=%v: %v", chanID, err)
 		}
 		oChannel.Db = d
 

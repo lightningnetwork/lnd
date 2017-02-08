@@ -279,6 +279,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("redeem script doesn't match")
 	}
 
+	// The local and remote delivery scripts should be identical.
 	if !bytes.Equal(state.OurDeliveryScript, newState.OurDeliveryScript) {
 		t.Fatalf("our delivery address doesn't match")
 	}
@@ -354,8 +355,16 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch open channels: %v", err)
 	}
+	if len(openChans) != 0 {
+		t.Fatalf("all channels not deleted, found %v", len(openChans))
+	}
 
-	// TODO(roasbeef): need to assert much more
+	// Additionally, attempting to fetch all the open channels globally
+	// should yield no results.
+	openChans, err = cdb.FetchAllChannels()
+	if err != nil {
+		t.Fatalf("unable to fetch all open chans")
+	}
 	if len(openChans) != 0 {
 		t.Fatalf("all channels not deleted, found %v", len(openChans))
 	}
@@ -498,6 +507,7 @@ func TestChannelStateTransition(t *testing.T) {
 				spew.Sdump(diskHTLC))
 		}
 	}
+
 	// The revocation state stored on-disk should now also be identical.
 	updatedChannel, err = cdb.FetchOpenChannels(channel.IdentityPub)
 	if err != nil {
@@ -506,5 +516,28 @@ func TestChannelStateTransition(t *testing.T) {
 	if !bytes.Equal(updatedChannel[0].TheirCurrentRevocationHash[:],
 		newRevocation) {
 		t.Fatalf("revocation state wasn't synced!")
+	}
+
+	// Now attempt to delete the channel from the database.
+	if err := updatedChannel[0].CloseChannel(); err != nil {
+		t.Fatalf("unable to delete updated channel: %v", err)
+	}
+
+	// If we attempt to fetch the target channel again, it shouldn't be
+	// found.
+	channels, err := cdb.FetchOpenChannels(channel.IdentityPub)
+	if err != nil {
+		t.Fatalf("unable to fetch updated channels: %v", err)
+	}
+	if len(channels) != 0 {
+		t.Fatalf("%v channels, found, but none should be",
+			len(channels))
+	}
+
+	// Attempting to find previous states on the channel should fail as the
+	// revocation log has been deleted.
+	_, err = updatedChannel[0].FindPreviousState(uint64(delta.UpdateNum))
+	if err == nil {
+		t.Fatalf("revocation log search should've failed")
 	}
 }

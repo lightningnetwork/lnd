@@ -569,7 +569,6 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // entails deleting all saved state within the database concerning this
 // channel, as well as created a small channel summary for record keeping
 // purposes.
-// TODO(roasbeef): delete on-disk set of HTLCs
 func (c *OpenChannel) CloseChannel() error {
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data
@@ -616,8 +615,18 @@ func (c *OpenChannel) CloseChannel() error {
 		// Now that the index to this channel has been deleted, purge
 		// the remaining channel metadata from the database.
 		if err := deleteOpenChannel(chanBucket, nodeChanBucket,
-			outPointBytes); err != nil {
+			outPointBytes, c.ChanID); err != nil {
 			return err
+		}
+
+		// With the base channel data deleted, attempt to delte the
+		// information stored within the revocation log.
+		logBucket := nodeChanBucket.Bucket(channelLogBucket)
+		if logBucket != nil {
+			err := wipeChannelLogEntries(logBucket, c.ChanID)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Finally, create a summary of this channel in the closed
@@ -779,6 +788,7 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	// With the existence of an open channel bucket with this node verified,
 	// perform a full read of the entire struct. Starting with the prefixed
 	// fields residing in the parent bucket.
+	// TODO(roasbeef): combine the below into channel config like key
 	if err = fetchChanCapacity(openChanBucket, channel); err != nil {
 		return nil, err
 	}
@@ -802,7 +812,7 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 }
 
 func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
-	channelID []byte) error {
+	channelID []byte, o *wire.OutPoint) error {
 
 	// First we'll delete all the "common" top level items stored outside
 	// the node's channel bucket.
@@ -816,6 +826,12 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := deleteChanAmountsTransferred(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanTheirDustLimit(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanOurDustLimit(openChanBucket, channelID); err != nil {
 		return err
 	}
 
@@ -837,6 +853,9 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := deleteChanDeliveryScripts(nodeChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteCurrentHtlcs(nodeChanBucket, o); err != nil {
 		return err
 	}
 
@@ -1004,6 +1023,14 @@ func fetchChanTheirDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) 
 	return nil
 }
 
+func deleteChanTheirDustLimit(openChanBucket *bolt.Bucket, chanID []byte) error {
+	theirDustKey := make([]byte, 3+len(chanID))
+	copy(theirDustKey, theirDustLimitPrefix)
+	copy(theirDustKey[3:], chanID)
+
+	return openChanBucket.Delete(theirDustKey)
+}
+
 func fetchChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
@@ -1018,6 +1045,14 @@ func fetchChanOurDustLimit(openChanBucket *bolt.Bucket, channel *OpenChannel) er
 	channel.OurDustLimit = btcutil.Amount(byteOrder.Uint64(dustLimitBytes))
 
 	return nil
+}
+
+func deleteChanOurDustLimit(openChanBucket *bolt.Bucket, chanID []byte) error {
+	ourDustKey := make([]byte, 3+len(chanID))
+	copy(ourDustKey, ourDustLimitPrefix)
+	copy(ourDustKey[3:], chanID)
+
+	return openChanBucket.Delete(ourDustKey)
 }
 
 func putChanNumUpdates(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1708,6 +1743,11 @@ func fetchCurrentHtlcs(nodeChanBucket *bolt.Bucket,
 	return htlcs, nil
 }
 
+func deleteCurrentHtlcs(nodeChanBucket *bolt.Bucket, o *wire.OutPoint) error {
+	htlcKey := makeHtlcKey(o)
+	return nodeChanBucket.Delete(htlcKey[:])
+}
+
 func serializeChannelDelta(w io.Writer, delta *ChannelDelta) error {
 	// TODO(roasbeef): could use compression here to reduce on-disk space.
 	var scratch [8]byte
@@ -1820,6 +1860,35 @@ func fetchChannelLogEntry(log *bolt.Bucket, chanPoint *wire.OutPoint,
 	deltaReader := bytes.NewReader(deltaBytes)
 
 	return deserializeChannelDelta(deltaReader)
+}
+
+func wipeChannelLogEntries(log *bolt.Bucket, o *wire.OutPoint) error {
+	var (
+		n         int
+		logPrefix [32 + 4]byte
+		scratch   [4]byte
+	)
+
+	// First we'll construct a key prefix that we'll use to scan through
+	// and delete all the log entries related to this channel. The format
+	// for log entries within the database is: txid || index || update_num.
+	// We'll construct a prefix key with the first two thirds of the full
+	// key to scan with and delete all entries.
+	n += copy(logPrefix[:], o.Hash[:])
+	byteOrder.PutUint32(scratch[:], o.Index)
+	copy(logPrefix[n:], scratch[:])
+
+	// With the prefix constructed, scan through the log bucket from the
+	// starting point of the log entries for this channel. We'll keep
+	// deleting keys until the prefix no longer matches.
+	logCursor := log.Cursor()
+	for logKey, _ := logCursor.Seek(logPrefix[:]); bytes.HasPrefix(logKey, logPrefix[:]); logKey, _ = logCursor.Next() {
+		if err := log.Delete(logKey); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func writeOutpoint(w io.Writer, o *wire.OutPoint) error {

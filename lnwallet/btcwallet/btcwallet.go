@@ -235,18 +235,21 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) NewRawKey() (*btcec.PublicKey, error) {
-	nextAddr, err := b.wallet.Manager.NextExternalAddresses(defaultAccount,
-		1, waddrmgr.WitnessPubKey)
+	addr, err := b.wallet.NewAddress(defaultAccount,
+		waddrmgr.WitnessPubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	pkAddr := nextAddr[0].(waddrmgr.ManagedPubKeyAddress)
+	pkAddr, err := b.wallet.Manager.Address(addr)
+	if err != nil {
+		return nil, err
+	}
 
-	return pkAddr.PubKey(), nil
+	return pkAddr.(waddrmgr.ManagedPubKeyAddress).PubKey(), nil
 }
 
-// FetchRootKey returns a root key which is meanted to be used as an initial
+// FetchRootKey returns a root key which is intended to be used as an initial
 // seed/salt to generate any Lightning specific secrets.
 //
 // This is a part of the WalletController interface.

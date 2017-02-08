@@ -12,7 +12,7 @@ func TestOpenWithCreate(t *testing.T) {
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
-		t.Fatalf("unable to create temp dir: %v")
+		t.Fatalf("unable to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDirName)
 

@@ -197,8 +197,6 @@ func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
 			linkNodes = append(linkNodes, linkNode)
 			return nil
 		})
-
-		return nil
 	})
 	if err != nil {
 		return nil, err

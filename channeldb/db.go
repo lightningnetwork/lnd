@@ -236,7 +236,7 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 			nodeChanBucket)
 		if err != nil {
 			return fmt.Errorf("unable to read channel for "+
-				"node_key=%x: ", pub, err)
+				"node_key=%x: %v", pub, err)
 		}
 
 		channels = nodeChannels
@@ -324,7 +324,7 @@ func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
 				nodeChanBucket)
 			if err != nil {
 				return fmt.Errorf("unable to read channel for "+
-					"node_key=%x: ", k, err)
+					"node_key=%x: %v", k, err)
 			}
 
 			channels = append(channels, nodeChannels...)

@@ -130,7 +130,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	// Than creating the version list pretending that new version was added.
 	meta := &Meta{DbVersionNumber: 0}
 	if err := cdb.PutMeta(meta); err != nil {
-		t.Fatal("unable to store meta data: %v", err)
+		t.Fatalf("unable to store meta data: %v", err)
 	}
 
 	versions := []version{

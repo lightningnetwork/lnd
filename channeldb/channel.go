@@ -763,26 +763,26 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 
 	// First, read out the fields of the channel update less frequently.
 	if err = fetchChannelIDs(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read chan ID's: %v", err)
 	}
 	if err = fetchChanCommitKeys(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read commit key: %v", err)
 	}
 	if err = fetchChanCommitTxns(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read commit txns: %v", err)
 	}
 	if err = fetchChanFundingInfo(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read funding info: %v", err)
 	}
 	if err = fetchChanElkremState(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("uable to read elkrem state: %v", err)
 	}
 	if err = fetchChanDeliveryScripts(nodeChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read delivery scripts: %v", err)
 	}
 	channel.Htlcs, err = fetchCurrentHtlcs(nodeChanBucket, chanID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read current htlc's: %v", err)
 	}
 
 	// With the existence of an open channel bucket with this node verified,
@@ -790,22 +790,22 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	// fields residing in the parent bucket.
 	// TODO(roasbeef): combine the below into channel config like key
 	if err = fetchChanCapacity(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read chan capacity: %v", err)
 	}
 	if err = fetchChanMinFeePerKb(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read fee-per-kb: %v", err)
 	}
 	if err = fetchChanTheirDustLimit(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read our dust limit: %v", err)
 	}
 	if err = fetchChanOurDustLimit(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read their dust limit: %v", err)
 	}
 	if err = fetchChanNumUpdates(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read num updates: %v", err)
 	}
 	if err = fetchChanAmountsTransferred(openChanBucket, channel); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read sat transferred: %v", err)
 	}
 
 	return channel, nil

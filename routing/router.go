@@ -384,8 +384,10 @@ func (r *ChannelRouter) networkHandler() {
 			// for this height, if so, then we process them once
 			// more as normal announcements.
 			prematureAnns := r.prematureAnnouncements[uint32(newBlock.Height)]
-			log.Infof("Re-processing %v premature announcements for "+
-				"height %v", len(prematureAnns), blockHeight)
+			if len(prematureAnns) != 0 {
+				log.Infof("Re-processing %v premature announcements for "+
+					"height %v", len(prematureAnns), blockHeight)
+			}
 
 			for _, ann := range prematureAnns {
 				if ok := r.processNetworkAnnouncement(ann); ok {

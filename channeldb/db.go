@@ -39,6 +39,10 @@ var (
 			number:    0,
 			migration: nil,
 		},
+		{
+			number:    1,
+			migration: deliveryScriptBugMigration,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -351,21 +355,30 @@ func (d *DB) syncVersions(versions []version) error {
 	// If the current database version matches the latest version number,
 	// then we don't need to perform any migrations.
 	latestVersion := getLatestDBVersion(versions)
+	log.Infof("Checking for schema update: latest_version=%v, "+
+		"db_version=%v", latestVersion, meta.DbVersionNumber)
 	if meta.DbVersionNumber == latestVersion {
 		return nil
 	}
 
+	log.Infof("Performing database schema migration")
+
 	// Otherwise, we fetch the migrations which need to applied, and
 	// execute them serially within a single database transaction to ensure
 	// the migration is atomic.
-	migrations := getMigrationsToApply(versions, meta.DbVersionNumber)
+	migrations, migrationVersions := getMigrationsToApply(versions,
+		meta.DbVersionNumber)
 	return d.Update(func(tx *bolt.Tx) error {
-		for _, migration := range migrations {
+		for i, migration := range migrations {
 			if migration == nil {
 				continue
 			}
 
+			log.Infof("Applying migration #%v", migrationVersions[i])
+
 			if err := migration(tx); err != nil {
+				log.Infof("Unable to apply migration #%v",
+					migrationVersions[i])
 				return err
 			}
 		}
@@ -390,14 +403,16 @@ func getLatestDBVersion(versions []version) uint32 {
 
 // getMigrationsToApply retrieves the migration function that should be
 // applied to the database.
-func getMigrationsToApply(versions []version, version uint32) []migration {
+func getMigrationsToApply(versions []version, version uint32) ([]migration, []uint32) {
 	migrations := make([]migration, 0, len(versions))
+	migrationVersions := make([]uint32, 0, len(versions))
 
 	for _, v := range versions {
 		if v.number > version {
 			migrations = append(migrations, v.migration)
+			migrationVersions = append(migrationVersions, v.number)
 		}
 	}
 
-	return migrations
+	return migrations, migrationVersions
 }

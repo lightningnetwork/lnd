@@ -62,7 +62,7 @@ func TestOrderOfMigrations(t *testing.T) {
 
 	// Retrieve the migration that should be applied to db, as far as
 	// current version is 1, we skip zero and first versions.
-	migrations := getMigrationsToApply(versions, 1)
+	migrations, _ := getMigrationsToApply(versions, 1)
 
 	if len(migrations) != 2 {
 		t.Fatal("incorrect number of migrations to apply")

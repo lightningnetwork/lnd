@@ -312,12 +312,24 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 10)
 	ctxb := context.Background()
 
-	// First establish a channel ween with a capacity of 100k satoshis
-	// between Alice and Bob.
+	// Before we start, obtain Bob's current wallet balance, we'll check to
+	// ensure that at the end of the force closure by Alice, Bob recognizes
+	// his new on-chain output.
+	bobBalReq := &lnrpc.WalletBalanceRequest{}
+	bobBalResp, err := net.Bob.WalletBalance(ctxb, bobBalReq)
+	if err != nil {
+		t.Fatalf("unable to get bob's balance: %v", err)
+	}
+	bobStartingBalance := btcutil.Amount(bobBalResp.Balance * 1e8)
+
+	// First establish a channel with a capacity of 100k satoshis between
+	// Alice and Bob. We also push 50k satoshis of the initial amount
+	// towards Bob.
 	numFundingConfs := uint32(1)
 	chanAmt := btcutil.Amount(10e4)
+	pushAmt := btcutil.Amount(5e4)
 	chanOpenUpdate, err := net.OpenChannel(ctxb, net.Alice, net.Bob,
-		chanAmt, 0, numFundingConfs)
+		chanAmt, pushAmt, numFundingConfs)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -350,6 +362,7 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
+
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
@@ -457,6 +470,19 @@ mempoolPoll:
 	}
 
 	assertTxInBlock(t, block, sweepTx.Hash())
+
+	// At this point, Bob should now be aware of his new immediately
+	// spendable on-chain balance, as it was Alice who broadcast the
+	// commitment transaction.
+	bobBalResp, err = net.Bob.WalletBalance(ctxb, bobBalReq)
+	if err != nil {
+		t.Fatalf("unable to get bob's balance: %v", err)
+	}
+	bobExpectedBalance := bobStartingBalance + pushAmt
+	if btcutil.Amount(bobBalResp.Balance*1e8) < bobExpectedBalance {
+		t.Fatalf("bob's balance is incorrect: expected %v got %v",
+			bobExpectedBalance, btcutil.Amount(bobBalResp.Balance*1e8))
+	}
 }
 
 func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
@@ -646,6 +672,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
+	time.Sleep(time.Millisecond * 300)
 	sendStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create alice payment stream: %v", err)

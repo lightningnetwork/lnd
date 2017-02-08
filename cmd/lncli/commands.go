@@ -274,10 +274,6 @@ func openChannel(ctx *cli.Context) error {
 		return err
 	}
 
-	if !ctx.Bool("block") {
-		return nil
-	}
-
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -287,6 +283,23 @@ func openChannel(ctx *cli.Context) error {
 		}
 
 		switch update := resp.Update.(type) {
+		case *lnrpc.OpenStatusUpdate_ChanPending:
+			txid, err := chainhash.NewHash(update.ChanPending.Txid)
+			if err != nil {
+				return err
+			}
+
+			printJson(struct {
+				FundingTxid string `json:"funding_txid"`
+			}{
+				FundingTxid: txid.String(),
+			},
+			)
+
+			if !ctx.Bool("block") {
+				return nil
+			}
+
 		case *lnrpc.OpenStatusUpdate_ChanOpen:
 			channelPoint := update.ChanOpen.ChannelPoint
 			txid, err := chainhash.NewHash(channelPoint.FundingTxid)
@@ -365,10 +378,6 @@ func closeChannel(ctx *cli.Context) error {
 		return err
 	}
 
-	if !ctx.Bool("block") {
-		return nil
-	}
-
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
@@ -378,6 +387,23 @@ func closeChannel(ctx *cli.Context) error {
 		}
 
 		switch update := resp.Update.(type) {
+		case *lnrpc.CloseStatusUpdate_ClosePending:
+			closingHash := update.ClosePending.Txid
+			txid, err := chainhash.NewHash(closingHash)
+			if err != nil {
+				return err
+			}
+
+			printJson(struct {
+				ClosingTXID string `json:"closing_txid"`
+			}{
+				ClosingTXID: txid.String(),
+			})
+
+			if !ctx.Bool("block") {
+				return nil
+			}
+
 		case *lnrpc.CloseStatusUpdate_ChanClose:
 			closingHash := update.ChanClose.ClosingTxid
 			txid, err := chainhash.NewHash(closingHash)
@@ -391,7 +417,6 @@ func closeChannel(ctx *cli.Context) error {
 				ClosingTXID: txid.String(),
 			})
 		}
-
 	}
 
 	return nil

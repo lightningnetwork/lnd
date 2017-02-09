@@ -208,7 +208,7 @@ func TestAddSerializedKidsToList(t *testing.T) {
 
 	kidList, err := deserializeKidList(&b)
 	if err != nil {
-		t.Fatalf("unable to deserialize kid output list: ", err)
+		t.Fatalf("unable to deserialize kid output list: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {

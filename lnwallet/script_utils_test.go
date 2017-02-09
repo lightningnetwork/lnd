@@ -65,10 +65,16 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// transaction which sweeps the funds to a random address.
 	targetOutput, err := commitScriptUnencumbered(aliceKeyPub)
 	if err != nil {
-		t.Fatalf("unable to create target output: %v")
+		t.Fatalf("unable to create target output: %v", err)
 	}
 	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{commitmentTx.TxHash(), 0}, nil, nil))
+	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{
+		Hash:  commitmentTx.TxHash(),
+		Index: 0,
+	},
+		nil,
+		nil),
+	)
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: targetOutput,
 		Value:    0.5 * 10e8,
@@ -77,7 +83,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// First, we'll test spending with Alice's key after the timeout.
 	delayScript, err := commitScriptToSelf(csvTimeout, aliceKeyPub, revokePubKey)
 	if err != nil {
-		t.Fatalf("unable to generate alice delay script: %v")
+		t.Fatalf("unable to generate alice delay script: %v", err)
 	}
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
@@ -92,7 +98,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
 		signDesc, sweepTx)
 	if err != nil {
-		t.Fatalf("unable to generate delay commit spend witness :%v")
+		t.Fatalf("unable to generate delay commit spend witness: %v", err)
 	}
 	sweepTx.TxIn[0].Witness = aliceWitnessSpend
 	vm, err := txscript.NewEngine(delayOutput.PkScript,
@@ -378,8 +384,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 				t.Fatalf("spend test case #%v succeed, spend should be invalid: %v", i, err)
 			}
 
-			debugBuf.WriteString(fmt.Sprintf("Stack: ", vm.GetStack()))
-			debugBuf.WriteString(fmt.Sprintf("AltStack: ", vm.GetAltStack()))
+			debugBuf.WriteString(fmt.Sprintf("Stack: %v", vm.GetStack()))
+			debugBuf.WriteString(fmt.Sprintf("AltStack: %v", vm.GetAltStack()))
 		}
 	}
 }
@@ -551,8 +557,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 				t.Fatalf("spend test case #%v succeed, spend should be invalid: %v", i, err)
 			}
 
-			debugBuf.WriteString(fmt.Sprintf("Stack: ", vm.GetStack()))
-			debugBuf.WriteString(fmt.Sprintf("AltStack: ", vm.GetAltStack()))
+			debugBuf.WriteString(fmt.Sprintf("Stack: %v", vm.GetStack()))
+			debugBuf.WriteString(fmt.Sprintf("AltStack: %v", vm.GetAltStack()))
 		}
 	}
 }

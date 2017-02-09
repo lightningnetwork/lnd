@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 var (
@@ -107,22 +106,6 @@ var _ Message = (*NodeAnnouncement)(nil)
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Validate() error {
 	// TODO(roasbeef): move validation to discovery service
-	return nil
-
-	if err := a.Alias.Validate(); err != nil {
-		return err
-	}
-
-	data, err := a.DataToSign()
-	if err != nil {
-		return err
-	}
-
-	dataHash := chainhash.DoubleHashB(data)
-	if !a.Signature.Verify(dataHash, a.NodeID) {
-		return errors.New("can't check the node annoucement signature")
-	}
-
 	return nil
 }
 

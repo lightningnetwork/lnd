@@ -422,7 +422,9 @@ func (n *networkHarness) SetUp() error {
 	// Load up the wallets of the seeder nodes with 10 outputs of 1 BTC
 	// each.
 	ctxb := context.Background()
-	addrReq := &lnrpc.NewAddressRequest{lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH}
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH,
+	}
 	clients := []lnrpc.LightningClient{n.Alice, n.Bob}
 	for _, client := range clients {
 		for i := 0; i < 10; i++ {

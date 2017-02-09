@@ -592,7 +592,9 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.S
 		}
 	}
 
-	return &chainntnfs.SpendEvent{ntfn.spendChan}, nil
+	return &chainntnfs.SpendEvent{
+		Spend: ntfn.spendChan,
+	}, nil
 }
 
 // confirmationNotification represents a client's intent to receive a

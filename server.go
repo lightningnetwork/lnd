@@ -385,8 +385,6 @@ func (s *server) sendToPeer(target *btcec.PublicKey, msgs ...lnwire.Message) err
 	case <-s.quit:
 		return errors.New("server shutting down")
 	}
-
-	return nil
 }
 
 // peerConnected is a function that handles initialization a newly connected

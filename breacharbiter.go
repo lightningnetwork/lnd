@@ -174,7 +174,7 @@ out:
 			breachTXID := &breachInfo.commitHash
 			confChan, err := b.notifier.RegisterConfirmationsNtfn(breachTXID, 1)
 			if err != nil {
-				brarLog.Errorf("unable to register for conf for txid: ",
+				brarLog.Errorf("unable to register for conf for txid: %v",
 					breachTXID)
 				continue
 			}

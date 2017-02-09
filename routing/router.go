@@ -1029,9 +1029,9 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 		// mutating the curve parameters, which are unset in a higher
 		// level in order to avoid spamming the logs.
 		pub := btcec.PublicKey{
-			btcec.S256(),
-			hop.Channel.Node.PubKey.X,
-			hop.Channel.Node.PubKey.Y,
+			Curve: btcec.S256(),
+			X:     hop.Channel.Node.PubKey.X,
+			Y:     hop.Channel.Node.PubKey.Y,
 		}
 		nodes[i] = &pub
 	}

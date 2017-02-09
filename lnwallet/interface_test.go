@@ -94,8 +94,6 @@ func assertChannelOpen(t *testing.T, miner *rpctest.Harness, numConfs uint32,
 		t.Fatalf("channel never opened")
 		return nil
 	}
-
-	return nil
 }
 
 // bobNode represents the other party involved as a node within LN. Bob is our
@@ -210,7 +208,10 @@ func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
 	}
 
 	// Give bobNode one 7 BTC output for use in creating channels.
-	output := &wire.TxOut{7e8, bobAddrScript}
+	output := &wire.TxOut{
+		Value:    7e8,
+		PkScript: bobAddrScript,
+	}
 	mainTxid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
 	if err != nil {
 		return nil, err
@@ -284,7 +285,10 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet, numOut
 
 		addrs = append(addrs, walletAddr)
 
-		output := &wire.TxOut{satoshiPerOutput, script}
+		output := &wire.TxOut{
+			Value:    satoshiPerOutput,
+			PkScript: script,
+		}
 		if _, err := miner.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
 			return err
 		}
@@ -949,7 +953,10 @@ func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.Lightni
 			t.Fatalf("unable to create output script: %v", err)
 		}
 
-		output := &wire.TxOut{outputAmt, script}
+		output := &wire.TxOut{
+			Value:    outputAmt,
+			PkScript: script,
+		}
 		txid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
 		if err != nil {
 			t.Fatalf("unable to send coinbase: %v", err)
@@ -1044,7 +1051,7 @@ func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.Lightni
 		}
 	}
 	if !burnTxFound {
-		t.Fatalf("tx burning btc not found")
+		t.Fatal("tx burning btc not found")
 	}
 }
 
@@ -1056,7 +1063,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 	// implementation of the WalletController.
 	txClient, err := w.SubscribeTransactions()
 	if err != nil {
-		t.Fatalf("unable to generate tx subscription: %v")
+		t.Fatalf("unable to generate tx subscription: %v", err)
 	}
 	defer txClient.Cancel()
 
@@ -1097,7 +1104,10 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 			t.Fatalf("unable to create output script: %v", err)
 		}
 
-		output := &wire.TxOut{outputAmt, script}
+		output := &wire.TxOut{
+			Value:    outputAmt,
+			PkScript: script,
+		}
 		if _, err := miner.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
 			t.Fatalf("unable to send coinbase: %v", err)
 		}

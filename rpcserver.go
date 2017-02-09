@@ -705,7 +705,9 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 
 	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
-	return &lnrpc.WalletBalanceResponse{balance.ToBTC()}, nil
+	return &lnrpc.WalletBalanceResponse{
+		Balance: balance.ToBTC(),
+	}, nil
 }
 
 // ChannelBalance returns the total available channel flow across all open
@@ -969,8 +971,6 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			}()
 		}
 	}
-
-	return nil
 }
 
 // SendPaymentSync is the synchronous non-streaming version of SendPayment.
@@ -1242,8 +1242,6 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			return nil
 		}
 	}
-
-	return nil
 }
 
 // SubscribeTransactions creates a uni-directional stream (server -> client) in
@@ -1286,8 +1284,6 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			return nil
 		}
 	}
-
-	return nil
 }
 
 // GetTransactions returns a list of describing all the known transactions

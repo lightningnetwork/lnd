@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // ChannelAnnouncement message is used to announce the existence of a channel
@@ -50,35 +48,6 @@ var _ Message = (*ChannelAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Validate() error {
-	// TODO(roasbeef): move validation to discovery service
-	return nil
-
-	var sigHash []byte
-
-	sigHash = chainhash.DoubleHashB(a.FirstNodeID.SerializeCompressed())
-	if !a.FirstBitcoinSig.Verify(sigHash, a.FirstBitcoinKey) {
-		return errors.New("can't verify first bitcoin signature")
-	}
-
-	sigHash = chainhash.DoubleHashB(a.SecondNodeID.SerializeCompressed())
-	if !a.SecondBitcoinSig.Verify(sigHash, a.SecondBitcoinKey) {
-		return errors.New("can't verify second bitcoin signature")
-	}
-
-	data, err := a.DataToSign()
-	if err != nil {
-		return err
-	}
-	dataHash := chainhash.DoubleHashB(data)
-
-	if !a.FirstNodeSig.Verify(dataHash, a.FirstNodeID) {
-		return errors.New("can't verify data in first node signature")
-	}
-
-	if !a.SecondNodeSig.Verify(dataHash, a.SecondNodeID) {
-		return errors.New("can't verify data in second node signature")
-	}
-
 	return nil
 }
 

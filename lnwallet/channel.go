@@ -276,7 +276,8 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			pkScript = p.ourPkScript
 		}
 		for i, txOut := range c.txn.TxOut {
-			if bytes.Equal(txOut.PkScript, pkScript) {
+			if bytes.Equal(txOut.PkScript, pkScript) &&
+				txOut.Value == int64(p.Amount) {
 				if contains(dups[p.RHash], uint16(i)) {
 					continue
 				}

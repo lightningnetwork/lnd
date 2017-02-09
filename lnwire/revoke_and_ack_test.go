@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestCommitRevocationEncodeDecode(t *testing.T) {
-	cr := &CommitRevocation{
-		ChannelPoint:       outpoint1,
+func TestRevokeAndAckEncodeDecode(t *testing.T) {
+	cr := &RevokeAndAck{
+		ChannelPoint:       *outpoint1,
 		Revocation:         revHash,
 		NextRevocationKey:  pubKey,
 		NextRevocationHash: revHash,
@@ -17,13 +17,13 @@ func TestCommitRevocationEncodeDecode(t *testing.T) {
 	// Next encode the CR message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := cr.Encode(&b, 0); err != nil {
-		t.Fatalf("unable to encode CommitRevocation: %v", err)
+		t.Fatalf("unable to encode RevokeAndAck: %v", err)
 	}
 
 	// Deserialize the encoded EG message into a new empty struct.
-	cr2 := &CommitRevocation{}
+	cr2 := &RevokeAndAck{}
 	if err := cr2.Decode(&b, 0); err != nil {
-		t.Fatalf("unable to decode CommitRevocation: %v", err)
+		t.Fatalf("unable to decode RevokeAndAck: %v", err)
 	}
 
 	// Assert equality of the two instances.

@@ -21,6 +21,7 @@ const MessageHeaderSize = 12
 const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
 
 // Commands used in lightning message headers which detail the type of message.
+// TODO(roasbeef): update with latest type numbering from spec
 const (
 	CmdInit = uint32(1)
 
@@ -44,7 +45,7 @@ const (
 
 	// Commands for modifying commitment transactions.
 	CmdCommitSignature  = uint32(2000)
-	CmdCommitRevocation = uint32(2010)
+	CmdRevokeAndAck = uint32(2010)
 
 	// Commands for reporting protocol errors.
 	CmdErrorGeneric = uint32(4000)
@@ -116,8 +117,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CancelHTLC{}
 	case CmdCommitSignature:
 		msg = &CommitSignature{}
-	case CmdCommitRevocation:
-		msg = &CommitRevocation{}
+	case CmdRevokeAndAck:
+		msg = &RevokeAndAck{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
 	case CmdChannelAnnoucmentMessage:

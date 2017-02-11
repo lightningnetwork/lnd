@@ -94,3 +94,12 @@ func TestChecksumMismatch(t *testing.T) {
 		t.Fatalf("decode should fail with checksum mismatch, instead: %v", err)
 	}
 }
+
+func TestDecodeTooShort(t *testing.T) {
+	// We start with a pre-encoded too-short string.
+	payReqString := "ycyr8brdji"
+
+	if _, err := Decode(payReqString); err != ErrDataTooShort {
+		t.Fatalf("decode should fail with data too short, instead: %v", err)
+	}
+}

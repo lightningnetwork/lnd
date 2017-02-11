@@ -23,6 +23,11 @@ const invoiceSize = 33 + 32 + 8
 // an error somewhere in the bitstream.
 var ErrCheckSumMismatch = errors.New("the checksum is incorrect")
 
+// ErrDataTooShort is returned by the Decode function if when
+// decoding an encoded payment request, the number of bytes decoded
+// is too few for a valid invoice indicating invalid input.
+var ErrDataTooShort = errors.New("the decoded data is too short")
+
 // PaymentRequest is a bare-bones invoice for a payment within the Lightning
 // Network.  With the details of the invoice, the sender has all the data
 // necessary to send a payment to the recipient.
@@ -90,7 +95,13 @@ func Decode(payData string) (*PaymentRequest, error) {
 		return nil, err
 	}
 
-	// With the bytes decoded, we first verify the checksum to ensure the
+	// Check if there are at least enough bytes to represent the invoice
+	// and the checksum.
+	if len(payReqBytes) < invoiceSize+crc32.Size {
+		return nil, ErrDataTooShort
+	}
+
+	// With the bytes decoded, we verify the checksum to ensure the
 	// payment request wasn't altered in its decoded form.
 	invoiceBytes := payReqBytes[:invoiceSize]
 	generatedSum := checkSum(invoiceBytes)

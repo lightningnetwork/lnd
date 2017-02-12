@@ -1362,11 +1362,25 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte,
 	return nil
 }
 
-// PendingUpdates returns a boolean value reflecting if there are any pending
-// updates which need to be committed. The state machine has pending updates if
-// the local log index on the local and remote chain tip aren't identical. This
-// indicates that either we have pending updates they need to commit, or vice
-// versa.
+// PendingUpdates detects when our commitment chain tip is not identical to the
+// tip of their chain, which can happen in normal operation due to the async
+// properties of the update protocol.
+//
+// Example with adding only one htlc:
+//
+//			    in this period of time
+//         		    this method returns that
+//			    chain isn't fully synced
+//			| <------------------------> |
+//		false	|	     true  	     | false
+//   ------o------------o----------------------------o--------> time
+//	   |	        |			     |
+//	   |		|			     |
+//     *!we!* added  we sign new      		we received
+//	new htlc(H)  commitment	      		new commitment from
+// 		     and send it      		remote side with
+//		     to remote side   		included htlc(H)
+//
 func (lc *LightningChannel) PendingUpdates() bool {
 	lc.RLock()
 	defer lc.RUnlock()

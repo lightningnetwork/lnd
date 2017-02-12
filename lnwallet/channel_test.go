@@ -1253,3 +1253,90 @@ func TestCancelHTLC(t *testing.T) {
 			bobChannel.channelState.TheirBalance, expectedBalance)
 	}
 }
+
+// TestPendingUpdate test behaviour of pending updates function.
+func TestPendingUpdate(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Add a new HTLC from Alice to Bob, then trigger a new state
+	// transition in order to include it in the latest state.
+	const htlcAmt = btcutil.SatoshiPerBitcoin
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{0xaa}, 32))
+	htlc := &lnwire.HTLCAddRequest{
+		RedemptionHashes: [][32]byte{fastsha256.Sum256(preImage[:])},
+		Amount:           htlcAmt,
+		Expiry:           10,
+	}
+
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add alice htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to add bob htlc: %v", err)
+	}
+
+	aliceSig, bobIndex, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob can't sign next commit tx: %v", err)
+	}
+
+	// As far as Alice added htlc in log, included this htlc in
+	// commitment transaction and send it to remote side we should return
+	// true, as far as we waiting for this htlc be included in local
+	// commitment chain too (sent to us from remote side).
+	if !aliceChannel.PendingUpdates() {
+		t.Fatal("from Alice POV we should have pending updates")
+	}
+
+	if err := bobChannel.ReceiveNewCommitment(aliceSig, bobIndex); err != nil {
+		t.Fatalf("alice signature is invalid: %v", err)
+	}
+
+	bobSig, aliceIndex, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob sig invalid: %v", err)
+	}
+
+	// Bob didn't add htlc and for that reason from his POV he
+	// hasn't pending updates.
+	if bobChannel.PendingUpdates() {
+		t.Fatal("from Bob POV chains should not be fully synced")
+	}
+
+	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("bob can't revoke commit tx: %v", err)
+	}
+
+	if err := aliceChannel.ReceiveNewCommitment(bobSig, aliceIndex); err != nil {
+		t.Fatalf("bob signature is invalid: %v", err)
+	}
+
+	// After alice received commitment from remote (Bob) side we
+	// shouldn't have pending updates.
+	if aliceChannel.PendingUpdates() {
+		t.Fatal("from Alice POV chains should be fully synced")
+	}
+
+	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("alice can't revoke commit tx: %v", err)
+	}
+
+	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
+		t.Fatalf("alice can't handle received revocation: %v", err)
+	}
+
+	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("bob can't handle received revocation: %v", err)
+	}
+}

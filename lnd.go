@@ -196,13 +196,9 @@ func lndMain() error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	mux := proxy.NewServeMux()
-	swaggerPattern := proxy.MustPattern(proxy.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "swagger"}, ""))
-	// TODO(roasbeef): accept path to swagger file as command-line option
-	mux.Handle("GET", swaggerPattern, func(w http.ResponseWriter, r *http.Request, p map[string]string) {
-		http.ServeFile(w, r, "lnrpc/rpc.swagger.json")
-	})
 	proxyOpts := []grpc.DialOption{grpc.WithInsecure()}
-	err = lnrpc.RegisterLightningHandlerFromEndpoint(ctx, mux, grpcEndpoint, proxyOpts)
+	err = lnrpc.RegisterLightningHandlerFromEndpoint(ctx, mux, grpcEndpoint,
+		proxyOpts)
 	if err != nil {
 		return err
 	}

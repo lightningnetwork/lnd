@@ -658,8 +658,13 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 // channel's available bandwidth by the delta specified within the message.
 func (h *htlcSwitch) handleLinkUpdate(req *linkInfoUpdateMsg) {
 	h.chanIndexMtx.RLock()
-	link := h.chanIndex[*req.targetLink]
+	link, ok := h.chanIndex[*req.targetLink]
 	h.chanIndexMtx.RUnlock()
+	if !ok {
+		hswcLog.Errorf("received link update for non-existent link: %v",
+			req.targetLink)
+		return
+	}
 
 	atomic.AddInt64(&link.availableBandwidth, int64(req.bandwidthDelta))
 

@@ -76,6 +76,14 @@ type server struct {
 	donePeers chan *peer
 	queries   chan interface{}
 
+	// globalFeatures feature vector which affects HTLCs and thus are also
+	// advertised to other nodes.
+	globalFeatures *lnwire.FeatureVector
+
+	// localFeatures is an feature vector which represent the features which
+	// only affect the protocol between these two nodes.
+	localFeatures *lnwire.FeatureVector
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -128,6 +136,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 		broadcastRequests: make(chan *broadcastReq),
 		sendRequests:      make(chan *sendReq),
+
+		globalFeatures: lnwire.NewFeatureVector(globalFeaturesMap),
+		localFeatures: lnwire.NewFeatureVector(localFeaturesMap),
 
 		queries: make(chan interface{}),
 		quit:    make(chan struct{}),
@@ -413,7 +424,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
 
-	peer.Start()
+	if err := peer.Start(); err != nil {
+		conn.Close()
+		return
+	}
+
 	s.newPeers <- peer
 }
 

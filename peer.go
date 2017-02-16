@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -25,6 +24,7 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/go-errors/errors"
 )
 
 var (
@@ -151,6 +151,16 @@ type peer struct {
 
 	server *server
 
+	// localSharedFeatures is a product of comparison of our and their
+	// local features vectors which consist of features which are present
+	// on both sides.
+	localSharedFeatures  *lnwire.SharedFeatures
+
+	// globalSharedFeatures is a product of comparison of our and their
+	// global features vectors which consist of features which are present
+	// on both sides.
+	globalSharedFeatures *lnwire.SharedFeatures
+
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
@@ -188,6 +198,9 @@ func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
 
 		localCloseChanReqs:  make(chan *closeLinkReq),
 		remoteCloseChanReqs: make(chan *lnwire.CloseRequest),
+
+		localSharedFeatures:  lnwire.NewSharedFeatures(localFeaturesMap),
+		globalSharedFeatures: lnwire.NewSharedFeatures(globalFeaturesMap),
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -263,7 +276,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 // Start starts all helper goroutines the peer needs for normal operations.
 // In the case this peer has already been started, then this function is a
-// noop.
+// loop.
 func (p *peer) Start() error {
 	if atomic.AddInt32(&p.started, 1) != 1 {
 		return nil
@@ -271,10 +284,34 @@ func (p *peer) Start() error {
 
 	peerLog.Tracef("peer %v starting", p)
 
-	p.wg.Add(5)
-	go p.readHandler()
+	p.wg.Add(2)
 	go p.queueHandler()
 	go p.writeHandler()
+
+	// Exchange local and global features, the init message should be
+	// very first between two nodes.
+	if err := p.sendInitMsg(); err != nil {
+		return err
+	}
+
+	// Should wait for peers to compare their feature vectors
+	// and only then start message exchanges.
+	msg, _, err := p.readNextMessage()
+	if err != nil {
+		return err
+	}
+
+	if msg, ok := msg.(*lnwire.Init); ok {
+		if err := p.handleInitMsg(msg); err != nil {
+			return err
+		}
+	} else {
+		return errors.New("very first message between nodes " +
+			"must be init message")
+	}
+
+	p.wg.Add(3)
+	go p.readHandler()
 	go p.channelManager()
 	go p.pingHandler()
 
@@ -1203,6 +1240,42 @@ out:
 
 	p.wg.Done()
 	peerLog.Tracef("htlcManager for peer %v done", p)
+}
+
+// handleInitMsg handles the incoming init message which contains global and
+// local features vectors. If feature vectors are incompatible then disconnect.
+func (p *peer) handleInitMsg(msg *lnwire.Init) error {
+	localSharedFeatures, err := p.server.localFeatures.Compare(msg.LocalFeatures)
+	if err != nil {
+		err := errors.Errorf("can compare remote and local feature " +
+			"vectors: %v", err)
+		peerLog.Error(err)
+		return err
+	}
+	p.localSharedFeatures = localSharedFeatures
+
+	globalSharedFeatures, err := p.server.globalFeatures.Compare(msg.GlobalFeatures)
+	if err != nil {
+		err := errors.Errorf("can compare remote and global feature " +
+			"vectors: %v", err)
+		peerLog.Error(err)
+		return err
+	}
+	p.globalSharedFeatures = globalSharedFeatures
+
+	return nil
+}
+
+// sendInitMsg sends init message to remote peer which represent our
+// features local and global vectors.
+func (p *peer) sendInitMsg() error {
+	msg := lnwire.NewInitMessage(
+		p.server.globalFeatures,
+		p.server.localFeatures,
+	)
+
+	p.queueMsg(msg, nil)
+	return nil
 }
 
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC

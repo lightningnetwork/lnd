@@ -6,22 +6,22 @@ import (
 	"testing"
 )
 
-func TestCancelHTLCEncodeDecode(t *testing.T) {
-	// First create a new HTLCTR message.
-	cancelMsg := &CancelHTLC{
-		ChannelPoint: outpoint1,
-		HTLCKey:      22,
-		Reason:       UnknownPaymentHash,
+func TestUpdateFailHTLC(t *testing.T) {
+	// First create a new UFH message.
+	cancelMsg := &UpdateFailHTLC{
+		ChannelPoint: *outpoint1,
+		ID:           22,
 	}
+	copy(cancelMsg.Reason[:], bytes.Repeat([]byte{21}, 20))
 
-	// Next encode the HTLCTR message into an empty bytes buffer.
+	// Next encode the UFH message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := cancelMsg.Encode(&b, 0); err != nil {
 		t.Fatalf("unable to encode CancelHTLC: %v", err)
 	}
 
-	// Deserialize the encoded HTLCTR message into a new empty struct.
-	cancelMsg2 := &CancelHTLC{}
+	// Deserialize the encoded UFH message into a new empty struct.
+	cancelMsg2 := &UpdateFailHTLC{}
 	if err := cancelMsg2.Decode(&b, 0); err != nil {
 		t.Fatalf("unable to decode CancelHTLC: %v", err)
 	}

@@ -24,22 +24,6 @@ const MaxSliceLength = 65535
 // key script.
 type PkScript []byte
 
-// HTLCKey is an identifier used to uniquely identify any HTLCs transmitted
-// between Alice and Bob. In order to cancel, timeout, or settle HTLCs this
-// identifier should be used to allow either side to easily locate and modify
-// any staged or pending HTLCs.
-// TODO(roasbeef): change to HTLCIdentifier?
-type HTLCKey int64
-
-// CommitHeight is an integer which represents the highest HTLCKey seen by
-// either side within their commitment transaction. Any addition to the pending,
-// HTLC lists on either side will increment this height. As a result this value
-// should always be monotonically increasing. Any CommitSignature or
-// CommitRevocation messages will reference a value for the commitment height
-// up to which it covers. HTLCs are only explicitly excluded by sending
-// HTLCReject messages referencing a particular HTLCKey.
-type CommitHeight uint64
-
 // CreditsAmount are the native currency unit used within the Lightning Network.
 // Credits are denominated in sub-satoshi amounts, so micro-satoshis (1/1000).
 // This value is purposefully signed in order to allow the expression of negative
@@ -88,7 +72,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case CancelReason:
+	case FailCode:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], uint16(e))
 		if _, err := w.Write(b[:]); err != nil {
@@ -100,8 +84,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case CreditsAmount:
-		if err := binary.Write(w, binary.BigEndian, int64(e)); err != nil {
+	case btcutil.Amount:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
 	case uint32:
@@ -114,14 +100,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
 		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-	case HTLCKey:
-		if err := binary.Write(w, binary.BigEndian, int64(e)); err != nil {
-			return err
-		}
-	case btcutil.Amount:
-		if err := binary.Write(w, binary.BigEndian, int64(e)); err != nil {
 			return err
 		}
 	case *btcec.PublicKey:
@@ -186,48 +164,14 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
-	case [][32]byte:
-		// First write out the number of elements in the slice.
-		sliceSize := len(e)
-		if err := writeElement(w, uint16(sliceSize)); err != nil {
-			return err
-		}
-
-		// Then write each out sequentially.
-		for _, element := range e {
-			if err := writeElement(w, element); err != nil {
-				return err
-			}
-		}
-	case [32]byte:
-		// TODO(roasbeef): should be factor out to caller logic...
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-	case [33]byte:
-		// TODO(roasbeef): should be factor out to caller logic...
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
 	case wire.BitcoinNet:
 		var b [4]byte
 		binary.BigEndian.PutUint32(b[:], uint32(e))
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case [4]byte:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
 	case []byte:
-		// Enforce the maxmium length of all slices used in the wire
-		// protocol.
-		sliceLength := len(e)
-		if sliceLength > MaxSliceLength {
-			return fmt.Errorf("Slice length too long!")
-		}
-
-		if err := wire.WriteVarBytes(w, 0, e); err != nil {
+		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
 	case PkScript:
@@ -360,7 +304,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case Alias:
-		if err := writeElements(w, ([32]byte)(e.data)); err != nil {
+		if err := writeElements(w, e.data[:]); err != nil {
 			return err
 		}
 
@@ -394,12 +338,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = b[0]
-	case *CancelReason:
+	case *FailCode:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
-		*e = CancelReason(binary.BigEndian.Uint16(b[:]))
+		*e = FailCode(binary.BigEndian.Uint16(b[:]))
 	case *uint16:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -412,12 +356,6 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = ErrorCode(binary.BigEndian.Uint16(b[:]))
-	case *CreditsAmount:
-		var b [8]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = CreditsAmount(int64(binary.BigEndian.Uint64(b[:])))
 	case *uint32:
 		var b [4]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -430,12 +368,6 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint64(b[:])
-	case *HTLCKey:
-		var b [8]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = HTLCKey(int64(binary.BigEndian.Uint64(b[:])))
 	case *btcutil.Amount:
 		var b [8]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -518,33 +450,6 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case *[][32]byte:
-		// How many to read
-		var sliceSize uint16
-		err = readElement(r, &sliceSize)
-		if err != nil {
-			return err
-		}
-
-		data := make([][32]byte, 0, sliceSize)
-		// Append the actual
-		for i := uint16(0); i < sliceSize; i++ {
-			var element [32]byte
-			err = readElement(r, &element)
-			if err != nil {
-				return err
-			}
-			data = append(data, element)
-		}
-		*e = data
-	case *[32]byte:
-		if _, err = io.ReadFull(r, e[:]); err != nil {
-			return err
-		}
-	case *[33]byte:
-		if _, err = io.ReadFull(r, e[:]); err != nil {
-			return err
-		}
 	case *wire.BitcoinNet:
 		var b [4]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -552,16 +457,10 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
 		return nil
-	case *[4]byte:
-		if _, err := io.ReadFull(r, e[:]); err != nil {
+	case []byte:
+		if _, err := io.ReadFull(r, e); err != nil {
 			return err
 		}
-	case *[]byte:
-		b, err := wire.ReadVarBytes(r, 0, MaxSliceLength, "byte slice")
-		if err != nil {
-			return err
-		}
-		*e = b
 	case *PkScript:
 		pkScript, err := wire.ReadVarBytes(r, 0, 25, "pkscript")
 		if err != nil {
@@ -687,7 +586,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 	case *Alias:
 		var a [32]byte
-		if err := readElements(r, &a); err != nil {
+		if err := readElements(r, a[:]); err != nil {
 			return err
 		}
 

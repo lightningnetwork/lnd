@@ -82,7 +82,7 @@ type Config struct {
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
 	SendToSwitch func(firstHop *btcec.PublicKey,
-		htlcAdd *lnwire.HTLCAddRequest) error
+		htlcAdd *lnwire.UpdateAddHTLC) error
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -1126,11 +1126,11 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) (*Route, error) {
 	// Craft an HTLC packet to send to the layer 2 switch. The metadata
 	// within this packet will be used to route the payment through the
 	// network, starting with the first-hop.
-	htlcAdd := &lnwire.HTLCAddRequest{
-		Amount:           route.TotalAmount,
-		RedemptionHashes: [][32]byte{payment.PaymentHash},
-		OnionBlob:        sphinxPacket,
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      route.TotalAmount,
+		PaymentHash: payment.PaymentHash,
 	}
+	copy(htlcAdd.OnionBlob[:], sphinxPacket)
 
 	// Attempt to send this payment through the network to complete the
 	// payment. If this attempt fails, then we'll bail our early.

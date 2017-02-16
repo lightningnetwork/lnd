@@ -332,7 +332,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// number and send ErrorGeneric to remote peer if condition is violated.
 	if len(f.activeReservations[fmsg.peer.id]) >= cfg.MaxPendingChannels {
 		errMsg := &lnwire.ErrorGeneric{
-			ChannelPoint: &wire.OutPoint{
+			ChannelPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 0,
 			},
@@ -354,7 +354,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	}
 	if !isSynced {
 		errMsg := &lnwire.ErrorGeneric{
-			ChannelPoint: &wire.OutPoint{
+			ChannelPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 0,
 			},
@@ -479,7 +479,8 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	// contribution. At this point, we can process their contribution which
 	// allows us to construct and sign both the commitment transaction, and
 	// the funding transaction.
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript,
+		activeNetParams.Params)
 	if err != nil {
 		fndgLog.Errorf("Unable to extract addresses from script: %v", err)
 		resCtx.err <- err
@@ -523,7 +524,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 	revocationKey := resCtx.reservation.OurContribution().RevocationKey
 	obsfucator := resCtx.reservation.StateNumObfuscator()
 
-	fundingComplete := lnwire.NewSingleFundingComplete(chanID, outPoint,
+	fundingComplete := lnwire.NewSingleFundingComplete(chanID, *outPoint,
 		commitSig, revocationKey, obsfucator)
 	sourcePeer.queueMsg(fundingComplete, nil)
 }
@@ -564,7 +565,7 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
-	err = resCtx.reservation.CompleteReservationSingle(revokeKey, fundingOut,
+	err = resCtx.reservation.CompleteReservationSingle(revokeKey, &fundingOut,
 		commitSig, obsfucator)
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
@@ -586,7 +587,7 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 
 	// Register a new barrier for this channel to properly synchronize with
 	// the peer's readHandler once the channel is open.
-	fmsg.peer.barrierInits <- *fundingOut
+	fmsg.peer.barrierInits <- fundingOut
 
 	fndgLog.Infof("sending signComplete for pendingID(%v) over ChannelPoint(%v)",
 		fmsg.msg.ChannelID, fundingOut)

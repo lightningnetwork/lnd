@@ -247,7 +247,7 @@ out:
 				continue
 			}
 
-			wireMsg := htlcPkt.msg.(*lnwire.HTLCAddRequest)
+			wireMsg := htlcPkt.msg.(*lnwire.UpdateAddHTLC)
 			amt := btcutil.Amount(wireMsg.Amount)
 
 			// Handle this send request in a distinct goroutine in
@@ -289,10 +289,10 @@ out:
 			switch wireMsg := pkt.msg.(type) {
 			// A link has just forwarded us a new HTLC, therefore
 			// we initiate the payment circuit within our internal
-			// state so we can properly forward the ultimate
-			// settle message.
-			case *lnwire.HTLCAddRequest:
-				payHash := wireMsg.RedemptionHashes[0]
+			// state so we can properly forward the ultimate settle
+			// message.
+			case *lnwire.UpdateAddHTLC:
+				payHash := wireMsg.PaymentHash
 
 				// Create the two ends of the payment circuit
 				// required to ensure completion of this new
@@ -314,8 +314,8 @@ out:
 					// origin.
 					cancelPkt := &htlcPacket{
 						payHash: payHash,
-						msg: &lnwire.CancelHTLC{
-							Reason: lnwire.UnknownDestination,
+						msg: &lnwire.UpdateFailHTLC{
+							Reason: []byte{uint8(lnwire.UnknownDestination)},
 						},
 						err: make(chan error, 1),
 					}
@@ -346,8 +346,8 @@ out:
 
 					pkt := &htlcPacket{
 						payHash: payHash,
-						msg: &lnwire.CancelHTLC{
-							Reason: lnwire.InsufficientCapacity,
+						msg: &lnwire.UpdateFailHTLC{
+							Reason: []byte{uint8(lnwire.InsufficientCapacity)},
 						},
 						err: make(chan error, 1),
 					}
@@ -361,7 +361,7 @@ out:
 					settle: settleLink,
 				}
 
-				cKey := circuitKey(wireMsg.RedemptionHashes[0])
+				cKey := circuitKey(wireMsg.PaymentHash)
 				h.paymentCircuits[cKey] = circuit
 
 				hswcLog.Debugf("Creating onion circuit for %x: %v<->%v",
@@ -391,8 +391,8 @@ out:
 			// can finalize the payment circuit by forwarding the
 			// settle msg to the link which initially created the
 			// circuit.
-			case *lnwire.HTLCSettleRequest:
-				rHash := fastsha256.Sum256(wireMsg.RedemptionProofs[0][:])
+			case *lnwire.UpdateFufillHTLC:
+				rHash := fastsha256.Sum256(wireMsg.PaymentPreimage[:])
 				var cKey circuitKey
 				copy(cKey[:], rHash[:])
 
@@ -434,7 +434,7 @@ out:
 			// by an upstream peer somewhere within the ultimate
 			// route. In response, we'll terminate the payment
 			// circuit and propagate the error backwards.
-			case *lnwire.CancelHTLC:
+			case *lnwire.UpdateFailHTLC:
 				// In order to properly handle the error, we'll
 				// need to look up the original circuit that
 				// the incoming HTLC created.

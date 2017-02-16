@@ -455,7 +455,7 @@ func (h *HTLC) Copy() HTLC {
 type ChannelDelta struct {
 	LocalBalance  btcutil.Amount
 	RemoteBalance btcutil.Amount
-	UpdateNum     uint32
+	UpdateNum     uint64
 
 	// TODO(roasbeef): add blockhash or timestamp?
 
@@ -554,7 +554,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 
 		var err error
 		delta, err = fetchChannelLogEntry(logBucket, c.ChanID,
-			uint32(updateNum))
+			updateNum)
 
 		return err
 	})
@@ -1760,8 +1760,8 @@ func serializeChannelDelta(w io.Writer, delta *ChannelDelta) error {
 		return err
 	}
 
-	byteOrder.PutUint32(scratch[:4], delta.UpdateNum)
-	if _, err := w.Write(scratch[:4]); err != nil {
+	byteOrder.PutUint64(scratch[:], delta.UpdateNum)
+	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
 
@@ -1795,10 +1795,10 @@ func deserializeChannelDelta(r io.Reader) (*ChannelDelta, error) {
 	}
 	delta.RemoteBalance = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if _, err := r.Read(scratch[:4]); err != nil {
+	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err
 	}
-	delta.UpdateNum = byteOrder.Uint32(scratch[:4])
+	delta.UpdateNum = byteOrder.Uint64(scratch[:])
 
 	numHtlcs, err := wire.ReadVarInt(r, 0)
 	if err != nil {
@@ -1817,20 +1817,20 @@ func deserializeChannelDelta(r io.Reader) (*ChannelDelta, error) {
 	return delta, nil
 }
 
-func makeLogKey(o *wire.OutPoint, updateNum uint32) [40]byte {
+func makeLogKey(o *wire.OutPoint, updateNum uint64) [40]byte {
 	var (
-		scratch [4]byte
+		scratch [8]byte
 		n       int
 		k       [40]byte
 	)
 
 	n += copy(k[:], o.Hash[:])
 
-	byteOrder.PutUint32(scratch[:], o.Index)
-	copy(k[n:], scratch[:])
+	byteOrder.PutUint32(scratch[:4], o.Index)
+	copy(k[n:], scratch[:4])
 	n += 4
 
-	byteOrder.PutUint32(scratch[:], updateNum)
+	byteOrder.PutUint64(scratch[:], updateNum)
 	copy(k[n:], scratch[:])
 
 	return k
@@ -1849,7 +1849,7 @@ func appendChannelLogEntry(log *bolt.Bucket, delta *ChannelDelta,
 }
 
 func fetchChannelLogEntry(log *bolt.Bucket, chanPoint *wire.OutPoint,
-	updateNum uint32) (*ChannelDelta, error) {
+	updateNum uint64) (*ChannelDelta, error) {
 
 	logEntrykey := makeLogKey(chanPoint, updateNum)
 	deltaBytes := log.Get(logEntrykey[:])

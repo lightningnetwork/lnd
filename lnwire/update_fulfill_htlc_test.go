@@ -6,23 +6,20 @@ import (
 	"testing"
 )
 
-func TestHTLCSettleRequestEncodeDecode(t *testing.T) {
-	redemptionProofs := make([][32]byte, 1)
-	redemptionProofs[0] = revHash
-
+func TestUpdateFufillHTLCEncodeDecode(t *testing.T) {
 	// First create a new HTLCSR message.
-	settleReq := NewHTLCSettleRequest(outpoint1, HTLCKey(23), redemptionProofs)
+	settleReq := NewUpdateFufillHTLC(*outpoint1, 23, revHash)
 
 	// Next encode the HTLCSR message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := settleReq.Encode(&b, 0); err != nil {
-		t.Fatalf("unable to encode HTLCSettleRequest: %v", err)
+		t.Fatalf("unable to encode UpdateFufillHTLC: %v", err)
 	}
 
 	// Deserialize the encoded SFOP message into a new empty struct.
-	settleReq2 := &HTLCSettleRequest{}
+	settleReq2 := &UpdateFufillHTLC{}
 	if err := settleReq2.Decode(&b, 0); err != nil {
-		t.Fatalf("unable to decode HTLCSettleRequest: %v", err)
+		t.Fatalf("unable to decode UpdateFufillHTLC: %v", err)
 	}
 
 	// Assert equality of the two instances.

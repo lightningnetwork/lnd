@@ -22,6 +22,8 @@ const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
 
 // Commands used in lightning message headers which detail the type of message.
 const (
+	CmdInit = uint32(1)
+
 	// Commands for opening a channel funded by one party (single funder).
 	CmdSingleFundingRequest      = uint32(100)
 	CmdSingleFundingResponse     = uint32(110)
@@ -88,6 +90,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 	var msg Message
 
 	switch command {
+	case CmdInit:
+		msg = &Init{}
 	case CmdSingleFundingRequest:
 		msg = &SingleFundingRequest{}
 	case CmdSingleFundingResponse:

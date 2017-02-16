@@ -4,28 +4,24 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
-
-	"github.com/roasbeef/btcutil"
 )
 
-func TestCommitSignatureEncodeDecode(t *testing.T) {
-	commitSignature := &CommitSignature{
-		ChannelPoint: outpoint1,
-		Fee:          btcutil.Amount(10000),
-		LogIndex:     5,
+func TestCommitSigEncodeDecode(t *testing.T) {
+	commitSignature := &CommitSig{
+		ChannelPoint: *outpoint1,
 		CommitSig:    commitSig,
 	}
 
 	// Next encode the CS message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := commitSignature.Encode(&b, 0); err != nil {
-		t.Fatalf("unable to encode CommitSignature: %v", err)
+		t.Fatalf("unable to encode CommitSig: %v", err)
 	}
 
 	// Deserialize the encoded EG message into a new empty struct.
-	commitSignature2 := &CommitSignature{}
+	commitSignature2 := &CommitSig{}
 	if err := commitSignature2.Decode(&b, 0); err != nil {
-		t.Fatalf("unable to decode CommitSignature: %v", err)
+		t.Fatalf("unable to decode CommitSig: %v", err)
 	}
 
 	// Assert equality of the two instances.

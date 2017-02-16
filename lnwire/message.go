@@ -44,7 +44,7 @@ const (
 	CmdCancelHTLC        = uint32(1300)
 
 	// Commands for modifying commitment transactions.
-	CmdCommitSignature  = uint32(2000)
+	CmdCommitSig    = uint32(2000)
 	CmdRevokeAndAck = uint32(2010)
 
 	// Commands for reporting protocol errors.
@@ -115,8 +115,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &HTLCSettleRequest{}
 	case CmdCancelHTLC:
 		msg = &CancelHTLC{}
-	case CmdCommitSignature:
-		msg = &CommitSignature{}
+	case CmdCommitSig:
+		msg = &CommitSig{}
 	case CmdRevokeAndAck:
 		msg = &RevokeAndAck{}
 	case CmdErrorGeneric:

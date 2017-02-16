@@ -39,7 +39,7 @@ type ErrorGeneric struct {
 	// ChannelPoint references the active channel in which the error
 	// occurred within. A ChannelPoint of zeroHash:0 denotes this error
 	// applies to the entire established connection.
-	ChannelPoint *wire.OutPoint
+	ChannelPoint wire.OutPoint
 
 	// PendingChannelID allows peers communicate errors in the context of a
 	// particular pending channel. With this field, once a peer reads an

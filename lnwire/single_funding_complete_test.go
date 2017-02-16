@@ -11,7 +11,7 @@ func TestSingleFundingCompleteWire(t *testing.T) {
 	copy(obsfucator[:], bytes.Repeat([]byte("k"), 4))
 
 	// First create a new SFC message.
-	sfc := NewSingleFundingComplete(22, outpoint1, commitSig1, pubKey,
+	sfc := NewSingleFundingComplete(22, *outpoint1, commitSig1, pubKey,
 		obsfucator)
 
 	// Next encode the SFC message into an empty bytes buffer.

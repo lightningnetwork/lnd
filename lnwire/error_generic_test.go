@@ -8,7 +8,7 @@ import (
 
 func TestErrorGenericEncodeDecode(t *testing.T) {
 	eg := &ErrorGeneric{
-		ChannelPoint:     outpoint1,
+		ChannelPoint:     *outpoint1,
 		PendingChannelID: 1,
 		Code:             99,
 		Problem:          "Hello world!",

@@ -230,7 +230,8 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err := e.Encode(w); err != nil {
 			return err
 		}
-	case *wire.OutPoint:
+
+	case wire.OutPoint:
 		// TODO(roasbeef): consolidate with above
 		// First write out the previous txid.
 		var h [32]byte
@@ -514,7 +515,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
-	case **wire.OutPoint:
+	case *wire.OutPoint:
 		// TODO(roasbeef): consolidate with above
 		var h [32]byte
 		if _, err = io.ReadFull(r, h[:]); err != nil {
@@ -532,7 +533,7 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		index := binary.BigEndian.Uint32(idxBytes[:])
 
-		*e = wire.NewOutPoint(hash, index)
+		*e = wire.OutPoint{Hash: *hash, Index: index}
 	case *int64, *float64:
 		err := binary.Read(r, binary.BigEndian, e)
 		if err != nil {

@@ -22,7 +22,7 @@ import (
 // know the order of the inputs/outputs.
 type CloseRequest struct {
 	// ChannelPoint serves to identify which channel is to be closed.
-	ChannelPoint *wire.OutPoint
+	ChannelPoint wire.OutPoint
 
 	// RequesterCloseSig is the signature of the requester for the fully
 	// assembled closing transaction.
@@ -36,7 +36,7 @@ type CloseRequest struct {
 }
 
 // NewCloseRequest creates a new CloseRequest.
-func NewCloseRequest(cp *wire.OutPoint, sig *btcec.Signature) *CloseRequest {
+func NewCloseRequest(cp wire.OutPoint, sig *btcec.Signature) *CloseRequest {
 	// TODO(roasbeef): update once fees aren't hardcoded
 	return &CloseRequest{
 		ChannelPoint:      cp,

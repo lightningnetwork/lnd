@@ -23,7 +23,7 @@ type SingleFundingComplete struct {
 	// FundingOutPoint is the outpoint (txid:index) of the funding
 	// transaction. With this value, Bob will be able to generate a
 	// signature for Alice's version of the commitment transaction.
-	FundingOutPoint *wire.OutPoint
+	FundingOutPoint wire.OutPoint
 
 	// CommitSignature is Alice's signature for Bob's version of the
 	// commitment transaction.
@@ -46,7 +46,7 @@ type SingleFundingComplete struct {
 
 // NewSingleFundingComplete creates, and returns a new empty
 // SingleFundingResponse.
-func NewSingleFundingComplete(chanID uint64, fundingPoint *wire.OutPoint,
+func NewSingleFundingComplete(chanID uint64, fundingPoint wire.OutPoint,
 	commitSig *btcec.Signature, revokeKey *btcec.PublicKey,
 	obsfucator [4]byte) *SingleFundingComplete {
 
@@ -74,7 +74,7 @@ func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 		&s.FundingOutPoint,
 		&s.CommitSignature,
 		&s.RevocationKey,
-		&s.StateHintObsfucator)
+		s.StateHintObsfucator[:])
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 		s.FundingOutPoint,
 		s.CommitSignature,
 		s.RevocationKey,
-		s.StateHintObsfucator)
+		s.StateHintObsfucator[:])
 	if err != nil {
 		return err
 	}

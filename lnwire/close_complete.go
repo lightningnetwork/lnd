@@ -19,7 +19,7 @@ import (
 // inputs/outputs.
 type CloseComplete struct {
 	// ChannelPoint serves to identify which channel is to be closed.
-	ChannelPoint *wire.OutPoint
+	ChannelPoint wire.OutPoint
 
 	// ResponderCloseSig is the signature of the responder for the
 	// transaction which closes the previously active channel.

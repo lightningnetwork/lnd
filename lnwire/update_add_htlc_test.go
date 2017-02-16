@@ -4,22 +4,20 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
+
 	"github.com/roasbeef/btcutil"
 )
 
-func TestHTLCAddRequestEncodeDecode(t *testing.T) {
-	redemptionHashes := make([][32]byte, 1)
-	redemptionHashes[0] = revHash
-
-	// First create a new HTLCAR message.
-	addReq := &HTLCAddRequest{
-		ChannelPoint:     outpoint1,
-		Expiry:           uint32(144),
-		Amount:           btcutil.Amount(123456000),
-		ContractType:     uint8(17),
-		RedemptionHashes: redemptionHashes,
-		OnionBlob:        []byte{255, 0, 255, 0, 255, 0, 255, 0},
+func TestUpdateAddHTLCEncodeDecode(t *testing.T) {
+	// First create a new UPAH message.
+	addReq := &UpdateAddHTLC{
+		ChannelPoint: *outpoint1,
+		ID:           99,
+		Expiry:       uint32(144),
+		Amount:       btcutil.Amount(123456000),
+		PaymentHash:  revHash,
 	}
+	copy(addReq.OnionBlob[:], bytes.Repeat([]byte{23}, OnionPacketSize))
 
 	// Next encode the HTLCAR message into an empty bytes buffer.
 	var b bytes.Buffer
@@ -27,8 +25,8 @@ func TestHTLCAddRequestEncodeDecode(t *testing.T) {
 		t.Fatalf("unable to encode HTLCAddRequest: %v", err)
 	}
 
-	// Deserialize the encoded HTLCAR message into a new empty struct.
-	addReq2 := &HTLCAddRequest{}
+	// Deserialize the encoded UPAH message into a new empty struct.
+	addReq2 := &UpdateAddHTLC{}
 	if err := addReq2.Decode(&b, 0); err != nil {
 		t.Fatalf("unable to decode HTLCAddRequest: %v", err)
 	}

@@ -37,11 +37,10 @@ const (
 	CmdCloseComplete = uint32(310)
 
 	// Commands for negotiating HTLCs.
-	CmdHTLCAddRequest    = uint32(1000)
-	CmdHTLCAddAccept     = uint32(1010)
 	CmdHTLCAddReject     = uint32(1020)
 	CmdHTLCSettleRequest = uint32(1100)
 	CmdCancelHTLC        = uint32(1300)
+	CmdUpdateAddHTLC    = uint32(1000)
 
 	// Commands for modifying commitment transactions.
 	CmdCommitSig    = uint32(2000)
@@ -107,14 +106,14 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CloseRequest{}
 	case CmdCloseComplete:
 		msg = &CloseComplete{}
-	case CmdHTLCAddRequest:
-		msg = &HTLCAddRequest{}
 	case CmdHTLCAddReject:
 		msg = &HTLCAddReject{}
 	case CmdHTLCSettleRequest:
 		msg = &HTLCSettleRequest{}
 	case CmdCancelHTLC:
 		msg = &CancelHTLC{}
+	case CmdUpdateAddHTLC:
+		msg = &UpdateAddHTLC{}
 	case CmdCommitSig:
 		msg = &CommitSig{}
 	case CmdRevokeAndAck:

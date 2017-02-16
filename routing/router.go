@@ -831,6 +831,8 @@ func (r *ChannelRouter) syncChannelGraph(syncReq *syncRequest) error {
 			chanID = lnwire.NewChanIDFromInt(e1.ChannelID)
 		case e2 != nil:
 			chanID = lnwire.NewChanIDFromInt(e2.ChannelID)
+		case e1 == nil && e2 == nil:
+			return nil
 		default:
 			chanID = lnwire.NewChanIDFromInt(e1.ChannelID)
 		}

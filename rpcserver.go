@@ -1601,6 +1601,8 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 			chanCapacity = c2.Capacity
 		case c2 == nil:
 			chanCapacity = c1.Capacity
+		case c1 == nil && c2 == nil:
+			return nil
 		default:
 			chanCapacity = c1.Capacity
 		}

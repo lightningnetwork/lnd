@@ -282,6 +282,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
+	case *FeatureVector:
+		if err := e.Encode(w); err != nil {
+			return err
+		}
 	case *wire.OutPoint:
 		// TODO(roasbeef): consolidate with above
 		// First write out the previous txid.
@@ -455,6 +459,14 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = pubKey
+	case **FeatureVector:
+		f, err := NewFeatureVectorFromReader(r)
+		if err != nil {
+			return err
+		}
+
+		*e = f
+
 	case *[]uint64:
 		var numItems uint16
 		if err := readElement(r, &numItems); err != nil {

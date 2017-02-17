@@ -86,12 +86,12 @@ func (msg *Init) MaxPayloadLength(uint32) uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Validate() error {
-	if msg.GlobalFeatures.SerializedSize() > maxAllowedSize {
+	if msg.GlobalFeatures.serializedSize() > maxAllowedSize {
 		return errors.Errorf("global feature vector exceed max allowed "+
 			"size %v", maxAllowedSize)
 	}
 
-	if msg.LocalFeatures.SerializedSize() > maxAllowedSize {
+	if msg.LocalFeatures.serializedSize() > maxAllowedSize {
 		return errors.Errorf("local feature vector exceed max allowed "+
 			"size %v", maxAllowedSize)
 	}

@@ -137,8 +137,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		broadcastRequests: make(chan *broadcastReq),
 		sendRequests:      make(chan *sendReq),
 
-		globalFeatures: lnwire.NewFeatureVector(globalFeaturesMap),
-		localFeatures: lnwire.NewFeatureVector(localFeaturesMap),
+		globalFeatures: globalFeatures,
+		localFeatures: localFeatures,
 
 		queries: make(chan interface{}),
 		quit:    make(chan struct{}),

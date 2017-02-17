@@ -27,17 +27,6 @@ func (f featureFlag) String() string {
 // compile errors if we specify wrong feature name.
 type featureName string
 
-// FeaturesMap is the map which stores the correspondence between feature name
-// and its index within feature vector.
-//
-// NOTE: Index within feature vector and actual binary position of feature
-// are different things)
-type FeaturesMap map[featureName]int
-
-// indexToFlag is the map which stores the correspondence between feature
-// position and its flag.
-type indexToFlag map[int]featureFlag
-
 const (
 	// OptionalFlag represent the feature which we already have but it isn't
 	// required yet, and if remote peer doesn't have this feature we may
@@ -70,25 +59,47 @@ const (
 	maxAllowedSize = 32781
 )
 
+// Feature represent the feature which is used on stage of initialization of
+// feature vector. Initial feature flags might be changed dynamically later.
+type Feature struct {
+	Name featureName
+	Flag featureFlag
+}
+
 // FeatureVector represents the global/local feature vector. With this structure
 // you may set/get the feature by name and compare feature vector with remote
 // one.
 type FeatureVector struct {
-	features FeaturesMap // name -> index
-	flags    indexToFlag // index -> flag
+	// featuresMap is the map which stores the correspondence between
+	// feature name and its index within feature vector. Index within
+	// feature vector and actual binary position of feature
+	// are different things)
+	featuresMap map[featureName]int // name -> index
+
+	// flags is the map which stores the correspondence between feature
+	// index and its flag.
+	flags map[int]featureFlag // index -> flag
 }
 
 // NewFeatureVector creates new instance of feature vector.
-func NewFeatureVector(features FeaturesMap) *FeatureVector {
+func NewFeatureVector(features []Feature) *FeatureVector {
+	featuresMap := make(map[featureName]int)
+	flags := make(map[int]featureFlag)
+
+	for index, feature := range features {
+		featuresMap[feature.Name] = index
+		flags[index] = feature.Flag
+	}
+
 	return &FeatureVector{
-		features: features,
-		flags:    make(indexToFlag),
+		featuresMap: featuresMap,
+		flags:       flags,
 	}
 }
 
 // SetFeatureFlag assign flag to the feature.
 func (f *FeatureVector) SetFeatureFlag(name featureName, flag featureFlag) error {
-	position, ok := f.features[name]
+	position, ok := f.featuresMap[name]
 	if !ok {
 		return errors.Errorf("can't find feature with name: %v", name)
 	}
@@ -97,16 +108,16 @@ func (f *FeatureVector) SetFeatureFlag(name featureName, flag featureFlag) error
 	return nil
 }
 
-// SerializedSize returns the number of bytes which is needed to represent feature
-// vector in byte format.
-func (f *FeatureVector) SerializedSize() uint16 {
+// serializedSize returns the number of bytes which is needed to represent
+// feature vector in byte format.
+func (f *FeatureVector) serializedSize() uint16 {
 	return uint16(math.Ceil(float64(flagBitsSize*len(f.flags)) / 8))
 }
 
 // String returns the feature vector description.
 func (f *FeatureVector) String() string {
 	var description string
-	for name, index := range f.features {
+	for name, index := range f.featuresMap {
 		if flag, ok := f.flags[index]; ok {
 			description += fmt.Sprintf("%s: %s\n", name, flag)
 		}
@@ -128,7 +139,7 @@ func (f *FeatureVector) String() string {
 // later become compulsory.
 func NewFeatureVectorFromReader(r io.Reader) (*FeatureVector, error) {
 	f := &FeatureVector{
-		flags: make(indexToFlag),
+		flags: make(map[int]featureFlag),
 	}
 
 	getFlag := func(data []byte, position int) featureFlag {
@@ -186,7 +197,7 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 
 	// Write length of feature vector.
 	var l [2]byte
-	length := f.SerializedSize()
+	length := f.serializedSize()
 	binary.BigEndian.PutUint16(l[:], length)
 	if _, err := w.Write(l[:]); err != nil {
 		return err
@@ -214,7 +225,7 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 // are incompatible.
 func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
 	error) {
-	shared := NewSharedFeatures(local.features)
+	shared := newSharedFeatures(local.Copy())
 
 	for index, flag := range local.flags {
 		if _, exist := remote.flags[index]; !exist {
@@ -225,6 +236,7 @@ func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
 			case OptionalFlag:
 				// If feature is optional and remote side
 				// haven't it than it might be safely disabled.
+				delete(shared.flags, index)
 				continue
 			}
 		}
@@ -243,6 +255,7 @@ func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
 			case OptionalFlag:
 				// If feature is optional and local side
 				// haven't it than it might be safely disabled.
+				delete(shared.flags, index)
 				continue
 			}
 		}
@@ -255,6 +268,20 @@ func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
 	return shared, nil
 }
 
+// Copy generate new distinct instance of the feature vector.
+func (f *FeatureVector) Copy() *FeatureVector {
+	features := make([]Feature, len(f.featuresMap))
+
+	for name, index := range f.featuresMap {
+		features[index] = Feature{
+			Name: name,
+			Flag: f.flags[index],
+		}
+	}
+
+	return NewFeatureVector(features)
+}
+
 // SharedFeatures is a product of comparison of two features vector
 // which consist of features which are present in both local and remote
 // features vectors.
@@ -262,22 +289,22 @@ type SharedFeatures struct {
 	*FeatureVector
 }
 
-// NewSharedFeatures creates new shared features instance.
-func NewSharedFeatures(features FeaturesMap) *SharedFeatures {
-	return &SharedFeatures{NewFeatureVector(features)}
+// newSharedFeatures creates new shared features instance.
+func newSharedFeatures(f *FeatureVector) *SharedFeatures {
+	return &SharedFeatures{f}
 }
 
 // IsActive checks is feature active or not, it might be disabled during
 // comparision with remote feature vector if it was optional and
 // remote peer doesn't support it.
 func (f *SharedFeatures) IsActive(name featureName) bool {
-	position, ok := f.features[name]
+	index, ok := f.featuresMap[name]
 	if !ok {
 		// If we even have no such feature in feature map, than it
 		// can't be active in any circumstances.
 		return false
 	}
 
-	_, exist := f.flags[position]
+	_, exist := f.flags[index]
 	return exist
 }

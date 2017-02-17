@@ -87,27 +87,19 @@ type NodeAnnouncement struct {
 	// announcements.
 	Timestamp uint32
 
-	// Address includes two specification fields: 'ipv6' and
-	// 'port' on which the node is accepting incoming connections.
-	Address *net.TCPAddr
-
-	// NodeID is a public key which is used as node
-	// identification.
+	// NodeID is a public key which is used as node identification.
 	NodeID *btcec.PublicKey
 
 	// RGBColor is used to customize their node's appearance in
 	// maps and graphs
 	RGBColor RGB
 
-	// TODO(roasbeef): add the global features here
-
-	// pad is used to reserve to additional bytes for future
-	// usage.
-	pad uint16
-
-	// Alias is used to customize their node's appearance in maps
-	// and graphs
+	// Alias is used to customize their node's appearance in maps and graphs
 	Alias Alias
+
+	// Address includes two specification fields: 'ipv6' and 'port' on which
+	// the node is accepting incoming connections.
+	Addresses []net.Addr
 }
 
 // A compile time check to ensure NodeAnnouncement implements the
@@ -131,27 +123,24 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.Signature,
 		&a.Timestamp,
-		&a.Address,
 		&a.NodeID,
 		&a.RGBColor,
-		&a.pad,
 		&a.Alias,
+		&a.Addresses,
 	)
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
 // observing the protocol version specified.
 //
-// This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.Signature,
 		a.Timestamp,
-		a.Address,
 		a.NodeID,
 		a.RGBColor,
-		a.pad,
 		a.Alias,
+		a.Addresses,
 	)
 }
 
@@ -168,34 +157,19 @@ func (a *NodeAnnouncement) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
-	var length uint32
-
 	// Signature - 64 bytes
-	length += 64
-
 	// Timestamp - 4 bytes
-	length += 4
-
-	// Ipv6 - 16 bytes
-	length += 16
-
-	// Port - 4 bytes
-	length += 4
-
 	// NodeID - 33 bytes
-	length += 33
-
 	// RGBColor - 3 bytes
-	length += 3
-
-	// pad - 2 bytes
-	length += 2
-
 	// Alias - 32 bytes
-	length += 32
+	// NumAddresses - 2 bytes
+	// AddressDescriptor - 1 byte
+	// Ipv4 - 4 bytes (optional)
+	// Ipv6 - 16 bytes (optional)
+	// Port - 2 bytes (optional)
 
-	// 158
-	return length
+	// Base size, 140, but can be variable due to multiple addresses
+	return 8192
 }
 
 // DataToSign returns the part of the message that should be signed.
@@ -205,11 +179,10 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	var w bytes.Buffer
 	err := writeElements(&w,
 		a.Timestamp,
-		a.Address,
 		a.NodeID,
 		a.RGBColor,
-		a.pad,
 		a.Alias,
+		a.Addresses,
 	)
 	if err != nil {
 		return nil, err

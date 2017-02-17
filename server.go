@@ -159,11 +159,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	if !ok {
 		return nil, fmt.Errorf("default listener must be TCP")
 	}
+	selfAddrs := []net.Addr{selfAddr}
 
 	chanGraph := chanDB.ChannelGraph()
 	self := &channeldb.LightningNode{
 		LastUpdate: time.Now(),
-		Address:    selfAddr,
+		Addresses:  selfAddrs,
 		PubKey:     privKey.PubKey(),
 		// TODO(roasbeef): make alias configurable
 		Alias: hex.EncodeToString(serializedPubKey[:10]),

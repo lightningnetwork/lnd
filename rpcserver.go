@@ -1381,12 +1381,21 @@ func (r *rpcServer) DescribeGraph(context.Context,
 	// within the graph), collating their current state into the RPC
 	// response.
 	err := graph.ForEachNode(func(node *channeldb.LightningNode) error {
+		nodeAddrs := make([]*lnrpc.NodeAddress, 0)
+		for _, addr := range node.Addresses {
+			nodeAddr := &lnrpc.NodeAddress{
+				Network: addr.Network(),
+				Addr:    addr.String(),
+			}
+			nodeAddrs = append(nodeAddrs, nodeAddr)
+		}
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
-			Address:    node.Address.String(),
+			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 		})
+
 		return nil
 	})
 	if err != nil {
@@ -1516,12 +1525,20 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 		return nil, err
 	}
 
+	nodeAddrs := make([]*lnrpc.NodeAddress, 0)
+	for _, addr := range node.Addresses {
+		nodeAddr := &lnrpc.NodeAddress{
+			Network: addr.Network(),
+			Addr:    addr.String(),
+		}
+		nodeAddrs = append(nodeAddrs, nodeAddr)
+	}
 	// TODO(roasbeef): list channels as well?
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     in.PubKey,
-			Address:    node.Address.String(),
+			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 		},
 		NumChannels:   numChannels,

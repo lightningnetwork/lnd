@@ -21,7 +21,9 @@ import (
 )
 
 var (
-	testAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	testAddrs = []net.Addr{testAddr}
 
 	randSource = prand.NewSource(time.Now().Unix())
 	randInts   = prand.New(randSource)
@@ -44,7 +46,7 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 	pub := priv.PubKey().SerializeCompressed()
 	return &LightningNode{
 		LastUpdate: time.Unix(updateTime, 0),
-		Address:    testAddr,
+		Addresses:  testAddrs,
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek" + string(pub[:]),
@@ -66,7 +68,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
 		LastUpdate: time.Unix(1232342, 0),
-		Address:    testAddr,
+		Addresses:  testAddrs,
 		PubKey:     testPub,
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek",

@@ -114,6 +114,16 @@ type ChannelGraph struct {
 	//  * LRU cache for edges?
 }
 
+// addressType specifies the network protocol and version that should be used
+// when connecting to a node at a particular address.
+type addressType uint8
+
+const (
+	tcp4Addr  addressType = 0
+	tcp6Addr  addressType = 1
+	onionAddr addressType = 2
+)
+
 // ForEachChannel iterates through all the channel edges stored within the
 // graph and invokes the passed callback for each edge. The callback takes two
 // edges as since this is a directed graph, both the in/out edges are visited.
@@ -801,7 +811,7 @@ type LightningNode struct {
 	LastUpdate time.Time
 
 	// Address is the TCP address this node is reachable over.
-	Address *net.TCPAddr
+	Addresses []net.Addr
 
 	// PubKey is the node's long-term identity public key. This key will be
 	// used to authenticated any advertisements/updates sent by the node.
@@ -1265,7 +1275,7 @@ func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 
 func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *LightningNode) error {
 	var (
-		scratch [8]byte
+		scratch [16]byte
 		b       bytes.Buffer
 	)
 
@@ -1276,13 +1286,8 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 	}
 
 	updateUnix := uint64(node.LastUpdate.Unix())
-	byteOrder.PutUint64(scratch[:], updateUnix)
-	if _, err := b.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	addrString := node.Address.String()
-	if err := wire.WriteVarString(&b, 0, addrString); err != nil {
+	byteOrder.PutUint64(scratch[:8], updateUnix)
+	if _, err := b.Write(scratch[:8]); err != nil {
 		return err
 	}
 
@@ -1304,6 +1309,41 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		return err
 	}
 
+	numAddresses := uint16(len(node.Addresses))
+	byteOrder.PutUint16(scratch[:2], numAddresses)
+	if _, err := b.Write(scratch[:2]); err != nil {
+		return err
+	}
+
+	for _, address := range node.Addresses {
+		if address.Network() == "tcp" {
+			if address.(*net.TCPAddr).IP.To4() != nil {
+				scratch[0] = uint8(tcp4Addr)
+				if _, err := b.Write(scratch[:1]); err != nil {
+					return err
+				}
+				copy(scratch[:4], address.(*net.TCPAddr).IP.To4())
+				if _, err := b.Write(scratch[:4]); err != nil {
+					return err
+				}
+			} else {
+				scratch[0] = uint8(tcp6Addr)
+				if _, err := b.Write(scratch[:1]); err != nil {
+					return err
+				}
+				copy(scratch[:], address.(*net.TCPAddr).IP.To16())
+				if _, err := b.Write(scratch[:]); err != nil {
+					return err
+				}
+			}
+			byteOrder.PutUint16(scratch[:2],
+				uint16(address.(*net.TCPAddr).Port))
+			if _, err := b.Write(scratch[:2]); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nodeBucket.Put(nodePub, b.Bytes())
 }
 
@@ -1321,8 +1361,8 @@ func fetchLightningNode(nodeBucket *bolt.Bucket,
 
 func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	node := &LightningNode{}
-
 	var scratch [8]byte
+
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err
 	}
@@ -1330,19 +1370,11 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	unix := int64(byteOrder.Uint64(scratch[:]))
 	node.LastUpdate = time.Unix(unix, 0)
 
-	addrString, err := wire.ReadVarString(r, 0)
-	if err != nil {
-		return nil, err
-	}
-	node.Address, err = net.ResolveTCPAddr("tcp", addrString)
-	if err != nil {
-		return nil, err
-	}
-
 	var pub [33]byte
 	if _, err := r.Read(pub[:]); err != nil {
 		return nil, err
 	}
+	var err error
 	node.PubKey, err = btcec.ParsePubKey(pub[:], btcec.S256())
 	if err != nil {
 		return nil, err
@@ -1362,6 +1394,51 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if _, err := r.Read(scratch[:2]); err != nil {
+		return nil, err
+	}
+	numAddresses := int(byteOrder.Uint16(scratch[:2]))
+
+	var addresses []net.Addr
+	for i := 0; i < numAddresses; i++ {
+		var address net.Addr
+		if _, err := r.Read(scratch[:1]); err != nil {
+			return nil, err
+		}
+
+		switch addressType(scratch[0]) {
+		case tcp4Addr:
+			addr := &net.TCPAddr{}
+			var ip [4]byte
+			if _, err := r.Read(ip[:]); err != nil {
+				return nil, err
+			}
+			addr.IP = (net.IP)(ip[:])
+			if _, err := r.Read(scratch[:2]); err != nil {
+				return nil, err
+			}
+			addr.Port = int(byteOrder.Uint16(scratch[:2]))
+			address = addr
+		case tcp6Addr:
+			addr := &net.TCPAddr{}
+			var ip [16]byte
+			if _, err := r.Read(ip[:]); err != nil {
+				return nil, err
+			}
+			addr.IP = (net.IP)(ip[:])
+			if _, err := r.Read(scratch[:2]); err != nil {
+				return nil, err
+			}
+			addr.Port = int(byteOrder.Uint16(scratch[:2]))
+			address = addr
+		default:
+			return nil, ErrUnknownAddressType
+		}
+
+		addresses = append(addresses, address)
+	}
+	node.Addresses = addresses
 
 	return node, nil
 }

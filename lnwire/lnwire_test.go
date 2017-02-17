@@ -56,7 +56,9 @@ var (
 	someSig, _   = btcec.ParseSignature(sigStr, btcec.S256())
 	someSigBytes = someSig.Serialize()
 
-	someAddress = &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8333}
+	someAddress         = &net.TCPAddr{IP: (net.IP)([]byte{0x7f, 0x0, 0x0, 0x1}), Port: 8333}
+	someOtherAddress, _ = net.ResolveTCPAddr("tcp", "[2001:db8:85a3:0:0:8a2e:370:7334]:80")
+	someAddresses       = []net.Addr{someAddress, someOtherAddress}
 
 	maxUint32 uint32 = (1 << 32) - 1
 	maxUint24 uint32 = (1 << 24) - 1

@@ -13,11 +13,10 @@ func TestNodeAnnouncementEncodeDecode(t *testing.T) {
 	cua := &NodeAnnouncement{
 		Signature: someSig,
 		Timestamp: maxUint32,
-		Address:   someAddress,
 		NodeID:    pubKey,
 		RGBColor:  someRGB,
-		pad:       maxUint16,
 		Alias:     someAlias,
+		Addresses: someAddresses,
 	}
 
 	// Next encode the NA message into an empty bytes buffer.
@@ -39,7 +38,7 @@ func TestNodeAnnouncementEncodeDecode(t *testing.T) {
 	}
 }
 
-func TestNodeAnnoucementValidation(t *testing.T) {
+func TestNodeAnnouncementValidation(t *testing.T) {
 	getKeys := func(s string) (*btcec.PrivateKey, *btcec.PublicKey) {
 		return btcec.PrivKeyFromBytes(btcec.S256(), []byte(s))
 	}
@@ -47,13 +46,11 @@ func TestNodeAnnoucementValidation(t *testing.T) {
 	nodePrivKey, nodePubKey := getKeys("node-id-1")
 
 	var hash []byte
-
 	na := &NodeAnnouncement{
 		Timestamp: maxUint32,
-		Address:   someAddress,
+		Addresses: someAddresses,
 		NodeID:    nodePubKey,
 		RGBColor:  someRGB,
-		pad:       maxUint16,
 		Alias:     someAlias,
 	}
 
@@ -68,15 +65,14 @@ func TestNodeAnnoucementValidation(t *testing.T) {
 	}
 }
 
-func TestNodeAnnoucementPayloadLength(t *testing.T) {
+func TestNodeAnnouncementPayloadLength(t *testing.T) {
 	na := &NodeAnnouncement{
 		Signature: someSig,
 		Timestamp: maxUint32,
-		Address:   someAddress,
 		NodeID:    pubKey,
 		RGBColor:  someRGB,
-		pad:       maxUint16,
 		Alias:     someAlias,
+		Addresses: someAddresses,
 	}
 
 	var b bytes.Buffer
@@ -85,8 +81,19 @@ func TestNodeAnnoucementPayloadLength(t *testing.T) {
 	}
 
 	serializedLength := uint32(b.Len())
-	if serializedLength != na.MaxPayloadLength(0) {
+	if serializedLength != 164 {
 		t.Fatalf("payload length estimate is incorrect: expected %v "+
-			"got %v", serializedLength, na.MaxPayloadLength(0))
+			"got %v", 164, serializedLength)
+	}
+
+	if na.MaxPayloadLength(0) != 8192 {
+		t.Fatalf("max payload length doesn't match: expected 8192, got %v",
+			na.MaxPayloadLength(0))
+	}
+}
+
+func TestValidateAlias(t *testing.T) {
+	if err := someAlias.Validate(); err != nil {
+		t.Fatalf("alias was invalid: %v", err)
 	}
 }

@@ -1111,11 +1111,14 @@
         "pub_key": {
           "type": "string"
         },
-        "address": {
-          "type": "string"
-        },
         "alias": {
           "type": "string"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeAddress"
+          }
         }
       }
     },
@@ -1243,6 +1246,17 @@
     },
     "lnrpcNewWitnessAddressRequest": {
       "type": "object"
+    },
+    "lnrpcNodeAddress": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string"
+        },
+        "addr": {
+          "type": "string"
+        }
+      }
     },
     "lnrpcNodeInfo": {
       "type": "object",

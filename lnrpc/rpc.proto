@@ -442,8 +442,13 @@ message NodeInfo {
 message LightningNode {
     uint32 last_update = 1 [ json_name = "last_update" ];
     string pub_key = 2 [ json_name = "pub_key" ];
-    string address = 3 [ json_name = "address" ];
-    string alias = 4 [ json_name = "alias" ];
+    string alias = 3 [ json_name = "alias" ];
+    repeated NodeAddress addresses = 4 [ json_name = "addresses" ];
+}
+
+message NodeAddress {
+    string network = 1 [ json_name = "network" ];
+    string addr = 2 [ json_name = "addr" ];
 }
 
 message RoutingPolicy {

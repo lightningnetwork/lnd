@@ -50,6 +50,16 @@ func (c CreditsAmount) ToSatoshi() int64 {
 	return int64(c / 1000)
 }
 
+// addressType specifies the network protocol and version that should be used
+// when connecting to a node at a particular address.
+type addressType uint8
+
+const (
+	tcp4Addr  addressType = 1
+	tcp6Addr  addressType = 2
+	onionAddr addressType = 3
+)
+
 // writeElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol. The passed
 // io.Writer should be backed by an appropriatly sized byte slice, or be able
@@ -292,16 +302,46 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 	case *net.TCPAddr:
-		var ip [16]byte
-		copy(ip[:], e.IP.To16())
-		if _, err := w.Write(ip[:]); err != nil {
+		if e.IP.To4() != nil {
+			var descriptor [1]byte
+			descriptor[0] = uint8(tcp4Addr)
+			if _, err := w.Write(descriptor[:]); err != nil {
+				return err
+			}
+
+			var ip [4]byte
+			copy(ip[:], e.IP.To4())
+			if _, err := w.Write(ip[:]); err != nil {
+				return err
+			}
+		} else {
+			var descriptor [1]byte
+			descriptor[0] = uint8(tcp6Addr)
+			if _, err := w.Write(descriptor[:]); err != nil {
+				return err
+			}
+			var ip [16]byte
+			copy(ip[:], e.IP.To16())
+			if _, err := w.Write(ip[:]); err != nil {
+				return err
+			}
+		}
+		var port [2]byte
+		binary.BigEndian.PutUint16(port[:], uint16(e.Port))
+		if _, err := w.Write(port[:]); err != nil {
+			return err
+		}
+	case []net.Addr:
+		// Write out the number of addresses.
+		if err := writeElement(w, uint16(len(e))); err != nil {
 			return err
 		}
 
-		var port [4]byte
-		binary.BigEndian.PutUint32(port[:], uint32(e.Port))
-		if _, err := w.Write(port[:]); err != nil {
-			return err
+		// Append the actual addresses.
+		for _, address := range e {
+			if err := writeElement(w, address); err != nil {
+				return err
+			}
 		}
 	case RGB:
 		err := writeElements(w,
@@ -578,21 +618,44 @@ func readElement(r io.Reader, element interface{}) error {
 			TxPosition:  binary.BigEndian.Uint16(txPosition[:]),
 		}
 
-	case **net.TCPAddr:
-		var ip [16]byte
-		if _, err = io.ReadFull(r, ip[:]); err != nil {
+	case *[]net.Addr:
+		var addresses []net.Addr
+		var numAddrs [2]byte
+		if _, err = io.ReadFull(r, numAddrs[:]); err != nil {
 			return err
 		}
 
-		var port [4]byte
-		if _, err = io.ReadFull(r, port[:]); err != nil {
-			return err
-		}
+		for i := 0; i < int(binary.BigEndian.Uint16(numAddrs[:])); i++ {
+			var descriptor [1]byte
+			if _, err = io.ReadFull(r, descriptor[:]); err != nil {
+				return err
+			}
 
-		*e = &net.TCPAddr{
-			IP:   (net.IP)(ip[:]),
-			Port: int(binary.BigEndian.Uint32(port[:])),
+			address := &net.TCPAddr{}
+			switch descriptor[0] {
+			case 1:
+				var ip [4]byte
+				if _, err = io.ReadFull(r, ip[:]); err != nil {
+					return err
+				}
+				address.IP = (net.IP)(ip[:])
+			case 2:
+				var ip [16]byte
+				if _, err = io.ReadFull(r, ip[:]); err != nil {
+					return err
+				}
+				address.IP = (net.IP)(ip[:])
+			}
+
+			var port [2]byte
+			if _, err = io.ReadFull(r, port[:]); err != nil {
+				return err
+			}
+
+			address.Port = int(binary.BigEndian.Uint16(port[:]))
+			addresses = append(addresses, address)
 		}
+		*e = addresses
 	case *RGB:
 		err := readElements(r,
 			&e.red,

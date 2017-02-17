@@ -285,7 +285,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 	// No further data munging or db queries are required.
 	case *lnwire.NodeAnnouncement:
 		nodeUpdate := &NetworkNodeUpdate{
-			Addresses:   []net.Addr{m.Address},
+			Addresses:   m.Addresses,
 			IdentityKey: m.NodeID,
 			Alias:       m.Alias.String(),
 		}

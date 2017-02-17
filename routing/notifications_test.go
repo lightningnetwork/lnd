@@ -20,7 +20,9 @@ import (
 )
 
 var (
-	testAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	testAddrs = []net.Addr{testAddr}
 
 	testHash = [32]byte{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
@@ -41,7 +43,7 @@ func createGraphNode() (*channeldb.LightningNode, error) {
 	pub := priv.PubKey().SerializeCompressed()
 	return &channeldb.LightningNode{
 		LastUpdate: time.Unix(updateTime, 0),
-		Address:    testAddr,
+		Addresses:  testAddrs,
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek" + string(pub[:]),
@@ -63,7 +65,7 @@ func createTestWireNode() (*lnwire.NodeAnnouncement, error) {
 
 	return &lnwire.NodeAnnouncement{
 		Timestamp: uint32(prand.Int31()),
-		Address:   testAddr,
+		Addresses: testAddrs,
 		NodeID:    priv.PubKey(),
 		Alias:     alias,
 	}, nil
@@ -444,9 +446,9 @@ func TestNodeUpdateNotification(t *testing.T) {
 		// The notification received should directly map the
 		// announcement originally sent.
 		nodeNtfn := ntfns[0]
-		if nodeNtfn.Addresses[0] != ann.Address {
+		if nodeNtfn.Addresses[0] != ann.Addresses[0] {
 			t.Fatalf("node address doesn't match: expected %v, got %v",
-				nodeNtfn.Addresses[0], ann.Address)
+				nodeNtfn.Addresses[0], ann.Addresses[0])
 		}
 		if !nodeNtfn.IdentityKey.IsEqual(ann.NodeID) {
 			t.Fatalf("node identity keys don't match: expected %x, "+

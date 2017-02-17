@@ -135,10 +135,12 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
 	// need to be unique.
+	var testAddrs []net.Addr
 	testAddr, err := net.ResolveTCPAddr("tcp", "192.0.0.1:8888")
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
 	graph, cleanUp, err := makeTestGraph()
@@ -162,7 +164,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 
 		dbNode := &channeldb.LightningNode{
 			LastUpdate: time.Now(),
-			Address:    testAddr,
+			Addresses:  testAddrs,
 			PubKey:     pub,
 			Alias:      node.Alias,
 		}

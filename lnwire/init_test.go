@@ -7,15 +7,14 @@ import (
 )
 
 func TestInitEncodeDecode(t *testing.T) {
-	fm := FeaturesMap{
-		"somefeature": 0,
-	}
+	const somefeature = "somefeature"
 
-	gf := NewFeatureVector(fm)
-	gf.SetFeatureFlag("somefeature", OptionalFlag)
-
-	lf := NewFeatureVector(fm)
-	lf.SetFeatureFlag("somefeature", OptionalFlag)
+	gf := NewFeatureVector([]Feature{
+		{somefeature, OptionalFlag},
+	})
+	lf := NewFeatureVector([]Feature{
+		{somefeature, OptionalFlag},
+	})
 
 	init1 := &Init{
 		GlobalFeatures: gf,
@@ -35,10 +34,10 @@ func TestInitEncodeDecode(t *testing.T) {
 	}
 
 	// We not encode the feature map in feature vector, for that reason the
-	// init messages will differ. Initialize decoded feature map in
+	// init messages will differ. Set feature map with nil in
 	// order to use deep equal function.
-	init2.GlobalFeatures.features = fm
-	init2.LocalFeatures.features = fm
+	init1.GlobalFeatures.featuresMap = nil
+	init1.LocalFeatures.featuresMap = nil
 
 	// Assert equality of the two instances.
 	if !reflect.DeepEqual(init1, init2) {

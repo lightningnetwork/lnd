@@ -199,8 +199,8 @@ func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
 		localCloseChanReqs:  make(chan *closeLinkReq),
 		remoteCloseChanReqs: make(chan *lnwire.CloseRequest),
 
-		localSharedFeatures:  lnwire.NewSharedFeatures(localFeaturesMap),
-		globalSharedFeatures: lnwire.NewSharedFeatures(globalFeaturesMap),
+		localSharedFeatures:  nil,
+		globalSharedFeatures: nil,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),

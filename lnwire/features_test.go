@@ -9,26 +9,19 @@ import (
 // TestFeaturesRemoteRequireError checks that we throw an error if remote peer
 // has required feature which we don't support.
 func TestFeaturesRemoteRequireError(t *testing.T) {
-	var (
-		first featureName = "first"
-		second featureName = "second"
+	const (
+		first  = "first"
+		second = "second"
 	)
 
-	var localFeaturesMap = FeaturesMap{
-		first: 0,
-	}
+	localFeatures := NewFeatureVector([]Feature{
+		{first, OptionalFlag},
+	})
 
-	var remoteFeaturesMap = FeaturesMap{
-		first:  0,
-		second: 1,
-	}
-
-	localFeatures := NewFeatureVector(localFeaturesMap)
-	localFeatures.SetFeatureFlag(first, OptionalFlag)
-
-	remoteFeatures := NewFeatureVector(remoteFeaturesMap)
-	remoteFeatures.SetFeatureFlag(first, RequiredFlag)
-	remoteFeatures.SetFeatureFlag(second, RequiredFlag)
+	remoteFeatures := NewFeatureVector([]Feature{
+		{first,  OptionalFlag},
+		{second, RequiredFlag},
+	})
 
 	if _, err := localFeatures.Compare(remoteFeatures); err == nil {
 		t.Fatal("error wasn't received")
@@ -38,26 +31,19 @@ func TestFeaturesRemoteRequireError(t *testing.T) {
 // TestFeaturesLocalRequireError checks that we throw an error if local peer has
 // required feature which remote peer don't support.
 func TestFeaturesLocalRequireError(t *testing.T) {
-	var (
-		first featureName = "first"
-		second featureName = "second"
+	const (
+		first  = "first"
+		second = "second"
 	)
 
-	var localFeaturesMap = FeaturesMap{
-		first:  0,
-		second: 1,
-	}
+	localFeatures := NewFeatureVector([]Feature{
+		{first,  OptionalFlag},
+		{second, RequiredFlag},
+	})
 
-	var remoteFeaturesMap = FeaturesMap{
-		first: 0,
-	}
-
-	localFeatures := NewFeatureVector(localFeaturesMap)
-	localFeatures.SetFeatureFlag(first, OptionalFlag)
-	localFeatures.SetFeatureFlag(second, RequiredFlag)
-
-	remoteFeatures := NewFeatureVector(remoteFeaturesMap)
-	remoteFeatures.SetFeatureFlag(first, RequiredFlag)
+	remoteFeatures := NewFeatureVector([]Feature{
+		{first, OptionalFlag},
+	})
 
 	if _, err := localFeatures.Compare(remoteFeatures); err == nil {
 		t.Fatal("error wasn't received")
@@ -67,16 +53,13 @@ func TestFeaturesLocalRequireError(t *testing.T) {
 // TestOptionalFeature checks that if remote peer don't have the feature but
 // on our side this feature is optional than we mark this feature as disabled.
 func TestOptionalFeature(t *testing.T) {
-	var first featureName = "first"
+	const first = "first"
 
-	var localFeaturesMap = FeaturesMap{
-		first: 0,
-	}
+	localFeatures := NewFeatureVector([]Feature{
+		{first, OptionalFlag},
+	})
 
-	localFeatures := NewFeatureVector(localFeaturesMap)
-	localFeatures.SetFeatureFlag(first, OptionalFlag)
-
-	remoteFeatures := NewFeatureVector(FeaturesMap{})
+	remoteFeatures := NewFeatureVector([]Feature{})
 
 	shared, err := localFeatures.Compare(remoteFeatures)
 	if err != nil {
@@ -89,17 +72,32 @@ func TestOptionalFeature(t *testing.T) {
 	}
 }
 
+// TestSetRequireAfterInit checks that we can change the feature flag after
+// initialization.
+func TestSetRequireAfterInit(t *testing.T) {
+	const first = "first"
+
+	localFeatures := NewFeatureVector([]Feature{
+		{first, OptionalFlag},
+	})
+	localFeatures.SetFeatureFlag(first, RequiredFlag)
+	remoteFeatures := NewFeatureVector([]Feature{})
+
+	_, err := localFeatures.Compare(remoteFeatures)
+	if err == nil {
+		t.Fatalf("feature was set as required but error wasn't "+
+			"returned: %v", err)
+	}
+}
+
 // TestDecodeEncodeFeaturesVector checks that feature vector might be
 // successfully encoded and decoded.
 func TestDecodeEncodeFeaturesVector(t *testing.T) {
-	var first featureName = "first"
+	const first = "first"
 
-	var localFeaturesMap = FeaturesMap{
-		first: 0,
-	}
-
-	f := NewFeatureVector(localFeaturesMap)
-	f.SetFeatureFlag(first, OptionalFlag)
+	f := NewFeatureVector([]Feature{
+		{first, OptionalFlag},
+	})
 
 	var b bytes.Buffer
 	if err := f.Encode(&b); err != nil {

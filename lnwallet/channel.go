@@ -1037,7 +1037,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		if entry.EntryType == Add {
 			continue
 		}
-		if entry.EntryType == Settle && !remoteChain {
+
+		// If we're settling in inbound HTLC, and it hasn't been
+		// processed, yet, the increment our state tracking the total
+		// number of satoshis we've received within the channel.
+		if entry.EntryType == Settle && !remoteChain &&
+			entry.removeCommitHeightLocal == 0 {
 			lc.channelState.TotalSatoshisReceived += uint64(entry.Amount)
 		}
 
@@ -1051,7 +1056,13 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		if entry.EntryType == Add {
 			continue
 		}
-		if entry.EntryType == Settle && !remoteChain {
+
+		// If the remote party is settling one of our outbound HTLC's,
+		// and it hasn't been processed, yet, the increment our state
+		// tracking the total number of satoshis we've sent within the
+		// channel.
+		if entry.EntryType == Settle && !remoteChain &&
+			entry.removeCommitHeightLocal == 0 {
 			lc.channelState.TotalSatoshisSent += uint64(entry.Amount)
 		}
 

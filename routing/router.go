@@ -113,7 +113,7 @@ type ChannelRouter struct {
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over.
-	newBlocks chan *chainntnfs.BlockEpoch
+	newBlocks <-chan *chainntnfs.BlockEpoch
 
 	// networkMsgs is a channel that carries new network messages from
 	// outside the ChannelRouter to be processed by the networkHandler.

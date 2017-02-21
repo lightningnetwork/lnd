@@ -187,7 +187,6 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 }
 
 // ConnectPeer attempts to establish a connection to a remote peer.
-// TODO(roasbeef): also return pubkey and/or identity hash?
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
 
@@ -435,6 +434,25 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 		closingTxid, err := r.forceCloseChan(channel)
 		if err != nil {
+			rpcsLog.Errorf("unable to force close transaction: %v", err)
+
+			// If the transaction we broadcast is detected as a
+			// double spend, the this indicates that the remote
+			// party has broadcast their commitment transaction be
+			// we didn't notice.
+			if strings.Contains(err.Error(), "fully-spent") ||
+				strings.Contains(err.Error(), "double spend") {
+
+				// In this case, we'll clean up the channel
+				// state.
+				// TODO(roasbeef): check close summary to see
+				// if we need to sweep any HTLC's
+				if err := channel.DeleteState(); err != nil {
+					return err
+				}
+				return fmt.Errorf("channel has been closed by remote party")
+			}
+
 			return err
 		}
 

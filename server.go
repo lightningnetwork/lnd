@@ -138,7 +138,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		sendRequests:      make(chan *sendReq),
 
 		globalFeatures: globalFeatures,
-		localFeatures: localFeatures,
+		localFeatures:  localFeatures,
 
 		queries: make(chan interface{}),
 		quit:    make(chan struct{}),
@@ -414,6 +414,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	peer, err := newPeer(conn, s, peerAddr, false)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
+		s.connMgr.Remove(peer.connReq.ID())
+		peer.Disconnect()
 		conn.Close()
 		return
 	}
@@ -425,6 +427,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	//  * also mark last-seen, do it one single transaction?
 
 	if err := peer.Start(); err != nil {
+		srvrLog.Errorf("unable to start peer: %v", err)
+		s.connMgr.Remove(peer.connReq.ID())
+		peer.Disconnect()
 		conn.Close()
 		return
 	}

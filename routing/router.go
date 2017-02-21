@@ -82,7 +82,7 @@ type Config struct {
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
 	SendToSwitch func(firstHop *btcec.PublicKey,
-		htlcAdd *lnwire.UpdateAddHTLC) error
+		htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error)
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -1105,14 +1105,20 @@ type LightningPayment struct {
 // payment is successful, or all candidates routes have been attempted and
 // resulted in a failed payment. If the payment succeeds, then a non-nil Route
 // will be returned which describes the path the successful payment traversed
-// within the network to reach the destination.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) (*Route, error) {
+// within the network to reach the destination. Additionally, the payment
+// preimage will also be returned.
+func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+	var (
+		err      error
+		preImage [32]byte
+	)
+
 	// Query the graph for a potential path to the destination node that
 	// can support our payment amount. If a path is ultimately unavailable,
 	// then an error will be returned.
 	route, err := r.FindRoute(payment.Target, payment.Amount)
 	if err != nil {
-		return nil, err
+		return preImage, nil, err
 	}
 	log.Tracef("Selected route for payment: %#v", route)
 
@@ -1120,7 +1126,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) (*Route, error) {
 	// htlcAdd message that we send directly to the switch.
 	sphinxPacket, err := generateSphinxPacket(route, payment.PaymentHash[:])
 	if err != nil {
-		return nil, err
+		return preImage, nil, err
 	}
 
 	// Craft an HTLC packet to send to the layer 2 switch. The metadata
@@ -1135,11 +1141,12 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) (*Route, error) {
 	// Attempt to send this payment through the network to complete the
 	// payment. If this attempt fails, then we'll bail our early.
 	firstHop := route.Hops[0].Channel.Node.PubKey
-	if err := r.cfg.SendToSwitch(firstHop, htlcAdd); err != nil {
-		return nil, err
+	preImage, err = r.cfg.SendToSwitch(firstHop, htlcAdd)
+	if err != nil {
+		return preImage, nil, err
 	}
 
-	return route, nil
+	return preImage, route, nil
 }
 
 // TopologyClient...

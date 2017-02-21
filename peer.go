@@ -1055,7 +1055,8 @@ type pendingPayment struct {
 	htlc  *lnwire.UpdateAddHTLC
 	index uint64
 
-	err chan error
+	preImage chan [32]byte
+	err      chan error
 }
 
 // commitmentState is the volatile+persistent state of an active channel's
@@ -1314,9 +1315,10 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		p.queueMsg(htlc, nil)
 
 		state.pendingBatch = append(state.pendingBatch, &pendingPayment{
-			htlc:  htlc,
-			index: index,
-			err:   pkt.err,
+			htlc:     htlc,
+			index:    index,
+			preImage: pkt.preImage,
+			err:      pkt.err,
 		})
 
 	case *lnwire.UpdateFufillHTLC:
@@ -1565,15 +1567,17 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			if p, ok := state.clearedHTCLs[parentIndex]; ok {
 				switch htlc.EntryType {
 				// If the HTLC was settled successfully, then
-				// we return a nil error back to the possible
-				// caller.
+				// we return a nil error as well as the payment
+				// preimage back to the possible caller.
 				case lnwallet.Settle:
+					p.preImage <- htlc.RPreimage
 					p.err <- nil
 
 				// Otherwise, the HTLC failed, so we propagate
 				// the error back to the potential caller.
 				case lnwallet.Fail:
 					errMsg := state.cancelReasons[parentIndex]
+					p.preImage <- [32]byte{}
 					p.err <- errors.New(errMsg.String())
 				}
 

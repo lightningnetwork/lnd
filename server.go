@@ -179,7 +179,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		Broadcast:    s.broadcastMessage,
 		SendMessages: s.sendToPeer,
 		SendToSwitch: func(firstHop *btcec.PublicKey,
-			htlcAdd *lnwire.UpdateAddHTLC) error {
+			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
 
 			firstHopPub := firstHop.SerializeCompressed()
 			destInterface := chainhash.Hash(fastsha256.Sum256(firstHopPub))

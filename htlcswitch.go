@@ -26,6 +26,10 @@ const (
 	htlcQueueSize = 50
 )
 
+var (
+	zeroBytes [32]byte
+)
+
 // link represents an active channel capable of forwarding HTLCs. Each
 // active channel registered with the htlc switch creates a new link which will
 // be used for forwarding outgoing HTLCs. The link also has additional
@@ -59,6 +63,8 @@ type htlcPacket struct {
 	// TODO(roasbeef): refactor and add type to pkt message
 	payHash [32]byte
 	amt     btcutil.Amount
+
+	preImage chan [32]byte
 
 	err chan error
 }
@@ -125,9 +131,9 @@ type htlcSwitch struct {
 	interfaceMtx sync.RWMutex
 	interfaces   map[chainhash.Hash][]*link
 
-	// onionIndex is an index used to properly forward a message
-	// to the next hop within a Sphinx circuit. Within the sphinx packets,
-	// the "next-hop" destination is encoded as the hash160 of the node's
+	// onionIndex is an index used to properly forward a message to the
+	// next hop within a Sphinx circuit. Within the sphinx packets, the
+	// "next-hop" destination is encoded as the hash160 of the node's
 	// public key serialized in compressed format.
 	onionMtx   sync.RWMutex
 	onionIndex map[[ripemd160.Size]byte][]*link
@@ -145,11 +151,11 @@ type htlcSwitch struct {
 	// the RPC system.
 	outgoingPayments chan *htlcPacket
 
-	// htlcPlex is the channel which all connected links use to
-	// coordinate the setup/teardown of Sphinx (onion routing) payment
-	// circuits. Active links forward any add/settle messages over this
-	// channel each state transition, sending new adds/settles which are
-	// fully locked in.
+	// htlcPlex is the channel which all connected links use to coordinate
+	// the setup/teardown of Sphinx (onion routing) payment circuits.
+	// Active links forward any add/settle messages over this channel each
+	// state transition, sending new adds/settles which are fully locked
+	// in.
 	htlcPlex chan *htlcPacket
 
 	// TODO(roasbeef): sampler to log sat/sec and tx/sec
@@ -206,12 +212,13 @@ func (h *htlcSwitch) Stop() error {
 // In the event that the interface has insufficient capacity for the payment,
 // an error is returned. Additionally, if the interface cannot be found, an
 // alternative error is returned.
-func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) error {
+func (h *htlcSwitch) SendHTLC(htlcPkt *htlcPacket) ([32]byte, error) {
 	htlcPkt.err = make(chan error, 1)
+	htlcPkt.preImage = make(chan [32]byte, 1)
 
 	h.outgoingPayments <- htlcPkt
 
-	return <-htlcPkt.err
+	return <-htlcPkt.preImage, <-htlcPkt.err
 }
 
 // htlcForwarder is responsible for optimally forwarding (and possibly
@@ -243,6 +250,7 @@ out:
 				err := fmt.Errorf("Unable to locate link %x",
 					dest[:])
 				hswcLog.Errorf(err.Error())
+				htlcPkt.preImage <- zeroBytes
 				htlcPkt.err <- err
 				continue
 			}
@@ -277,6 +285,7 @@ out:
 			}
 
 			hswcLog.Errorf("Unable to send payment, insufficient capacity")
+			htlcPkt.preImage <- zeroBytes
 			htlcPkt.err <- fmt.Errorf("Insufficient capacity")
 		case pkt := <-h.htlcPlex:
 			// TODO(roasbeef): properly account with cleared vs settled
@@ -373,8 +382,9 @@ out:
 				// continue propagating the HTLC across the
 				// network.
 				circuit.clear.linkChan <- &htlcPacket{
-					msg: wireMsg,
-					err: make(chan error, 1),
+					msg:      wireMsg,
+					preImage: make(chan [32]byte, 1),
+					err:      make(chan error, 1),
 				}
 
 				// Reduce the available bandwidth for the link

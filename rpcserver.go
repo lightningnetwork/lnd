@@ -965,7 +965,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Amount:      amt,
 					PaymentHash: rHash,
 				}
-				route, err := r.server.chanRouter.SendPayment(payment)
+				preImage, route, err := r.server.chanRouter.SendPayment(payment)
 				if err != nil {
 					errChan <- err
 					return
@@ -978,9 +978,9 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
-				// TODO(roasbeef): tack on payment hash also?
 				err = paymentStream.Send(&lnrpc.SendResponse{
-					PaymentRoute: marshalRoute(route),
+					PaymentPreimage: preImage[:],
+					PaymentRoute:    marshalRoute(route),
 				})
 				if err != nil {
 					errChan <- err
@@ -1047,7 +1047,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
-	route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
+	preImage, route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
 		Target:      destPub,
 		Amount:      amt,
 		PaymentHash: rHash,
@@ -1063,7 +1063,8 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	return &lnrpc.SendResponse{
-		PaymentRoute: marshalRoute(route),
+		PaymentPreimage: preImage[:],
+		PaymentRoute:    marshalRoute(route),
 	}, nil
 }
 

@@ -337,6 +337,8 @@ func (p *peer) Stop() error {
 	return nil
 }
 
+// TODO(roasbeef): add WaitForShutdown method
+
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
@@ -914,8 +916,8 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 
 			// The channel has been closed, remove it from any
 			// active indexes, and the database state.
-			peerLog.Infof("ChannelPoint(%v) is now "+
-				"closed at height %v", req.chanPoint, height)
+			peerLog.Infof("ChannelPoint(%v) is now closed at "+
+				"height %v", req.chanPoint, height.BlockHeight)
 			if err := wipeChannel(p, channel); err != nil {
 				req.err <- err
 				return

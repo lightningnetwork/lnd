@@ -1044,7 +1044,9 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.SendResponse{}, nil
+	return &lnrpc.SendResponse{
+		PaymentRoute: marshalRoute(route),
+	}, nil
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any

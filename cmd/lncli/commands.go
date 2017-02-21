@@ -680,7 +680,13 @@ func sendPaymentCommand(ctx *cli.Context) error {
 
 	paymentStream.CloseSend()
 
-	printRespJson(resp)
+	printJson(struct {
+		P string       `json:"payment_preimage"`
+		R *lnrpc.Route `json:"payment_route"`
+	}{
+		P: hex.EncodeToString(resp.PaymentPreimage),
+		R: resp.PaymentRoute,
+	})
 
 	return nil
 }

@@ -191,7 +191,8 @@ message SendRequest {
     string payment_request = 6;
 }
 message SendResponse {
-    Route payment_route = 1;
+    bytes payment_preimage = 1;
+    Route payment_route = 2;
 }
 
 message ChannelPoint {

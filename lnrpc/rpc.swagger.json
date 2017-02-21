@@ -1423,6 +1423,10 @@
     "lnrpcSendResponse": {
       "type": "object",
       "properties": {
+        "payment_preimage": {
+          "type": "string",
+          "format": "byte"
+        },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
         }

@@ -709,9 +709,13 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			return
 		}
 
-	// Otherwise, we've be signalled to bail out early by the
+	// Otherwise, we've beeen signalled to bail out early by the
 	// caller/maintainer of this channel.
 	case <-lc.quit:
+		// As we're exiting before the spend notification has been
+		// triggered, we'll cancel the notificaiton intent so the
+		// ChainNotiifer can free up the resources.
+		channelCloseNtfn.Cancel()
 		return
 	}
 

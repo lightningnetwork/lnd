@@ -34,12 +34,6 @@ var (
 )
 
 const (
-	// MaxPendingPayments is the max number of pending HTLCs permitted on
-	// a channel.
-	// TODO(roasbeef): make not random value + enforce
-	//  * should be tuned to account for max tx "cost"
-	MaxPendingPayments = 100
-
 	// InitialRevocationWindow is the number of revoked commitment
 	// transactions allowed within the commitment chain. This value allows
 	// a greater degree of de-synchronization by allowing either parties to
@@ -85,12 +79,26 @@ const (
 // payments requested by the wallet/daemon.
 type PaymentHash [32]byte
 
-// UpdateType is the exact type of an entry within the shared HTLC log.
+// updateType is the exact type of an entry within the shared HTLC log.
 type updateType uint8
 
 const (
+	// Add is an update type that adds a new HTLC entry into the log.
+	// Either side can add a new penidng HTLC by adding a new Add entry
+	// into their update log.
 	Add updateType = iota
-	Cancel
+
+	// Fail is an update type which removes a prior HTLC entry from the
+	// log. Adding a Fail entry to ones log will modify the _remote_
+	// parties update log once a new commitment view has been evaluated
+	// which contains the Fail entry.
+	Fail
+
+	// Settle is an update type which settles a prior HTLC crediting the
+	// balance of the receiving node. Adding a Settle entry to a log will
+	// result in the settle entry being removed on the log as well as the
+	// original add entry from the remote party's log after the next state
+	// transition.
 	Settle
 )
 

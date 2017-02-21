@@ -72,12 +72,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case FailCode:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
 	case ErrorCode:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], uint16(e))
@@ -168,6 +162,16 @@ func writeElement(w io.Writer, element interface{}) error {
 		var b [4]byte
 		binary.BigEndian.PutUint32(b[:], uint32(e))
 		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case OpaqueReason:
+		var l [2]byte
+		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
+		if _, err := w.Write(l[:]); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
 	case []byte:
@@ -339,12 +343,6 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = b[0]
-	case *FailCode:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = FailCode(binary.BigEndian.Uint16(b[:]))
 	case *uint16:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -458,6 +456,17 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
 		return nil
+	case *OpaqueReason:
+		var l [2]byte
+		if _, err := io.ReadFull(r, l[:]); err != nil {
+			return err
+		}
+		reasonLen := binary.BigEndian.Uint16(l[:])
+
+		*e = OpaqueReason(make([]byte, reasonLen))
+		if _, err := io.ReadFull(r, *e); err != nil {
+			return err
+		}
 	case []byte:
 		if _, err := io.ReadFull(r, e); err != nil {
 			return err

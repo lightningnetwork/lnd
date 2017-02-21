@@ -71,13 +71,18 @@ func (c FailCode) String() string {
 	}
 }
 
+// OpaqueReason is an opaque encrypted byte slice that encodes the exact
+// failure reason and additional some supplemental data. The contents of this
+// slice can only be decrypted by the sender of the original HTLC.
+type OpaqueReason []byte
+
 // UpdateFailHTLC is sent by Alice to Bob in order to remove a previously added
 // HTLC. Upon receipt of an UpdateFailHTLC the HTLC should be removed from the
 // next commitment transaction, with the UpdateFailHTLC propagated backwards in
 // the route to fully undo the HTLC.
 type UpdateFailHTLC struct {
-	// ChannelPoint is the particular active channel that this UpdateFailHTLC
-	// is binded to.
+	// ChannelPoint is the particular active channel that this
+	// UpdateFailHTLC is binded to.
 	ChannelPoint wire.OutPoint
 
 	// ID references which HTLC on the remote node's commitment transaction
@@ -88,7 +93,7 @@ type UpdateFailHTLC struct {
 	// failed. This blob is only fully decryptable by the initiator of the
 	// HTLC message.
 	// TODO(roasbeef): properly format the encrypted failure reason
-	Reason []byte
+	Reason OpaqueReason
 }
 
 // A compile time check to ensure UpdateFailHTLC implements the lnwire.Message
@@ -106,7 +111,7 @@ func (c *UpdateFailHTLC) Decode(r io.Reader, pver uint32) error {
 	err := readElements(r,
 		&c.ChannelPoint,
 		&c.ID,
-		c.Reason[:],
+		&c.Reason,
 	)
 	if err != nil {
 		return err
@@ -123,7 +128,7 @@ func (c *UpdateFailHTLC) Encode(w io.Writer, pver uint32) error {
 	err := writeElements(w,
 		c.ChannelPoint,
 		c.ID,
-		c.Reason[:],
+		c.Reason,
 	)
 	if err != nil {
 		return err

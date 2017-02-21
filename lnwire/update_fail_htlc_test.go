@@ -12,7 +12,7 @@ func TestUpdateFailHTLC(t *testing.T) {
 		ChannelPoint: *outpoint1,
 		ID:           22,
 	}
-	copy(cancelMsg.Reason[:], bytes.Repeat([]byte{21}, 20))
+	cancelMsg.Reason = []byte{byte(UnknownDestination)}
 
 	// Next encode the UFH message into an empty bytes buffer.
 	var b bytes.Buffer

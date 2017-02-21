@@ -769,15 +769,15 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 // workflow.
 func (s *server) handleOpenChanReq(req *openChanReq) {
 	var (
-		targetPeer *peer
-		pubStr     string
+		targetPeer  *peer
+		pubKeyBytes []byte
 	)
 
 	// If the user is targeting the peer by public key, then we'll need to
 	// convert that into a string for our map. Otherwise, we expect them to
 	// target by peer ID instead.
 	if req.targetPubkey != nil {
-		pubStr = string(req.targetPubkey.SerializeCompressed())
+		pubKeyBytes = req.targetPubkey.SerializeCompressed()
 	}
 
 	// First attempt to locate the target peer to open a channel with, if
@@ -785,15 +785,14 @@ func (s *server) handleOpenChanReq(req *openChanReq) {
 	s.peersMtx.RLock()
 	if peer, ok := s.peersByID[req.targetPeerID]; ok {
 		targetPeer = peer
-	} else if peer, ok := s.peersByPub[pubStr]; ok {
+	} else if peer, ok := s.peersByPub[string(pubKeyBytes)]; ok {
 		targetPeer = peer
 	}
 	s.peersMtx.RUnlock()
 
 	if targetPeer == nil {
 		req.err <- fmt.Errorf("unable to find peer nodeID(%x), "+
-			"peerID(%v)", req.targetPubkey.SerializeCompressed(),
-			req.targetPeerID)
+			"peerID(%v)", pubKeyBytes, req.targetPeerID)
 		return
 	}
 

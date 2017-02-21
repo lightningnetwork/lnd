@@ -845,7 +845,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// caller/maintainer of this channel.
 	case <-lc.quit:
 		// As we're exiting before the spend notification has been
-		// triggered, we'll cancel the notificaiton intent so the
+		// triggered, we'll cancel the notification intent so the
 		// ChainNotiifer can free up the resources.
 		channelCloseNtfn.Cancel()
 		return
@@ -884,7 +884,13 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// state, then they've initiated a unilateral close. So we'll trigger
 	// the unilateral close signal so subscribers can clean up the state as
 	// necessary.
-	case broadcastStateNum == currentStateNum:
+	//
+	// We'll also handle the case of the remote party broadcasting their
+	// commitment transaction which is one height above ours. This case an
+	// arise when we initiate a state transition, but the remote party has
+	// a fail crash _after_ accepting the new state, but _before_ sending
+	// their signature to us.
+	case broadcastStateNum >= currentStateNum:
 		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
 			"detected", lc.channelState.ChanID)
 
@@ -927,7 +933,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// channel to allow the observer the use the breach retribution
 		// to sweep ALL funds.
 		lc.ContractBreach <- retribution
-	case broadcastStateNum > currentStateNum:
 	}
 }
 

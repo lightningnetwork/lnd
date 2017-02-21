@@ -59,7 +59,7 @@ type ChainNotifier interface {
 }
 
 // TxConfirmation carries some additional block-level details of the exact
-// block that specified transactions was confirmed wihtin.
+// block that specified transactions was confirmed within.
 type TxConfirmation struct {
 	// BlockHash is the hash of the block that confirmed the original
 	// transition.
@@ -115,22 +115,46 @@ type SpendDetail struct {
 // SpendEvent encapsulates a spentness notification. Its only field 'Spend' will
 // be sent upon once the target output passed into RegisterSpendNtfn has been
 // spent on the blockchain.
+//
+// NOTE: If the caller wishes to cancel their registered spend notification,
+// the Cancel closure MUST be called.
 type SpendEvent struct {
-	Spend chan *SpendDetail // MUST be buffered.
+	// Spend is a receive only channel which will be sent upon once the
+	// target outpoint has been spent.
+	Spend <-chan *SpendDetail // MUST be buffered.
+
+	// Cancel is a closure that should be executed by the caller in the
+	// case that they wish to prematurely abandon their regsitered spend
+	// notification.
+	Cancel func()
 }
 
 // BlockEpoch represents metadata concerning each new block connected to the
 // main chain.
 type BlockEpoch struct {
+	// Hash is the block hash of the latest blcok to be added to the tip of
+	// the main chain.
+	Hash *chainhash.Hash
+
+	// Height is the height of the latest block to be added to the tip of
+	// the main chain.
 	Height int32
-	Hash   *chainhash.Hash
 }
 
 // BlockEpochEvent encapsulates an on-going stream of block epoch
-// notifications. Its only field 'Epoochs' will be sent upon for each new block
+// notifications. Its only field 'Epochs' will be sent upon for each new block
 // connected to the main-chain.
+//
+// NOTE: If the caller wishes to cancel their registered block epoch
+// notification, the Cancel closure MUST be called.
 type BlockEpochEvent struct {
-	Epochs chan *BlockEpoch // MUST be buffered.
+	// Epochs is a receive only channel that will be sent upon each time a
+	// new block is connected to the end of the main chain.
+	Epochs <-chan *BlockEpoch // MUST be buffered.
+
+	// Cancel is a closure that should be executed by the caller in the
+	// case that they wish to abandon their registered spend notification.
+	Cancel func()
 }
 
 // NotifierDriver represents a "driver" for a particular interface. A driver is

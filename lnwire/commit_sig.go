@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -97,19 +96,4 @@ func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
 func (c *CommitSig) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target CommitSig.
-//
-// This is part of the lnwire.Message interface.
-func (c *CommitSig) String() string {
-	var serializedSig []byte
-	if c.CommitSig != nil {
-		serializedSig = c.CommitSig.Serialize()
-	}
-
-	return fmt.Sprintf("\n--- Begin CommitSig ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("CommitSig:\t\t%x\n", serializedSig) +
-		fmt.Sprintf("--- End CommitSig ---\n")
 }

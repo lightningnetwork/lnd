@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/wire"
@@ -157,14 +156,4 @@ func (c *UpdateFailHTLC) MaxPayloadLength(uint32) uint32 {
 func (c *UpdateFailHTLC) Validate() error {
 	// We're good!
 	return nil
-}
-
-// String returns the string representation of the target UpdateFailHTLC.  This is
-// part of the lnwire.Message interface.
-func (c *UpdateFailHTLC) String() string {
-	return fmt.Sprintf("\n--- Begin UpdateFailHTLC ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%d\n", c.ChannelPoint) +
-		fmt.Sprintf("ID:\t%d\n", c.ID) +
-		fmt.Sprintf("Reason:\t\t%x\n", c.Reason) +
-		fmt.Sprintf("--- End UpdateFailHTLC ---\n")
 }

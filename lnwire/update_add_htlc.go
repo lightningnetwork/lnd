@@ -141,17 +141,3 @@ func (c *UpdateAddHTLC) Validate() error {
 	// We're good!
 	return nil
 }
-
-// String returns the string representation of the target UpdateAddHTLC.
-//
-// This is part of the lnwire.Message interface.
-func (c *UpdateAddHTLC) String() string {
-	return fmt.Sprintf("\n--- Begin UpdateAddHTLC ---\n") +
-		fmt.Sprintf("ChannelPoint:\t%v\n", c.ChannelPoint) +
-		fmt.Sprintf("ID:\t%v\n", c.ID) +
-		fmt.Sprintf("Expiry:\t\t%d\n", c.Expiry) +
-		fmt.Sprintf("Amount\t\t%d\n", c.Amount) +
-		fmt.Sprintf("PaymentHash:\t\t%x\n", c.PaymentHash) +
-		fmt.Sprintf("OnionBlob:\t\t\t\t%x\n", c.OnionBlob) +
-		fmt.Sprintf("--- End UpdateAddHTLC ---\n")
-}

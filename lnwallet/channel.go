@@ -926,8 +926,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			return
 		}
 
-		walletLog.Debugf("Punishment breach retribution created: %#v",
-			retribution)
+		walletLog.Debugf("Punishment breach retribution created: %v",
+			spew.Sdump(retribution))
 
 		// Finally, send the retribution struct over the contract beach
 		// channel to allow the observer the use the breach retribution

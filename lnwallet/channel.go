@@ -318,6 +318,132 @@ func (s *commitmentChain) tail() *commitment {
 	return s.commitments.Front().Value.(*commitment)
 }
 
+// updateLog is an append-only log that stores updates to a node's commitment
+// chain. This structure can be seen as the "mempool" within Lightning where
+// changes are stored before they're committed to the chain. Once an entry has
+// been committed in both the local and remote commitment chain, then it can be
+// removed from this log.
+//
+// TODO(roasbeef): create lightning package, move commitment and update to
+// package?
+//  * also move state machine, separate from lnwallet package
+//  * possible embed updateLog within commitmentChain.
+type updateLog struct {
+	// logIndex is a monotonically increasing integer that tracks the total
+	// number of update entries ever applied to the log. When sending new
+	// commitment states, we include all updates up to this index.
+	logIndex uint64
+
+	// ackIndex is a special "pointer" index into the log that tracks the
+	// position which, up to, all changes have been ACK'd by the remote
+	// party.  When receiving new commitment states, we include all of our
+	// updates up to this index to restore the commitment view.
+	ackedIndex uint64
+
+	// pendingACKIndex is another special "pointer" index into the log that
+	// tracks our logIndex value right before we extend the remote party's
+	// commitment chain. Once we receive an ACK for this changes, then we
+	// set ackedIndex=pendingAckIndex.
+	//
+	// TODO(roasbeef): eventually expand into list when we go back to a
+	// sliding window format
+	pendingAckIndex uint64
+
+	// List is the updatelog itself, we embed this value so updateLog has
+	// access to all the method of a list.List.
+	*list.List
+
+	// updateIndex is an index that maps a particular entries index to the
+	// list element within the list.List above.
+	updateIndex map[uint64]*list.Element
+}
+
+// newUpdateLog creates a new updateLog instance.
+func newUpdateLog() *updateLog {
+	return &updateLog{
+		List:        list.New(),
+		updateIndex: make(map[uint64]*list.Element),
+	}
+}
+
+// appendUpdate appends a new update to the tip of the updateLog. The entry is
+// also added to index accordingly.
+func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
+	u.updateIndex[u.logIndex] = u.PushBack(pd)
+	u.logIndex++
+}
+
+// lookup attempts to look up an update entry according to it's index value. In
+// the case that the entry isn't found, a nil pointer is returned.
+func (u *updateLog) lookup(i uint64) *PaymentDescriptor {
+	return u.updateIndex[i].Value.(*PaymentDescriptor)
+}
+
+// remove attempts to remove an entry from the update log. If the entry is
+// found, then the entry will be removed from the update log and index.
+func (u *updateLog) remove(i uint64) {
+	entry := u.updateIndex[i]
+	u.Remove(entry)
+	delete(u.updateIndex, i)
+}
+
+// initiateTransition marks that the caller has extended the commitment chain
+// of the remote party with the contents of the updateLog. This function will
+// mark the log index value at this point so it can later be marked as ACK'd.
+func (u *updateLog) initiateTransition() {
+	u.pendingAckIndex = u.logIndex
+}
+
+// ackTransition updates the internal indexes of the updateLog to mark that the
+// last pending state transition has been accepted by the remote party. To do
+// so, we mark the prior pendingAckIndex as fully ACK'd.
+func (u *updateLog) ackTransition() {
+	u.ackedIndex = u.pendingAckIndex
+	u.pendingAckIndex = 0
+}
+
+// compactLogs performs garbage collection within the log removing HTLCs which
+// have been removed from the point-of-view of the tail of both chains. The
+// entries which timeout/settle HTLCs are also removed.
+func compactLogs(ourLog, theirLog *updateLog,
+	localChainTail, remoteChainTail uint64) {
+
+	compactLog := func(logA, logB *updateLog) {
+		var nextA *list.Element
+		for e := logA.Front(); e != nil; e = nextA {
+			nextA = e.Next()
+
+			htlc := e.Value.(*PaymentDescriptor)
+			if htlc.EntryType == Add {
+				continue
+			}
+
+			// If the HTLC hasn't yet been removed from either
+			// chain, the skip it.
+			if htlc.removeCommitHeightRemote == 0 ||
+				htlc.removeCommitHeightLocal == 0 {
+				continue
+			}
+
+			// Otherwise if the height of the tail of both chains
+			// is at least the height in which the HTLC was
+			// removed, then evict the settle/timeout entry along
+			// with the original add entry.
+			if remoteChainTail >= htlc.removeCommitHeightRemote &&
+				localChainTail >= htlc.removeCommitHeightLocal {
+
+				logA.remove(htlc.Index)
+				logB.remove(htlc.ParentIndex)
+			}
+
+		}
+	}
+
+	compactLog(ourLog, theirLog)
+
+	compactLog(theirLog, ourLog)
+}
+
 // LightningChannel implements the state machine which corresponds to the
 // current commitment protocol wire spec. The state machine implemented allows
 // for asynchronous fully desynchronized, batched+pipelined updates to
@@ -1575,56 +1701,14 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.CommitRevocation) (
 		}
 	}
 
-	lc.compactLogs(lc.ourUpdateLog, lc.theirUpdateLog,
+	// As we've just completed a new state transition, attempt to see if
+	// we can remove any entries from the update log which have been
+	// removed from the PoV of both commitment chains.
+	compactLogs(lc.localUpdateLog, lc.remoteUpdateLog,
 		localChainTail, remoteChainTail)
 
+
 	return htlcsToForward, nil
-}
-
-// compactLogs performs garbage collection within the log removing HTLCs which
-// have been removed from the point-of-view of the tail of both chains. The
-// entries which timeout/settle HTLCs are also removed.
-func (lc *LightningChannel) compactLogs(ourLog, theirLog *list.List,
-	localChainTail, remoteChainTail uint64) {
-
-	compactLog := func(logA, logB *list.List, indexB, indexA map[uint32]*list.Element) {
-		var nextA *list.Element
-		for e := logA.Front(); e != nil; e = nextA {
-			nextA = e.Next()
-
-			htlc := e.Value.(*PaymentDescriptor)
-			if htlc.EntryType == Add {
-				continue
-			}
-
-			// If the HTLC hasn't yet been removed from either
-			// chain, the skip it.
-			if htlc.removeCommitHeightRemote == 0 ||
-				htlc.removeCommitHeightLocal == 0 {
-				continue
-			}
-
-			// Otherwise if the height of the tail of both chains
-			// is at least the height in which the HTLC was
-			// removed, then evict the settle/timeout entry along
-			// with the original add entry.
-			if remoteChainTail >= htlc.removeCommitHeightRemote &&
-				localChainTail >= htlc.removeCommitHeightLocal {
-				parentLink := indexB[htlc.ParentIndex]
-				parentIndex := parentLink.Value.(*PaymentDescriptor).Index
-				logB.Remove(parentLink)
-
-				logA.Remove(e)
-
-				delete(indexB, parentIndex)
-				delete(indexA, htlc.Index)
-			}
-
-		}
-	}
-
-	compactLog(ourLog, theirLog, lc.theirLogIndex, lc.ourLogIndex)
-	compactLog(theirLog, ourLog, lc.ourLogIndex, lc.theirLogIndex)
 }
 
 // ExtendRevocationWindow extends our revocation window by a single revocation,

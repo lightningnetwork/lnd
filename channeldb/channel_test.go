@@ -389,7 +389,10 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Add some HTLCs which were added during this new state transition.
 	// Half of the HTLCs are incoming, while the other half are outgoing.
-	var htlcs []*HTLC
+	var (
+		htlcs   []*HTLC
+		htlcAmt btcutil.Amount
+	)
 	for i := uint32(0); i < 10; i++ {
 		var incoming bool
 		if i > 5 {
@@ -397,13 +400,14 @@ func TestChannelStateTransition(t *testing.T) {
 		}
 		htlc := &HTLC{
 			Incoming:        incoming,
-			Amt:             50000,
+			Amt:             10,
 			RHash:           key,
 			RefundTimeout:   i,
 			RevocationDelay: i + 2,
 			OutputIndex:     uint16(i * 3),
 		}
 		htlcs = append(htlcs, htlc)
+		htlcAmt += htlc.Amt
 	}
 
 	// Create a new channel delta which includes the above HTLCs, some
@@ -506,6 +510,33 @@ func TestChannelStateTransition(t *testing.T) {
 				spew.Sdump(originalHTLC),
 				spew.Sdump(diskHTLC))
 		}
+	}
+
+	// Next modify the delta slightly, then create a new entry within the
+	// revocation log.
+	delta.UpdateNum = 2
+	delta.LocalBalance -= htlcAmt
+	delta.RemoteBalance += htlcAmt
+	delta.Htlcs = nil
+	if err := channel.AppendToRevocationLog(delta); err != nil {
+		t.Fatalf("unable to append to revocation log: %v", err)
+	}
+
+	// Once again, fetch the state and ensure it has been properly updated.
+	diskDelta, err = channel.FindPreviousState(uint64(delta.UpdateNum))
+	if err != nil {
+		t.Fatalf("unable to fetch past delta: %v", err)
+	}
+	if len(diskDelta.Htlcs) != 0 {
+		t.Fatalf("expected %v htlcs, got %v", 0, len(diskDelta.Htlcs))
+	}
+	if delta.LocalBalance != 1e8-htlcAmt {
+		t.Fatalf("mismatched balances, expected %v got %v", 1e8-htlcAmt,
+			delta.LocalBalance)
+	}
+	if delta.RemoteBalance != 1e8+htlcAmt {
+		t.Fatalf("mismatched balances, expected %v got %v", 1e8+htlcAmt,
+			delta.RemoteBalance)
 	}
 
 	// The revocation state stored on-disk should now also be identical.

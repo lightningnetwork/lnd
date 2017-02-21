@@ -1817,18 +1817,20 @@ func deserializeChannelDelta(r io.Reader) (*ChannelDelta, error) {
 	return delta, nil
 }
 
-func makeLogKey(o *wire.OutPoint, updateNum uint64) [40]byte {
+func makeLogKey(o *wire.OutPoint, updateNum uint64) [44]byte {
 	var (
 		scratch [8]byte
 		n       int
-		k       [40]byte
+
+		// txid (32) || index (4) || update_num (8)
+		// 32 + 4 + 8 = 44
+		k [44]byte
 	)
 
 	n += copy(k[:], o.Hash[:])
 
 	byteOrder.PutUint32(scratch[:4], o.Index)
-	copy(k[n:], scratch[:4])
-	n += 4
+	n += copy(k[n:], scratch[:4])
 
 	byteOrder.PutUint64(scratch[:], updateNum)
 	copy(k[n:], scratch[:])

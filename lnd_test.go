@@ -571,8 +571,15 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	if _, err := sendStream.Recv(); err != nil {
+
+	// Ensure we obtain the proper preimage in the response.
+	resp, err := sendStream.Recv()
+	if err != nil {
 		t.Fatalf("error when attempting recv: %v", err)
+	}
+	if !bytes.Equal(preimage, resp.PaymentPreimage) {
+		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
+			resp.PaymentPreimage)
 	}
 
 	// Bob's invoice should now be found and marked as settled.

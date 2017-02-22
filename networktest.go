@@ -187,6 +187,12 @@ func (l *lightningNode) start(lndError chan error) error {
 		close(l.processExit)
 	}()
 
+	select {
+	case <-l.processExit:
+		return errors.New("lnd process was shutted down on the start")
+	case <-time.After(5 * time.Second):
+	}
+
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
 		fmt.Sprintf("%v.pid", l.nodeId)))
 	if err != nil {
@@ -334,7 +340,7 @@ func newNetworkHarness() (*networkHarness, error) {
 		activeNodes:   make(map[int]*lightningNode),
 		seenTxns:      make(chan chainhash.Hash),
 		watchRequests: make(chan *watchRequest),
-		lndErrorChan:  make(chan error),
+		lndErrorChan:  make(chan error, 2),
 	}, nil
 }
 

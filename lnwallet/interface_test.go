@@ -96,6 +96,12 @@ func assertChannelOpen(t *testing.T, miner *rpctest.Harness, numConfs uint32,
 	}
 }
 
+func assertReservationDeleted(res *lnwallet.ChannelReservation, t *testing.T) {
+	if err := res.Cancel(); err == nil {
+		t.Fatalf("reservation wasn't deleted from wallet")
+	}
+}
+
 // bobNode represents the other party involved as a node within LN. Bob is our
 // only "default-route", we have a direct connection with him.
 type bobNode struct {
@@ -526,6 +532,10 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	if err := wallet.PublishTransaction(bobCloseTx); err != nil {
 		t.Fatalf("broadcast of close tx rejected: %v", err)
 	}
+
+	// Now that the reservation has conclued, ensure that the wallet has
+	// cleaned up the state allocated to the reservation.
+	assertReservationDeleted(chanReservation, t)
 }
 
 func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
@@ -774,6 +784,8 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 		lnChan <- openDetails.Channel
 	}()
 	assertChannelOpen(t, miner, uint32(numReqConfs), lnChan)
+
+	assertReservationDeleted(chanReservation, t)
 }
 
 func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
@@ -934,6 +946,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	}
 
 	// TODO(roasbeef): bob verify alice's sig
+	assertReservationDeleted(chanReservation, t)
 }
 
 func testListTransactionDetails(miner *rpctest.Harness, wallet *lnwallet.LightningWallet, t *testing.T) {

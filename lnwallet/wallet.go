@@ -1242,6 +1242,12 @@ func (l *LightningWallet) handleChannelOpen(req *channelOpenMsg) {
 	res.chanOpen <- &openChanDetails{
 		channel: channel,
 	}
+
+	// As this reservation has concluded, we can now safely remove the
+	// reservation from the limbo map.
+	l.limboMtx.Lock()
+	delete(l.fundingLimbo, req.pendingFundingID)
+	l.limboMtx.Unlock()
 }
 
 // openChannelAfterConfirmations creates, and opens a payment channel after
@@ -1299,6 +1305,12 @@ out:
 		blockHeight: confDetails.BlockHeight,
 		txIndex:     confDetails.TxIndex,
 	}
+
+	// As this reservation has concluded, we can now safely remove the
+	// reservation from the limbo map.
+	l.limboMtx.Lock()
+	delete(l.fundingLimbo, res.reservationID)
+	l.limboMtx.Unlock()
 }
 
 // selectCoinsAndChange performs coin selection in order to obtain witness

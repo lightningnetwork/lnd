@@ -1290,6 +1290,7 @@ out:
 	if err != nil {
 		res.chanOpenErr <- err
 		res.chanOpen <- nil
+		return
 	}
 
 	res.chanOpenErr <- nil

@@ -414,7 +414,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	// TODO(roasbeef): error if funding flow already ongoing
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%v) "+
-		"from peer(%v)", amt, msg.PushSatoshis, delay, msg.ChannelID,
+		"from peer(%x)", amt, msg.PushSatoshis, delay, msg.ChannelID,
 		fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
 	ourDustLimit := lnwallet.DefaultDustLimit()

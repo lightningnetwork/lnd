@@ -197,7 +197,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	s.rpcServer = newRpcServer(s)
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
 
-	s.fundingMgr, err = newFundingManager(FundingConfig{
+	s.fundingMgr, err = newFundingManager(fundingConfig{
 		Wallet:      wallet,
 		ArbiterChan: s.breachArbiter.newContracts,
 		SendToPeer:  s.sendToPeer,

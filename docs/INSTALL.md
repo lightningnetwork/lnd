@@ -64,6 +64,13 @@ $ sed -i 's#; rpclimituser=whatever_limited_username_you_want#rpclimituser=kek#'
 $ sed -i 's#; rpclimitpass=#rpclimitpass=kek#' /Users/[username]/Library/Application Support/Btcd/btcd.conf
 ```
 
+If you did not have a `btcd.conf` file yet, you can simply paste the following into it:
+````
+[Application Options]
+rpclimituser=<the username you picked in lnd.conf>
+rpclimitpass=<the password you picked in lnd.conf>
+````
+
 **Then, regardless of OS:**
 ```
 $ btcctl --testnet stop

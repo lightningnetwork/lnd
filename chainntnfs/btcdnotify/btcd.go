@@ -319,8 +319,7 @@ out:
 			chainntnfs.Log.Infof("New block: height=%v, sha=%v",
 				update.blockHeight, update.blockHash)
 
-			b.wg.Add(1)
-			go b.notifyBlockEpochs(update.blockHeight,
+			b.notifyBlockEpochs(update.blockHeight,
 				update.blockHash)
 
 			newHeight := update.blockHeight
@@ -469,8 +468,6 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
 func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash) {
-	defer b.wg.Done()
-
 	epoch := &chainntnfs.BlockEpoch{
 		Height: newHeight,
 		Hash:   newSha,

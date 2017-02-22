@@ -53,8 +53,8 @@ type rpcServer struct {
 // LightningServer gRPC service.
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
-// newRpcServer creates and returns a new instance of the rpcServer.
-func newRpcServer(s *server) *rpcServer {
+// newRPCServer creates and returns a new instance of the rpcServer.
+func newRPCServer(s *server) *rpcServer {
 	return &rpcServer{server: s, quit: make(chan struct{}, 1)}
 }
 

@@ -194,7 +194,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, err
 	}
 
-	s.rpcServer = newRpcServer(s)
+	s.rpcServer = newRPCServer(s)
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{

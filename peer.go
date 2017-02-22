@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -24,7 +25,6 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/go-errors/errors"
 )
 
 var (
@@ -154,7 +154,7 @@ type peer struct {
 	// localSharedFeatures is a product of comparison of our and their
 	// local features vectors which consist of features which are present
 	// on both sides.
-	localSharedFeatures  *lnwire.SharedFeatures
+	localSharedFeatures *lnwire.SharedFeatures
 
 	// globalSharedFeatures is a product of comparison of our and their
 	// global features vectors which consist of features which are present
@@ -1252,7 +1252,7 @@ out:
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	localSharedFeatures, err := p.server.localFeatures.Compare(msg.LocalFeatures)
 	if err != nil {
-		err := errors.Errorf("can compare remote and local feature " +
+		err := errors.Errorf("can compare remote and local feature "+
 			"vectors: %v", err)
 		peerLog.Error(err)
 		return err
@@ -1261,7 +1261,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	globalSharedFeatures, err := p.server.globalFeatures.Compare(msg.GlobalFeatures)
 	if err != nil {
-		err := errors.Errorf("can compare remote and global feature " +
+		err := errors.Errorf("can compare remote and global feature "+
 			"vectors: %v", err)
 		peerLog.Error(err)
 		return err
@@ -1702,7 +1702,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// Notify the invoiceRegistry of the invoices we just settled
 		// with this latest commitment update.
 		// TODO(roasbeef): wait until next transition?
-		for invoice, _ := range settledPayments {
+		for invoice := range settledPayments {
 			err := p.server.invoices.SettleInvoice(chainhash.Hash(invoice))
 			if err != nil {
 				peerLog.Errorf("unable to settle invoice: %v", err)

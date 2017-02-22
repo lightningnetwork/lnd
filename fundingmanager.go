@@ -377,7 +377,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 			PendingChannelID: fmsg.msg.ChannelID,
 		}
 		if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg); err != nil {
-			fndgLog.Errorf("unable to send max pending channels message to peer", err)
+			fndgLog.Errorf("unable to send max pending channels "+
+				"message to peer: %v", err)
 			return
 		}
 	}

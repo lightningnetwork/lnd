@@ -130,7 +130,7 @@ func mineBlocks(t *harnessTest, net *networkHarness, num uint32) []*wire.MsgBloc
 // after the channel is considered open: the funding transaction should be
 // found within a block, and that Alice can report the status of the new
 // channel.
-func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Context,
+func openChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarness,
 	alice, bob *lightningNode, fundingAmt btcutil.Amount,
 	pushAmt btcutil.Amount) *lnrpc.ChannelPoint {
 
@@ -174,7 +174,7 @@ func openChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Conte
 // via timeout from a base parent. Additionally, once the channel has been
 // detected as closed, an assertion checks that the transaction is found within
 // a block.
-func closeChannelAndAssert(t *harnessTest, net *networkHarness, ctx context.Context,
+func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarness,
 	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
 	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
@@ -216,7 +216,7 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, pushAmt)
 
 	// With then channel open, ensure that the amount specified above has
@@ -243,7 +243,7 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then
@@ -273,7 +273,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 		}
 	}
 
-	chanPoint := openChannelAndAssert(t, net, ctx, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctx, t, net, net.Alice, net.Bob,
 		amount, 0)
 
 	// As this is a single funder channel, Alice's balance should be
@@ -294,7 +294,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint, false)
+	closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
 }
 
 // testChannelForceClosure performs a test to exercise the behavior of "force"
@@ -493,7 +493,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	// the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanAmt := btcutil.Amount(100000)
-	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
 	assertPaymentBalance := func(amt btcutil.Amount) {
@@ -629,7 +629,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	assertPaymentBalance(paymentAmt * 2)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 func testListPayments(net *networkHarness, t *harnessTest) {
@@ -658,7 +658,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
 	// Now that the channel is open, create an invoice for Bob which
@@ -757,7 +757,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 func testMultiHopPayments(net *networkHarness, t *harnessTest) {
@@ -768,7 +768,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPointAlice := openChannelAndAssert(t, net, ctxt, net.Alice,
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
 		net.Bob, chanAmt, 0)
 
 	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
@@ -797,7 +797,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	chanPointCarol := openChannelAndAssert(t, net, ctxt, carol,
+	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
 		net.Alice, chanAmt, 0)
 
 	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
@@ -988,9 +988,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	assertAsymmetricBalance(carol, carolFundPoint, sourceBal, sinkBal)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, carol, chanPointCarol, false)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 
 	// Finally, shutdown the node we created for the duration of the tests,
 	// only leaving the two seed nodes (Alice and Bob) within our test
@@ -1008,7 +1008,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	// Open a channel with 500k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
@@ -1080,7 +1080,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testBasicChannelCreation test multiple channel opening and closing.
@@ -1096,7 +1096,7 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
-		chanPoints[i] = openChannelAndAssert(t, net, ctx, net.Alice,
+		chanPoints[i] = openChannelAndAssert(ctx, t, net, net.Alice,
 			net.Bob, amount, 0)
 	}
 
@@ -1104,7 +1104,7 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(t, net, ctx, net.Alice, chanPoint, false)
+		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
 	}
 }
 
@@ -1206,7 +1206,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctxt, _ := context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(t, net, ctxt, net.Alice, chanPoint, false)
+		closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 	}
 
 	// Finally, shutdown the node we created for the duration of the tests,
@@ -1251,7 +1251,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
 	// With the channel open, we'll create a few invoices for Bob that
@@ -1386,7 +1386,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
-	breachTXID := closeChannelAndAssert(t, net, ctxb, net.Bob, chanPoint,
+	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, chanPoint,
 		true)
 
 	// Query the mempool for Alice's justice transaction, this should be
@@ -1470,7 +1470,7 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPointAlice := openChannelAndAssert(t, net, ctxt, net.Alice, net.Bob,
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
 	assertBaseBalance := func() {
@@ -1509,7 +1509,7 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	const bobChanAmt = btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
-	chanPointBob := openChannelAndAssert(t, net, ctxt, net.Bob, carol,
+	chanPointBob := openChannelAndAssert(ctxt, t, net, net.Bob, carol,
 		chanAmt, 0)
 
 	// Ensure that Alice has Carol in her routing table before proceeding.
@@ -1703,13 +1703,13 @@ out:
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Alice, chanPointAlice, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 
 	// Force close Bob's final channel, also mining enough blocks to
 	// trigger a sweep of the funds by the utxoNursery.
 	// TODO(roasbeef): use config value for default CSV here.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(t, net, ctxt, net.Bob, chanPointBob, true)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, true)
 	if _, err := net.Miner.Node.Generate(5); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}

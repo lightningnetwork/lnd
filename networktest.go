@@ -81,7 +81,7 @@ type lightningNode struct {
 	p2pAddr string
 	rpcCert []byte
 
-	nodeId int
+	nodeID int
 
 	// PubKey is the serialized compressed identity public key of the node.
 	// This field will only be populated once the node itself has been
@@ -131,7 +131,7 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 		p2pAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
 		rpcAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
 		rpcCert:     rpcConfig.Certificates,
-		nodeId:      nodeNum,
+		nodeID:      nodeNum,
 		processExit: make(chan struct{}),
 		extraArgs:   lndArgs,
 	}, nil
@@ -188,7 +188,7 @@ func (l *lightningNode) start(lndError chan error) error {
 	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
-		fmt.Sprintf("%v.pid", l.nodeId)))
+		fmt.Sprintf("%v.pid", l.nodeID)))
 	if err != nil {
 		return err
 	}
@@ -358,8 +358,8 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []strin
 		return err
 	}
 
-	n.activeNodes[n.Alice.nodeId] = n.Alice
-	n.activeNodes[n.Bob.nodeId] = n.Bob
+	n.activeNodes[n.Alice.nodeID] = n.Alice
+	n.activeNodes[n.Bob.nodeID] = n.Bob
 
 	return err
 }
@@ -522,7 +522,7 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 		return nil, err
 	}
 
-	n.activeNodes[node.nodeId] = node
+	n.activeNodes[node.nodeID] = node
 
 	return node, nil
 }

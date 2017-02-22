@@ -289,7 +289,7 @@ out:
 			htlcPkt.err <- fmt.Errorf("Insufficient capacity")
 		case pkt := <-h.htlcPlex:
 			// TODO(roasbeef): properly account with cleared vs settled
-			numUpdates += 1
+			numUpdates++
 
 			hswcLog.Tracef("plex packet: %v", newLogClosure(func() string {
 				return spew.Sdump(pkt)
@@ -551,15 +551,15 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	// Next, update the onion index which is used to look up the
 	// settle/clear links during multi-hop payments and to dispatch
 	// outgoing payments initiated by a local subsystem.
-	var onionId [ripemd160.Size]byte
-	copy(onionId[:], btcutil.Hash160(req.peer.addr.IdentityKey.SerializeCompressed()))
+	var onionID [ripemd160.Size]byte
+	copy(onionID[:], btcutil.Hash160(req.peer.addr.IdentityKey.SerializeCompressed()))
 
 	h.onionMtx.Lock()
-	h.onionIndex[onionId] = h.interfaces[interfaceID]
+	h.onionIndex[onionID] = h.interfaces[interfaceID]
 	h.onionMtx.Unlock()
 
 	hswcLog.Infof("registering new link, interface=%x, onion_link=%x, "+
-		"chan_point=%v, capacity=%v", interfaceID[:], onionId,
+		"chan_point=%v, capacity=%v", interfaceID[:], onionID,
 		chanPoint, newLink.capacity)
 
 	if req.done != nil {
@@ -626,9 +626,9 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 		// Delete the peer from the onion index so that the
 		// htlcForwarder knows not to attempt to forward any further
 		// HTLCs in this direction.
-		var onionId [ripemd160.Size]byte
-		copy(onionId[:], btcutil.Hash160(req.remoteID))
-		delete(h.onionIndex, onionId)
+		var onionID [ripemd160.Size]byte
+		copy(onionID[:], btcutil.Hash160(req.remoteID))
+		delete(h.onionIndex, onionID)
 
 		// Finally, delete the interface itself so that outgoing
 		// payments don't select this path.

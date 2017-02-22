@@ -438,30 +438,29 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 
 	// Now that we've established a connection, create a peer, and
 	// it to the set of currently active peers.
-	peer, err := newPeer(conn, s, peerAddr, false)
+	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
-		s.connMgr.Remove(peer.connReq.ID())
-		peer.Disconnect()
-		conn.Close()
+		if p.connReq != nil {
+			s.connMgr.Remove(p.connReq.ID())
+		}
+		p.Disconnect()
 		return
-	}
-	if connReq != nil {
-		peer.connReq = connReq
 	}
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
 
-	if err := peer.Start(); err != nil {
+	if err := p.Start(); err != nil {
 		srvrLog.Errorf("unable to start peer: %v", err)
-		s.connMgr.Remove(peer.connReq.ID())
-		peer.Disconnect()
-		conn.Close()
+		if p.connReq != nil {
+			s.connMgr.Remove(p.connReq.ID())
+		}
+		p.Disconnect()
 		return
 	}
 
-	s.newPeers <- peer
+	s.newPeers <- p
 }
 
 // inboundPeerConnected initializes a new peer in response to a new inbound

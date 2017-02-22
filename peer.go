@@ -168,8 +168,8 @@ type peer struct {
 
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
-func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
-	inbound bool) (*peer, error) {
+func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
+	addr *lnwire.NetAddress, inbound bool) (*peer, error) {
 
 	nodePub := addr.IdentityKey
 
@@ -180,6 +180,7 @@ func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
 
 		id:      atomic.AddInt32(&numNodes, 1),
 		inbound: inbound,
+		connReq: connReq,
 
 		server: server,
 
@@ -209,7 +210,7 @@ func newPeer(conn net.Conn, server *server, addr *lnwire.NetAddress,
 	// Initiate the pending channel identifier properly depending on if this
 	// node is inbound or outbound. This value will be used in an increasing
 	// manner to track pending channels.
-	if inbound {
+	if p.inbound {
 		p.nextPendingChannelID = 1 << 63
 	} else {
 		p.nextPendingChannelID = 0

@@ -374,7 +374,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 	// Bob initiates a channel funded with 5 BTC for each side, so 10
 	// BTC total. He also generates 2 BTC in change.
 	chanReservation, err := wallet.InitChannelReservation(fundingAmount*2,
-		fundingAmount, bobNode.id, bobAddr, numReqConfs, 4, 540, 0)
+		fundingAmount, bobNode.id, bobAddr, numReqConfs, 4,
+		lnwallet.DefaultDustLimit(), 0)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -493,7 +494,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// Create a single channel asking for 16 BTC total.
 	fundingAmount := btcutil.Amount(8 * 1e8)
 	_, err := wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testPub, bobAddr, numReqConfs, 4, 540, 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
@@ -503,7 +504,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// that aren't locked, so this should fail.
 	amt := btcutil.Amount(900 * 1e8)
 	failedReservation, err := wallet.InitChannelReservation(amt, amt,
-		testPub, bobAddr, numReqConfs, 4, 540, 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -523,14 +524,16 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// Create a reservation for 44 BTC.
 	fundingAmount := btcutil.Amount(44 * 1e8)
 	chanReservation, err := wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testPub, bobAddr, numReqConfs, 4, 540, 0)
+		fundingAmount, testPub, bobAddr, numReqConfs, 4,
+		lnwallet.DefaultDustLimit(), 0)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = wallet.InitChannelReservation(fundingAmount,
-		fundingAmount, testPub, bobAddr, numReqConfs, 4, 540, 0)
+		fundingAmount, testPub, bobAddr, numReqConfs, 4,
+		lnwallet.DefaultDustLimit(), 0)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
 		t.Fatalf("coin selection succeded should have insufficient funds: %v",
 			err)
@@ -560,7 +563,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Request to fund a new channel should now succeed.
 	_, err = wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testPub, bobAddr, numReqConfs, 4, 540, 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -603,7 +606,8 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	fundingAmt := btcutil.Amount(4 * 1e8)
 	pushAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin)
 	chanReservation, err := wallet.InitChannelReservation(fundingAmt,
-		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4, 540, pushAmt)
+		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4,
+		lnwallet.DefaultDustLimit(), pushAmt)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}
@@ -744,7 +748,8 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// contribution and the necessary resources.
 	fundingAmt := btcutil.Amount(0)
 	chanReservation, err := wallet.InitChannelReservation(capacity,
-		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4, 540, 0)
+		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4,
+		lnwallet.DefaultDustLimit(), 0)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}
@@ -843,7 +848,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	aliceCommitTx, err := lnwallet.CreateCommitTx(fundingTxIn,
 		ourContribution.CommitKey, bobContribution.CommitKey,
 		ourContribution.RevocationKey, ourContribution.CsvDelay, 0,
-		capacity, 540)
+		capacity, lnwallet.DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create alice's commit tx: %v", err)
 	}

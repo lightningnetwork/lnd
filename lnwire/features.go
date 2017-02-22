@@ -2,16 +2,17 @@ package lnwire
 
 import (
 	"encoding/binary"
-	"fmt"
-	"github.com/go-errors/errors"
 	"io"
 	"math"
+
+	"github.com/go-errors/errors"
 )
 
 // featureFlag represent the status of the feature optional/required and needed
 // to allow future incompatible changes, or backward compatible changes.
 type featureFlag uint8
 
+// String returns the string representation for the featureFlag.
 func (f featureFlag) String() string {
 	switch f {
 	case OptionalFlag:
@@ -112,22 +113,6 @@ func (f *FeatureVector) SetFeatureFlag(name featureName, flag featureFlag) error
 // feature vector in byte format.
 func (f *FeatureVector) serializedSize() uint16 {
 	return uint16(math.Ceil(float64(flagBitsSize*len(f.flags)) / 8))
-}
-
-// String returns the feature vector description.
-func (f *FeatureVector) String() string {
-	var description string
-	for name, index := range f.featuresMap {
-		if flag, ok := f.flags[index]; ok {
-			description += fmt.Sprintf("%s: %s\n", name, flag)
-		}
-	}
-
-	if description == "" {
-		description = "<empty>"
-	}
-
-	return "\n" + description
 }
 
 // NewFeatureVectorFromReader decodes the feature vector from binary

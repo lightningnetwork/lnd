@@ -10,4 +10,5 @@ var globalFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
 // only affect the protocol between these two nodes.
 var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 	{Name: "lcp-stop-and-wait", Flag: lnwire.RequiredFlag},
+	{Name: "48-bit-state-hint", Flag: lnwire.RequiredFlag},
 })

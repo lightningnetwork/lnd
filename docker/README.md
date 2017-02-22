@@ -18,7 +18,7 @@ automatically by their `docker-compose` config file.
 ### Create lightning network cluster
 This section describes a workflow on `simnet`, a development/test network
 that's similar to Bitcoin Core's `regtest` mode. In `simnet` mode blocks can be
-generated as will, as the difficulty is very low. This makes it an ideal
+generated at will, as the difficulty is very low. This makes it an ideal
 environment for testing as one doesn't need to wait tens of minutes for blocks
 to arrive in order to test channel related functionality. Additionally, it's
 possible to spin up an arbitrary number of `lnd` instances within containers to
@@ -194,8 +194,8 @@ alice$ lncli listchannels
 bob$ lncli listchannels
 ```
 
-Now we have open channel in which we sent only one payment, lets imagine
-that we sent a lots of them and we'll now like to close the channel. Lets do
+Now we have open channel in which we sent only one payment, let's imagine
+that we sent lots of them and we'll now like to close the channel. Let's do
 it!
 ```bash
 # List the "Alice" channel and retrieve "channel_point" which represent
@@ -231,7 +231,7 @@ bob$ lncli walletbalance
 
 ### Connect to faucet lightning node
 In order to be more confident with `lnd` commands I suggest you to try 
-create mini lightnint network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
+to create a mini lightning network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
 
 In this section we will try to connect our node to the faucent/hub node 
 which will create with as the channel and send as some amount of 

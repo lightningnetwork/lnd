@@ -159,7 +159,7 @@ func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([]*lnwallet.InputScript,
 
 	inputValue := int64(7e8)
 	hashCache := txscript.NewTxSigHashes(fundingTx)
-	for i, _ := range fundingTx.TxIn {
+	for i := range fundingTx.TxIn {
 		// Alice has already signed this input.
 		if fundingTx.TxIn[i].Witness != nil {
 			continue

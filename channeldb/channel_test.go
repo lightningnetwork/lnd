@@ -46,7 +46,7 @@ var (
 	testTx = &wire.MsgTx{
 		Version: 1,
 		TxIn: []*wire.TxIn{
-			&wire.TxIn{
+			{
 				PreviousOutPoint: wire.OutPoint{
 					Hash:  chainhash.Hash{},
 					Index: 0xffffffff,
@@ -56,7 +56,7 @@ var (
 			},
 		},
 		TxOut: []*wire.TxOut{
-			&wire.TxOut{
+			{
 				Value: 5000000000,
 				PkScript: []byte{
 					0x41, // OP_DATA_65

@@ -311,17 +311,14 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet, numOut
 	// Wait until the wallet has finished syncing up to the main chain.
 	ticker := time.NewTicker(100 * time.Millisecond)
 	expectedBalance := btcutil.Amount(satoshiPerOutput * int64(numOutputs))
-out:
-	for {
-		select {
-		case <-ticker.C:
-			balance, err := w.ConfirmedBalance(1, false)
-			if err != nil {
-				return err
-			}
-			if balance == expectedBalance {
-				break out
-			}
+
+	for range ticker.C {
+		balance, err := w.ConfirmedBalance(1, false)
+		if err != nil {
+			return err
+		}
+		if balance == expectedBalance {
+			break
 		}
 	}
 	ticker.Stop()

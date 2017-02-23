@@ -1269,11 +1269,7 @@ func fetchChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
 
 	idBytes := nodeChanBucket.Get(idKey)
 	channel.IdentityPub, err = btcec.ParsePubKey(idBytes, btcec.S256())
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func putChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1329,11 +1325,7 @@ func fetchChanCommitKeys(nodeChanBucket *bolt.Bucket, channel *OpenChannel) erro
 	}
 
 	channel.OurCommitKey, err = btcec.ParsePubKey(keyBytes[33:], btcec.S256())
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func putChanCommitTxns(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1631,11 +1623,7 @@ func fetchChanPreimageState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) e
 	}
 
 	_, err = io.ReadFull(reader, channel.StateHintObsfucator[:])
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func putChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1683,11 +1671,7 @@ func fetchChanDeliveryScripts(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 	}
 
 	channel.TheirDeliveryScript, err = wire.ReadVarBytes(deliveryBytes, 0, 520, "")
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // htlcDiskSize represents the number of btyes a serialized HTLC takes up on
@@ -1717,11 +1701,8 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 	byteOrder.PutUint16(buf[n:], h.OutputIndex)
 	n += 2
 
-	if _, err := w.Write(buf[:]); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(buf[:])
+	return err
 }
 
 func deserializeHTLC(r io.Reader) (*HTLC, error) {
@@ -1980,11 +1961,8 @@ func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
 	}
 
 	byteOrder.PutUint32(scratch, o.Index)
-	if _, err := w.Write(scratch); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(scratch)
+	return err
 }
 
 func readOutpoint(r io.Reader, o *wire.OutPoint) error {

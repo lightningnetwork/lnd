@@ -62,17 +62,12 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 	// Revocation (32)
 	// NextRevocationKey (33)
 	// NextRevocationHash (32)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		c.Revocation[:],
 		&c.NextRevocationKey,
 		c.NextRevocationHash[:],
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target RevokeAndAck into the passed io.Writer
@@ -80,17 +75,12 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.Revocation[:],
 		c.NextRevocationKey,
 		c.NextRevocationHash[:],
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

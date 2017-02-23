@@ -46,15 +46,10 @@ var _ Message = (*CommitSig)(nil)
 func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint(8)
 	// RequesterCommitSig(73max+2)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		&c.CommitSig,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target CommitSig into the passed io.Writer
@@ -62,14 +57,10 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.CommitSig,
 	)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

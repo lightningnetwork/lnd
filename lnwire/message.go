@@ -244,11 +244,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	// Write payload the payload itself after the header.
 	n, err = w.Write(payload)
 	totalBytes += n
-	if err != nil {
-		return totalBytes, err
-	}
-
-	return totalBytes, nil
+	return totalBytes, err
 }
 
 // ReadMessageN reads, validates, and parses the next bitcoin Message from r for

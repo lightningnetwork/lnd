@@ -158,11 +158,7 @@ func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
 		// returned to the caller.
 		nodeReader := bytes.NewReader(nodeBytes)
 		node, err = deserializeLinkNode(nodeReader)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return err
 	})
 	if err != nil {
 		return nil, err

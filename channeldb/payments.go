@@ -127,11 +127,7 @@ func (db *DB) DeleteAllPayments() error {
 		}
 
 		_, err = tx.CreateBucket(paymentBucket)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return err
 	})
 }
 

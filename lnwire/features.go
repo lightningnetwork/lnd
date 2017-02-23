@@ -197,11 +197,8 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 		setFlag(data, position, flag)
 	}
 
-	if _, err := w.Write(data); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(data)
+	return err
 }
 
 // Compare checks that features are compatible and returns the features which

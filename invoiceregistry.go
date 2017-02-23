@@ -88,14 +88,10 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 	}))
 
 	// TODO(roasbeef): also check in memory for quick lookups/settles?
-	if err := i.cdb.AddInvoice(invoice); err != nil {
-		return err
-	}
+	return i.cdb.AddInvoice(invoice)
 
 	// TODO(roasbeef): re-enable?
 	//go i.notifyClients(invoice, false)
-
-	return nil
 }
 
 // lookupInvoice looks up an invoice by its payment hash (R-Hash), if found

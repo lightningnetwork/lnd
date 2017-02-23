@@ -76,8 +76,5 @@ func putMeta(meta *Meta, tx *bolt.Tx) error {
 func putDbVersion(metaBucket *bolt.Bucket, meta *Meta) error {
 	scratch := make([]byte, 4)
 	byteOrder.PutUint32(scratch, meta.DbVersionNumber)
-	if err := metaBucket.Put(dbVersionKey, scratch); err != nil {
-		return err
-	}
-	return nil
+	return metaBucket.Put(dbVersionKey, scratch)
 }

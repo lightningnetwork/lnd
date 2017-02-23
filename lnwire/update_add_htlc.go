@@ -76,7 +76,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 	// Amount(8)
 	// PaymentHash(32)
 	// OnionBlob(1254)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		&c.ID,
 		&c.Expiry,
@@ -84,11 +84,6 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		c.PaymentHash[:],
 		c.OnionBlob[:],
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target UpdateAddHTLC into the passed io.Writer observing
@@ -96,7 +91,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.ID,
 		c.Expiry,
@@ -104,11 +99,6 @@ func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
 		c.PaymentHash[:],
 		c.OnionBlob[:],
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

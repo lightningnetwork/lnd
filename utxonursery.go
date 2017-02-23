@@ -668,7 +668,7 @@ func createSweepTx(wallet *lnwallet.LightningWallet,
 // chain reorganization occurs. This is the final step in the output incubation
 // process.
 func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
-	err := db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		kgtnBucket := tx.Bucket(kindergartenBucket)
 		if kgtnBucket == nil {
 			return nil
@@ -695,18 +695,13 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // putLastHeightGraduated persists the most recently processed blockheight
 // to the database. This blockheight is used during restarts to determine if
 // blocks were missed while the UTXO Nursery was offline.
 func putLastHeightGraduated(db *channeldb.DB, blockheight uint32) error {
-	err := db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		kgtnBucket, err := tx.CreateBucketIfNotExists(kindergartenBucket)
 		if err != nil {
 			return nil
@@ -714,17 +709,8 @@ func putLastHeightGraduated(db *channeldb.DB, blockheight uint32) error {
 
 		heightBytes := make([]byte, 4)
 		byteOrder.PutUint32(heightBytes, blockheight)
-		if err := kgtnBucket.Put(lastGraduatedHeightKey, heightBytes); err != nil {
-			return err
-		}
-
-		return nil
+		return kgtnBucket.Put(lastGraduatedHeightKey, heightBytes)
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // newSweepPkScript creates a new public key script which should be used to
@@ -808,11 +794,8 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 	}
 
 	byteOrder.PutUint32(scratch[:4], uint32(kid.signDescriptor.HashType))
-	if _, err := w.Write(scratch[:4]); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(scratch[:4])
+	return err
 }
 
 // deserializeKidOutput takes a byte array representation of a kidOutput
@@ -899,11 +882,8 @@ func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
 	}
 
 	byteOrder.PutUint32(scratch, o.Index)
-	if _, err := w.Write(scratch); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(scratch)
+	return err
 }
 
 // TODO(bvu): copied from channeldb, remove repetition

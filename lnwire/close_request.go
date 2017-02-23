@@ -57,15 +57,10 @@ func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 	// RequesterCloseSig (73)
 	// 	First byte length then sig
 	// Fee (8)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		&c.RequesterCloseSig,
 		&c.Fee)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target CloseRequest into the passed io.Writer observing
@@ -76,15 +71,10 @@ func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 	// ChannelID
 	// RequesterCloseSig
 	// Fee
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.RequesterCloseSig,
 		c.Fee)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

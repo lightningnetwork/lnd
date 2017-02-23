@@ -10,6 +10,8 @@
 &nbsp;&nbsp;&nbsp;&nbsp;
 [![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)]
 (https://godoc.org/github.com/lightningnetwork/lnd)
+&nbsp;&nbsp;&nbsp;&nbsp;
+[![Coverage Status](https://coveralls.io/repos/github/AndrewSamokhvalov/lnd/badge.svg?branch=master)](https://coveralls.io/github/AndrewSamokhvalov/lnd?branch=master)
 
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a 
 [Lightning Network](https://lightning.network) node and currently 

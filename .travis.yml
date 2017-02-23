@@ -5,9 +5,6 @@ go:
 sudo: false
 install:
   - go get -v github.com/roasbeef/btcd # Required for the rpc test package.
-  - go get -v github.com/Masterminds/glide
-  - glide install
-  - go install -v . # Required for the integration tests.
 script:
   - export PATH=$PATH:$HOME/gopath/bin
-  - go test -p 1 -v $(go list ./... | grep -v '/vendor/')
+  - ./gotest.sh -l -r -c

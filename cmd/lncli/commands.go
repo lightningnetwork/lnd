@@ -193,7 +193,9 @@ func sendMany(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{amountToAddr})
+	txid, err := client.SendMany(ctxb, &lnrpc.SendManyRequest{
+		AddrToAmount: amountToAddr,
+	})
 	if err != nil {
 		return err
 	}
@@ -405,8 +407,6 @@ func openChannel(ctx *cli.Context) error {
 			)
 		}
 	}
-
-	return nil
 }
 
 // TODO(roasbeef): also allow short relative channel ID.
@@ -541,8 +541,6 @@ func closeChannel(ctx *cli.Context) error {
 			})
 		}
 	}
-
-	return nil
 }
 
 var ListPeersCommand = cli.Command{
@@ -676,7 +674,7 @@ func pendingChannels(ctx *cli.Context) error {
 		channelStatus = lnrpc.ChannelStatus_ALL
 	}
 
-	req := &lnrpc.PendingChannelRequest{channelStatus}
+	req := &lnrpc.PendingChannelRequest{Status: channelStatus}
 	resp, err := client.PendingChannels(ctxb, req)
 	if err != nil {
 		return err
@@ -1097,7 +1095,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 		y := math.Log2(float64(x))
 
 		// TODO(roasbeef): results in min being zero
-		return y-min / max-min * scaleFactor
+		return y - min/max - min*scaleFactor
 	}
 }
 

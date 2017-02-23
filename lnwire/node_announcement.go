@@ -127,15 +127,15 @@ func (a *NodeAnnouncement) Validate() error {
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&c.Signature,
-		&c.Timestamp,
-		&c.Address,
-		&c.NodeID,
-		&c.RGBColor,
-		&c.pad,
-		&c.Alias,
+		&a.Signature,
+		&a.Timestamp,
+		&a.Address,
+		&a.NodeID,
+		&a.RGBColor,
+		&a.pad,
+		&a.Alias,
 	)
 }
 
@@ -143,15 +143,15 @@ func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.Signature,
-		c.Timestamp,
-		c.Address,
-		c.NodeID,
-		c.RGBColor,
-		c.pad,
-		c.Alias,
+		a.Signature,
+		a.Timestamp,
+		a.Address,
+		a.NodeID,
+		a.RGBColor,
+		a.pad,
+		a.Alias,
 	)
 }
 
@@ -159,7 +159,7 @@ func (c *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *NodeAnnouncement) Command() uint32 {
+func (a *NodeAnnouncement) Command() uint32 {
 	return CmdNodeAnnoucmentMessage
 }
 
@@ -167,7 +167,7 @@ func (c *NodeAnnouncement) Command() uint32 {
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
+func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	var length uint32
 
 	// Signature - 64 bytes
@@ -198,18 +198,18 @@ func (c *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	return length
 }
 
-// dataToSign...
-func (c *NodeAnnouncement) DataToSign() ([]byte, error) {
+// DataToSign returns the part of the message that should be signed.
+func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
-		c.Timestamp,
-		c.Address,
-		c.NodeID,
-		c.RGBColor,
-		c.pad,
-		c.Alias,
+		a.Timestamp,
+		a.Address,
+		a.NodeID,
+		a.RGBColor,
+		a.pad,
+		a.Alias,
 	)
 	if err != nil {
 		return nil, err

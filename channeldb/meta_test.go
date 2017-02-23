@@ -27,7 +27,7 @@ func TestVersionFetchPut(t *testing.T) {
 		t.Fatal("initialization of meta information wasn't performed")
 	}
 
-	var newVersion uint32 = getLatestDBVersion(dbVersions) + 1
+	newVersion := getLatestDBVersion(dbVersions) + 1
 	meta.DbVersionNumber = newVersion
 
 	if err := db.PutMeta(meta); err != nil {
@@ -261,7 +261,7 @@ func TestMigrationWithFatal(t *testing.T) {
 		}
 
 		bucket.Put(keyPrefix, afterMigration)
-		return errors.New("some error!")
+		return errors.New("some error")
 	}
 
 	// Check that version of database and initial data wasn't changed.

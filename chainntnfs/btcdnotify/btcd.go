@@ -591,7 +591,7 @@ type spendCancel struct {
 	spendID uint64
 }
 
-// RegisterSpendNotification registers an intent to be notified once the target
+// RegisterSpendNtfn registers an intent to be notified once the target
 // outpoint has been spent by a transaction on-chain. Once a spend of the target
 // outpoint has been detected, the details of the spending event will be sent
 // across the 'Spend' channel.
@@ -667,7 +667,7 @@ type confirmationsNotification struct {
 	negativeConf chan int32 // TODO(roasbeef): re-org funny business
 }
 
-// RegisterConfirmationsNotification registers a notification with BtcdNotifier
+// RegisterConfirmationsNtfn registers a notification with BtcdNotifier
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,

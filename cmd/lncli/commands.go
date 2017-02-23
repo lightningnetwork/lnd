@@ -26,7 +26,7 @@ import (
 // TODO(roasbeef): cli logic for supporting both positional and unix style
 // arguments.
 
-func printJson(resp interface{}) {
+func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
 		fatal(err)
@@ -37,7 +37,7 @@ func printJson(resp interface{}) {
 	out.WriteTo(os.Stdout)
 }
 
-func printRespJson(resp proto.Message) {
+func printRespJSON(resp proto.Message) {
 	jsonMarshaler := &jsonpb.Marshaler{
 		EmitDefaults: true,
 		Indent:       "    ",
@@ -92,7 +92,7 @@ func newAddress(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(addr)
+	printRespJSON(addr)
 	return nil
 }
 
@@ -165,7 +165,7 @@ func sendCoins(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(txid)
+	printRespJSON(txid)
 	return nil
 }
 
@@ -200,7 +200,7 @@ func sendMany(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(txid)
+	printRespJSON(txid)
 	return nil
 }
 
@@ -245,7 +245,7 @@ func connectPeer(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(lnid)
+	printRespJSON(lnid)
 	return nil
 }
 
@@ -380,7 +380,7 @@ func openChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJson(struct {
+			printJSON(struct {
 				FundingTxid string `json:"funding_txid"`
 			}{
 				FundingTxid: txid.String(),
@@ -399,7 +399,7 @@ func openChannel(ctx *cli.Context) error {
 			}
 
 			index := channelPoint.OutputIndex
-			printJson(struct {
+			printJSON(struct {
 				ChannelPoint string `json:"channel_point"`
 			}{
 				ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
@@ -410,6 +410,7 @@ func openChannel(ctx *cli.Context) error {
 }
 
 // TODO(roasbeef): also allow short relative channel ID.
+
 var CloseChannelCommand = cli.Command{
 	Name:  "closechannel",
 	Usage: "Close an existing channel.",
@@ -517,7 +518,7 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJson(struct {
+			printJSON(struct {
 				ClosingTXID string `json:"closing_txid"`
 			}{
 				ClosingTXID: txid.String(),
@@ -534,7 +535,7 @@ func closeChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			printJson(struct {
+			printJSON(struct {
 				ClosingTXID string `json:"closing_txid"`
 			}{
 				ClosingTXID: txid.String(),
@@ -560,7 +561,7 @@ func listPeers(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 
@@ -590,7 +591,7 @@ func walletBalance(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 
@@ -611,7 +612,7 @@ func channelBalance(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 
@@ -632,7 +633,7 @@ func getInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 
@@ -680,7 +681,7 @@ func pendingChannels(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 
 	return nil
 }
@@ -710,7 +711,7 @@ func listChannels(ctx *cli.Context) error {
 
 	// TODO(roasbeef): defer close the client for the all
 
-	printRespJson(resp)
+	printRespJSON(resp)
 
 	return nil
 }
@@ -844,7 +845,7 @@ func sendPaymentCommand(ctx *cli.Context) error {
 
 	paymentStream.CloseSend()
 
-	printJson(struct {
+	printJSON(struct {
 		P string       `json:"payment_preimage"`
 		R *lnrpc.Route `json:"payment_route"`
 	}{
@@ -936,7 +937,7 @@ func addInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printJson(struct {
+	printJSON(struct {
 		RHash  string `json:"r_hash"`
 		PayReq string `json:"pay_req"`
 	}{
@@ -992,7 +993,7 @@ func lookupInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(invoice)
+	printRespJSON(invoice)
 
 	return nil
 }
@@ -1028,7 +1029,7 @@ func listInvoices(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(invoices)
+	printRespJSON(invoices)
 
 	return nil
 }
@@ -1064,7 +1065,7 @@ func describeGraph(ctx *cli.Context) error {
 		return drawChannelGraph(graph)
 	}
 
-	printRespJson(graph)
+	printRespJSON(graph)
 	return nil
 }
 
@@ -1233,7 +1234,7 @@ func listPayments(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(payments)
+	printRespJSON(payments)
 	return nil
 }
 
@@ -1280,7 +1281,7 @@ func getChanInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(chanInfo)
+	printRespJSON(chanInfo)
 	return nil
 }
 
@@ -1317,7 +1318,7 @@ func getNodeInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(nodeInfo)
+	printRespJSON(nodeInfo)
 	return nil
 }
 
@@ -1385,7 +1386,7 @@ func queryRoute(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(route)
+	printRespJSON(route)
 	return nil
 }
 
@@ -1409,7 +1410,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(netInfo)
+	printRespJSON(netInfo)
 	return nil
 }
 
@@ -1445,7 +1446,7 @@ func debugLevel(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 
@@ -1486,7 +1487,7 @@ func decodePayReq(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }
 

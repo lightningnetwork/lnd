@@ -124,7 +124,7 @@ type aliasMap map[string]*btcec.PublicKey
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON
 // file which encodes a test graph.
 func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, error) {
-	graphJson, err := ioutil.ReadFile(path)
+	graphJSON, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -133,7 +133,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 	// struct. Using the struct tags created above in the struct, the JSON
 	// will be properly parsed into the struct above.
 	var g testGraph
-	if err := json.Unmarshal(graphJson, &g); err != nil {
+	if err := json.Unmarshal(graphJSON, &g); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -177,11 +177,11 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		if _, ok := aliasMap[node.Alias]; ok {
 			return nil, nil, nil, errors.New("aliases for nodes " +
 				"must be unique!")
-		} else {
-			// If the alias is unique, then add the node to the
-			// alias map for easy lookup.
-			aliasMap[node.Alias] = pub
 		}
+
+		// If the alias is unique, then add the node to the
+		// alias map for easy lookup.
+		aliasMap[node.Alias] = pub
 
 		// If the node is tagged as the source, then we create a
 		// pointer to is so we can mark the source in the graph

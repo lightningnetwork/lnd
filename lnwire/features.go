@@ -205,12 +205,11 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 // were present in both remote and local feature vectors. If remote/local node
 // doesn't have the feature and local/remote node require it than such vectors
 // are incompatible.
-func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
-	error) {
-	shared := newSharedFeatures(local.Copy())
+func (f *FeatureVector) Compare(f2 *FeatureVector) (*SharedFeatures, error) {
+	shared := newSharedFeatures(f.Copy())
 
-	for index, flag := range local.flags {
-		if _, exist := remote.flags[index]; !exist {
+	for index, flag := range f.flags {
+		if _, exist := f2.flags[index]; !exist {
 			switch flag {
 			case RequiredFlag:
 				return nil, errors.New("Remote node hasn't " +
@@ -228,8 +227,8 @@ func (local *FeatureVector) Compare(remote *FeatureVector) (*SharedFeatures,
 		shared.flags[index] = flag
 	}
 
-	for index, flag := range remote.flags {
-		if _, exist := local.flags[index]; !exist {
+	for index, flag := range f2.flags {
+		if _, exist := f.flags[index]; !exist {
 			switch flag {
 			case RequiredFlag:
 				return nil, errors.New("Local node hasn't " +

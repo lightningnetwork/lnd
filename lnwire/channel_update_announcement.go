@@ -71,16 +71,16 @@ func (a *ChannelUpdateAnnouncement) Validate() error {
 // passed io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&c.Signature,
-		&c.ChannelID,
-		&c.Timestamp,
-		&c.Flags,
-		&c.TimeLockDelta,
-		&c.HtlcMinimumMsat,
-		&c.FeeBaseMsat,
-		&c.FeeProportionalMillionths,
+		&a.Signature,
+		&a.ChannelID,
+		&a.Timestamp,
+		&a.Flags,
+		&a.TimeLockDelta,
+		&a.HtlcMinimumMsat,
+		&a.FeeBaseMsat,
+		&a.FeeProportionalMillionths,
 	)
 }
 
@@ -88,16 +88,16 @@ func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 // io.Writer observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.Signature,
-		c.ChannelID,
-		c.Timestamp,
-		c.Flags,
-		c.TimeLockDelta,
-		c.HtlcMinimumMsat,
-		c.FeeBaseMsat,
-		c.FeeProportionalMillionths,
+		a.Signature,
+		a.ChannelID,
+		a.Timestamp,
+		a.Flags,
+		a.TimeLockDelta,
+		a.HtlcMinimumMsat,
+		a.FeeBaseMsat,
+		a.FeeProportionalMillionths,
 	)
 }
 
@@ -105,7 +105,7 @@ func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelUpdateAnnouncement) Command() uint32 {
+func (a *ChannelUpdateAnnouncement) Command() uint32 {
 	return CmdChannelUpdateAnnoucmentMessage
 }
 
@@ -113,7 +113,7 @@ func (c *ChannelUpdateAnnouncement) Command() uint32 {
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
+func (a *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	var length uint32
 
 	// Signature - 64 bytes
@@ -145,18 +145,18 @@ func (c *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 
 // DataToSign is used to retrieve part of the announcement message which
 // should be signed.
-func (c *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
+func (a *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
-		c.ChannelID,
-		c.Timestamp,
-		c.Flags,
-		c.TimeLockDelta,
-		c.HtlcMinimumMsat,
-		c.FeeBaseMsat,
-		c.FeeProportionalMillionths,
+		a.ChannelID,
+		a.Timestamp,
+		a.Flags,
+		a.TimeLockDelta,
+		a.HtlcMinimumMsat,
+		a.FeeBaseMsat,
+		a.FeeProportionalMillionths,
 	)
 	if err != nil {
 		return nil, err

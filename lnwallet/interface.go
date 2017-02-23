@@ -28,7 +28,7 @@ const (
 	// nested p2wkh output.
 	NestedWitnessPubKey
 
-	// PublicKey represents a regular p2pkh output.
+	// PubKeyHash represents a regular p2pkh output.
 	PubKeyHash
 )
 

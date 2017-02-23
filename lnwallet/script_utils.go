@@ -20,8 +20,8 @@ import (
 var (
 	// TODO(roasbeef): remove these and use the one's defined in txscript
 	// within testnet-L.
+
 	SequenceLockTimeSeconds      = uint32(1 << 22)
-	SequenceLockTimeMask         = uint32(0x0000ffff)
 	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
 
 	// TimelockShift is used to make sure the commitment transaction is

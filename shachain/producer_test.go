@@ -1,7 +1,9 @@
 package shachain
 
 import (
+	"bytes"
 	"testing"
+
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
@@ -10,8 +12,7 @@ import (
 func TestShaChainProducerRestore(t *testing.T) {
 	var err error
 
-	hash := chainhash.DoubleHashH([]byte("shachaintest"))
-	seed := &hash
+	seed := chainhash.DoubleHashH([]byte("shachaintest"))
 	sender := NewRevocationProducer(seed)
 
 	s1, err := sender.AtIndex(0)
@@ -19,12 +20,12 @@ func TestShaChainProducerRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := sender.ToBytes()
-	if err != nil {
+	var b bytes.Buffer
+	if err := sender.Encode(&b); err != nil {
 		t.Fatal(err)
 	}
 
-	sender, err = NewRevocationProducerFromBytes(data)
+	sender, err = NewRevocationProducerFromBytes(b.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}

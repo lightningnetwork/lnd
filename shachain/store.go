@@ -1,43 +1,51 @@
 package shachain
 
 import (
-	"bytes"
 	"encoding/binary"
+	"io"
+
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // Store is an interface which serves as an abstraction over data structure
-// responsible for efficient storing and restoring of hash secrets by given
+// responsible for efficiently storing and restoring of hash secrets by given
 // indexes.
 //
 // Description: The Lightning Network wants a chain of (say 1 million)
-// unguessable 256 bit values; we generate them and send them one at a time
-// to a remote node.  We don't want the remote node to have to store all the
+// unguessable 256 bit values; we generate them and send them one at a time to
+// a remote node.  We don't want the remote node to have to store all the
 // values, so it's better if they can derive them once they see them.
 type Store interface {
 	// LookUp function is used to restore/lookup/fetch the previous secret
 	// by its index.
 	LookUp(uint64) (*chainhash.Hash, error)
 
-	// Store is used to store the given sha hash in efficient manner.
-	Store(*chainhash.Hash) error
+	// AddNextEntry attempts to store the given hash within its internal
+	// storage in an efficient manner.
+	//
+	// NOTE: The hashes derived from the shachain MUST be inserted in the
+	// order they're produced by a shachain.Producer.
+	AddNextEntry(*chainhash.Hash) error
 
-	// ToBytes convert store to the binary representation.
-	ToBytes() ([]byte, error)
+	// Encode writes a binary serialization of the shachain elements
+	// currently saved by implementation of shachain.Store to the passed
+	// io.Writer.
+	Encode(io.Writer) error
 }
 
-// RevocationStore implementation of SecretStore. This version of shachain store
-// slightly changed in terms of method naming. Initial concept might be found
-// here:
-// https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt
+// RevocationStore is a concrete implementation of the Store interface. The
+// revocation store is able to efficiently store N derived shahain elements in
+// a space efficient manner with a space complexity of O(log N). The original
+// description of the storage methodology can be found here:
+// https://github.com/lightningnetwork/lightning-rfc/blob/master/03-transactions.md#efficient-per-commitment-secret-storage
 type RevocationStore struct {
 	// lenBuckets stores the number of currently active buckets.
 	lenBuckets uint8
 
-	// buckets is an array of elements from which we may derive all previous
-	// elements, each bucket corresponds to the element index number of
-	// trailing zeros.
+	// buckets is an array of elements from which we may derive all
+	// previous elements, each bucket corresponds to the element with the
+	// particular number of trailing zeros.
 	buckets [maxHeight]element
 
 	// index is an available index which will be assigned to the new
@@ -59,36 +67,32 @@ func NewRevocationStore() *RevocationStore {
 
 // NewRevocationStoreFromBytes recreates the initial store state from the given
 // binary shachain store representation.
-func NewRevocationStoreFromBytes(data []byte) (*RevocationStore, error) {
-	var err error
-
+func NewRevocationStoreFromBytes(r io.Reader) (*RevocationStore, error) {
 	store := &RevocationStore{}
-	buf := bytes.NewBuffer(data)
 
-	err = binary.Read(buf, binary.BigEndian, &store.lenBuckets)
-	if err != nil {
+	if err := binary.Read(r, binary.BigEndian, &store.lenBuckets); err != nil {
 		return nil, err
 	}
 
-	i := uint8(0)
-	for ; i < store.lenBuckets; i++ {
-		e := &element{}
-
-		err = binary.Read(buf, binary.BigEndian, &e.index)
+	for i := uint8(0); i < store.lenBuckets; i++ {
+		var hashIndex index
+		err := binary.Read(r, binary.BigEndian, &hashIndex)
 		if err != nil {
 			return nil, err
 		}
 
-		hash, err := chainhash.NewHash(buf.Next(chainhash.HashSize))
-		if err != nil {
+		var nextHash chainhash.Hash
+		if _, err := io.ReadFull(r, nextHash[:]); err != nil {
 			return nil, err
 		}
-		e.hash = *hash
-		store.buckets[i] = *e
+
+		store.buckets[i] = element{
+			index: hashIndex,
+			hash:  nextHash,
+		}
 	}
 
-	err = binary.Read(buf, binary.BigEndian, &store.index)
-	if err != nil {
+	if err := binary.Read(r, binary.BigEndian, &store.index); err != nil {
 		return nil, err
 	}
 
@@ -116,12 +120,14 @@ func (store *RevocationStore) LookUp(v uint64) (*chainhash.Hash, error) {
 	return nil, errors.Errorf("unable to derive hash #%v", ind)
 }
 
-// Store is used to store the given sha hash in efficient manner. Given hash
-// should be computable with previous ones, and derived from the previous index
-// otherwise the function will return the error.
+// AddNextEntry attempts to store the given hash within its internal storage in
+// an efficient manner.
+//
+// NOTE: The hashes derived from the shachain MUST be inserted in the order
+// they're produced by a shachain.Producer.
 //
 // NOTE: This function is part of the Store interface.
-func (store *RevocationStore) Store(hash *chainhash.Hash) error {
+func (store *RevocationStore) AddNextEntry(hash *chainhash.Hash) error {
 	newElement := &element{
 		index: store.index,
 		hash:  *hash,
@@ -150,37 +156,29 @@ func (store *RevocationStore) Store(hash *chainhash.Hash) error {
 	return nil
 }
 
-// ToBytes convert store to the binary representation.
+// Encode writes a binary serialization of the shachain elements currently
+// saved by implementation of shachain.Store to the passed io.Writer.
+//
 // NOTE: This function is part of the Store interface.
-func (store *RevocationStore) ToBytes() ([]byte, error) {
-	var buf bytes.Buffer
-	var err error
-
-	err = binary.Write(&buf, binary.BigEndian, store.lenBuckets)
+func (store *RevocationStore) Encode(w io.Writer) error {
+	err := binary.Write(w, binary.BigEndian, store.lenBuckets)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	i := uint8(0)
-	for ; i < store.lenBuckets; i++ {
+	for i := uint8(0); i < store.lenBuckets; i++ {
 		element := store.buckets[i]
 
-		err = binary.Write(&buf, binary.BigEndian, element.index)
+		err := binary.Write(w, binary.BigEndian, element.index)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		_, err = buf.Write(element.hash.CloneBytes())
-		if err != nil {
-			return nil, err
+		if _, err = w.Write(element.hash[:]); err != nil {
+			return err
 		}
 
 	}
 
-	err = binary.Write(&buf, binary.BigEndian, store.index)
-	if err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+	return binary.Write(w, binary.BigEndian, store.index)
 }

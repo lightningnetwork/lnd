@@ -1,9 +1,10 @@
 package shachain
 
 import (
-	"github.com/go-errors/errors"
 	"reflect"
 	"testing"
+
+	"github.com/go-errors/errors"
 )
 
 // bitsToIndex is a helper function which takes 'n' last bits as input and

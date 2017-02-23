@@ -1,25 +1,34 @@
 package shachain
 
 import (
+	"io"
+
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// Producer is an interface which serves as an abstraction over data
-// structure responsible for efficient generating the secrets by given index.
-// The generation of secrets should be made in such way that secret store
-// might efficiently store and retrieve the secrets.
+// Producer is an interface which serves as an abstraction over the data
+// structure responsible for efficiently generating the secrets for a
+// particular index based on a root seed.  The generation of secrets should be
+// made in such way that secret store might efficiently store and retrieve the
+// secrets. This is typically implemented as a tree-based PRF.
 type Producer interface {
-	// AtIndex produce secret by given index.
+	// AtIndex produces a secret by evaluating using the initial seed and a
+	// particular index.
 	AtIndex(uint64) (*chainhash.Hash, error)
 
-	// ToBytes convert producer to the binary representation.
-	ToBytes() ([]byte, error)
+	// Encode writes a binary serialization of the Producer implementation
+	// to the passed io.Writer.
+	Encode(io.Writer) error
 }
 
-// RevocationProducer implementation of Producer. This version of shachain
-// slightly changed in terms of method naming. Initial concept might be found
-// here:
+// RevocationProducer is an implementation of Producer interface using the
+// shachain PRF construct. Starting with a single 32-byte element generated
+// from a CSPRNG, shachain is able to efficiently generate a nearly unbounded
+// number of secrets while maintaining a constant amount of storage. The
+// original description of shachain can be found here:
 // https://github.com/rustyrussell/ccan/blob/master/ccan/crypto/shachain/design.txt
+// with supplementary material here:
+// https://github.com/lightningnetwork/lightning-rfc/blob/master/03-transactions.md#per-commitment-secret-requirements
 type RevocationProducer struct {
 	// root is the element from which we may generate all hashes which
 	// corresponds to the index domain [281474976710655,0].
@@ -30,18 +39,18 @@ type RevocationProducer struct {
 // interface.
 var _ Producer = (*RevocationProducer)(nil)
 
-// NewRevocationProducer create new instance of shachain producer.
-func NewRevocationProducer(root *chainhash.Hash) *RevocationProducer {
+// NewRevocationProducer creates new instance of shachain producer.
+func NewRevocationProducer(root chainhash.Hash) *RevocationProducer {
 	return &RevocationProducer{
 		root: &element{
 			index: rootIndex,
-			hash:  *root,
+			hash:  root,
 		}}
 }
 
-// NewRevocationProducerFromBytes deserialize an instance of a RevocationProducer
-// encoded in the passed byte slice, returning a fully initialize instance of a
-// RevocationProducer.
+// NewRevocationProducerFromBytes deserializes an instance of a
+// RevocationProducer encoded in the passed byte slice, returning a fully
+// initialized instance of a RevocationProducer.
 func NewRevocationProducerFromBytes(data []byte) (*RevocationProducer, error) {
 	root, err := chainhash.NewHash(data)
 	if err != nil {
@@ -56,7 +65,9 @@ func NewRevocationProducerFromBytes(data []byte) (*RevocationProducer, error) {
 	}, nil
 }
 
-// AtIndex produce secret by given index.
+// AtIndex produces a secret by evaluating using the initial seed and a
+// particular index.
+//
 // NOTE: Part of the Producer interface.
 func (p *RevocationProducer) AtIndex(v uint64) (*chainhash.Hash, error) {
 	ind := newIndex(v)
@@ -69,8 +80,14 @@ func (p *RevocationProducer) AtIndex(v uint64) (*chainhash.Hash, error) {
 	return &element.hash, nil
 }
 
-// ToBytes convert producer to the binary representation.
+// Encode writes a binary serialization of the Producer implementation to the
+// passed io.Writer.
+//
 // NOTE: Part of the Producer interface.
-func (p *RevocationProducer) ToBytes() ([]byte, error) {
-	return p.root.hash.CloneBytes(), nil
+func (p *RevocationProducer) Encode(w io.Writer) error {
+	if _, err := w.Write(p.root.hash[:]); err != nil {
+		return err
+	}
+
+	return nil
 }

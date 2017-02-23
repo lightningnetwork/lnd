@@ -2,19 +2,21 @@ package shachain
 
 import (
 	"encoding/hex"
+
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// changeBit function produce all necessary hash bits flips. You should be
-// aware that the bit flipping in this function a bit strange, example:
+// changeBit is a functio that function that flips a bit of the hash at a
+// particluar bit-index. You should be aware that the bit flipping in this
+// function a bit strange, example:
 // hash: [0b00000000, 0b00000000,  ... 0b00000000]
 //	    0		   1       ...      31
 //
 // byte: 0 0 0 0 0 0 0 0
 // 	 7 6 5 4 3 2 1 0
 //
-// By flipping the bit at 7 position you will flip the first bit in hash and
-// by flipping the bit at 8 position you will flip the 16 bit in hash.
+// By flipping the bit at 7 position you will flip the first bit in hash and by
+// flipping the bit at 8 position you will flip the 16 bit in hash.
 func changeBit(hash []byte, position uint8) []byte {
 	byteNumber := position / 8
 	bitNumber := position % 8
@@ -62,11 +64,11 @@ func countTrailingZeros(index index) uint8 {
 	return zeros
 }
 
-// hashFromString takes the string as input an create the wire shahash, the
-// initial wire.ShaHash NewShaHashFromStr function not suitable because it
-// reverse the given hash.
+// hashFromString takes a hex-encoded string as input and creates an instane of
+// chainhash.Hash. The chainhash.NewHashFromStr function not suitable because
+// it reverse the given hash.
 func hashFromString(s string) (*chainhash.Hash, error) {
-	// Return error if hash string is too long.
+	// Return an error if hash string is too long.
 	if len(s) > chainhash.MaxHashStringSize {
 		return nil, chainhash.ErrHashStrSize
 	}

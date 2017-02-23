@@ -1,8 +1,10 @@
 package shachain
 
 import (
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"bytes"
 	"testing"
+
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 type testInsert struct {
@@ -398,7 +400,7 @@ var tests = []struct {
 	},
 }
 
-// TestSpecificationShaChainInsert is used to check the consistence with
+// TestSpecificationShaChainInsert is used to check the consistency with
 // specification hash insert function.
 func TestSpecificationShaChainInsert(t *testing.T) {
 	for _, test := range tests {
@@ -410,7 +412,7 @@ func TestSpecificationShaChainInsert(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := receiver.Store(secret); err != nil {
+			if err := receiver.AddNextEntry(secret); err != nil {
 				if insert.successful {
 					t.Fatalf("Failed (%v): error was "+
 						"received but it shouldn't: "+
@@ -428,11 +430,10 @@ func TestSpecificationShaChainInsert(t *testing.T) {
 	}
 }
 
-// TestShaChainStore checks the ability of shachain store to hold the produces
+// TestShaChainStore checks the ability of shachain store to hold the produced
 // secrets after recovering from bytes data.
 func TestShaChainStore(t *testing.T) {
-	hash := chainhash.DoubleHashH([]byte("shachaintest"))
-	seed := &hash
+	seed := chainhash.DoubleHashH([]byte("shachaintest"))
 
 	sender := NewRevocationProducer(seed)
 	receiver := NewRevocationStore()
@@ -443,23 +444,23 @@ func TestShaChainStore(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if err = receiver.Store(sha); err != nil {
+		if err = receiver.AddNextEntry(sha); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	data, err := receiver.ToBytes()
-	if err != nil {
+	var b bytes.Buffer
+	if err := receiver.Encode(&b); err != nil {
 		t.Fatal(err)
 	}
 
-	receiver, err = NewRevocationStoreFromBytes(data)
+	newReceiver, err := NewRevocationStoreFromBytes(&b)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for n := uint64(0); n < 10000; n++ {
-		if _, err := receiver.LookUp(n); err != nil {
+		if _, err := newReceiver.LookUp(n); err != nil {
 			t.Fatal(err)
 		}
 	}

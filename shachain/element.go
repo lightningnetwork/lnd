@@ -3,18 +3,20 @@ package shachain
 import (
 	"crypto/sha256"
 	"errors"
+
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// element represent the entity which contains the hash and
-// corresponding to it index. By comparing two indexes we may change hash in
-// such way to derive another element.
+// element represents the entity which contains the hash and index
+// corresponding to it. An element is the output of the shachain PRF. By
+// comparing two indexes we're able to mutate the hash in such way to derive
+// another element.
 type element struct {
 	index index
 	hash  chainhash.Hash
 }
 
-// newElementFromStr creates new element by the given hash string.
+// newElementFromStr creates new element from the given hash string.
 func newElementFromStr(s string, index index) (*element, error) {
 	hash, err := hashFromString(s)
 	if err != nil {
@@ -27,8 +29,8 @@ func newElementFromStr(s string, index index) (*element, error) {
 	}, nil
 }
 
-// derive used to get one shachain element from another by applying a series of
-// bit flipping and hashing operations based on an index.
+// derive computes one shachain element from another by applying a series of
+// bit flips and hasing operations based on the starting and ending index.
 func (e *element) derive(toIndex index) (*element, error) {
 	fromIndex := e.index
 
@@ -60,48 +62,48 @@ func (e *element) derive(toIndex index) (*element, error) {
 	}, nil
 }
 
-// isEqual checks elements equality.
+// isEqual returns true if two elements are identical and false otherwise.
 func (first *element) isEqual(second *element) bool {
 	return (first.index == second.index) &&
 		(&first.hash).IsEqual(&second.hash)
 }
 
 const (
-	// maxHeight is used to determine the the maximum allowable index and
-	// the length of array which should be stored in order to derive all
-	// previous hashes by index, this array also known as buckets.
+	// maxHeight is used to determine the maximum allowable index and the
+	// length of the array required to order to derive all previous hashes
+	// by index. The entries of this array as also knowns as buckets.
 	maxHeight uint8 = 48
 
 	// rootIndex is an index which corresponds to the root hash.
 	rootIndex index = 0
 )
 
-// startIndex is an index of first element.
+// startIndex is the index of first element in the shachain PRF.
 var startIndex index = (1 << maxHeight) - 1
 
-// index is an number which identifies the hash number and serve as the way to
-// determine which operation under hash we should made in order to derive one
-// hash from another. index initialized with start index value and than
-// decreases down to zero.
+// index is a number which identifies the hash number and serves as a way to
+// determine the hashing operation required  to derive one hash from another.
+// index is initialized with the startIndex and decreases down to zero with
+// successive derivations.
 type index uint64
 
-// newIndex is used to create index instance. The inner operations with
-// index implies that index decreasing from some max number to zero, but for
+// newIndex is used to create index instance. The inner operations with index
+// implies that index decreasing from some max number to zero, but for
 // simplicity and backward compatibility with previous logic it was transformed
 // to work in opposite way.
 func newIndex(v uint64) index {
 	return startIndex - index(v)
 }
 
-// deriveBitTransformations function checks that 'to' index is derivable from
-// 'from' index by checking the indexes prefixes and then returns the bit
-// positions where the zeroes should be changed to ones in order for the indexes
-// to become the same. This set of bits is needed in order to derive one hash
-// from another.
+// deriveBitTransformations function checks that the 'to' index is derivable
+// from the 'from' index by checking the indexes are prefixes of another. The
+// bit positions where the zeroes should be changed to ones in order for the
+// indexes to become the same are returned. This set of bits is needed in order
+// to derive one hash from another.
 //
 // NOTE: The index 'to' is derivable from index 'from' iff index 'from' lies
 // left and above index 'to' on graph below, for example:
-// 1. 7(0b111) -> 7 
+// 1. 7(0b111) -> 7
 // 2. 6(0b110) -> 6,7
 // 3. 5(0b101) -> 5
 // 4. 4(0b100) -> 4,5,6,7

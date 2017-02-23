@@ -45,7 +45,7 @@ func getPrefix(index index, position uint8) uint64 {
 	//	|  0 |   1   |  1   |	 1   |
 	//	+ -- + ----- + ---- + ------ +
 
-	var zero uint64 = 0
+	var zero uint64
 	mask := (zero - 1) - uint64((1<<position)-1)
 	return (uint64(index) & mask)
 }
@@ -53,7 +53,7 @@ func getPrefix(index index, position uint8) uint64 {
 // countTrailingZeros count number of of trailing zero bits, this function is
 // used to determine the number of element bucket.
 func countTrailingZeros(index index) uint8 {
-	var zeros uint8 = 0
+	var zeros uint8
 	for ; zeros < maxHeight; zeros++ {
 
 		if getBit(index, zeros) != 0 {

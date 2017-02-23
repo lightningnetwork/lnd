@@ -101,7 +101,7 @@ func (c *CloseRequest) MaxPayloadLength(pver uint32) uint32 {
 func (c *CloseRequest) Validate() error {
 	// Fee must be greater than 0.
 	if c.Fee < 0 {
-		return fmt.Errorf("Fee must be greater than zero.")
+		return fmt.Errorf("fee must be greater than zero")
 	}
 
 	// We're good!

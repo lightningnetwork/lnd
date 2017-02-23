@@ -46,23 +46,23 @@ type Config struct {
 	// logger should use.
 	DebugLevel string
 
-	// RpcHost is the host and port to use to reach the rpc sever.
-	RpcHost string // localhost:18334
+	// RPCHost is the host and port to use to reach the rpc sever.
+	RPCHost string // localhost:18334
 
-	// RpcUser is the username which should be used to authentiate with the
+	// RPCUser is the username which should be used to authentiate with the
 	// rpc server.
-	RpcUser string
+	RPCUser string
 
-	// RpcPass is the password which should be used to authenticate the
+	// RPCPass is the password which should be used to authenticate the
 	// connection with the RPC server.
-	RpcPass string
+	RPCPass string
 
-	// RpcNoTLS denotes if a TLS connection should be attempted when
+	// RPCNoTLS denotes if a TLS connection should be attempted when
 	// connecting to the RPC server.
-	RpcNoTLS bool
+	RPCNoTLS bool
 
 	// RPCCert directory where the TLS certificate of the RPC sever is
-	// stored. If the RpcNoTLS is false, then this value will be unused.
+	// stored. If the RPCNoTLS is false, then this value will be unused.
 	RPCCert string
 	RPCKey  string
 

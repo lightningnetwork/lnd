@@ -124,9 +124,9 @@ func lndMain() error {
 	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
 		DataDir:     filepath.Join(cfg.DataDir, "lnwallet"),
-		RpcHost:     btcdHost,
-		RpcUser:     cfg.RPCUser,
-		RpcPass:     cfg.RPCPass,
+		RPCHost:     btcdHost,
+		RPCUser:     cfg.RPCUser,
+		RPCPass:     cfg.RPCPass,
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}

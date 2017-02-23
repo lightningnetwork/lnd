@@ -32,10 +32,9 @@ func serializeSigToWire(b *[64]byte, e *btcec.Signature) error {
 		if (sLen > 33) || (sig[6+rLen] != 0x00) {
 			return fmt.Errorf("S is over 32 bytes long " +
 				"without padding")
-		} else {
-			sLen -= 1
-			copy(b[64-sLen:], sig[7+rLen:])
 		}
+		sLen--
+		copy(b[64-sLen:], sig[7+rLen:])
 	} else {
 		copy(b[64-sLen:], sig[6+rLen:])
 	}
@@ -45,10 +44,9 @@ func serializeSigToWire(b *[64]byte, e *btcec.Signature) error {
 		if (rLen > 33) || (sig[4] != 0x00) {
 			return fmt.Errorf("R is over 32 bytes long " +
 				"without padding")
-		} else {
-			rLen -= 1
-			copy(b[32-rLen:], sig[5:5+rLen])
 		}
+		rLen--
+		copy(b[32-rLen:], sig[5:5+rLen])
 	} else {
 		copy(b[32-rLen:], sig[4:4+rLen])
 	}
@@ -96,9 +94,8 @@ func extractCanonicalPadding(b []byte) []byte {
 			// If the MSB is set, we need zero padding.
 			if b[i]&0x80 == 0x80 {
 				return append([]byte{0x00}, b[i:]...)
-			} else {
-				return b[i:]
 			}
+			return b[i:]
 		}
 	}
 	return []byte{0x00}

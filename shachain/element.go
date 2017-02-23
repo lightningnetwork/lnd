@@ -63,9 +63,9 @@ func (e *element) derive(toIndex index) (*element, error) {
 }
 
 // isEqual returns true if two elements are identical and false otherwise.
-func (first *element) isEqual(second *element) bool {
-	return (first.index == second.index) &&
-		(&first.hash).IsEqual(&second.hash)
+func (e *element) isEqual(e2 *element) bool {
+	return (e.index == e2.index) &&
+		(&e.hash).IsEqual(&e2.hash)
 }
 
 const (

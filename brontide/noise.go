@@ -299,7 +299,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 	return h
 }
 
-// BrontideMachine is a state-machine which implements Brontide: an
+// Machine is a state-machine which implements Brontide: an
 // Authenticated-key Exchange in Three Acts. Brontide is derived from the Noise
 // framework, specifically implementing the Noise_XK handshake. Once the
 // initial 3-act handshake has completed all messages are encrypted with a
@@ -324,7 +324,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 //   -> e, es
 //   <- e, ee
 //   -> s, se
-type BrontideMachine struct {
+type Machine struct {
 	sendCipher cipherState
 	recvCipher cipherState
 
@@ -336,12 +336,12 @@ type BrontideMachine struct {
 // be nil. The handshake state within brontide is initialized using the ascii
 // string "bitcoin" as the prologue.
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
-	remotePub *btcec.PublicKey) *BrontideMachine {
+	remotePub *btcec.PublicKey) *Machine {
 
 	handshake := newHandshakeState(initiator, []byte("lightning"), localPub,
 		remotePub)
 
-	return &BrontideMachine{handshakeState: handshake}
+	return &Machine{handshakeState: handshake}
 }
 
 const (
@@ -381,7 +381,7 @@ const (
 // derived from this result.
 //
 //    -> e, es
-func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
+func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
 	var (
 		err    error
 		actOne [ActOneSize]byte
@@ -413,7 +413,7 @@ func (b *BrontideMachine) GenActOne() ([ActOneSize]byte, error) {
 // executes the mirrored actions to that of the initiator extending the
 // handshake digest and deriving a new shared secret based on a ECDH with the
 // initiator's ephemeral key and responder's static key.
-func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
+func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	var (
 		err error
 		e   [33]byte
@@ -453,7 +453,7 @@ func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
 // initiator's and responder's ephemeral keys.
 //
 //    <- e, ee
-func (b *BrontideMachine) GenActTwo() ([ActTwoSize]byte, error) {
+func (b *Machine) GenActTwo() ([ActTwoSize]byte, error) {
 	var (
 		err    error
 		actTwo [ActTwoSize]byte
@@ -484,7 +484,7 @@ func (b *BrontideMachine) GenActTwo() ([ActTwoSize]byte, error) {
 // RecvActTwo processes the second packet (act two) sent from the responder to
 // the initiator. A successful processing of this packet authenticates the
 // initiator to the responder.
-func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
+func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	var (
 		err error
 		e   [33]byte
@@ -523,7 +523,7 @@ func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 // the final session.
 //
 //    -> s, se
-func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
+func (b *Machine) GenActThree() ([ActThreeSize]byte, error) {
 	var actThree [ActThreeSize]byte
 
 	ourPubkey := b.localStatic.PubKey().SerializeCompressed()
@@ -549,7 +549,7 @@ func (b *BrontideMachine) GenActThree() ([ActThreeSize]byte, error) {
 // the responder. After processing this act, the responder learns of the
 // initiator's static public key. Decryption of the static key serves to
 // authenticate the initiator to the responder.
-func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
+func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	var (
 		err error
 		s   [33 + 16]byte
@@ -596,7 +596,7 @@ func (b *BrontideMachine) RecvActThree(actThree [ActThreeSize]byte) error {
 // instances: one which is used to encrypt messages from the initiator to the
 // responder, and another which is used to encrypt message for the opposite
 // direction.
-func (b *BrontideMachine) split() {
+func (b *Machine) split() {
 	var (
 		empty   []byte
 		sendKey [32]byte
@@ -631,7 +631,7 @@ func (b *BrontideMachine) split() {
 // ciphertext of the message is pre-pended with an encrypt+auth'd length which
 // must be used as the AD to the AEAD construction when being decrypted by the
 // other side.
-func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
+func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 	// The total length of each message payload including the MAC size
 	// payload exceed the largest number encodable within a 16-bit unsigned
 	// integer.
@@ -662,7 +662,7 @@ func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
 
 // ReadMessage attempts to read the next message from the passed io.Reader. In
 // the case of an authentication error, a non-nil error is returned.
-func (b *BrontideMachine) ReadMessage(r io.Reader) ([]byte, error) {
+func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 	var cipherLen [lengthHeaderSize + macSize]byte
 	if _, err := io.ReadFull(r, cipherLen[:]); err != nil {
 		return nil, err

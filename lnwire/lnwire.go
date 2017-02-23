@@ -128,7 +128,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		// Enforce a sane number for the maximum number of signatures.
 		numSigs := len(e)
 		if numSigs > 127 {
-			return fmt.Errorf("Too many signatures!")
+			return fmt.Errorf("too many signatures")
 		}
 
 		// First write out the the number of elements in the slice as a
@@ -186,7 +186,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		// Make sure it's P2PKH or P2SH size or less.
 		scriptLength := len(e)
 		if scriptLength > 25 {
-			return fmt.Errorf("PkScript too long!")
+			return fmt.Errorf("'PkScript' too long")
 		}
 
 		if err := wire.WriteVarBytes(w, 0, e); err != nil {
@@ -195,7 +195,7 @@ func writeElement(w io.Writer, element interface{}) error {
 	case string:
 		strlen := len(e)
 		if strlen > MaxSliceLength {
-			return fmt.Errorf("String too long!")
+			return fmt.Errorf("string too long")
 		}
 
 		if err := wire.WriteVarString(w, 0, e); err != nil {
@@ -429,7 +429,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		if numSigs > 127 {
-			return fmt.Errorf("Too many signatures!")
+			return fmt.Errorf("too many signatures")
 		}
 
 		// Read that number of signatures

@@ -222,22 +222,23 @@ func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
 func (c *SingleFundingRequest) Validate() error {
 	// Negative values is are allowed.
 	if c.FeePerKb < 0 {
-		return fmt.Errorf("MinFeePerKb cannot be negative")
+		return fmt.Errorf("'MinFeePerKb' cannot be negative")
 	}
 	if c.FundingAmount < 0 {
-		return fmt.Errorf("FundingAmount cannot be negative")
+		return fmt.Errorf("'FundingAmount' cannot be negative")
 	}
 
 	// The CSV delay MUST be non-zero.
 	if c.CsvDelay == 0 {
-		return fmt.Errorf("Commitment transaction must have non-zero " +
-			"CSV delay")
+		return fmt.Errorf("commitment transaction must have non-zero" +
+			" CSV delay")
 	}
 
 	// The channel derivation point must be non-nil, and have an odd
 	// y-coordinate.
 	if c.ChannelDerivationPoint == nil {
-		return fmt.Errorf("The channel derivation point must be non-nil")
+		return fmt.Errorf("the channel derivation point must be " +
+			"non-nil")
 	}
 	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
 	//return fmt.Errorf("The channel derivation point must have an odd " +
@@ -248,12 +249,12 @@ func (c *SingleFundingRequest) Validate() error {
 	// templates.
 	if !isValidPkScript(c.DeliveryPkScript) {
 		// TODO(roasbeef): move into actual error
-		return fmt.Errorf("Valid delivery public key scripts MUST be: " +
-			"P2PKH, P2WKH, P2SH, or P2WSH.")
+		return fmt.Errorf("valid delivery public key scripts MUST " +
+			"be: P2PKH, P2WKH, P2SH, or P2WSH")
 	}
 
 	if c.DustLimit <= 0 {
-		return fmt.Errorf("Dust limit should be greater than zero.")
+		return fmt.Errorf("DustLimit' should be greater than zero")
 	}
 
 	if c.ConfirmationDepth == 0 {

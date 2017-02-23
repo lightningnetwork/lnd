@@ -627,7 +627,7 @@ func TestGraphTraversal(t *testing.T) {
 		if !c.Node.PubKey.IsEqual(secondNode.PubKey) {
 			return fmt.Errorf("wrong outgoing edge")
 		}
-		numNodeChans += 1
+		numNodeChans++
 		return nil
 	})
 	if err != nil {
@@ -663,7 +663,7 @@ func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	if err := graph.ForEachChannel(func(*ChannelEdgeInfo, *ChannelEdgePolicy,
 		*ChannelEdgePolicy) error {
 
-		numChans += 1
+		numChans++
 		return nil
 	}); err != nil {
 		_, _, line, _ := runtime.Caller(1)

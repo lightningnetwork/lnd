@@ -6,7 +6,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
-// FailReason specifies the precise reason that an upstream HTLC was cancelled.
+// FailCode specifies the precise reason that an upstream HTLC was cancelled.
 // Each UpdateFailHTLC message carries a FailCode which is to be passed back
 // unaltered to the source of the HTLC within the route.
 //

@@ -114,7 +114,7 @@ func TestConnectionCorrectness(t *testing.T) {
 }
 
 func TestMaxPayloadLength(t *testing.T) {
-	b := BrontideMachine{}
+	b := Machine{}
 	b.split()
 
 	// Create a payload that's juust over the maximum alloted payload

@@ -8,8 +8,8 @@ import (
 )
 
 // Listener is an implementation of a net.Conn which executes an authenticated
-// key exchange and message encryption protocol dubeed "BrontideMachine" after
-// initial connection acceptance. See the BrontideMachine struct for additional
+// key exchange and message encryption protocol dubeed "Machine" after
+// initial connection acceptance. See the Machine struct for additional
 // details w.r.t the handshake and encryption scheme used within the
 // connection.
 type Listener struct {

@@ -212,7 +212,7 @@ func fileExists(path string) bool {
 	return true
 }
 
-// FetchOpenChannel returns all stored currently active/open channels
+// FetchOpenChannels returns all stored currently active/open channels
 // associated with the target nodeID. In the case that no active channels are
 // known to have been created with this node, then a zero-length slice is
 // returned.

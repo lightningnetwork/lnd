@@ -390,7 +390,7 @@ func (l *LightningWallet) Shutdown() error {
 	return nil
 }
 
-// LockOutpoints returns a list of all currently locked outpoint.
+// LockedOutpoints returns a list of all currently locked outpoint.
 func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	outPoints := make([]*wire.OutPoint, 0, len(l.lockedOutPoints))
 	for outPoint := range l.lockedOutPoints {

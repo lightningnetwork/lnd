@@ -1029,7 +1029,7 @@ type routingMsg struct {
 	peer *btcec.PublicKey
 }
 
-// ProcessRoutingMessags sends a new routing message along with the peer that
+// ProcessRoutingMessage sends a new routing message along with the peer that
 // sent the routing message to the ChannelRouter. The announcement will be
 // processed then added to a queue for batched tickled announcement to all
 // connected peers.

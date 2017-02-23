@@ -18,7 +18,7 @@ func bitsToIndex(bs ...uint64) (index, error) {
 			" 64")
 	}
 
-	var res uint64 = 0
+	var res uint64
 	for i, e := range bs {
 		if e != 1 && e != 0 {
 			return 0, errors.New("wrong element, should be '0' or" +

@@ -1,5 +1,6 @@
-// Code derived from https:// github.com/btcsuite/btcd/blob/master/wire/message.go
 package lnwire
+
+// code derived from https://github .com/btcsuite/btcd/blob/master/wire/message.go
 
 import (
 	"bytes"
@@ -247,7 +248,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	return totalBytes, err
 }
 
-// ReadMessageN reads, validates, and parses the next bitcoin Message from r for
+// ReadMessage reads, validates, and parses the next bitcoin Message from r for
 // the provided protocol version and bitcoin network.  It returns the number of
 // bytes read in addition to the parsed Message and raw bytes which comprise the
 // message.  This function is the same as ReadMessage except it also returns the

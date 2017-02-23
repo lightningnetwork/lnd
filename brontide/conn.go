@@ -15,12 +15,12 @@ import (
 // exchange and message encryption protocol dubbed "Brontide" after initial TCP
 // connection establishment. In the case of a successful handshake, all
 // messages sent via the .Write() method are encrypted with an AEAD cipher
-// along with an encrypted length-prefix. See the BrontideMachine struct for
+// along with an encrypted length-prefix. See the Machine struct for
 // additional details w.r.t to the handshake and encryption scheme.
 type Conn struct {
 	conn net.Conn
 
-	noise *BrontideMachine
+	noise *Machine
 
 	readBuf bytes.Buffer
 }

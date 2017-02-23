@@ -100,8 +100,8 @@ func New(cfg *Config) (*BtcWallet, error) {
 
 	// Create a special websockets rpc client for btcd which will be used
 	// by the wallet for notifications, calls, etc.
-	rpcc, err := chain.NewRPCClient(cfg.NetParams, cfg.RpcHost,
-		cfg.RpcUser, cfg.RpcPass, cfg.CACert, false, 20)
+	rpcc, err := chain.NewRPCClient(cfg.NetParams, cfg.RPCHost,
+		cfg.RPCUser, cfg.RPCPass, cfg.CACert, false, 20)
 	if err != nil {
 		return nil, err
 	}
@@ -208,9 +208,9 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 
 	if change {
 		return b.wallet.NewChangeAddress(defaultAccount, addrType)
-	} else {
-		return b.wallet.NewAddress(defaultAccount, addrType)
 	}
+
+	return b.wallet.NewAddress(defaultAccount, addrType)
 }
 
 // GetPrivKey retrives the underlying private key associated with the passed

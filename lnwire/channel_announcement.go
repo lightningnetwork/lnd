@@ -55,17 +55,17 @@ func (a *ChannelAnnouncement) Validate() error {
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&c.FirstNodeSig,
-		&c.SecondNodeSig,
-		&c.ChannelID,
-		&c.FirstBitcoinSig,
-		&c.SecondBitcoinSig,
-		&c.FirstNodeID,
-		&c.SecondNodeID,
-		&c.FirstBitcoinKey,
-		&c.SecondBitcoinKey,
+		&a.FirstNodeSig,
+		&a.SecondNodeSig,
+		&a.ChannelID,
+		&a.FirstBitcoinSig,
+		&a.SecondBitcoinSig,
+		&a.FirstNodeID,
+		&a.SecondNodeID,
+		&a.FirstBitcoinKey,
+		&a.SecondBitcoinKey,
 	)
 }
 
@@ -73,17 +73,17 @@ func (c *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.FirstNodeSig,
-		c.SecondNodeSig,
-		c.ChannelID,
-		c.FirstBitcoinSig,
-		c.SecondBitcoinSig,
-		c.FirstNodeID,
-		c.SecondNodeID,
-		c.FirstBitcoinKey,
-		c.SecondBitcoinKey,
+		a.FirstNodeSig,
+		a.SecondNodeSig,
+		a.ChannelID,
+		a.FirstBitcoinSig,
+		a.SecondBitcoinSig,
+		a.FirstNodeID,
+		a.SecondNodeID,
+		a.FirstBitcoinKey,
+		a.SecondBitcoinKey,
 	)
 }
 
@@ -91,7 +91,7 @@ func (c *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelAnnouncement) Command() uint32 {
+func (a *ChannelAnnouncement) Command() uint32 {
 	return CmdChannelAnnoucmentMessage
 }
 
@@ -99,7 +99,7 @@ func (c *ChannelAnnouncement) Command() uint32 {
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
+func (a *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	var length uint32
 
 	// FirstNodeSig - 64 bytes
@@ -134,17 +134,17 @@ func (c *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 
 // DataToSign is used to retrieve part of the announcement message which
 // should be signed.
-func (c *ChannelAnnouncement) DataToSign() ([]byte, error) {
+func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
-		c.ChannelID,
-		c.FirstBitcoinSig,
-		c.SecondBitcoinSig,
-		c.FirstNodeID,
-		c.SecondNodeID,
-		c.FirstBitcoinKey,
-		c.SecondBitcoinKey,
+		a.ChannelID,
+		a.FirstBitcoinSig,
+		a.SecondBitcoinSig,
+		a.FirstNodeID,
+		a.SecondNodeID,
+		a.FirstBitcoinKey,
+		a.SecondBitcoinKey,
 	)
 	if err != nil {
 		return nil, err

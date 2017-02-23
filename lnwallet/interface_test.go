@@ -1286,9 +1286,9 @@ func TestLightningWallet(t *testing.T) {
 				HdSeed:      testHdSeed[:],
 				DataDir:     tempTestDir,
 				NetParams:   netParams,
-				RpcHost:     rpcConfig.Host,
-				RpcUser:     rpcConfig.User,
-				RpcPass:     rpcConfig.Pass,
+				RPCHost:     rpcConfig.Host,
+				RPCUser:     rpcConfig.User,
+				RPCPass:     rpcConfig.Pass,
 				CACert:      rpcConfig.Certificates,
 			}
 			wc, err = walletDriver.New(btcwalletConfig)

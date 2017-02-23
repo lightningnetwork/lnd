@@ -51,7 +51,7 @@ type ChannelContribution struct {
 	CsvDelay uint32
 }
 
-// InputScripts represents any script inputs required to redeem a previous
+// InputScript represents any script inputs required to redeem a previous
 // output. This struct is used rather than just a witness, or scripSig in
 // order to accommodate nested p2sh which utilizes both types of input scripts.
 type InputScript struct {
@@ -349,7 +349,7 @@ func (r *ChannelReservation) CompleteReservationSingle(
 	return <-completeChan, <-errChan
 }
 
-// OurSignatures returns the counterparty's signatures to all inputs to the
+// TheirSignatures returns the counterparty's signatures to all inputs to the
 // funding transaction belonging to them, as well as their signature for the
 // wallet's version of the commitment transaction. This methods is provided for
 // additional verification, such as needed by tests.
@@ -393,7 +393,7 @@ func (r *ChannelReservation) LocalCommitTx() *wire.MsgTx {
 	return r.partialState.OurCommitTx
 }
 
-// SetDustLimit set dust limit of the remote party.
+// SetTheirDustLimit set dust limit of the remote party.
 func (r *ChannelReservation) SetTheirDustLimit(dustLimit btcutil.Amount) {
 	r.Lock()
 	defer r.Unlock()

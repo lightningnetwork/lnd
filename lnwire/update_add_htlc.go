@@ -126,7 +126,7 @@ func (c *UpdateAddHTLC) Validate() error {
 	if c.Amount < 0 {
 		// While fees can be negative, it's too confusing to allow
 		// negative payments. Maybe for some wallets, but not this one!
-		return fmt.Errorf("Amount paid cannot be negative.")
+		return fmt.Errorf("amount paid cannot be negative")
 	}
 	// We're good!
 	return nil

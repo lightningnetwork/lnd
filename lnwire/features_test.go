@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // TestFeaturesRemoteRequireError checks that we throw an error if remote peer
@@ -19,7 +21,7 @@ func TestFeaturesRemoteRequireError(t *testing.T) {
 	})
 
 	remoteFeatures := NewFeatureVector([]Feature{
-		{first,  OptionalFlag},
+		{first, OptionalFlag},
 		{second, RequiredFlag},
 	})
 
@@ -37,7 +39,7 @@ func TestFeaturesLocalRequireError(t *testing.T) {
 	)
 
 	localFeatures := NewFeatureVector([]Feature{
-		{first,  OptionalFlag},
+		{first, OptionalFlag},
 		{second, RequiredFlag},
 	})
 
@@ -112,6 +114,6 @@ func TestDecodeEncodeFeaturesVector(t *testing.T) {
 	// Assert equality of the two instances.
 	if !reflect.DeepEqual(f.flags, nf.flags) {
 		t.Fatalf("encode/decode feature vector don't match %v vs "+
-			"%v", f.String(), nf.String())
+			"%v", spew.Sdump(f), spew.Sdump(nf))
 	}
 }

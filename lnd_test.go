@@ -2069,6 +2069,68 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	}
 }
 
+// testNodeAnnouncement ensures that when a node is started with one or more
+// external IP addresses specified on the command line, that those addresses
+// announced to the network and reported in the network graph.
+func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 15)
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	ipAddresses := map[string]bool{
+		"192.168.1.1:8333":                            true,
+		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337": true,
+		"127.0.0.1:8335":                              true,
+	}
+
+	var lndArgs []string
+	for address, _ := range ipAddresses {
+		lndArgs = append(lndArgs, "--externalip="+address)
+	}
+
+	dave, err := net.NewNode(lndArgs)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice, dave,
+		chanAmt, 0)
+
+	req := &lnrpc.ChannelGraphRequest{}
+	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to query for alice's routing table: %v", err)
+	}
+
+	for _, node := range chanGraph.Nodes {
+		if node.PubKey == dave.PubKeyStr {
+			for _, address := range node.Addresses {
+				addrStr := address.String()
+
+				// parse the IP address from the string
+				// representation of the TCPAddr
+				parts := strings.Split(addrStr, "\"")
+				if ipAddresses[parts[3]] {
+					delete(ipAddresses, parts[3])
+				} else {
+					t.Fatalf("unexpected IP address: %v",
+						parts[3])
+				}
+			}
+		}
+	}
+	if len(ipAddresses) != 0 {
+		t.Fatalf("expected IP addresses not in channel "+
+			"graph: %v", ipAddresses)
+	}
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -2124,6 +2186,10 @@ var testsCases = []*testCase{
 		test: testHtlcErrorPropagation,
 	},
 	// TODO(roasbeef): multi-path integration test
+	{
+		name: "node announcement",
+		test: testNodeAnnouncement,
+	},
 	{
 		// TODO(roasbeef): test always needs to be last as Bob's state
 		// is borked since we trick him into attempting to cheat Alice?

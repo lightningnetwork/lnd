@@ -256,7 +256,7 @@ out:
 			}
 
 			wireMsg := htlcPkt.msg.(*lnwire.UpdateAddHTLC)
-			amt := btcutil.Amount(wireMsg.Amount)
+			amt := wireMsg.Amount
 
 			// Handle this send request in a distinct goroutine in
 			// order to avoid a possible deadlock between the htlc

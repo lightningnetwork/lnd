@@ -1097,7 +1097,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 		y := math.Log2(float64(x))
 
 		// TODO(roasbeef): results in min being zero
-		return float64(y-min) / float64(max-min) * scaleFactor
+		return y-min / max-min * scaleFactor
 	}
 }
 

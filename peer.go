@@ -1766,7 +1766,7 @@ func logEntryToHtlcPkt(chanPoint wire.OutPoint,
 		}
 
 		htlc := &lnwire.UpdateAddHTLC{
-			Amount:      btcutil.Amount(pd.Amount),
+			Amount:      pd.Amount,
 			PaymentHash: pd.RHash,
 		}
 		copy(htlc.OnionBlob[:], b.Bytes())

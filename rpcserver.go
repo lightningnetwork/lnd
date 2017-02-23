@@ -871,7 +871,7 @@ func (r *rpcServer) savePayment(route *routing.Route, amount btcutil.Amount,
 	payment := &channeldb.OutgoingPayment{
 		Invoice: channeldb.Invoice{
 			Terms: channeldb.ContractTerm{
-				Value: btcutil.Amount(amount),
+				Value: amount,
 			},
 			CreationDate: time.Now(),
 		},

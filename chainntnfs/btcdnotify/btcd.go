@@ -560,7 +560,7 @@ func (b *BtcdNotifier) checkConfirmationTrigger(txSha *chainhash.Hash,
 			// which notification(s) we should fire off with
 			// each incoming block.
 			confClient.initialConfirmHeight = uint32(newTip.blockHeight)
-			finalConfHeight := uint32(confClient.initialConfirmHeight + confClient.numConfirmations - 1)
+			finalConfHeight := confClient.initialConfirmHeight + confClient.numConfirmations - 1
 			heapEntry := &confEntry{
 				confClient,
 				confDetails,

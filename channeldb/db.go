@@ -437,11 +437,7 @@ func (d *DB) syncVersions(versions []version) error {
 		}
 
 		meta.DbVersionNumber = latestVersion
-		if err := putMeta(meta, tx); err != nil {
-			return err
-		}
-
-		return nil
+		return putMeta(meta, tx)
 	})
 }
 

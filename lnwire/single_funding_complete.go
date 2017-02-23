@@ -69,17 +69,12 @@ func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 	// FundingOutPoint (36)
 	// CommitmentSignature (73)
 	// RevocationKey (33)
-	err := readElements(r,
+	return readElements(r,
 		&s.ChannelID,
 		&s.FundingOutPoint,
 		&s.CommitSignature,
 		&s.RevocationKey,
 		s.StateHintObsfucator[:])
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target SingleFundingComplete into the passed io.Writer
@@ -92,17 +87,12 @@ func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
 	// FundingOutPoint (36)
 	// Commitment Signature (73)
 	// RevocationKey (33)
-	err := writeElements(w,
+	return writeElements(w,
 		s.ChannelID,
 		s.FundingOutPoint,
 		s.CommitSignature,
 		s.RevocationKey,
 		s.StateHintObsfucator[:])
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a

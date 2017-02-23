@@ -128,7 +128,7 @@ func (a *NodeAnnouncement) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&c.Signature,
 		&c.Timestamp,
 		&c.Address,
@@ -137,11 +137,6 @@ func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&c.pad,
 		&c.Alias,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
@@ -149,7 +144,7 @@ func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.Signature,
 		c.Timestamp,
 		c.Address,
@@ -158,11 +153,6 @@ func (c *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 		c.pad,
 		c.Alias,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

@@ -1,8 +1,8 @@
 package lnwire
 
 import (
-	"io"
 	"github.com/go-errors/errors"
+	"io"
 )
 
 // Init is the first message reveals the features supported or required by this
@@ -34,15 +34,10 @@ func NewInitMessage(gf, lf *FeatureVector) *Init {
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
 	// LocalFeatures(~)
 	// GlobalFeatures(~)
-	err := readElements(r,
+	return readElements(r,
 		&msg.LocalFeatures,
 		&msg.GlobalFeatures,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // A compile time check to ensure Init implements the lnwire.Message
@@ -54,15 +49,10 @@ var _ Message = (*Init)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		msg.LocalFeatures,
 		msg.GlobalFeatures,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

@@ -281,11 +281,7 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 			rootBucket := tx.RootBucket()
 
 			rootAddrHash = rootAddr[0].Address().ScriptAddress()
-			if err := rootBucket.Put(rootKey, rootAddrHash); err != nil {
-				return err
-			}
-
-			return nil
+			return rootBucket.Put(rootKey, rootAddrHash)
 		}); err != nil {
 			return nil, err
 		}

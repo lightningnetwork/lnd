@@ -541,11 +541,8 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 			Host:   b.p2pAddr,
 		},
 	}
-	if _, err := a.ConnectPeer(ctx, req); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = a.ConnectPeer(ctx, req)
+	return err
 }
 
 // RestartNode  attempts to restart a lightning node by shutting it down

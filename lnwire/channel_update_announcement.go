@@ -72,7 +72,7 @@ func (a *ChannelUpdateAnnouncement) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&c.Signature,
 		&c.ChannelID,
 		&c.Timestamp,
@@ -82,11 +82,6 @@ func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&c.FeeBaseMsat,
 		&c.FeeProportionalMillionths,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target ChannelUpdateAnnouncement into the passed
@@ -94,7 +89,7 @@ func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.Signature,
 		c.ChannelID,
 		c.Timestamp,
@@ -104,11 +99,6 @@ func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 		c.FeeBaseMsat,
 		c.FeeProportionalMillionths,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

@@ -443,11 +443,8 @@ func (b *BrontideMachine) RecvActOne(actOne [ActOneSize]byte) error {
 
 	// If the initiator doesn't know our static key, then this operation
 	// will fail.
-	if _, err := b.DecryptAndHash(p[:]); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = b.DecryptAndHash(p[:])
+	return err
 }
 
 // GenActTwo generates the second packet (act two) to be sent from the
@@ -515,11 +512,8 @@ func (b *BrontideMachine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	s := ecdh(b.remoteEphemeral, b.localEphemeral)
 	b.mixKey(s)
 
-	if _, err := b.DecryptAndHash(p[:]); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = b.DecryptAndHash(p[:])
+	return err
 }
 
 // GenActThree creates the final (act three) packet of the handshake. Act three
@@ -662,11 +656,8 @@ func (b *BrontideMachine) WriteMessage(w io.Writer, p []byte) error {
 	// single packet, as any fragmentation should have taken place at a
 	// higher level.
 	cipherText := b.sendCipher.Encrypt(nil, nil, p)
-	if _, err := w.Write(cipherText); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := w.Write(cipherText)
+	return err
 }
 
 // ReadMessage attempts to read the next message from the passed io.Reader. In

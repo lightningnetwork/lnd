@@ -43,14 +43,9 @@ var _ Message = (*CloseComplete)(nil)
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint (8)
 	// ResponderCloseSig (73)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		&c.ResponderCloseSig)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target CloseComplete into the passed io.Writer observing
@@ -60,14 +55,9 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
 	// ChannelPoint (8)
 	// ResponderCloseSig (73)
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.ResponderCloseSig)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

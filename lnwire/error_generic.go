@@ -73,17 +73,12 @@ var _ Message = (*ErrorGeneric)(nil)
 func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 	// ChannelPoint(8)
 	// Problem
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelPoint,
 		&c.Code,
 		&c.Problem,
 		&c.PendingChannelID,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target ErrorGeneric into the passed io.Writer
@@ -91,17 +86,12 @@ func (c *ErrorGeneric) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelPoint,
 		c.Code,
 		c.Problem,
 		c.PendingChannelID,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying an ErrorGeneric message on

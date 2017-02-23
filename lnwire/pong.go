@@ -26,14 +26,9 @@ var _ Message = (*Ping)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (p *Ping) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&p.Nonce,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target Ping into the passed io.Writer observing the
@@ -41,14 +36,9 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (p *Ping) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		p.Nonce,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

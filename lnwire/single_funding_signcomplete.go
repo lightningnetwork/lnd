@@ -40,14 +40,9 @@ func NewSingleFundingSignComplete(chanID uint64,
 func (c *SingleFundingSignComplete) Decode(r io.Reader, pver uint32) error {
 	// ChannelID (8)
 	// CommitmentSignature (73)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelID,
 		&c.CommitSignature)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target SingleFundingSignComplete into the passed
@@ -56,14 +51,9 @@ func (c *SingleFundingSignComplete) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingSignComplete) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelID,
 		c.CommitSignature)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a

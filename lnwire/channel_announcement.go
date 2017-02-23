@@ -56,7 +56,7 @@ func (a *ChannelAnnouncement) Validate() error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&c.FirstNodeSig,
 		&c.SecondNodeSig,
 		&c.ChannelID,
@@ -67,11 +67,6 @@ func (c *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&c.FirstBitcoinKey,
 		&c.SecondBitcoinKey,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target ChannelAnnouncement into the passed io.Writer
@@ -79,7 +74,7 @@ func (c *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.FirstNodeSig,
 		c.SecondNodeSig,
 		c.ChannelID,
@@ -90,11 +85,6 @@ func (c *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 		c.FirstBitcoinKey,
 		c.SecondBitcoinKey,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the integer uniquely identifying this message type on the

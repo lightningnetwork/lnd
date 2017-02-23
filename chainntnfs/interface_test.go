@@ -41,7 +41,7 @@ func getTestTxId(miner *rpctest.Harness) (*chainhash.Hash, error) {
 	}
 
 	outputs := []*wire.TxOut{
-		&wire.TxOut{
+		{
 			Value:    2e8,
 			PkScript: script,
 		},

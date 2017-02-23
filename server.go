@@ -154,12 +154,16 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			debugPre[:], debugHash[:])
 	}
 
-	// TODO(roasbeef): add --externalip flag?
-	selfAddr, ok := listeners[0].Addr().(*net.TCPAddr)
-	if !ok {
-		return nil, fmt.Errorf("default listener must be TCP")
+	// If external IP addresses have been specified, add those to the list
+	// of this server's addresses.
+	selfAddrs := make([]net.Addr, 0)
+	for _, ip := range cfg.ExternalIPs {
+		addr, err := net.ResolveTCPAddr("tcp", ip)
+		if err != nil {
+			return nil, err
+		}
+		selfAddrs = append(selfAddrs, addr)
 	}
-	selfAddrs := []net.Addr{selfAddr}
 
 	chanGraph := chanDB.ChannelGraph()
 	self := &channeldb.LightningNode{

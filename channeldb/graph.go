@@ -583,7 +583,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		// current UTXO state.
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
-		byteOrder.PutUint32(newTip[32:], uint32(blockHeight))
+		byteOrder.PutUint32(newTip[32:], blockHeight)
 
 		return metaBucket.Put(pruneTipKey, newTip[:])
 	})

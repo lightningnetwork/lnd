@@ -432,7 +432,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	utxnLog.Infof("Outpoint %v confirmed in block %v moving to kindergarten",
 		k.outPoint, txConfirmation.BlockHeight)
 
-	k.confHeight = uint32(txConfirmation.BlockHeight)
+	k.confHeight = txConfirmation.BlockHeight
 
 	// The following block deletes a kidOutput from the preschool database
 	// bucket and adds it to the kindergarten database bucket which is
@@ -462,7 +462,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		maturityHeight := k.confHeight + k.blocksToMaturity
 
 		heightBytes := make([]byte, 4)
-		byteOrder.PutUint32(heightBytes, uint32(maturityHeight))
+		byteOrder.PutUint32(heightBytes, maturityHeight)
 
 		// If there're any existing outputs for this particular block
 		// height target, then we'll append this new output to the
@@ -675,7 +675,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 		}
 
 		heightBytes := make([]byte, 4)
-		byteOrder.PutUint32(heightBytes, uint32(deleteHeight))
+		byteOrder.PutUint32(heightBytes, deleteHeight)
 		results := kgtnBucket.Get(heightBytes)
 		if results == nil {
 			return nil

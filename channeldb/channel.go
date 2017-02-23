@@ -400,7 +400,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 		c.OurCommitSig = newSig
 		c.OurBalance = delta.LocalBalance
 		c.TheirBalance = delta.RemoteBalance
-		c.NumUpdates = uint64(delta.UpdateNum)
+		c.NumUpdates = delta.UpdateNum
 		c.Htlcs = delta.Htlcs
 
 		// First we'll write out the current latest dynamic channel
@@ -1137,13 +1137,13 @@ func putChanAmountsTransferred(openChanBucket *bolt.Bucket, channel *OpenChannel
 	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], satSentPrefix)
-	byteOrder.PutUint64(scratch1, uint64(channel.TotalSatoshisSent))
+	byteOrder.PutUint64(scratch1, channel.TotalSatoshisSent)
 	if err := openChanBucket.Put(keyPrefix, scratch1); err != nil {
 		return err
 	}
 
 	copy(keyPrefix[:3], satReceivedPrefix)
-	byteOrder.PutUint64(scratch2, uint64(channel.TotalSatoshisReceived))
+	byteOrder.PutUint64(scratch2, channel.TotalSatoshisReceived)
 	return openChanBucket.Put(keyPrefix, scratch2)
 }
 

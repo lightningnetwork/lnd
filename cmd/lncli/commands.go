@@ -52,7 +52,7 @@ func printRespJSON(resp proto.Message) {
 	fmt.Println(jsonStr)
 }
 
-var NewAddressCommand = cli.Command{
+var newAddressCommand = cli.Command{
 	Name:      "newaddress",
 	Usage:     "generates a new address.",
 	ArgsUsage: "address-type",
@@ -96,7 +96,7 @@ func newAddress(ctx *cli.Context) error {
 	return nil
 }
 
-var SendCoinsCommand = cli.Command{
+var sendCoinsCommand = cli.Command{
 	Name:      "sendcoins",
 	Usage:     "send bitcoin on-chain to an address",
 	ArgsUsage: "addr amt",
@@ -169,7 +169,7 @@ func sendCoins(ctx *cli.Context) error {
 	return nil
 }
 
-var SendManyCommand = cli.Command{
+var sendManyCommand = cli.Command{
 	Name:      "sendmany",
 	Usage:     "send bitcoin on-chain to multiple addresses.",
 	ArgsUsage: "send-json-string",
@@ -204,7 +204,7 @@ func sendMany(ctx *cli.Context) error {
 	return nil
 }
 
-var ConnectCommand = cli.Command{
+var connectCommand = cli.Command{
 	Name:      "connect",
 	Usage:     "connect to a remote lnd peer",
 	ArgsUsage: "<pubkey>@host",
@@ -250,7 +250,7 @@ func connectPeer(ctx *cli.Context) error {
 }
 
 // TODO(roasbeef): change default number of confirmations
-var OpenChannelCommand = cli.Command{
+var openChannelCommand = cli.Command{
 	Name:  "openchannel",
 	Usage: "Open a channel to an existing peer.",
 	Description: "Attempt to open a new channel to an existing peer with the key node-key, " +
@@ -411,7 +411,7 @@ func openChannel(ctx *cli.Context) error {
 
 // TODO(roasbeef): also allow short relative channel ID.
 
-var CloseChannelCommand = cli.Command{
+var closeChannelCommand = cli.Command{
 	Name:  "closechannel",
 	Usage: "Close an existing channel.",
 	Description: "Close an existing channel. The channel can be closed either " +
@@ -544,7 +544,7 @@ func closeChannel(ctx *cli.Context) error {
 	}
 }
 
-var ListPeersCommand = cli.Command{
+var listPeersCommand = cli.Command{
 	Name:   "listpeers",
 	Usage:  "List all active, currently connected peers.",
 	Action: listPeers,
@@ -565,7 +565,7 @@ func listPeers(ctx *cli.Context) error {
 	return nil
 }
 
-var WalletBalanceCommand = cli.Command{
+var walletBalanceCommand = cli.Command{
 	Name:  "walletbalance",
 	Usage: "compute and display the wallet's current balance",
 	Flags: []cli.Flag{
@@ -595,7 +595,7 @@ func walletBalance(ctx *cli.Context) error {
 	return nil
 }
 
-var ChannelBalanceCommand = cli.Command{
+var channelBalanceCommand = cli.Command{
 	Name:   "channelbalance",
 	Usage:  "returns the sum of the total available channel balance across all open channels",
 	Action: channelBalance,
@@ -616,7 +616,7 @@ func channelBalance(ctx *cli.Context) error {
 	return nil
 }
 
-var GetInfoCommand = cli.Command{
+var getInfoCommand = cli.Command{
 	Name:   "getinfo",
 	Usage:  "returns basic information related to the active daemon",
 	Action: getInfo,
@@ -637,7 +637,7 @@ func getInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var PendingChannelsCommand = cli.Command{
+var pendingChannelsCommand = cli.Command{
 	Name:  "pendingchannels",
 	Usage: "display information pertaining to pending channels",
 	Flags: []cli.Flag{
@@ -686,7 +686,7 @@ func pendingChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var ListChannelsCommand = cli.Command{
+var listChannelsCommand = cli.Command{
 	Name:  "listchannels",
 	Usage: "list all open channels",
 	Flags: []cli.Flag{
@@ -716,7 +716,7 @@ func listChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var SendPaymentCommand = cli.Command{
+var sendPaymentCommand = cli.Command{
 	Name:  "sendpayment",
 	Usage: "send a payment over lightning",
 	ArgsUsage: "(destination amount payment_hash " +
@@ -744,10 +744,10 @@ var SendPaymentCommand = cli.Command{
 			Usage: "a zbase32-check encoded payment request to fulfill",
 		},
 	},
-	Action: sendPaymentCommand,
+	Action: sendPayment,
 }
 
-func sendPaymentCommand(ctx *cli.Context) error {
+func sendPayment(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -856,7 +856,7 @@ func sendPaymentCommand(ctx *cli.Context) error {
 	return nil
 }
 
-var AddInvoiceCommand = cli.Command{
+var addInvoiceCommand = cli.Command{
 	Name:  "addinvoice",
 	Usage: "add a new invoice.",
 	Description: "Add a new invoice, expressing intent for a future payment. " +
@@ -948,7 +948,7 @@ func addInvoice(ctx *cli.Context) error {
 	return nil
 }
 
-var LookupInvoiceCommand = cli.Command{
+var lookupInvoiceCommand = cli.Command{
 	Name:      "lookupinvoice",
 	Usage:     "Lookup an existing invoice by its payment hash.",
 	ArgsUsage: "rhash",
@@ -998,7 +998,7 @@ func lookupInvoice(ctx *cli.Context) error {
 	return nil
 }
 
-var ListInvoicesCommand = cli.Command{
+var listInvoicesCommand = cli.Command{
 	Name:  "listinvoices",
 	Usage: "List all invoices currently stored.",
 	Flags: []cli.Flag{
@@ -1034,7 +1034,7 @@ func listInvoices(ctx *cli.Context) error {
 	return nil
 }
 
-var DescribeGraphCommand = cli.Command{
+var describeGraphCommand = cli.Command{
 	Name: "describegraph",
 	Description: "prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
@@ -1217,7 +1217,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 	return nil
 }
 
-var ListPaymentsCommand = cli.Command{
+var listPaymentsCommand = cli.Command{
 	Name:   "listpayments",
 	Usage:  "list all outgoing payments",
 	Action: listPayments,
@@ -1238,7 +1238,7 @@ func listPayments(ctx *cli.Context) error {
 	return nil
 }
 
-var GetChanInfoCommand = cli.Command{
+var getChanInfoCommand = cli.Command{
 	Name:  "getchaninfo",
 	Usage: "get the state of a channel",
 	Description: "prints out the latest authenticated state for a " +
@@ -1285,7 +1285,7 @@ func getChanInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var GetNodeInfoCommand = cli.Command{
+var getNodeInfoCommand = cli.Command{
 	Name:  "getnodeinfo",
 	Usage: "Get information on a specific node.",
 	Description: "prints out the latest authenticated node state for an " +
@@ -1322,7 +1322,7 @@ func getNodeInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var QueryRouteCommand = cli.Command{
+var queryRouteCommand = cli.Command{
 	Name:        "queryroute",
 	Usage:       "Query a route to a destination.",
 	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
@@ -1390,7 +1390,7 @@ func queryRoute(ctx *cli.Context) error {
 	return nil
 }
 
-var GetNetworkInfoCommand = cli.Command{
+var getNetworkInfoCommand = cli.Command{
 	Name:  "getnetworkinfo",
 	Usage: "getnetworkinfo",
 	Description: "returns a set of statistics pertaining to the known channel " +
@@ -1414,7 +1414,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var DebugLevel = cli.Command{
+var debugLevelCommand = cli.Command{
 	Name:        "debuglevel",
 	Usage:       "Set the debug level.",
 	Description: "Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems",
@@ -1450,7 +1450,7 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
-var DecodePayReq = cli.Command{
+var decodePayReqComamnd = cli.Command{
 	Name:        "decodepayreq",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",

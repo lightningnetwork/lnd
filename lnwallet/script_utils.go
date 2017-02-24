@@ -21,8 +21,11 @@ var (
 	// TODO(roasbeef): remove these and use the one's defined in txscript
 	// within testnet-L.
 
-	SequenceLockTimeSeconds      = uint32(1 << 22)
-	OP_CHECKSEQUENCEVERIFY  byte = txscript.OP_NOP3
+	// SequenceLockTimeSeconds is the 22nd bit which indicates the lock
+	// time is in seconds.
+	SequenceLockTimeSeconds = uint32(1 << 22)
+
+	OP_CHECKSEQUENCEVERIFY byte = txscript.OP_NOP3
 
 	// TimelockShift is used to make sure the commitment transaction is
 	// spendable by setting the locktime with it so that it is larger than

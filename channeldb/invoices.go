@@ -166,11 +166,11 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (*Invoice, error) {
 	err := d.View(func(tx *bolt.Tx) error {
 		invoices := tx.Bucket(invoiceBucket)
 		if invoices == nil {
-			return ErrInvoiceNotFound
+			return ErrNoInvoicesCreated
 		}
 		invoiceIndex := invoices.Bucket(invoiceIndexBucket)
 		if invoiceIndex == nil {
-			return ErrInvoiceNotFound
+			return ErrNoInvoicesCreated
 		}
 
 		// Check the invoice index to see if an invoice paying to this

@@ -23,6 +23,8 @@ const (
 )
 
 var (
+	// ErrChainNotifierShuttingDown is used when we are trying to
+	// measure a spend notification when notifier is already stopped.
 	ErrChainNotifierShuttingDown = errors.New("chainntnfs: system interrupt " +
 		"while attempting to register for spend notification.")
 )

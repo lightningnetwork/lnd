@@ -67,7 +67,7 @@ type server struct {
 	connMgr *connmgr.ConnManager
 
 	pendingConnMtx     sync.RWMutex
-	persistentConnReqs map[string]*connmgr.ConnReq
+	persistentConnReqs map[string][]*connmgr.ConnReq
 
 	broadcastRequests chan *broadcastReq
 	sendRequests      chan *sendReq
@@ -126,7 +126,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		sphinx:      sphinx.NewRouter(privKey, activeNetParams.Params),
 		lightningID: sha256.Sum256(serializedPubKey),
 
-		persistentConnReqs: make(map[string]*connmgr.ConnReq),
+		persistentConnReqs: make(map[string][]*connmgr.ConnReq),
 
 		peersByID:  make(map[int32]*peer),
 		peersByPub: make(map[string]*peer),
@@ -247,26 +247,32 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, err
 	}
 	for _, node := range linkNodes {
-		// Create a wrapper address which couples the IP and the pubkey
-		// so the brontide authenticated connection can be established.
-		lnAddr := &lnwire.NetAddress{
-			IdentityKey: node.IdentityPub,
-			Address:     node.Addresses[0],
-		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
-		srvrLog.Debugf("Attempting persistent connection to channel "+
-			"peer %v", lnAddr)
 
-		// Send the persistent connection request to the connection
-		// manager, saving the request itself so we can cancel/restart
-		// the process as needed.
-		// TODO(roasbeef): use default addr
-		connReq := &connmgr.ConnReq{
-			Addr:      lnAddr,
-			Permanent: true,
+		// In case a node has multiple addresses, attempt to connect to
+		// each of them.
+		for _, address := range node.Addresses {
+			// Create a wrapper address which couples the IP and the pubkey
+			// so the brontide authenticated connection can be established.
+			lnAddr := &lnwire.NetAddress{
+				IdentityKey: node.IdentityPub,
+				Address:     address,
+			}
+			srvrLog.Debugf("Attempting persistent connection to channel "+
+				"peer %v", lnAddr)
+
+			// Send the persistent connection request to the connection
+			// manager, saving the request itself so we can cancel/restart
+			// the process as needed.
+			// TODO(roasbeef): use default addr
+			connReq := &connmgr.ConnReq{
+				Addr:      lnAddr,
+				Permanent: true,
+			}
+			s.persistentConnReqs[pubStr] =
+				append(s.persistentConnReqs[pubStr], connReq)
+			go s.connMgr.Connect(connReq)
 		}
-		s.persistentConnReqs[pubStr] = connReq
-		go s.connMgr.Connect(connReq)
 	}
 
 	return s, nil
@@ -500,8 +506,11 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	// cancel the ongoing connection attempts to ensure that we don't end
 	// up with a duplicate connecting to the same peer.
 	s.pendingConnMtx.RLock()
-	if connReq, ok := s.persistentConnReqs[pubStr]; ok {
-		s.connMgr.Remove(connReq.ID())
+	if connReqs, ok := s.persistentConnReqs[pubStr]; ok {
+		for _, connReq := range connReqs {
+			s.connMgr.Remove(connReq.ID())
+		}
+		delete(s.persistentConnReqs, pubStr)
 	}
 	s.pendingConnMtx.RUnlock()
 

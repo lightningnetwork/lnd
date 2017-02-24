@@ -47,3 +47,5 @@ test_wal/*
 
 vendor
 *.idea
+profile.cov
+profile.tmp

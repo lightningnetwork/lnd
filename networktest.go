@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -30,6 +29,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+	"os/exec"
 )
 
 var (
@@ -179,12 +179,14 @@ func (l *lightningNode) start(lndError chan error) error {
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
 	go func() {
-		if err := l.cmd.Wait(); err != nil {
-			lndError <- errors.New(errb.String())
-		}
+		err := l.cmd.Wait()
 
 		// Signal any onlookers that this process has exited.
 		close(l.processExit)
+
+		if err != nil {
+			lndError <- errors.New(errb.String())
+		}
 	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
@@ -252,16 +254,16 @@ func (l *lightningNode) stop() error {
 	// - start of the node wasn't initiated
 	// - process wasn't spawned
 	// - process already finished
-	processFinished := l.cmd.ProcessState != nil &&
-		l.cmd.ProcessState.Exited()
-	if l.cmd == nil || l.cmd.Process == nil || processFinished {
-		return nil
-	}
 
-	if runtime.GOOS == "windows" {
-		return l.cmd.Process.Signal(os.Kill)
+	select {
+	case <-l.processExit:
+		return nil
+	default:
+		if runtime.GOOS == "windows" {
+			return l.cmd.Process.Signal(os.Kill)
+		}
+		return l.cmd.Process.Signal(os.Interrupt)
 	}
-	return l.cmd.Process.Signal(os.Interrupt)
 }
 
 // restart attempts to restart a lightning node by shutting it down cleanly,

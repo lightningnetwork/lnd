@@ -119,7 +119,10 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	}
 
 	// Simulate 1000 channel updates.
-	producer := shachain.NewRevocationProducer((*chainhash.Hash)(&key))
+	producer, err := shachain.NewRevocationProducerFromBytes(key[:])
+	if err != nil {
+		return nil, err
+	}
 	store := shachain.NewRevocationStore()
 	for i := 0; i < 1000; i++ {
 		preImage, err := producer.AtIndex(uint64(i))
@@ -127,7 +130,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			return nil, err
 		}
 
-		if store.Store(preImage); err != nil {
+		if store.AddNextEntry(preImage); err != nil {
 			return nil, err
 		}
 	}
@@ -318,30 +321,36 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 
 	// The local and remote producers should be identical.
-	oldProducer, err := state.RevocationProducer.ToBytes()
+	var old bytes.Buffer
+	err = state.RevocationProducer.Encode(&old)
 	if err != nil {
 		t.Fatalf("can't convert old revocation producer to bytes: %v",
 			err)
 	}
 
-	newProducer, err := newState.RevocationProducer.ToBytes()
+	var new bytes.Buffer
+	err = newState.RevocationProducer.Encode(&new)
 	if err != nil {
 		t.Fatalf("can't convert new revocation producer to bytes: %v",
 			err)
 	}
 
-	if !bytes.Equal(oldProducer, newProducer) {
+	if !bytes.Equal(old.Bytes(), new.Bytes()) {
 		t.Fatal("local producer don't match")
 	}
-	oldStore, err := state.RevocationStore.ToBytes()
+
+	old.Reset()
+	new.Reset()
+
+	err = state.RevocationStore.Encode(&old)
 	if err != nil {
 		t.Fatalf("unable to serialize old remote store: %v", err)
 	}
-	newStore, err := newState.RevocationStore.ToBytes()
+	err = newState.RevocationStore.Encode(&new)
 	if err != nil {
 		t.Fatalf("unable to serialize new remote store: %v", err)
 	}
-	if !bytes.Equal(oldStore, newStore) {
+	if !bytes.Equal(old.Bytes(), new.Bytes()) {
 		t.Fatal("remote store don't match")
 	}
 	if !newState.TheirCurrentRevocation.IsEqual(state.TheirCurrentRevocation) {

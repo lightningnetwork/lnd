@@ -1658,7 +1658,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	// Ensure that the new pre-image can be placed in preimage store.
 	// TODO(rosbeef): abstract into func
 	store := lc.channelState.RevocationStore
-	if err := store.Store(&pendingRevocation); err != nil {
+	if err := store.AddNextEntry(&pendingRevocation); err != nil {
 		return nil, err
 	}
 

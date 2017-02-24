@@ -1561,19 +1561,11 @@ func putChanPreimageState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 
 	// TODO(roasbeef): shouldn't be storing on disk, should re-derive as
 	// needed
-	data, err := channel.RevocationProducer.ToBytes()
-	if err != nil {
-		return err
-	}
-	if err := wire.WriteVarBytes(&b, 0, data); err != nil {
+	if err := channel.RevocationProducer.Encode(&b); err != nil {
 		return err
 	}
 
-	data, err = channel.RevocationStore.ToBytes()
-	if err != nil {
-		return err
-	}
-	if err := wire.WriteVarBytes(&b, 0, data); err != nil {
+	if err := channel.RevocationStore.Encode(&b); err != nil {
 		return err
 	}
 
@@ -1624,20 +1616,16 @@ func fetchChanPreimageState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) e
 	}
 
 	// TODO(roasbeef): should be rederiving on fly, or encrypting on disk.
-	producerBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
-	if err != nil {
+	var root [32]byte
+	if _, err := io.ReadFull(reader, root[:]); err != nil {
 		return err
 	}
-	channel.RevocationProducer, err = shachain.NewRevocationProducerFromBytes(producerBytes)
+	channel.RevocationProducer, err = shachain.NewRevocationProducerFromBytes(root[:])
 	if err != nil {
 		return err
 	}
 
-	storeBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
-	if err != nil {
-		return err
-	}
-	channel.RevocationStore, err = shachain.NewRevocationStoreFromBytes(storeBytes)
+	channel.RevocationStore, err = shachain.NewRevocationStoreFromBytes(reader)
 	if err != nil {
 		return err
 	}

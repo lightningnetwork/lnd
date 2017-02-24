@@ -6,6 +6,8 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	// TODO(roasbeef) add comment which justifying this import.
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 )
 

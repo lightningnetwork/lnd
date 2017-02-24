@@ -37,6 +37,8 @@ const (
 )
 
 var (
+	// ErrMaxMessageLengthExceeded is returned a message to be written to
+	// the cipher session exceeds the maximum allowed message payload.
 	ErrMaxMessageLengthExceeded = errors.New("the generated payload exceeds " +
 		"the max allowed message length of (2^16)-1")
 )

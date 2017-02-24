@@ -25,11 +25,23 @@ import (
 var zeroHash chainhash.Hash
 
 var (
+	// ErrChanClosing is returned when a caller attempts to close a channel
+	// that has already been closed or is in the process of being closed.
 	ErrChanClosing = fmt.Errorf("channel is being closed, operation disallowed")
-	ErrNoWindow    = fmt.Errorf("unable to sign new commitment, the current" +
+
+	// ErrNoWindow is returned when revocation window is exausted.
+	ErrNoWindow = fmt.Errorf("unable to sign new commitment, the current" +
 		" revocation window is exhausted")
+
+	// ErrMaxWeightCost is returned when the cost/weight (see segwit)
+	// exceeds the widely used maximum allowed policy weight limit. In this
+	// case the commitment transaction can't be propagated through the
+	// network.
 	ErrMaxWeightCost = fmt.Errorf("commitment transaction exceed max " +
-		"available weight")
+		"available cost")
+
+	// ErrMaxHTLCNumber is returned when a proposed HTLC would exceed the
+	// maximum number of allowed HTLC's if committed in a state transition
 	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
 		"htlc number")
 )
@@ -1793,7 +1805,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, erro
 	return revMsg, nil
 }
 
-// NextRevocationKey returns the revocation key for the _next_ commitment
+// NextRevocationkey returns the revocation key for the _next_ commitment
 // height. The pubkey returned by this function is required by the remote party
 // to extend our commitment chain with a new commitment.
 //

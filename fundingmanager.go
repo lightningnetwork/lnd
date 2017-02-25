@@ -141,9 +141,9 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// ProcessRoutingMessage is used by the FundingManager to announce newly created
+	// SendToRouter is used by the FundingManager to announce newly created
 	// channels to the rest of the Lightning Network.
-	ProcessRoutingMessage func(msg lnwire.Message, src *btcec.PublicKey)
+	SendToRouter func(msg lnwire.Message)
 
 	// SendToPeer allows the FundingManager to send messages to the peer
 	// node during the multiple steps involved in the creation of the
@@ -254,14 +254,14 @@ func (f *fundingManager) Start() error {
 		return err
 	}
 
-	// For any channels that were in a pending state when the daemon was last
-	// connected, the Funding Manager will re-initialize the channel barriers
-	// and will also launch waitForFundingConfirmation to wait for the
-	// channel's funding transaction to be confirmed on the blockchain.
+	// For any channels that were in a pending state when the daemon was
+	// last connected, the Funding Manager will re-initialize the channel
+	// barriers and will also launch waitForFundingConfirmation to wait for
+	// the channel's funding transaction to be confirmed on the blockchain.
 	for _, channel := range pendingChannels {
 		f.barrierMtx.Lock()
-		fndgLog.Tracef("Creating chan barrier for "+
-			"ChannelPoint(%v)", *channel.FundingOutpoint)
+		fndgLog.Tracef("Loading pending ChannelPoint(%v), creating chan "+
+			"barrier", *channel.FundingOutpoint)
 		f.newChanBarriers[*channel.FundingOutpoint] = make(chan struct{})
 		f.barrierMtx.Unlock()
 
@@ -1076,8 +1076,8 @@ func (f *fundingManager) announceChannel(idKey, remoteIdKey *btcec.PublicKey,
 	chanAnnouncement := newChanAnnouncement(idKey, remoteIdKey, channel, chanID,
 		localProof, remoteProof)
 
-	f.cfg.ProcessRoutingMessage(chanAnnouncement.chanAnn, idKey)
-	f.cfg.ProcessRoutingMessage(chanAnnouncement.edgeUpdate, idKey)
+	f.cfg.SendToRouter(chanAnnouncement.chanAnn)
+	f.cfg.SendToRouter(chanAnnouncement.edgeUpdate)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it

@@ -1749,15 +1749,15 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 		}
 	}
 
-	// As we've just completed a new state transition, attempt to see if
-	// we can remove any entries from the update log which have been
-	// removed from the PoV of both commitment chains.
+	// As we've just completed a new state transition, attempt to see if we
+	// can remove any entries from the update log which have been removed
+	// from the PoV of both commitment chains.
 	compactLogs(lc.localUpdateLog, lc.remoteUpdateLog,
 		localChainTail, remoteChainTail)
 
-	// As a final step, now that we've received an ACK for our last
-	// batch of pending changes, we'll update our local ACK'd index to the
-	// now commitment index, and reset our pendingACKIndex.
+	// As a final step, now that we've received an ACK for our last batch
+	// of pending changes, we'll update our local ACK'd index to the now
+	// commitment index, and reset our pendingACKIndex.
 	lc.localUpdateLog.ackTransition()
 
 	return htlcsToForward, nil
@@ -1790,6 +1790,27 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, erro
 	lc.revocationWindowEdge++
 
 	return revMsg, nil
+}
+
+// NextRevocationKey returns the revocation key for the _next_ commitment
+// height. The pubkey returned by this function is required by the remote party
+// to extend our commitment chain with a new commitment.
+//
+// TODO(roasbeef): after commitment tx re-write add methdod to ingest
+// revocation key
+func (lc *LightningChannel) NextRevocationkey() (*btcec.PublicKey, error) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	nextHeight := lc.currentHeight + 1
+	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	theirCommitKey := lc.channelState.TheirCommitKey
+	return DeriveRevocationPubkey(theirCommitKey,
+		revocation[:]), nil
 }
 
 // AddHTLC adds an HTLC to the state machine's local update log. This method

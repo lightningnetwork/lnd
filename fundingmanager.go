@@ -458,6 +458,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 				"message to peer: %v", err)
 			return
 		}
+
+		return
 	}
 
 	// We'll also reject any requests to create channels until we're fully

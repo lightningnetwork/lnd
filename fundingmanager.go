@@ -504,7 +504,6 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	// attempt may be rejected. Note that since we're on the responding
 	// side of a single funder workflow, we don't commit any funds to the
 	// channel ourselves.
-	// TODO(roasbeef): passing num confs 1 is irrelevant here, make signed?
 	// TODO(roasbeef): assuming this was an inbound connection, replace
 	// port with default advertised port
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
@@ -519,9 +518,9 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	reservation.SetTheirDustLimit(theirDustlimit)
 
-	// Once the reservation has been created successfully, we add it to this
-	// peers map of pending reservations to track this particular reservation
-	// until either abort or completion.
+	// Once the reservation has been created successfully, we add it to
+	// this peers map of pending reservations to track this particular
+	// reservation until either abort or completion.
 	f.resMtx.Lock()
 	if _, ok := f.activeReservations[peerIDKey]; !ok {
 		f.activeReservations[peerIDKey] = make(pendingChannels)
@@ -810,6 +809,10 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 	if err != nil {
 		fndgLog.Errorf("unable to complete reservation sign complete: %v", err)
 		resCtx.err <- err
+
+		if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
+			fndgLog.Errorf("unable to cancel reservation: %v", err)
+		}
 		return
 	}
 

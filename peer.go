@@ -235,6 +235,10 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
+		if dbChan.IsPending {
+			continue
+		}
+
 		chanID := dbChan.ChanID
 		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
 			p.server.chainNotifier, dbChan)

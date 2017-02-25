@@ -814,6 +814,10 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		len(dbChannels))
 
 	for _, dbChannel := range dbChannels {
+		if dbChannel.IsPending {
+			continue
+		}
+
 		nodePub := dbChannel.IdentityPub.SerializeCompressed()
 		nodeID := hex.EncodeToString(nodePub)
 		chanPoint := dbChannel.ChanID

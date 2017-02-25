@@ -769,16 +769,11 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			return nil, err
 		}
 		for _, pendingOpen := range pendingOpenChans {
-			channelPointStr := "<non initialized yet>"
-			if pendingOpen.channelPoint != nil {
-				channelPointStr = pendingOpen.channelPoint.String()
-			}
-
 			// TODO(roasbeef): add confirmation progress
 			pub := pendingOpen.identityPub.SerializeCompressed()
 			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
 				IdentityKey:   hex.EncodeToString(pub),
-				ChannelPoint:  channelPointStr,
+				ChannelPoint:  pendingOpen.channelPoint.String(),
 				Capacity:      int64(pendingOpen.capacity),
 				LocalBalance:  int64(pendingOpen.localBalance),
 				RemoteBalance: int64(pendingOpen.remoteBalance),

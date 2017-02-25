@@ -953,17 +953,26 @@ func (f *fundingManager) waitForFundingConfirmation(
 	// With the block height and the transaction index known, we
 	// can construct the compact chainID which is used on the
 	// network to unique identify channels.
+	// TODO(roasbeef): remove after spec change, no more chanID's!!!
 	chanID := lnwire.ChannelID{
 		BlockHeight: confDetails.BlockHeight,
 		TxIndex:     confDetails.TxIndex,
 		TxPosition:  uint16(fundingPoint.Index),
 	}
 
-	// When the funding transaction has been confirmed, the FundingLocked
-	// message is sent to the remote peer so that the existence of the
-	// channel can be announced to the network.
+	// With the channel finally open, we'll now send over the funding
+	// locked message which marks that we consider the channel open by
+	// presenting the remote party with our next revocation key. Without
+	// the revocation key, the remote party will be unable to propose state
+	// transitions.
+	nextRevocation, err := channel.NextRevocationkey()
+	if err != nil {
+		fndgLog.Errorf("unable to create next revocation: %v", err)
+		return
+	}
 	fundingLockedMsg := lnwire.NewFundingLocked(fundingPoint, chanID,
-		f.cfg.IDKey)
+		nextRevocation)
+
 	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
 
 	return

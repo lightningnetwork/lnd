@@ -882,7 +882,13 @@ func (f *fundingManager) waitForFundingConfirmation(
 
 	// Wait until the specified number of confirmations has been reached,
 	// or the wallet signals a shutdown.
-	confDetails := <-confNtfn.Confirmed
+	confDetails, ok := <-confNtfn.Confirmed
+	if !ok {
+		fndgLog.Infof("ChainNotifier shutting down, cannot complete "+
+			"funding flow for ChannelPoint(%v)",
+			completeChan.FundingOutpoint)
+		return
+	}
 
 	fundingPoint := *completeChan.FundingOutpoint
 	fndgLog.Infof("ChannelPoint(%v) is now active",

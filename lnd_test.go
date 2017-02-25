@@ -292,16 +292,19 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 // testFundingPersistence mirrors testBasicChannelFunding, but adds restarts
 // and checks for the state of channels with unconfirmed funding transactions.
 func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
-	timeout := time.Duration(time.Second * 25)
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
 
 	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
 	pushAmt := btcutil.Amount(0)
 
-	// Create a new channel, then broadcast the funding transaction.
+	timeout := time.Duration(time.Second * 10)
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	// Create a new channel that requires 5 confs before it's considered
+	// open, then broadcast the funding transaction
+	const numConfs = 5
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
-		chanAmt, pushAmt, 1)
+		chanAmt, pushAmt, numConfs)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -309,6 +312,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	// At this point, the channel's funding transaction will have
 	// been broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 1)
 
 	// Restart both nodes to test that the appropriate state has been
@@ -343,7 +347,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
-	peersTimeout := time.After(3 * time.Second)
+	peersTimeout := time.After(5 * time.Second)
 	checkPeersTick := time.NewTicker(100 * time.Millisecond)
 	defer checkPeersTick.Stop()
 peersPoll:
@@ -352,7 +356,7 @@ peersPoll:
 		case <-peersTimeout:
 			t.Fatalf("peers unable to reconnect after restart")
 		case <-checkPeersTick.C:
-			peers, err := net.Bob.ListPeers(ctxt,
+			peers, err := net.Bob.ListPeers(ctxb,
 				&lnrpc.ListPeersRequest{})
 			if err != nil {
 				t.Fatalf("ListPeers error: %v\n", err)
@@ -363,8 +367,26 @@ peersPoll:
 		}
 	}
 
+	// Next, mine enough blocks s.t the channel will open with a single
+	// additional block mined.
+	if _, err := net.Miner.Node.Generate(3); err != nil {
+		t.Fatalf("unable to mine blocks: %v", err)
+	}
+
+	// Both nodes should still show a single channel as pending.
+	time.Sleep(time.Millisecond * 300)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 1)
+
+	// Finally, mine the last block which should mark the channel as open.
+	if _, err := net.Miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to mine blocks: %v", err)
+	}
+
 	// At this point, the channel should be fully opened and there should
 	// be no pending channels remaining for either node.
+	time.Sleep(time.Millisecond * 300)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 0)
 
 	// The channel should be listed in the peer information returned by
@@ -375,9 +397,11 @@ peersPoll:
 	}
 
 	// Check both nodes to ensure that the channel is ready for operation.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.AssertChannelExists(ctxt, net.Alice, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.AssertChannelExists(ctxt, net.Bob, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -389,6 +413,7 @@ peersPoll:
 		FundingTxid: pendingUpdate.Txid,
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
 }
 

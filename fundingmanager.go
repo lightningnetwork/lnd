@@ -837,7 +837,11 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 		doneChan := make(chan struct{})
 		go f.waitForFundingConfirmation(completeChan, doneChan)
 
-		<-doneChan
+		select {
+		case <-f.quit:
+			return
+		case <-doneChan:
+		}
 
 		// Finally give the caller a final update notifying them that
 		// the channel is now open.
@@ -864,6 +868,8 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 // when a channel has become active for lightning transactions.
 func (f *fundingManager) waitForFundingConfirmation(
 	completeChan *channeldb.OpenChannel, doneChan chan struct{}) {
+
+	defer close(doneChan)
 
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
@@ -916,7 +922,13 @@ func (f *fundingManager) waitForFundingConfirmation(
 	}
 	peer.newChannels <- newChanMsg
 
-	<-newChanDone
+	// We pause here to wait for the peer to recognize the new channel
+	// before we close the channel barrier corresponding to the channel.
+	select {
+	case <-f.quit:
+		return
+	case <-newChanDone: // Fallthrough if we're not quitting.
+	}
 
 	// Close the active channel barrier signalling the
 	// readHandler that commitment related modifications to
@@ -948,7 +960,6 @@ func (f *fundingManager) waitForFundingConfirmation(
 		f.cfg.IDKey)
 	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
 
-	close(doneChan)
 	return
 }
 

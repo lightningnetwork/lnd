@@ -26,6 +26,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "witness_only",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -99,6 +108,20 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "ALL",
+              "OPENING",
+              "CLOSING"
+            ],
+            "default": "ALL"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -258,8 +281,7 @@
             "name": "pub_key",
             "in": "path",
             "required": true,
-            "type": "string",
-            "format": "string"
+            "type": "string"
           }
         ],
         "tags": [
@@ -283,8 +305,7 @@
             "name": "pub_key",
             "in": "path",
             "required": true,
-            "type": "string",
-            "format": "string"
+            "type": "string"
           },
           {
             "name": "amt",
@@ -382,8 +403,14 @@
             "name": "r_hash_str",
             "in": "path",
             "required": true,
+            "type": "string"
+          },
+          {
+            "name": "r_hash",
+            "in": "query",
+            "required": false,
             "type": "string",
-            "format": "string"
+            "format": "byte"
           }
         ],
         "tags": [
@@ -453,8 +480,7 @@
             "name": "pay_req",
             "in": "path",
             "required": true,
-            "type": "string",
-            "format": "string"
+            "type": "string"
           }
         ],
         "tags": [
@@ -557,12 +583,10 @@
       "type": "object",
       "properties": {
         "identity_key": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "channel_point": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "capacity": {
           "type": "string",
@@ -577,8 +601,7 @@
           "format": "int64"
         },
         "closing_txid": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "status": {
           "$ref": "#/definitions/lnrpcChannelStatus"
@@ -589,12 +612,10 @@
       "type": "object",
       "properties": {
         "remote_pubkey": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "channel_point": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "chan_id": {
           "type": "string",
@@ -644,8 +665,7 @@
           "format": "byte"
         },
         "payment_request": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -691,20 +711,17 @@
           "format": "uint64"
         },
         "chan_point": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "last_update": {
           "type": "integer",
           "format": "int64"
         },
         "node1_pub": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "node2_pub": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "capacity": {
           "type": "string",
@@ -754,8 +771,7 @@
           "format": "byte"
         },
         "funding_txid_str": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "output_index": {
           "type": "integer",
@@ -848,8 +864,7 @@
           "format": "boolean"
         },
         "level_spec": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -857,8 +872,7 @@
       "type": "object",
       "properties": {
         "sub_systems": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -875,12 +889,10 @@
       "type": "object",
       "properties": {
         "identity_pubkey": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "alias": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "num_pending_channels": {
           "type": "integer",
@@ -899,8 +911,7 @@
           "format": "int64"
         },
         "block_hash": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "synced_to_chain": {
           "type": "boolean",
@@ -965,8 +976,7 @@
       "type": "object",
       "properties": {
         "memo": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "receipt": {
           "type": "string",
@@ -997,8 +1007,7 @@
           "format": "int64"
         },
         "payment_request": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1009,12 +1018,10 @@
       "type": "object",
       "properties": {
         "pubkey": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "host": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1026,16 +1033,13 @@
           "format": "int64"
         },
         "pub_key": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "address": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "alias": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1157,8 +1161,7 @@
       "type": "object",
       "properties": {
         "address": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1185,8 +1188,7 @@
       "type": "object",
       "properties": {
         "pub_key": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1202,8 +1204,7 @@
           "format": "byte"
         },
         "node_pubkey_string": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "local_funding_amount": {
           "type": "string",
@@ -1237,12 +1238,10 @@
       "type": "object",
       "properties": {
         "destination": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "payment_hash": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "num_satoshis": {
           "type": "string",
@@ -1254,8 +1253,7 @@
       "type": "object",
       "properties": {
         "pay_req": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1263,8 +1261,7 @@
       "type": "object",
       "properties": {
         "payment_hash": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "value": {
           "type": "string",
@@ -1277,8 +1274,7 @@
         "path": {
           "type": "array",
           "items": {
-            "type": "string",
-            "format": "string"
+            "type": "string"
           }
         },
         "fee": {
@@ -1291,8 +1287,7 @@
       "type": "object",
       "properties": {
         "r_hash_str": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "r_hash": {
           "type": "string",
@@ -1304,16 +1299,14 @@
       "type": "object",
       "properties": {
         "pub_key": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "peer_id": {
           "type": "integer",
           "format": "int32"
         },
         "address": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "bytes_sent": {
           "type": "string",
@@ -1400,8 +1393,7 @@
       "type": "object",
       "properties": {
         "pub_key": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "amt": {
           "type": "string",
@@ -1434,8 +1426,7 @@
       "type": "object",
       "properties": {
         "addr": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "amount": {
           "type": "string",
@@ -1447,8 +1438,7 @@
       "type": "object",
       "properties": {
         "txid": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1468,8 +1458,7 @@
       "type": "object",
       "properties": {
         "txid": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1481,8 +1470,7 @@
           "format": "byte"
         },
         "dest_string": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "amt": {
           "type": "string",
@@ -1493,12 +1481,10 @@
           "format": "byte"
         },
         "payment_hash_string": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "payment_request": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1518,8 +1504,7 @@
       "type": "object",
       "properties": {
         "new_alias": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         }
       }
     },
@@ -1530,8 +1515,7 @@
       "type": "object",
       "properties": {
         "tx_hash": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "amount": {
           "type": "number",
@@ -1542,8 +1526,7 @@
           "format": "int32"
         },
         "block_hash": {
-          "type": "string",
-          "format": "string"
+          "type": "string"
         },
         "block_height": {
           "type": "integer",

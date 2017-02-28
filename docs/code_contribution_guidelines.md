@@ -8,6 +8,7 @@
 4.3. [Code Documentation and Commenting](#CodeDocumentation)<br />
 4.4. [Model Git Commit Messages](#ModelGitCommitMessages)<br />
 4.5. [Code Spacing](#CodeSpacing)<br />
+4.6. [Protobuf Compilation](#Protobuf)<br />
 5. [Code Approval Process](#CodeApproval)<br />
 5.1. [Code Review](#CodeReview)<br />
 5.2. [Rework Code (if needed)](#CodeRework)<br />
@@ -327,6 +328,32 @@ Functions should _not_ just be layed out as a bare contiguous block of code.
 
 	return witness
 ```
+
+<a name="Protobuf" />
+### 4.5.6. Protobuf Compilation
+
+The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
+several areas and as the primary RPC interface. In order to ensure uniformity
+of all protos checked, in we require that all contributors pin against the
+_exact same_ version of `protoc`. As of the writing of this article, the `lnd`
+project uses [v3.0.2](https://github.com/google/protobuf/releases/tag/v3.2.0)
+of `protoc`.
+
+Additionally, in order to maintain a uniform display of the RPC responses
+rendered by `lncli`, all added or modified `protof` definitions, _must_ attach
+the proper `json_name` option for all fields. An example of such an option can
+be found within the definition of the `DebugLevelResponse` struct:
+
+```protobuf
+message DebugLevelResponse {
+    string sub_systems = 1 [ json_name = "sub_systems" ];
+}
+
+```
+
+Notice how the `json_name` field option corresponds with the name of the field
+itself, and uses a `snake_case` style of name formatting. All added or modified
+`proto` fields should adhere to the format above.
 
 <a name="CodeApproval" />
 ### 5. Code Approval Process

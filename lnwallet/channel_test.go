@@ -1287,3 +1287,39 @@ func TestCancelHTLC(t *testing.T) {
 			bobChannel.channelState.TheirBalance, expectedBalance)
 	}
 }
+
+func TestCloseTransactionSanityChecks(t *testing.T) {
+	// We'd like to ensure that transactions which aren't "sane" aren't
+	// accepted as valid coopertive channel closure transactions.
+
+	// We'll first create two test channels for our test case below.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// In order to force the transaction to be "insane", we'll modify
+	// Alice's balance to be zero. With the current fee logic, this'll
+	// cause a negative output due to the hard coded fees. A transaction
+	// with a negative output is not "sane".
+	//
+	// TODO(roasbeef): modify test-case after dynamic fees
+	aliceChannel.channelState.OurBalance = 0
+	bobChannel.channelState.TheirBalance = 0
+
+	// Both Alice and Bob should reject a close attempt at this point since
+	// it will lead to Alice having a negative output within the commitment
+	// transaction.
+	_, _, err = aliceChannel.InitCooperativeClose()
+	if err == nil {
+		t.Fatalf("alice's closure transaction should have been rejected, " +
+			"but wasn't!")
+	}
+	var fakeSig []byte
+	_, err = bobChannel.CompleteCooperativeClose(fakeSig)
+	if err == nil {
+		t.Fatalf("bob's closure transaction should have been rejected, but " +
+			"wasn't!")
+	}
+}

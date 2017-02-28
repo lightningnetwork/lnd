@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -2238,7 +2239,14 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
-	closeTxSha := closeTx.TxHash()
+
+	// Ensure that the transaction doesn't explicitly validate any
+	// consensus rules such as being too big, or having any value with a
+	// negative output.
+	tx := btcutil.NewTx(closeTx)
+	if err := blockchain.CheckTransactionSanity(tx); err != nil {
+		return nil, nil, err
+	}
 
 	// Finally, sign the completed cooperative closure transaction. As the
 	// initiator we'll simply send our signature over to the remote party,
@@ -2254,6 +2262,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 	// channel closure has been initiated.
 	lc.status = channelClosing
 
+	closeTxSha := closeTx.TxHash()
 	return closeSig, &closeTxSha, nil
 }
 
@@ -2282,6 +2291,14 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
+
+	// Ensure that the transaction doesn't explicitly validate any
+	// consensus rules such as being too big, or having any value with a
+	// negative output.
+	tx := btcutil.NewTx(closeTx)
+	if err := blockchain.CheckTransactionSanity(tx); err != nil {
+		return nil, err
+	}
 
 	// With the transaction created, we can finally generate our half of
 	// the 2-of-2 multi-sig needed to redeem the funding output.

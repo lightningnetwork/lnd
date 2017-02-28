@@ -2234,10 +2234,6 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 		return nil, nil, ErrChanClosing
 	}
 
-	// Otherwise, indicate in the channel status that a channel closure has
-	// been initiated.
-	lc.status = channelClosing
-
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
@@ -2253,6 +2249,10 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// As everything checks out, indicate in the channel status that a
+	// channel closure has been initiated.
+	lc.status = channelClosing
 
 	return closeSig, &closeTxSha, nil
 }
@@ -2274,8 +2274,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, ErrChanClosing
 	}
-
-	lc.status = channelClosed
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
@@ -2314,6 +2312,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	if err := vm.Execute(); err != nil {
 		return nil, err
 	}
+
+	// As the transaction is sane, and the scripts are valid we'll mark the
+	// channel now as closed as the closure transaction should get into the
+	// chain in a timely manner and possibly be re-broadcast by the wallet.
+	lc.status = channelClosed
 
 	return closeTx, nil
 }

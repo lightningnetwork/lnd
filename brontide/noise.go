@@ -47,7 +47,7 @@ var (
 // the sha256 of the compressed shared point.
 func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
 	s := &btcec.PublicKey{}
-	x, y := pub.Curve.ScalarMult(pub.X, pub.Y, priv.D.Bytes())
+	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, priv.D.Bytes())
 	s.X = x
 	s.Y = y
 

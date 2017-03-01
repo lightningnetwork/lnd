@@ -73,4 +73,8 @@ var (
 
 	// ErrNodeAliasNotFound is returned when alias for node can't be found.
 	ErrNodeAliasNotFound = fmt.Errorf("alias for node not found")
+
+	// ErrPeerMessagesNotFound is returned when no message have been
+	// found in the peer bucket or if bucket haven't been created yet.
+	ErrPeerMessagesNotFound = fmt.Errorf("peer messages not found")
 )

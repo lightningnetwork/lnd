@@ -60,7 +60,7 @@ func (c *SingleFundingSignComplete) Encode(w io.Writer, pver uint32) error {
 // SingleFundingSignComplete on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *SingleFundingSignComplete) Command() uint32 {
+func (c *SingleFundingSignComplete) Command() MessageCode {
 	return CmdSingleFundingSignComplete
 }
 

@@ -83,7 +83,7 @@ var (
 func TestMessageHeaderEncodeDecode(t *testing.T) {
 	hdr := &messageHeader{
 		magic:   wire.BitcoinNet(0),
-		command: CmdInit,
+		command: uint32(CmdInit),
 		length:  100,
 	}
 

@@ -152,7 +152,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 // SingleFundingRequest on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *SingleFundingRequest) Command() uint32 {
+func (c *SingleFundingRequest) Command() MessageCode {
 	return CmdSingleFundingRequest
 }
 

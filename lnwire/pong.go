@@ -45,7 +45,7 @@ func (p *Ping) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (p *Ping) Command() uint32 {
+func (p *Ping) Command() MessageCode {
 	return CmdPing
 }
 

@@ -64,7 +64,7 @@ func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *CloseComplete) Command() uint32 {
+func (c *CloseComplete) Command() MessageCode {
 	return CmdCloseComplete
 }
 

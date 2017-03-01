@@ -637,7 +637,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	chanPoint := req.linkInfo.ChannelPoint
 	newLink := &link{
 		capacity:           req.linkInfo.Capacity,
-		availableBandwidth: int64(req.linkInfo.LocalBalance),
+		availableBandwidth: int64(req.linkInfo.LocalBalance - req.linkInfo.ChannelReserve),
 		peer:               req.peer,
 		chanPoint:          chanPoint,
 	}

@@ -173,6 +173,25 @@ func readMessageHeader(r io.Reader) (int, *messageHeader, error) {
 	return n, &hdr, nil
 }
 
+// writeMessageHeader writes a lightning protocol message header to w.
+func writeMessageHeader(w io.Writer, hdr *messageHeader) (int, error) {
+	// Encode the header for the message. This is done to a buffer
+	// rather than directly to the writer since writeElements doesn't
+	// return the number of bytes written.
+	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
+	if err := writeElements(hw, hdr.magic, hdr.command, hdr.length); err != nil {
+		return 0, nil
+	}
+
+	// Write the header first.
+	n, err := w.Write(hw.Bytes())
+	if err != nil {
+		return n, err
+	}
+
+	return n, nil
+}
+
 // discardInput reads n bytes from reader r in chunks and discards the read
 // bytes. This is used to skip payloads when various errors occur and helps
 // prevent rogue nodes from causing massive memory allocation through forging
@@ -225,18 +244,13 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	}
 
 	// Create header for the message.
-	hdr := messageHeader{magic: btcnet, command: cmd, length: uint32(lenp)}
-
-	// Encode the header for the message. This is done to a buffer
-	// rather than directly to the writer since writeElements doesn't
-	// return the number of bytes written.
-	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
-	if err := writeElements(hw, hdr.magic, hdr.command, hdr.length); err != nil {
-		return 0, nil
+	hdr := &messageHeader{
+		magic:   btcnet,
+		command: uint32(cmd),
+		length:  uint32(lenp),
 	}
 
-	// Write the header first.
-	n, err := w.Write(hw.Bytes())
+	n, err := writeMessageHeader(w, hdr)
 	totalBytes += n
 	if err != nil {
 		return totalBytes, err

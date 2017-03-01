@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"net"
 
+	"bytes"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"reflect"
+	"testing"
 )
 
 // Common variables and functions for the message tests
@@ -74,3 +77,31 @@ var (
 		blue:  255,
 	}
 )
+
+// TestMessageHeaderEncodeDecode test that header is encoded and decoded
+// properly.
+func TestMessageHeaderEncodeDecode(t *testing.T) {
+	hdr := &messageHeader{
+		magic:   wire.BitcoinNet(0),
+		command: CmdInit,
+		length:  100,
+	}
+
+	// Next encode the HDR message into an empty bytes buffer.
+	var b bytes.Buffer
+	if _, err := writeMessageHeader(&b, hdr); err != nil {
+		t.Fatalf("unable to encode ErrorGeneric: %v", err)
+	}
+
+	// Deserialize the encoded HDR message into a new empty struct.
+	_, hdr2, err := readMessageHeader(&b)
+	if err != nil {
+		t.Fatalf("unable to decode ErrorGeneric: %v", err)
+	}
+
+	// Assert equality of the two instances.
+	if !reflect.DeepEqual(hdr, hdr2) {
+		t.Fatalf("encode/decode error messages don't match %#v vs %#v",
+			hdr, hdr2)
+	}
+}

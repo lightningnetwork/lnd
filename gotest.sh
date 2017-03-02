@@ -17,10 +17,22 @@ print () {
     echo -e "${GREEN}$1${NC}"
 }
 
+# check_test_ports checks that test lnd ports are not used.
+check_test_ports() {
+    # Make sure that test lnd ports are not used.
+    o=$(lsof -i :19555,19556 | sed '1d' | awk '{ printf "%s\n", $2 }')
+    if [ "$o" != "" ]; then
+        printf "Can't run the lnd tests:\n"
+        printf "some program is using the test lnd ports (19555 | 19556)\n"
+        exit 1
+    fi
+}
+
 # test_with_profile run test coverage on each subdirectories and merge the
 # coverage profile.
 test_with_coverage_profile() {
     print "* Run tests with creating coverage profile:"
+    check_test_ports
 
     echo "mode: count" > profile.cov
 
@@ -60,6 +72,7 @@ test_with_coverage_profile() {
 # profile but with race condition checks.
 test_race_conditions() {
     print "* Run tests with race conditions checks:"
+    check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
     env GORACE="halt_on_error=1" go test -p 1 -v -race $test_targets

@@ -297,6 +297,7 @@ func openChannel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
+
 	args := ctx.Args()
 	var err error
 
@@ -332,7 +333,7 @@ func openChannel(ctx *cli.Context) error {
 		args = args.Tail()
 		req.NodePubkey = nodePubHex
 	default:
-		return fmt.Errorf("lightning id argument missing")
+		return fmt.Errorf("node id argument missing")
 	}
 
 	switch {
@@ -348,16 +349,13 @@ func openChannel(ctx *cli.Context) error {
 		return fmt.Errorf("local amt argument missing")
 	}
 
-	switch {
-	case ctx.IsSet("push_amt"):
+	if ctx.IsSet("push_amt") {
 		req.PushSat = int64(ctx.Int("push_amt"))
-	case args.Present():
+	} else if args.Present() {
 		req.PushSat, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode push amt: %v", err)
 		}
-	default:
-		return fmt.Errorf("push amt argument missing")
 	}
 
 	stream, err := client.OpenChannel(ctxb, req)

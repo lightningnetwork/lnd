@@ -77,6 +77,7 @@ func main() {
 		GetNetworkInfoCommand,
 		DebugLevel,
 		DecodePayReq,
+		ListChainTxns,
 	}
 
 	if err := app.Run(os.Args); err != nil {

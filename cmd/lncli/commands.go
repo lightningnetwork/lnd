@@ -1491,3 +1491,25 @@ func decodePayReq(ctx *cli.Context) error {
 	printRespJson(resp)
 	return nil
 }
+
+var ListChainTxns = cli.Command{
+	Name:        "listchaintxns",
+	Usage:       "List transactions from the wallet.",
+	Description: "List all transactions an address of the wallet was involved in.",
+	Action: listChainTxns,
+}
+
+func listChainTxns(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.GetTransactions(ctxb, &lnrpc.GetTransactionsRequest{})
+
+	if err != nil {
+		return err
+	}
+
+	printRespJson(resp)
+	return nil
+}

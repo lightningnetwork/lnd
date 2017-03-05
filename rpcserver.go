@@ -1352,6 +1352,7 @@ func (r *rpcServer) GetTransactions(context.Context,
 			Amount:           tx.Value.ToBTC(),
 			NumConfirmations: tx.NumConfirmations,
 			BlockHash:        tx.BlockHash.String(),
+			BlockHeight:      tx.BlockHeight,
 			TimeStamp:        tx.Timestamp,
 			TotalFees:        tx.TotalFees,
 		}

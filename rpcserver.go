@@ -1307,7 +1307,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 		case tx := <-txClient.ConfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:           tx.Hash.String(),
-				Amount:           tx.Value.ToBTC(),
+				Amount:           int64(tx.Value),
 				NumConfirmations: tx.NumConfirmations,
 				BlockHash:        tx.BlockHash.String(),
 				TimeStamp:        tx.Timestamp,
@@ -1319,7 +1319,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 		case tx := <-txClient.UnconfirmedTransactions():
 			detail := &lnrpc.Transaction{
 				TxHash:    tx.Hash.String(),
-				Amount:    tx.Value.ToBTC(),
+				Amount:    int64(tx.Value),
 				TimeStamp: tx.Timestamp,
 				TotalFees: tx.TotalFees,
 			}
@@ -1349,7 +1349,7 @@ func (r *rpcServer) GetTransactions(context.Context,
 	for i, tx := range transactions {
 		txDetails.Transactions[i] = &lnrpc.Transaction{
 			TxHash:           tx.Hash.String(),
-			Amount:           tx.Value.ToBTC(),
+			Amount:           int64(tx.Value),
 			NumConfirmations: tx.NumConfirmations,
 			BlockHash:        tx.BlockHash.String(),
 			BlockHeight:      tx.BlockHeight,

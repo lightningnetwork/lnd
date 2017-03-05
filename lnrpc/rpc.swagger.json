@@ -1615,8 +1615,8 @@
           "type": "string"
         },
         "amount": {
-          "type": "number",
-          "format": "double"
+          "type": "string",
+          "format": "int64"
         },
         "num_confirmations": {
           "type": "integer",

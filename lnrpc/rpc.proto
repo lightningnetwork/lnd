@@ -168,7 +168,7 @@ service Lightning {
 
 message Transaction {
     string tx_hash = 1 [ json_name = "tx_hash" ];
-    double amount = 2 [ json_name = "amount" ];
+    int64 amount = 2 [ json_name = "amount" ];
     int32 num_confirmations = 3 [ json_name = "num_confirmations" ];
     string block_hash = 4 [ json_name = "block_hash" ];
     int32 block_height = 5 [ json_name = "block_height" ];

@@ -1387,8 +1387,10 @@ func (r *rpcServer) DescribeGraph(context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(c1, c2 *channeldb.ChannelEdge) error {
-		edge := marshalDbEdge(c1, c2)
+	err = graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
+		c1, c2 *channeldb.ChannelEdgePolicy) error {
+
+		edge := marshalDbEdge(edgeInfo, c1, c2)
 		resp.Edges = append(resp.Edges, edge)
 		return nil
 	})
@@ -1399,43 +1401,33 @@ func (r *rpcServer) DescribeGraph(context.Context,
 	return resp, nil
 }
 
-func marshalDbEdge(c1, c2 *channeldb.ChannelEdge) *lnrpc.ChannelEdge {
+func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
+	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
+
 	var (
-		node1Pub, node2Pub []byte
-		capacity           btcutil.Amount
-		lastUpdate         int64
-		chanID             uint64
-		chanPoint          string
+		lastUpdate int64
 	)
 
 	if c2 != nil {
-		node1Pub = c2.Node.PubKey.SerializeCompressed()
 		lastUpdate = c2.LastUpdate.Unix()
-		capacity = c2.Capacity
-		chanID = c2.ChannelID
-		chanPoint = c2.ChannelPoint.String()
 	}
 	if c1 != nil {
-		node2Pub = c1.Node.PubKey.SerializeCompressed()
 		lastUpdate = c1.LastUpdate.Unix()
-		capacity = c1.Capacity
-		chanID = c1.ChannelID
-		chanPoint = c1.ChannelPoint.String()
 	}
 
 	edge := &lnrpc.ChannelEdge{
-		ChannelId: chanID,
-		ChanPoint: chanPoint,
+		ChannelId: edgeInfo.ChannelID,
+		ChanPoint: edgeInfo.ChannelPoint.String(),
 		// TODO(roasbeef): update should be on edge info itself
 		LastUpdate: uint32(lastUpdate),
-		Node1Pub:   hex.EncodeToString(node1Pub),
-		Node2Pub:   hex.EncodeToString(node2Pub),
-		Capacity:   int64(capacity),
+		Node1Pub:   hex.EncodeToString(edgeInfo.NodeKey1.SerializeCompressed()),
+		Node2Pub:   hex.EncodeToString(edgeInfo.NodeKey2.SerializeCompressed()),
+		Capacity:   int64(edgeInfo.Capacity),
 	}
 
 	if c1 != nil {
 		edge.Node1Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c1.Expiry),
+			TimeLockDelta:    uint32(c1.TimeLockDelta),
 			MinHtlc:          int64(c1.MinHTLC),
 			FeeBaseMsat:      int64(c1.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
@@ -1444,7 +1436,7 @@ func marshalDbEdge(c1, c2 *channeldb.ChannelEdge) *lnrpc.ChannelEdge {
 
 	if c2 != nil {
 		edge.Node2Policy = &lnrpc.RoutingPolicy{
-			TimeLockDelta:    uint32(c2.Expiry),
+			TimeLockDelta:    uint32(c2.TimeLockDelta),
 			MinHtlc:          int64(c2.MinHTLC),
 			FeeBaseMsat:      int64(c2.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
@@ -1461,7 +1453,7 @@ func marshalDbEdge(c1, c2 *channeldb.ChannelEdge) *lnrpc.ChannelEdge {
 func (r *rpcServer) GetChanInfo(_ context.Context, in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 	graph := r.server.chanDB.ChannelGraph()
 
-	edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
+	edgeInfo, edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
 	if err != nil {
 		return nil, err
 	}
@@ -1469,7 +1461,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context, in *lnrpc.ChanInfoRequest) (*
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
-	channelEdge := marshalDbEdge(edge1, edge2)
+	channelEdge := marshalDbEdge(edgeInfo, edge1, edge2)
 
 	return channelEdge, nil
 }
@@ -1505,7 +1497,9 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 		numChannels  uint32
 		totalCapcity btcutil.Amount
 	)
-	if err := node.ForEachChannel(nil, func(edge *channeldb.ChannelEdge) error {
+	if err := node.ForEachChannel(nil, func(edge *channeldb.ChannelEdgeInfo,
+		_ *channeldb.ChannelEdgePolicy) error {
+
 		numChannels++
 		totalCapcity += edge.Capacity
 		return nil
@@ -1617,7 +1611,9 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 	// node.
 	for _, node := range nodes {
 		var outDegree uint32
-		err := node.ForEachChannel(nil, func(c *channeldb.ChannelEdge) error {
+		err := node.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
+			_ *channeldb.ChannelEdgePolicy) error {
+
 			outDegree++
 			return nil
 		})
@@ -1632,18 +1628,10 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 
 	// Finally, we traverse each channel visiting both channel edges at
 	// once to avoid double counting any stats we're attempting to gather.
-	if err := graph.ForEachChannel(func(c1, c2 *channeldb.ChannelEdge) error {
-		var chanCapacity btcutil.Amount
-		switch {
-		case c1 == nil:
-			chanCapacity = c2.Capacity
-		case c2 == nil:
-			chanCapacity = c1.Capacity
-		case c1 == nil && c2 == nil:
-			return nil
-		default:
-			chanCapacity = c1.Capacity
-		}
+	if err := graph.ForEachChannel(func(edge *channeldb.ChannelEdgeInfo,
+		_, _ *channeldb.ChannelEdgePolicy) error {
+
+		chanCapacity := edge.Capacity
 
 		if chanCapacity < minChannelSize {
 			minChannelSize = chanCapacity

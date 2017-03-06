@@ -509,12 +509,12 @@ const (
 // funding output of any known channels within he graph will be deleted.
 // Additionally, the "prune tip", or the last block which has been used to
 // prune the graph is stored so callers can ensure the graph is fully in sync
-// with the current UTXO state. An integer is returned which reflects the
-// number of channels pruned due to the new incoming block.
+// with the current UTXO state. A slice of channels that have been closed by
+// the target block are returned if the function succeeds without error.
 func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
-	blockHash *chainhash.Hash, blockHeight uint32) (uint32, error) {
+	blockHash *chainhash.Hash, blockHeight uint32) ([]*ChannelEdgeInfo, error) {
 
-	var numChans uint32
+	var chansClosed []*ChannelEdgeInfo
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		// First grab the edges bucket which houses the information
@@ -541,16 +541,35 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// TODO(roasbeef): load channel bloom filter, continue
 			// if NOT if filter
 
-			// Attempt to delete the channel, and ErrEdgeNotFound
+			var opBytes bytes.Buffer
+			if err := writeOutpoint(&opBytes, chanPoint); err != nil {
+				return nil
+			}
+
+			// First attempt to see if the channel exists within
+			// the database, if not, then we can exit early.
+			chanID := chanIndex.Get(opBytes.Bytes())
+			if chanID == nil {
+				continue
+			}
+
+			// However, if it does, then we'll read out the full
+			// version so we can add it to the set of deleted
+			// channels.
+			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
+			if err != nil {
+				return err
+			}
+			chansClosed = append(chansClosed, edgeInfo)
+
+			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
-			err := delChannelByEdge(edges, edgeIndex, chanIndex,
+			err = delChannelByEdge(edges, edgeIndex, chanIndex,
 				chanPoint)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
-			} else if err == nil {
-				numChans += 1
 			}
 		}
 
@@ -560,7 +579,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		}
 
 		// With the graph pruned, update the current "prune tip" which
-		// can eb used to check if the graph is fully synced with the
+		// can be used to check if the graph is fully synced with the
 		// current UTXO state.
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
@@ -569,10 +588,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		return metaBucket.Put(pruneTipKey, newTip[:])
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return numChans, nil
+	return chansClosed, nil
 }
 
 // PruneTip returns the block height and hash of the latest block that has been
@@ -905,7 +924,6 @@ func (c *ChannelGraph) HasLightningNode(pub *btcec.PublicKey) (time.Time, bool, 
 // boltdb transaction, then it should be passed as the first argument.
 // Otherwise the first argument should be nil and a fresh transaction will be
 // created to execute the graph traversal.
-func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdge) error) error {
 func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdgeInfo, *ChannelEdgePolicy) error) error {
 	// TODO(roasbeef): remove the option to pass in a transaction after
 	// all?

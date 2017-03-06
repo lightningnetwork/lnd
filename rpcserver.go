@@ -1202,12 +1202,19 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 			return spew.Sdump(invoice)
 		}))
 
+	preimage := invoice.Terms.PaymentPreimage
 	return &lnrpc.Invoice{
-		Memo:      string(invoice.Memo[:]),
-		Receipt:   invoice.Receipt[:],
-		RPreimage: invoice.Terms.PaymentPreimage[:],
-		Value:     int64(invoice.Terms.Value),
-		Settled:   invoice.Terms.Settled,
+		Memo:         string(invoice.Memo[:]),
+		Receipt:      invoice.Receipt[:],
+		RPreimage:    preimage[:],
+		Value:        int64(invoice.Terms.Value),
+		CreationDate: invoice.CreationDate.Unix(),
+		Settled:      invoice.Terms.Settled,
+		PaymentRequest: zpay32.Encode(&zpay32.PaymentRequest{
+			Destination: r.server.identityPriv.PubKey(),
+			PaymentHash: fastsha256.Sum256(preimage[:]),
+			Amount:      invoice.Terms.Value,
+		}),
 	}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"math/big"
 	prand "math/rand"
 	"net"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -20,6 +22,15 @@ import (
 
 var (
 	testAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.1:9000")
+
+	randSource = prand.NewSource(time.Now().Unix())
+	randInts   = prand.New(randSource)
+	testSig    = &btcec.Signature{
+		R: new(big.Int),
+		S: new(big.Int),
+	}
+	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 )
 
 func createTestVertex(db *DB) (*LightningNode, error) {
@@ -215,8 +226,23 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Add the new edge to the database, this should proceed without any
 	// errors.
-	if err := graph.AddChannelEdge(node1.PubKey, node2.PubKey, &outpoint,
-		chanID); err != nil {
+	edgeInfo := ChannelEdgeInfo{
+		ChannelID:   chanID,
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: node1.PubKey,
+		BitcoinKey2: node2.PubKey,
+		AuthProof: &ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+		ChannelPoint: outpoint,
+		Capacity:     9000,
+	}
+
+	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 
@@ -226,11 +252,72 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		t.Fatalf("unable to delete edge: %v", err)
 	}
 
+	// Ensure that any query attempts to lookup the delete channel edge are
+	// properly deleted.
+	if _, _, _, err := graph.FetchChannelEdgesByOutpoint(&outpoint); err == nil {
+		t.Fatalf("channel edge not deleted")
+	}
+	if _, _, _, err := graph.FetchChannelEdgesByID(chanID); err == nil {
+		t.Fatalf("channel edge not deleted")
+	}
+
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.
 	err = graph.DeleteChannelEdge(&outpoint)
 	if err != ErrEdgeNotFound {
 		t.Fatalf("deleting a non-existent edge should fail!")
+	}
+}
+
+func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
+	e2 *ChannelEdgeInfo) {
+
+	if e1.ChannelID != e2.ChannelID {
+		t.Fatalf("chan id's don't match: %v vs %v", e1.ChannelID,
+			e2.ChannelID)
+	}
+
+	if !e1.NodeKey1.IsEqual(e2.NodeKey1) {
+		t.Fatalf("nodekey1 doesn't match")
+	}
+	if !e1.NodeKey2.IsEqual(e2.NodeKey2) {
+		t.Fatalf("nodekey2 doesn't match")
+	}
+	if !e1.BitcoinKey1.IsEqual(e2.BitcoinKey1) {
+		t.Fatalf("bitcoinkey1 doesn't match")
+	}
+	if !e1.BitcoinKey2.IsEqual(e2.BitcoinKey2) {
+		t.Fatalf("bitcoinkey2 doesn't match")
+	}
+
+	if !bytes.Equal(e1.Features, e2.Features) {
+		t.Fatalf("features doesn't match: %x vs %x", e1.Features,
+			e2.Features)
+	}
+
+	if !e1.AuthProof.NodeSig1.IsEqual(e2.AuthProof.NodeSig1) {
+		t.Fatalf("nodesig1 doesn't match: %v vs %v",
+			spew.Sdump(e1.AuthProof.NodeSig1),
+			spew.Sdump(e2.AuthProof.NodeSig1))
+	}
+	if !e1.AuthProof.NodeSig2.IsEqual(e2.AuthProof.NodeSig2) {
+		t.Fatalf("nodesig2 doesn't match")
+	}
+	if !e1.AuthProof.BitcoinSig1.IsEqual(e2.AuthProof.BitcoinSig1) {
+		t.Fatalf("bitcoinsig1 doesn't match")
+	}
+	if !e1.AuthProof.BitcoinSig2.IsEqual(e2.AuthProof.BitcoinSig2) {
+		t.Fatalf("bitcoinsig2 doesn't match")
+	}
+
+	if e1.ChannelPoint != e2.ChannelPoint {
+		t.Fatalf("channel point match: %v vs %v", e1.ChannelPoint,
+			e2.ChannelPoint)
+	}
+
+	if e1.Capacity != e2.Capacity {
+		t.Fatalf("capacity doesn't match: %v vs %v", e1.Capacity,
+			e2.Capacity)
 	}
 }
 
@@ -284,46 +371,56 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Add the new edge to the database, this should proceed without any
 	// errors.
-	if err := graph.AddChannelEdge(node1.PubKey, node2.PubKey, &outpoint,
-		chanID); err != nil {
+	edgeInfo := &ChannelEdgeInfo{
+		ChannelID:   chanID,
+		NodeKey1:    firstNode.PubKey,
+		NodeKey2:    secondNode.PubKey,
+		BitcoinKey1: firstNode.PubKey,
+		BitcoinKey2: secondNode.PubKey,
+		AuthProof: &ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+		ChannelPoint: outpoint,
+		Capacity:     1000,
+	}
+	if err := graph.AddChannelEdge(edgeInfo); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
 
 	// With the edge added, we can now create some fake edge information to
 	// update for both edges.
-	edge1 := &ChannelEdge{
+	edge1 := &ChannelEdgePolicy{
 		ChannelID:                 chanID,
-		ChannelPoint:              outpoint,
 		LastUpdate:                time.Unix(433453, 0),
 		Flags:                     0,
-		Expiry:                    99,
+		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 3452352,
-		Capacity:                  9903453,
-		Node:                      secondNode,
-		db:                        db,
+		Node: secondNode,
+		db:   db,
 	}
-	edge2 := &ChannelEdge{
+	edge2 := &ChannelEdgePolicy{
 		ChannelID:                 chanID,
-		ChannelPoint:              outpoint,
 		LastUpdate:                time.Unix(124234, 0),
 		Flags:                     1,
-		Expiry:                    99,
+		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
 		FeeProportionalMillionths: 90392423,
-		Capacity:                  324523,
-		Node:                      firstNode,
-		db:                        db,
+		Node: firstNode,
+		db:   db,
 	}
 
 	// Next, insert both nodes into the database, they should both be
 	// inserted without any issues.
-	if err := graph.UpdateEdgeInfo(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	if err := graph.UpdateEdgeInfo(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -336,7 +433,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		t.Fatalf("graph should have of inserted edge")
 	}
 
-	// We should also be able to retrieved the channelID only knowing the
+	// We should also be able to retrieve the channelID only knowing the
 	// channel point of the channel.
 	dbChanID, err := graph.ChannelID(&outpoint)
 	if err != nil {
@@ -349,7 +446,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// With the edges inserted, perform some queries to ensure that they've
 	// been inserted properly.
-	dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
+	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch channel by ID: %v", err)
 	}
@@ -361,10 +458,11 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge2,
 			dbEdge2)
 	}
+	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 
 	// Next, attempt to query the channel edges according to the outpoint
 	// of the channel.
-	dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
+	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
 	if err != nil {
 		t.Fatalf("unable to fetch channel by ID: %v", err)
 	}
@@ -376,21 +474,20 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge2,
 			dbEdge2)
 	}
+	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
-func randEdge(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdge {
+func randEdgePolicy(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdgePolicy {
 	update := prand.Int63()
 
-	return &ChannelEdge{
+	return &ChannelEdgePolicy{
 		ChannelID:                 chanID,
-		ChannelPoint:              op,
 		LastUpdate:                time.Unix(update, 0),
-		Expiry:                    uint16(prand.Int63()),
+		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   btcutil.Amount(prand.Int63()),
 		FeeBaseMSat:               btcutil.Amount(prand.Int63()),
 		FeeProportionalMillionths: btcutil.Amount(prand.Int63()),
-		Capacity:                  btcutil.Amount(prand.Int63()),
-		db:                        db,
+		db: db,
 	}
 }
 
@@ -464,27 +561,41 @@ func TestGraphTraversal(t *testing.T) {
 			Index: 0,
 		}
 
-		err := graph.AddChannelEdge(nodes[0].PubKey, nodes[1].PubKey,
-			&op, chanID)
+		edgeInfo := ChannelEdgeInfo{
+			ChannelID:   chanID,
+			NodeKey1:    nodes[0].PubKey,
+			NodeKey2:    nodes[1].PubKey,
+			BitcoinKey1: nodes[0].PubKey,
+			BitcoinKey2: nodes[1].PubKey,
+			AuthProof: &ChannelAuthProof{
+				NodeSig1:    testSig,
+				NodeSig2:    testSig,
+				BitcoinSig1: testSig,
+				BitcoinSig2: testSig,
+			},
+			ChannelPoint: op,
+			Capacity:     1000,
+		}
+		err := graph.AddChannelEdge(&edgeInfo)
 		if err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
 		// Create and add an edge with random data that points from
 		// node1 -> node2.
-		edge := randEdge(chanID, op, db)
+		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = secondNode
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
 		// Create another random edge that points from node2 -> node1
 		// this time.
-		edge = randEdge(chanID, op, db)
+		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = firstNode
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -494,8 +605,10 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(func(_, e *ChannelEdge) error {
-		delete(chanIndex, e.ChannelID)
+	err = graph.ForEachChannel(func(ei *ChannelEdgeInfo, _ *ChannelEdgePolicy,
+		_ *ChannelEdgePolicy) error {
+
+		delete(chanIndex, ei.ChannelID)
 		return nil
 	})
 	if err != nil {
@@ -508,7 +621,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Finally, we want to test the ability to iterate over all the
 	// outgoing channels for a particular node.
 	numNodeChans := 0
-	err = firstNode.ForEachChannel(nil, func(c *ChannelEdge) error {
+	err = firstNode.ForEachChannel(nil, func(_ *ChannelEdgeInfo, c *ChannelEdgePolicy) error {
 		// Each each should indicate that it's outgoing (pointed
 		// towards the second node).
 		if !c.Node.PubKey.IsEqual(secondNode.PubKey) {
@@ -547,7 +660,9 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *chainhash.Hash
 
 func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(func(*ChannelEdge, *ChannelEdge) error {
+	if err := graph.ForEachChannel(func(*ChannelEdgeInfo, *ChannelEdgePolicy,
+		*ChannelEdgePolicy) error {
+
 		numChans += 1
 		return nil
 	}); err != nil {
@@ -600,27 +715,41 @@ func TestGraphPruning(t *testing.T) {
 
 		channelPoints = append(channelPoints, &op)
 
-		err := graph.AddChannelEdge(graphNodes[i].PubKey,
-			graphNodes[i+1].PubKey, &op, chanID)
-		if err != nil {
+		edgeInfo := ChannelEdgeInfo{
+			ChannelID:   chanID,
+			NodeKey1:    graphNodes[i].PubKey,
+			NodeKey2:    graphNodes[i+1].PubKey,
+			BitcoinKey1: graphNodes[i].PubKey,
+			BitcoinKey2: graphNodes[i+1].PubKey,
+			AuthProof: &ChannelAuthProof{
+				NodeSig1:    testSig,
+				NodeSig2:    testSig,
+				BitcoinSig1: testSig,
+				BitcoinSig2: testSig,
+			},
+			ChannelPoint: op,
+			Capacity:     1000,
+		}
+
+		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
 		// Create and add an edge with random data that points from
 		// node_i -> node_i+1
-		edge := randEdge(chanID, op, db)
+		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = graphNodes[i]
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
 		// Create another random edge that points from node_i+1 ->
 		// node_i this time.
-		edge = randEdge(chanID, op, db)
+		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = graphNodes[i]
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 	}
@@ -634,13 +763,13 @@ func TestGraphPruning(t *testing.T) {
 	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
 	blockHeight := uint32(1)
 	block := channelPoints[:2]
-	numPruned, err := graph.PruneGraph(block, &blockHash, blockHeight)
+	prunedChans, err := graph.PruneGraph(block, &blockHash, blockHeight)
 	if err != nil {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
-	if numPruned != 2 {
+	if len(prunedChans) != 2 {
 		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
-			2, numPruned)
+			2, prunedChans)
 	}
 
 	// Now ensure that the prune tip has been updated.
@@ -659,14 +788,14 @@ func TestGraphPruning(t *testing.T) {
 	}
 	blockHash = fastsha256.Sum256(blockHash[:])
 	blockHeight = 2
-	numPruned, err = graph.PruneGraph([]*wire.OutPoint{nonChannel},
+	prunedChans, err = graph.PruneGraph([]*wire.OutPoint{nonChannel},
 		&blockHash, blockHeight)
 	if err != nil {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
 	// No channels should've been detected as pruned.
-	if numPruned != 0 {
+	if len(prunedChans) != 0 {
 		t.Fatalf("channels were pruned but shouldn't have been")
 	}
 
@@ -678,17 +807,19 @@ func TestGraphPruning(t *testing.T) {
 	// from the graph.
 	blockHash = fastsha256.Sum256(blockHash[:])
 	blockHeight = 3
-	numPruned, err = graph.PruneGraph(channelPoints[2:], &blockHash,
+	prunedChans, err = graph.PruneGraph(channelPoints[2:], &blockHash,
 		blockHeight)
 	if err != nil {
 		t.Fatalf("unable to prune graph: %v", err)
 	}
 
 	// The remainder of the channels should've been pruned from the graph.
-	if numPruned != 2 {
+	if len(prunedChans) != 2 {
 		t.Fatalf("incorrect number of channels pruned: expected %v, got %v",
-			2, numPruned)
+			2, len(prunedChans))
 	}
+
+	// TODO(roasbeef): asser that proper chans have been closed
 
 	// The prune tip should be updated, and no channels should be found
 	// within the current graph.

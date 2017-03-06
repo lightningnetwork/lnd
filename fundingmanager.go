@@ -911,10 +911,10 @@ func (f *fundingManager) waitForFundingConfirmation(
 		return
 	}
 
-	// Now that the channel is open, we need to notify a number of
-	// parties of this event.
+	// Now that the channel is open, we need to notify a number of parties
+	// of this event.
 
-	// First we send the newly opened channel to the source server
+	// First we send the newly opened channel to the source peer.
 	peer, err := f.cfg.FindPeer(completeChan.IdentityPub)
 	if err != nil {
 		fndgLog.Errorf("Unable to find peer: %v", err)
@@ -936,23 +936,22 @@ func (f *fundingManager) waitForFundingConfirmation(
 	case <-newChanDone: // Fallthrough if we're not quitting.
 	}
 
-	// Close the active channel barrier signalling the
-	// readHandler that commitment related modifications to
-	// this channel can now proceed.
+	// Close the active channel barrier signalling the readHandler that
+	// commitment related modifications to this channel can now proceed.
 	f.barrierMtx.Lock()
 	fndgLog.Tracef("Closing chan barrier for ChannelPoint(%v)", fundingPoint)
 	close(f.newChanBarriers[fundingPoint])
 	delete(f.newChanBarriers, fundingPoint)
 	f.barrierMtx.Unlock()
 
-	// Afterwards we send the breach arbiter the new channel so it
-	// can watch for attempts to breach the channel's contract by
-	// the remote party.
+	// Afterwards we send the breach arbiter the new channel so it can
+	// watch for attempts to breach the channel's contract by the remote
+	// party.
 	f.cfg.ArbiterChan <- channel
 
-	// With the block height and the transaction index known, we
-	// can construct the compact chainID which is used on the
-	// network to unique identify channels.
+	// With the block height and the transaction index known, we can
+	// construct the compact chainID which is used on the network to unique
+	// identify channels.
 	// TODO(roasbeef): remove after spec change, no more chanID's!!!
 	chanID := lnwire.ChannelID{
 		BlockHeight: confDetails.BlockHeight,
@@ -1081,7 +1080,7 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 		ChannelID:                 chanID,
 		Timestamp:                 uint32(time.Now().Unix()),
 		Flags:                     chanFlags,
-		Expiry:                    1,
+		TimeLockDelta:             1,
 		HtlcMinimumMstat:          0,
 		FeeBaseMstat:              0,
 		FeeProportionalMillionths: 0,

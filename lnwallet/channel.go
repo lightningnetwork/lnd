@@ -2251,6 +2251,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 		Amount:      htlc.Amount,
 		RPreimage:   preimage,
 		ParentIndex: htlc.Index,
+		RHash:       htlc.RHash,
 		Index:       lc.remoteUpdateLog.logIndex,
 		EntryType:   Settle,
 	}

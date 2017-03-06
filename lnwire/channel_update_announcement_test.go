@@ -12,7 +12,7 @@ func TestChannelUpdateAnnouncementEncodeDecode(t *testing.T) {
 		ChannelID:                 someChannelID,
 		Timestamp:                 maxUint32,
 		Flags:                     maxUint16,
-		Expiry:                    maxUint16,
+		TimeLockDelta:             maxUint16,
 		HtlcMinimumMstat:          maxUint32,
 		FeeBaseMstat:              maxUint32,
 		FeeProportionalMillionths: maxUint32,

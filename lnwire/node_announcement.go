@@ -70,29 +70,36 @@ func (a *Alias) Validate() error {
 	return nil
 }
 
-// NodeAnnouncement message is used to announce the presence of a lightning node
-// and signal that the node is accepting incoming connections.
+// NodeAnnouncement message is used to announce the presence of a Lightning
+// node and also to signal that the node is accepting incoming connections.
+// Each NodeAnnouncement authenticating the advertised information within the
+// announcement via a signature using the advertised node pubkey.
 type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
 	Signature *btcec.Signature
 
-	// Timestamp allows ordering in the case of multiple announcements.
+	// Timestamp allows ordering in the case of multiple
+	// announcements.
 	Timestamp uint32
 
-	// Address includes two specification fields: 'ipv6' and 'port' on which
-	// the node is accepting incoming connections.
+	// Address includes two specification fields: 'ipv6' and
+	// 'port' on which the node is accepting incoming connections.
 	Address *net.TCPAddr
 
-	// NodeID is a public key which is used as node identification.
+	// NodeID is a public key which is used as node
+	// identification.
 	NodeID *btcec.PublicKey
 
-	// RGBColor is used to customize their node's appearance in maps and graphs
+	// RGBColor is used to customize their node's appearance in
+	// maps and graphs
 	RGBColor RGB
 
-	// pad is used to reserve to additional bytes for future usage.
+	// pad is used to reserve to additional bytes for future
+	// usage.
 	pad uint16
 
-	// Alias is used to customize their node's appearance in maps and graphs
+	// Alias is used to customize their node's appearance in maps
+	// and graphs
 	Alias Alias
 }
 
@@ -109,8 +116,8 @@ func (a *NodeAnnouncement) Validate() error {
 	return nil
 }
 
-// Decode deserializes a serialized NodeAnnouncement stored in the
-// passed io.Reader observing the specified protocol version.
+// Decode deserializes a serialized NodeAnnouncement stored in the passed
+// io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
@@ -130,8 +137,8 @@ func (c *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Encode serializes the target NodeAnnouncement into the passed
-// io.Writer observing the protocol version specified.
+// Encode serializes the target NodeAnnouncement into the passed io.Writer
+// observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
 func (c *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {

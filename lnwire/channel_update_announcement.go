@@ -26,14 +26,16 @@ type ChannelUpdateAnnouncement struct {
 	Timestamp uint32
 
 	// Flags least-significant bit must be set to 0 if the creating node
-	// corresponds to the first node in previously sent channel
+	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise.
 	Flags uint16
 
-	// Expiry is the minimum number of blocks this node requires to be
-	// added to the expiry of HTLCs. This is a security parameter determined
-	// by the node operator.
-	Expiry uint16
+	// TimeLockDelta is the minimum number of blocks this node requires to
+	// be added to the expiry of HTLCs. This is a security parameter
+	// determined by the node operator. This value represents the required
+	// gap between the time locks of the incoming and outgoing HTLC's set
+	// to this node.
+	TimeLockDelta uint16
 
 	// HtlcMinimumMstat is the minimum HTLC value which will be accepted.
 	HtlcMinimumMstat uint32
@@ -58,7 +60,7 @@ func (a *ChannelUpdateAnnouncement) Validate() error {
 	// message, we can't validate the signature on this stage, it should
 	// be validated latter - in discovery service handler.
 
-	if a.Expiry == 0 {
+	if a.TimeLockDelta == 0 {
 		return errors.New("expiry should be greater then zero")
 	}
 
@@ -75,7 +77,7 @@ func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&c.ChannelID,
 		&c.Timestamp,
 		&c.Flags,
-		&c.Expiry,
+		&c.TimeLockDelta,
 		&c.HtlcMinimumMstat,
 		&c.FeeBaseMstat,
 		&c.FeeProportionalMillionths,
@@ -97,7 +99,7 @@ func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 		c.ChannelID,
 		c.Timestamp,
 		c.Flags,
-		c.Expiry,
+		c.TimeLockDelta,
 		c.HtlcMinimumMstat,
 		c.FeeBaseMstat,
 		c.FeeProportionalMillionths,
@@ -161,7 +163,7 @@ func (c *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
 		c.ChannelID,
 		c.Timestamp,
 		c.Flags,
-		c.Expiry,
+		c.TimeLockDelta,
 		c.HtlcMinimumMstat,
 		c.FeeBaseMstat,
 		c.FeeProportionalMillionths,

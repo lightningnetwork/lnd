@@ -32,8 +32,8 @@ const (
 	MsgSingleFundingComplete                 = 34
 	MsgSingleFundingSignComplete             = 35
 	MsgFundingLocked                         = 36
-	MsgCloseRequest                          = 39
-	MsgCloseComplete                         = 40
+	MsgShutdown                              = 39
+	MsgClosingSigned                         = 40
 	MsgUpdateAddHTLC                         = 128
 	MsgUpdateFufillHTLC                      = 130
 	MsgUpdateFailHTLC                        = 131
@@ -87,10 +87,10 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &SingleFundingSignComplete{}
 	case MsgFundingLocked:
 		msg = &FundingLocked{}
-	case MsgCloseRequest:
-		msg = &CloseRequest{}
-	case MsgCloseComplete:
-		msg = &CloseComplete{}
+	case MsgShutdown:
+		msg = &Shutdown{}
+	case MsgClosingSigned:
+		msg = &ClosingSigned{}
 	case MsgUpdateAddHTLC:
 		msg = &UpdateAddHTLC{}
 	case MsgUpdateFailHTLC:

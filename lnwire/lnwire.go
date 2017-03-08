@@ -267,6 +267,15 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err := writeElements(w, e.data[:]); err != nil {
 			return err
 		}
+	case DeliveryAddress:
+		var length [2]byte
+		binary.BigEndian.PutUint16(length[:], uint16(len(e)))
+		if _, err := w.Write(length[:]); err != nil {
+			return err
+		}
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
 
 	default:
 		return fmt.Errorf("Unknown type in writeElement: %T", e)
@@ -515,6 +524,18 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = newAlias(a[:])
+	case *DeliveryAddress:
+		var addrLen [2]byte
+		if _, err = io.ReadFull(r, addrLen[:]); err != nil {
+			return err
+		}
+		length := binary.BigEndian.Uint16(addrLen[:])
+
+		var addrBytes [34]byte
+		if _, err = io.ReadFull(r, addrBytes[:length]); err != nil {
+			return err
+		}
+		*e = addrBytes[:length]
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

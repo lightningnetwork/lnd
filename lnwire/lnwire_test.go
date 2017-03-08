@@ -273,30 +273,16 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(*req)
 		},
-		MsgCloseRequest: func(v []reflect.Value, r *rand.Rand) {
-			var chanID [32]byte
-			if _, err := r.Read(chanID[:]); err != nil {
+		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
+			req := ClosingSigned{
+				FeeSatoshis: uint64(r.Int63()),
+				Signature:   testSig,
+			}
+
+			if _, err := r.Read(req.ChannelID[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
 			}
-
-			req := NewCloseRequest(ChannelID(chanID), testSig)
-			req.Fee = btcutil.Amount(rand.Int63())
-
-			req.RequesterCloseSig = testSig
-
-			v[0] = reflect.ValueOf(*req)
-		},
-		MsgCloseComplete: func(v []reflect.Value, r *rand.Rand) {
-			req := CloseComplete{}
-
-			if _, err := r.Read(req.ChannelPoint.Hash[:]); err != nil {
-				t.Fatalf("unable to generate hash: %v", err)
-				return
-			}
-			req.ChannelPoint.Index = uint32(r.Int31()) % math.MaxUint16
-
-			req.ResponderCloseSig = testSig
 
 			v[0] = reflect.ValueOf(req)
 		},
@@ -490,14 +476,14 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
-			msgType: MsgCloseRequest,
-			scenario: func(m CloseRequest) bool {
+			msgType: MsgShutdown,
+			scenario: func(m Shutdown) bool {
 				return mainScenario(&m)
 			},
 		},
 		{
-			msgType: MsgCloseComplete,
-			scenario: func(m CloseComplete) bool {
+			msgType: MsgClosingSigned,
+			scenario: func(m ClosingSigned) bool {
 				return mainScenario(&m)
 			},
 		},

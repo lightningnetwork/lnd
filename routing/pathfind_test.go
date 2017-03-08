@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"math/big"
 	"net"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	prand "math/rand"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
@@ -22,11 +25,34 @@ const (
 	// basicGraphFilePath is the file path for a basic graph used within
 	// the tests. The basic graph consists of 5 nodes with 5 channels
 	// connecting them.
-	basicGraphFilePath         = "testdata/basic_graph.json"
+	basicGraphFilePath = "testdata/basic_graph.json"
+
+	// excessiveHopsGraphFilePath is a file path which stores the JSON dump
+	// of a graph which was previously triggering an erroneous excessive
+	// hops error. The error has since been fixed, but a test case
+	// exercising it is kept around to guard against regressions.
 	excessiveHopsGraphFilePath = "testdata/excessive_hops.json"
 )
 
-// testGraph is the struct which coresponds to the JSON format used to encode
+var (
+	randSource = prand.NewSource(time.Now().Unix())
+	randInts   = prand.New(randSource)
+	testSig    = &btcec.Signature{
+		R: new(big.Int),
+		S: new(big.Int),
+	}
+	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
+	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	testAuthProof = channeldb.ChannelAuthProof{
+		NodeSig1:    testSig,
+		NodeSig2:    testSig,
+		BitcoinSig1: testSig,
+		BitcoinSig2: testSig,
+	}
+)
+
+// testGraph is the struct which corresponds to the JSON format used to encode
 // graphs within the files in the testdata directory.
 //
 // TODO(roasbeef): add test graph auto-generator
@@ -213,20 +239,27 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		if err := graph.AddChannelEdge(node1Pub, node2Pub, &fundingPoint,
-			edge.ChannelID); err != nil {
+		edgeInfo := channeldb.ChannelEdgeInfo{
+			ChannelID:    edge.ChannelID,
+			NodeKey1:     node1Pub,
+			NodeKey2:     node2Pub,
+			BitcoinKey1:  node1Pub,
+			BitcoinKey2:  node2Pub,
+			AuthProof:    &testAuthProof,
+			ChannelPoint: fundingPoint,
+			Capacity:     btcutil.Amount(edge.Capacity),
+		}
+		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 			return nil, nil, nil, err
 		}
 
-		edge := &channeldb.ChannelEdge{
+		edgePolicy := &channeldb.ChannelEdgePolicy{
 			ChannelID:                 edge.ChannelID,
-			ChannelPoint:              fundingPoint,
 			LastUpdate:                time.Now(),
-			Expiry:                    edge.Expiry,
+			TimeLockDelta:             edge.Expiry,
 			MinHTLC:                   btcutil.Amount(edge.MinHTLC),
 			FeeBaseMSat:               btcutil.Amount(edge.FeeBaseMsat),
 			FeeProportionalMillionths: btcutil.Amount(edge.FeeRate),
-			Capacity:                  btcutil.Amount(edge.Capacity),
 		}
 
 		// As the graph itself is directed, we need to insert two edges
@@ -234,13 +267,13 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		// node2->node1. A flag of 0 indicates this is the routing
 		// policy for the first node, and a flag of 1 indicates its the
 		// information for the second node.
-		edge.Flags = 0
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		edgePolicy.Flags = 0
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, nil, nil, err
 		}
 
-		edge.Flags = 1
-		if err := graph.UpdateEdgeInfo(edge); err != nil {
+		edgePolicy.Flags = 1
+		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, nil, nil, err
 		}
 	}

@@ -1081,8 +1081,8 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 		Timestamp:                 uint32(time.Now().Unix()),
 		Flags:                     chanFlags,
 		TimeLockDelta:             1,
-		HtlcMinimumMstat:          0,
-		FeeBaseMstat:              0,
+		HtlcMinimumMsat:           0,
+		FeeBaseMsat:               0,
 		FeeProportionalMillionths: 0,
 	}
 

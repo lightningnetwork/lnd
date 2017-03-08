@@ -1075,7 +1075,7 @@ type ChannelAuthProof struct {
 	BitcoinSig1 *btcec.Signature
 
 	// BitcoinSig2 is the signature using the public key of the second node
-	// that was used in the channel's mult-sig output.
+	// that was used in the channel's multi-sig output.
 	BitcoinSig2 *btcec.Signature
 }
 

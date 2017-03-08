@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -51,14 +52,33 @@ type Route struct {
 	Hops []*Hop
 }
 
+// ChannelHop is an intermediate hop within the network with a greater
+// multi-hop payment route. This struct contains the relevant routing policy of
+// the particular edge, as well as the total capacity, and origin chain of the
+// channel itself.
+type ChannelHop struct {
+	// Capacity is the total capacity of the channel being traversed. This
+	// value is expressed for stability in satoshis.
+	Capacity btcutil.Amount
+
+	// Chain is a 32-byte has that denotes the base blockchain network of
+	// the channel. The 32-byte hash is the "genesis" block of the
+	// blockchain, or the very first block in the chain.
+	//
+	// TODO(roasbeef): store chain within edge info/policy in database.
+	Chain chainhash.Hash
+
+	*channeldb.ChannelEdgePolicy
+}
+
 // Hop represents the forwarding details at a particular position within the
 // final route. This struct houses the values necessary to create the HTLC
 // which will travel along this hop, and also encode the per-hop payload
 // included within the Sphinx packet.
 type Hop struct {
-	// Channels is the active payment channel that this hop will travel
+	// Channel is the active payment channel edge that this hop will travel
 	// along.
-	Channel *channeldb.ChannelEdge
+	Channel *ChannelHop
 
 	// TimeLockDelta is the delta that this hop will subtract from the HTLC
 	// before extending it to the next hop in the route.
@@ -78,7 +98,7 @@ type Hop struct {
 // computeFee computes the fee to forward an HTLC of `amt` satoshis over the
 // passed active payment channel. This value is currently computed as specified
 // in BOLT07, but will likely change in the near future.
-func computeFee(amt btcutil.Amount, edge *channeldb.ChannelEdge) btcutil.Amount {
+func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
 	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
 }
 
@@ -94,7 +114,7 @@ func newRoute(amtToSend btcutil.Amount, source, target vertex,
 	// the prevHop map to unravel the path. We end up with a list of edges
 	// in the reverse direction which we'll use to properly calculate the
 	// timelock and fee values.
-	pathEdges := make([]*channeldb.ChannelEdge, 0, len(prevHop))
+	pathEdges := make([]*ChannelHop, 0, len(prevHop))
 	prev := target
 	for prev != source { // TODO(roasbeef): assumes no cycles
 		// Add the current hop to the limit of path edges then walk
@@ -130,7 +150,7 @@ func newRoute(amtToSend btcutil.Amount, source, target vertex,
 			Channel:       edge,
 			AmtToForward:  runningAmt,
 			Fee:           computeFee(runningAmt, edge),
-			TimeLockDelta: edge.Expiry,
+			TimeLockDelta: edge.TimeLockDelta,
 		}
 		edge.Node.PubKey.Curve = nil
 
@@ -198,7 +218,7 @@ type nodeWithDist struct {
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {
-	edge     *channeldb.ChannelEdge
+	edge     *ChannelHop
 	prevNode *btcec.PublicKey
 }
 
@@ -208,8 +228,8 @@ type edgeWithPrev struct {
 // should be tuned with experimental and empirical data.
 //
 // TODO(roasbeef): compute robust weight metric
-func edgeWeight(e *channeldb.ChannelEdge) float64 {
-	return float64(1 + e.Expiry)
+func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
+	return float64(1 + e.TimeLockDelta)
 }
 
 // findRoute attempts to find a path from the source node within the
@@ -292,8 +312,9 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 			}
 		}
 
-		// If we've reached our target, then we're done here and can
-		// exit the graph traversal early.
+		// If we've reached our target (or we don't have any outgoing
+		// edges), then we're done here and can exit the graph
+		// traversal early.
 		if bestNode == nil || bestNode.PubKey.IsEqual(target) {
 			break
 		}
@@ -302,7 +323,9 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
 		pivot := newVertex(bestNode.PubKey)
-		err := bestNode.ForEachChannel(nil, func(edge *channeldb.ChannelEdge) error {
+		err := bestNode.ForEachChannel(nil, func(edgeInfo *channeldb.ChannelEdgeInfo,
+			edge *channeldb.ChannelEdgePolicy) error {
+
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
@@ -316,14 +339,15 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 			//  * also add min payment?
 			v := newVertex(edge.Node.PubKey)
 			if tempDist < distance[v].dist {
-				// TODO(roasbeef): unconditionally add for all
-				// paths
 				distance[v] = nodeWithDist{
 					dist: tempDist,
 					node: edge.Node,
 				}
 				prev[v] = edgeWithPrev{
-					edge:     edge,
+					edge: &ChannelHop{
+						ChannelEdgePolicy: edge,
+						Capacity:          edgeInfo.Capacity,
+					},
 					prevNode: bestNode.PubKey,
 				}
 			}

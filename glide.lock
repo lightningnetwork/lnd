@@ -1,5 +1,5 @@
-hash: a292fd48b31862c25e68915190bd53af1c2a5138151e45a38ffa7f192b8456ac
-updated: 2017-01-23T20:26:07.380822159-08:00
+hash: 343a7b967d94e6303b93b4578f69a1a460bf4c885213dbd78b56239825abf22e
+updated: 2017-03-08T15:24:23.36770742-08:00
 imports:
 - name: github.com/aead/chacha20
   version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
@@ -91,7 +91,7 @@ imports:
   - txsort
   - base58
 - name: github.com/roasbeef/btcwallet
-  version: 34bad378ffb72762a90c60410c1b5f4fd515b8c3
+  version: 780d9ff180a119a45437b5835114a991f69fd39f
   subpackages:
   - chain
   - waddrmgr

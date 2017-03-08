@@ -1009,7 +1009,8 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 	if len(chanGraph.Edges) != 2 {
 		t.Fatalf("only two channels should be seen as active in the "+
-			"network, instead %v are", len(chanGraph.Edges))
+			"network, instead %v are: ", len(chanGraph.Edges),
+			chanGraph.Edges)
 	}
 	for _, link := range chanGraph.Edges {
 		switch {

@@ -39,12 +39,17 @@ func NewAlias(s string) (Alias, error) {
 func newAlias(data []byte) (Alias, error) {
 	var a [32]byte
 
-	aliasEnd := len(data)
-	for data[aliasEnd-1] == 0 && aliasEnd > 0 {
+	rawAlias := data
+	if len(data) > aliasSpecLen {
+		rawAlias = data[:aliasSpecLen]
+	}
+
+	aliasEnd := len(rawAlias)
+	for rawAlias[aliasEnd-1] == 0 && aliasEnd > 0 {
 		aliasEnd--
 	}
 
-	copy(a[:aliasEnd], data[:aliasEnd])
+	copy(a[:aliasEnd], rawAlias[:aliasEnd])
 
 	return Alias{
 		data:     a,
@@ -93,6 +98,8 @@ type NodeAnnouncement struct {
 	// RGBColor is used to customize their node's appearance in
 	// maps and graphs
 	RGBColor RGB
+
+	// TODO(roasbeef): add the global features here
 
 	// pad is used to reserve to additional bytes for future
 	// usage.

@@ -611,6 +611,10 @@
     "lnrpcActiveChannel": {
       "type": "object",
       "properties": {
+        "active": {
+          "type": "boolean",
+          "format": "boolean"
+        },
         "remote_pubkey": {
           "type": "string"
         },

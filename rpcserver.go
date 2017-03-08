@@ -813,8 +813,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			continue
 		}
 
-		nodePub := dbChannel.IdentityPub.SerializeCompressed()
-		nodeID := hex.EncodeToString(nodePub)
+		nodePub := dbChannel.IdentityPub
+		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 		chanPoint := dbChannel.ChanID
 
 		// With the channel point known, retrieve the network channel
@@ -822,7 +822,13 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		var chanID uint64
 		chanID, _ = graph.ChannelID(chanPoint)
 
+		var peerOnline bool
+		if _, err := r.server.findPeer(nodePub); err == nil {
+			peerOnline = true
+		}
+
 		channel := &lnrpc.ActiveChannel{
+			Active:                peerOnline,
 			RemotePubkey:          nodeID,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,

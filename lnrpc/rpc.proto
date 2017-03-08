@@ -251,20 +251,21 @@ message HTLC {
 }
 
 message ActiveChannel {
-    string remote_pubkey = 1 [ json_name = "remote_pubkey" ];
-    string channel_point = 2 [ json_name = "channel_point" ];
-    uint64 chan_id = 3 [ json_name = "chan_id" ];
+    bool active = 1 [ json_name = "active" ];
+    string remote_pubkey = 2 [ json_name = "remote_pubkey" ];
+    string channel_point = 3 [ json_name = "channel_point" ];
+    uint64 chan_id = 4 [ json_name = "chan_id" ];
 
-    int64 capacity = 4 [ json_name = "capacity" ];
-    int64 local_balance = 5 [ json_name = "local_balance" ];
-    int64 remote_balance = 6 [ json_name = "remote_balance" ];
+    int64 capacity = 5 [ json_name = "capacity" ];
+    int64 local_balance = 6 [ json_name = "local_balance" ];
+    int64 remote_balance = 7 [ json_name = "remote_balance" ];
 
-    int64 unsettled_balance = 7 [ json_name = "unsettled_balance" ];
-    int64 total_satoshis_sent = 8 [ json_name = "total_satoshis_sent" ];
-    int64 total_satoshis_received = 9 [ json_name = "total_satoshis_received" ];
-    uint64 num_updates = 10 [ json_name = "num_updates" ];
+    int64 unsettled_balance = 8 [ json_name = "unsettled_balance" ];
+    int64 total_satoshis_sent = 9 [ json_name = "total_satoshis_sent" ];
+    int64 total_satoshis_received = 10 [ json_name = "total_satoshis_received" ];
+    uint64 num_updates = 11 [ json_name = "num_updates" ];
 
-    repeated HTLC pending_htlcs = 11 [ json_name = "pending_htlcs" ];
+    repeated HTLC pending_htlcs = 12 [ json_name = "pending_htlcs" ];
 }
 
 message ListChannelsRequest {}

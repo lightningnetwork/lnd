@@ -37,11 +37,11 @@ type ChannelUpdateAnnouncement struct {
 	// to this node.
 	TimeLockDelta uint16
 
-	// HtlcMinimumMstat is the minimum HTLC value which will be accepted.
-	HtlcMinimumMstat uint32
+	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
+	HtlcMinimumMsat uint32
 
 	// FeeBaseMstat...
-	FeeBaseMstat uint32
+	FeeBaseMsat uint32
 
 	// FeeProportionalMillionths...
 	FeeProportionalMillionths uint32
@@ -78,8 +78,8 @@ func (c *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&c.Timestamp,
 		&c.Flags,
 		&c.TimeLockDelta,
-		&c.HtlcMinimumMstat,
-		&c.FeeBaseMstat,
+		&c.HtlcMinimumMsat,
+		&c.FeeBaseMsat,
 		&c.FeeProportionalMillionths,
 	)
 	if err != nil {
@@ -100,8 +100,8 @@ func (c *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 		c.Timestamp,
 		c.Flags,
 		c.TimeLockDelta,
-		c.HtlcMinimumMstat,
-		c.FeeBaseMstat,
+		c.HtlcMinimumMsat,
+		c.FeeBaseMsat,
 		c.FeeProportionalMillionths,
 	)
 	if err != nil {
@@ -164,8 +164,8 @@ func (c *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
 		c.Timestamp,
 		c.Flags,
 		c.TimeLockDelta,
-		c.HtlcMinimumMstat,
-		c.FeeBaseMstat,
+		c.HtlcMinimumMsat,
+		c.FeeBaseMsat,
 		c.FeeProportionalMillionths,
 	)
 	if err != nil {

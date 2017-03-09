@@ -4,11 +4,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 	"io/ioutil"
 	"math/big"
 	"net"
@@ -17,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	prand "math/rand"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	prand "math/rand"
 )
 
 const (
@@ -344,8 +339,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// The length of the path should be exactly one hop as it's the
 	// "shortest" known path in the graph.
 	if len(route.Hops) != 1 {
-		t.Fatalf("shortest path not selected, should be of length 1, "+
-			"is instead: %v", len(route.Hops))
+		t.Fatalf("shortest path not selected, should be of length 1, "+"is instead: %v", len(route.Hops))
 	}
 
 	// As we have a direct path, the total time lock value should be
@@ -388,8 +382,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	target = aliases["vincent"]
 	route, err = findRoute(graph, target, paymentAmt)
 	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+
-			"greater than 20 hops, found route with %v hops", len(route.Hops))
+		t.Fatalf("should not have been able to find path, supposed to be "+"greater than 20 hops, found route with %v hops", len(route.Hops))
 	}
 
 }

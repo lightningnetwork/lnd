@@ -112,7 +112,7 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelID,
 		&c.ChannelType,
 		&c.CoinType,
@@ -125,11 +125,6 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		&c.DeliveryPkScript,
 		&c.DustLimit,
 		&c.ConfirmationDepth)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target SingleFundingRequest into the passed io.Writer
@@ -138,7 +133,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelID,
 		c.ChannelType,
 		c.CoinType,
@@ -151,11 +146,6 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.DeliveryPkScript,
 		c.DustLimit,
 		c.ConfirmationDepth)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a
@@ -179,7 +169,7 @@ func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
 	length += 8
 
 	// ChannelType - 1 byte
-	length += 1
+	length++
 
 	// CoinType - 8 bytes
 	length += 8

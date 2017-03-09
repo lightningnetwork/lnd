@@ -1453,7 +1453,7 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 		return err
 	}
 
-	byteOrder.PutUint16(scratch[:2], uint16(channel.NumConfsRequired))
+	byteOrder.PutUint16(scratch[:2], channel.NumConfsRequired)
 	if _, err := b.Write(scratch[:2]); err != nil {
 		return err
 	}

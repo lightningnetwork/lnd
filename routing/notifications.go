@@ -107,11 +107,11 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 			// In this case we'll try to send the notification
 			// directly to the upstream client consumer.
-			case client.ntfnChan <- topologyDiff:
+			case c.ntfnChan <- topologyDiff:
 
 			// If the client cancel's the notifications, then we'll
 			// exit early.
-			case <-client.exit:
+			case <-c.exit:
 
 			// Similarly, if the ChannelRouter itself exists early,
 			// then we'll also exit ourselves.

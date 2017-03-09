@@ -664,7 +664,7 @@ func TestChannelCloseNotification(t *testing.T) {
 		Transactions: []*wire.MsgTx{
 			{
 				TxIn: []*wire.TxIn{
-					&wire.TxIn{
+					{
 						PreviousOutPoint: chanUtxo,
 					},
 				},

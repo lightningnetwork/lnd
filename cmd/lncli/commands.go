@@ -1096,7 +1096,7 @@ func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) 
 		y := math.Log2(float64(x))
 
 		// TODO(roasbeef): results in min being zero
-		return y - min/max - min*scaleFactor
+		return (y - min) / (max - min) * scaleFactor
 	}
 }
 
@@ -1259,21 +1259,21 @@ func getChanInfo(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		chan_id int64
-		err     error
+		chanID int64
+		err    error
 	)
 
 	switch {
 	case ctx.IsSet("chan_id"):
-		chan_id = ctx.Int64("chan_id")
+		chanID = ctx.Int64("chan_id")
 	case ctx.Args().Present():
-		chan_id, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
+		chanID, err = strconv.ParseInt(ctx.Args().First(), 10, 64)
 	default:
 		return fmt.Errorf("chan_id argument missing")
 	}
 
 	req := &lnrpc.ChanInfoRequest{
-		ChanId: uint64(chan_id),
+		ChanId: uint64(chanID),
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxb, req)
@@ -1491,11 +1491,11 @@ func decodePayReq(ctx *cli.Context) error {
 	return nil
 }
 
-var ListChainTxns = cli.Command{
+var listChainTxnsCommand = cli.Command{
 	Name:        "listchaintxns",
 	Usage:       "List transactions from the wallet.",
 	Description: "List all transactions an address of the wallet was involved in.",
-	Action: listChainTxns,
+	Action:      listChainTxns,
 }
 
 func listChainTxns(ctx *cli.Context) error {
@@ -1509,6 +1509,6 @@ func listChainTxns(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJson(resp)
+	printRespJSON(resp)
 	return nil
 }

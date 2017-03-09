@@ -751,8 +751,8 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 // updated, otherwise it's the second node's information. The node ordering is
 // determined tby the lexicographical ordering of the identity public keys of
 // the nodes on either side of the channel.
-func (r *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
-	return r.db.Update(func(tx *bolt.Tx) error {
+func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
+	return c.db.Update(func(tx *bolt.Tx) error {
 		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
 		if err != nil {
 			return err

@@ -29,7 +29,8 @@ check_test_ports() {
 }
 
 # test_with_profile run test coverage on each subdirectories and merge the
-# coverage profile.
+# coverage profile. Be aware that we are skipping the integration tests, as the
+# tool won't gather any useful coverage information from them.
 test_with_coverage_profile() {
     print "* Run tests with creating coverage profile:"
     check_test_ports
@@ -40,6 +41,7 @@ test_with_coverage_profile() {
     for dir in $(find . -maxdepth 10 \
     -not -path './.git*' \
     -not -path '*/_*' \
+    -not -path '.' \
     -not -path './cmd*' \
     -not -path './release*' \
     -not -path './vendor*' \

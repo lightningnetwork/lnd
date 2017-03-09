@@ -346,7 +346,7 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 			}
 			if pendingOnly {
 				for _, channel := range nodeChannels {
-					if channel.IsPending == true {
+					if channel.IsPending {
 						channels = append(channels, channel)
 					}
 				}
@@ -363,7 +363,7 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 // MarkChannelAsOpen records the finalization of the funding process and marks
 // a channel as available for use.
 func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
-	err := d.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bolt.Tx) error {
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
 			return ErrNoActiveChannels
@@ -385,11 +385,6 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 		byteOrder.PutUint16(scratch, uint16(0))
 		return openChanBucket.Put(keyPrefix, scratch)
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // syncVersions function is used for safe db version synchronization. It applies

@@ -94,7 +94,7 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 	// DeliveryPkScript (final delivery)
 	// DustLimit (8)
 	// ConfirmationDepth (4)
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelID,
 		&c.ChannelDerivationPoint,
 		&c.CommitmentKey,
@@ -103,11 +103,6 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 		&c.DeliveryPkScript,
 		&c.DustLimit,
 		&c.ConfirmationDepth)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target SingleFundingResponse into the passed io.Writer
@@ -116,7 +111,7 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelID,
 		c.ChannelDerivationPoint,
 		c.CommitmentKey,
@@ -125,11 +120,6 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 		c.DeliveryPkScript,
 		c.DustLimit,
 		c.ConfirmationDepth)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a

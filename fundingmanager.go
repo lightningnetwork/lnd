@@ -1097,13 +1097,13 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 // network to recognize the legitimacy of the channel. The crafted
 // announcements are then send to the channel router to handle broadcasting to
 // the network during its next trickle.
-func (f *fundingManager) announceChannel(idKey, remoteIdKey *btcec.PublicKey,
+func (f *fundingManager) announceChannel(idKey, remoteIDKey *btcec.PublicKey,
 	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID, localProof,
 	remoteProof *channelProof) {
 
 	// TODO(roasbeef): need a Signer.SignMessage method to finalize
 	// advertisements
-	chanAnnouncement := newChanAnnouncement(idKey, remoteIdKey, channel, chanID,
+	chanAnnouncement := newChanAnnouncement(idKey, remoteIDKey, channel, chanID,
 		localProof, remoteProof)
 
 	f.cfg.SendToRouter(chanAnnouncement.chanAnn)

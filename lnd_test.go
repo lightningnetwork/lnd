@@ -200,7 +200,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 // numChannelsPending sends an RPC request to a node to get a count of the
 // node's channels that are currently in a pending state (with a broadcast,
 // but not confirmed funding transaction).
-func numChannelsPending(node *lightningNode, ctxt context.Context) (int, error) {
+func numChannelsPending(ctxt context.Context, node *lightningNode) (int, error) {
 	pendingChansRequest := &lnrpc.PendingChannelRequest{
 		Status: lnrpc.ChannelStatus_OPENING,
 	}
@@ -213,14 +213,14 @@ func numChannelsPending(node *lightningNode, ctxt context.Context) (int, error) 
 
 // assertNumChannelsPending asserts that a pair of nodes have the expected
 // number of pending channels between them.
-func assertNumChannelsPending(t *harnessTest, ctxt context.Context,
+func assertNumChannelsPending(ctxt context.Context, t *harnessTest,
 	alice, bob *lightningNode, expected int) {
-	aliceNumChans, err := numChannelsPending(alice, ctxt)
+	aliceNumChans, err := numChannelsPending(ctxt, alice)
 	if err != nil {
 		t.Fatalf("error fetching alice's node (%v) pending channels %v",
 			alice.nodeID, err)
 	}
-	bobNumChans, err := numChannelsPending(bob, ctxt)
+	bobNumChans, err := numChannelsPending(ctxt, bob)
 	if err != nil {
 		t.Fatalf("error fetching bob's node (%v) pending channels %v",
 			bob.nodeID, err)
@@ -313,7 +313,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	// been broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 1)
+	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
@@ -376,7 +376,7 @@ peersPoll:
 	// Both nodes should still show a single channel as pending.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 1)
+	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
 
 	// Finally, mine the last block which should mark the channel as open.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
@@ -387,7 +387,7 @@ peersPoll:
 	// be no pending channels remaining for either node.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(t, ctxt, net.Alice, net.Bob, 0)
+	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
@@ -1009,7 +1009,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 	if len(chanGraph.Edges) != 2 {
 		t.Fatalf("only two channels should be seen as active in the "+
-			"network, instead %v are: ", len(chanGraph.Edges),
+			"network, instead %v are: %v", len(chanGraph.Edges),
 			chanGraph.Edges)
 	}
 	for _, link := range chanGraph.Edges {

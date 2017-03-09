@@ -49,15 +49,10 @@ var _ Message = (*FundingLocked)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r,
+	return readElements(r,
 		&c.ChannelOutpoint,
 		&c.ChannelID,
 		&c.NextPerCommitmentPoint)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Encode serializes the target FundingLocked message into the passed io.Writer
@@ -66,15 +61,10 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
-	err := writeElements(w,
+	return writeElements(w,
 		c.ChannelOutpoint,
 		c.ChannelID,
 		c.NextPerCommitmentPoint)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Command returns the uint32 code which uniquely identifies this message as a
@@ -111,7 +101,8 @@ func (c *FundingLocked) MaxPayloadLength(uint32) uint32 {
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Validate() error {
 	if c.NextPerCommitmentPoint == nil {
-		return fmt.Errorf("The next per commitment point must be non-nil.")
+		return fmt.Errorf("the next per commitment point must be " +
+			"non-nil.")
 	}
 
 	// We're good!

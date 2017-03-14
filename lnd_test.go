@@ -1991,7 +1991,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 		closedChan := graphUpdate.ClosedChans[0]
 		if closedChan.ClosedHeight != uint32(blockHeight+1) {
 			t.Fatalf("close heights of channel mismatch: expected "+
-				"%v, got v", blockHeight+1, closedChan.ClosedHeight)
+				"%v, got %v", blockHeight+1, closedChan.ClosedHeight)
 		}
 		if !bytes.Equal(closedChan.ChanPoint.FundingTxid,
 			chanPoint.FundingTxid) {

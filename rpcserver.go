@@ -1722,8 +1722,6 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			return nil
 		}
 	}
-
-	return nil
 }
 
 // marshallTopologyChange performs a mapping from the topology change sturct

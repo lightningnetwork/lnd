@@ -739,6 +739,31 @@
         }
       }
     },
+    "lnrpcChannelEdgeUpdate": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "routing_policy": {
+          "$ref": "#/definitions/lnrpcRoutingPolicy"
+        },
+        "advertising_node": {
+          "type": "string"
+        },
+        "connecting_node": {
+          "type": "string"
+        }
+      }
+    },
     "lnrpcChannelGraph": {
       "type": "object",
       "properties": {
@@ -772,7 +797,8 @@
       "properties": {
         "funding_txid": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "title": "TODO(roasbeef): make str vs bytes into a oneof"
         },
         "funding_txid_str": {
           "type": "string"
@@ -819,6 +845,26 @@
         },
         "chan_close": {
           "$ref": "#/definitions/lnrpcChannelCloseUpdate"
+        }
+      }
+    },
+    "lnrpcClosedChannelUpdate": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "closed_height": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
         }
       }
     },
@@ -929,6 +975,32 @@
     },
     "lnrpcGetTransactionsRequest": {
       "type": "object"
+    },
+    "lnrpcGraphTopologySubscription": {
+      "type": "object"
+    },
+    "lnrpcGraphTopologyUpdate": {
+      "type": "object",
+      "properties": {
+        "node_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeUpdate"
+          }
+        },
+        "channel_updates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelEdgeUpdate"
+          }
+        },
+        "closed_chans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcClosedChannelUpdate"
+          }
+        }
+      }
     },
     "lnrpcHTLC": {
       "type": "object",
@@ -1192,6 +1264,27 @@
       "type": "object",
       "properties": {
         "pub_key": {
+          "type": "string"
+        }
+      }
+    },
+    "lnrpcNodeUpdate": {
+      "type": "object",
+      "properties": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "identity_key": {
+          "type": "string"
+        },
+        "global_features": {
+          "type": "string",
+          "format": "byte"
+        },
+        "alias": {
           "type": "string"
         }
       }

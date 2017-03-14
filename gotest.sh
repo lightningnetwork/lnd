@@ -32,7 +32,7 @@ check_test_ports() {
 # coverage profile. Be aware that we are skipping the integration tests, as the
 # tool won't gather any useful coverage information from them.
 test_with_coverage_profile() {
-    print "* Run tests with creating coverage profile:"
+    print "* Run tests with creating coverage profile"
     check_test_ports
 
     echo "mode: count" > profile.cov
@@ -58,7 +58,7 @@ test_with_coverage_profile() {
     done
 
     if [ "$TRAVIS" == "true" ] ; then
-        print "* Send test coverage to travis server:"
+        print "* Send test coverage to travis server"
         # Make sure goveralls is installed and $GOPATH/bin is in your path.
         if [ ! -x "$(type -p goveralls)" ]; then
             print "** Install goveralls:"
@@ -73,7 +73,7 @@ test_with_coverage_profile() {
 # test_race_conditions run standard go test without creating coverage
 # profile but with race condition checks.
 test_race_conditions() {
-    print "* Run tests with race conditions checks:"
+    print "* Run tests with race conditions checks"
     check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
@@ -82,11 +82,11 @@ test_race_conditions() {
 
 # lint_check runs static checks.
 lint_check() {
-    print "* Run static checks:"
+    print "* Run static checks"
 
     # Make sure gometalinter is installed and $GOPATH/bin is in your path.
     if [ ! -x "$(type -p gometalinter)" ]; then
-        print "** Install gometalinter:"
+        print "** Install gometalinter"
         go get -v github.com/alecthomas/gometalinter
         gometalinter --install
     fi
@@ -105,21 +105,26 @@ lint_check() {
 
 set -e
 
+print "====+ Start +===="
+
 # Read input flags and initialize variables
 NEED_LINT="false"
 NEED_COVERAGE="false"
 NEED_RACE="false"
+NEED_INSTALL="false"
 
-while getopts "lrc" flag; do
+while getopts "lrci" flag; do
         case "${flag}" in
             l) NEED_LINT="true" ;;
             r) NEED_RACE="true" ;;
             c) NEED_COVERAGE="true" ;;
+            i) NEED_INSTALL="true" ;;
             *)
-                printf '\nUsage: %s [-l] [-r] [-c], where:\n' $0
+                printf '\nUsage: %s [-l] [-r] [-c] [-i], where:\n' $0
                 printf ' -l: include code lint check\n'
                 printf ' -r: run tests with race condition check\n'
                 printf ' -c: run tests with test coverage\n'
+                printf ' -i: reinstall project dependencies\n'
                 exit 1 ;;
         esac
     done
@@ -129,13 +134,19 @@ shift $(( OPTIND - 1 ))
 
 # Make sure glide is installed and $GOPATH/bin is in your path.
 if [ ! -x "$(type -p glide)" ]; then
-    print "* Install glide:"
+    print "* Install glide"
     go get -u github.com/Masterminds/glide
+fi
+
+# Install the dependency if vendor directory not exist or if flag have been
+# specified.
+if [ "$NEED_INSTALL" == "true" ] || [ ! -d "./vendor" ]; then
+    print "* Install dependencies"
     glide install
 fi
 
 # Required for the integration tests
-print "* Build source:"
+print "* Build source"
 go install -v . ./cmd/...
 
 # Lint check is first because we shouldn't run tests on garbage code.
@@ -153,3 +164,5 @@ fi
 if [ "$NEED_COVERAGE" == "true" ]; then
     test_with_coverage_profile
 fi
+
+print "=====+ End +====="

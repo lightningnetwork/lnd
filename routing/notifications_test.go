@@ -340,7 +340,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// First we'll create the utxo for the channel to be "closed"
 	const chanValue = btcutil.Amount(10000)
-	fundingTx, _, chanID := randChannelEdge(ctx, chanValue,
+	fundingTx, chanPoint, chanID := randChannelEdge(ctx, chanValue,
 		startingBlockHeight)
 
 	// We'll also add a record for the block that included our funding
@@ -403,6 +403,10 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		if edgeUpdate.ChanID != edgeAnn.ChannelID.ToUint64() {
 			t.Fatalf("channel ID of edge doesn't match: "+
 				"expected %v, got %v", chanID.ToUint64(), edgeUpdate.ChanID)
+		}
+		if edgeUpdate.ChanPoint != chanPoint {
+			t.Fatalf("channel don't match: expected %v, got %v",
+				chanPoint, edgeUpdate.ChanPoint)
 		}
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.

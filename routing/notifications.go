@@ -18,8 +18,10 @@ import (
 // TopologyChanges channel will be sent upon with new updates to the channel
 // graph in real-time as they're encountered.
 type TopologyClient struct {
-	// TopologyChanges is a recieve only channel that new channel graph
+	// TopologyChanges is a receive only channel that new channel graph
 	// updates will be sent over.
+	//
+	// TODO(roasbeef): chan for each update type instead?
 	TopologyChanges <-chan *TopologyChange
 
 	// Cancel is a function closure that should be executed when the client
@@ -225,6 +227,10 @@ type ChannelEdgeUpdate struct {
 	// originally confirmed.
 	ChanID uint64
 
+	// ChanPoint is the outpoint which represents the multi-sig funding
+	// output for the channel.
+	ChanPoint wire.OutPoint
+
 	// Capacity is the capacity of the newly created channel.
 	Capacity btcutil.Amount
 
@@ -300,6 +306,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 
 		edgeUpdate := &ChannelEdgeUpdate{
 			ChanID:          chanID,
+			ChanPoint:       edgeInfo.ChannelPoint,
 			TimeLockDelta:   m.TimeLockDelta,
 			Capacity:        edgeInfo.Capacity,
 			MinHTLC:         btcutil.Amount(m.HtlcMinimumMsat),

@@ -1887,6 +1887,163 @@ out:
 	}
 }
 
+func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
+	const chanAmt = btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// We'll first start by establishing a notification client to Alice
+	// which'll send us notifications upon detected changes in the channel
+	// graph.
+	req := &lnrpc.GraphTopologySubscription{}
+	topologyClient, err := net.Alice.SubscribeChannelGraph(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to create topology client: %v", err)
+	}
+
+	// Open a new channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		chanAmt, 0)
+
+	// We'll launch a goroutine that'll be responsible for proxying all
+	// notifications recv'd from the client into the channel below.
+	quit := make(chan struct{})
+	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
+	go func() {
+		for {
+			select {
+			case <-quit:
+				return
+			default:
+				graphUpdate, err := topologyClient.Recv()
+				if err == io.EOF {
+					return
+				} else if err != nil {
+					t.Fatalf("unable to recv graph update: %v", err)
+				}
+
+				graphUpdates <- graphUpdate
+			}
+		}
+	}()
+
+	// The channel opening above should've triggered a new notification
+	// sent to the notification client.
+	const numExpectedUpdates = 2
+	for i := 0; i < numExpectedUpdates; i++ {
+		select {
+		case <-time.After(time.Second * 5):
+			t.Fatalf("notification for new channel not sent")
+
+		// Ensure that a new update for both created edges is properly
+		// dispatched to our registered client.
+		case graphUpdate := <-graphUpdates:
+			if len(graphUpdate.ChannelUpdates) != 1 {
+				t.Fatalf("expected a single update, instead "+
+					"have %v", len(graphUpdate.ChannelUpdates))
+			}
+
+			chanUpdate := graphUpdate.ChannelUpdates[0]
+			if chanUpdate.Capacity != int64(chanAmt) {
+				t.Fatalf("channel capacities mismatch: expected %v, "+
+					"got %v", chanAmt, chanUpdate.Capacity)
+			}
+			switch chanUpdate.AdvertisingNode {
+			case net.Alice.PubKeyStr:
+			case net.Bob.PubKeyStr:
+			default:
+				t.Fatalf("unknown advertising node: %v",
+					chanUpdate.AdvertisingNode)
+			}
+			switch chanUpdate.ConnectingNode {
+			case net.Alice.PubKeyStr:
+			case net.Bob.PubKeyStr:
+			default:
+				t.Fatalf("unknown connecting node: %v",
+					chanUpdate.ConnectingNode)
+			}
+		}
+	}
+
+	_, blockHeight, err := net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	// Now we'll test that updates upon a channel closure are properly sent
+	// when channels are closed within the network.
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+
+	// Similar to the case above, we should receive another notification
+	// detailing the channel closure.
+	select {
+	case <-time.After(time.Second * 5):
+		t.Fatalf("notification for channel closure not " +
+			"sent")
+	case graphUpdate := <-graphUpdates:
+		if len(graphUpdate.ClosedChans) != 1 {
+			t.Fatalf("expected a single update, instead "+
+				"have %v", len(graphUpdate.ClosedChans))
+		}
+
+		closedChan := graphUpdate.ClosedChans[0]
+		if closedChan.ClosedHeight != uint32(blockHeight+1) {
+			t.Fatalf("close heights of channel mismatch: expected "+
+				"%v, got v", blockHeight+1, closedChan.ClosedHeight)
+		}
+		if !bytes.Equal(closedChan.ChanPoint.FundingTxid,
+			chanPoint.FundingTxid) {
+			t.Fatalf("channel point hash mismatch: expected %v, "+
+				"got %v", chanPoint.FundingTxid,
+				closedChan.ChanPoint.FundingTxid)
+		}
+		if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
+			t.Fatalf("output index mismatch: expected %v, got %v",
+				chanPoint.OutputIndex, closedChan.ChanPoint)
+		}
+	}
+
+	// For the final portion of the test, we'll ensure that once a new node
+	// appears in the network, the proper notification is dispatched.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	// Connect the new node above to Alice. This should result in the nodes
+	// syncing up their respective graph state, with the new addition being
+	// the existence of Carol in the graph.
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
+	// We should receive an update advertising the newly connected node.
+	select {
+	case graphUpdate := <-graphUpdates:
+		if len(graphUpdate.NodeUpdates) != 1 {
+			t.Fatalf("expected a single update, instead "+
+				"have %v", len(graphUpdate.NodeUpdates))
+		}
+
+		nodeUpdate := graphUpdate.NodeUpdates[0]
+		if nodeUpdate.IdentityKey != carol.PubKeyStr {
+			t.Fatalf("node update pubkey mismatch: expected %v, got %v",
+				carol.PubKeyStr, nodeUpdate.IdentityKey)
+		}
+	case <-time.After(time.Second * 5):
+		t.Fatalf("node update ntfn not sent")
+	}
+
+	close(quit)
+
+	// Finally, shutdown carol as our test has concluded successfully.
+	if err := carol.shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -1896,6 +2053,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "graph topology notifications",
+		test: testGraphTopologyNotifications,
 	},
 	{
 		name: "funding flow persistence",

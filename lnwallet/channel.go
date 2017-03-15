@@ -2260,7 +2260,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
 
-	// Ensure that the transaction doesn't explicitly validate any
+	// Ensure that the transaction doesn't explicitly violate any
 	// consensus rules such as being too big, or having any value with a
 	// negative output.
 	tx := btcutil.NewTx(closeTx)

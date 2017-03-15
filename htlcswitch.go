@@ -139,7 +139,7 @@ type htlcSwitch struct {
 	onionIndex map[[ripemd160.Size]byte][]*link
 
 	// paymentCircuits maps a circuit key to an active payment circuit
-	// amongst two oepn channels. This map is used to properly clear/settle
+	// amongst two open channels. This map is used to properly clear/settle
 	// onion routed payments within the network.
 	paymentCircuits map[circuitKey]*paymentCircuit
 

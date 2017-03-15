@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -54,11 +55,14 @@ type topologyClientUpdate struct {
 // nodes appearing, node updating their attributes, new channels, channels
 // closing, and updates in the routing policies of a channel's directed edges.
 func (r *ChannelRouter) SubscribeTopology() (*TopologyClient, error) {
-	// We'll first atomitcally obtain the next ID for this client from the
+	// We'll first atomically obtain the next ID for this client from the
 	// incrementing client ID counter.
 	clientID := atomic.AddUint64(&r.ntfnClientCounter, 1)
 
-	ntfnChan := make(chan *TopologyChange)
+	log.Debugf("New graph topology client subscription, client %v",
+		clientID)
+
+	ntfnChan := make(chan *TopologyChange, 10)
 
 	select {
 	case r.ntfnClientUpdates <- &topologyClientUpdate{
@@ -103,8 +107,15 @@ type topologyClient struct {
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
 func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
+	log.Tracef("Sending topology notification to %v clients %v",
+		len(r.topologyClients),
+		newLogClosure(func() string {
+			return spew.Sdump(topologyDiff)
+		}),
+	)
+
 	for _, client := range r.topologyClients {
-		go func(c *topologyClient) {
+		go func(c topologyClient) {
 			select {
 
 			// In this case we'll try to send the notification
@@ -120,7 +131,7 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 			case <-r.quit:
 
 			}
-		}(&client)
+		}(client)
 	}
 }
 
@@ -271,11 +282,14 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 	// Any node announcement maps directly to a NetworkNodeUpdate struct.
 	// No further data munging or db queries are required.
 	case *lnwire.NodeAnnouncement:
-		update.NodeUpdates = append(update.NodeUpdates, &NetworkNodeUpdate{
+		nodeUpdate := &NetworkNodeUpdate{
 			Addresses:   []net.Addr{m.Address},
 			IdentityKey: m.NodeID,
 			Alias:       m.Alias.String(),
-		})
+		}
+		nodeUpdate.IdentityKey.Curve = nil
+
+		update.NodeUpdates = append(update.NodeUpdates, nodeUpdate)
 		return nil
 
 	// We ignore initial channel announcements as we'll only send out
@@ -315,6 +329,8 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			AdvertisingNode: sourceNode,
 			ConnectingNode:  connectingNode,
 		}
+		edgeUpdate.AdvertisingNode.Curve = nil
+		edgeUpdate.ConnectingNode.Curve = nil
 
 		// TODO(roasbeef): add bit to toggle
 		update.ChannelEdgeUpdates = append(update.ChannelEdgeUpdates,

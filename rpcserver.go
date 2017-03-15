@@ -1686,7 +1686,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	// notifications from the channel router.
 	client, err := r.server.chanRouter.SubscribeTopology()
 	if err != nil {
-		return nil
+		return err
 	}
 
 	// Ensure that the resources for the topology update client is cleaned
@@ -1697,7 +1697,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 		select {
 
 		// A new update has been sent by the channel router, we'll
-		// marshall it into the form expected by the gRPC client, then
+		// marshal it into the form expected by the gRPC client, then
 		// send it off.
 		case topChange, ok := <-client.TopologyChanges:
 			// If the second value from the channel read is nil,

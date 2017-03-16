@@ -12,7 +12,6 @@ import (
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/aead/chacha20"
-	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
 )
 
@@ -53,7 +52,7 @@ func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
 	s.X = x
 	s.Y = y
 
-	h := fastsha256.Sum256(s.SerializeCompressed())
+	h := sha256.Sum256(s.SerializeCompressed())
 	return h[:]
 }
 

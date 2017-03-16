@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/crypto/hkdf"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
@@ -56,7 +55,7 @@ func witnessScriptHash(witnessScript []byte) ([]byte, error) {
 	bldr := txscript.NewScriptBuilder()
 
 	bldr.AddOp(txscript.OP_0)
-	scriptHash := fastsha256.Sum256(witnessScript)
+	scriptHash := sha256.Sum256(witnessScript)
 	bldr.AddData(scriptHash[:])
 	return bldr.Script()
 }

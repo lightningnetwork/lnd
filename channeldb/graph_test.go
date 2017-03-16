@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"image/color"
 	"math/big"
@@ -12,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -554,7 +554,7 @@ func TestGraphTraversal(t *testing.T) {
 	const numChannels = 5
 	chanIndex := map[uint64]struct{}{}
 	for i := 0; i < numChannels; i++ {
-		txHash := fastsha256.Sum256([]byte{byte(i)})
+		txHash := sha256.Sum256([]byte{byte(i)})
 		chanID := uint64(i + 1)
 		op := wire.OutPoint{
 			Hash:  txHash,
@@ -706,7 +706,7 @@ func TestGraphPruning(t *testing.T) {
 	// between them.
 	channelPoints := make([]*wire.OutPoint, 0, numNodes-1)
 	for i := 0; i < numNodes-1; i++ {
-		txHash := fastsha256.Sum256([]byte{byte(i)})
+		txHash := sha256.Sum256([]byte{byte(i)})
 		chanID := uint64(i + 1)
 		op := wire.OutPoint{
 			Hash:  txHash,
@@ -781,12 +781,12 @@ func TestGraphPruning(t *testing.T) {
 
 	// Next we'll create a block that doesn't close any channels within the
 	// graph to test the negative error case.
-	fakeHash := fastsha256.Sum256([]byte("test prune"))
+	fakeHash := sha256.Sum256([]byte("test prune"))
 	nonChannel := &wire.OutPoint{
 		Hash:  fakeHash,
 		Index: 9,
 	}
-	blockHash = fastsha256.Sum256(blockHash[:])
+	blockHash = sha256.Sum256(blockHash[:])
 	blockHeight = 2
 	prunedChans, err = graph.PruneGraph([]*wire.OutPoint{nonChannel},
 		&blockHash, blockHeight)
@@ -805,7 +805,7 @@ func TestGraphPruning(t *testing.T) {
 
 	// Finally, create a block that prunes the remainder of the channels
 	// from the graph.
-	blockHash = fastsha256.Sum256(blockHash[:])
+	blockHash = sha256.Sum256(blockHash[:])
 	blockHeight = 3
 	prunedChans, err = graph.PruneGraph(channelPoints[2:], &blockHash,
 		blockHeight)

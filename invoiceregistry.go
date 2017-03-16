@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"sync"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -20,7 +20,7 @@ var (
 	// preimage.
 	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
 
-	debugHash = chainhash.Hash(fastsha256.Sum256(debugPre[:]))
+	debugHash = chainhash.Hash(sha256.Sum256(debugPre[:]))
 )
 
 // invoiceRegistry is a central registry of all the outstanding invoices
@@ -58,7 +58,7 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 // daemon add/forward HTLCs are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
 func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
-	paymentHash := chainhash.Hash(fastsha256.Sum256(preimage[:]))
+	paymentHash := chainhash.Hash(sha256.Sum256(preimage[:]))
 
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),

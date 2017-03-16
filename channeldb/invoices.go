@@ -2,12 +2,12 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -132,7 +132,7 @@ func (d *DB) AddInvoice(i *Invoice) error {
 
 		// Ensure that an invoice an identical payment hash doesn't
 		// already exist within the index.
-		paymentHash := fastsha256.Sum256(i.Terms.PaymentPreimage[:])
+		paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 		if invoiceIndex.Get(paymentHash[:]) != nil {
 			return ErrDuplicateInvoice
 		}
@@ -285,7 +285,7 @@ func putInvoice(invoices *bolt.Bucket, invoiceIndex *bolt.Bucket,
 	// Add the payment hash to the invoice index. This'll let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
-	paymentHash := fastsha256.Sum256(i.Terms.PaymentPreimage[:])
+	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	if err := invoiceIndex.Put(paymentHash[:], invoiceKey[:]); err != nil {
 		return err
 	}

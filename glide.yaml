@@ -3,7 +3,6 @@ import:
 - package: github.com/boltdb/bolt
   version: ^1.2.1
 - package: github.com/btcsuite/btclog
-- package: github.com/btcsuite/fastsha256
 - package: github.com/btcsuite/go-flags
 - package: github.com/btcsuite/seelog
   version: ^2.1.0

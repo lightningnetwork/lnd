@@ -1,12 +1,12 @@
 package lnwallet
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1287,7 +1287,7 @@ func deriveStateHintObfuscator(producer shachain.Producer) ([StateHintSize]byte,
 		return obfuscator, err
 	}
 
-	grandChild := fastsha256.Sum256(firstChild[:])
+	grandChild := sha256.Sum256(firstChild[:])
 	copy(obfuscator[:], grandChild[:])
 
 	return obfuscator, nil

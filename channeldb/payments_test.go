@@ -2,13 +2,13 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcutil"
 )
@@ -33,7 +33,7 @@ func makeFakePayment() *OutgoingPayment {
 		Fee:            101,
 		Path:           fakePath,
 		TimeLockLength: 1000,
-		PaymentHash:    fastsha256.Sum256(rev[:]),
+		PaymentHash:    sha256.Sum256(rev[:]),
 	}
 }
 
@@ -83,7 +83,7 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		copy(fakePath[i][:], b)
 	}
 
-	rHash := fastsha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
+	rHash := sha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
 	fakePayment := &OutgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            btcutil.Amount(rand.Intn(1001)),

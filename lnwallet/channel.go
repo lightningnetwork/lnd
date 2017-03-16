@@ -3,11 +3,11 @@ package lnwallet
 import (
 	"bytes"
 	"container/list"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1500,7 +1500,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 		return err
 	}
 	revocationKey := DeriveRevocationPubkey(theirCommitKey, revocation[:])
-	revocationHash := fastsha256.Sum256(revocation[:])
+	revocationHash := sha256.Sum256(revocation[:])
 
 	// With the revocation information calculated, construct the new
 	// commitment view which includes all the entries we know of in their
@@ -1605,7 +1605,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	}
 	revocationMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
 		revocationEdge[:])
-	revocationMsg.NextRevocationHash = fastsha256.Sum256(revocationEdge[:])
+	revocationMsg.NextRevocationHash = sha256.Sum256(revocationEdge[:])
 
 	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v, window_edge=%v",
 		lc.channelState.ChanID, lc.localCommitChain.tail().height,
@@ -1686,7 +1686,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	// Additionally, we need to ensure we were given the proper preimage
 	// to the revocation hash used within any current HTLCs.
 	if !bytes.Equal(lc.channelState.TheirCurrentRevocationHash[:], zeroHash[:]) {
-		revokeHash := fastsha256.Sum256(pendingRevocation[:])
+		revokeHash := sha256.Sum256(pendingRevocation[:])
 		// TODO(roasbeef): rename to drop the "Their"
 		if !bytes.Equal(lc.channelState.TheirCurrentRevocationHash[:], revokeHash[:]) {
 			return nil, fmt.Errorf("revocation hash mismatch")
@@ -1798,7 +1798,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, erro
 	theirCommitKey := lc.channelState.TheirCommitKey
 	revMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
 		revocation[:])
-	revMsg.NextRevocationHash = fastsha256.Sum256(revocation[:])
+	revMsg.NextRevocationHash = sha256.Sum256(revocation[:])
 
 	lc.revocationWindowEdge++
 
@@ -1888,8 +1888,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
-	paymentHash := fastsha256.Sum256(preimage[:])
-
+	paymentHash := sha256.Sum256(preimage[:])
 	targetHTLCs, ok := lc.rHashMap[paymentHash]
 	if !ok {
 		return 0, fmt.Errorf("invalid payment hash")
@@ -1923,10 +1922,10 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 	lc.Lock()
 	defer lc.Unlock()
 
-	paymentHash := fastsha256.Sum256(preimage[:])
+	paymentHash := sha256.Sum256(preimage[:])
 	htlc := lc.localUpdateLog.lookup(logIndex)
 	if htlc == nil {
-		return fmt.Errorf("non existent log entry")
+		return fmt.Errorf("non existant log entry")
 	}
 
 	if !bytes.Equal(htlc.RHash[:], paymentHash[:]) {

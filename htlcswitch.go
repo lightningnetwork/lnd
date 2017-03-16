@@ -1,13 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -402,7 +402,7 @@ out:
 			// settle msg to the link which initially created the
 			// circuit.
 			case *lnwire.UpdateFufillHTLC:
-				rHash := fastsha256.Sum256(wireMsg.PaymentPreimage[:])
+				rHash := sha256.Sum256(wireMsg.PaymentPreimage[:])
 				var cKey circuitKey
 				copy(cKey[:], rHash[:])
 
@@ -731,7 +731,7 @@ func (h *htlcSwitch) UnregisterLink(remotePub *btcec.PublicKey, chanPoint *wire.
 	rawPub := remotePub.SerializeCompressed()
 
 	h.linkControl <- &unregisterLinkMsg{
-		chanInterface: fastsha256.Sum256(rawPub),
+		chanInterface: sha256.Sum256(rawPub),
 		chanPoint:     chanPoint,
 		remoteID:      rawPub,
 		done:          done,

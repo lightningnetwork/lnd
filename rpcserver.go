@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,7 +15,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1152,7 +1152,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	// Next, generate the payment hash itself from the preimage. This will
 	// be used by clients to query for the state of a particular invoice.
-	rHash := fastsha256.Sum256(paymentPreimage[:])
+	rHash := sha256.Sum256(paymentPreimage[:])
 
 	// Finally we also create an encoded payment request which allows the
 	// caller to comactly send the invoice to the payer.
@@ -1220,7 +1220,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		Settled:      invoice.Terms.Settled,
 		PaymentRequest: zpay32.Encode(&zpay32.PaymentRequest{
 			Destination: r.server.identityPriv.PubKey(),
-			PaymentHash: fastsha256.Sum256(preimage[:]),
+			PaymentHash: sha256.Sum256(preimage[:]),
 			Amount:      invoice.Terms.Value,
 		}),
 	}, nil
@@ -1249,7 +1249,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 			CreationDate: dbInvoice.CreationDate.Unix(),
 			PaymentRequest: zpay32.Encode(&zpay32.PaymentRequest{
 				Destination: r.server.identityPriv.PubKey(),
-				PaymentHash: fastsha256.Sum256(paymentPreimge),
+				PaymentHash: sha256.Sum256(paymentPreimge),
 				Amount:      invoiceAmount,
 			}),
 		}

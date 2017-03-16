@@ -2,11 +2,11 @@ package lnwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -245,10 +245,10 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 
 	// Generate a payment and revocation preimage to be used below.
 	revokePreimage := testHdSeed[:]
-	revokeHash := fastsha256.Sum256(revokePreimage)
+	revokeHash := sha256.Sum256(revokePreimage)
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
-	paymentHash := fastsha256.Sum256(paymentPreimage[:])
+	paymentHash := sha256.Sum256(paymentPreimage[:])
 
 	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.
@@ -417,10 +417,10 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 
 	// Generate a payment and revocation preimage to be used below.
 	revokePreimage := testHdSeed[:]
-	revokeHash := fastsha256.Sum256(revokePreimage)
+	revokeHash := sha256.Sum256(revokePreimage)
 	paymentPreimage := revokeHash
 	paymentPreimage[0] ^= 1
-	paymentHash := fastsha256.Sum256(paymentPreimage[:])
+	paymentHash := sha256.Sum256(paymentPreimage[:])
 
 	// We'll also need some tests keys for alice and bob, and metadata of
 	// the HTLC output.

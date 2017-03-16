@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -124,7 +125,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
 		sphinx:      sphinx.NewRouter(privKey, activeNetParams.Params),
-		lightningID: fastsha256.Sum256(serializedPubKey),
+		lightningID: sha256.Sum256(serializedPubKey),
 
 		persistentConnReqs: make(map[string]*connmgr.ConnReq),
 

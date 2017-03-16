@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -357,7 +358,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	paymentPreimage := bytes.Repeat([]byte{1}, 32)
-	paymentHash := fastsha256.Sum256(paymentPreimage)
+	paymentHash := sha256.Sum256(paymentPreimage)
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: paymentHash,
 		Amount:      btcutil.SatoshiPerBitcoin,
@@ -622,7 +623,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 
 	createHTLC := func(i int) (*lnwire.UpdateAddHTLC, [32]byte) {
 		preimage := bytes.Repeat([]byte{byte(i)}, 32)
-		paymentHash := fastsha256.Sum256(preimage)
+		paymentHash := sha256.Sum256(preimage)
 
 		var returnPreimage [32]byte
 		copy(returnPreimage[:], preimage)
@@ -744,7 +745,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 func TestCheckHTLCNumberConstraint(t *testing.T) {
 	createHTLC := func(i int) *lnwire.UpdateAddHTLC {
 		preimage := bytes.Repeat([]byte{byte(i)}, 32)
-		paymentHash := fastsha256.Sum256(preimage)
+		paymentHash := sha256.Sum256(preimage)
 		return &lnwire.UpdateAddHTLC{
 			PaymentHash: paymentHash,
 			Amount:      btcutil.Amount(1e7),
@@ -1025,7 +1026,7 @@ func TestCheckDustLimit(t *testing.T) {
 	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
 		[32]byte) {
 		preimage := bytes.Repeat([]byte{byte(data)}, 32)
-		paymentHash := fastsha256.Sum256(preimage)
+		paymentHash := sha256.Sum256(preimage)
 
 		var returnPreimage [32]byte
 		copy(returnPreimage[:], preimage)
@@ -1243,7 +1244,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	var bobPreimage [32]byte
 	copy(bobPreimage[:], bytes.Repeat([]byte{0xbb}, 32))
 	for i := 0; i < 3; i++ {
-		rHash := fastsha256.Sum256(alicePreimage[:])
+		rHash := sha256.Sum256(alicePreimage[:])
 		h := &lnwire.UpdateAddHTLC{
 			PaymentHash: rHash,
 			Amount:      btcutil.Amount(1000),
@@ -1257,7 +1258,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 			t.Fatalf("unable to recv alice's htlc: %v", err)
 		}
 	}
-	rHash := fastsha256.Sum256(bobPreimage[:])
+	rHash := sha256.Sum256(bobPreimage[:])
 	bobh := &lnwire.UpdateAddHTLC{
 		PaymentHash: rHash,
 		Amount:      btcutil.Amount(1000),
@@ -1467,7 +1468,7 @@ func TestCancelHTLC(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{0xaa}, 32))
 	htlc := &lnwire.UpdateAddHTLC{
-		PaymentHash: fastsha256.Sum256(preImage[:]),
+		PaymentHash: sha256.Sum256(preImage[:]),
 		Amount:      htlcAmt,
 		Expiry:      10,
 	}

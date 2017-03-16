@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"container/list"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -11,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -175,7 +175,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 	p := &peer{
 		conn:        conn,
-		lightningID: chainhash.Hash(fastsha256.Sum256(nodePub.SerializeCompressed())),
+		lightningID: chainhash.Hash(sha256.Sum256(nodePub.SerializeCompressed())),
 		addr:        addr,
 
 		id:      atomic.AddInt32(&numNodes, 1),

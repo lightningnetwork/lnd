@@ -449,10 +449,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
-		if p.connReq != nil {
-			s.connMgr.Remove(p.connReq.ID())
+		if connReq != nil {
+			s.connMgr.Remove(connReq.ID())
 		}
-		p.Disconnect()
 		return
 	}
 

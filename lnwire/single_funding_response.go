@@ -10,7 +10,7 @@ import (
 
 // SingleFundingResponse is the message Bob sends to Alice after she initiates
 // the single funder channel workflow via a SingleFundingRequest message. Once
-// Alice receives Bob's reponse, then she has all the items neccessary to
+// Alice receives Bob's response, then she has all the items necessary to
 // construct the funding transaction, and both commitment transactions.
 type SingleFundingResponse struct {
 	// ChannelID serves to uniquely identify the future channel created by
@@ -26,7 +26,7 @@ type SingleFundingResponse struct {
 	ChannelDerivationPoint *btcec.PublicKey
 
 	// CommitmentKey is key the responder to the funding workflow wishes to
-	// use within their versino of the commitment transaction for any
+	// use within their version of the commitment transaction for any
 	// delayed (CSV) or immediate outputs to them.
 	CommitmentKey *btcec.PublicKey
 
@@ -126,7 +126,7 @@ func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 // SingleFundingResponse on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *SingleFundingResponse) Command() uint32 {
+func (c *SingleFundingResponse) Command() MessageCode {
 	return CmdSingleFundingResponse
 }
 

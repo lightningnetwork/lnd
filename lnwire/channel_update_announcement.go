@@ -105,8 +105,8 @@ func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) Command() uint32 {
-	return CmdChannelUpdateAnnoucmentMessage
+func (a *ChannelUpdateAnnouncement) Command() MessageCode {
+	return CmdChannelUpdateAnnouncement
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message

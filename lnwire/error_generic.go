@@ -98,7 +98,7 @@ func (c *ErrorGeneric) Encode(w io.Writer, pver uint32) error {
 // the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *ErrorGeneric) Command() uint32 {
+func (c *ErrorGeneric) Command() MessageCode {
 	return CmdErrorGeneric
 }
 

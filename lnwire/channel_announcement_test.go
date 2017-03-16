@@ -58,9 +58,7 @@ func TestChannelAnnoucementValidation(t *testing.T) {
 	firstBitcoinPrivKey, firstBitcoinPubKey := getKeys("bitcoin-key-1")
 	secondBitcoinPrivKey, secondBitcoinPubKey := getKeys("bitcoin-key-2")
 
-	var hash []byte
-
-	hash = chainhash.DoubleHashB(firstNodePubKey.SerializeCompressed())
+	hash := chainhash.DoubleHashB(firstNodePubKey.SerializeCompressed())
 	firstBitcoinSig, _ := firstBitcoinPrivKey.Sign(hash)
 
 	hash = chainhash.DoubleHashB(secondNodePubKey.SerializeCompressed())

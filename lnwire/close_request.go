@@ -81,7 +81,7 @@ func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *CloseRequest) Command() uint32 {
+func (c *CloseRequest) Command() MessageCode {
 	return CmdCloseRequest
 }
 

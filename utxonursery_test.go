@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -236,7 +235,7 @@ func TestSerializeKidOutput(t *testing.T) {
 
 	deserializedKid, err := deserializeKidOutput(&b)
 	if err != nil {
-		fmt.Printf(err.Error())
+		t.Fatalf("can't deserialize kid output: %v", err)
 	}
 
 	if !reflect.DeepEqual(kid, deserializedKid) {

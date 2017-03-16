@@ -159,8 +159,8 @@ func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) Command() uint32 {
-	return CmdNodeAnnoucmentMessage
+func (a *NodeAnnouncement) Command() MessageCode {
+	return CmdNodeAnnouncement
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message

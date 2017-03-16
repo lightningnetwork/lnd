@@ -265,6 +265,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		go s.connMgr.Connect(connReq)
 	}
 
+	srvrLog.Infof("Identity key: %x",
+		s.identityPriv.PubKey().SerializeCompressed())
+
 	return s, nil
 }
 
@@ -446,7 +449,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 
 	// Now that we've established a connection, create a peer, and
 	// it to the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
+	p, err := newPeer(conn, connReq, s, peerAddr, inbound, s.chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		if connReq != nil {
@@ -510,17 +513,17 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	s.peersMtx.Lock()
 	defer s.peersMtx.Unlock()
 
-	srvrLog.Tracef("Established connection to: %v", conn.RemoteAddr())
-
 	nodePub := conn.(*brontide.Conn).RemotePub()
+	srvrLog.Tracef("Established connection to: %x@%v",
+		nodePub.SerializeCompressed(), conn.RemoteAddr())
 
 	// If we already have an inbound connection from this peer, simply drop
 	// the connection.
 	pubStr := string(nodePub.SerializeCompressed())
 	if _, ok := s.peersByPub[pubStr]; ok {
-		srvrLog.Errorf("Established outbound connection to peer %x, but "+
-			"already connected, dropping conn",
-			nodePub.SerializeCompressed())
+		srvrLog.Errorf("Established outbound connection to peer"+
+			"(%x@%v), but already connected, dropping conn",
+			nodePub.SerializeCompressed(), conn.RemoteAddr())
 		s.connMgr.Remove(connReq.ID())
 		conn.Close()
 		return
@@ -664,7 +667,7 @@ out:
 
 					go func(p *peer) {
 						for _, msg := range bMsg.msgs {
-							p.queueMsg(msg, nil)
+							p.queueMsg(msg, true, nil)
 						}
 					}(sPeer)
 				}
@@ -699,7 +702,7 @@ out:
 				sMsg.errChan <- nil
 
 				for _, msg := range sMsg.msgs {
-					targetPeer.queueMsg(msg, nil)
+					targetPeer.queueMsg(msg, true, nil)
 				}
 			}()
 		case query := <-s.queries:

@@ -71,7 +71,7 @@ func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
 // FundingLocked message on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *FundingLocked) Command() uint32 {
+func (c *FundingLocked) Command() MessageCode {
 	return CmdFundingLocked
 }
 

@@ -20,10 +20,10 @@ print () {
 # check_test_ports checks that test lnd ports are not used.
 check_test_ports() {
     # Make sure that test lnd ports are not used.
-    o=$(lsof -i :19555,19556 | sed '1d' | awk '{ printf "%s\n", $2 }')
+    o=$(lsof -i :19555,19556,19557 | sed '1d' | awk '{ printf "%s\n", $2 }')
     if [ "$o" != "" ]; then
         printf "Can't run the lnd tests:\n"
-        printf "some program is using the test lnd ports (19555 | 19556)\n"
+        printf "some program is using the test lnd ports (19555 | 19556 | 19557)\n"
         exit 1
     fi
 }
@@ -85,15 +85,18 @@ lint_check() {
     print "* Run static checks"
 
     # Make sure gometalinter is installed and $GOPATH/bin is in your path.
-    if [ ! -x "$(type -p gometalinter)" ]; then
+    if [ ! -x "$(type -p gometalinter.v1)" ]; then
         print "** Install gometalinter"
-        go get -v github.com/alecthomas/gometalinter
-        gometalinter --install
+        go get -u gopkg.in/alecthomas/gometalinter.v1
+        gometalinter.v1 --install
     fi
+
+    # Update metalinter if needed.
+    gometalinter.v1 --install 1>/dev/null
 
     # Automatic checks
     linter_targets=$(glide novendor | grep -v lnrpc)
-    test -z "$(gometalinter --disable-all \
+    test -z "$(gometalinter.v1 --disable-all \
     --enable=gofmt \
     --enable=vet \
     --enable=golint \

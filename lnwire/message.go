@@ -21,50 +21,99 @@ const MessageHeaderSize = 12
 // individual limits imposed by messages themselves.
 const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
 
+// MessageCode represent the unique identifier of the lnwire command.
+type MessageCode uint32
+
+// String converts message code to the string representation.
+func (c MessageCode) String() string {
+	switch c {
+	case CmdInit:
+		return "Init"
+	case CmdSingleFundingRequest:
+		return "SingleFundingRequest"
+	case CmdSingleFundingResponse:
+		return "SingleFundingResponse"
+	case CmdSingleFundingComplete:
+		return "SingleFundingComplete"
+	case CmdSingleFundingSignComplete:
+		return "SingleFundingSignComplete"
+	case CmdFundingLocked:
+		return "FundingLocked"
+	case CmdCloseRequest:
+		return "CloseRequest"
+	case CmdCloseComplete:
+		return "CloseComplete"
+	case CmdUpdateAddHTLC:
+		return "UpdateAddHTLC"
+	case CmdUpdateFailHTLC:
+		return "UpdateFailHTLC"
+	case CmdUpdateFufillHTLC:
+		return "UpdateFufillHTLC"
+	case CmdCommitSig:
+		return "CommitSig"
+	case CmdRevokeAndAck:
+		return "RevokeAndAck"
+	case CmdErrorGeneric:
+		return "ErrorGeneric"
+	case CmdChannelAnnouncement:
+		return "ChannelAnnouncement"
+	case CmdChannelUpdateAnnouncement:
+		return "ChannelUpdateAnnouncement"
+	case CmdNodeAnnouncement:
+		return "NodeAnnouncement"
+	case CmdPing:
+		return "Ping"
+	case CmdPong:
+		return "Pong"
+	default:
+		return "<unknown>"
+	}
+}
+
 // Commands used in lightning message headers which detail the type of message.
 // TODO(roasbeef): update with latest type numbering from spec
 const (
-	CmdInit = uint32(1)
+	CmdInit MessageCode = 1
 
 	// Commands for opening a channel funded by one party (single funder).
-	CmdSingleFundingRequest      = uint32(100)
-	CmdSingleFundingResponse     = uint32(110)
-	CmdSingleFundingComplete     = uint32(120)
-	CmdSingleFundingSignComplete = uint32(130)
+	CmdSingleFundingRequest      = 100
+	CmdSingleFundingResponse     = 110
+	CmdSingleFundingComplete     = 120
+	CmdSingleFundingSignComplete = 130
 
 	// Command for locking a funded channel
-	CmdFundingLocked = uint32(200)
+	CmdFundingLocked = 200
 
 	// Commands for the workflow of cooperatively closing an active channel.
-	CmdCloseRequest  = uint32(300)
-	CmdCloseComplete = uint32(310)
+	CmdCloseRequest  = 300
+	CmdCloseComplete = 310
 
 	// Commands for negotiating HTLCs.
-	CmdUpdateAddHTLC    = uint32(1000)
-	CmdUpdateFufillHTLC = uint32(1010)
-	CmdUpdateFailHTLC   = uint32(1020)
+	CmdUpdateAddHTLC    = 1000
+	CmdUpdateFufillHTLC = 1010
+	CmdUpdateFailHTLC   = 1020
 
 	// Commands for modifying commitment transactions.
-	CmdCommitSig    = uint32(2000)
-	CmdRevokeAndAck = uint32(2010)
+	CmdCommitSig    = 2000
+	CmdRevokeAndAck = 2010
 
 	// Commands for reporting protocol errors.
-	CmdErrorGeneric = uint32(4000)
+	CmdErrorGeneric = 4000
 
 	// Commands for discovery service.
-	CmdChannelAnnoucmentMessage       = uint32(5000)
-	CmdChannelUpdateAnnoucmentMessage = uint32(5010)
-	CmdNodeAnnoucmentMessage          = uint32(5020)
+	CmdChannelAnnouncement       = 5000
+	CmdChannelUpdateAnnouncement = 5010
+	CmdNodeAnnouncement          = 5020
 
 	// Commands for connection keep-alive.
-	CmdPing = uint32(6000)
-	CmdPong = uint32(6010)
+	CmdPing = 6000
+	CmdPong = 6010
 )
 
 // UnknownMessage is an implementation of the error interface that allows the
 // creation of an error in response to an unknown message.
 type UnknownMessage struct {
-	messageType uint32
+	messageType MessageCode
 }
 
 // Error returns a human readable string describing the error.
@@ -81,14 +130,14 @@ func (u *UnknownMessage) Error() string {
 type Message interface {
 	Decode(io.Reader, uint32) error
 	Encode(io.Writer, uint32) error
-	Command() uint32
+	Command() MessageCode
 	MaxPayloadLength(uint32) uint32
 	Validate() error
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type
 // based on the command ID.
-func makeEmptyMessage(command uint32) (Message, error) {
+func makeEmptyMessage(command MessageCode) (Message, error) {
 	var msg Message
 
 	switch command {
@@ -120,11 +169,11 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &RevokeAndAck{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
-	case CmdChannelAnnoucmentMessage:
+	case CmdChannelAnnouncement:
 		msg = &ChannelAnnouncement{}
-	case CmdChannelUpdateAnnoucmentMessage:
+	case CmdChannelUpdateAnnouncement:
 		msg = &ChannelUpdateAnnouncement{}
-	case CmdNodeAnnoucmentMessage:
+	case CmdNodeAnnouncement:
 		msg = &NodeAnnouncement{}
 	case CmdPing:
 		msg = &Ping{}
@@ -171,6 +220,20 @@ func readMessageHeader(r io.Reader) (int, *messageHeader, error) {
 	}
 
 	return n, &hdr, nil
+}
+
+// writeMessageHeader writes a lightning protocol message header to w.
+func writeMessageHeader(w io.Writer, hdr *messageHeader) (int, error) {
+	// Encode the header for the message. This is done to a buffer
+	// rather than directly to the writer since writeElements doesn't
+	// return the number of bytes written.
+	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
+	if err := writeElements(hw, hdr.magic, hdr.command, hdr.length); err != nil {
+		return 0, nil
+	}
+
+	// Write the header first.
+	return w.Write(hw.Bytes())
 }
 
 // discardInput reads n bytes from reader r in chunks and discards the read
@@ -225,18 +288,13 @@ func WriteMessage(w io.Writer, msg Message, pver uint32, btcnet wire.BitcoinNet)
 	}
 
 	// Create header for the message.
-	hdr := messageHeader{magic: btcnet, command: cmd, length: uint32(lenp)}
-
-	// Encode the header for the message. This is done to a buffer
-	// rather than directly to the writer since writeElements doesn't
-	// return the number of bytes written.
-	hw := bytes.NewBuffer(make([]byte, 0, MessageHeaderSize))
-	if err := writeElements(hw, hdr.magic, hdr.command, hdr.length); err != nil {
-		return 0, nil
+	hdr := &messageHeader{
+		magic:   btcnet,
+		command: uint32(cmd),
+		length:  uint32(lenp),
 	}
 
-	// Write the header first.
-	n, err := w.Write(hw.Bytes())
+	n, err := writeMessageHeader(w, hdr)
 	totalBytes += n
 	if err != nil {
 		return totalBytes, err
@@ -277,7 +335,7 @@ func ReadMessage(r io.Reader, pver uint32, btcnet wire.BitcoinNet) (int, Message
 	}
 
 	// Create struct of appropriate message type based on the command.
-	command := hdr.command
+	command := MessageCode(hdr.command)
 	msg, err := makeEmptyMessage(command)
 	if err != nil {
 		discardInput(r, hdr.length)

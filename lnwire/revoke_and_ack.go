@@ -87,7 +87,7 @@ func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *RevokeAndAck) Command() uint32 {
+func (c *RevokeAndAck) Command() MessageCode {
 	return CmdRevokeAndAck
 }
 

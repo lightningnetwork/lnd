@@ -59,7 +59,7 @@ func (msg *Init) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (msg *Init) Command() uint32 {
+func (msg *Init) Command() MessageCode {
 	return CmdInit
 }
 

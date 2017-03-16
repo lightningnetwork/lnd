@@ -65,7 +65,7 @@ func deserializeSigFromWire(e **btcec.Signature, b [64]byte) error {
 
 	// Create a canonical serialized signature. DER format is:
 	// 0x30 <length> 0x02 <length r> r 0x02 <length s> s
-	sigBytes := make([]byte, 6+rLen+sLen, 6+rLen+sLen)
+	sigBytes := make([]byte, 6+rLen+sLen)
 	sigBytes[0] = 0x30            // DER signature magic value
 	sigBytes[1] = 4 + rLen + sLen // Length of rest of signature
 	sigBytes[2] = 0x02            // Big integer magic value

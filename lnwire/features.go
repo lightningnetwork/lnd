@@ -24,14 +24,14 @@ func (f featureFlag) String() string {
 	}
 }
 
-// featureName represent the name of the feature and needed in order to have the
-// compile errors if we specify wrong feature name.
+// featureName represent the name of the feature and needed in order to have
+// the compile errors if we specify wrong feature name.
 type featureName string
 
 const (
-	// OptionalFlag represent the feature which we already have but it isn't
-	// required yet, and if remote peer doesn't have this feature we may
-	// turn it off without disconnecting with peer.
+	// OptionalFlag represent the feature which we already have but it
+	// isn't required yet, and if remote peer doesn't have this feature we
+	// may turn it off without disconnecting with peer.
 	OptionalFlag featureFlag = 2 // 0b10
 
 	// RequiredFlag represent the features which is required for proper
@@ -47,16 +47,17 @@ const (
 	flagBitsSize = 2
 
 	// maxAllowedSize is a maximum allowed size of feature vector.
+	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
-	// bytes. Adding the overhead from the crypto protocol (the 2-byte packet
-	// length and 16-byte MAC), we arrive at 65569 bytes. Accounting for the
-	// overhead within the feature message to signal the type of the message,
-	// that leaves 65567 bytes for the init message itself. Next, we reserve
-	// 4-bytes to encode the lengths of both the local and global feature
-	// vectors, so 65563 for the global and local features. Knocking off one
-	// byte for the sake of the calculation, that leads to a max allowed
-	// size of 32781 bytes for each feature vector, or 131124 different
-	// features.
+	// bytes. Adding the overhead from the crypto protocol (the 2-byte
+	// packet length and 16-byte MAC), we arrive at 65569 bytes. Accounting
+	// for the overhead within the feature message to signal the type of
+	// the message, that leaves 65567 bytes for the init message itself.
+	// Next, we reserve 4-bytes to encode the lengths of both the local and
+	// global feature vectors, so 65563 for the global and local features.
+	// Knocking off one byte for the sake of the calculation, that leads to
+	// a max allowed size of 32781 bytes for each feature vector, or 131124
+	// different features.
 	maxAllowedSize = 32781
 )
 
@@ -67,14 +68,14 @@ type Feature struct {
 	Flag featureFlag
 }
 
-// FeatureVector represents the global/local feature vector. With this structure
-// you may set/get the feature by name and compare feature vector with remote
-// one.
+// FeatureVector represents the global/local feature vector. With this
+// structure you may set/get the feature by name and compare feature vector
+// with remote one.
 type FeatureVector struct {
 	// featuresMap is the map which stores the correspondence between
 	// feature name and its index within feature vector. Index within
-	// feature vector and actual binary position of feature
-	// are different things)
+	// feature vector and actual binary position of feature are different
+	// things)
 	featuresMap map[featureName]int // name -> index
 
 	// flags is the map which stores the correspondence between feature
@@ -116,12 +117,11 @@ func (f *FeatureVector) serializedSize() uint16 {
 }
 
 // NewFeatureVectorFromReader decodes the feature vector from binary
-// representation and creates the instance of it.
-// Every feature decoded as 2 bits where odd bit determine whether the feature
-// is "optional" and even bit told us whether the feature is "required". The
-// even/odd semantic allows future incompatible changes, or backward compatible
-// changes. Bits generally assigned in pairs, so that optional features can
-// later become compulsory.
+// representation and creates the instance of it.  Every feature decoded as 2
+// bits where odd bit determine whether the feature is "optional" and even bit
+// told us whether the feature is "required". The even/odd semantic allows
+// future incompatible changes, or backward compatible changes. Bits generally
+// assigned in pairs, so that optional features can later become compulsory.
 func NewFeatureVectorFromReader(r io.Reader) (*FeatureVector, error) {
 	f := &FeatureVector{
 		flags: make(map[int]featureFlag),
@@ -166,12 +166,12 @@ func NewFeatureVectorFromReader(r io.Reader) (*FeatureVector, error) {
 	return f, nil
 }
 
-// Encode encodes the features vector into bytes representation, every
-// feature encoded as 2 bits where odd bit determine whether the feature is
-// "optional" and even bit told us whether the feature is "required". The
-// even/odd semantic allows future incompatible changes, or backward compatible
-// changes. Bits generally assigned in pairs, so that optional features can
-// later become compulsory.
+// Encode encodes the features vector into bytes representation, every feature
+// encoded as 2 bits where odd bit determine whether the feature is "optional"
+// and even bit told us whether the feature is "required". The even/odd
+// semantic allows future incompatible changes, or backward compatible changes.
+// Bits generally assigned in pairs, so that optional features can later become
+// compulsory.
 func (f *FeatureVector) Encode(w io.Writer) error {
 	setFlag := func(data []byte, position int, flag featureFlag) {
 		byteNumber := uint(position / 8)
@@ -191,8 +191,8 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 	// Generate the data and write it.
 	data := make([]byte, length)
 	for index, flag := range f.flags {
-		// Every feature takes 2 bits, so in order to get the
-		// feature bits position we should multiply index by 2.
+		// Every feature takes 2 bits, so in order to get the feature
+		// bits position we should multiply index by 2.
 		position := index * flagBitsSize
 		setFlag(data, position, flag)
 	}
@@ -263,9 +263,9 @@ func (f *FeatureVector) Copy() *FeatureVector {
 	return NewFeatureVector(features)
 }
 
-// SharedFeatures is a product of comparison of two features vector
-// which consist of features which are present in both local and remote
-// features vectors.
+// SharedFeatures is a product of comparison of two features vector which
+// consist of features which are present in both local and remote features
+// vectors.
 type SharedFeatures struct {
 	*FeatureVector
 }
@@ -276,8 +276,8 @@ func newSharedFeatures(f *FeatureVector) *SharedFeatures {
 }
 
 // IsActive checks is feature active or not, it might be disabled during
-// comparision with remote feature vector if it was optional and
-// remote peer doesn't support it.
+// comparision with remote feature vector if it was optional and remote peer
+// doesn't support it.
 func (f *SharedFeatures) IsActive(name featureName) bool {
 	index, ok := f.featuresMap[name]
 	if !ok {

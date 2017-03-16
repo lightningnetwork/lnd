@@ -9,9 +9,9 @@ import (
 	"io"
 	"math"
 
+	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 
-	"github.com/aead/chacha20"
 	"github.com/roasbeef/btcd/btcec"
 )
 
@@ -122,7 +122,10 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 func (c *cipherState) InitializeKey(key [32]byte) {
 	c.secretKey = key
 	c.nonce = 0
-	c.cipher = chacha20.NewChaCha20Poly1305(&c.secretKey)
+
+	// Safe to ignore the error here as our key is properly sized
+	// (32-bytes).
+	c.cipher, _ = chacha20poly1305.New(c.secretKey[:])
 }
 
 // InitializeKeyWithSalt is identical to InitializeKey however it also sets the

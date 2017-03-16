@@ -47,6 +47,7 @@ import:
   - nacl/secretbox
   - ripemd160
   - scrypt
+  - chacha20poly1305
 - package: golang.org/x/net
   subpackages:
   - context
@@ -56,7 +57,6 @@ import:
   version: a527838cac5e47260fb61ed155b9b24a6d6a10cc
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: ^1.1.0
-- package: github.com/aead/chacha20
 - package: github.com/go-errors/errors
 - package: github.com/tv42/zbase32
 - package: github.com/awalterschulze/gographviz

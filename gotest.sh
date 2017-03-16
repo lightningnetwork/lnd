@@ -20,10 +20,10 @@ print () {
 # check_test_ports checks that test lnd ports are not used.
 check_test_ports() {
     # Make sure that test lnd ports are not used.
-    o=$(lsof -i :19555,19556 | sed '1d' | awk '{ printf "%s\n", $2 }')
+    o=$(lsof -i :19555,19556,19557 | sed '1d' | awk '{ printf "%s\n", $2 }')
     if [ "$o" != "" ]; then
         printf "Can't run the lnd tests:\n"
-        printf "some program is using the test lnd ports (19555 | 19556)\n"
+        printf "some program is using the test lnd ports (19555 | 19556 | 19557)\n"
         exit 1
     fi
 }

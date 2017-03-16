@@ -462,7 +462,7 @@ func (l *lightningNode) lightningNetworkWatcher() {
 				// If this is a open request, then it can be
 				// dispatched if the number of edges seen for
 				// the channel is at least two.
-				if numEdges, _ := openChans[targetChan]; numEdges >= 2 {
+				if numEdges := openChans[targetChan]; numEdges >= 2 {
 					close(watchRequest.eventChan)
 					continue
 				}

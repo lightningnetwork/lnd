@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -339,6 +340,12 @@ type chanWatchRequest struct {
 func (l *lightningNode) lightningNetworkWatcher() {
 	defer l.wg.Done()
 
+	// If the channel router is shutting down, then we won't consider it as
+	// a real error. This just indicates the daemon itself is quitting.
+	isShutdownError := func(err error) bool {
+		return strings.Contains(err.Error(), "shutting down")
+	}
+
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
 	go func() {
 		ctxb := context.Background()
@@ -357,6 +364,20 @@ func (l *lightningNode) lightningNetworkWatcher() {
 			if err == io.EOF {
 				return
 			} else if err != nil {
+				// If the node has been signalled to quit, then
+				// we'll exit early.
+				select {
+				case <-l.quit:
+					return
+				default:
+				}
+
+				// Otherwise, if the node is shutting down on
+				// it's own, then we'll also bail out early.
+				if isShutdownError(err) {
+					return
+				}
+
 				// Similar to the case above, we also panic
 				// here (and end the tests) as these
 				// notifications are critical to the success of

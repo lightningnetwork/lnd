@@ -1,12 +1,6 @@
-hash: 343a7b967d94e6303b93b4578f69a1a460bf4c885213dbd78b56239825abf22e
-updated: 2017-03-08T15:24:23.36770742-08:00
+hash: 3ccd04331ddc23edf5fb2d02398e053d456e44fa705df32c2864fa575099cb51
+updated: 2017-03-15T14:49:39.306160636-07:00
 imports:
-- name: github.com/aead/chacha20
-  version: 7e1038a97ad08a9a16cb88ed7a6778b366ba4d99
-  subpackages:
-  - chacha
-- name: github.com/aead/poly1305
-  version: 7ab7663051fa9fa57de391f966a859e781d48b0a
 - name: github.com/awalterschulze/gographviz
   version: 761fd5fbb34e4c2c138c280395b65b48e4ff5a53
   subpackages:
@@ -51,7 +45,7 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: 8ee79997227bf9b34611aee7946ae64735e6fd93
+  version: c9c7427a2a70d2eb3bafa0ab2dc163e45f143317
   subpackages:
   - proto
   - jsonpb
@@ -113,14 +107,17 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 91902e332b9d47760598861512d2ae148f94ca58
+  version: 728b753d0135da6801d45a38e6f43ff55779c5c2
   subpackages:
   - hkdf
   - nacl/secretbox
   - ripemd160
   - scrypt
+  - chacha20poly1305
+  - chacha20poly1305/internal/chacha20
+  - poly1305
 - name: golang.org/x/net
-  version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
+  version: a6577fac2d73be281a500b310739095313165611
   subpackages:
   - context
   - http2
@@ -130,7 +127,7 @@ imports:
   - lex/httplex
   - internal/timeseries
 - name: golang.org/x/sys
-  version: d75a52659825e75fff6158388dddc6a5b04f9ba5
+  version: 99f16d856c9836c42d24e7ab64ea72916925fa97
   subpackages:
   - unix
 - name: google.golang.org/grpc

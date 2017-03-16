@@ -107,12 +107,14 @@ type topologyClient struct {
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
 func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
-	log.Tracef("Sending topology notification to %v clients %v",
-		len(r.topologyClients),
-		newLogClosure(func() string {
-			return spew.Sdump(topologyDiff)
-		}),
-	)
+	if len(r.topologyClients) != 0 {
+		log.Tracef("Sending topology notification to %v clients %v",
+			len(r.topologyClients),
+			newLogClosure(func() string {
+				return spew.Sdump(topologyDiff)
+			}),
+		)
+	}
 
 	for _, client := range r.topologyClients {
 		go func(c topologyClient) {

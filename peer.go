@@ -287,18 +287,15 @@ func (p *peer) Start() error {
 
 	peerLog.Tracef("peer %v starting", p)
 
-	p.wg.Add(2)
-	go p.queueHandler()
-	go p.writeHandler()
-
-	// Exchange local and global features, the init message should be
-	// very first between two nodes.
+	// Exchange local and global features, the init message should be very
+	// first between two nodes.
 	if err := p.sendInitMsg(); err != nil {
 		return err
 	}
 
-	// Should wait for peers to compare their feature vectors
-	// and only then start message exchanges.
+	// Before we launch any of the helper goroutines off the peer struct,
+	// we'll first ensure proper adherance to the p2p protocl. The init
+	// message MUST be sent before any other message.
 	msg, _, err := p.readNextMessage()
 	if err != nil {
 		return err
@@ -313,7 +310,9 @@ func (p *peer) Start() error {
 			"must be init message")
 	}
 
-	p.wg.Add(3)
+	p.wg.Add(5)
+	go p.queueHandler()
+	go p.writeHandler()
 	go p.readHandler()
 	go p.channelManager()
 	go p.pingHandler()
@@ -1236,16 +1235,15 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	return nil
 }
 
-// sendInitMsg sends init message to remote peer which represent our
-// features local and global vectors.
+// sendInitMsg sends init message to remote peer which contains our currently
+// supported local and global features.
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
 		p.server.globalFeatures,
 		p.server.localFeatures,
 	)
 
-	p.queueMsg(msg, nil)
-	return nil
+	return p.writeMessage(msg)
 }
 
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC

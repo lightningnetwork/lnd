@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -851,7 +850,7 @@ func TestForceClose(t *testing.T) {
 	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
 		[32]byte) {
 		preimage := bytes.Repeat([]byte{byte(data)}, 32)
-		paymentHash := fastsha256.Sum256(preimage)
+		paymentHash := sha256.Sum256(preimage)
 
 		var returnPreimage [32]byte
 		copy(returnPreimage[:], preimage)

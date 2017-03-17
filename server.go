@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/fastsha256"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -183,7 +182,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
 
 			firstHopPub := firstHop.SerializeCompressed()
-			destInterface := chainhash.Hash(fastsha256.Sum256(firstHopPub))
+			destInterface := chainhash.Hash(sha256.Sum256(firstHopPub))
 
 			return s.htlcSwitch.SendHTLC(&htlcPacket{
 				dest: destInterface,

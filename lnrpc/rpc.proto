@@ -572,7 +572,7 @@ message Payment {
 
     int64 creation_date = 3 [ json_name = "creation_date" ];
 
-    repeated string path = 4 [ json_name = "string" ];
+    repeated string path = 4 [ json_name = "path" ];
 
     int64 fee = 5 [ json_name = "fee" ];
 }

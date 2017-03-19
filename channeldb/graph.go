@@ -1093,6 +1093,15 @@ type ChannelAuthProof struct {
 	BitcoinSig2 *btcec.Signature
 }
 
+// IsEmpty check is the authentication proof is empty Proof is empty if at
+// least one of the signatures are equal to nil.
+func (p *ChannelAuthProof) IsEmpty() bool {
+	return p.NodeSig1 == nil ||
+		p.NodeSig2 == nil ||
+		p.BitcoinSig1 == nil ||
+		p.BitcoinSig2 == nil
+}
+
 // ChannelEdgePolicy represents a *directed* edge within the channel graph. For
 // each channel in the database, there are two distinct edges: one for each
 // possible direction of travel along the channel. The edges themselves hold
@@ -1477,16 +1486,24 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 	}
 
 	authProof := edgeInfo.AuthProof
-	if err := wire.WriteVarBytes(&b, 0, authProof.NodeSig1.Serialize()); err != nil {
+	var nodeSig1, nodeSig2, bitcoinSig1, bitcoinSig2 []byte
+	if authProof != nil {
+		nodeSig1 = authProof.NodeSig1.Serialize()
+		nodeSig2 = authProof.NodeSig2.Serialize()
+		bitcoinSig1 = authProof.BitcoinSig1.Serialize()
+		bitcoinSig2 = authProof.BitcoinSig2.Serialize()
+	}
+
+	if err := wire.WriteVarBytes(&b, 0, nodeSig1); err != nil {
 		return err
 	}
-	if err := wire.WriteVarBytes(&b, 0, authProof.NodeSig2.Serialize()); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, nodeSig2); err != nil {
 		return err
 	}
-	if err := wire.WriteVarBytes(&b, 0, authProof.BitcoinSig1.Serialize()); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, bitcoinSig1); err != nil {
 		return err
 	}
-	if err := wire.WriteVarBytes(&b, 0, authProof.BitcoinSig2.Serialize()); err != nil {
+	if err := wire.WriteVarBytes(&b, 0, bitcoinSig2); err != nil {
 		return err
 	}
 
@@ -1552,7 +1569,7 @@ func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
 		return nil, err
 	}
 
-	edgeInfo.AuthProof = &ChannelAuthProof{}
+	proof := &ChannelAuthProof{}
 
 	readSig := func() (*btcec.Signature, error) {
 		sigBytes, err := wire.ReadVarBytes(r, 0, 80, "sigs")
@@ -1560,24 +1577,32 @@ func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
 			return nil, err
 		}
 
-		return btcec.ParseSignature(sigBytes, btcec.S256())
+		if len(sigBytes) != 0 {
+			return btcec.ParseSignature(sigBytes, btcec.S256())
+		}
+
+		return nil, nil
 	}
 
-	edgeInfo.AuthProof.NodeSig1, err = readSig()
+	proof.NodeSig1, err = readSig()
 	if err != nil {
 		return nil, err
 	}
-	edgeInfo.AuthProof.NodeSig2, err = readSig()
+	proof.NodeSig2, err = readSig()
 	if err != nil {
 		return nil, err
 	}
-	edgeInfo.AuthProof.BitcoinSig1, err = readSig()
+	proof.BitcoinSig1, err = readSig()
 	if err != nil {
 		return nil, err
 	}
-	edgeInfo.AuthProof.BitcoinSig2, err = readSig()
+	proof.BitcoinSig2, err = readSig()
 	if err != nil {
 		return nil, err
+	}
+
+	if !proof.IsEmpty() {
+		edgeInfo.AuthProof = proof
 	}
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}

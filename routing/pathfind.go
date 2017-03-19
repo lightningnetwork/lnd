@@ -187,7 +187,8 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 		// enough capacity to forward the required amount which
 		// includes the fee dictated at each hop.
 		if nextHop.AmtToForward > nextHop.Channel.Capacity {
-			return nil, ErrInsufficientCapacity
+			return nil, newErrf(ErrInsufficientCapacity, "channel graph has "+
+				"insufficient capacity for the payment")
 		}
 
 		// We don't pay any fees to ourselves on the first-hop channel,
@@ -373,7 +374,8 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	// If the target node isn't found in the prev hop map, then a path
 	// doesn't exist, so we terminate in an error.
 	if _, ok := prev[newVertex(target)]; !ok {
-		return nil, ErrNoPathFound
+		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
+			"destination")
 	}
 
 	// If the potential route if below the max hop limit, then we'll use
@@ -398,7 +400,8 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	// hops, then it's invalid.
 	numEdges := len(pathEdges)
 	if numEdges > HopLimit {
-		return nil, ErrMaxHopsExceeded
+		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
+			"too many hops")
 	}
 
 	// As our traversal of the prev map above walked backwards from the
@@ -515,7 +518,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 
 			// If we weren't able to find a path, we'll continue to
 			// the next round.
-			if err == ErrNoPathFound {
+			if IsError(err, ErrNoPathFound) {
 				continue
 			} else if err != nil {
 				return nil, err

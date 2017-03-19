@@ -1,14 +1,13 @@
 package routing
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -277,17 +276,17 @@ type ChannelEdgeUpdate struct {
 // information required to create the topology change update from the graph
 // database.
 func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
-	msg lnwire.Message) error {
+	msg interface{}) error {
 
 	switch m := msg.(type) {
 
 	// Any node announcement maps directly to a NetworkNodeUpdate struct.
 	// No further data munging or db queries are required.
-	case *lnwire.NodeAnnouncement:
+	case *channeldb.LightningNode:
 		nodeUpdate := &NetworkNodeUpdate{
 			Addresses:   m.Addresses,
-			IdentityKey: m.NodeID,
-			Alias:       m.Alias.String(),
+			IdentityKey: m.PubKey,
+			Alias:       m.Alias,
 		}
 		nodeUpdate.IdentityKey.Curve = nil
 
@@ -296,19 +295,19 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 
 	// We ignore initial channel announcements as we'll only send out
 	// updates once the individual edges themselves have been updated.
-	case *lnwire.ChannelAnnouncement:
+	case *channeldb.ChannelEdgeInfo:
 		return nil
 
 	// Any new ChannelUpdateAnnouncements will generate a corresponding
 	// ChannelEdgeUpdate notification.
-	case *lnwire.ChannelUpdateAnnouncement:
+	case *channeldb.ChannelEdgePolicy:
 		// We'll need to fetch the edge's information from the database
 		// in order to get the information concerning which nodes are
 		// being connected.
-		chanID := m.ChannelID.ToUint64()
-		edgeInfo, _, _, err := graph.FetchChannelEdgesByID(chanID)
+		edgeInfo, _, _, err := graph.FetchChannelEdgesByID(m.ChannelID)
 		if err != nil {
-			return err
+			return errors.Errorf("unable fetch channel edge: %v",
+				err)
 		}
 
 		// If the flag is one, then the advertising node is actually
@@ -321,13 +320,13 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		}
 
 		edgeUpdate := &ChannelEdgeUpdate{
-			ChanID:          chanID,
+			ChanID:          m.ChannelID,
 			ChanPoint:       edgeInfo.ChannelPoint,
 			TimeLockDelta:   m.TimeLockDelta,
 			Capacity:        edgeInfo.Capacity,
-			MinHTLC:         btcutil.Amount(m.HtlcMinimumMsat),
-			BaseFee:         btcutil.Amount(m.FeeBaseMsat),
-			FeeRate:         btcutil.Amount(m.FeeProportionalMillionths),
+			MinHTLC:         m.MinHTLC,
+			BaseFee:         m.FeeBaseMSat,
+			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: sourceNode,
 			ConnectingNode:  connectingNode,
 		}

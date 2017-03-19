@@ -77,12 +77,6 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		Graph:    graph,
 		Chain:    chain,
 		Notifier: notifier,
-		Broadcast: func(_ *btcec.PublicKey, msg ...lnwire.Message) error {
-			return nil
-		},
-		SendMessages: func(_ *btcec.PublicKey, msg ...lnwire.Message) error {
-			return nil
-		},
 		SendToSwitch: func(_ *btcec.PublicKey,
 			_ *lnwire.UpdateAddHTLC) ([32]byte, error) {
 			return [32]byte{}, nil

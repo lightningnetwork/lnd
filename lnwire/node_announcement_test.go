@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
-
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 func TestNodeAnnouncementEncodeDecode(t *testing.T) {
@@ -44,35 +41,7 @@ func TestNodeAnnouncementEncodeDecode(t *testing.T) {
 	}
 }
 
-func TestNodeAnnouncementValidation(t *testing.T) {
-	getKeys := func(s string) (*btcec.PrivateKey, *btcec.PublicKey) {
-		return btcec.PrivKeyFromBytes(btcec.S256(), []byte(s))
-	}
-
-	nodePrivKey, nodePubKey := getKeys("node-id-1")
-
-	var hash []byte
-	na := &NodeAnnouncement{
-		Timestamp: maxUint32,
-		Addresses: someAddresses,
-		NodeID:    nodePubKey,
-		RGBColor:  someRGB,
-		Alias:     someAlias,
-		Features:  someFeatures,
-	}
-
-	dataToSign, _ := na.DataToSign()
-	hash = chainhash.DoubleHashB(dataToSign)
-
-	signature, _ := nodePrivKey.Sign(hash)
-	na.Signature = signature
-
-	if err := na.Validate(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestNodeAnnouncementPayloadLength(t *testing.T) {
+func TestNodeAnnoucementPayloadLength(t *testing.T) {
 	na := &NodeAnnouncement{
 		Signature: someSig,
 		Timestamp: maxUint32,

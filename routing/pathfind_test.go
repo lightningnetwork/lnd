@@ -300,9 +300,13 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	const paymentAmt = btcutil.Amount(100)
 	target := aliases["sophon"]
-	route, err := findRoute(graph, sourceNode, target, paymentAmt)
+	path, err := findRoute(graph, sourceNode, target, paymentAmt)
 	if err != nil {
-		t.Fatalf("unable to find route: %v", err)
+		t.Fatalf("unable to find path: %v", err)
+	}
+	route, err := newRoute(paymentAmt, path)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
 	}
 
 	// The length of the route selected should be of exactly length two.
@@ -334,15 +338,20 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
 	target = aliases["luoji"]
-	route, err = findRoute(graph, sourceNode, target, paymentAmt)
+	path, err = findRoute(graph, sourceNode, target, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
+	}
+	route, err = newRoute(paymentAmt, path)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
 	}
 
 	// The length of the path should be exactly one hop as it's the
 	// "shortest" known path in the graph.
 	if len(route.Hops) != 1 {
-		t.Fatalf("shortest path not selected, should be of length 1, "+"is instead: %v", len(route.Hops))
+		t.Fatalf("shortest path not selected, should be of length 1, "+
+			"is instead: %v", len(route.Hops))
 	}
 
 	// As we have a direct path, the total time lock value should be
@@ -380,19 +389,18 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
-	route, err := findRoute(graph, sourceNode, target, paymentAmt)
-	if err != nil {
+	if _, err = findRoute(graph, sourceNode, target, paymentAmt); err != nil {
 		t.Fatalf("path should have been found")
 	}
 
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
 	target = aliases["vincent"]
-	route, err = findRoute(graph, sourceNode, target, paymentAmt)
+	path, err := findRoute(graph, sourceNode, target, paymentAmt)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
 			"greater than 20 hops, found route with %v hops",
-			len(route.Hops))
+			len(path))
 	}
 
 }

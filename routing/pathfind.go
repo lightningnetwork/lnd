@@ -54,25 +54,6 @@ type Route struct {
 	Hops []*Hop
 }
 
-// ChannelHop is an intermediate hop within the network with a greater
-// multi-hop payment route. This struct contains the relevant routing policy of
-// the particular edge, as well as the total capacity, and origin chain of the
-// channel itself.
-type ChannelHop struct {
-	// Capacity is the total capacity of the channel being traversed. This
-	// value is expressed for stability in satoshis.
-	Capacity btcutil.Amount
-
-	// Chain is a 32-byte has that denotes the base blockchain network of
-	// the channel. The 32-byte hash is the "genesis" block of the
-	// blockchain, or the very first block in the chain.
-	//
-	// TODO(roasbeef): store chain within edge info/policy in database.
-	Chain chainhash.Hash
-
-	*channeldb.ChannelEdgePolicy
-}
-
 // Hop represents the forwarding details at a particular position within the
 // final route. This struct houses the values necessary to create the HTLC
 // which will travel along this hop, and also encode the per-hop payload
@@ -97,6 +78,25 @@ type Hop struct {
 	Fee btcutil.Amount
 }
 
+// ChannelHop is an intermediate hop within the network with a greater
+// multi-hop payment route. This struct contains the relevant routing policy of
+// the particular edge, as well as the total capacity, and origin chain of the
+// channel itself.
+type ChannelHop struct {
+	// Capacity is the total capacity of the channel being traversed. This
+	// value is expressed for stability in satoshis.
+	Capacity btcutil.Amount
+
+	// Chain is a 32-byte has that denotes the base blockchain network of
+	// the channel. The 32-byte hash is the "genesis" block of the
+	// blockchain, or the very first block in the chain.
+	//
+	// TODO(roasbeef): store chain within edge info/policy in database.
+	Chain chainhash.Hash
+
+	*channeldb.ChannelEdgePolicy
+}
+
 // computeFee computes the fee to forward an HTLC of `amt` satoshis over the
 // passed active payment channel. This value is currently computed as specified
 // in BOLT07, but will likely change in the near future.
@@ -106,34 +106,12 @@ func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
 
 // newRoute returns a fully valid route between the source and target that's
 // capable of supporting a payment of `amtToSend` after fees are fully
-// computed. IF the route is too long, or the selected path cannot support the
-// fully payment including fees, then a non-nil error is returned. prevHop maps
-// a vertex to the channel required to get to it.
-func newRoute(amtToSend btcutil.Amount, source, target vertex,
-	prevHop map[vertex]edgeWithPrev) (*Route, error) {
-
-	// If the potential route if below the max hop limit, then we'll use
-	// the prevHop map to unravel the path. We end up with a list of edges
-	// in the reverse direction which we'll use to properly calculate the
-	// timelock and fee values.
-	pathEdges := make([]*ChannelHop, 0, len(prevHop))
-	prev := target
-	for prev != source { // TODO(roasbeef): assumes no cycles
-		// Add the current hop to the limit of path edges then walk
-		// backwards from this hop via the prev pointer for this hop
-		// within the prevHop map.
-		pathEdges = append(pathEdges, prevHop[prev].edge)
-		prev = newVertex(prevHop[prev].prevNode)
-	}
-
-	// The route is invalid if it spans more than 20 hops. The current
-	// Sphinx (onion routing) implementation can only encode up to 20 hops
-	// as the entire packet is fixed size. If this route is more than 20 hops,
-	// then it's invalid.
-	if len(pathEdges) > HopLimit {
-		return nil, ErrMaxHopsExceeded
-	}
-
+// computed. If the route is too long, or the selected path cannot support the
+// fully payment including fees, then a non-nil error is returned.
+//
+// NOTE: The passed slice of ChannelHops MUST be sorted in reverse order: from
+// the target to the source node of the path finding aattempt.
+func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error) {
 	route := &Route{
 		Hops: make([]*Hop, len(pathEdges)),
 	}
@@ -229,20 +207,17 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 
 // findRoute attempts to find a path from the source node within the
 // ChannelGraph to the target node that's capable of supporting a payment of
-// `amt` value. The current approach is used a multiple pass path finding
-// algorithm. First we employ a modified version of Dijkstra's algorithm to
-// find a potential set of shortest paths, the distance metric is related to
-// the time-lock+fee along the route. Once we have a set of candidate routes,
-// we calculate the required fee and time lock values running backwards along
-// the route. The route that's selected is the one with the lowest total fee.
-//
-// TODO(roasbeef): make member, add caching
-//  * add k-path
+// `amt` value. The current approach implemented is modified version of
+// Dijkstra's algorithm to find a single shortest path between the source node
+// and the destination. The distance metric used for edges is related to the
+// time-lock+fee costs along a particular edge. If a path is found, this
+// function returns a slice of ChannelHop structs which encoded the chosen path
+// (backwards) from the target to the source.
 func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
-	target *btcec.PublicKey, amt btcutil.Amount) (*Route, error) {
+	target *btcec.PublicKey, amt btcutil.Amount) ([]*ChannelHop, error) {
 
 
-	// First we'll initilaze an empty heap which'll help us to quickly
+	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
 	// traversal.
 	var nodeHeap distanceHeap
@@ -343,8 +318,28 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 		return nil, ErrNoPathFound
 	}
 
-	// Otherwise, we construct a new route which calculate the relevant
-	// total fees and proper time lock values for each hop.
-	targetVerex := newVertex(target)
-	return newRoute(amt, sourceVertex, targetVerex, prev)
+	// If the potential route if below the max hop limit, then we'll use
+	// the prevHop map to unravel the path. We end up with a list of edges
+	// in the reverse direction which we'll use to properly calculate the
+	// timelock and fee values.
+	pathEdges := make([]*ChannelHop, 0, len(prev))
+	prevNode := newVertex(target)
+	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles
+		// Add the current hop to the limit of path edges then walk
+		// backwards from this hop via the prev pointer for this hop
+		// within the prevHop map.
+		pathEdges = append(pathEdges, prev[prevNode].edge)
+		prevNode = newVertex(prev[prevNode].prevNode)
+	}
+
+	// The route is invalid if it spans more than 20 hops. The current
+	// Sphinx (onion routing) implementation can only encode up to 20 hops
+	// as the entire packet is fixed size. If this route is more than 20
+	// hops, then it's invalid.
+	if len(pathEdges) > HopLimit {
+		return nil, ErrMaxHopsExceeded
+	}
+
+	return pathEdges, nil
+}
 }

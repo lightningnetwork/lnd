@@ -1052,7 +1052,10 @@ func (r *ChannelRouter) ProcessRoutingMessage(msg lnwire.Message, src *btcec.Pub
 
 // FindRoute attempts to query the ChannelRouter for the "best" path to a
 // particular target destination which is able to send `amt` after factoring in
-// channel capacities and cumulative fees along the route.
+// channel capacities and cumulative fees along the route.  Once we have a set
+// of candidate routes, we calculate the required fee and time lock values
+// running backwards along the route. The route that will be ranked the highest
+// is the one with the lowest cumulative fee along the route.
 func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (*Route, error) {
 	dest := target.SerializeCompressed()
 
@@ -1067,14 +1070,24 @@ func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (
 		return nil, ErrTargetNotInNetwork
 	}
 
+	// First we'll find a single shortest path from the source (our
+	// selfNode) to the target destination that's capable of carrying amt
+	// satoshis along the path before fees are calculated.
+	//
 	// TODO(roasbeef): add k-shortest paths
-	route, err := findRoute(r.cfg.Graph, r.selfNode, target, amt)
+	routeHops, err := findRoute(r.cfg.Graph, r.selfNode, target, amt)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
 		return nil, err
 	}
 
-	// TODO(roabseef): also create the Sphinx packet and add in the route
+	// If we were able to find a path we construct a new route which
+	// calculate the relevant total fees and proper time lock values for
+	// each hop.
+	route, err := newRoute(amt, routeHops)
+	if err != nil {
+		return nil, err
+	}
 
 	log.Debugf("Obtained path sending %v to %x: %v", amt, dest,
 		newLogClosure(func() string {

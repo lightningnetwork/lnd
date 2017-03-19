@@ -508,7 +508,7 @@ func TestPathNotAvailable(t *testing.T) {
 
 	_, err = findPath(graph, sourceNode, unknownNode, ignoredVertexes,
 		ignoredEdges, 100)
-	if err != ErrNoPathFound {
+	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 }
@@ -540,7 +540,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	const payAmt = btcutil.SatoshiPerBitcoin
 	_, err = findPath(graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)
-	if err != ErrNoPathFound {
+	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }

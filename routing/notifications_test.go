@@ -53,7 +53,7 @@ func createGraphNode() (*channeldb.LightningNode, error) {
 	}, nil
 }
 
-func createTestWireNode() (*lnwire.NodeAnnouncement, error) {
+func createTestNode() (*channeldb.LightningNode, error) {
 	priv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
 		return nil, err
@@ -66,25 +66,26 @@ func createTestWireNode() (*lnwire.NodeAnnouncement, error) {
 		return nil, err
 	}
 
-	return &lnwire.NodeAnnouncement{
-		Timestamp: uint32(prand.Int31()),
-		Addresses: testAddrs,
-		NodeID:    priv.PubKey(),
-		Alias:     alias,
+	return &channeldb.LightningNode{
+		LastUpdate: time.Now(),
+		Address:    testAddr,
+		PubKey:     priv.PubKey(),
+		Alias:      alias.String(),
 		Features:  testFeatures,
 	}, nil
 }
 
-func randEdgePolicyAnn(chanID lnwire.ChannelID) *lnwire.ChannelUpdateAnnouncement {
+func randEdgePolicy(chanID lnwire.ChannelID,
+	node *channeldb.LightningNode) *channeldb.ChannelEdgePolicy {
 
-	return &lnwire.ChannelUpdateAnnouncement{
-		Signature:                 testSig,
-		ChannelID:                 chanID,
-		Timestamp:                 uint32(prand.Int31()),
+	return &channeldb.ChannelEdgePolicy{
+		ChannelID:                 chanID.ToUint64(),
+		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
 		TimeLockDelta:             uint16(prand.Int63()),
-		HtlcMinimumMsat:           uint32(prand.Int31()),
-		FeeBaseMsat:               uint32(prand.Int31()),
-		FeeProportionalMillionths: uint32(prand.Int31()),
+		MinHTLC:                   btcutil.Amount(prand.Int31()),
+		FeeBaseMSat:               btcutil.Amount(prand.Int31()),
+		FeeProportionalMillionths: btcutil.Amount(prand.Int31()),
+		Node: node,
 	}
 }
 
@@ -268,7 +269,7 @@ func (m *mockNotifier) Stop() error {
 	return nil
 }
 
-// TestEdgeUpdateNotification tests that when edges are updated or discovered,
+// TestEdgeUpdateNotification tests that when edges are updated or added,
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
 	const startingBlockHeight = 101
@@ -292,34 +293,43 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between and add then as members of the channel graph.
-	node1, err := createTestWireNode()
+	node1, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
-	node2, err := createTestWireNode()
+	node2, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
-	// Send the two node announcements to the channel router so they can be
-	// validated and stored within the graph database.
-	ctx.router.ProcessRoutingMessage(node1, node1.NodeID)
-	ctx.router.ProcessRoutingMessage(node2, node2.NodeID)
+	// Send the two node topology updates to the channel router so they
+	// can be validated and stored within the graph database.
+	if err := ctx.router.AddNode(node1); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.router.AddNode(node2); err != nil {
+		t.Fatal(err)
+	}
 
 	// Finally, to conclude our test set up, we'll create a channel
-	// announcement to announce the created channel between the two nodes.
-	channelAnn := &lnwire.ChannelAnnouncement{
-		FirstNodeSig:     testSig,
-		SecondNodeSig:    testSig,
-		ChannelID:        chanID,
-		FirstBitcoinSig:  testSig,
-		SecondBitcoinSig: testSig,
-		FirstNodeID:      node1.NodeID,
-		SecondNodeID:     node2.NodeID,
-		FirstBitcoinKey:  node1.NodeID,
-		SecondBitcoinKey: node2.NodeID,
+	// update to announce the created channel between the two nodes.
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID.ToUint64(),
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: node1.PubKey,
+		BitcoinKey2: node2.PubKey,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
 	}
-	ctx.router.ProcessRoutingMessage(channelAnn, node1.NodeID)
+
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatal(err)
+	}
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
@@ -330,17 +340,21 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Create random policy edges that are stemmed to the channel id
 	// created above.
-	edge1 := randEdgePolicyAnn(chanID)
+	edge1 := randEdgePolicy(chanID, node1)
 	edge1.Flags = 0
-	edge2 := randEdgePolicyAnn(chanID)
+	edge2 := randEdgePolicy(chanID, node2)
 	edge2.Flags = 1
 
-	ctx.router.ProcessRoutingMessage(edge1, node1.NodeID)
-	ctx.router.ProcessRoutingMessage(edge2, node2.NodeID)
+	if err := ctx.router.UpdateEdge(edge1); err != nil {
+		t.Fatalf("unable to add edge update: %v", err)
+	}
+	if err := ctx.router.UpdateEdge(edge2); err != nil {
+		t.Fatalf("unable to add edge update: %v", err)
+	}
 
-	assertEdgeAnnCorrect := func(t *testing.T, edgeUpdate *ChannelEdgeUpdate,
-		edgeAnn *lnwire.ChannelUpdateAnnouncement) {
-		if edgeUpdate.ChanID != edgeAnn.ChannelID.ToUint64() {
+	assertEdgeCorrect := func(t *testing.T, edgeUpdate *ChannelEdgeUpdate,
+		edgeAnn *channeldb.ChannelEdgePolicy) {
+		if edgeUpdate.ChanID != edgeAnn.ChannelID {
 			t.Fatalf("channel ID of edge doesn't match: "+
 				"expected %v, got %v", chanID.ToUint64(), edgeUpdate.ChanID)
 		}
@@ -354,14 +368,14 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			t.Fatalf("capacity of edge doesn't match: "+
 				"expected %v, got %v", chanValue, edgeUpdate.Capacity)
 		}
-		if edgeUpdate.MinHTLC != btcutil.Amount(edgeAnn.HtlcMinimumMsat) {
+		if edgeUpdate.MinHTLC != btcutil.Amount(edgeAnn.MinHTLC) {
 			t.Fatalf("min HTLC of edge doesn't match: "+
-				"expected %v, got %v", btcutil.Amount(edgeAnn.HtlcMinimumMsat),
+				"expected %v, got %v", btcutil.Amount(edgeAnn.MinHTLC),
 				edgeUpdate.MinHTLC)
 		}
-		if edgeUpdate.BaseFee != btcutil.Amount(edgeAnn.FeeBaseMsat) {
+		if edgeUpdate.BaseFee != btcutil.Amount(edgeAnn.FeeBaseMSat) {
 			t.Fatalf("base fee of edge doesn't match: "+
-				"expected %v, got %v", edgeAnn.FeeBaseMsat,
+				"expected %v, got %v", edgeAnn.FeeBaseMSat,
 				edgeUpdate.BaseFee)
 		}
 		if edgeUpdate.FeeRate != btcutil.Amount(edgeAnn.FeeProportionalMillionths) {
@@ -382,26 +396,26 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		case ntfn := <-ntfnClient.TopologyChanges:
 			edgeUpdate := ntfn.ChannelEdgeUpdates[0]
 			if i == 0 {
-				assertEdgeAnnCorrect(t, edgeUpdate, edge1)
-				if !edgeUpdate.AdvertisingNode.IsEqual(node1.NodeID) {
-					t.Fatalf("advertising node mismatch")
+				assertEdgeCorrect(t, edgeUpdate, edge1)
+				if !edgeUpdate.AdvertisingNode.IsEqual(node1.PubKey) {
+					t.Fatal("advertising node mismatch")
 				}
-				if !edgeUpdate.ConnectingNode.IsEqual(node2.NodeID) {
-					t.Fatalf("connecting node mismatch")
+				if !edgeUpdate.ConnectingNode.IsEqual(node2.PubKey) {
+					t.Fatal("connecting node mismatch")
 				}
 
 				continue
 			}
 
-			assertEdgeAnnCorrect(t, edgeUpdate, edge2)
-			if !edgeUpdate.ConnectingNode.IsEqual(node1.NodeID) {
-				t.Fatalf("connecting node mismatch")
+			assertEdgeCorrect(t, edgeUpdate, edge2)
+			if !edgeUpdate.ConnectingNode.IsEqual(node1.PubKey) {
+				t.Fatal("connecting node mismatch")
 			}
-			if !edgeUpdate.AdvertisingNode.IsEqual(node2.NodeID) {
-				t.Fatalf("advertising node mismatch")
+			if !edgeUpdate.AdvertisingNode.IsEqual(node2.PubKey) {
+				t.Fatal("advertising node mismatch")
 			}
 		case <-time.After(time.Second * 5):
-			t.Fatalf("update not received")
+			t.Fatal("update not received")
 		}
 	}
 }
@@ -424,20 +438,24 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Create two random nodes to add to send as node announcement messages
 	// to trigger notifications.
-	node1Ann, err := createTestWireNode()
+	node1, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
-	node2Ann, err := createTestWireNode()
+	node2, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
-	// Send both announcement message to the channel router.
-	ctx.router.ProcessRoutingMessage(node1Ann, node1Ann.NodeID)
-	ctx.router.ProcessRoutingMessage(node2Ann, node2Ann.NodeID)
+	// Change network topology by adding nodes to the channel router.
+	if err := ctx.router.AddNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	if err := ctx.router.AddNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
 
-	assertNodeNtfnCorrect := func(t *testing.T, ann *lnwire.NodeAnnouncement,
+	assertNodeNtfnCorrect := func(t *testing.T, ann *channeldb.LightningNode,
 		ntfns []*NetworkNodeUpdate) {
 
 		// For each processed announcement we should only receive a
@@ -454,14 +472,14 @@ func TestNodeUpdateNotification(t *testing.T) {
 			t.Fatalf("node address doesn't match: expected %v, got %v",
 				nodeNtfn.Addresses[0], ann.Addresses[0])
 		}
-		if !nodeNtfn.IdentityKey.IsEqual(ann.NodeID) {
+		if !nodeNtfn.IdentityKey.IsEqual(ann.PubKey) {
 			t.Fatalf("node identity keys don't match: expected %x, "+
-				"got %x", ann.NodeID.SerializeCompressed(),
+				"got %x", ann.PubKey.SerializeCompressed(),
 				nodeNtfn.IdentityKey.SerializeCompressed())
 		}
-		if nodeNtfn.Alias != ann.Alias.String() {
+		if nodeNtfn.Alias != ann.Alias {
 			t.Fatalf("node alias doesn't match: expected %v, got %v",
-				ann.Alias.String(), nodeNtfn.Alias)
+				ann.Alias, nodeNtfn.Alias)
 		}
 	}
 
@@ -472,11 +490,11 @@ func TestNodeUpdateNotification(t *testing.T) {
 		select {
 		case ntfn := <-ntfnClient.TopologyChanges:
 			if i == 0 {
-				assertNodeNtfnCorrect(t, node1Ann, ntfn.NodeUpdates)
+				assertNodeNtfnCorrect(t, node1, ntfn.NodeUpdates)
 				continue
 			}
 
-			assertNodeNtfnCorrect(t, node2Ann, ntfn.NodeUpdates)
+			assertNodeNtfnCorrect(t, node2, ntfn.NodeUpdates)
 		case <-time.After(time.Second * 5):
 		}
 	}
@@ -484,11 +502,13 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// If we receive a new update from a node (with a higher timestamp),
 	// then it should trigger a new notification.
 	// TODO(roasbeef): assume monotonic time.
-	nodeUpdateAnn := *node1Ann
-	nodeUpdateAnn.Timestamp = node1Ann.Timestamp + 300
+	nodeUpdateAnn := *node1
+	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(300 * time.Millisecond)
 
-	// Send off the new node announcement to the channel router.
-	ctx.router.ProcessRoutingMessage(&nodeUpdateAnn, node1Ann.NodeID)
+	// Add new node topology update to the channel router.
+	if err := ctx.router.AddNode(&nodeUpdateAnn); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
 
 	// Once again a notification should be received reflecting the up to
 	// date node announcement.
@@ -515,9 +535,9 @@ func TestNotificationCancellation(t *testing.T) {
 		t.Fatalf("unable to subscribe for channel notifications: %v", err)
 	}
 
-	// We'll create a fresh new node announcement to feed to the channel
+	// We'll create a fresh new node topology update to feed to the channel
 	// router.
-	node1Ann, err := createTestWireNode()
+	node, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
@@ -528,7 +548,9 @@ func TestNotificationCancellation(t *testing.T) {
 	// client.
 	ntfnClient.Cancel()
 
-	ctx.router.ProcessRoutingMessage(node1Ann, node1Ann.NodeID)
+	if err := ctx.router.AddNode(node); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
 
 	select {
 	// The notification shouldn't be sent, however, the channel should be
@@ -538,10 +560,10 @@ func TestNotificationCancellation(t *testing.T) {
 			return
 		}
 
-		t.Fatalf("notification sent but shouldn't have been")
+		t.Fatal("notification sent but shouldn't have been")
 
 	case <-time.After(time.Second * 5):
-		t.Fatalf("notification client never cancelled")
+		t.Fatal("notification client never cancelled")
 	}
 }
 
@@ -569,29 +591,33 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between and add then as members of the channel graph.
-	node1, err := createTestWireNode()
+	node1, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
-	node2, err := createTestWireNode()
+	node2, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
-	channelAnn := lnwire.ChannelAnnouncement{
-		FirstNodeSig:     testSig,
-		SecondNodeSig:    testSig,
-		ChannelID:        chanID,
-		FirstBitcoinSig:  testSig,
-		SecondBitcoinSig: testSig,
-		FirstNodeID:      node1.NodeID,
-		SecondNodeID:     node2.NodeID,
-		FirstBitcoinKey:  node1.NodeID,
-		SecondBitcoinKey: node2.NodeID,
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID.ToUint64(),
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: node1.PubKey,
+		BitcoinKey2: node2.PubKey,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
 	}
-	ctx.router.ProcessRoutingMessage(&channelAnn, node1.NodeID)
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
@@ -626,7 +652,7 @@ func TestChannelCloseNotification(t *testing.T) {
 		// "closed" above.
 		closedChans := ntfn.ClosedChannels
 		if len(closedChans) == 0 {
-			t.Fatalf("close channel ntfn not populated")
+			t.Fatal("close channel ntfn not populated")
 		} else if len(closedChans) != 1 {
 			t.Fatalf("only one should've been detected as closed, "+
 				"instead %v were", len(closedChans))
@@ -656,6 +682,6 @@ func TestChannelCloseNotification(t *testing.T) {
 		}
 
 	case <-time.After(time.Second * 5):
-		t.Fatalf("notification not sent")
+		t.Fatal("notification not sent")
 	}
 }

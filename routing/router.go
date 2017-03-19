@@ -2,12 +2,10 @@ package routing
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -18,8 +16,43 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 )
+
+// ChannelGraphSource represent the source of information about the
+// topology of lightning network, it responsible for addition of nodes, edges
+// and applying edges updates, return the current block with with out
+// topology is synchronized.
+type ChannelGraphSource interface {
+	// AddNode is used to add node to the topology of the router, after
+	// this node might be used in construction of payment path.
+	AddNode(node *channeldb.LightningNode) error
+
+	// AddEdge is used to add edge/channel to the topology of the router,
+	// after all information about channel will be gathered this
+	// edge/channel might be used in construction of payment path.
+	AddEdge(edge *channeldb.ChannelEdgeInfo) error
+
+	// UpdateEdge is used to update edge information, without this
+	// message edge considered as not fully constructed.
+	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
+
+	// ForAllOutgoingChannels is used to iterate over all self channels info.
+	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error
+
+	// CurrentBlockHeight returns the block height from POV of the router
+	// subsystem.
+	CurrentBlockHeight() (uint32, error)
+
+	// ForEachNode is used to iterate over every node in router topology.
+	ForEachNode(func(node *channeldb.LightningNode) error) error
+
+	// ForEachChannel is used to iterate over every channel in router
+	// topology.
+	ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
+		e1, e2 *channeldb.ChannelEdgePolicy) error) error
+}
 
 // FeeSchema is the set fee configuration for a Lighting Node on the network.
 // Using the coefficients described within he schema, the required fee to
@@ -51,7 +84,6 @@ type Config struct {
 	// Chain is the router's source to the most up-to-date blockchain data.
 	// All incoming advertised channels will be checked against the chain
 	// to ensure that the channels advertised are still open.
-	// TODO(roasbeef): remove after discovery service is in
 	Chain lnwallet.BlockChainIO
 
 	// Notifier is an instance of the ChainNotifier that the router uses to
@@ -66,17 +98,6 @@ type Config struct {
 	// network.
 	// TODO(roasbeef): should either be in discovery or switch
 	FeeSchema *FeeSchema
-
-	// Broadcast is a function that is used to broadcast a particular set
-	// of messages to all peers that the daemon is connected to. If
-	// supplied, the exclude parameter indicates that the target peer should
-	// be excluded from the broadcast.
-	Broadcast func(exclude *btcec.PublicKey, msg ...lnwire.Message) error
-
-	// SendMessages is a function which allows the ChannelRouter to send a
-	// set of messages to a particular peer identified by the target public
-	// key.
-	SendMessages func(target *btcec.PublicKey, msg ...lnwire.Message) error
 
 	// SendToSwitch is a function that directs a link-layer switch to
 	// forward a fully encoded payment to the first hop in the route
@@ -109,11 +130,9 @@ func newRouteTuple(amt btcutil.Amount, dest *btcec.PublicKey) routeTuple {
 // ChannelRouter is the HtlcSwitch, and below that is the Bitcoin blockchain
 // itself. The primary role of the ChannelRouter is to respond to queries for
 // potential routes that can support a payment amount, and also general graph
-// reachability questions. The router will prune the channel graph
-// automatically as new blocks are discovered which spend certain known funding
-// outpoints, thereby closing their respective channels. Additionally, it's the
-// duty of the router to sync up newly connected peers with the latest state of
-// the channel graph.
+// reachability questions. The router will prune the channel graph automatically
+// as new blocks are discovered which spend certain known funding outpoints,
+// thereby closing their respective channels.
 type ChannelRouter struct {
 	ntfnClientCounter uint64
 
@@ -144,23 +163,10 @@ type ChannelRouter struct {
 	// the main chain are sent over.
 	newBlocks <-chan *chainntnfs.BlockEpoch
 
-	// networkMsgs is a channel that carries new network messages from
-	// outside the ChannelRouter to be processed by the networkHandler.
-	networkMsgs chan *routingMsg
-
-	// syncRequests is a channel that carries requests to synchronize newly
-	// connected peers to the state of the channel graph from our PoV.
-	syncRequests chan *syncRequest
-
-	// prematureAnnouncements maps a blockheight to a set of announcements
-	// which are "premature" from our PoV. An announcement is premature if
-	// it claims to be anchored in a block which is beyond the current main
-	// chain tip as we know it. Premature announcements will be processed
-	// once the chain tip as we know it extends to/past the premature
-	// height.
-	//
-	// TODO(roasbeef): limit premature announcements to N
-	prematureAnnouncements map[uint32][]lnwire.Message
+	// networkUpdates is a channel that carries new topology updates
+	// messages from outside the ChannelRouter to be processed by the
+	// networkHandler.
+	networkUpdates chan *routingMsg
 
 	// topologyClients maps a client's unique notification ID to a
 	// topologyClient client that contains its notification dispatch
@@ -173,17 +179,14 @@ type ChannelRouter struct {
 	// existing client.
 	ntfnClientUpdates chan *topologyClientUpdate
 
-	// bestHeight is the height of the block at the tip of the main chain
-	// as we know it.
-	bestHeight uint32
-
-	fakeSig *btcec.Signature
-
 	sync.RWMutex
 
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
+
+// A compile time check to ensure ChannelRouter implements the ChannelGraphSource interface.
+var _ ChannelGraphSource = (*ChannelRouter)(nil)
 
 // New creates a new instance of the ChannelRouter with the specified
 // configuration parameters. As part of initialization, if the router detects
@@ -191,36 +194,19 @@ type ChannelRouter struct {
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
-	// TODO(roasbeef): remove this place holder after sigs are properly
-	// stored in the graph.
-	s := "30450221008ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa" +
-		"1bf0314f882d70220299105481d63e0f4bc2a88121167221b6700d72a0e" +
-		"ad154c03be696a292d24ae"
-	fakeSigHex, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	fakeSig, err := btcec.ParseSignature(fakeSigHex, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
 	selfNode, err := cfg.Graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
 
 	return &ChannelRouter{
-		cfg:                    &cfg,
-		selfNode:               selfNode,
-		fakeSig:                fakeSig,
-		networkMsgs:            make(chan *routingMsg),
-		syncRequests:           make(chan *syncRequest),
-		prematureAnnouncements: make(map[uint32][]lnwire.Message),
-		topologyClients:        make(map[uint64]topologyClient),
-		ntfnClientUpdates:      make(chan *topologyClientUpdate),
-		routeCache:             make(map[routeTuple][]*Route),
-		quit:                   make(chan struct{}),
+		cfg:               &cfg,
+		selfNode:          selfNode,
+		networkUpdates:    make(chan *routingMsg),
+		topologyClients:   make(map[uint64]topologyClient),
+		ntfnClientUpdates: make(chan *topologyClientUpdate),
+		routeCache:        make(map[routeTuple][]*Route),
+		quit:              make(chan struct{}),
 	}, nil
 }
 
@@ -243,12 +229,6 @@ func (r *ChannelRouter) Start() error {
 		return err
 	}
 	r.newBlocks = blockEpochs.Epochs
-
-	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return err
-	}
-	r.bestHeight = uint32(height)
 
 	// Before we begin normal operation of the router, we first need to
 	// synchronize the channel graph to the latest state of the UTXO set.
@@ -372,54 +352,42 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 
 // networkHandler is the primary goroutine for the ChannelRouter. The roles of
 // this goroutine include answering queries related to the state of the
-// network, syncing up newly connected peers, and also periodically
-// broadcasting our latest state to all connected peers.
+// network, pruning the graph on new block notification, applying network
+// updates, and registering new topology clients.
 //
 // NOTE: This MUST be run as a goroutine.
 func (r *ChannelRouter) networkHandler() {
 	defer r.wg.Done()
 
-	var announcementBatch []lnwire.Message
-
-	// TODO(roasbeef): parametrize the above
-	trickleTimer := time.NewTicker(time.Millisecond * 300)
-	defer trickleTimer.Stop()
-
-	retransmitTimer := time.NewTicker(time.Minute * 30)
-	defer retransmitTimer.Stop()
-
 	for {
 		select {
-		// A new fully validated network message has just arrived. As a
+		// A new fully validated network update has just arrived. As a
 		// result we'll modify the channel graph accordingly depending
 		// on the exact type of the message.
-		case netMsg := <-r.networkMsgs:
-			// Process the network announcement to determine if
-			// this is either a new announcement from our PoV or an
-			// update to a prior vertex/edge we previously
+		case updateMsg := <-r.networkUpdates:
+			// Process the routing update to determine if this is
+			// either a new update from our PoV or an update to a
+			// prior vertex/edge we previously
 			// accepted.
-			accepted := r.processNetworkAnnouncement(netMsg.msg)
+			err := r.processUpdate(updateMsg.msg)
+			updateMsg.err <- err
+			if err != nil {
+				continue
+			}
 
-			// If the update was accepted, then add it to our next
-			// announcement batch to be broadcast once the trickle
-			// timer ticks gain.
-			if accepted {
-				// TODO(roasbeef): exclude peer that sent
-				announcementBatch = append(announcementBatch, netMsg.msg)
+			// Send off a new notification for the newly
+			// accepted update.
+			topChange := &TopologyChange{}
+			err = addToTopologyChange(r.cfg.Graph, topChange,
+				updateMsg.msg)
+			if err != nil {
+				log.Errorf("unable to update topology "+
+					"change notification: %v", err)
+				continue
+			}
 
-				// Send off a new notification for the newly
-				// accepted announcement.
-				topChange := &TopologyChange{}
-				err := addToTopologyChange(r.cfg.Graph, topChange,
-					netMsg.msg)
-				if err != nil {
-					log.Errorf("unable to update topology "+
-						"change notification: %v", err)
-				}
-
-				if !topChange.isEmpty() {
-					r.notifyTopologyChange(topChange)
-				}
+			if !topChange.isEmpty() {
+				r.notifyTopologyChange(topChange)
 			}
 
 			// TODO(roasbeef): remove all unconnected vertexes
@@ -438,41 +406,6 @@ func (r *ChannelRouter) networkHandler() {
 			// Once a new block arrives, we update our running
 			// track of the height of the chain tip.
 			blockHeight := uint32(newBlock.Height)
-			r.bestHeight = blockHeight
-
-			// Next we check if we have any premature announcements
-			// for this height, if so, then we process them once
-			// more as normal announcements.
-			prematureAnns := r.prematureAnnouncements[uint32(newBlock.Height)]
-			if len(prematureAnns) != 0 {
-				log.Infof("Re-processing %v premature announcements for "+
-					"height %v", len(prematureAnns), blockHeight)
-			}
-
-			topChange := &TopologyChange{}
-			for _, ann := range prematureAnns {
-				if ok := r.processNetworkAnnouncement(ann); ok {
-					announcementBatch = append(announcementBatch, ann)
-
-					// As the announcement was accepted,
-					// accumulate it to the running set of
-					// announcements for this block.
-					err := addToTopologyChange(r.cfg.Graph,
-						topChange, ann)
-					if err != nil {
-						log.Errorf("unable to update topology "+
-							"change notification: %v", err)
-					}
-				}
-			}
-			delete(r.prematureAnnouncements, blockHeight)
-
-			// If the pending notification generated above isn't
-			// empty, then send it out to all registered clients.
-			if !topChange.isEmpty() {
-				r.notifyTopologyChange(topChange)
-			}
-
 			log.Infof("Pruning channel graph using block %v (height=%v)",
 				newBlock.Hash, blockHeight)
 
@@ -526,101 +459,6 @@ func (r *ChannelRouter) networkHandler() {
 				ClosedChannels: closeSummaries,
 			})
 
-		// The retransmission timer has ticked which indicates that we
-		// should broadcast our personal channel to the network. This
-		// addresses the case of channel advertisements whether being
-		// dropped, or not properly propagated through the network.
-		case <-retransmitTimer.C:
-			var selfChans []lnwire.Message
-
-			selfPub := r.selfNode.PubKey.SerializeCompressed()
-			err := r.selfNode.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
-				c *channeldb.ChannelEdgePolicy) error {
-
-				chanNodePub := c.Node.PubKey.SerializeCompressed()
-
-				// Compare our public key with that of the
-				// channel peer. If our key is "less" than
-				// theirs, then we're the "first" node in the
-				// advertisement, otherwise we're the second.
-				flags := uint16(1)
-				if bytes.Compare(selfPub, chanNodePub) == -1 {
-					flags = 0
-				}
-
-				selfChans = append(selfChans, &lnwire.ChannelUpdateAnnouncement{
-					Signature:                 r.fakeSig,
-					ChannelID:                 lnwire.NewChanIDFromInt(c.ChannelID),
-					Timestamp:                 uint32(c.LastUpdate.Unix()),
-					Flags:                     flags,
-					TimeLockDelta:             c.TimeLockDelta,
-					HtlcMinimumMsat:           uint32(c.MinHTLC),
-					FeeBaseMsat:               uint32(c.FeeBaseMSat),
-					FeeProportionalMillionths: uint32(c.FeeProportionalMillionths),
-				})
-				return nil
-			})
-			if err != nil {
-				log.Errorf("unable to retransmit "+
-					"channels: %v", err)
-				continue
-			}
-
-			if len(selfChans) == 0 {
-				continue
-			}
-
-			log.Debugf("Retransmitting %v outgoing channels",
-				len(selfChans))
-
-			// With all the wire messages properly crafted, we'll
-			// broadcast our known outgoing channel to all our
-			// immediate peers.
-			if err := r.cfg.Broadcast(nil, selfChans...); err != nil {
-				log.Errorf("unable to re-broadcast "+
-					"channels: %v", err)
-			}
-
-		// The trickle timer has ticked, which indicates we should
-		// flush to the network the pending batch of new announcements
-		// we've received since the last trickle tick.
-		case <-trickleTimer.C:
-			// If the current announcement batch is nil, then we
-			// have no further work here.
-			if len(announcementBatch) == 0 {
-				continue
-			}
-
-			log.Infof("Broadcasting batch of %v new announcements",
-				len(announcementBatch))
-
-			// If we have new things to announce then broadcast
-			// then to all our immediately connected peers.
-			err := r.cfg.Broadcast(nil, announcementBatch...)
-			if err != nil {
-				log.Errorf("unable to send batch announcement: %v", err)
-				continue
-			}
-
-			// If we we're able to broadcast the current batch
-			// successfully, then we reset the batch for a new
-			// round of announcements.
-			announcementBatch = nil
-
-		// We've just received a new request to synchronize a peer with
-		// our latest graph state. This indicates that a peer has just
-		// connected for the first time, so for now we dump our entire
-		// graph and allow them to sift through the (subjectively) new
-		// information on their own.
-		case syncReq := <-r.syncRequests:
-			nodePub := syncReq.node.SerializeCompressed()
-			log.Infof("Synchronizing channel graph with %x", nodePub)
-
-			if err := r.syncChannelGraph(syncReq); err != nil {
-				log.Errorf("unable to sync graph state with %x: %v",
-					nodePub, err)
-			}
-
 		// A new notification client update has arrived. We're either
 		// gaining a new client, or cancelling notifications for an
 		// existing client.
@@ -650,241 +488,160 @@ func (r *ChannelRouter) networkHandler() {
 	}
 }
 
-// processNetworkAnnouncement processes a new network relate authenticated
-// channel or node announcement. If the update didn't affect the internal state
-// of the draft due to either being out of date, invalid, or redundant, then
-// false is returned. Otherwise, true is returned indicating that the caller
-// may want to batch this request to be broadcast to immediate peers during the
-// next announcement epoch.
-func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
-	isPremature := func(chanID *lnwire.ChannelID) bool {
-		return chanID.BlockHeight > r.bestHeight
-	}
+// processUpdate processes a new relate authenticated channel/edge, node or
+// channel/edge update network update. If the update didn't affect the
+// internal state of the draft due to either being out of date, invalid, or
+// redundant, then error is returned.
+func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	var invalidateCache bool
 
 	switch msg := msg.(type) {
-
-	// A new node announcement has arrived which either presents a new
-	// node, or a node updating previously advertised information.
-	case *lnwire.NodeAnnouncement:
+	case *channeldb.LightningNode:
 		// Before proceeding ensure that we aren't already away of this
 		// node, and if we are then this is a newer update that we
 		// known of.
-		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.NodeID)
+		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKey)
 		if err != nil {
-			log.Errorf("Unable to query for the existence of node: %v",
-				err)
-			return false
+			return errors.Errorf("unable to query for the "+
+				"existence of node: %v", err)
+
 		}
 
 		// If we've reached this pint then we're aware of th vertex
 		// being advertised. So we now check if the new message has a
 		// new time stamp, if not then we won't accept the new data as
 		// it would override newer data.
-		msgTimestamp := time.Unix(int64(msg.Timestamp), 0)
-		if exists && lastUpdate.After(msgTimestamp) ||
-			lastUpdate.Equal(msgTimestamp) {
+		if exists && lastUpdate.After(msg.LastUpdate) ||
+			lastUpdate.Equal(msg.LastUpdate) {
 
-			log.Debugf("Ignoring outdated announcement for %x",
-				msg.NodeID.SerializeCompressed())
-			return false
+			return newErrf(ErrOutdated, "ignoring outdated "+
+				"announcement for %x", msg.PubKey.SerializeCompressed())
 		}
 
-		node := &channeldb.LightningNode{
-			LastUpdate: msgTimestamp,
-			Addresses:  msg.Addresses,
-			PubKey:     msg.NodeID,
-			Alias:      msg.Alias.String(),
-			Features:   msg.Features,
-		}
-
-		if err = r.cfg.Graph.AddLightningNode(node); err != nil {
-			log.Errorf("unable to add node %v: %v", msg.NodeID, err)
-			return false
+		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
+			return errors.Errorf("unable to add msg %v to the "+
+				"graph: %v", msg.PubKey.SerializeCompressed(), err)
 		}
 
 		log.Infof("Updated vertex data for node=%x",
-			msg.NodeID.SerializeCompressed())
+			msg.PubKey.SerializeCompressed())
 
-	// A new channel announcement has arrived, this indicates the
-	// *creation* of a new channel within the graph. This only advertises
-	// the existence of a channel and not yet the routing policies in
-	// either direction of the channel.
-	case *lnwire.ChannelAnnouncement:
+	case *channeldb.ChannelEdgeInfo:
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
-		channelID := msg.ChannelID.ToUint64()
-		_, _, exists, err := r.cfg.Graph.HasChannelEdge(channelID)
+		_, _, exists, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
-			log.Errorf("unable to check for edge existence: %v", err)
-			return false
+			return errors.Errorf("unable to check for edge "+
+				"existence: %v", err)
+
 		} else if exists {
-			log.Debugf("Ignoring announcement for known chan_id=%v",
-				channelID)
-			return false
+
+			return newErrf(ErrIgnored, "ignoring msg for known "+
+				"chan_id=%v", msg.ChannelID)
 		}
 
-		// If the advertised inclusionary block is beyond our knowledge
-		// of the chain tip, then we'll put the announcement in limbo
-		// to be fully verified once we advance forward in the chain.
-		if isPremature(&msg.ChannelID) {
-			blockHeight := msg.ChannelID.BlockHeight
-			log.Infof("Announcement for chan_id=(%v), is "+
-				"premature: advertises height %v, only height "+
-				"%v is known", channelID,
-				msg.ChannelID.BlockHeight, r.bestHeight)
-
-			r.prematureAnnouncements[blockHeight] = append(
-				r.prematureAnnouncements[blockHeight],
-				msg,
-			)
-			return false
-		}
+		// TODO(andrew.shvv) Add validation that bitcoin keys are
+		// binded to the funding transaction.
 
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
-		fundingPoint, err := r.fetchChanPoint(&msg.ChannelID)
+		channelID := lnwire.NewChanIDFromInt(msg.ChannelID)
+		fundingPoint, err := r.fetchChanPoint(&channelID)
 		if err != nil {
-			log.Errorf("unable to fetch chan point for chan_id=%v: %v",
-				channelID, err)
-			return false
+			return errors.Errorf("unable to fetch chan point for "+
+				"chan_id=%v: %v", msg.ChannelID, err)
 		}
 
 		// Now that we have the funding outpoint of the channel, ensure
 		// that it hasn't yet been spent. If so, then this channel has
 		// been closed so we'll ignore it.
-		chanUtxo, err := r.cfg.Chain.GetUtxo(&fundingPoint.Hash,
-			fundingPoint.Index)
+		chanUtxo, err := r.cfg.Chain.GetUtxo(&fundingPoint.Hash, fundingPoint.Index)
 		if err != nil {
-			log.Errorf("unable to fetch utxo for chan_id=%v: %v",
-				channelID, err)
-			return false
+			return errors.Errorf("unable to fetch utxo for "+
+				"chan_id=%v: %v", channelID, err)
 		}
 
-		edge := &channeldb.ChannelEdgeInfo{
-			ChannelID:   channelID,
-			NodeKey1:    msg.FirstNodeID,
-			NodeKey2:    msg.SecondNodeID,
-			BitcoinKey1: msg.FirstBitcoinKey,
-			BitcoinKey2: msg.SecondBitcoinKey,
-			AuthProof: &channeldb.ChannelAuthProof{
-				NodeSig1:    msg.FirstNodeSig,
-				NodeSig2:    msg.SecondNodeSig,
-				BitcoinSig1: msg.FirstBitcoinSig,
-				BitcoinSig2: msg.SecondBitcoinSig,
-			},
-			ChannelPoint: *fundingPoint,
-			// TODO(roasbeef): this is a hack, needs to be removed
-			// after commitment fees are dynamic.
-			Capacity: btcutil.Amount(chanUtxo.Value) - btcutil.Amount(5000),
-		}
-		if err := r.cfg.Graph.AddChannelEdge(edge); err != nil {
-			log.Errorf("unable to add channel: %v", err)
-			return false
+		// TODO(roasbeef): this is a hack, needs to be removed
+		// after commitment fees are dynamic.
+		msg.Capacity = btcutil.Amount(chanUtxo.Value) - btcutil.Amount(5000)
+		msg.ChannelPoint = *fundingPoint
+
+		if err := r.cfg.Graph.AddChannelEdge(msg); err != nil {
+			return errors.Errorf("unable to add edge: %v", err)
 		}
 
 		invalidateCache = true
 		log.Infof("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v), chan_id=%v",
-			msg.FirstNodeID.SerializeCompressed(),
-			msg.SecondNodeID.SerializeCompressed(),
-			fundingPoint, channelID)
+			msg.NodeKey1.SerializeCompressed(),
+			msg.NodeKey2.SerializeCompressed(),
+			fundingPoint, msg.ChannelID)
 
-	// A new authenticated channel update has has arrived, this indicates
-	// that the directional information for an already known channel has
-	// been updated. All updates are signed and validated before reaching
-	// us, so we trust the data to be legitimate.
-	case *lnwire.ChannelUpdateAnnouncement:
-		chanID := msg.ChannelID.ToUint64()
-		edge1Timestamp, edge2Timestamp, _, err := r.cfg.Graph.HasChannelEdge(chanID)
+	case *channeldb.ChannelEdgePolicy:
+		channelID := lnwire.NewChanIDFromInt(msg.ChannelID)
+		edge1Timestamp, edge2Timestamp, _, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
-			log.Errorf("unable to check for edge existence: %v", err)
-			return false
-		}
+			return errors.Errorf("unable to check for edge "+
+				"existence: %v", err)
 
-		// If the advertised inclusionary block is beyond our knowledge
-		// of the chain tip, then we'll put the announcement in limbo
-		// to be fully verified once we advance forward in the chain.
-		if isPremature(&msg.ChannelID) {
-			blockHeight := msg.ChannelID.BlockHeight
-			log.Infof("Update announcement for chan_id=(%v), is "+
-				"premature: advertises height %v, only height "+
-				"%v is known", chanID, blockHeight,
-				r.bestHeight)
-
-			r.prematureAnnouncements[blockHeight] = append(
-				r.prematureAnnouncements[blockHeight],
-				msg,
-			)
-			return false
 		}
 
 		// As edges are directional edge node has a unique policy for
 		// the direction of the edge they control. Therefore we first
 		// check if we already have the most up to date information for
 		// that edge. If so, then we can exit early.
-		updateTimestamp := time.Unix(int64(msg.Timestamp), 0)
 		switch msg.Flags {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
 		case 0:
-			if edge1Timestamp.After(updateTimestamp) ||
-				edge1Timestamp.Equal(updateTimestamp) {
+			if edge1Timestamp.After(msg.LastUpdate) ||
+				edge1Timestamp.Equal(msg.LastUpdate) {
+				return newErrf(ErrIgnored, "ignoring announcement "+
+					"(flags=%v) for known chan_id=%v", msg.Flags,
+					msg.ChannelID)
 
-				log.Debugf("Ignoring announcement (flags=%v) "+
-					"for known chan_id=%v", msg.Flags,
-					chanID)
-				return false
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
 		case 1:
-			if edge2Timestamp.After(updateTimestamp) ||
-				edge2Timestamp.Equal(updateTimestamp) {
+			if edge2Timestamp.After(msg.LastUpdate) ||
+				edge2Timestamp.Equal(msg.LastUpdate) {
 
-				log.Debugf("Ignoring announcement (flags=%v) "+
-					"for known chan_id=%v", msg.Flags,
-					chanID)
-				return false
+				return newErrf(ErrIgnored, "ignoring announcement "+
+					"(flags=%v) for known chan_id=%v", msg.Flags,
+					msg.ChannelID)
 			}
 		}
 
 		// Before we can update the channel information, we need to get
 		// the UTXO itself so we can store the proper capacity.
-		chanPoint, err := r.fetchChanPoint(&msg.ChannelID)
+		chanPoint, err := r.fetchChanPoint(&channelID)
 		if err != nil {
-			log.Errorf("unable to fetch chan point for chan_id=%v: %v", chanID, err)
-			return false
+			return errors.Errorf("unable to fetch chan point for "+
+				"chan_id=%v: %v", msg.ChannelID, err)
 		}
 		if _, err := r.cfg.Chain.GetUtxo(&chanPoint.Hash,
 			chanPoint.Index); err != nil {
-			log.Errorf("unable to fetch utxo for chan_id=%v: %v",
-				chanID, err)
-			return false
+			return errors.Errorf("unable to fetch utxo for "+
+				"chan_id=%v: %v", msg.ChannelID, err)
 		}
 
-		// TODO(roasbeef): should be msat here
-		chanUpdate := &channeldb.ChannelEdgePolicy{
-			ChannelID:                 chanID,
-			LastUpdate:                updateTimestamp,
-			Flags:                     msg.Flags,
-			TimeLockDelta:             msg.TimeLockDelta,
-			MinHTLC:                   btcutil.Amount(msg.HtlcMinimumMsat),
-			FeeBaseMSat:               btcutil.Amount(msg.FeeBaseMsat),
-			FeeProportionalMillionths: btcutil.Amount(msg.FeeProportionalMillionths),
-		}
-		if err = r.cfg.Graph.UpdateEdgePolicy(chanUpdate); err != nil {
-			log.Errorf("unable to add channel: %v", err)
-			return false
+		if err = r.cfg.Graph.UpdateEdgePolicy(msg); err != nil {
+			err := errors.Errorf("unable to add channel: %v", err)
+			log.Error(err)
+			return err
 		}
 
 		invalidateCache = true
 		log.Infof("New channel update applied: %v",
-			spew.Sdump(chanUpdate))
+			spew.Sdump(msg))
+
+	default:
+		return errors.Errorf("wrong routing update message type")
 	}
 
 	// If we've received a channel update, then invalidate the route cache
@@ -896,142 +653,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 		r.routeCacheMtx.Unlock()
 	}
 
-	return true
-}
-
-// syncRequest represents a request from an outside subsystem to the wallet to
-// sync a new node to the latest graph state.
-type syncRequest struct {
-	node *btcec.PublicKey
-}
-
-// SynchronizeNode sends a message to the ChannelRouter indicating it should
-// synchronize routing state with the target node. This method is to be
-// utilized when a node connections for the first time to provide it with the
-// latest channel graph state.
-func (r *ChannelRouter) SynchronizeNode(pub *btcec.PublicKey) {
-	select {
-	case r.syncRequests <- &syncRequest{
-		node: pub,
-	}:
-	case <-r.quit:
-		return
-	}
-}
-
-// syncChannelGraph attempts to synchronize the target node in the syncReq to
-// the latest channel graph state. In order to accomplish this, (currently) the
-// entire graph is read from disk, then serialized to the format defined within
-// the current wire protocol. This cache of graph data is then sent directly to
-// the target node.
-func (r *ChannelRouter) syncChannelGraph(syncReq *syncRequest) error {
-	targetNode := syncReq.node
-
-	// TODO(roasbeef): need to also store sig data in db
-	//  * will be nice when we switch to pairing sigs would only need one ^_^
-
-	// We'll collate all the gathered routing messages into a single slice
-	// containing all the messages to be sent to the target peer.
-	var announceMessages []lnwire.Message
-
-	// First run through all the vertexes in the graph, retrieving the data
-	// for the announcement we originally retrieved.
-	var numNodes uint32
-	if err := r.cfg.Graph.ForEachNode(func(node *channeldb.LightningNode) error {
-		alias, err := lnwire.NewAlias(node.Alias)
-		if err != nil {
-			return err
-		}
-
-		ann := &lnwire.NodeAnnouncement{
-			Signature: r.fakeSig,
-			Timestamp: uint32(node.LastUpdate.Unix()),
-			NodeID:    node.PubKey,
-			Alias:     alias,
-			Features:  node.Features,
-			Addresses: node.Addresses,
-		}
-		announceMessages = append(announceMessages, ann)
-
-		numNodes++
-
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// With the vertexes gathered, we'll no retrieve the initial
-	// announcement, as well as the latest channel update announcement for
-	// both of the directed edges that make up the channel.
-	var numEdges uint32
-	if err := r.cfg.Graph.ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
-		e1, e2 *channeldb.ChannelEdgePolicy) error {
-
-		chanID := lnwire.NewChanIDFromInt(chanInfo.ChannelID)
-
-		// First, using the parameters of the channel, along with the
-		// channel authentication proof, we'll create re-create the
-		// original authenticated channel announcement.
-		authProof := chanInfo.AuthProof
-		chanAnn := &lnwire.ChannelAnnouncement{
-			FirstNodeSig:     authProof.NodeSig1,
-			SecondNodeSig:    authProof.NodeSig2,
-			ChannelID:        chanID,
-			FirstBitcoinSig:  authProof.BitcoinSig1,
-			SecondBitcoinSig: authProof.BitcoinSig2,
-			FirstNodeID:      chanInfo.NodeKey1,
-			SecondNodeID:     chanInfo.NodeKey2,
-			FirstBitcoinKey:  chanInfo.BitcoinKey1,
-			SecondBitcoinKey: chanInfo.BitcoinKey2,
-		}
-
-		// We'll unconditionally queue the channel's existence proof as
-		// it will need to be processed before either of the channel
-		// update announcements.
-		announceMessages = append(announceMessages, chanAnn)
-
-		// Since it's up to a node's policy as to whether they
-		// advertise the edge in dire direction, we don't create an
-		// advertisement if the edge is nil.
-		if e1 != nil {
-			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
-				Signature:                 r.fakeSig,
-				ChannelID:                 chanID,
-				Timestamp:                 uint32(e1.LastUpdate.Unix()),
-				Flags:                     0,
-				TimeLockDelta:             e1.TimeLockDelta,
-				HtlcMinimumMsat:           uint32(e1.MinHTLC),
-				FeeBaseMsat:               uint32(e1.FeeBaseMSat),
-				FeeProportionalMillionths: uint32(e1.FeeProportionalMillionths),
-			})
-		}
-		if e2 != nil {
-			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
-				Signature:                 r.fakeSig,
-				ChannelID:                 chanID,
-				Timestamp:                 uint32(e2.LastUpdate.Unix()),
-				Flags:                     1,
-				TimeLockDelta:             e2.TimeLockDelta,
-				HtlcMinimumMsat:           uint32(e2.MinHTLC),
-				FeeBaseMsat:               uint32(e2.FeeBaseMSat),
-				FeeProportionalMillionths: uint32(e2.FeeProportionalMillionths),
-			})
-		}
-
-		numEdges++
-		return nil
-	}); err != nil && err != channeldb.ErrGraphNoEdgesFound {
-		log.Errorf("unable to sync edges w/ peer: %v", err)
-		return err
-	}
-
-	log.Infof("Syncing channel graph state with %x, sending %v "+
-		"nodes and %v edges", targetNode.SerializeCompressed(),
-		numNodes, numEdges)
-
-	// With all the announcement messages gathered, send them all in a
-	// single batch to the target peer.
-	return r.cfg.SendMessages(targetNode, announceMessages...)
+	return nil
 }
 
 // fetchChanPoint retrieves the original outpoint which is encoded within the
@@ -1071,32 +693,11 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ChannelID) (*wire.OutPoint
 	}, nil
 }
 
-// routingMsg couples a routing related wire message with the peer that
-// originally sent it.
+// routingMsg couples a routing related routing topology update to the
+// error channel.
 type routingMsg struct {
-	msg  lnwire.Message
-	peer *btcec.PublicKey
-}
-
-// ProcessRoutingMessage sends a new routing message along with the peer that
-// sent the routing message to the ChannelRouter. The announcement will be
-// processed then added to a queue for batched tickled announcement to all
-// connected peers.
-//
-// TODO(roasbeef): need to move to discovery package
-func (r *ChannelRouter) ProcessRoutingMessage(msg lnwire.Message, src *btcec.PublicKey) {
-	// TODO(roasbeef): msg wrappers to add a doneChan
-
-	rMsg := &routingMsg{
-		msg:  msg,
-		peer: src,
-	}
-
-	select {
-	case r.networkMsgs <- rMsg:
-	case <-r.quit:
-		return
-	}
+	msg interface{}
+	err chan error
 }
 
 // FindRoutes attempts to query the ChannelRouter for the all available paths
@@ -1119,7 +720,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 		return nil, err
 	} else if !exists {
 		log.Debugf("Target %x is not in known graph", dest)
-		return nil, ErrTargetNotInNetwork
+		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
 	}
 
 	// Now that we know the destination is reachable within the graph,
@@ -1153,7 +754,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 	// If all our perspective routes were eliminating during the transition
 	// from path to route, then we'll return an error to the caller
 	if len(validRoutes) == 0 {
-		return nil, ErrNoPathFound
+		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
+			"destination")
 	}
 
 	// Finally, we'll sort the set of validate routes to optimize for
@@ -1349,4 +951,85 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// If we're unable to successfully make a payment using any of the
 	// routes we've found, then return an error.
 	return [32]byte{}, nil, sendError
+}
+
+// AddNode is used to add node to the topology of the router, after
+// this node might be used in construction of payment path.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
+	rMsg := &routingMsg{
+		msg: node,
+		err: make(chan error, 1),
+	}
+
+	select {
+	case r.networkUpdates <- rMsg:
+		return <-rMsg.err
+	case <-r.quit:
+		return errors.New("router has been shutted down")
+	}
+}
+
+// AddEdge is used to add edge/channel to the topology of the router,
+// after all information about channel will be gathered this
+// edge/channel might be used in construction of payment path.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
+	rMsg := &routingMsg{
+		msg: edge,
+		err: make(chan error, 1),
+	}
+
+	select {
+	case r.networkUpdates <- rMsg:
+		return <-rMsg.err
+	case <-r.quit:
+		return errors.New("router has been shutted down")
+	}
+}
+
+// UpdateEdge is used to update edge information, without this
+// message edge considered as not fully constructed.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
+	rMsg := &routingMsg{
+		msg: update,
+		err: make(chan error, 1),
+	}
+
+	select {
+	case r.networkUpdates <- rMsg:
+		return <-rMsg.err
+	case <-r.quit:
+		return errors.New("router has been shutted down")
+	}
+}
+
+// CurrentBlockHeight returns the block height from POV of the router subsystem.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) CurrentBlockHeight() (uint32, error) {
+	_, height, err := r.cfg.Chain.GetBestBlock()
+	return uint32(height), err
+}
+
+// ForEachNode is used to iterate over every node in router topology.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
+	return r.cfg.Graph.ForEachNode(cb)
+}
+
+// ForAllOutgoingChannels is used to iterate over all self channels info.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error {
+	return r.selfNode.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
+		c *channeldb.ChannelEdgePolicy) error {
+		return cb(c)
+	})
+}
+
+// ForEachChannel is used to iterate over every channel in router topology.
+// NOTE: Part of the ChannelGraphSource interface.
+func (r *ChannelRouter) ForEachChannel(cb func(chanInfo *channeldb.ChannelEdgeInfo,
+	e1, e2 *channeldb.ChannelEdgePolicy) error) error {
+	return r.cfg.Graph.ForEachChannel(cb)
 }

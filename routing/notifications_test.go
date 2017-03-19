@@ -68,10 +68,10 @@ func createTestNode() (*channeldb.LightningNode, error) {
 
 	return &channeldb.LightningNode{
 		LastUpdate: time.Now(),
-		Address:    testAddr,
+		Addresses:  testAddrs,
 		PubKey:     priv.PubKey(),
 		Alias:      alias.String(),
-		Features:  testFeatures,
+		Features:   testFeatures,
 	}, nil
 }
 

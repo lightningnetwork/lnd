@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -59,6 +60,8 @@ type server struct {
 	breachArbiter *breachArbiter
 
 	chanRouter *routing.ChannelRouter
+
+	discoverSrv *discovery.Discovery
 
 	utxoNursery *utxoNursery
 
@@ -179,11 +182,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		Graph:        chanGraph,
-		Chain:        bio,
-		Notifier:     notifier,
-		Broadcast:    s.broadcastMessage,
-		SendMessages: s.sendToPeer,
+		Graph:    chanGraph,
+		Chain:    bio,
+		Notifier: notifier,
 		SendToSwitch: func(firstHop *btcec.PublicKey,
 			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
 
@@ -200,6 +201,16 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		return nil, err
 	}
 
+	s.discoverSrv, err = discovery.New(discovery.Config{
+		Broadcast:    s.broadcastMessage,
+		Notifier:     s.chainNotifier,
+		Router:       s.chanRouter,
+		SendMessages: s.sendToPeer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	s.rpcServer = newRPCServer(s)
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
 
@@ -207,8 +218,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
 		Notifier: s.chainNotifier,
-		SendToRouter: func(msg lnwire.Message) {
-			s.chanRouter.ProcessRoutingMessage(msg,
+		SendToDiscovery: func(msg lnwire.Message) {
+			s.discoverSrv.ProcessLocalAnnouncement(msg,
 				s.identityPriv.PubKey())
 		},
 		ArbiterChan: s.breachArbiter.newContracts,
@@ -385,6 +396,9 @@ func (s *server) Start() error {
 	if err := s.breachArbiter.Start(); err != nil {
 		return err
 	}
+	if err := s.discoverSrv.Start(); err != nil {
+		return err
+	}
 	if err := s.chanRouter.Start(); err != nil {
 		return err
 	}
@@ -412,7 +426,7 @@ func (s *server) Stop() error {
 	s.htlcSwitch.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
-
+	s.discoverSrv.Stop()
 	s.lnwallet.Shutdown()
 
 	// Signal all the lingering goroutines to quit.
@@ -643,7 +657,7 @@ func (s *server) addPeer(p *peer) {
 	// Once the peer has been added to our indexes, send a message to the
 	// channel router so we can synchronize our view of the channel graph
 	// with this new peer.
-	go s.chanRouter.SynchronizeNode(p.addr.IdentityKey)
+	go s.discoverSrv.SynchronizeNode(p.addr.IdentityKey)
 }
 
 // removePeer removes the passed peer from the server's state of all active

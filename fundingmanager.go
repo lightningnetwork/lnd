@@ -141,9 +141,9 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// SendToRouter is used by the FundingManager to announce newly created
+	// SendToDiscovery is used by the FundingManager to announce newly created
 	// channels to the rest of the Lightning Network.
-	SendToRouter func(msg lnwire.Message)
+	SendToDiscovery func(msg lnwire.Message)
 
 	// SendToPeer allows the FundingManager to send messages to the peer
 	// node during the multiple steps involved in the creation of the
@@ -1107,8 +1107,8 @@ func (f *fundingManager) announceChannel(idKey, remoteIDKey *btcec.PublicKey,
 	chanAnnouncement := newChanAnnouncement(idKey, remoteIDKey, channel, chanID,
 		localProof, remoteProof)
 
-	f.cfg.SendToRouter(chanAnnouncement.chanAnn)
-	f.cfg.SendToRouter(chanAnnouncement.edgeUpdate)
+	f.cfg.SendToDiscovery(chanAnnouncement.chanAnn)
+	f.cfg.SendToDiscovery(chanAnnouncement.edgeUpdate)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it

@@ -431,11 +431,15 @@ func TestPathInsufficientCapacity(t *testing.T) {
 
 	const payAmt = btcutil.SatoshiPerBitcoin
 	_, err = findRoute(graph, target, payAmt)
-	if err != ErrInsufficientCapacity {
+	if err != ErrNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }
 
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
 	// TODO(roasbeef): encode live graph to json
+
+	// TODO(roasbeef): need to add a case, or modify the fee ratio for one
+	// to ensure that has going forward, but when fees are applied doesn't
+	// work
 }

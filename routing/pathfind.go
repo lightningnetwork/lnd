@@ -331,7 +331,9 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 			// TODO(roasbeef): add capacity to relaxation criteria?
 			//  * also add min payment?
 			v := newVertex(edge.Node.PubKey)
-			if tempDist < distance[v].dist {
+			if tempDist < distance[v].dist &&
+				edgeInfo.Capacity >= amt {
+
 				distance[v] = nodeWithDist{
 					dist: tempDist,
 					node: edge.Node,

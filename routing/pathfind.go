@@ -238,8 +238,8 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 //
 // TODO(roasbeef): make member, add caching
 //  * add k-path
-func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
-	amt btcutil.Amount) (*Route, error) {
+func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
+	target *btcec.PublicKey, amt btcutil.Amount) (*Route, error) {
 
 
 	// First we'll initilaze an empty heap which'll help us to quickly
@@ -263,20 +263,16 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 		return nil, err
 	}
 
-	// Next we obtain the source node from the graph, and initialize it
-	// with a distance of 0. This indicates our starting point in the graph
-	// traversal.
-	sourceNode, err := graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
+	// To start, we add the source of our path finding attempt to the
+	// distance map with with a distance of 0. This indicates our starting
+	// point in the graph traversal.
 	sourceVertex := newVertex(sourceNode.PubKey)
 	distance[sourceVertex] = nodeWithDist{
 		dist: 0,
 		node: sourceNode,
 	}
 
-	// To start, our source node will hte the sole item within our distance
+	// To start, our source node will the sole item within our distance
 	// heap.
 	heap.Push(&nodeHeap, distance[sourceVertex])
 

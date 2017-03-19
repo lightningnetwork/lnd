@@ -288,6 +288,11 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("unable to create graph: %v", err)
 	}
 
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
 	// With the test graph loaded, we'll test some basic path finding using
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
 	// to follow along with the assumptions we'll use to test the path
@@ -295,7 +300,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	const paymentAmt = btcutil.Amount(100)
 	target := aliases["sophon"]
-	route, err := findRoute(graph, target, paymentAmt)
+	route, err := findRoute(graph, sourceNode, target, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -319,8 +324,6 @@ func TestBasicGraphPathFinding(t *testing.T) {
 			route.Hops[0].Channel.Node.Alias)
 	}
 
-	// WE shoul
-
 	// The second hop should be from goku to sophon.
 	if !route.Hops[1].Channel.Node.PubKey.IsEqual(aliases["sophon"]) {
 		t.Fatalf("second hop should be sophon, is instead: %v",
@@ -331,7 +334,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
 	target = aliases["luoji"]
-	route, err = findRoute(graph, target, paymentAmt)
+	route, err = findRoute(graph, sourceNode, target, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -367,12 +370,17 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to create graph: %v", err)
 	}
 
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
 	const paymentAmt = btcutil.Amount(100)
 
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
-	route, err := findRoute(graph, target, paymentAmt)
+	route, err := findRoute(graph, sourceNode, target, paymentAmt)
 	if err != nil {
 		t.Fatalf("path should have been found")
 	}
@@ -380,9 +388,11 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
 	target = aliases["vincent"]
-	route, err = findRoute(graph, target, paymentAmt)
+	route, err = findRoute(graph, sourceNode, target, paymentAmt)
 	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+"greater than 20 hops, found route with %v hops", len(route.Hops))
+		t.Fatalf("should not have been able to find path, supposed to be "+
+			"greater than 20 hops, found route with %v hops",
+			len(route.Hops))
 	}
 
 }
@@ -392,6 +402,11 @@ func TestPathNotAvailable(t *testing.T) {
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -407,7 +422,8 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
 
-	if _, err := findRoute(graph, unknownNode, 100); err != ErrNoPathFound {
+	_, err = findRoute(graph, sourceNode, unknownNode, 100)
+	if err != ErrNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 }
@@ -417,6 +433,11 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
 	// Next, test that attempting to find a path in which the current
@@ -430,7 +451,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	target := aliases["sophon"]
 
 	const payAmt = btcutil.SatoshiPerBitcoin
-	_, err = findRoute(graph, target, payAmt)
+	_, err = findRoute(graph, sourceNode, target, payAmt)
 	if err != ErrNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}

@@ -1068,7 +1068,7 @@ func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (
 	}
 
 	// TODO(roasbeef): add k-shortest paths
-	route, err := findRoute(r.cfg.Graph, target, amt)
+	route, err := findRoute(r.cfg.Graph, r.selfNode, target, amt)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
 		return nil, err

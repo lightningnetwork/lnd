@@ -498,7 +498,7 @@ out:
 			*lnwire.ChannelAnnouncement,
 			*lnwire.ChannelUpdateAnnouncement:
 
-			p.server.chanRouter.ProcessRoutingMessage(msg,
+			p.server.discoverSrv.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
 		}
 

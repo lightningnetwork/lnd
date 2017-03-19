@@ -208,13 +208,6 @@ func newVertex(pub *btcec.PublicKey) vertex {
 	return v
 }
 
-// nodeWithDist is a helper struct that couples the distance from the current
-// source to a node with a pointer to the node itself.
-type nodeWithDist struct {
-	dist float64
-	node *channeldb.LightningNode
-}
-
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {

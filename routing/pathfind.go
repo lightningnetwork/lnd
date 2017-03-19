@@ -3,6 +3,8 @@ package routing
 import (
 	"math"
 
+	"container/heap"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -239,11 +241,11 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 	amt btcutil.Amount) (*Route, error) {
 
-	// First initialize empty list of all the node that we've yet to
-	// visited.
-	// TODO(roasbeef): make into incremental fibonacci heap rather than
-	// loading all into memory.
-	var unvisited []*channeldb.LightningNode
+
+	// First we'll initilaze an empty heap which'll help us to quickly
+	// locate the next edge we should visit next during our graph
+	// traversal.
+	var nodeHeap distanceHeap
 
 	// For each node/vertex the graph we create an entry in the distance
 	// map for the node set with a distance of "infinity".  We also mark
@@ -256,8 +258,6 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 			dist: infinity,
 			node: node,
 		}
-
-		unvisited = append(unvisited, node)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -276,39 +276,23 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 		node: sourceNode,
 	}
 
+	// To start, our source node will hte the sole item within our distance
+	// heap.
+	heap.Push(&nodeHeap, distance[sourceVertex])
+
 	// We'll use this map as a series of "previous" hop pointers. So to get
 	// to `vertex` we'll take the edge that it's mapped to within `prev`.
 	prev := make(map[vertex]edgeWithPrev)
 
-	for len(unvisited) != 0 {
-		var bestNode *channeldb.LightningNode
-		smallestDist := infinity
-
-		// First we examine our list of unvisited nodes, for the most
-		// optimal vertex to examine next.
-		for i, node := range unvisited {
-			// The "best" node to visit next is node with the
-			// smallest distance from the source of all the
-			// unvisited nodes.
-			v := newVertex(node.PubKey)
-			if nodeInfo := distance[v]; nodeInfo.dist < smallestDist {
-				smallestDist = nodeInfo.dist
-				bestNode = nodeInfo.node
-
-				// Since we're going to visit this node, we can
-				// remove it from the set of unvisited nodes.
-				copy(unvisited[i:], unvisited[i+1:])
-				unvisited[len(unvisited)-1] = nil // Avoid GC leak.
-				unvisited = unvisited[:len(unvisited)-1]
-
-				break
-			}
-		}
+	for nodeHeap.Len() != 0 {
+		// Fetch the node within the smallest distance from our source
+		// from the heap.
+		bestNode := heap.Pop(&nodeHeap).(nodeWithDist).node
 
 		// If we've reached our target (or we don't have any outgoing
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bestNode == nil || bestNode.PubKey.IsEqual(target) {
+		if bestNode.PubKey.IsEqual(target) {
 			break
 		}
 
@@ -327,9 +311,9 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 			// If this new tentative distance is better than the
 			// current best known distance to this node, then we
 			// record the new better distance, and also populate
-			// our "next hop" map with this edge.
-			// TODO(roasbeef): add capacity to relaxation criteria?
-			//  * also add min payment?
+			// our "next hop" map with this edge. We'll also shave
+			// off irrelevant edges by adding the sufficient
+			// capacity of an edge to our relaxation condition.
 			v := newVertex(edge.Node.PubKey)
 			if tempDist < distance[v].dist &&
 				edgeInfo.Capacity >= amt {
@@ -345,6 +329,10 @@ func findRoute(graph *channeldb.ChannelGraph, target *btcec.PublicKey,
 					},
 					prevNode: bestNode.PubKey,
 				}
+
+				// Add this new node to our heap as we'd like
+				// to further explore down this edge.
+				heap.Push(&nodeHeap, distance[v])
 			}
 			return nil
 		})

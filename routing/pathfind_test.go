@@ -167,6 +167,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			Addresses:  testAddrs,
 			PubKey:     pub,
 			Alias:      node.Alias,
+			Features:   testFeatures,
 		}
 
 		// We require all aliases within the graph to be unique for our

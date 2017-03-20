@@ -2084,7 +2084,7 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 	}
 
 	var lndArgs []string
-	for address, _ := range ipAddresses {
+	for address := range ipAddresses {
 		lndArgs = append(lndArgs, "--externalip="+address)
 	}
 

@@ -696,6 +696,7 @@ func (r *ChannelRouter) processNetworkAnnouncement(msg lnwire.Message) bool {
 			Addresses:  msg.Addresses,
 			PubKey:     msg.NodeID,
 			Alias:      msg.Alias.String(),
+			Features:   msg.Features,
 		}
 
 		if err = r.cfg.Graph.AddLightningNode(node); err != nil {
@@ -945,9 +946,10 @@ func (r *ChannelRouter) syncChannelGraph(syncReq *syncRequest) error {
 		ann := &lnwire.NodeAnnouncement{
 			Signature: r.fakeSig,
 			Timestamp: uint32(node.LastUpdate.Unix()),
-			Addresses: node.Addresses,
 			NodeID:    node.PubKey,
 			Alias:     alias,
+			Features:  node.Features,
+			Addresses: node.Addresses,
 		}
 		announceMessages = append(announceMessages, ann)
 

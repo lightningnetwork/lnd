@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -35,6 +36,8 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
 )
 
 func createTestVertex(db *DB) (*LightningNode, error) {
@@ -48,10 +51,11 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 	pub := priv.PubKey().SerializeCompressed()
 	return &LightningNode{
 		LastUpdate: time.Unix(updateTime, 0),
-		Addresses:  testAddrs,
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek" + string(pub[:]),
+		Features:   testFeatures,
+		Addresses:  testAddrs,
 		db:         db,
 	}, nil
 }
@@ -70,10 +74,11 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
 		LastUpdate: time.Unix(1232342, 0),
-		Addresses:  testAddrs,
 		PubKey:     testPub,
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek",
+		Features:   testFeatures,
+		Addresses:  testAddrs,
 		db:         db,
 	}
 
@@ -97,9 +102,8 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	}
 
 	// The two nodes should match exactly!
-	if !reflect.DeepEqual(node, dbNode) {
-		t.Fatalf("retrieved node doesn't match: expected %#v\n, got %#v\n",
-			node, dbNode)
+	if err := compareNodes(node, dbNode); err != nil {
+		t.Fatalf("nodes don't match: %v", err)
 	}
 
 	// Next, delete the node from the graph, this should purge all data
@@ -194,9 +198,8 @@ func TestSourceNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	if !reflect.DeepEqual(testNode, sourceNode) {
-		t.Fatalf("nodes don't match, expected %#v \n got %#v",
-			testNode, sourceNode)
+	if err := compareNodes(testNode, sourceNode); err != nil {
+		t.Fatalf("nodes don't match: %v", err)
 	}
 }
 
@@ -454,13 +457,11 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel by ID: %v", err)
 	}
-	if !reflect.DeepEqual(dbEdge1, edge1) {
-		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge1,
-			dbEdge1)
+	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
 	}
-	if !reflect.DeepEqual(dbEdge2, edge2) {
-		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge2,
-			dbEdge2)
+	if err := compareEdgePolicies(dbEdge2, edge2); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
 	}
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 
@@ -470,13 +471,11 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel by ID: %v", err)
 	}
-	if !reflect.DeepEqual(dbEdge1, edge1) {
-		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge1,
-			dbEdge1)
+	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
 	}
-	if !reflect.DeepEqual(dbEdge2, edge2) {
-		t.Fatalf("edge doesn't match: expected %#v, \n got %#v", edge2,
-			dbEdge2)
+	if err := compareEdgePolicies(dbEdge2, edge2); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
 	}
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
@@ -829,4 +828,78 @@ func TestGraphPruning(t *testing.T) {
 	// within the current graph.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	asserNumChans(t, graph, 0)
+}
+
+// compareNodes is used to compare two LightningNodes while excluding the
+// Features struct, which cannot be compared as the semantics for reserializing
+// the featuresMap have not been defined.
+func compareNodes(a, b *LightningNode) error {
+	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
+		return fmt.Errorf("LastUpdate doesn't match: expected %#v, \n"+
+			"got %#v", a.LastUpdate, b.LastUpdate)
+	}
+	if !reflect.DeepEqual(a.Addresses, b.Addresses) {
+		return fmt.Errorf("Addresses doesn't match: expected %#v, \n "+
+			"got %#v", a.Addresses, b.Addresses)
+	}
+	if !reflect.DeepEqual(a.PubKey, b.PubKey) {
+		return fmt.Errorf("PubKey doesn't match: expected %#v, \n "+
+			"got %#v", a.PubKey, b.PubKey)
+	}
+	if !reflect.DeepEqual(a.Color, b.Color) {
+		return fmt.Errorf("Color doesn't match: expected %#v, \n "+
+			"got %#v", a.Color, b.Color)
+	}
+	if !reflect.DeepEqual(a.Alias, b.Alias) {
+		return fmt.Errorf("Alias doesn't match: expected %#v, \n "+
+			"got %#v", a.Alias, b.Alias)
+	}
+	if !reflect.DeepEqual(a.db, b.db) {
+		return fmt.Errorf("db doesn't match: expected %#v, \n "+
+			"got %#v", a.db, b.db)
+	}
+
+	return nil
+}
+
+// compareEdgePolicies is used to compare two ChannelEdgePolices using
+// compareNodes, so as to exclude comparisons of the Nodes' Features struct.
+func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
+	if a.ChannelID != b.ChannelID {
+		return fmt.Errorf("ChannelID doesn't match: expected %v, "+
+			"got %v", a.ChannelID, b.ChannelID)
+	}
+	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
+		return fmt.Errorf("LastUpdate doesn't match: expected %#v, \n "+
+			"got %#v", a.LastUpdate, b.LastUpdate)
+	}
+	if a.Flags != b.Flags {
+		return fmt.Errorf("Flags doesn't match: expected %v, "+
+			"got %v", a.Flags, b.Flags)
+	}
+	if a.TimeLockDelta != b.TimeLockDelta {
+		return fmt.Errorf("TimeLockDelta doesn't match: expected %v, "+
+			"got %v", a.TimeLockDelta, b.TimeLockDelta)
+	}
+	if a.MinHTLC != b.MinHTLC {
+		return fmt.Errorf("MinHTLC doesn't match: expected %v, "+
+			"got %v", a.MinHTLC, b.MinHTLC)
+	}
+	if a.FeeBaseMSat != b.FeeBaseMSat {
+		return fmt.Errorf("FeeBaseMSat doesn't match: expected %v, "+
+			"got %v", a.FeeBaseMSat, b.FeeBaseMSat)
+	}
+	if a.FeeProportionalMillionths != b.FeeProportionalMillionths {
+		return fmt.Errorf("FeeProportionalMillionths doesn't match: "+
+			"expected %v, got %v", a.FeeProportionalMillionths,
+			b.FeeProportionalMillionths)
+	}
+	if err := compareNodes(a.Node, b.Node); err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(a.db, b.db) {
+		return fmt.Errorf("db doesn't match: expected %#v, \n "+
+			"got %#v", a.db, b.db)
+	}
+	return nil
 }

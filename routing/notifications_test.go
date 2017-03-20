@@ -24,6 +24,8 @@ var (
 		Port: 9000}
 	testAddrs = []net.Addr{testAddr}
 
+	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
+
 	testHash = [32]byte{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
 		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
@@ -47,6 +49,7 @@ func createGraphNode() (*channeldb.LightningNode, error) {
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek" + string(pub[:]),
+		Features:   testFeatures,
 	}, nil
 }
 
@@ -68,6 +71,7 @@ func createTestWireNode() (*lnwire.NodeAnnouncement, error) {
 		Addresses: testAddrs,
 		NodeID:    priv.PubKey(),
 		Alias:     alias,
+		Features:  testFeatures,
 	}, nil
 }
 

@@ -171,7 +171,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		Addresses:  selfAddrs,
 		PubKey:     privKey.PubKey(),
 		// TODO(roasbeef): make alias configurable
-		Alias: hex.EncodeToString(serializedPubKey[:10]),
+		Alias:    hex.EncodeToString(serializedPubKey[:10]),
+		Features: globalFeatures,
 	}
 	if err := chanGraph.SetSourceNode(self); err != nil {
 		return nil, err
@@ -510,7 +511,6 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 		for _, connReq := range connReqs {
 			s.connMgr.Remove(connReq.ID())
 		}
-		delete(s.persistentConnReqs, pubStr)
 	}
 	s.pendingConnMtx.RUnlock()
 

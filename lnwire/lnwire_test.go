@@ -75,4 +75,9 @@ var (
 		green: 255,
 		blue:  255,
 	}
+
+	someFeature  = featureName("somefeature")
+	someFeatures = NewFeatureVector([]Feature{
+		{someFeature, OptionalFlag},
+	})
 )

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -830,6 +831,9 @@ type LightningNode struct {
 	// TODO(roasbeef): hook into serialization once full verification is in
 	AuthSig *btcec.Signature
 
+	// Features is the list of protocol features supported by this node.
+	Features *lnwire.FeatureVector
+
 	db *DB
 
 	// TODO(roasbeef): discovery will need storage to keep it's last IP
@@ -1309,6 +1313,10 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		return err
 	}
 
+	if err := node.Features.Encode(&b); err != nil {
+		return err
+	}
+
 	numAddresses := uint16(len(node.Addresses))
 	byteOrder.PutUint16(scratch[:2], numAddresses)
 	if _, err := b.Write(scratch[:2]); err != nil {
@@ -1391,6 +1399,11 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 	}
 
 	node.Alias, err = wire.ReadVarString(r, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	node.Features, err = lnwire.NewFeatureVectorFromReader(r)
 	if err != nil {
 		return nil, err
 	}

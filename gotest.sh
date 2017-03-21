@@ -100,8 +100,6 @@ lint_check() {
     --enable=gofmt \
     --enable=vet \
     --enable=golint \
-    --enable=gosimple \
-    --enable=unconvert \
     --line-length=72 \
     --deadline=4m $linter_targets 2>&1 | grep -v 'ALL_CAPS\|OP_' 2>&1 | tee /dev/stderr)"
 }

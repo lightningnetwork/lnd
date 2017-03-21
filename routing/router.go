@@ -1133,10 +1133,10 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 	// each path. During this process, some paths may be discarded if they
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
-	validRoutes := make([]*Route, 0, len(shortestPaths))
+	validRoutes := make(sortableRoutes, 0, len(shortestPaths))
 	for _, path := range shortestPaths {
 		// Attempt to make the path into a route. We snip off the first
-		// hop inthe path as it contains a "self-hop" that is inserted
+		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(amt, path[1:])
 		if err != nil {
@@ -1157,13 +1157,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 	// Finally, we'll sort the set of validate routes to optimize for
 	// lowest total fees, using the required time-lock within the route as
 	// a tie-breaker.
-	sort.Slice(validRoutes, func(i, j int) bool {
-		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
-			return validRoutes[i].TotalTimeLock < validRoutes[j].TotalTimeLock
-		}
-
-		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
-	})
+	sort.Sort(validRoutes)
 
 	log.Debugf("Obtained %v paths sending %v to %x: %v", len(validRoutes),
 		amt, dest, newLogClosure(func() string {

@@ -2123,6 +2123,7 @@ var testsCases = []*testCase{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
 	},
+	// TODO(roasbeef): multi-path integration test
 	{
 		// TODO(roasbeef): test always needs to be last as Bob's state
 		// is borked since we trick him into attempting to cheat Alice?

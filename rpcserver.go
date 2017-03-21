@@ -1529,7 +1529,7 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 	}, nil
 }
 
-// QueryRoute attempts to query the daemons' Channel Router for a possible
+// QueryRoutes attempts to query the daemons' Channel Router for a possible
 // route to a target destination capable of carrying a specific amount of
 // satoshis within the route's flow. The retuned route contains the full
 // details required to craft and send an HTLC, also including the necessary
@@ -1538,7 +1538,9 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 //
 // TODO(roasbeef): should return a slice of routes in reality
 //  * create separate PR to send based on well formatted route
-func (r *rpcServer) QueryRoute(_ context.Context, in *lnrpc.RouteRequest) (*lnrpc.Route, error) {
+func (r *rpcServer) QueryRoutes(_ context.Context,
+	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
+
 	// First parse the hex-encdoed public key into a full public key objet
 	// we can properly manipulate.
 	pubKeyBytes, err := hex.DecodeString(in.PubKey)
@@ -1553,16 +1555,22 @@ func (r *rpcServer) QueryRoute(_ context.Context, in *lnrpc.RouteRequest) (*lnrp
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	route, err := r.server.chanRouter.FindRoute(pubKey,
+	routes, err := r.server.chanRouter.FindRoutes(pubKey,
 		btcutil.Amount(in.Amt))
 	if err != nil {
 		return nil, err
 	}
 
-	// If a route exists within the network that is able to support our
-	// request, then we'll convert the result into the format required by
-	// the RPC system.
-	return marshalRoute(route), nil
+	// For each valid route, we'll convert the result into the format
+	// required by the RPC system.
+	routeResp := &lnrpc.QueryRoutesResponse{
+		Routes: make([]*lnrpc.Route, len(routes)),
+	}
+	for i, route := range routes {
+		routeResp.Routes[i] = marshalRoute(route)
+	}
+
+	return routeResp, nil
 }
 
 func marshalRoute(route *routing.Route) *lnrpc.Route {

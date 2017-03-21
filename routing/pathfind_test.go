@@ -375,6 +375,65 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	}
 }
 
+func TestKShortestPathFinding(t *testing.T) {
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	// In this test we'd like to ensure that our algoirthm to find the
+	// k-shortest paths from a given source node to any destination node
+	// works as exepcted.
+
+	// In our basic_graph.json, there exist two paths from roasbeef to luo
+	// ji. Our algorithm should properly find both paths, and also rank
+	// them in order of their total "distance".
+
+	const paymentAmt = btcutil.Amount(100)
+	target := aliases["luoji"]
+	paths, err := findPaths(graph, sourceNode, target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find paths between roasbeef and "+
+			"luo ji: %v", err)
+	}
+
+	// The algorithm should've found two paths from roasbeef to luo ji.
+	if len(paths) != 2 {
+		t.Fatalf("two path shouldn't been found, instead %v were",
+			len(paths))
+	}
+
+	// Additinoally, the total hop length of the first path returned should
+	// be _less_ than that of the second path returned.
+	if len(paths[0]) > len(paths[1]) {
+		t.Fatalf("paths found not ordered properly")
+	}
+
+	// Finally, we'll assert the exact expected ordering of both paths
+	// found.
+	assertExpectedPath := func(path []*ChannelHop, nodeAliases ...string) {
+		for i, hop := range path {
+			if hop.Node.Alias != nodeAliases[i] {
+				t.Fatalf("expected %v to be pos #%v in hop, "+
+					"instead %v was", nodeAliases[i], i,
+					hop.Node.Alias)
+			}
+		}
+	}
+
+	// The first route should be a direct route to luo ji.
+	assertExpectedPath(paths[0], "roasbeef", "luoji")
+
+	// The second route should be a route to luo ji via satoshi.
+	assertExpectedPath(paths[1], "roasbeef", "satoshi", "luoji")
+}
+
 func TestNewRoutePathTooLong(t *testing.T) {
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.

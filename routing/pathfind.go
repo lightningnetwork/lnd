@@ -375,4 +375,141 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 
 	return pathEdges, nil
 }
+
+// findPaths implements a k-shortest paths algorithm to find all the reachable
+// paths between the passed source and target. The algorithm will continue to
+// traverse the graph until all possible candidate paths have been depleted.
+// This function implements a modified version of Yen's. To find each path
+// itself, we utilize our modified version of Dijkstra's found above. When
+// examining possible spur and root paths, rather than removing edges or
+// vertexes from the graph, we instead utilize a vertex+edge black-list that
+// will be ignored by our modified Dijkstra's algorithm. With this approach, we
+// make our inner path finding algorithm aware of our k-shortest paths
+// algorithm, rather than attempting to use an unmodified path finding
+// algorithm in a block box manner.
+func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
+	target *btcec.PublicKey, amt btcutil.Amount) ([][]*ChannelHop, error) {
+
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[vertex]struct{})
+
+	// TODO(roasbeef): modifying ordering within heap to eliminate final
+	// sorting step?
+	var (
+		shortestPaths  [][]*ChannelHop
+		candidatePaths pathHeap
+	)
+
+	// First we'll find a single shortest path from the source (our
+	// selfNode) to the target destination that's capable of carrying amt
+	// satoshis along the path before fees are calculated.
+	startingPath, err := findPath(graph, source, target,
+		ignoredVertexes, ignoredEdges, amt)
+	if err != nil {
+		log.Errorf("Unable to find path: %v", err)
+		return nil, err
+	}
+
+	// Manually insert a "self" edge emanating from ourselves. This
+	// self-edge is required in order for the path finding algorithm to
+	// function properly.
+	firstPath := make([]*ChannelHop, 0, len(startingPath)+1)
+	firstPath = append(firstPath, &ChannelHop{
+		ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
+			Node: source,
+		},
+	})
+	firstPath = append(firstPath, startingPath...)
+
+	shortestPaths = append(shortestPaths, firstPath)
+
+	source.PubKey.Curve = nil
+
+	// While we still have candidate paths to explore we'll keep exploring
+	// the sub-graphs created to find the next k-th shortest path.
+	for k := 1; k == 1 || candidatePaths.Len() != 0; k++ {
+		prevShortest := shortestPaths[k-1]
+
+		// We'll examine each edge in the previous iteration's shortest
+		// path in order to find path deviations from each node in the
+		// path.
+		for i := 0; i < len(prevShortest)-1; i++ {
+			// These two maps will mark the edges and vertexes
+			// we'll exclude from the next path finding attempt.
+			// These are required to ensure the paths are unique
+			// and loopless.
+			ignoredEdges = make(map[uint64]struct{})
+			ignoredVertexes = make(map[vertex]struct{})
+
+			// Our spur node is the i-th node in the prior shortest
+			// path, and our root path will be all nodes in the
+			// path leading up to our spurNode.
+			spurNode := prevShortest[i].Node
+			rootPath := prevShortest[:i+1]
+
+			// Before we kickoff our next path finding iteration,
+			// we'll find all the edges we need to ignore in this
+			// next round.
+			for _, path := range shortestPaths {
+				// If our current rootPath is a prefix of this
+				// shortest path, then we'll remove the ege
+				// directly _after_ our spur node from the
+				// graph so we don't repeat paths.
+				if isSamePath(rootPath, path[:i+1]) {
+					ignoredEdges[path[i+1].ChannelID] = struct{}{}
+				}
+			}
+
+			// Next we'll remove all entries in the root path that
+			// aren't the current spur node from the graph.
+			for _, hop := range rootPath {
+				node := hop.Node.PubKey
+				if node.IsEqual(spurNode.PubKey) {
+					continue
+				}
+
+				ignoredVertexes[newVertex(node)] = struct{}{}
+			}
+
+			// With the edges that are part of our root path, and
+			// the vertexes (other than the spur path) within the
+			// root path removed, we'll attempt to find another
+			// shortest path from the spur node to the destination.
+			spurPath, err := findPath(graph, spurNode, target,
+				ignoredVertexes, ignoredEdges, amt)
+
+			// If we weren't able to find a path, we'll continue to
+			// the next round.
+			if err == ErrNoPathFound {
+				continue
+			} else if err != nil {
+				return nil, err
+			}
+
+			// Create the new combined path by concatenating the
+			// rootPath to the spurPath.
+			newPath := append(rootPath, spurPath...)
+
+			// We'll now add this newPath to the heap of candidate
+			// shortest paths.
+			heap.Push(&candidatePaths, path{
+				dist: len(newPath),
+				hops: newPath,
+			})
+		}
+
+		// If our min-heap of candidate paths is empty, then we can
+		// exit early.
+		if candidatePaths.Len() == 0 {
+			break
+		}
+
+		// To conclude this latest iteration, we'll take the shortest
+		// path in our set of candidate paths and add it to our
+		// shortestPaths list as the *next* shortest path.
+		nextShortestPath := heap.Pop(&candidatePaths).(path).hops
+		shortestPaths = append(shortestPaths, nextShortestPath)
+	}
+
+	return shortestPaths, nil
 }

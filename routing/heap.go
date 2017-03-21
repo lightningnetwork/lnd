@@ -57,3 +57,62 @@ func (d *distanceHeap) Pop() interface{} {
 	d.nodes = d.nodes[0 : n-1]
 	return x
 }
+
+// path represents an ordered set of edges which forms an available path from a
+// given source node to our destination. During the process of computing the
+// KSP's from a source to destination, several path swill be considered in the
+// process.
+type path struct {
+	// dist is the distance from the source node to the destination node
+	// that the path requires.
+	dist int
+
+	// hops is an ordered list of edge that comprises a potential payment
+	// path.
+	hops []*ChannelHop
+}
+
+// pathHeap is a min-heap that stores potential paths to be considered within
+// our KSP implementation. The heap sorts paths according to their cumulative
+// distance from a given source.
+type pathHeap struct {
+	paths []path
+}
+
+// Len returns the number of nodes in the priority queue.
+//
+// NOTE: This is part of the heap.Interface implementation.
+func (p *pathHeap) Len() int { return len(p.paths) }
+
+// Less returns whether the item in the priority queue with index i should sort
+// before the item with index j.
+//
+// NOTE: This is part of the heap.Interface implementation.
+func (p *pathHeap) Less(i, j int) bool {
+	return p.paths[i].dist < p.paths[j].dist
+}
+
+// Swap swaps the nodes at the passed indices in the priority queue.
+//
+// NOTE: This is part of the heap.Interface implementation.
+func (p *pathHeap) Swap(i, j int) {
+	p.paths[i], p.paths[j] = p.paths[j], p.paths[i]
+}
+
+// Push pushes the passed item onto the priority queue.
+//
+// NOTE: This is part of the heap.Interface implementation.
+func (p *pathHeap) Push(x interface{}) {
+	p.paths = append(p.paths, x.(path))
+}
+
+// Pop removes the highest priority item (according to Less) from the priority
+// queue and returns it.
+//
+// NOTE: This is part of the heap.Interface implementation.
+func (p *pathHeap) Pop() interface{} {
+	n := len(p.paths)
+	x := p.paths[n-1]
+	p.paths = p.paths[0 : n-1]
+	return x
+}

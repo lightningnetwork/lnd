@@ -3,7 +3,9 @@ package routing
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1050,13 +1052,16 @@ func (r *ChannelRouter) ProcessRoutingMessage(msg lnwire.Message, src *btcec.Pub
 	}
 }
 
-// FindRoute attempts to query the ChannelRouter for the "best" path to a
+// FindRoutes attempts to query the ChannelRouter for the all available paths to a
 // particular target destination which is able to send `amt` after factoring in
-// channel capacities and cumulative fees along the route.  Once we have a set
-// of candidate routes, we calculate the required fee and time lock values
-// running backwards along the route. The route that will be ranked the highest
-// is the one with the lowest cumulative fee along the route.
-func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (*Route, error) {
+// channel capacities and cumulative fees along each route route. To find all
+// elgible paths, we use a modified version of Yen's algorithm which itself
+// uses a modidifed version of Dijkstra's algorithm within its inner loop.
+// Once we have a set of candidate routes, we calculate the required fee and
+// time lock values running backwards along the route. The route that will be
+// ranked the highest is the one with the lowest cumulative fee along the
+// route.
+func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) ([]*Route, error) {
 	dest := target.SerializeCompressed()
 
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
@@ -1070,32 +1075,52 @@ func (r *ChannelRouter) FindRoute(target *btcec.PublicKey, amt btcutil.Amount) (
 		return nil, ErrTargetNotInNetwork
 	}
 
-	// First we'll find a single shortest path from the source (our
-	// selfNode) to the target destination that's capable of carrying amt
-	// satoshis along the path before fees are calculated.
-	//
-	// TODO(roasbeef): add k-shortest paths
-	routeHops, err := findRoute(r.cfg.Graph, r.selfNode, target, amt)
-	if err != nil {
-		log.Errorf("Unable to find path: %v", err)
-		return nil, err
-	}
-
-	// If we were able to find a path we construct a new route which
-	// calculate the relevant total fees and proper time lock values for
-	// each hop.
-	route, err := newRoute(amt, routeHops)
+	// Now that we know the destination is reachable within the graph,
+	// we'll execute our KSP algorithm to find the k-shortest paths from
+	// our source to the destination.
+	shortestPaths, err := findPaths(r.cfg.Graph, r.selfNode, target, amt)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Debugf("Obtained path sending %v to %x: %v", amt, dest,
-		newLogClosure(func() string {
-			return spew.Sdump(route)
+	// Now that we have a set of paths, we'll need to turn them into
+	// *routes* by computing the required time-lock and fee information for
+	// each path. During this process, some paths may be discarded if they
+	// aren't able to support the total satoshis flow once fees have been
+	// factored in.
+	validRoutes := make([]*Route, 0, len(shortestPaths))
+	for _, path := range shortestPaths {
+		// Attempt to make the path into a route. We snip off the first
+		// hop inthe path as it contains a "self-hop" that is inserted
+		// by our KSP algorithm.
+		route, err := newRoute(amt, path[1:])
+		if err != nil {
+			continue
+		}
+
+		// If the path as enough total flow to support the computed
+		// route, then we'll add it to our set of valid routes.
+		validRoutes = append(validRoutes, route)
+	}
+
+	// Finally, we'll sort the set of validate routes to optimize for
+	// loweest total fees, using the reuired time-lcok within the route as
+	// a tie-breaker.
+	sort.Slice(validRoutes, func(i, j int) bool {
+		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
+			return validRoutes[i].TotalTimeLock < validRoutes[j].TotalTimeLock
+		}
+
+		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
+	})
+
+	log.Debugf("Obtained %v paths sending %v to %x: %v", len(validRoutes),
+		amt, dest, newLogClosure(func() string {
+			return spew.Sdump(validRoutes)
 		}),
 	)
 
-	return route, nil
+	return validRoutes, nil
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes

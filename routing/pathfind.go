@@ -109,8 +109,8 @@ func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
 // computed. If the route is too long, or the selected path cannot support the
 // fully payment including fees, then a non-nil error is returned.
 //
-// NOTE: The passed slice of ChannelHops MUST be sorted in reverse order: from
-// the target to the source node of the path finding aattempt.
+// NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
+// the source to the target node of the path finding attempt.
 func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error) {
 	route := &Route{
 		Hops: make([]*Hop, len(pathEdges)),
@@ -122,7 +122,9 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 	// larger as we compute the fees going backwards.
 	runningAmt := amtToSend
 	pathLength := len(pathEdges)
-	for i, edge := range pathEdges {
+	for i := pathLength - 1; i >= 0; i-- {
+		edge := pathEdges[i]
+
 		// Now we create the hop struct for this point in the route.
 		// The amount to forward is the running amount, and we compute
 		// the required fee based on this amount.
@@ -164,10 +166,7 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 
 		route.TotalTimeLock += uint32(nextHop.TimeLockDelta)
 
-		// Finally, as we're currently talking the route backwards, we
-		// reverse the index in order to place this hop at the proper
-		// spot in the forward direction of the route.
-		route.Hops[pathLength-1-i] = nextHop
+		route.Hops[i] = nextHop
 	}
 
 	// The total amount required for this route will be the value the

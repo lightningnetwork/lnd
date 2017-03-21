@@ -146,3 +146,67 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	}
 }
 
+// TestSendPaymentRouteFailureFallback tests that when sending a payment, if
+// one of the target routes is seen as unavailable, then the next route in the
+// queue is used instead. This process should continue until either a payment
+// succeeds, or all routes have been exhausted.
+func TestSendPaymentRouteFailureFallback(t *testing.T) {
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to luo ji for 100 satoshis.
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases["luoji"],
+		Amount:      btcutil.Amount(1000),
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	// We'll modify the SendToSwitch method that's been set within the
+	// router's configuration to ignore the path that has luo ji as the
+	// first hop. This should force the router to instead take the
+	// available two hop path (through satoshi).
+	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+		_ *lnwire.UpdateAddHTLC) ([32]byte, error) {
+
+		if ctx.aliases["luoji"].IsEqual(n) {
+			return [32]byte{}, errors.New("send error")
+		}
+
+		return preImage, nil
+	}
+
+	// Send off the payment request to the router, route through satoshi
+	// should've been selected as a fall back and succeeded correctly.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// The route selected should have two hops
+	if len(route.Hops) != 2 {
+		t.Fatalf("incorrect route length: expected %v got %v", 2,
+			len(route.Hops))
+	}
+
+	// The preimage should match up with the once created above.
+	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
+		t.Fatalf("incorrect preimage used: expected %x got %x",
+			preImage[:], paymentPreImage[:])
+	}
+
+	// The route should have satoshi as the first hop.
+	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+		t.Fatalf("route should go through satoshi as first hop, "+
+			"instead passes through: %v",
+			route.Hops[0].Channel.Node.Alias)
+	}
+}

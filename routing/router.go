@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -1221,43 +1220,70 @@ type LightningPayment struct {
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
-	var (
-		err      error
-		preImage [32]byte
+	log.Tracef("Dispatching route for lightning payment: %v",
+		newLogClosure(func() string {
+			return spew.Sdump(payment)
+		}),
 	)
 
-	// Query the graph for a potential path to the destination node that
-	// can support our payment amount. If a path is ultimately unavailable,
-	// then an error will be returned.
-	route, err := r.FindRoute(payment.Target, payment.Amount)
-	if err != nil {
-		return preImage, nil, err
-	}
-	log.Tracef("Selected route for payment: %#v", route)
+	// TODO(roasbeef): consult KSP cache before dispatching
 
-	// Generate the raw encoded sphinx packet to be included along with the
-	// htlcAdd message that we send directly to the switch.
-	sphinxPacket, err := generateSphinxPacket(route, payment.PaymentHash[:])
-	if err != nil {
-		return preImage, nil, err
-	}
+	var (
+		sendError error
+		preImage  [32]byte
+	)
 
-	// Craft an HTLC packet to send to the layer 2 switch. The metadata
-	// within this packet will be used to route the payment through the
-	// network, starting with the first-hop.
-	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      route.TotalAmount,
-		PaymentHash: payment.PaymentHash,
-	}
-	copy(htlcAdd.OnionBlob[:], sphinxPacket)
-
-	// Attempt to send this payment through the network to complete the
-	// payment. If this attempt fails, then we'll bail our early.
-	firstHop := route.Hops[0].Channel.Node.PubKey
-	preImage, err = r.cfg.SendToSwitch(firstHop, htlcAdd)
+	// Query the graph for a set of potential routes to the destination
+	// node that can support our payment amount. If no such routes can be
+	// found then an error will be returned.
+	routes, err := r.FindRoutes(payment.Target, payment.Amount)
 	if err != nil {
 		return preImage, nil, err
 	}
 
-	return preImage, route, nil
+	// For each eligible path, we'll attempt to successfully send our
+	// target payment using the multi-hop route. We'll try each route
+	// serially until either once succeeds, or we've exhausted our set of
+	// available paths.
+	for _, route := range routes {
+		log.Tracef("Attempting to send payment %x, using route: %#v",
+			payment.PaymentHash, newLogClosure(func() string {
+				return spew.Sdump(route)
+			}),
+		)
+
+		// Generate the raw encoded sphinx packet to be included along
+		// with the htlcAdd message that we send directly to the
+		// switch.
+		sphinxPacket, err := generateSphinxPacket(route, payment.PaymentHash[:])
+		if err != nil {
+			return preImage, nil, err
+		}
+
+		// Craft an HTLC packet to send to the layer 2 switch. The
+		// metadata within this packet will be used to route the
+		// payment through the network, starting with the first-hop.
+		htlcAdd := &lnwire.UpdateAddHTLC{
+			Amount:      route.TotalAmount,
+			PaymentHash: payment.PaymentHash,
+		}
+		copy(htlcAdd.OnionBlob[:], sphinxPacket)
+
+		// Attempt to send this payment through the network to complete
+		// the payment. If this attempt fails, then we'll continue on
+		// to the next available route.
+		firstHop := route.Hops[0].Channel.Node.PubKey
+		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd)
+		if sendError != nil {
+			log.Errorf("Attempt to send payment %x failed: %v",
+				payment.PaymentHash, err)
+			continue
+		}
+
+		return preImage, route, nil
+	}
+
+	// If we're unable to successfully make a payment using any of the
+	// routes we've found, then return an error.
+	return [32]byte{}, nil, sendError
 }

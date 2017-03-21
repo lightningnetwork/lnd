@@ -1323,8 +1323,8 @@ func getNodeInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var queryRouteCommand = cli.Command{
-	Name:        "queryroute",
+var queryRoutesCommand = cli.Command{
+	Name:        "queryroutes",
 	Usage:       "Query a route to a destination.",
 	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
 	ArgsUsage:   "dest amt",
@@ -1339,10 +1339,10 @@ var queryRouteCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 	},
-	Action: queryRoute,
+	Action: queryRoutes,
 }
 
-func queryRoute(ctx *cli.Context) error {
+func queryRoutes(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1377,12 +1377,12 @@ func queryRoute(ctx *cli.Context) error {
 		return fmt.Errorf("amt argument missing")
 	}
 
-	req := &lnrpc.RouteRequest{
+	req := &lnrpc.QueryRoutesRequest{
 		PubKey: dest,
 		Amt:    amt,
 	}
 
-	route, err := client.QueryRoute(ctxb, req)
+	route, err := client.QueryRoutes(ctxb, req)
 	if err != nil {
 		return err
 	}

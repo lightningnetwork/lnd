@@ -73,7 +73,7 @@ func main() {
 		describeGraphCommand,
 		getChanInfoCommand,
 		getNodeInfoCommand,
-		queryRouteCommand,
+		queryRoutesCommand,
 		getNetworkInfoCommand,
 		debugLevelCommand,
 		decodePayReqComamnd,

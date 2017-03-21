@@ -49,12 +49,13 @@ topology, and send a payment from `Alice` to `Bob`.
 **General workflow is following:** 
 
  * Create a `btcd` node running on a private `simnet`.
- * Create `Alice`, one of the `lnd` nodes in our test network.
- * Create `Bob`, the other `lnd` node in our test network.
- * Mine some blocks to send `Alice` some bitcoin.
+ * Create `Alice`, one of the `lnd` nodes in our simulation network.
+ * Create `Bob`, the other `lnd` node in our simulation network.
+ * Mine some blocks to send `Alice` some bitcoins.
  * Open channel between `Alice` and `Bob`.
  * Send payment from `Alice` to `Bob`.
- * Finally, close the channel between `Alice` and Bob`.
+ * Close the channel between `Alice` and Bob`.
+ * Check that on-chain Bob balance was changed.
 
 Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
@@ -83,17 +84,6 @@ $ docker-compose run btcctl generate 400
 $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 ```
 
-Now we have `btcd` running and some amount of bitcoins mined to the `Alice`
-address. We'll need to restart `Alice` just once so she properly syncs up with
-`btcd`.
-```bash
-# Stop "Alice" container:
-$ docker-compose stop "alice"
-
-# Start "Alice" container and log into it:
-$ docker-compose up --no-recreate -d "alice"
-$ docker exec -i -t "alice" bash
-
 # Check "Alice" balance:
 alice$ lncli walletbalance --witness_only=true
 ```
@@ -108,11 +98,15 @@ $ docker exec -i -t "bob" bash
 bob$ lncli getinfo
 
 {
-  ----> "identity_pubkey": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
-	"block_height": 3949,
-	"block_hash": "00000000853c9dcccf8879abb0a91f0152aed16efe68015a924156f5845016ee",
-	"synced_to_chain": true,
-	"testnet": false,
+    ----->"identity_pubkey": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
+    "alias": "",
+    "num_pending_channels": 0,
+    "num_active_channels": 0,
+    "num_peers": 0,
+    "block_height": 1215,
+    "block_hash": "7d0bc86ea4151ed3b5be908ea883d2ac3073263537bcf8ca2dca4bec22e79d50",
+    "synced_to_chain": true,
+    "testnet": false
 }
 
 # Get the IP address of "Bob" node:
@@ -124,29 +118,37 @@ alice$ lncli connect <bob_pubkey>@<bob_host>:10011
 # Check list of peers on "Alice" side:
 alice$ lncli listpeers
 {
-	"peers": [
-		{
-			"pub_key": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
-			"peer_id": 1,
-			"address": "10.0.0.125:10011",
-			"bytes_sent": 3278,
-			"bytes_recv": 3278
-		}
-	]
+    "peers": [
+        {
+            "pub_key": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
+            "peer_id": 1,
+            "address": "172.19.0.4:10011",
+            "bytes_sent": "357",
+            "bytes_recv": "357",
+            "sat_sent": "0",
+            "sat_recv": "0",
+            "inbound": true,
+            "ping_time": "0"
+        }
+    ]
 }
 
 # Check list of peers on "Bob" side:
 bob$ lncli listpeers
 {
-	"peers": [
-		{
-			"pub_key": "036a0c5ea35df8a528b98edf6f290b28676d51d0fe202b073fe677612a39c0aa09",
-			"peer_id": 1,
-			"address": "10.0.0.15:10011",
-			"bytes_sent": 3278,
-			"bytes_recv": 3278
-		}
-	]
+    "peers": [
+        {
+            "pub_key": "03d0cd35b761f789983f3cfe82c68170cd1c3266b39220c24f7dd72ef4be0883eb",
+            "peer_id": 1,
+            "address": "172.19.0.3:51932",
+            "bytes_sent": "357",
+            "bytes_recv": "357",
+            "sat_sent": "0",
+            "sat_recv": "0",
+            "inbound": false,
+            "ping_time": "0"
+        }
+    ]
 }
 ```
 
@@ -161,17 +163,22 @@ $ docker-compose run btcctl generate 1
 # Check that channel with "Bob" was created:
 alice$ lncli listchannels
 {
-	"channels": [
-		{
-			"remote_pubkey": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
-			"channel_point": "7a632cde9e9e2ae4e9209591c0587bbb03254814c62e2a7fcef35ced743b0025:0",
-			"chan_id": 1170330072213225472,
-			"capacity": 1005000,
-			"local_balance": 1000000,
-		}
-	]
+    "channels": [
+        {
+            "active": true,
+            "remote_pubkey": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
+            "channel_point": "3511ae8a52c97d957eaf65f828504e68d0991f0276adff94c6ba91c7f6cd4275:0",
+            "chan_id": "1337006139441152",
+            "capacity": "1005000",
+            "local_balance": "1000000",
+            "remote_balance": "0",
+            "unsettled_balance": "0",
+            "total_satoshis_sent": "0",
+            "total_satoshis_received": "0",
+            "num_updates": "0"
+        }
+    ]
 }
-
 ```
 
 Send the payment form `Alice` to `Bob`.
@@ -202,16 +209,21 @@ it!
 # the opened channel:
 alice$ lncli listchannels
 {
-	"channels": [
-		{
-			"remote_pubkey": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
-			"channel_point": "7a632cde9e9e2ae4e9209591c0587bbb03254814c62e2a7fcef35ced743b0025:0",
-			"chan_id": 1170330072213225472,
-			"capacity": 1005000,
-			"local_balance": 900000,
-			"remote_balance": 10000, 
-		}
-	]
+    "channels": [
+        {
+            "active": true,
+            "remote_pubkey": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
+       ---->"channel_point": "3511ae8a52c97d957eaf65f828504e68d0991f0276adff94c6ba91c7f6cd4275:0",
+            "chan_id": "1337006139441152",
+            "capacity": "1005000",
+            "local_balance": "990000",
+            "remote_balance": "10000",
+            "unsettled_balance": "0",
+            "total_satoshis_sent": "10000",
+            "total_satoshis_received": "0",
+            "num_updates": "2"
+        }
+    ]
 }
 
 # Channel point consist of two numbers separated by colon the first one 
@@ -227,6 +239,9 @@ alice$ lncli walletbalance
 # Check "Bob" on-chain balance was credited with the funds he received in the
 # channel:
 bob$ lncli walletbalance
+{
+    "balance": 0.0001
+}
 ```
 
 ### Connect to faucet lightning node
@@ -295,5 +310,5 @@ and send some amount of bitcoins to `Alice`.
 
 * How to see `alice` | `bob` | `btcd` logs?
 ```bash
-docker-compose logs <alice|bob|btcd> 
+docker-compose logs <alice|bob|btcd>
 ```

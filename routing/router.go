@@ -1052,15 +1052,15 @@ func (r *ChannelRouter) ProcessRoutingMessage(msg lnwire.Message, src *btcec.Pub
 	}
 }
 
-// FindRoutes attempts to query the ChannelRouter for the all available paths to a
-// particular target destination which is able to send `amt` after factoring in
-// channel capacities and cumulative fees along each route route. To find all
-// elgible paths, we use a modified version of Yen's algorithm which itself
-// uses a modidifed version of Dijkstra's algorithm within its inner loop.
-// Once we have a set of candidate routes, we calculate the required fee and
-// time lock values running backwards along the route. The route that will be
-// ranked the highest is the one with the lowest cumulative fee along the
-// route.
+// FindRoutes attempts to query the ChannelRouter for the all available paths
+// to a particular target destination which is able to send `amt` after
+// factoring in channel capacities and cumulative fees along each route route.
+// To find all eligible paths, we use a modified version of Yen's algorithm
+// which itself uses a modified version of Dijkstra's algorithm within its
+// inner loop.  Once we have a set of candidate routes, we calculate the
+// required fee and time lock values running backwards along the route. The
+// route that will be ranked the highest is the one with the lowest cumulative
+// fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) ([]*Route, error) {
 	dest := target.SerializeCompressed()
 
@@ -1103,8 +1103,14 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 		validRoutes = append(validRoutes, route)
 	}
 
+	// If all our perspective routes were eliminating during the transition
+	// from path to route, then we'll return an error to the caller
+	if len(validRoutes) == 0 {
+		return nil, ErrNoPathFound
+	}
+
 	// Finally, we'll sort the set of validate routes to optimize for
-	// loweest total fees, using the reuired time-lcok within the route as
+	// lowest total fees, using the required time-lock within the route as
 	// a tie-breaker.
 	sort.Slice(validRoutes, func(i, j int) bool {
 		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {

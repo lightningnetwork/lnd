@@ -432,8 +432,8 @@ func request_Lightning_GetNodeInfo_0(ctx context.Context, marshaler runtime.Mars
 
 }
 
-func request_Lightning_QueryRoute_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq RouteRequest
+func request_Lightning_QueryRoutes_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryRoutesRequest
 	var metadata runtime.ServerMetadata
 
 	var (
@@ -465,7 +465,7 @@ func request_Lightning_QueryRoute_0(ctx context.Context, marshaler runtime.Marsh
 		return nil, metadata, err
 	}
 
-	msg, err := client.QueryRoute(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.QueryRoutes(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
@@ -1153,7 +1153,7 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 
 	})
 
-	mux.Handle("GET", pattern_Lightning_QueryRoute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Lightning_QueryRoutes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		if cn, ok := w.(http.CloseNotifier); ok {
@@ -1170,14 +1170,14 @@ func RegisterLightningHandler(ctx context.Context, mux *runtime.ServeMux, conn *
 		if err != nil {
 			runtime.HTTPError(ctx, outboundMarshaler, w, req, err)
 		}
-		resp, md, err := request_Lightning_QueryRoute_0(rctx, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Lightning_QueryRoutes_0(rctx, inboundMarshaler, client, req, pathParams)
 		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
 			runtime.HTTPError(ctx, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Lightning_QueryRoute_0(ctx, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Lightning_QueryRoutes_0(ctx, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1259,7 +1259,7 @@ var (
 
 	pattern_Lightning_GetNodeInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "graph", "node", "pub_key"}, ""))
 
-	pattern_Lightning_QueryRoute_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "graph", "route", "pub_key", "amt"}, ""))
+	pattern_Lightning_QueryRoutes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "graph", "routes", "pub_key", "amt"}, ""))
 
 	pattern_Lightning_GetNetworkInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "graph", "info"}, ""))
 )
@@ -1311,7 +1311,7 @@ var (
 
 	forward_Lightning_GetNodeInfo_0 = runtime.ForwardResponseMessage
 
-	forward_Lightning_QueryRoute_0 = runtime.ForwardResponseMessage
+	forward_Lightning_QueryRoutes_0 = runtime.ForwardResponseMessage
 
 	forward_Lightning_GetNetworkInfo_0 = runtime.ForwardResponseMessage
 )

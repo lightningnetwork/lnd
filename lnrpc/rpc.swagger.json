@@ -289,14 +289,14 @@
         ]
       }
     },
-    "/v1/graph/route/{pub_key}/{amt}": {
+    "/v1/graph/routes/{pub_key}/{amt}": {
       "get": {
-        "operationId": "QueryRoute",
+        "operationId": "QueryRoutes",
         "responses": {
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcRoute"
+              "$ref": "#/definitions/lnrpcQueryRoutesResponse"
             }
           }
         },
@@ -1463,6 +1463,29 @@
         }
       }
     },
+    "lnrpcQueryRoutesRequest": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string"
+        },
+        "amt": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcQueryRoutesResponse": {
+      "type": "object",
+      "properties": {
+        "routes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRoute"
+          }
+        }
+      }
+    },
     "lnrpcRoute": {
       "type": "object",
       "properties": {
@@ -1483,18 +1506,6 @@
           "items": {
             "$ref": "#/definitions/lnrpcHop"
           }
-        }
-      }
-    },
-    "lnrpcRouteRequest": {
-      "type": "object",
-      "properties": {
-        "pub_key": {
-          "type": "string"
-        },
-        "amt": {
-          "type": "string",
-          "format": "int64"
         }
       }
     },

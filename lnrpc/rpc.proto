@@ -147,9 +147,9 @@ service Lightning {
         };
     }
 
-    rpc QueryRoute(RouteRequest) returns (Route) {
+    rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
-            get: "/v1/graph/route/{pub_key}/{amt}"
+            get: "/v1/graph/routes/{pub_key}/{amt}"
         };
     }
 
@@ -405,9 +405,12 @@ message ChannelBalanceResponse {
     int64 balance = 1 [ json_name = "balance" ];
 }
 
-message RouteRequest {
+message QueryRoutesRequest {
     string pub_key = 1;
     int64 amt = 2;
+}
+message QueryRoutesResponse {
+    repeated Route routes = 1 [ json_name = "routes"];
 }
 
 message Hop {

@@ -22,6 +22,68 @@ const (
 	infinity = math.MaxFloat64
 )
 
+// ChannelHop is an intermediate hop within the network with a greater
+// multi-hop payment route. This struct contains the relevant routing policy of
+// the particular edge, as well as the total capacity, and origin chain of the
+// channel itself.
+type ChannelHop struct {
+	// Capacity is the total capacity of the channel being traversed. This
+	// value is expressed for stability in satoshis.
+	Capacity btcutil.Amount
+
+	// Chain is a 32-byte has that denotes the base blockchain network of
+	// the channel. The 32-byte hash is the "genesis" block of the
+	// blockchain, or the very first block in the chain.
+	//
+	// TODO(roasbeef): store chain within edge info/policy in database.
+	Chain chainhash.Hash
+
+	*channeldb.ChannelEdgePolicy
+}
+
+// Hop represents the forwarding details at a particular position within the
+// final route. This struct houses the values necessary to create the HTLC
+// which will travel along this hop, and also encode the per-hop payload
+// included within the Sphinx packet.
+type Hop struct {
+	// Channel is the active payment channel edge that this hop will travel
+	// along.
+	Channel *ChannelHop
+
+	// TimeLockDelta is the delta that this hop will subtract from the HTLC
+	// before extending it to the next hop in the route.
+	TimeLockDelta uint16
+
+	// AmtToForward is the amount that this hop will forward to the next
+	// hop. This value is less than the value that the incoming HTLC
+	// carries as a fee will be subtracted by the hop.
+	AmtToForward btcutil.Amount
+
+	// Fee is the total fee that this hop will subtract from the incoming
+	// payment, this difference nets the hop fees for forwarding the
+	// payment.
+	Fee btcutil.Amount
+}
+
+// computeFee computes the fee to forward an HTLC of `amt` satoshis over the
+// passed active payment channel. This value is currently computed as specified
+// in BOLT07, but will likely change in the near future.
+func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
+	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
+}
+
+// isSamePath returns true if path1 and path2 travel through the exact same
+// edges, and false otherwise.
+func isSamePath(path1, path2 []*ChannelHop) bool {
+	for i := 0; i < len(path1); i++ {
+		if path1[i].ChannelID != path2[i].ChannelID {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Route represents a path through the channel graph which runs over one or
 // more channels in succession. This struct carries all the information
 // required to craft the Sphinx onion packet, and send the payment along the
@@ -52,56 +114,6 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
-}
-
-// Hop represents the forwarding details at a particular position within the
-// final route. This struct houses the values necessary to create the HTLC
-// which will travel along this hop, and also encode the per-hop payload
-// included within the Sphinx packet.
-type Hop struct {
-	// Channel is the active payment channel edge that this hop will travel
-	// along.
-	Channel *ChannelHop
-
-	// TimeLockDelta is the delta that this hop will subtract from the HTLC
-	// before extending it to the next hop in the route.
-	TimeLockDelta uint16
-
-	// AmtToForward is the amount that this hop will forward to the next
-	// hop. This value is less than the value that the incoming HTLC
-	// carries as a fee will be subtracted by the hop.
-	AmtToForward btcutil.Amount
-
-	// Fee is the total fee that this hop will subtract from the incoming
-	// payment, this difference nets the hop fees for forwarding the
-	// payment.
-	Fee btcutil.Amount
-}
-
-// ChannelHop is an intermediate hop within the network with a greater
-// multi-hop payment route. This struct contains the relevant routing policy of
-// the particular edge, as well as the total capacity, and origin chain of the
-// channel itself.
-type ChannelHop struct {
-	// Capacity is the total capacity of the channel being traversed. This
-	// value is expressed for stability in satoshis.
-	Capacity btcutil.Amount
-
-	// Chain is a 32-byte has that denotes the base blockchain network of
-	// the channel. The 32-byte hash is the "genesis" block of the
-	// blockchain, or the very first block in the chain.
-	//
-	// TODO(roasbeef): store chain within edge info/policy in database.
-	Chain chainhash.Hash
-
-	*channeldb.ChannelEdgePolicy
-}
-
-// computeFee computes the fee to forward an HTLC of `amt` satoshis over the
-// passed active payment channel. This value is currently computed as specified
-// in BOLT07, but will likely change in the near future.
-func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
-	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
 }
 
 // newRoute returns a fully valid route between the source and target that's
@@ -204,17 +216,17 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 	return float64(1 + e.TimeLockDelta)
 }
 
-// findRoute attempts to find a path from the source node within the
+// findPath attempts to find a path from the source node within the
 // ChannelGraph to the target node that's capable of supporting a payment of
 // `amt` value. The current approach implemented is modified version of
 // Dijkstra's algorithm to find a single shortest path between the source node
 // and the destination. The distance metric used for edges is related to the
 // time-lock+fee costs along a particular edge. If a path is found, this
 // function returns a slice of ChannelHop structs which encoded the chosen path
-// (backwards) from the target to the source.
-func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
-	target *btcec.PublicKey, amt btcutil.Amount) ([]*ChannelHop, error) {
-
+// from the target to the source.
+func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
+	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
+	ignoredEdges map[uint64]struct{}, amt btcutil.Amount) ([]*ChannelHop, error) {
 
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
@@ -257,7 +269,8 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
 		// from the heap.
-		bestNode := heap.Pop(&nodeHeap).(nodeWithDist).node
+		partialPath := heap.Pop(&nodeHeap).(nodeWithDist)
+		bestNode := partialPath.node
 
 		// If we've reached our target (or we don't have any outgoing
 		// edges), then we're done here and can exit the graph
@@ -273,6 +286,18 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 		err := bestNode.ForEachChannel(nil, func(edgeInfo *channeldb.ChannelEdgeInfo,
 			edge *channeldb.ChannelEdgePolicy) error {
 
+			v := newVertex(edge.Node.PubKey)
+
+			// If this vertex or edge has been black listed, then
+			// we'll skip exploring this edge during this
+			// iteration.
+			if _, ok := ignoredNodes[v]; ok {
+				return nil
+			}
+			if _, ok := ignoredEdges[edge.ChannelID]; ok {
+				return nil
+			}
+
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
@@ -284,7 +309,6 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 			// our "next hop" map with this edge. We'll also shave
 			// off irrelevant edges by adding the sufficient
 			// capacity of an edge to our relaxation condition.
-			v := newVertex(edge.Node.PubKey)
 			if tempDist < distance[v].dist &&
 				edgeInfo.Capacity >= amt {
 
@@ -328,6 +352,8 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 		// backwards from this hop via the prev pointer for this hop
 		// within the prevHop map.
 		pathEdges = append(pathEdges, prev[prevNode].edge)
+		prev[prevNode].edge.Node.PubKey.Curve = nil
+
 		prevNode = newVertex(prev[prevNode].prevNode)
 	}
 
@@ -335,8 +361,16 @@ func findRoute(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNod
 	// Sphinx (onion routing) implementation can only encode up to 20 hops
 	// as the entire packet is fixed size. If this route is more than 20
 	// hops, then it's invalid.
-	if len(pathEdges) > HopLimit {
+	numEdges := len(pathEdges)
+	if numEdges > HopLimit {
 		return nil, ErrMaxHopsExceeded
+	}
+
+	// As our traversal of the prev map above walked backwards from the
+	// target to the source in the route, we need to reverse it before
+	// returning the final route.
+	for i := 0; i < numEdges/2; i++ {
+		pathEdges[i], pathEdges[numEdges-i-1] = pathEdges[numEdges-i-1], pathEdges[i]
 	}
 
 	return pathEdges, nil

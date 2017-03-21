@@ -293,6 +293,9 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[vertex]struct{})
+
 	// With the test graph loaded, we'll test some basic path finding using
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
 	// to follow along with the assumptions we'll use to test the path
@@ -300,7 +303,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	const paymentAmt = btcutil.Amount(100)
 	target := aliases["sophon"]
-	path, err := findRoute(graph, sourceNode, target, paymentAmt)
+	path, err := findPath(graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
@@ -338,7 +342,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
 	target = aliases["luoji"]
-	path, err = findRoute(graph, sourceNode, target, paymentAmt)
+	path, err = findPath(graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -384,19 +389,25 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[vertex]struct{})
+
 	const paymentAmt = btcutil.Amount(100)
 
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
-	if _, err = findRoute(graph, sourceNode, target, paymentAmt); err != nil {
+	_, err = findPath(graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
+	if err != nil {
 		t.Fatalf("path should have been found")
 	}
 
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
 	target = aliases["vincent"]
-	path, err := findRoute(graph, sourceNode, target, paymentAmt)
+	path, err := findPath(graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, paymentAmt)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
 			"greater than 20 hops, found route with %v hops",
@@ -417,6 +428,9 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[vertex]struct{})
+
 	// With the test graph loaded, we'll test that queries for target that
 	// are either unreachable within the graph, or unknown result in an
 	// error.
@@ -430,7 +444,8 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
 
-	_, err = findRoute(graph, sourceNode, unknownNode, 100)
+	_, err = findPath(graph, sourceNode, unknownNode, ignoredVertexes,
+		ignoredEdges, 100)
 	if err != ErrNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
@@ -447,6 +462,8 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
 	// channel graph cannot support due to insufficient capacity triggers
@@ -459,7 +476,8 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	target := aliases["sophon"]
 
 	const payAmt = btcutil.SatoshiPerBitcoin
-	_, err = findRoute(graph, sourceNode, target, payAmt)
+	_, err = findPath(graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, payAmt)
 	if err != ErrNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}

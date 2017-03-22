@@ -1,16 +1,9 @@
 ## Lightning Network Daemon
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)]
-(https://travis-ci.org/lightningnetwork/lnd) 
-&nbsp;&nbsp;&nbsp;&nbsp;
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)]
-(https://github.com/lightningnetwork/lnd/blob/master/LICENSE) 
-&nbsp;&nbsp;&nbsp;&nbsp;
-[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)]
-(https://webchat.freenode.net/?channels=lnd) 
-&nbsp;&nbsp;&nbsp;&nbsp;
-[![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)]
-(https://godoc.org/github.com/lightningnetwork/lnd)
-&nbsp;&nbsp;&nbsp;&nbsp;
+
+[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE) 
+[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd) 
+[![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
 [![Coverage Status](https://coveralls.io/repos/github/lightningnetwork/lnd/badge.svg?branch=master)](https://coveralls.io/github/lightningnetwork/lnd?branch=master)
 
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a 

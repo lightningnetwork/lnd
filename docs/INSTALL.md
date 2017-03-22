@@ -1,11 +1,11 @@
-#Installation for Lnd and Btcd
+# Installation for Lnd and Btcd
 
 ### If Glide isn't installed, install it:
 ```
 $ go get -u github.com/Masterminds/glide
 ```
 
-###Install lnd:
+### Install lnd:
 ```
 $ cd $GOPATH
 $ git clone https://github.com/lightningnetwork/lnd $GOPATH/src/github.com/lightningnetwork/lnd
@@ -14,7 +14,7 @@ $ glide install
 $ go install . ./cmd/...
 ```
 
-###Create lnd.conf:
+### Create lnd.conf:
 **On MacOS, located at:**
 /Users/[username]/Library/Application Support/Lnd/lnd.conf
 
@@ -31,25 +31,25 @@ btcdhost=127.0.0.1
 debuglevel=debug
 ```
 
-###Install btcutil: (must be from roasbeef fork, not from btcsuite)
+### Install btcutil: (must be from roasbeef fork, not from btcsuite)
 ```
 $ go get -u github.com/roasbeef/btcutil
 ```
 
-###Install btcd: (must be from roasbeef fork, not from btcsuite)
+### Install btcd: (must be from roasbeef fork, not from btcsuite)
 ```
 $ cd $GOPATH/src/github.com/roasbeef/btcd
 $ glide install
 $ go install . ./cmd/...
 ```
 
-###Start btcd (will create rpc.cert and default btcd.conf):
+### Start btcd (will create rpc.cert and default btcd.conf):
 ```
 $ btcd --testnet --txindex --rpcuser=kek --rpcpass=kek
 ```
 (Note: It may take several minutes to find segwit-enabled peers.)
 
-###Add a limited username and password to btcd.conf and restart
+### Add a limited username and password to btcd.conf and restart
 (Note: Replace `kek` with the username and password you prefer.)
 
 **On Linux:**
@@ -77,22 +77,22 @@ $ btcctl --testnet stop
 $ btcd --testnet
 ```
 
-###Check to see that peers are connected:
+### Check to see that peers are connected:
 ```
 $ btcctl --testnet getpeerinfo | more
 ```
 
-###Start Lnd: (Once btcd has synced testnet)
+### Start Lnd: (Once btcd has synced testnet)
 ```
 $ lnd --testnet
 ```
 
-###Start Lnd on Simnet: (Doesn’t require testnet syncing.)
+### Start Lnd on Simnet: (Doesn’t require testnet syncing.)
 ```
 $ lnd --simnet --debughtlc
 ```
 
-####Accurate as of:
+#### Accurate as of:
 roasbeef/btcd commit: 707a14a
 
 roasbeef/btcutil commit: d347e49

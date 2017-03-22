@@ -108,11 +108,15 @@ $ docker exec -i -t "bob" bash
 bob$ lncli getinfo
 
 {
-  ----> "identity_pubkey": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
-	"block_height": 3949,
-	"block_hash": "00000000853c9dcccf8879abb0a91f0152aed16efe68015a924156f5845016ee",
-	"synced_to_chain": true,
-	"testnet": false,
+  ----> "identityPubkey": "0290bf454f4b95baf9227801301b331e35d477c6b6e7f36a599983ae58747b3828",
+	"alias": "",
+	"numPendingChannels": 0,
+	"numActiveChannels": 0,
+	"numPeers": 0,
+	"blockHeight": 3949,
+	"blockHash": "00000000853c9dcccf8879abb0a91f0152aed16efe68015a924156f5845016ee",
+	"syncedToChain": true,
+	"testnet": false
 }
 
 # Get the IP address of "Bob" node:

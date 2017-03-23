@@ -46,7 +46,7 @@ topology, and send a payment from `Alice` to `Bob`.
                                     connected to different Bitcoin nodes.
 ```
 
-**General workflow is following:** 
+**General workflow is the following:** 
 
  * Create a `btcd` node running on a private `simnet`.
  * Create `Alice`, one of the `lnd` nodes in our simulation network.
@@ -84,7 +84,7 @@ $ docker-compose run btcctl generate 400
 $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 ```
 
-# Check `Alice` balance:
+Check `Alice` balance:
 ```
 alice$ lncli walletbalance --witness_only=true
 ```

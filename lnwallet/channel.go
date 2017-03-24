@@ -2415,6 +2415,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 	}
 
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
+		lc.channelState.OurDustLimit, lc.channelState.TheirDustLimit,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
@@ -2467,6 +2468,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
+		lc.channelState.OurDustLimit, lc.channelState.TheirDustLimit,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
 		lc.channelState.OurDeliveryScript, lc.channelState.TheirDeliveryScript,
 		lc.channelState.IsInitiator)
@@ -2594,7 +2596,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 // expected that the initiator pays the transaction fees for the closing
 // transaction in full.
 func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
-	ourBalance, theirBalance btcutil.Amount,
+	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte,
 	initiator bool) *wire.MsgTx {
 
@@ -2614,15 +2616,15 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 		theirBalance -= 5000
 	}
 
-	// TODO(roasbeef): dust check...
-	//  * although upper layers should prevent
-	if ourBalance != 0 {
+	// Create both cooperative closure outputs, properly respecting the
+	// dust limits of both parties.
+	if ourBalance >= localDust {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
 		})
 	}
-	if theirBalance != 0 {
+	if theirBalance >= remoteDust {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),

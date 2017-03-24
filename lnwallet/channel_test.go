@@ -1133,9 +1133,10 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatal("their balance wasn't updated")
 	}
 
-	// Next we will test when a non-HTLC output in the commitment transaction is below the dust limit.
-	// We create an HTLC that will only leave a small enough amount to Alice such that Bob will consider
-	// it a dust output.
+	// Next we will test when a non-HTLC output in the commitment
+	// transaction is below the dust limit.  We create an HTLC that will
+	// only leave a small enough amount to Alice such that Bob will
+	// consider it a dust output.
 	aliceAmount = aliceChannel.channelState.OurBalance
 	bobAmount = bobChannel.channelState.OurBalance
 	htlcAmount2 := aliceAmount - htlcAmount
@@ -1150,7 +1151,7 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	// From Alices' point of view, her output is bigger than the dust limit
+	// From Alice's point of view, her output is bigger than the dust limit
 	commitment = aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 3 {
 		t.Fatal("incorrect number of outputs in commitment transaction "+
@@ -1163,7 +1164,7 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatal("their balance was updated")
 	}
 
-	// From Bobs' point of view, Alice's output is lower than the dust limit
+	// From Bob's point of view, Alice's output is lower than the dust limit
 	commitment = bobChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
 		t.Fatal("incorrect number of outputs in commitment transaction "+
@@ -1595,38 +1596,118 @@ func TestCancelHTLC(t *testing.T) {
 	}
 }
 
-func TestCloseTransactionSanityChecks(t *testing.T) {
-	// We'd like to ensure that transactions which aren't "sane" aren't
-	// accepted as valid coopertive channel closure transactions.
-
-	// We'll first create two test channels for our test case below.
+func TestCooperativeCloseDustAdherance(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
 	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
 
-	// In order to force the transaction to be "insane", we'll modify
-	// Alice's balance to be zero. With the current fee logic, this'll
-	// cause a negative output due to the hard coded fees. A transaction
-	// with a negative output is not "sane".
-	//
-	// TODO(roasbeef): modify test-case after dynamic fees
-	aliceChannel.channelState.OurBalance = 0
-	bobChannel.channelState.TheirBalance = 0
-
-	// Both Alice and Bob should reject a close attempt at this point since
-	// it will lead to Alice having a negative output within the commitment
-	// transaction.
-	_, _, err = aliceChannel.InitCooperativeClose()
-	if err == nil {
-		t.Fatalf("alice's closure transaction should have been rejected, " +
-			"but wasn't!")
+	setDustLimit := func(dustVal btcutil.Amount) {
+		aliceChannel.channelState.OurDustLimit = dustVal
+		aliceChannel.channelState.TheirDustLimit = dustVal
+		aliceChannel.channelState.OurDustLimit = dustVal
+		aliceChannel.channelState.TheirDustLimit = dustVal
 	}
-	var fakeSig []byte
-	_, err = bobChannel.CompleteCooperativeClose(fakeSig)
-	if err == nil {
-		t.Fatalf("bob's closure transaction should have been rejected, but " +
-			"wasn't!")
+
+	resetChannelState := func() {
+		aliceChannel.status = channelOpen
+		bobChannel.status = channelOpen
+	}
+
+	setBalances := func(aliceBalance, bobBalance btcutil.Amount) {
+		aliceChannel.channelState.OurBalance = aliceBalance
+		aliceChannel.channelState.TheirBalance = bobBalance
+		bobChannel.channelState.OurBalance = bobBalance
+		bobChannel.channelState.TheirBalance = aliceBalance
+	}
+
+	// We'll start be initializing the limit of both Alice and Bob to 10k
+	// satoshis.
+	dustLimit := btcutil.Amount(10000)
+	setDustLimit(dustLimit)
+
+	// Both sides currently have over 1 BTC settled as part of their
+	// balances. As a result, performing a cooperative closure now result
+	// in both sides having an output within the closure transaction.
+	closeSig, _, err := aliceChannel.InitCooperativeClose()
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+	closeSig = append(closeSig, byte(txscript.SigHashAll))
+	closeTx, err := bobChannel.CompleteCooperativeClose(closeSig)
+	if err != nil {
+		t.Fatalf("unable to accept channel close: %v", err)
+	}
+
+	// The closure transaction should have exactly two outputs.
+	if len(closeTx.TxOut) != 2 {
+		t.Fatalf("close tx has wrong number of outputs: expected %v "+
+			"got %v", 2, len(closeTx.TxOut))
+	}
+
+	// We'll reset the channel states before proceeding to our nest test.
+	resetChannelState()
+
+	// Next we'll modify the current balances and dust limits such that
+	// Bob's current balance is above _below_ his dust limit.
+	aliceBal := btcutil.Amount(btcutil.SatoshiPerBitcoin)
+	bobBal := btcutil.Amount(500)
+	setBalances(aliceBal, bobBal)
+
+	// Attempt another cooperative channel closure. It should succeed
+	// without any issues.
+	closeSig, _, err = aliceChannel.InitCooperativeClose()
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+	closeSig = append(closeSig, byte(txscript.SigHashAll))
+	closeTx, err = bobChannel.CompleteCooperativeClose(closeSig)
+	if err != nil {
+		t.Fatalf("unable to accept channel close: %v", err)
+	}
+
+	// The closure transaction should only have a single output, and that
+	// output should be Alice's balance.
+	// TODO(roasbeef): remove -5000 after fees are no longer hard coded
+	if len(closeTx.TxOut) != 1 {
+		t.Fatalf("close tx has wrong number of outputs: expected %v "+
+			"got %v", 1, len(closeTx.TxOut))
+	}
+	if closeTx.TxOut[0].Value != int64(aliceBal-5000) {
+		t.Fatalf("alice's balance is incorrect: expected %v, got %v",
+			aliceBal-5000, closeTx.TxOut[0].Value)
+	}
+
+	// Finally, we'll modify the current balances and dust limits such that
+	// Alice's current balance is _below_ his her limit.
+	setBalances(bobBal, aliceBal)
+	resetChannelState()
+
+	// Our final attempt at another cooperative channel closure. It should
+	// succeed without any issues.
+	closeSig, _, err = aliceChannel.InitCooperativeClose()
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+	closeSig = append(closeSig, byte(txscript.SigHashAll))
+	closeTx, err = bobChannel.CompleteCooperativeClose(closeSig)
+	if err != nil {
+		t.Fatalf("unable to accept channel close: %v", err)
+	}
+
+	// The closure transaction should only have a single output, and that
+	// output should be Bob's balance.
+	// TODO(roasbeef): remove -5000 after fees are no longer hard coded
+	if len(closeTx.TxOut) != 1 {
+		t.Fatalf("close tx has wrong number of outputs: expected %v "+
+			"got %v", 1, len(closeTx.TxOut))
+	}
+	if closeTx.TxOut[0].Value != int64(aliceBal) {
+		t.Fatalf("bob's balance is incorrect: expected %v, got %v",
+			aliceBal, closeTx.TxOut[0].Value)
 	}
 }

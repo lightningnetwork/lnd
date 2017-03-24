@@ -235,8 +235,12 @@ func (h *htlcSwitch) htlcForwarder() {
 	// (src, htlcKey).
 
 	// TODO(roasbeef): cleared vs settled distinction
-	var numUpdates uint64
-	var satSent, satRecv btcutil.Amount
+	var (
+		deltaNumUpdates, totalNumUpdates uint64
+
+		deltaSatSent, deltaSatRecv btcutil.Amount
+		totalSatSent, totalSatRecv btcutil.Amount
+	)
 	logTicker := time.NewTicker(10 * time.Second)
 out:
 	for {
@@ -289,7 +293,7 @@ out:
 			htlcPkt.err <- fmt.Errorf("Insufficient capacity")
 		case pkt := <-h.htlcPlex:
 			// TODO(roasbeef): properly account with cleared vs settled
-			numUpdates++
+			deltaNumUpdates++
 
 			hswcLog.Tracef("plex packet: %v", newLogClosure(func() string {
 				return spew.Sdump(pkt)
@@ -395,7 +399,7 @@ out:
 				hswcLog.Tracef("Decrementing link %v bandwidth to %v",
 					circuit.clear.chanPoint, n)
 
-				satRecv += pkt.amt
+				deltaSatRecv += pkt.amt
 
 			// We've just received a settle message which means we
 			// can finalize the payment circuit by forwarding the
@@ -413,7 +417,7 @@ out:
 				if !ok {
 					hswcLog.Debugf("No existing circuit "+
 						"for %x to settle", rHash[:])
-					satSent += pkt.amt
+					deltaSatSent += pkt.amt
 					continue
 				}
 
@@ -436,7 +440,7 @@ out:
 				hswcLog.Tracef("Incrementing link %v bandwidth to %v",
 					circuit.settle.chanPoint, n)
 
-				satSent += pkt.amt
+				deltaSatSent += pkt.amt
 
 				delete(h.paymentCircuits, cKey)
 
@@ -478,18 +482,35 @@ out:
 				delete(h.paymentCircuits, pkt.payHash)
 			}
 		case <-logTicker.C:
-			if numUpdates == 0 {
+			if deltaNumUpdates == 0 {
 				continue
 			}
 
+			oldSatSent := totalSatRecv
+			oldSatRecv := totalSatRecv
+			oldNumUpdates := totalNumUpdates
+
+			newSatSent := oldSatRecv + deltaSatSent
+			newSatRecv := totalSatRecv + deltaSatRecv
+			newNumUpdates := totalNumUpdates + deltaNumUpdates
+
+			satSent := newSatSent - oldSatSent
+			satRecv := newSatRecv - oldSatRecv
+			numUpdates := newNumUpdates - oldNumUpdates
 			hswcLog.Infof("Sent %v satoshis, received %v satoshis in "+
 				"the last 10 seconds (%v tx/sec)",
 				satSent.ToUnit(btcutil.AmountSatoshi),
 				satRecv.ToUnit(btcutil.AmountSatoshi),
-				float64(numUpdates)/10)
-			satSent = 0
-			satRecv = 0
-			numUpdates = 0
+				numUpdates)
+
+			totalSatSent += deltaSatSent
+			deltaSatSent = 0
+
+			totalSatRecv += deltaSatRecv
+			deltaSatRecv = 0
+
+			totalNumUpdates += deltaNumUpdates
+			deltaNumUpdates = 0
 		case <-h.quit:
 			break out
 		}

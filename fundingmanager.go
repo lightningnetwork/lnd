@@ -492,18 +492,18 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	delay := msg.CsvDelay
 
 	// TODO(roasbeef): error if funding flow already ongoing
-	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%v) "+
-		"from peer(%x)", amt, msg.PushSatoshis, delay, msg.ChannelID,
-		fmsg.peerAddress.IdentityKey.SerializeCompressed())
+	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
+		"pendingId=%v) from peer(%x)", amt, msg.PushSatoshis, delay,
+		msg.ChannelID, fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
 	ourDustLimit := lnwallet.DefaultDustLimit()
 	theirDustlimit := msg.DustLimit
 
 	// Attempt to initialize a reservation within the wallet. If the wallet
-	// has insufficient resources to create the channel, then the reservation
-	// attempt may be rejected. Note that since we're on the responding
-	// side of a single funder workflow, we don't commit any funds to the
-	// channel ourselves.
+	// has insufficient resources to create the channel, then the
+	// reservation attempt may be rejected. Note that since we're on the
+	// responding side of a single funder workflow, we don't commit any
+	// funds to the channel ourselves.
 	// TODO(roasbeef): assuming this was an inbound connection, replace
 	// port with default advertised port
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
@@ -541,7 +541,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 
 	// With our portion of the reservation initialized, process the
 	// initiators contribution to the channel.
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript, activeNetParams.Params)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(msg.DeliveryPkScript,
+		activeNetParams.Params)
 	if err != nil {
 		fndgLog.Errorf("Unable to extract addresses from script: %v", err)
 		cancelReservation()

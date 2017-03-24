@@ -1026,56 +1026,67 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		pastHeight = lc.currentHeight - 1
 	}
 
-	localKey := lc.channelState.OurCommitKey
-	remoteKey := lc.channelState.TheirCommitKey
-	ourDelay := lc.channelState.LocalCsvDelay
-	theirDelay := lc.channelState.RemoteCsvDelay
-
+	// In order to reconstruct the pkScripts on each of the pending HTLC
+	// outputs (if any) we'll need to regenerate the current revocation for
+	// this current un-revoked state.
 	ourRevPreImage, err := lc.channelState.RevocationProducer.AtIndex(lc.currentHeight)
 	if err != nil {
 		return err
 	}
 	ourRevocation := sha256.Sum256(ourRevPreImage[:])
-
 	theirRevocation := lc.channelState.TheirCurrentRevocationHash
+
+	// Additionally, we'll fetch the current sent to commitment keys and
+	// CSV delay values which are also required to fully generate the
+	// scripts.
+	localKey := lc.channelState.OurCommitKey
+	remoteKey := lc.channelState.TheirCommitKey
+	ourDelay := lc.channelState.LocalCsvDelay
+	theirDelay := lc.channelState.RemoteCsvDelay
 
 	var ourCounter, theirCounter uint64
 
+	// TODO(roasbeef): partition entries added based on our current review
+	// an our view of them from the log?
 	for _, htlc := range lc.channelState.Htlcs {
 		// TODO(roasbeef): set isForwarded to false for all? need to
 		// persist state w.r.t to if forwarded or not, or can
 		// inadvertently trigger replays
 
 		// The proper pkScripts for this PaymentDescriptor must be
-		// generated.
+		// generated so we can easily locate them within the commitment
+		// transaction in the future.
 		var ourP2WSH, theirP2WSH []byte
-		timeout := htlc.RefundTimeout
-		rHash := htlc.RHash
-		amt := htlc.Amt
-		isDustLocal := amt < lc.channelState.OurDustLimit
-		isDustRemote := amt < lc.channelState.TheirDustLimit
 
-		// It is unnecessary to generate pkScripts for dust outputs.
+		// If the either outputs is dust from the local or remote
+		// node's perspective, then we don't need to generate the
+		// scripts as we only generate them in order to locate the
+		// outputs within the commitment transaction. As we'll mark
+		// dust with a special output index in the on-disk state
+		// snapshot.
+		isDustLocal := htlc.Amt < lc.channelState.OurDustLimit
+		isDustRemote := htlc.Amt < lc.channelState.TheirDustLimit
 		if !isDustLocal {
-			ourP2WSH, err = lc.genHtlcScript(htlc.Incoming, true, timeout,
-				ourDelay, remoteKey, localKey, ourRevocation, rHash)
+			ourP2WSH, err = lc.genHtlcScript(htlc.Incoming, true,
+				htlc.RefundTimeout, ourDelay, remoteKey,
+				localKey, ourRevocation, htlc.RHash)
 			if err != nil {
 				return err
 			}
 		}
-		// It is unnecessary to generate pkScripts for dust outputs.
 		if !isDustRemote {
-			theirP2WSH, err = lc.genHtlcScript(htlc.Incoming, false, timeout,
-				theirDelay, remoteKey, localKey, theirRevocation, rHash)
+			theirP2WSH, err = lc.genHtlcScript(htlc.Incoming, false,
+				htlc.RefundTimeout, theirDelay, remoteKey,
+				localKey, theirRevocation, htlc.RHash)
 			if err != nil {
 				return err
 			}
 		}
 
 		pd := &PaymentDescriptor{
-			RHash:                 rHash,
-			Timeout:               timeout,
-			Amount:                amt,
+			RHash:                 htlc.RHash,
+			Timeout:               htlc.RefundTimeout,
+			Amount:                htlc.Amt,
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,

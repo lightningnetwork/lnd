@@ -471,14 +471,27 @@ func (h *HTLC) Copy() HTLC {
 
 // ChannelDelta is a snapshot of the commitment state at a particular point in
 // the commitment chain. With each state transition, a snapshot of the current
-// state along with all non-settled HTLCs are recorded.
+// state along with all non-settled HTLCs are recorded. These snapshots detail
+// the state of the _remote_ party's commitment at a particular state number.
+// For ourselves (the local node) we ONLY store our most recent (unrevoked)
+// state for safety purposes.
 type ChannelDelta struct {
-	LocalBalance  btcutil.Amount
+	// LocalBalance is our current balance at this particular update
+	// number.
+	LocalBalance btcutil.Amount
+
+	// RemoteBalanceis the balance of the remote node at this particular
+	// update number.
 	RemoteBalance btcutil.Amount
-	UpdateNum     uint64
 
-	// TODO(roasbeef): add blockhash or timestamp?
+	// UpdateNum is the update number that this ChannelDelta represents the
+	// total number of commitment updates to this point. This can be viewed
+	// as sort of a "commitment height" as this number is monotonically
+	// increasing.
+	UpdateNum uint64
 
+	// Htlcs is the set of HTLC's that are pending at this particular
+	// commitment height.
 	Htlcs []*HTLC
 }
 
@@ -521,6 +534,57 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 
 		return appendChannelLogEntry(logBucket, delta, c.ChanID)
 	})
+}
+
+// RevocationLogTail returns the "tail", or the end of the current revocation
+// log. This entry represents the last previous state for the remote node's
+// commitment chain. The ChannelDelta returned by this method will always lag
+// one state behind the most current (unrevoked) state of the remote node's
+// commitment chain.
+func (c *OpenChannel) RevocationLogTail() (*ChannelDelta, error) {
+	// If we haven't created any state updates yet, then we'll exit erly as
+	// there's nothing to be found on disk in the revocation bucket.
+	if c.NumUpdates == 0 {
+		return nil, nil
+	}
+
+	var delta *ChannelDelta
+	if err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket := tx.Bucket(openChannelBucket)
+
+		nodePub := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket := chanBucket.Bucket(nodePub)
+		if nodeChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		logBucket := nodeChanBucket.Bucket(channelLogBucket)
+		if nodeChanBucket == nil {
+			return ErrNoPastDeltas
+		}
+
+		// Once we have the bucket that stores the revocation log from
+		// this channel, we'll jump to the _last_ key in bucket. As we
+		// store the update number on disk in a big-endian format,
+		// this'll retrieve the latest entry.
+		cursor := logBucket.Cursor()
+		_, tailLogEntry := cursor.Last()
+		logEntryReader := bytes.NewReader(tailLogEntry)
+
+		// Once we have the entry, we'll decode it into the channel
+		// delta pointer we created above.
+		var dbErr error
+		delta, dbErr = deserializeChannelDelta(logEntryReader)
+		if dbErr != nil {
+			return dbErr
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return delta, nil
 }
 
 // CommitmentHeight returns the current commitment height. The commitment

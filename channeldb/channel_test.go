@@ -539,6 +539,16 @@ func TestChannelStateTransition(t *testing.T) {
 		}
 	}
 
+	// The state number recovered from the tail of the revocation log
+	// should be identical to this current state.
+	logTail, err := channel.RevocationLogTail()
+	if err != nil {
+		t.Fatalf("unable to retrieve log: %v", err)
+	}
+	if logTail.UpdateNum != delta.UpdateNum {
+		t.Fatal("update number doesn't match")
+	}
+
 	// Next modify the delta slightly, then create a new entry within the
 	// revocation log.
 	delta.UpdateNum = 2
@@ -564,6 +574,16 @@ func TestChannelStateTransition(t *testing.T) {
 	if delta.RemoteBalance != 1e8+htlcAmt {
 		t.Fatalf("mismatched balances, expected %v got %v", 1e8+htlcAmt,
 			delta.RemoteBalance)
+	}
+
+	// Once again, state number recovered from the tail of the revocation
+	// log should be identical to this current state.
+	logTail, err = channel.RevocationLogTail()
+	if err != nil {
+		t.Fatalf("unable to retrieve log: %v", err)
+	}
+	if logTail.UpdateNum != delta.UpdateNum {
+		t.Fatal("update number doesn't match")
 	}
 
 	// The revocation state stored on-disk should now also be identical.

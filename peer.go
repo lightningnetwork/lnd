@@ -741,6 +741,8 @@ out:
 
 			// Now that the channel is open, notify the Htlc
 			// Switch of a new active link.
+			// TODO(roasbeef): register needs to account for
+			// in-flight htlc's on restart
 			chanSnapShot := newChanReq.channel.StateSnapshot()
 			downstreamLink := make(chan *htlcPacket, 10)
 			plexChan := p.server.htlcSwitch.RegisterLink(p,
@@ -1022,6 +1024,7 @@ type pendingPayment struct {
 
 	preImage chan [32]byte
 	err      chan error
+	done     chan struct{}
 }
 
 // commitmentState is the volatile+persistent state of an active channel's
@@ -1263,16 +1266,22 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		if err != nil {
 			// TODO: possibly perform fallback/retry logic
 			// depending on type of error
-			// TODO: send a cancel message back to the htlcSwitch.
 			peerLog.Errorf("Adding HTLC rejected: %v", err)
 			pkt.err <- err
+			close(pkt.done)
 
-			// Increase the available bandwidth of the link,
-			// previously it was decremented and because
-			// HTLC adding failed we should do the reverse
-			// operation.
-			htlcSwitch := p.server.htlcSwitch
-			htlcSwitch.UpdateLink(&htlc.ChannelPoint, pkt.amt)
+			// The HTLC was unable to be added to the state
+			// machine, as a result, we'll signal the switch to
+			// cancel the pending payment.
+			// TODO(roasbeef): need to update link as well if local
+			// HTLC?
+			state.switchChan <- &htlcPacket{
+				amt: htlc.Amount,
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: []byte{byte(0)},
+				},
+				srcLink: *state.chanPoint,
+			}
 			return
 		}
 
@@ -1283,6 +1292,7 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 			index:    index,
 			preImage: pkt.preImage,
 			err:      pkt.err,
+			done:     pkt.done,
 		})
 
 	case *lnwire.UpdateFufillHTLC:
@@ -1368,6 +1378,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		index, err := state.channel.ReceiveHTLC(htlcPkt)
 		if err != nil {
 			peerLog.Errorf("Receiving HTLC rejected: %v", err)
+			p.Disconnect()
 			return
 		}
 
@@ -1544,6 +1555,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 					p.preImage <- [32]byte{}
 					p.err <- errors.New(errMsg.String())
 				}
+
+				close(p.done)
 
 				delete(state.clearedHTCLs, htlc.ParentIndex)
 			}

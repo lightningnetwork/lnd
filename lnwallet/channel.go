@@ -2561,10 +2561,16 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 
 	// Avoid creating dust outputs within the commitment transaction.
 	if amountToSelf >= dustLimit {
-		commitTx.AddTxOut(wire.NewTxOut(int64(amountToSelf), payToUsScriptHash))
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: payToUsScriptHash,
+			Value:    int64(amountToSelf),
+		})
 	}
 	if amountToThem >= dustLimit {
-		commitTx.AddTxOut(wire.NewTxOut(int64(amountToThem), theirWitnessKeyHash))
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: theirWitnessKeyHash,
+			Value:    int64(amountToThem),
+		})
 	}
 
 	return commitTx, nil

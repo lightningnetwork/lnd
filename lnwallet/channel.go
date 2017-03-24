@@ -268,13 +268,16 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 	// index of a particular HTLC within the current commitment
 	// transaction.
 	locateOutputIndex := func(p *PaymentDescriptor) (uint16, error) {
-		var idx uint16
-		var found bool
+		var (
+			idx   uint16
+			found bool
+		)
 
 		pkScript := p.theirPrevPkScript
 		if ourCommit {
 			pkScript = p.ourPkScript
 		}
+
 		for i, txOut := range c.txn.TxOut {
 			if bytes.Equal(txOut.PkScript, pkScript) &&
 				txOut.Value == int64(p.Amount) {
@@ -288,14 +291,17 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			}
 		}
 		if !found {
-			return 0, fmt.Errorf("could not find a matching output for the HTLC " +
-				"in the commitment transaction")
+			return 0, fmt.Errorf("could not find a matching " +
+				"output for the HTLC in the commitment transaction")
 		}
+
 		return idx, nil
 	}
 
-	var index uint16
-	var err error
+	var (
+		index uint16
+		err   error
+	)
 	for _, htlc := range c.outgoingHTLCs {
 		if (ourCommit && htlc.isDustLocal) ||
 			(!ourCommit && htlc.isDustRemote) {
@@ -314,6 +320,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		}
 		delta.Htlcs = append(delta.Htlcs, h)
 	}
+
 	for _, htlc := range c.incomingHTLCs {
 		if (ourCommit && htlc.isDustLocal) ||
 			(!ourCommit && htlc.isDustRemote) {
@@ -686,19 +693,46 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		quit:                  make(chan struct{}),
 	}
 
-	// Initialize both of our chains the current un-revoked commitment for
-	// each side.
-	// TODO(roasbeef): add chnneldb.RevocationLogTail method, then init
-	// their commitment from that as we may be de-synced
-	initialCommitment := &commitment{
+	// Initialize both of our chains using current un-revoked commitment
+	// for each side.
+	lc.localCommitChain.addCommitment(&commitment{
 		height:            lc.currentHeight,
 		ourBalance:        state.OurBalance,
 		ourMessageIndex:   0,
 		theirBalance:      state.TheirBalance,
 		theirMessageIndex: 0,
+	})
+	walletLog.Debugf("ChannelPoint(%v), starting local commitment: %v",
+		state.ChanID, newLogClosure(func() string {
+			return spew.Sdump(lc.localCommitChain.tail())
+		}),
+	)
+
+	// To obtain the proper height for the remote node's commitment state,
+	// we'll need to fetch the tail end of their revocation log from the
+	// database.
+	logTail, err := state.RevocationLogTail()
+	if err != nil && err != channeldb.ErrNoActiveChannels &&
+		err != channeldb.ErrNoPastDeltas {
+		return nil, err
 	}
-	lc.localCommitChain.addCommitment(initialCommitment)
-	lc.remoteCommitChain.addCommitment(initialCommitment)
+	remoteCommitment := &commitment{
+		ourBalance:        state.OurBalance,
+		ourMessageIndex:   0,
+		theirBalance:      state.TheirBalance,
+		theirMessageIndex: 0,
+	}
+	if logTail == nil {
+		remoteCommitment.height = 0
+	} else {
+		remoteCommitment.height = logTail.UpdateNum + 1
+	}
+	lc.remoteCommitChain.addCommitment(remoteCommitment)
+	walletLog.Debugf("ChannelPoint(%v), starting remote commitment: %v",
+		state.ChanID, newLogClosure(func() string {
+			return spew.Sdump(lc.remoteCommitChain.tail())
+		}),
+	)
 
 	// If we're restarting from a channel with history, then restore the
 	// update in-memory update logs to that of the prior state.
@@ -948,6 +982,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	broadcastStateNum := GetStateNumHint(commitTxBroadcast, obsfucator)
 
 	currentStateNum := lc.currentHeight
+
+	// TODO(roasbeef): track heights distinctly?
 
 	switch {
 	// If state number spending transaction matches the current latest

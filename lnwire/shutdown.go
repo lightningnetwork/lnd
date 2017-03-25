@@ -13,7 +13,7 @@ type Shutdown struct {
 	// ChannelID serves to identify which channel is to be closed.
 	ChannelID ChannelID
 
-	// Address is the script to which
+	// Address is the script to which the channel funds will be paid.
 	Address DeliveryAddress
 }
 

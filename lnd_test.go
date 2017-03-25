@@ -2080,7 +2080,6 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 	ipAddresses := map[string]bool{
 		"192.168.1.1:8333":                            true,
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337": true,
-		"127.0.0.1:8335":                              true,
 	}
 
 	var lndArgs []string
@@ -2118,8 +2117,11 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 				if ipAddresses[parts[3]] {
 					delete(ipAddresses, parts[3])
 				} else {
-					t.Fatalf("unexpected IP address: %v",
-						parts[3])
+					if !strings.HasPrefix(parts[3],
+						"127.0.0.1:") {
+						t.Fatalf("unexpected IP: %v",
+							parts[3])
+					}
 				}
 			}
 		}

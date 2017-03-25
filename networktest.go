@@ -133,6 +133,9 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 
 	numActiveNodes++
 
+	lndArgs = append(lndArgs, "--externalip=127.0.0.1:"+
+		strconv.Itoa(cfg.PeerPort))
+
 	return &lightningNode{
 		cfg:               cfg,
 		p2pAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),

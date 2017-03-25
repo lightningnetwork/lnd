@@ -901,7 +901,7 @@ const (
 	CloseBreach
 )
 
-// closeChanReq represents a request to close a particular channel specified by
+// closeLinkReq represents a request to close a particular channel specified by
 // its outpoint.
 type closeLinkReq struct {
 	CloseType LinkCloseType

@@ -123,13 +123,16 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 	var hopPayloads [NumMaxHops * HopPayloadSize]byte
 
 	// Same goes for the HMAC
-	var next_hmac [20]byte
-	next_address := bytes.Repeat([]byte{0x00}, 20)
+	var nextHmac [20]byte
+	nextAddress := bytes.Repeat([]byte{0x00}, 20)
 
 	// Now we compute the routing information for each hop, along with a
 	// MAC of the routing info using the shared key for that hop.
 	for i := numHops - 1; i >= 0; i-- {
-
+		// We'll derive the three keys we need for each hop in order
+		// to: generate our stream cipher bytes for the
+		// mixHeader+hopPayloads, and calculate the MAC over the entire
+		// constructed packet.
 		rhoKey := generateKey("rho", hopSharedSecrets[i])
 		gammaKey := generateKey("gamma", hopSharedSecrets[i])
 		muKey := generateKey("mu", hopSharedSecrets[i])
@@ -137,8 +140,8 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		// Shift and obfuscate routing info
 		streamBytes := generateCipherStream(rhoKey, numStreamBytes)
 		rightShift(mixHeader[:], 2*securityParameter)
-		copy(mixHeader[:], next_address[:])
-		copy(mixHeader[securityParameter:], next_hmac[:])
+		copy(mixHeader[:], nextAddress[:])
+		copy(mixHeader[securityParameter:], nextHmac[:])
 		xor(mixHeader[:], mixHeader[:], streamBytes[:routingInfoSize])
 
 		// Shift and obfuscate per-hop payload
@@ -153,16 +156,21 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 			copy(hopPayloads[len(hopPayloads)-len(hopFiller):], hopFiller)
 		}
 
-		packet := append(append(mixHeader[:], hopPayloads[:]...), assocData...)
-		next_hmac = calcMac(muKey, packet)
-		next_address = btcutil.Hash160(paymentPath[i].SerializeCompressed())
+		// The packet for this hop consists of: mixHeader ||
+		// hopPayloads. When calculating the MAC, we'll also include
+		// the optional associated data which can allow higher level
+		// applications to prevent replay attacks.
+		packet := append(append(mixHeader[:], hopPayloads[:]...),
+			assocData...)
+		nextHmac = calcMac(muKey, packet)
+		nextAddress = btcutil.Hash160(paymentPath[i].SerializeCompressed())
 	}
 
 	header := &MixHeader{
 		Version:      0x01,
 		EphemeralKey: hopEphemeralPubKeys[0],
 		RoutingInfo:  mixHeader,
-		HeaderMAC:    next_hmac,
+		HeaderMAC:    nextHmac,
 		HopPayload:   hopPayloads,
 	}
 	return header, hopSharedSecrets, nil
@@ -191,13 +199,16 @@ func rightShift(slice []byte, num int) {
 // "filler" bytes produced by this function at the last hop. Using
 // this methodology, the size of the field stays constant at each
 // hop.
-func generateHeaderPadding(key string, numHops int, hopSize int, sharedSecrets [][sharedSecretSize]byte) []byte {
-	filler := make([]byte, (numHops-1)*hopSize)
+func generateHeaderPadding(key string, numHops int, hopSize int,
+	sharedSecrets [][sharedSecretSize]byte) []byte {
 
+	filler := make([]byte, (numHops-1)*hopSize)
 	for i := 1; i < numHops; i++ {
 		totalFillerSize := ((NumMaxHops - i) + 1) * hopSize
-		streamBytes := generateCipherStream(generateKey(key, sharedSecrets[i-1]),
-			numStreamBytes)
+
+		streamKey := generateKey(key, sharedSecrets[i-1])
+		streamBytes := generateCipherStream(streamKey, numStreamBytes)
+
 		xor(filler, filler, streamBytes[totalFillerSize:totalFillerSize+i*hopSize])
 	}
 	return filler
@@ -216,7 +227,7 @@ type OnionPacket struct {
 func NewOnionPacket(route []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 	hopPayloads [][]byte, assocData []byte) (*OnionPacket, error) {
 
-	// Compute the mix header, and shared secerts for each hop.
+	// Compute the mix header, and shared secrets for each hop.
 	mixHeader, _, err := NewMixHeader(route, sessionKey, hopPayloads, assocData)
 	if err != nil {
 		return nil, err
@@ -256,8 +267,8 @@ func (f *OnionPacket) Encode(w io.Writer) error {
 
 // Decode fully populates the target ForwardingMessage from the raw bytes
 // encoded within the io.Reader. In the case of any decoding errors, an error
-// will be returned. If the method successs, then the new OnionPacket is
-// ready to be processed by an instance of SphinxNode.
+// will be returned. If the method success, then the new OnionPacket is ready
+// to be processed by an instance of SphinxNode.
 func (f *OnionPacket) Decode(r io.Reader) error {
 	var err error
 
@@ -291,8 +302,8 @@ func (f *OnionPacket) Decode(r io.Reader) error {
 	return nil
 }
 
-// calcMac calculates HMAC-SHA-256 over the message using the passed secret key as
-// input to the HMAC.
+// calcMac calculates HMAC-SHA-256 over the message using the passed secret key
+// as input to the HMAC.
 func calcMac(key [keyLen]byte, msg []byte) [securityParameter]byte {
 	hmac := hmac.New(sha256.New, key[:])
 	hmac.Write(msg)
@@ -332,8 +343,8 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [keyLen]byte 
 }
 
 // generateCipherStream generates a stream of cryptographic psuedo-random bytes
-// intened to be used to encrypt a message using a one-time-pad like
-// construciton.
+// intended to be used to encrypt a message using a one-time-pad like
+// construction.
 func generateCipherStream(key [keyLen]byte, numBytes uint) []byte {
 	var nonce [8]byte
 	cipher, err := chacha20.New(key[:], nonce[:])
@@ -396,7 +407,7 @@ func multiScalarMult(hopPubKey *btcec.PublicKey, blindingFactors [][sha256.Size]
 }
 
 // ProcessCode is an enum-like type which describes to the high-level package
-// user which action shuold be taken after processing a Sphinx packet.
+// user which action should be taken after processing a Sphinx packet.
 type ProcessCode int
 
 const (
@@ -409,7 +420,7 @@ const (
 	// denoted as the "NextHop".
 	MoreHops
 
-	// Failure indicates that a failure occured during packet processing.
+	// Failure indicates that a failure occurred during packet processing.
 	Failure
 )
 
@@ -442,7 +453,7 @@ type ProcessedPacket struct {
 	// MoreHops.
 	NextHop [securityParameter]byte
 
-	// Packet is the resulting packet uncovered afer processing the
+	// Packet is the resulting packet uncovered after processing the
 	// original onion packet by stripping off a layer from mix-header and
 	// message.
 	//
@@ -526,7 +537,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	}
 
 	// Compute our shared secret.
-	sharedSecret := sha256.Sum256(btcec.GenerateSharedSecret(r.onionKey, dhKey))
+	sharedSecret := generateSharedSecret(dhKey, r.onionKey)
 
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
@@ -544,14 +555,14 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	message := append(append(routeInfo[:], mixHeader.HopPayload[:]...), assocData...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
-		return nil, fmt.Errorf("MAC mismatch %x != %x, rejecting forwarding message", headerMac, calculatedMac)
+		return nil, fmt.Errorf("MAC mismatch %x != %x, rejecting "+
+			"forwarding message", headerMac, calculatedMac)
 	}
 
-	// The MAC checks out, mark this current shared secret as
-	// processed in order to mitigate future replay attacks. We
-	// need to check to see if we already know the secret again
-	// since a replay might have happened while we were checking
-	// the MAC.
+	// The MAC checks out, mark this current shared secret as processed in
+	// order to mitigate future replay attacks. We need to check to see if
+	// we already know the secret again since a replay might have happened
+	// while we were checking the MAC.
 	r.Lock()
 	if _, ok := r.seenSecrets[sharedSecret]; ok {
 		r.RUnlock()
@@ -583,10 +594,19 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	var nextMixHeader [routingInfoSize]byte
 	copy(nextMixHeader[:], hopInfo[securityParameter*2:])
 
-	hopPayloadsWithPadding := append(mixHeader.HopPayload[:], bytes.Repeat([]byte{0x00}, HopPayloadSize)...)
-	hopStreamBytes := generateCipherStream(generateKey("gamma", sharedSecret), uint(len(hopPayloadsWithPadding)))
+	// We repeat a similar process as above: we pad out the hop payload
+	// with the required number of zeroes, then re-generate the stream
+	// cipher bytes so we can XOR over the entire payload to decrypt our
+	// payload layer and re-randomize the remainders.
+	paddingZeroes := bytes.Repeat([]byte{0x00}, HopPayloadSize)
+	hopPayloadsWithPadding := append(mixHeader.HopPayload[:], paddingZeroes...)
+	payloadCipherKey := generateKey("gamma", sharedSecret)
+	hopStreamBytes := generateCipherStream(payloadCipherKey, uint(len(hopPayloadsWithPadding)))
 	xor(hopPayloadsWithPadding, hopPayloadsWithPadding, hopStreamBytes)
 
+	// We'll copy over the decrypted portion of the payload for this hop,
+	// and then copy over the remainders which is still encrypted and
+	// destined for the next node.
 	copy(hopPayload[:], hopPayloadsWithPadding[:HopPayloadSize])
 	var nextHopPayloads [NumMaxHops * HopPayloadSize]byte
 	copy(nextHopPayloads[:], hopPayloadsWithPadding[HopPayloadSize:])
@@ -601,8 +621,10 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 		},
 	}
 
+	// By default we'll assume that there are additional hops in the route.
+	// However if the uncovered 'nextMac' is all zeroes, then this
+	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-
 	if bytes.Compare(bytes.Repeat([]byte{0x00}, 20), nextMac[:]) == 0 {
 		action = ExitNode
 	}

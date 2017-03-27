@@ -9,11 +9,14 @@ import (
 	"os"
 	"strings"
 
-	sphinx "github.com/LightningNetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 )
 
+// main implements a simple command line utility that can be used in order to
+// either generate a fresh mix-header or decode and fully process an existing
+// one given a private key.
 func main() {
 	args := os.Args
 

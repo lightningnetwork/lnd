@@ -50,6 +50,7 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 
 	pub := priv.PubKey().SerializeCompressed()
 	return &LightningNode{
+		AuthSig:    testSig,
 		LastUpdate: time.Unix(updateTime, 0),
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
@@ -73,6 +74,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// graph, so we'll create a test vertex to start with.
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
+		AuthSig:    testSig,
 		LastUpdate: time.Unix(1232342, 0),
 		PubKey:     testPub,
 		Color:      color.RGBA{1, 2, 3, 0},
@@ -400,6 +402,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// With the edge added, we can now create some fake edge information to
 	// update for both edges.
 	edge1 := &ChannelEdgePolicy{
+		Signature:                 testSig,
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(433453, 0),
 		Flags:                     0,
@@ -411,6 +414,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		db:   db,
 	}
 	edge2 := &ChannelEdgePolicy{
+		Signature:                 testSig,
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(124234, 0),
 		Flags:                     1,
@@ -589,6 +593,7 @@ func TestGraphTraversal(t *testing.T) {
 		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = secondNode
+		edge.Signature = testSig
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -598,6 +603,7 @@ func TestGraphTraversal(t *testing.T) {
 		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = firstNode
+		edge.Signature = testSig
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -743,6 +749,7 @@ func TestGraphPruning(t *testing.T) {
 		edge := randEdgePolicy(chanID, op, db)
 		edge.Flags = 0
 		edge.Node = graphNodes[i]
+		edge.Signature = testSig
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
@@ -752,6 +759,7 @@ func TestGraphPruning(t *testing.T) {
 		edge = randEdgePolicy(chanID, op, db)
 		edge.Flags = 1
 		edge.Node = graphNodes[i]
+		edge.Signature = testSig
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}

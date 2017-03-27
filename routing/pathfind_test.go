@@ -163,6 +163,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 
 		dbNode := &channeldb.LightningNode{
+			AuthSig:    testSig,
 			LastUpdate: time.Now(),
 			Addresses:  testAddrs,
 			PubKey:     pub,
@@ -257,6 +258,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
+			Signature:                 testSig,
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
 			TimeLockDelta:             edge.Expiry,

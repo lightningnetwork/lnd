@@ -1108,6 +1108,10 @@ func (p *ChannelAuthProof) IsEmpty() bool {
 // information concerning fees, and minimum time-lock information which is
 // utilized during path finding.
 type ChannelEdgePolicy struct {
+	// Signature is a channel announcement signature, which is needed for
+	// proper edge policy announcement.
+	Signature *btcec.Signature
+
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
 	// and the last 2 bytes are the output index for the channel.
@@ -1361,6 +1365,11 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		}
 	}
 
+	err := wire.WriteVarBytes(&b, 0, node.AuthSig.Serialize())
+	if err != nil {
+		return err
+	}
+
 	return nodeBucket.Put(nodePub, b.Bytes())
 }
 
@@ -1461,6 +1470,16 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 		addresses = append(addresses, address)
 	}
 	node.Addresses = addresses
+
+	sigBytes, err := wire.ReadVarBytes(r, 0, 80, "sig")
+	if err != nil {
+		return nil, err
+	}
+
+	node.AuthSig, err = btcec.ParseSignature(sigBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
 
 	return node, nil
 }
@@ -1626,6 +1645,11 @@ func putChanEdgePolicy(edges *bolt.Bucket, edge *ChannelEdgePolicy, from, to []b
 
 	var b bytes.Buffer
 
+	err := wire.WriteVarBytes(&b, 0, edge.Signature.Serialize())
+	if err != nil {
+		return err
+	}
+
 	if err := binary.Write(&b, byteOrder, edge.ChannelID); err != nil {
 		return err
 	}
@@ -1722,6 +1746,16 @@ func deserializeChanEdgePolicy(r io.Reader,
 	nodes *bolt.Bucket) (*ChannelEdgePolicy, error) {
 
 	edge := &ChannelEdgePolicy{}
+
+	sigBytes, err := wire.ReadVarBytes(r, 0, 80, "sig")
+	if err != nil {
+		return nil, err
+	}
+
+	edge.Signature, err = btcec.ParseSignature(sigBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
 
 	if err := binary.Read(r, byteOrder, &edge.ChannelID); err != nil {
 		return nil, err

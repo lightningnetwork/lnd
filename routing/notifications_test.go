@@ -75,7 +75,7 @@ func createTestNode() (*channeldb.LightningNode, error) {
 	}, nil
 }
 
-func randEdgePolicy(chanID lnwire.ChannelID,
+func randEdgePolicy(chanID lnwire.ShortChannelID,
 	node *channeldb.LightningNode) *channeldb.ChannelEdgePolicy {
 
 	return &channeldb.ChannelEdgePolicy{
@@ -90,7 +90,7 @@ func randEdgePolicy(chanID lnwire.ChannelID,
 }
 
 func randChannelEdge(ctx *testCtx, chanValue btcutil.Amount,
-	fundingHeight uint32) (*wire.MsgTx, wire.OutPoint, lnwire.ChannelID) {
+	fundingHeight uint32) (*wire.MsgTx, wire.OutPoint, lnwire.ShortChannelID) {
 
 	fundingTx := wire.NewMsgTx(2)
 	fundingTx.TxOut = append(fundingTx.TxOut, &wire.TxOut{
@@ -105,7 +105,7 @@ func randChannelEdge(ctx *testCtx, chanValue btcutil.Amount,
 	ctx.chain.addUtxo(chanUtxo, chanValue)
 
 	// Our fake channel will be "confirmed" at height 101.
-	chanID := lnwire.ChannelID{
+	chanID := lnwire.ShortChannelID{
 		BlockHeight: fundingHeight,
 		TxIndex:     0,
 		TxPosition:  0,

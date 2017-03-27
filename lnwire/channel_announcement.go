@@ -15,28 +15,28 @@ type ChannelAnnouncement struct {
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
 	// this node.
-	FirstNodeSig  *btcec.Signature
-	SecondNodeSig *btcec.Signature
-
-	// ChannelID is the unique description of the funding transaction.
-	ChannelID ChannelID
+	NodeSig1 *btcec.Signature
+	NodeSig2 *btcec.Signature
 
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring the bitcoin
 	// signatures proves they control the channel.
-	FirstBitcoinSig  *btcec.Signature
-	SecondBitcoinSig *btcec.Signature
+	BitcoinSig1 *btcec.Signature
+	BitcoinSig2 *btcec.Signature
+
+	// ShortChannelID is the unique description of the funding transaction.
+	ShortChannelID ShortChannelID
 
 	// The public keys of the two nodes who are operating the channel, such
-	// that is FirstNodeID the numerically-lesser of the two DER encoded
-	// keys (ascending numerical order).
-	FirstNodeID  *btcec.PublicKey
-	SecondNodeID *btcec.PublicKey
+	// that is NodeID1 the numerically-lesser than NodeID2 (ascending
+	// numerical order).
+	NodeID1 *btcec.PublicKey
+	NodeID2 *btcec.PublicKey
 
 	// Public keys which corresponds to the keys which was declared in
 	// multisig funding transaction output.
-	FirstBitcoinKey  *btcec.PublicKey
-	SecondBitcoinKey *btcec.PublicKey
+	BitcoinKey1 *btcec.PublicKey
+	BitcoinKey2 *btcec.PublicKey
 }
 
 // A compile time check to ensure ChannelAnnouncement implements the
@@ -57,15 +57,15 @@ func (a *ChannelAnnouncement) Validate() error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&a.FirstNodeSig,
-		&a.SecondNodeSig,
-		&a.ChannelID,
-		&a.FirstBitcoinSig,
-		&a.SecondBitcoinSig,
-		&a.FirstNodeID,
-		&a.SecondNodeID,
-		&a.FirstBitcoinKey,
-		&a.SecondBitcoinKey,
+		&a.NodeSig1,
+		&a.NodeSig2,
+		&a.ShortChannelID,
+		&a.BitcoinSig1,
+		&a.BitcoinSig2,
+		&a.NodeID1,
+		&a.NodeID2,
+		&a.BitcoinKey1,
+		&a.BitcoinKey2,
 	)
 }
 
@@ -75,15 +75,15 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		a.FirstNodeSig,
-		a.SecondNodeSig,
-		a.ChannelID,
-		a.FirstBitcoinSig,
-		a.SecondBitcoinSig,
-		a.FirstNodeID,
-		a.SecondNodeID,
-		a.FirstBitcoinKey,
-		a.SecondBitcoinKey,
+		a.NodeSig1,
+		a.NodeSig2,
+		a.ShortChannelID,
+		a.BitcoinSig1,
+		a.BitcoinSig2,
+		a.NodeID1,
+		a.NodeID2,
+		a.BitcoinKey1,
+		a.BitcoinKey2,
 	)
 }
 
@@ -92,7 +92,7 @@ func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Command() uint32 {
-	return CmdChannelAnnoucmentMessage
+	return CmdChannelAnnouncement
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message
@@ -102,31 +102,31 @@ func (a *ChannelAnnouncement) Command() uint32 {
 func (a *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	var length uint32
 
-	// FirstNodeSig - 64 bytes
+	// NodeSig1 - 64 bytes
 	length += 64
 
-	// SecondNodeSig - 64 bytes
+	// NodeSig2 - 64 bytes
 	length += 64
 
-	// ChannelID - 8 bytes
+	// ShortChannelID - 8 bytes
 	length += 8
 
-	// FirstBitcoinSig - 64 bytes
+	// BitcoinSig1 - 64 bytes
 	length += 64
 
-	// SecondBitcoinSig - 64 bytes
+	// BitcoinSig2 - 64 bytes
 	length += 64
 
-	// FirstNodeID - 33 bytes
+	// NodeID1 - 33 bytes
 	length += 33
 
-	// SecondNodeID - 33 bytes
+	// NodeID2 - 33 bytes
 	length += 33
 
-	// FirstBitcoinKey - 33 bytes
+	// BitcoinKey1 - 33 bytes
 	length += 33
 
-	// SecondBitcoinKey - 33 bytes
+	// BitcoinKey2 - 33 bytes
 	length += 33
 
 	return length
@@ -138,13 +138,11 @@ func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
-		a.ChannelID,
-		a.FirstBitcoinSig,
-		a.SecondBitcoinSig,
-		a.FirstNodeID,
-		a.SecondNodeID,
-		a.FirstBitcoinKey,
-		a.SecondBitcoinKey,
+		a.ShortChannelID,
+		a.NodeID1,
+		a.NodeID2,
+		a.BitcoinKey1,
+		a.BitcoinKey2,
 	)
 	if err != nil {
 		return nil, err

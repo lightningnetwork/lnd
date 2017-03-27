@@ -175,7 +175,7 @@ func createNodeAnnouncement() (*lnwire.NodeAnnouncement,
 func createUpdateAnnouncement(blockHeight uint32) *lnwire.ChannelUpdateAnnouncement {
 	return &lnwire.ChannelUpdateAnnouncement{
 		Signature: testSig,
-		ChannelID: lnwire.ChannelID{
+		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
 		Timestamp:                 uint32(prand.Int31()),
@@ -188,14 +188,14 @@ func createUpdateAnnouncement(blockHeight uint32) *lnwire.ChannelUpdateAnnouncem
 
 func createChannelAnnouncement(blockHeight uint32) *lnwire.ChannelAnnouncement {
 	// Our fake channel will be "confirmed" at height 101.
-	chanID := lnwire.ChannelID{
+	chanID := lnwire.ShortChannelID{
 		BlockHeight: blockHeight,
 		TxIndex:     0,
 		TxPosition:  0,
 	}
 
 	return &lnwire.ChannelAnnouncement{
-		ChannelID: chanID,
+		ShortChannelID: chanID,
 	}
 }
 

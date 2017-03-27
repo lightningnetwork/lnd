@@ -547,7 +547,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
-		channelID := lnwire.NewChanIDFromInt(msg.ChannelID)
+		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingPoint, err := r.fetchChanPoint(&channelID)
 		if err != nil {
 			return errors.Errorf("unable to fetch chan point for "+
@@ -580,7 +580,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			fundingPoint, msg.ChannelID)
 
 	case *channeldb.ChannelEdgePolicy:
-		channelID := lnwire.NewChanIDFromInt(msg.ChannelID)
+		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		edge1Timestamp, edge2Timestamp, _, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
@@ -658,7 +658,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 // fetchChanPoint retrieves the original outpoint which is encoded within the
 // channelID.
-func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ChannelID) (*wire.OutPoint, error) {
+func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.OutPoint, error) {
 	// First fetch the block hash by the block number encoded, then use
 	// that hash to fetch the block itself.
 	blockNum := int64(chanID.BlockHeight)

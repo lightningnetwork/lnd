@@ -11,15 +11,15 @@ import (
 
 func TestChannelAnnoucementEncodeDecode(t *testing.T) {
 	ca := &ChannelAnnouncement{
-		FirstNodeSig:     someSig,
-		SecondNodeSig:    someSig,
-		ChannelID:        someChannelID,
-		FirstBitcoinSig:  someSig,
-		SecondBitcoinSig: someSig,
-		FirstNodeID:      pubKey,
-		SecondNodeID:     pubKey,
-		FirstBitcoinKey:  pubKey,
-		SecondBitcoinKey: pubKey,
+		NodeSig1:       someSig,
+		NodeSig2:       someSig,
+		ShortChannelID: someChannelID,
+		BitcoinSig1:    someSig,
+		BitcoinSig2:    someSig,
+		NodeID1:        pubKey,
+		NodeID2:        pubKey,
+		BitcoinKey1:    pubKey,
+		BitcoinKey2:    pubKey,
 	}
 
 	// Next encode the CA message into an empty bytes buffer.
@@ -65,23 +65,23 @@ func TestChannelAnnoucementValidation(t *testing.T) {
 	secondBitcoinSig, _ := secondBitcoinPrivKey.Sign(hash)
 
 	ca := &ChannelAnnouncement{
-		ChannelID:        someChannelID,
-		FirstBitcoinSig:  firstBitcoinSig,
-		SecondBitcoinSig: secondBitcoinSig,
-		FirstNodeID:      firstNodePubKey,
-		SecondNodeID:     secondNodePubKey,
-		FirstBitcoinKey:  firstBitcoinPubKey,
-		SecondBitcoinKey: secondBitcoinPubKey,
+		ShortChannelID: someChannelID,
+		BitcoinSig1:    firstBitcoinSig,
+		BitcoinSig2:    secondBitcoinSig,
+		NodeID1:        firstNodePubKey,
+		NodeID2:        secondNodePubKey,
+		BitcoinKey1:    firstBitcoinPubKey,
+		BitcoinKey2:    secondBitcoinPubKey,
 	}
 
 	dataToSign, _ := ca.DataToSign()
 	hash = chainhash.DoubleHashB(dataToSign)
 
 	firstNodeSign, _ := firstNodePrivKey.Sign(hash)
-	ca.FirstNodeSig = firstNodeSign
+	ca.NodeSig1 = firstNodeSign
 
 	secondNodeSign, _ := secondNodePrivKey.Sign(hash)
-	ca.SecondNodeSig = secondNodeSign
+	ca.NodeSig2 = secondNodeSign
 
 	if err := ca.Validate(); err != nil {
 		t.Fatal(err)

@@ -23,7 +23,7 @@ type AnnounceSignatures struct {
 	// as the block height, the next 3 bytes indicating the transaction
 	// index within the block, and the least significant two bytes
 	// indicating the output index which pays to the channel.
-	ShortChannelID ChannelID
+	ShortChannelID ShortChannelID
 
 	// NodeSignature is the signature which contains the signed announce
 	// channel message, by this signature we proof that we posses of the

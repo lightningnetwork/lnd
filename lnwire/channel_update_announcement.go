@@ -17,8 +17,8 @@ type ChannelUpdateAnnouncement struct {
 	// ownership of node id.
 	Signature *btcec.Signature
 
-	// ChannelID is the unique description of the funding transaction.
-	ChannelID ChannelID
+	// ShortChannelID is the unique description of the funding transaction.
+	ShortChannelID ShortChannelID
 
 	// Timestamp allows ordering in the case of multiple announcements.
 	// We should ignore the message if timestamp is not greater than
@@ -74,7 +74,7 @@ func (a *ChannelUpdateAnnouncement) Validate() error {
 func (a *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.Signature,
-		&a.ChannelID,
+		&a.ShortChannelID,
 		&a.Timestamp,
 		&a.Flags,
 		&a.TimeLockDelta,
@@ -91,7 +91,7 @@ func (a *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.Signature,
-		a.ChannelID,
+		a.ShortChannelID,
 		a.Timestamp,
 		a.Flags,
 		a.TimeLockDelta,
@@ -106,7 +106,7 @@ func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelUpdateAnnouncement) Command() uint32 {
-	return CmdChannelUpdateAnnoucmentMessage
+	return CmdChannelUpdateAnnouncement
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message
@@ -119,7 +119,7 @@ func (a *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	// Signature - 64 bytes
 	length += 64
 
-	// ChannelID - 8 bytes
+	// ShortChannelID - 8 bytes
 	length += 8
 
 	// Timestamp - 4 bytes
@@ -150,7 +150,7 @@ func (a *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
-		a.ChannelID,
+		a.ShortChannelID,
 		a.Timestamp,
 		a.Flags,
 		a.TimeLockDelta,

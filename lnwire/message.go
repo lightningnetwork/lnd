@@ -52,10 +52,10 @@ const (
 	CmdErrorGeneric = uint32(4000)
 
 	// Commands for discovery service.
-	CmdChannelAnnoucmentMessage       = uint32(5000)
-	CmdChannelUpdateAnnoucmentMessage = uint32(5010)
-	CmdNodeAnnoucmentMessage          = uint32(5020)
-	CmdAnnounceSignatures             = uint32(5030)
+	CmdChannelAnnouncement       = uint32(5000)
+	CmdChannelUpdateAnnouncement = uint32(5010)
+	CmdNodeAnnouncement          = uint32(5020)
+	CmdAnnounceSignatures        = uint32(5030)
 
 	// Commands for connection keep-alive.
 	CmdPing = uint32(6000)
@@ -121,11 +121,11 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &RevokeAndAck{}
 	case CmdErrorGeneric:
 		msg = &ErrorGeneric{}
-	case CmdChannelAnnoucmentMessage:
+	case CmdChannelAnnouncement:
 		msg = &ChannelAnnouncement{}
-	case CmdChannelUpdateAnnoucmentMessage:
+	case CmdChannelUpdateAnnouncement:
 		msg = &ChannelUpdateAnnouncement{}
-	case CmdNodeAnnoucmentMessage:
+	case CmdNodeAnnouncement:
 		msg = &NodeAnnouncement{}
 	case CmdPing:
 		msg = &Ping{}

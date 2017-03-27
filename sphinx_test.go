@@ -66,7 +66,8 @@ func TestSphinxCorrectness(t *testing.T) {
 		log.Printf("Processing at hop: %v \n", i)
 		processAction, err := hop.ProcessOnionPacket(fwdMsg, nil)
 		if err != nil {
-			t.Fatalf("Node %v was unabled to process the forwarding message: %v", i, err)
+			t.Fatalf("Node %v was unable to process the "+
+				"forwarding message: %v", i, err)
 		}
 
 		// If this is the last hop on the path, the node should

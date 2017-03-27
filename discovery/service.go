@@ -1,13 +1,10 @@
 package discovery
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"bytes"
-
-	"encoding/hex"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -81,20 +78,6 @@ type Config struct {
 
 // New create new discovery service structure.
 func New(cfg Config) (*Discovery, error) {
-	// TODO(roasbeef): remove this place holder after sigs are properly
-	// stored in the graph.
-	s := "30450221008ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa" +
-		"1bf0314f882d70220299105481d63e0f4bc2a88121167221b6700d72a0e" +
-		"ad154c03be696a292d24ae"
-	fakeSigHex, err := hex.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	fakeSig, err := btcec.ParseSignature(fakeSigHex, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
 	return &Discovery{
 		cfg:                    &cfg,
 		networkMsgs:            make(chan *networkMsg),
@@ -102,7 +85,6 @@ func New(cfg Config) (*Discovery, error) {
 		syncRequests:           make(chan *syncRequest),
 		prematureAnnouncements: make(map[uint32][]*networkMsg),
 		waitingProofs:          make(map[waitingProofKey]*lnwire.AnnounceSignatures),
-		fakeSig:                fakeSig,
 	}, nil
 }
 
@@ -157,8 +139,6 @@ type Discovery struct {
 	// bestHeight is the height of the block at the tip of the main chain
 	// as we know it.
 	bestHeight uint32
-
-	fakeSig *btcec.Signature
 }
 
 // ProcessRemoteAnnouncement sends a new remote announcement message along with
@@ -444,7 +424,13 @@ func (d *Discovery) processNetworkAnnouncement(nMsg *networkMsg) []lnwire.Messag
 	// node, or a node updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
 		if nMsg.isRemote {
-			// TODO(andrew.shvv) add validation
+			if err := d.validateNodeAnn(msg); err != nil {
+				err := errors.Errorf("unable to validate "+
+					"node announcement: %v", err)
+				log.Error(err)
+				nMsg.err <- err
+				return nil
+			}
 		}
 
 		node := &channeldb.LightningNode{
@@ -500,7 +486,13 @@ func (d *Discovery) processNetworkAnnouncement(nMsg *networkMsg) []lnwire.Messag
 
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
-			// TODO(andrew.shvv) Add validation
+			if err := d.validateChannelAnn(msg); err != nil {
+				err := errors.Errorf("unable to validate "+
+					"announcement: %v", err)
+				log.Error(err)
+				nMsg.err <- err
+				return nil
+			}
 
 			proof = &channeldb.ChannelAuthProof{
 				NodeSig1:    msg.NodeSig1,
@@ -577,7 +569,21 @@ func (d *Discovery) processNetworkAnnouncement(nMsg *networkMsg) []lnwire.Messag
 			return nil
 		}
 
-		// TODO(andrew.shvv) Add validation
+		var pubKey *btcec.PublicKey
+		switch msg.Flags {
+		case 0:
+			pubKey = chanInfo.NodeKey1
+		case 1:
+			pubKey = chanInfo.NodeKey2
+		}
+
+		if err := d.validateChannelUpdateAnn(pubKey, msg); err != nil {
+			err := errors.Errorf("unable to validate channel"+
+				"update announcement for shortChanID=%v: %v", msg.ShortChannelID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
+		}
 
 		// TODO(roasbeef): should be msat here
 		update := &channeldb.ChannelEdgePolicy{
@@ -732,7 +738,14 @@ func (d *Discovery) processNetworkAnnouncement(nMsg *networkMsg) []lnwire.Messag
 
 		chanAnn, e1Ann, e2Ann := createChanAnnouncement(&dbProof, chanInfo, e1, e2)
 
-		// TODO(andrew.shvv) Add validation
+		if err := d.validateChannelAnn(chanAnn); err != nil {
+			err := errors.Errorf("channel  announcement proof "+
+				"for shortChanID=%v isn't valid: %v",
+				shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
+		}
 
 		// If the channel was returned by the router it means that
 		// existence of funding point and inclusion of nodes bitcoin

@@ -502,7 +502,8 @@ out:
 			p.server.discoverSrv.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
 		default:
-			peerLog.Errorf("unknown message received from peer "+"%v", p)
+			peerLog.Errorf("unknown message received from peer "+
+				"%v", p)
 		}
 
 		if isChanUpdate {

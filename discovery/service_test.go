@@ -16,6 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
@@ -251,6 +252,10 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	if err != nil {
 		return nil, err
 	}
+	batch.localChanAnn.BitcoinSig1 = nil
+	batch.localChanAnn.BitcoinSig2 = nil
+	batch.localChanAnn.NodeSig1 = nil
+	batch.localChanAnn.NodeSig2 = nil
 
 	return &batch, nil
 
@@ -258,6 +263,7 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 
 func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	error) {
+	var err error
 
 	alias, err := lnwire.NewAlias("kek" + string(priv.Serialize()))
 	if err != nil {
@@ -265,7 +271,6 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	}
 
 	a := &lnwire.NodeAnnouncement{
-		Signature: testSig,
 		Timestamp: uint32(prand.Int31()),
 		Addresses: testAddrs,
 		NodeID:    priv.PubKey(),
@@ -273,14 +278,19 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 		Features:  testFeatures,
 	}
 
+	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
+	if a.Signature, err = SignAnnouncement(signer, a); err != nil {
+		return nil, err
+	}
+
 	return a, nil
 }
 
 func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdateAnnouncement,
 	error) {
+	var err error
 
 	a := &lnwire.ChannelUpdateAnnouncement{
-		Signature: testSig,
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -291,11 +301,17 @@ func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdateAnnounce
 		FeeProportionalMillionths: uint32(prand.Int31()),
 	}
 
+	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
+	if a.Signature, err = SignAnnouncement(signer, a); err != nil {
+		return nil, err
+	}
+
 	return a, nil
 }
 
 func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement,
 	error) {
+	var err error
 
 	a := &lnwire.ChannelAnnouncement{
 		ShortChannelID: lnwire.ShortChannelID{
@@ -307,11 +323,28 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 		NodeID2:     nodeKeyPub2,
 		BitcoinKey1: bitcoinKeyPub1,
 		BitcoinKey2: bitcoinKeyPub2,
+	}
 
-		NodeSig1:    testSig,
-		NodeSig2:    testSig,
-		BitcoinSig1: testSig,
-		BitcoinSig2: testSig,
+	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
+	if a.NodeSig1, err = SignAnnouncement(signer, a); err != nil {
+		return nil, err
+	}
+
+	signer = lnwallet.NewMessageSigner(nodeKeyPriv2)
+	if a.NodeSig2, err = SignAnnouncement(signer, a); err != nil {
+		return nil, err
+	}
+
+	hash := chainhash.DoubleHashB(nodeKeyPub1.SerializeCompressed())
+	a.BitcoinSig1, err = bitcoinKeyPriv1.Sign(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	hash = chainhash.DoubleHashB(nodeKeyPub2.SerializeCompressed())
+	a.BitcoinSig2, err = bitcoinKeyPriv2.Sign(hash)
+	if err != nil {
+		return nil, err
 	}
 
 	return a, nil

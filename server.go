@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
@@ -95,7 +96,7 @@ type server struct {
 // passed listener address.
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	bio lnwallet.BlockChainIO, wallet *lnwallet.LightningWallet,
-	chanDB *channeldb.DB) (*server, error) {
+	chanDB *channeldb.DB, fundingSigner *btcwallet.FundingSigner) (*server, error) {
 
 	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
@@ -168,32 +169,41 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		selfAddrs = append(selfAddrs, addr)
 	}
 
-	// TODO(roasbeef): remove once we actually sign the funding_locked
-	// stuffs
-	fakeSigHex, err := hex.DecodeString("30450221008ce2bc69281ce27da07e66" +
-		"83571319d18e949ddfa2965fb6caa1bf0314f882d70220299105481d63e0f" +
-		"4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	if err != nil {
-		return nil, err
-	}
-
-	fakeSig, err := btcec.ParseSignature(fakeSigHex, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
 	chanGraph := chanDB.ChannelGraph()
+
+	// In order to have ability to announce the self node we need to
+	// sign the node announce message, and include the signature in the
+	// node channeldb object.
+	alias, err := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
+	if err != nil {
+		return nil, fmt.Errorf("can't create alias: %v", err)
+	}
 	self := &channeldb.LightningNode{
-		AuthSig:    fakeSig,
 		LastUpdate: time.Now(),
 		Addresses:  selfAddrs,
 		PubKey:     privKey.PubKey(),
 		// TODO(roasbeef): make alias configurable
-		Alias:    hex.EncodeToString(serializedPubKey[:10]),
+		Alias:    alias.String(),
 		Features: globalFeatures,
 	}
+
+	// Initialize graph with authenticated lightning node, signature is
+	// needed in order to be able to announce node to other network.
+	messageSigner := lnwallet.NewMessageSigner(s.identityPriv)
+	if self.AuthSig, err = discovery.SignAnnouncement(messageSigner,
+		&lnwire.NodeAnnouncement{
+			Timestamp: uint32(self.LastUpdate.Unix()),
+			Addresses: self.Addresses,
+			NodeID:    self.PubKey,
+			Alias:     alias,
+			Features:  self.Features,
+		}); err != nil {
+		return nil, fmt.Errorf("unable to generate signature for "+
+			"self node announcement: %v", err)
+	}
+
 	if err := chanGraph.SetSourceNode(self); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't set self node: %v", err)
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
@@ -213,7 +223,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't create router: %v", err)
 	}
 
 	s.discoverSrv, err = discovery.New(discovery.Config{
@@ -235,17 +245,19 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
 		Notifier: s.chainNotifier,
-		SignNodeKey: func(nodeKey, fundingKey *btcec.PublicKey) (*btcec.Signature,
-			error) {
-			return fakeSig, nil
+		SignNodeKey: func(nodeKey,
+			fundingKey *btcec.PublicKey) (*btcec.Signature, error) {
+			data := nodeKey.SerializeCompressed()
+			return fundingSigner.SignData(data, fundingKey)
 		},
 		SignAnnouncement: func(msg lnwire.Message) (*btcec.Signature,
 			error) {
-			return fakeSig, nil
+			return discovery.SignAnnouncement(messageSigner, msg)
 		},
-		SendToDiscovery: func(msg lnwire.Message) chan error {
-			return s.discoverSrv.ProcessLocalAnnouncement(msg,
+		SendToDiscovery: func(msg lnwire.Message) error {
+			s.discoverSrv.ProcessLocalAnnouncement(msg,
 				s.identityPriv.PubKey())
+			return nil
 		},
 		ArbiterChan: s.breachArbiter.newContracts,
 		SendToPeer:  s.sendToPeer,

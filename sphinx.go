@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/codahale/chacha20"
+	"github.com/aead/chacha20"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
@@ -346,8 +346,10 @@ func generateKey(keyType string, sharedKey [sharedSecretSize]byte) [keyLen]byte 
 // intended to be used to encrypt a message using a one-time-pad like
 // construction.
 func generateCipherStream(key [keyLen]byte, numBytes uint) []byte {
-	var nonce [8]byte
-	cipher, err := chacha20.New(key[:], nonce[:])
+	var (
+		nonce [8]byte
+	)
+	cipher, err := chacha20.NewCipher(nonce[:], key[:])
 	if err != nil {
 		panic(err)
 	}

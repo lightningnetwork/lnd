@@ -1,12 +1,13 @@
-hash: 3ccd04331ddc23edf5fb2d02398e053d456e44fa705df32c2864fa575099cb51
-updated: 2017-03-16T15:29:29.168674517-07:00
+hash: 5a903f37fc9f9d757c7b366916961de78eed5a7ef2bd374648851b00feef7c9c
+updated: 2017-03-27T11:01:48.576702956-07:00
 imports:
 - name: github.com/awalterschulze/gographviz
-  version: 761fd5fbb34e4c2c138c280395b65b48e4ff5a53
+  version: 9d8c9780eb4766351ae8489f78cb940cb6e0503d
   subpackages:
   - ast
+  - errors
+  - lexer
   - parser
-  - scanner
   - token
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
@@ -25,13 +26,13 @@ imports:
 - name: github.com/btcsuite/golangcrypto
   version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
   subpackages:
-  - ripemd160
   - nacl/secretbox
+  - pbkdf2
+  - poly1305
+  - ripemd160
+  - salsa20/salsa
   - scrypt
   - ssh/terminal
-  - poly1305
-  - salsa20/salsa
-  - pbkdf2
 - name: github.com/btcsuite/seelog
   version: ae8891d029dd3c269dcfd6f261ad23e761acd99f
 - name: github.com/btcsuite/websocket
@@ -47,16 +48,15 @@ imports:
 - name: github.com/golang/protobuf
   version: c9c7427a2a70d2eb3bafa0ab2dc163e45f143317
   subpackages:
-  - proto
   - jsonpb
+  - proto
   - protoc-gen-go/descriptor
 - name: github.com/grpc-ecosystem/grpc-gateway
   version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
   subpackages:
   - runtime
-  - third_party/googleapis/google/api
-  - utilities
   - runtime/internal
+  - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/lightningnetwork/lightning-onion
@@ -68,40 +68,40 @@ imports:
   - btcec
   - btcjson
   - chaincfg
+  - chaincfg/chainhash
+  - connmgr
+  - database
+  - rpctest
   - txscript
   - wire
-  - connmgr
-  - chaincfg/chainhash
-  - rpctest
-  - database
 - name: github.com/roasbeef/btcrpcclient
   version: 38480d7c28ff1882772e35d903bfe84aad925153
 - name: github.com/roasbeef/btcutil
   version: d347e49b656d2a7f6d06cc9e2daebc5acded5728
   subpackages:
+  - base58
   - bloom
   - coinset
   - hdkeychain
   - txsort
-  - base58
 - name: github.com/roasbeef/btcwallet
   version: 780d9ff180a119a45437b5835114a991f69fd39f
   subpackages:
   - chain
-  - waddrmgr
-  - wallet
-  - walletdb/bdb
-  - wallet/txrules
-  - walletdb
+  - internal/helpers
+  - internal/legacy/keystore
+  - internal/legacy/rename
+  - internal/prompt
   - internal/zero
   - snacl
-  - internal/prompt
-  - wallet/txauthor
-  - wtxmgr
-  - internal/legacy/keystore
-  - internal/helpers
+  - waddrmgr
+  - wallet
   - wallet/internal/txsizes
-  - internal/legacy/rename
+  - wallet/txauthor
+  - wallet/txrules
+  - walletdb
+  - walletdb/bdb
+  - wtxmgr
 - name: github.com/tv42/zbase32
   version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
@@ -109,38 +109,44 @@ imports:
 - name: golang.org/x/crypto
   version: 728b753d0135da6801d45a38e6f43ff55779c5c2
   subpackages:
-  - hkdf
-  - nacl/secretbox
-  - ripemd160
-  - scrypt
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
+  - hkdf
+  - nacl/secretbox
   - poly1305
+  - ripemd160
+  - scrypt
 - name: golang.org/x/net
   version: a6577fac2d73be281a500b310739095313165611
   subpackages:
   - context
   - http2
-  - trace
   - http2/hpack
   - idna
-  - lex/httplex
   - internal/timeseries
+  - lex/httplex
+  - trace
 - name: golang.org/x/sys
   version: 99f16d856c9836c42d24e7ab64ea72916925fa97
   subpackages:
   - unix
-- name: google.golang.org/grpc
-  version: 708a7f9f3283aa2d4f6132d287d78683babe55c8
+- name: google.golang.org/genproto
+  version: de9f5e90fe9b278809363f08c2072d2f2a429de7
   subpackages:
-  - grpclog
+  - googleapis/api/annotation
+  - googleapis/api/annotations
+- name: google.golang.org/grpc
+  version: cdee119ee21e61eef7093a41ba148fa83585e143
+  subpackages:
   - codes
-  - metadata
   - credentials
+  - grpclog
   - internal
+  - keepalive
+  - metadata
   - naming
+  - peer
   - stats
   - tap
   - transport
-  - peer
 testImports: []

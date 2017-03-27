@@ -61,3 +61,6 @@ import:
 - package: github.com/tv42/zbase32
 - package: github.com/awalterschulze/gographviz
   version: ^1.0.0
+- package: google.golang.org/genproto
+  subpackages:
+  - googleapis/api/annotation

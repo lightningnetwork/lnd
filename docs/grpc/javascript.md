@@ -1,4 +1,4 @@
-# How to write a simple `lnd` client in Javascript using `node.js
+# How to write a simple `lnd` client in Javascript using `node.js`
 
 First, you'll need to initialize a simple nodejs project:
 

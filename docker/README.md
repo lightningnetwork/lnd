@@ -6,9 +6,9 @@ automatically by their `docker-compose` config file.
 
 ### Prerequisites
     Name  | Version 
-  --------|---------
-  docker-compose | 1.9.0
-  docker | 1.13.0
+    --------|---------
+    docker-compose | 1.9.0
+    docker | 1.13.0
   
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)
@@ -46,7 +46,7 @@ topology, and send a payment from `Alice` to `Bob`.
                                     connected to different Bitcoin nodes.
 ```
 
-**General workflow is following:** 
+**General workflow is the following:** 
 
  * Create a `btcd` node running on a private `simnet`.
  * Create `Alice`, one of the `lnd` nodes in our simulation network.
@@ -54,8 +54,8 @@ topology, and send a payment from `Alice` to `Bob`.
  * Mine some blocks to send `Alice` some bitcoins.
  * Open channel between `Alice` and `Bob`.
  * Send payment from `Alice` to `Bob`.
- * Close the channel between `Alice` and Bob`.
- * Check that on-chain Bob balance was changed.
+ * Close the channel between `Alice` and `Bob`.
+ * Check that on-chain `Bob` balance was changed.
 
 Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
@@ -84,11 +84,13 @@ $ docker-compose run btcctl generate 400
 $ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 ```
 
-# Check "Alice" balance:
+Check `Alice` balance:
+```
 alice$ lncli walletbalance --witness_only=true
 ```
 
 Connect `Bob` node to `Alice` node.
+
 ```bash
 # Run "Bob" node and log into it:
 $ docker-compose up --no-recreate -d "bob"

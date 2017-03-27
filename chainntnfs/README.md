@@ -1,12 +1,9 @@
 chainntnfs
 ==========
 
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)]
-(https://travis-ci.org/lightningnetwork/lnd) 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)]
-(https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
-[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)]
-(http://godoc.org/github.com/lightningnetwork/lnd/chainntnfs)
+[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
+[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/lightningnetwork/lnd/chainntnfs)
 
 The chainntnfs package implements a set of interfaces which allow callers to
 receive notifications in response to specific on-chain events. The set of

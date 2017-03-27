@@ -55,6 +55,7 @@ const (
 	CmdChannelAnnoucmentMessage       = uint32(5000)
 	CmdChannelUpdateAnnoucmentMessage = uint32(5010)
 	CmdNodeAnnoucmentMessage          = uint32(5020)
+	CmdAnnounceSignatures             = uint32(5030)
 
 	// Commands for connection keep-alive.
 	CmdPing = uint32(6000)
@@ -128,6 +129,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &NodeAnnouncement{}
 	case CmdPing:
 		msg = &Ping{}
+	case CmdAnnounceSignatures:
+		msg = &AnnounceSignatures{}
 	case CmdPong:
 		msg = &Pong{}
 	default:

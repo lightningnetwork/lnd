@@ -73,6 +73,11 @@ func (r *mockGraphSource) CurrentBlockHeight() (uint32, error) {
 	return r.bestHeight, nil
 }
 
+func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
+	proof *channeldb.ChannelAuthProof) error {
+	return nil
+}
+
 func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error) error {
 	return nil
 }

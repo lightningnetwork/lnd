@@ -34,6 +34,10 @@ type ChannelGraphSource interface {
 	// edge/channel might be used in construction of payment path.
 	AddEdge(edge *channeldb.ChannelEdgeInfo) error
 
+	// AddProof updates the channel edge info with proof which is needed
+	// to properly announce the edge to the rest of the network.
+	AddProof(chanID lnwire.ShortChannelID, proof *channeldb.ChannelAuthProof) error
+
 	// UpdateEdge is used to update edge information, without this
 	// message edge considered as not fully constructed.
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
@@ -1062,4 +1066,19 @@ func (r *ChannelRouter) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgeP
 func (r *ChannelRouter) ForEachChannel(cb func(chanInfo *channeldb.ChannelEdgeInfo,
 	e1, e2 *channeldb.ChannelEdgePolicy) error) error {
 	return r.cfg.Graph.ForEachChannel(cb)
+}
+
+// AddProof updates the channel edge info with proof which is needed
+// to properly announce the edge to the rest of the network.
+// NOTE: Part of the Router interface.
+func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
+	proof *channeldb.ChannelAuthProof) error {
+
+	info, _, _, err := r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
+	if err != nil {
+		return err
+	}
+
+	info.AuthProof = proof
+	return r.cfg.Graph.UpdateChannelEdge(info)
 }

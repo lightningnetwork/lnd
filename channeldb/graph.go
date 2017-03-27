@@ -507,6 +507,34 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 	return node1UpdateTime, node2UpdateTime, exists, nil
 }
 
+// UpdateChannelEdge retrieves and update edge of the graph database. Method
+// only reserved for updating an edge info after it's already been created.
+// In order to maintain this constraints, we return an error in the scenario
+// that an edge info hasn't yet been created yet, but someone attempts to update
+// it.
+func (c *ChannelGraph) UpdateChannelEdge(edge *ChannelEdgeInfo) error {
+	// Construct the channel's primary key which is the 8-byte channel ID.
+	var chanKey [8]byte
+	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
+
+	return c.db.Update(func(tx *bolt.Tx) error {
+		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
+		if err != nil {
+			return err
+		}
+		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo == nil {
+			return ErrEdgeNotFound
+		}
+
+		return putChanEdgeInfo(edgeIndex, edge, chanKey)
+	})
+}
+
 const (
 	// pruneTipBytes is the total size of the value which stores the
 	// current prune tip of the graph. The prune tip indicates if the

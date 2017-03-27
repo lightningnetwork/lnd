@@ -206,3 +206,51 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 			route.Hops[0].Channel.Node.Alias)
 	}
 }
+
+// TestAddProof checks that we can update the channel proof after channel
+// info was added to the database.
+func TestAddProof(t *testing.T) {
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	// In order to be able to add the edge we should have the valud
+	// funding UTXO within the blockchain.
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
+		100, 0)
+	if err != nil {
+		t.Fatalf("unable create channel edge: %v", err)
+	}
+
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+
+	// After utxo was recreated adding the edge without the proof.
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID.ToUint64(),
+		NodeKey1:    priv1.PubKey(),
+		NodeKey2:    priv1.PubKey(),
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof:   nil,
+	}
+
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// No trying to update the proof and checking that it have been updated.
+	if err := ctx.router.AddProof(*chanID, &testAuthProof); err != nil {
+		t.Fatalf("unable to add proof: %v", err)
+	}
+
+	info, _, _, err := ctx.router.GetChannelByID(*chanID)
+	if info.AuthProof == nil {
+		t.Fatal("proof have been updated")
+	}
+}

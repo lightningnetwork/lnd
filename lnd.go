@@ -140,8 +140,8 @@ func lndMain() error {
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
-	wallet, err := lnwallet.NewLightningWallet(chanDB, notifier,
-		wc, signer, bio, activeNetParams.Params)
+	wallet, err := lnwallet.NewLightningWallet(chanDB, notifier, wc, signer,
+		bio, activeNetParams.Params)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return err
@@ -157,7 +157,10 @@ func lndMain() error {
 	defaultListenAddrs := []string{
 		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
-	server, err := newServer(defaultListenAddrs, notifier, bio, wallet, chanDB)
+
+	fundingSigner := btcwallet.NewFundingSigner(wc)
+	server, err := newServer(defaultListenAddrs, notifier, bio, wallet,
+		chanDB, fundingSigner)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

@@ -3,8 +3,11 @@ package discovery
 import (
 	"encoding/binary"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcec"
 )
 
 // newProofKey constructs new announcement signature message key.
@@ -90,4 +93,40 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	}
 
 	return chanAnn, edge1Ann, edge2Ann
+}
+
+// copyPubKey is copying the public key and setting curve.
+// NOTE: At the moment of creation the function was need only because we are
+// setting the curve to nil in the read message function and in order to
+// properly validate the signatures we need to set the curve again.
+func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
+	return &btcec.PublicKey{
+		Curve: btcec.S256(),
+		X:     pub.X,
+		Y:     pub.Y,
+	}
+}
+
+// SignAnnouncement helper function which is used for signing the announce
+// messages.
+func SignAnnouncement(signer *lnwallet.MessageSigner,
+	msg lnwire.Message) (*btcec.Signature, error) {
+	var data []byte
+	var err error
+	switch m := msg.(type) {
+	case *lnwire.ChannelAnnouncement:
+		data, err = m.DataToSign()
+	case *lnwire.ChannelUpdateAnnouncement:
+		data, err = m.DataToSign()
+	case *lnwire.NodeAnnouncement:
+		data, err = m.DataToSign()
+	default:
+		return nil, errors.New("can't sign message " +
+			"of this format")
+	}
+	if err != nil {
+		return nil, errors.Errorf("can't get data to sign: %v", err)
+	}
+
+	return signer.SignData(data)
 }

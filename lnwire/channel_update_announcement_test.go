@@ -9,7 +9,7 @@ import (
 func TestChannelUpdateAnnouncementEncodeDecode(t *testing.T) {
 	cua := &ChannelUpdateAnnouncement{
 		Signature:                 someSig,
-		ChannelID:                 someChannelID,
+		ShortChannelID:            someChannelID,
 		Timestamp:                 maxUint32,
 		Flags:                     maxUint16,
 		TimeLockDelta:             maxUint16,

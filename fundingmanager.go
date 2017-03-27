@@ -954,7 +954,7 @@ func (f *fundingManager) waitForFundingConfirmation(
 	// construct the compact chainID which is used on the network to unique
 	// identify channels.
 	// TODO(roasbeef): remove after spec change, no more chanID's!!!
-	chanID := lnwire.ChannelID{
+	chanID := lnwire.ShortChannelID{
 		BlockHeight: confDetails.BlockHeight,
 		TxIndex:     confDetails.TxIndex,
 		TxPosition:  uint16(fundingPoint.Index),
@@ -1025,14 +1025,14 @@ type chanAnnouncement struct {
 // authenticated only by us and contains our directional routing policy for the
 // channel.
 func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
-	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID,
+	channel *lnwallet.LightningChannel, chanID lnwire.ShortChannelID,
 	localProof, remoteProof *channelProof) *chanAnnouncement {
 
 	// The unconditional section of the announcement is the ChannelID
 	// itself which compactly encodes the location of the funding output
 	// within the blockchain.
 	chanAnn := &lnwire.ChannelAnnouncement{
-		ChannelID: chanID,
+		ShortChannelID: chanID,
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is
@@ -1048,27 +1048,27 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 	selfBytes := localIdentity.SerializeCompressed()
 	remoteBytes := remotePub.SerializeCompressed()
 	if bytes.Compare(selfBytes, remoteBytes) == -1 {
-		chanAnn.FirstNodeID = localIdentity
-		chanAnn.SecondNodeID = remotePub
-		chanAnn.FirstNodeSig = localProof.nodeSig
-		chanAnn.SecondNodeSig = remoteProof.nodeSig
-		chanAnn.FirstBitcoinSig = localProof.nodeSig
-		chanAnn.SecondBitcoinSig = remoteProof.nodeSig
-		chanAnn.FirstBitcoinKey = channel.LocalFundingKey
-		chanAnn.SecondBitcoinKey = channel.RemoteFundingKey
+		chanAnn.NodeID1 = localIdentity
+		chanAnn.NodeID2 = remotePub
+		chanAnn.NodeSig1 = localProof.nodeSig
+		chanAnn.NodeSig2 = remoteProof.nodeSig
+		chanAnn.BitcoinSig1 = localProof.nodeSig
+		chanAnn.BitcoinSig2 = remoteProof.nodeSig
+		chanAnn.BitcoinKey1 = channel.LocalFundingKey
+		chanAnn.BitcoinKey2 = channel.RemoteFundingKey
 
 		// If we're the first node then update the chanFlags to
 		// indicate the "direction" of the update.
 		chanFlags = 0
 	} else {
-		chanAnn.FirstNodeID = remotePub
-		chanAnn.SecondNodeID = localIdentity
-		chanAnn.FirstNodeSig = remoteProof.nodeSig
-		chanAnn.SecondNodeSig = localProof.nodeSig
-		chanAnn.FirstBitcoinSig = remoteProof.nodeSig
-		chanAnn.SecondBitcoinSig = localProof.nodeSig
-		chanAnn.FirstBitcoinKey = channel.RemoteFundingKey
-		chanAnn.SecondBitcoinKey = channel.LocalFundingKey
+		chanAnn.NodeID1 = remotePub
+		chanAnn.NodeID2 = localIdentity
+		chanAnn.NodeSig1 = remoteProof.nodeSig
+		chanAnn.NodeSig2 = localProof.nodeSig
+		chanAnn.BitcoinSig1 = remoteProof.nodeSig
+		chanAnn.BitcoinSig2 = localProof.nodeSig
+		chanAnn.BitcoinKey1 = channel.RemoteFundingKey
+		chanAnn.BitcoinKey2 = channel.LocalFundingKey
 
 		// If we're the second node then update the chanFlags to
 		// indicate the "direction" of the update.
@@ -1078,7 +1078,7 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 	// TODO(roasbeef): add real sig, populate proper FeeSchema
 	chanUpdateAnn := &lnwire.ChannelUpdateAnnouncement{
 		Signature:                 localProof.nodeSig,
-		ChannelID:                 chanID,
+		ShortChannelID:            chanID,
 		Timestamp:                 uint32(time.Now().Unix()),
 		Flags:                     chanFlags,
 		TimeLockDelta:             1,
@@ -1099,7 +1099,7 @@ func newChanAnnouncement(localIdentity, remotePub *btcec.PublicKey,
 // announcements are then send to the channel router to handle broadcasting to
 // the network during its next trickle.
 func (f *fundingManager) announceChannel(idKey, remoteIDKey *btcec.PublicKey,
-	channel *lnwallet.LightningChannel, chanID lnwire.ChannelID, localProof,
+	channel *lnwallet.LightningChannel, chanID lnwire.ShortChannelID, localProof,
 	remoteProof *channelProof) {
 
 	// TODO(roasbeef): need a Signer.SignMessage method to finalize

@@ -8,7 +8,7 @@ import (
 )
 
 func TestChannelIDEncoding(t *testing.T) {
-	var testCases = []ChannelID{
+	var testCases = []ShortChannelID{
 		{
 			BlockHeight: (1 << 24) - 1,
 			TxIndex:     (1 << 24) - 1,
@@ -29,7 +29,7 @@ func TestChannelIDEncoding(t *testing.T) {
 	for _, testCase := range testCases {
 		chanInt := testCase.ToUint64()
 
-		newChanID := NewChanIDFromInt(chanInt)
+		newChanID := NewShortChanIDFromInt(chanInt)
 
 		if !reflect.DeepEqual(testCase, newChanID) {
 			t.Fatalf("chan ID's don't match: expected %v got %v",

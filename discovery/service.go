@@ -344,7 +344,7 @@ func (d *Discovery) networkHandler() {
 				func(p *channeldb.ChannelEdgePolicy) error {
 					c := &lnwire.ChannelUpdateAnnouncement{
 						Signature:                 d.fakeSig,
-						ChannelID:                 lnwire.NewChanIDFromInt(p.ChannelID),
+						ShortChannelID:            lnwire.NewShortChanIDFromInt(p.ChannelID),
 						Timestamp:                 uint32(p.LastUpdate.Unix()),
 						Flags:                     p.Flags,
 						TimeLockDelta:             p.TimeLockDelta,
@@ -403,7 +403,7 @@ func (d *Discovery) networkHandler() {
 // may want to batch this request to be broadcast to immediate peers during the
 // next announcement epoch.
 func (d *Discovery) processNetworkAnnouncement(aMsg *networkMsg) bool {
-	isPremature := func(chanID *lnwire.ChannelID) bool {
+	isPremature := func(chanID *lnwire.ShortChannelID) bool {
 		return chanID.BlockHeight > d.bestHeight
 	}
 
@@ -438,11 +438,11 @@ func (d *Discovery) processNetworkAnnouncement(aMsg *networkMsg) bool {
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(&msg.ChannelID) {
-			blockHeight := msg.ChannelID.BlockHeight
+		if isPremature(&msg.ShortChannelID) {
+			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is "+
 				"premature: advertises height %v, only height "+
-				"%v is known", msg.ChannelID, msg.ChannelID.BlockHeight,
+				"%v is known", msg.ShortChannelID, msg.ShortChannelID.BlockHeight,
 				d.bestHeight)
 
 			d.prematureAnnouncements[blockHeight] = append(
@@ -458,18 +458,18 @@ func (d *Discovery) processNetworkAnnouncement(aMsg *networkMsg) bool {
 		}
 
 		proof = &channeldb.ChannelAuthProof{
-			NodeSig1:    msg.FirstNodeSig,
-			NodeSig2:    msg.SecondNodeSig,
-			BitcoinSig1: msg.FirstBitcoinSig,
-			BitcoinSig2: msg.SecondBitcoinSig,
+			NodeSig1:    msg.NodeSig1,
+			NodeSig2:    msg.NodeSig2,
+			BitcoinSig1: msg.BitcoinSig1,
+			BitcoinSig2: msg.BitcoinSig2,
 		}
 
 		edge := &channeldb.ChannelEdgeInfo{
-			ChannelID:   msg.ChannelID.ToUint64(),
-			NodeKey1:    msg.FirstNodeID,
-			NodeKey2:    msg.SecondNodeID,
-			BitcoinKey1: msg.FirstBitcoinKey,
-			BitcoinKey2: msg.SecondBitcoinKey,
+			ChannelID:   msg.ShortChannelID.ToUint64(),
+			NodeKey1:    msg.NodeID1,
+			NodeKey2:    msg.NodeID2,
+			BitcoinKey1: msg.BitcoinKey1,
+			BitcoinKey2: msg.BitcoinKey2,
 			AuthProof:   proof,
 		}
 
@@ -487,13 +487,13 @@ func (d *Discovery) processNetworkAnnouncement(aMsg *networkMsg) bool {
 	// that the directional information for an already known channel has
 	// been updated.
 	case *lnwire.ChannelUpdateAnnouncement:
-		chanID := msg.ChannelID.ToUint64()
+		chanID := msg.ShortChannelID.ToUint64()
 
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(&msg.ChannelID) {
-			blockHeight := msg.ChannelID.BlockHeight
+		if isPremature(&msg.ShortChannelID) {
+			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Update announcement for chan_id=(%v), is "+
 				"premature: advertises height %v, only height "+
 				"%v is known", chanID, blockHeight,
@@ -578,7 +578,7 @@ func (d *Discovery) synchronize(syncReq *syncRequest) error {
 	if err := d.cfg.Router.ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
 		e1, e2 *channeldb.ChannelEdgePolicy) error {
 
-		chanID := lnwire.NewChanIDFromInt(chanInfo.ChannelID)
+		chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
 
 		// First, using the parameters of the channel, along with the
 		// channel authentication proof, we'll create re-create the
@@ -586,15 +586,15 @@ func (d *Discovery) synchronize(syncReq *syncRequest) error {
 		// TODO(andrew.shvv) skip if proof is nil
 		authProof := chanInfo.AuthProof
 		chanAnn := &lnwire.ChannelAnnouncement{
-			FirstNodeSig:     authProof.NodeSig1,
-			SecondNodeSig:    authProof.NodeSig2,
-			ChannelID:        chanID,
-			FirstBitcoinSig:  authProof.BitcoinSig1,
-			SecondBitcoinSig: authProof.BitcoinSig2,
-			FirstNodeID:      chanInfo.NodeKey1,
-			SecondNodeID:     chanInfo.NodeKey2,
-			FirstBitcoinKey:  chanInfo.BitcoinKey1,
-			SecondBitcoinKey: chanInfo.BitcoinKey2,
+			NodeSig1:       authProof.NodeSig1,
+			NodeSig2:       authProof.NodeSig2,
+			ShortChannelID: chanID,
+			BitcoinSig1:    authProof.BitcoinSig1,
+			BitcoinSig2:    authProof.BitcoinSig2,
+			NodeID1:        chanInfo.NodeKey1,
+			NodeID2:        chanInfo.NodeKey2,
+			BitcoinKey1:    chanInfo.BitcoinKey1,
+			BitcoinKey2:    chanInfo.BitcoinKey2,
 		}
 		announceMessages = append(announceMessages, chanAnn)
 
@@ -604,7 +604,7 @@ func (d *Discovery) synchronize(syncReq *syncRequest) error {
 		if e1 != nil {
 			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
 				Signature:                 d.fakeSig,
-				ChannelID:                 chanID,
+				ShortChannelID:            chanID,
 				Timestamp:                 uint32(e1.LastUpdate.Unix()),
 				Flags:                     0,
 				TimeLockDelta:             e1.TimeLockDelta,
@@ -616,7 +616,7 @@ func (d *Discovery) synchronize(syncReq *syncRequest) error {
 		if e2 != nil {
 			announceMessages = append(announceMessages, &lnwire.ChannelUpdateAnnouncement{
 				Signature:                 d.fakeSig,
-				ChannelID:                 chanID,
+				ShortChannelID:            chanID,
 				Timestamp:                 uint32(e2.LastUpdate.Unix()),
 				Flags:                     1,
 				TimeLockDelta:             e2.TimeLockDelta,

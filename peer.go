@@ -536,10 +536,10 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	case *lnwire.NodeAnnouncement:
 		m.NodeID.Curve = nil
 	case *lnwire.ChannelAnnouncement:
-		m.FirstNodeID.Curve = nil
-		m.SecondNodeID.Curve = nil
-		m.FirstBitcoinKey.Curve = nil
-		m.SecondBitcoinKey.Curve = nil
+		m.NodeID1.Curve = nil
+		m.NodeID2.Curve = nil
+		m.BitcoinKey1.Curve = nil
+		m.BitcoinKey2.Curve = nil
 	case *lnwire.SingleFundingComplete:
 		m.RevocationKey.Curve = nil
 	case *lnwire.SingleFundingRequest:

@@ -21,7 +21,7 @@ type FundingLocked struct {
 
 	// ChannelId serves to uniquely identify the channel created by the
 	// current channel funding workflow.
-	ChannelID ChannelID
+	ChannelID ShortChannelID
 
 	// NextPerCommitmentPoint is the secret that can be used to revoke
 	// the next commitment transaction for the channel.
@@ -30,7 +30,7 @@ type FundingLocked struct {
 
 // NewFundingLocked creates a new FundingLocked message, populating it with
 // the necessary IDs and revocation secret..
-func NewFundingLocked(op wire.OutPoint, cid ChannelID,
+func NewFundingLocked(op wire.OutPoint, cid ShortChannelID,
 	npcp *btcec.PublicKey) *FundingLocked {
 	return &FundingLocked{
 		ChannelOutpoint:        op,

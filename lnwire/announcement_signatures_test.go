@@ -9,7 +9,7 @@ import (
 func TestAnnounceSignatureEncodeDecode(t *testing.T) {
 	ac := &AnnounceSignatures{
 		ChannelID:        *outpoint1,
-		ShortChannelID:   NewChanIDFromInt(1),
+		ShortChannelID:   NewShortChanIDFromInt(1),
 		NodeSignature:    someSig,
 		BitcoinSignature: someSig,
 	}

@@ -270,7 +270,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case ChannelID:
+	case ShortChannelID:
 		// Check that field fit in 3 bytes and write the blockHeight
 		if e.BlockHeight > ((1 << 24) - 1) {
 			return errors.New("block height should fit in 3 bytes")
@@ -596,7 +596,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case *ChannelID:
+	case *ShortChannelID:
 		var blockHeight [4]byte
 		if _, err = io.ReadFull(r, blockHeight[1:]); err != nil {
 			return err
@@ -612,7 +612,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		*e = ChannelID{
+		*e = ShortChannelID{
 			BlockHeight: binary.BigEndian.Uint32(blockHeight[:]),
 			TxIndex:     binary.BigEndian.Uint32(txIndex[:]),
 			TxPosition:  binary.BigEndian.Uint16(txPosition[:]),

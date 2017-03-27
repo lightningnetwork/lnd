@@ -49,6 +49,7 @@ func createGraphNode() (*channeldb.LightningNode, error) {
 		PubKey:     priv.PubKey(),
 		Color:      color.RGBA{1, 2, 3, 0},
 		Alias:      "kek" + string(pub[:]),
+		AuthSig:    testSig,
 		Features:   testFeatures,
 	}, nil
 }
@@ -79,6 +80,7 @@ func randEdgePolicy(chanID lnwire.ShortChannelID,
 	node *channeldb.LightningNode) *channeldb.ChannelEdgePolicy {
 
 	return &channeldb.ChannelEdgePolicy{
+		Signature:                 testSig,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
 		TimeLockDelta:             uint16(prand.Int63()),

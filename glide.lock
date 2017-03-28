@@ -1,6 +1,10 @@
-hash: 5a903f37fc9f9d757c7b366916961de78eed5a7ef2bd374648851b00feef7c9c
-updated: 2017-03-27T11:01:48.576702956-07:00
+hash: b5f8d00db4f35a6128083799a92fbad5d32bd9e3ddf312aace522d1ba27853b9
+updated: 2017-03-27T16:53:11.703257081-07:00
 imports:
+- name: github.com/aead/chacha20
+  version: d31a916ded42d1640b9d89a26f8abd53cc96790c
+  subpackages:
+  - chacha
 - name: github.com/awalterschulze/gographviz
   version: 9d8c9780eb4766351ae8489f78cb940cb6e0503d
   subpackages:
@@ -37,8 +41,6 @@ imports:
   version: ae8891d029dd3c269dcfd6f261ad23e761acd99f
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
-- name: github.com/codahale/chacha20
-  version: ec07b4f69a3f70b1dd2a8ad77230deb1ba5d6953
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
@@ -60,7 +62,7 @@ imports:
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/lightningnetwork/lightning-onion
-  version: a527838cac5e47260fb61ed155b9b24a6d6a10cc
+  version: 0dd00eb9c6ffcefea7d3c6d6e502df218f49e228
 - name: github.com/roasbeef/btcd
   version: 707a14a79daeb2440fe92feaeceb0fae68ab3e9b
   subpackages:
@@ -107,7 +109,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 728b753d0135da6801d45a38e6f43ff55779c5c2
+  version: 459e26527287adbc2adcc5d0d49abff9a5f315a7
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -117,7 +119,7 @@ imports:
   - ripemd160
   - scrypt
 - name: golang.org/x/net
-  version: a6577fac2d73be281a500b310739095313165611
+  version: 6c23252515492caf9b228a9d5cabcdbde29f7f82
   subpackages:
   - context
   - http2
@@ -127,9 +129,16 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 99f16d856c9836c42d24e7ab64ea72916925fa97
+  version: afadfcc7779c1f4db0f6f6438afcb108d9c9c7cd
   subpackages:
   - unix
+- name: golang.org/x/text
+  version: fc7fa097411d30e6708badff276c4c164425590c
+  subpackages:
+  - secure/bidirule
+  - transform
+  - unicode/bidi
+  - unicode/norm
 - name: google.golang.org/genproto
   version: de9f5e90fe9b278809363f08c2072d2f2a429de7
   subpackages:

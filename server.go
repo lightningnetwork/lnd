@@ -168,8 +168,23 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		selfAddrs = append(selfAddrs, addr)
 	}
 
+	// TODO(roasbeef): remove once we actually sign the funding_locked
+	// stuffs
+	fakeSigHex, err := hex.DecodeString("30450221008ce2bc69281ce27da07e66" +
+		"83571319d18e949ddfa2965fb6caa1bf0314f882d70220299105481d63e0f" +
+		"4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	if err != nil {
+		return nil, err
+	}
+
+	fakeSig, err := btcec.ParseSignature(fakeSigHex, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
 	chanGraph := chanDB.ChannelGraph()
 	self := &channeldb.LightningNode{
+		AuthSig:    fakeSig,
 		LastUpdate: time.Now(),
 		Addresses:  selfAddrs,
 		PubKey:     privKey.PubKey(),
@@ -202,10 +217,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.discoverSrv, err = discovery.New(discovery.Config{
-		Broadcast:    s.broadcastMessage,
-		Notifier:     s.chainNotifier,
-		Router:       s.chanRouter,
-		SendMessages: s.sendToPeer,
+		Broadcast:        s.broadcastMessage,
+		Notifier:         s.chainNotifier,
+		Router:           s.chanRouter,
+		SendToPeer:       s.sendToPeer,
+		TrickleDelay:     time.Millisecond * 300,
+		ProofMatureDelta: 0,
 	})
 	if err != nil {
 		return nil, err
@@ -218,8 +235,16 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
 		Notifier: s.chainNotifier,
-		SendToDiscovery: func(msg lnwire.Message) {
-			s.discoverSrv.ProcessLocalAnnouncement(msg,
+		SignNodeKey: func(nodeKey, fundingKey *btcec.PublicKey) (*btcec.Signature,
+			error) {
+			return fakeSig, nil
+		},
+		SignAnnouncement: func(msg lnwire.Message) (*btcec.Signature,
+			error) {
+			return fakeSig, nil
+		},
+		SendToDiscovery: func(msg lnwire.Message) chan error {
+			return s.discoverSrv.ProcessLocalAnnouncement(msg,
 				s.identityPriv.PubKey())
 		},
 		ArbiterChan: s.breachArbiter.newContracts,

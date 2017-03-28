@@ -69,7 +69,11 @@ var (
 
 	// ErrEdgeNotFound is returned when an edge for the target chanID
 	// can't be found.
-	ErrEdgeNotFound = fmt.Errorf("edge for chanID not found")
+	ErrEdgeNotFound = fmt.Errorf("edge not found")
+
+	// ErrEdgeAlreadyExist is returned when edge with specific
+	// channel id can't be added because it already exist.
+	ErrEdgeAlreadyExist = fmt.Errorf("edge already exist")
 
 	// ErrNodeAliasNotFound is returned when alias for node can't be found.
 	ErrNodeAliasNotFound = fmt.Errorf("alias for node not found")

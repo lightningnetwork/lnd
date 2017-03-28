@@ -424,7 +424,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 		// created. If so, then we can exit early as this method is
 		// meant to be idempotent.
 		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo != nil {
-			return nil
+			return ErrEdgeAlreadyExist
 		}
 
 		// If the edge hasn't been created yet, then we'll first add it

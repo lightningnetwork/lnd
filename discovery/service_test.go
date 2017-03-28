@@ -13,6 +13,7 @@ import (
 
 	"time"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -33,18 +34,39 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	inputStr = "147caa76786596590baa4e98f5d9f48b86c7765e489f7a6ff3360fe5c674360b"
+	sha, _   = chainhash.NewHashFromStr(inputStr)
+	outpoint = wire.NewOutPoint(sha, 0)
+
+	bitcoinKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKeyPub1     = bitcoinKeyPriv1.PubKey()
+
+	nodeKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
+	nodeKeyPub1     = nodeKeyPriv1.PubKey()
+
+	bitcoinKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKeyPub2     = bitcoinKeyPriv2.PubKey()
+
+	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
+	nodeKeyPub2     = nodeKeyPriv2.PubKey()
+
+	trickleDelay     = time.Millisecond * 300
+	proofMatureDelta uint32
 )
 
 type mockGraphSource struct {
 	nodes      []*channeldb.LightningNode
-	edges      []*channeldb.ChannelEdgeInfo
-	updates    []*channeldb.ChannelEdgePolicy
+	infos      map[uint64]*channeldb.ChannelEdgeInfo
+	edges      map[uint64][]*channeldb.ChannelEdgePolicy
 	bestHeight uint32
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
 	return &mockGraphSource{
 		bestHeight: height,
+		infos:      make(map[uint64]*channeldb.ChannelEdgeInfo),
+		edges:      make(map[uint64][]*channeldb.ChannelEdgePolicy),
 	}
 }
 
@@ -55,13 +77,19 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode) error {
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
-	r.edges = append(r.edges, edge)
+func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
+	if _, ok := r.infos[info.ChannelID]; ok {
+		return errors.New("info already exist")
+	}
+	r.infos[info.ChannelID] = info
 	return nil
 }
 
-func (r *mockGraphSource) UpdateEdge(policy *channeldb.ChannelEdgePolicy) error {
-	r.updates = append(r.updates, policy)
+func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
+	r.edges[edge.ChannelID] = append(
+		r.edges[edge.ChannelID],
+		edge,
+	)
 	return nil
 }
 
@@ -89,6 +117,28 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdg
 func (r *mockGraphSource) ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
 	e1, e2 *channeldb.ChannelEdgePolicy) error) error {
 	return nil
+}
+
+func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
+	*channeldb.ChannelEdgeInfo,
+	*channeldb.ChannelEdgePolicy,
+	*channeldb.ChannelEdgePolicy, error) {
+
+	chanInfo, ok := r.infos[chanID.ToUint64()]
+	if !ok {
+		return nil, nil, nil, errors.New("can't find channel info")
+	}
+
+	edges := r.edges[chanID.ToUint64()]
+	if len(edges) == 0 {
+		return chanInfo, nil, nil, nil
+	}
+
+	if len(edges) == 1 {
+		return chanInfo, edges[0], nil, nil
+	}
+
+	return chanInfo, edges[0], edges[1], nil
 }
 
 type mockNotifier struct {
@@ -149,31 +199,87 @@ func (m *mockNotifier) Stop() error {
 	return nil
 }
 
-func createNodeAnnouncement() (*lnwire.NodeAnnouncement,
+type annBatch struct {
+	nodeAnn1       *lnwire.NodeAnnouncement
+	nodeAnn2       *lnwire.NodeAnnouncement
+	localChanAnn   *lnwire.ChannelAnnouncement
+	remoteChanAnn  *lnwire.ChannelAnnouncement
+	chanUpdAnn     *lnwire.ChannelUpdateAnnouncement
+	localProofAnn  *lnwire.AnnounceSignatures
+	remoteProofAnn *lnwire.AnnounceSignatures
+}
+
+func createAnnouncements(blockHeight uint32) (*annBatch, error) {
+	var err error
+	var batch annBatch
+
+	batch.nodeAnn1, err = createNodeAnnouncement(nodeKeyPriv1)
+	if err != nil {
+		return nil, err
+	}
+
+	batch.nodeAnn2, err = createNodeAnnouncement(nodeKeyPriv2)
+	if err != nil {
+		return nil, err
+	}
+
+	batch.remoteChanAnn, err = createRemoteChannelAnnouncement(blockHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	batch.localProofAnn = &lnwire.AnnounceSignatures{
+		NodeSignature:    batch.remoteChanAnn.NodeSig1,
+		BitcoinSignature: batch.remoteChanAnn.BitcoinSig1,
+	}
+
+	batch.remoteProofAnn = &lnwire.AnnounceSignatures{
+		NodeSignature:    batch.remoteChanAnn.NodeSig2,
+		BitcoinSignature: batch.remoteChanAnn.BitcoinSig2,
+	}
+
+	batch.localChanAnn, err = createRemoteChannelAnnouncement(blockHeight)
+	if err != nil {
+		return nil, err
+	}
+	batch.localChanAnn.BitcoinSig1 = nil
+	batch.localChanAnn.BitcoinSig2 = nil
+	batch.localChanAnn.NodeSig1 = nil
+	batch.localChanAnn.NodeSig2 = nil
+
+	batch.chanUpdAnn, err = createUpdateAnnouncement(blockHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	return &batch, nil
+
+}
+
+func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+
+	alias, err := lnwire.NewAlias("kek" + string(priv.Serialize()))
 	if err != nil {
 		return nil, err
 	}
 
-	pub := priv.PubKey().SerializeCompressed()
-
-	alias, err := lnwire.NewAlias("kek" + string(pub[:]))
-	if err != nil {
-		return nil, err
-	}
-
-	return &lnwire.NodeAnnouncement{
+	a := &lnwire.NodeAnnouncement{
+		Signature: testSig,
 		Timestamp: uint32(prand.Int31()),
 		Addresses: testAddrs,
 		NodeID:    priv.PubKey(),
 		Alias:     alias,
 		Features:  testFeatures,
-	}, nil
+	}
+
+	return a, nil
 }
 
-func createUpdateAnnouncement(blockHeight uint32) *lnwire.ChannelUpdateAnnouncement {
-	return &lnwire.ChannelUpdateAnnouncement{
+func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdateAnnouncement,
+	error) {
+
+	a := &lnwire.ChannelUpdateAnnouncement{
 		Signature: testSig,
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -184,26 +290,37 @@ func createUpdateAnnouncement(blockHeight uint32) *lnwire.ChannelUpdateAnnouncem
 		FeeBaseMsat:               uint32(prand.Int31()),
 		FeeProportionalMillionths: uint32(prand.Int31()),
 	}
+
+	return a, nil
 }
 
-func createChannelAnnouncement(blockHeight uint32) *lnwire.ChannelAnnouncement {
-	// Our fake channel will be "confirmed" at height 101.
-	chanID := lnwire.ShortChannelID{
-		BlockHeight: blockHeight,
-		TxIndex:     0,
-		TxPosition:  0,
+func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement,
+	error) {
+
+	a := &lnwire.ChannelAnnouncement{
+		ShortChannelID: lnwire.ShortChannelID{
+			BlockHeight: blockHeight,
+			TxIndex:     0,
+			TxPosition:  0,
+		},
+		NodeID1:     nodeKeyPub1,
+		NodeID2:     nodeKeyPub2,
+		BitcoinKey1: bitcoinKeyPub1,
+		BitcoinKey2: bitcoinKeyPub2,
+
+		NodeSig1:    testSig,
+		NodeSig2:    testSig,
+		BitcoinSig1: testSig,
+		BitcoinSig2: testSig,
 	}
 
-	return &lnwire.ChannelAnnouncement{
-		ShortChannelID: chanID,
-	}
+	return a, nil
 }
 
 type testCtx struct {
-	discovery *Discovery
-	router    *mockGraphSource
-	notifier  *mockNotifier
-
+	discovery          *Discovery
+	router             *mockGraphSource
+	notifier           *mockNotifier
 	broadcastedMessage chan lnwire.Message
 }
 
@@ -215,7 +332,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
 
-	broadcastedMessage := make(chan lnwire.Message)
+	broadcastedMessage := make(chan lnwire.Message, 10)
 	discovery, err := New(Config{
 		Notifier: notifier,
 		Broadcast: func(_ *btcec.PublicKey, msgs ...lnwire.Message) error {
@@ -224,8 +341,12 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 			}
 			return nil
 		},
-		SendMessages: nil,
-		Router:       router,
+		SendToPeer: func(target *btcec.PublicKey, msg ...lnwire.Message) error {
+			return nil
+		},
+		Router:           router,
+		TrickleDelay:     trickleDelay,
+		ProofMatureDelta: proofMatureDelta,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -255,21 +376,23 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 	defer cleanup()
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		t.Fatalf("can't create node pub key: %v", err)
-	}
-	nodePub := priv.PubKey()
-
-	na, err := createNodeAnnouncement()
+	// Create node valid, signed announcement, process it with with
+	// discovery service, check that valid announcement have been
+	// propagated farther into the lightning network, and check that we
+	// added new node into router.
+	na, err := createNodeAnnouncement(nodeKeyPriv1)
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	ctx.discovery.ProcessRemoteAnnouncement(na, nodePub)
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(na, na.NodeID)
+	if err != nil {
+		t.Fatalf("can't process remote announcement: %v", err)
+	}
 
 	select {
 	case <-ctx.broadcastedMessage:
-	case <-time.After(time.Second):
+	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
 
@@ -277,32 +400,54 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("node wasn't added to router: %v", err)
 	}
 
-	ca := createChannelAnnouncement(0)
-	ctx.discovery.ProcessRemoteAnnouncement(ca, nodePub)
+	// Pretending that we receive the valid channel announcement from
+	// remote side, and check that we broadcasted it to the our network,
+	// and added channel info in the router.
+	ca, err := createRemoteChannelAnnouncement(0)
+	if err != nil {
+		t.Fatalf("can't create channel announcement: %v", err)
+	}
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(ca, na.NodeID)
+	if err != nil {
+		t.Fatalf("can't process remote announcement: %v", err)
+	}
+
 	select {
 	case <-ctx.broadcastedMessage:
-	case <-time.After(time.Second):
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcememt wasn't proceeded")
+	}
+
+	if len(ctx.router.infos) != 1 {
+		t.Fatalf("edge wasn't added to router: %v", err)
+	}
+
+	// Pretending that we received valid channel policy update from remote
+	// side, and check that we broadcasted it to the other network, and
+	// added updates to the router.
+	ua, err := createUpdateAnnouncement(0)
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(ua, na.NodeID)
+	if err != nil {
+		t.Fatalf("can't process remote announcement: %v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
 
 	if len(ctx.router.edges) != 1 {
-		t.Fatalf("edge wasn't added to router: %v", err)
-	}
-
-	ua := createUpdateAnnouncement(0)
-	ctx.discovery.ProcessRemoteAnnouncement(ua, nodePub)
-	select {
-	case <-ctx.broadcastedMessage:
-	case <-time.After(time.Second):
-		t.Fatal("announcememt wasn't proceeded")
-	}
-
-	if len(ctx.router.updates) != 1 {
 		t.Fatalf("edge update wasn't added to router: %v", err)
 	}
 }
 
-// TestPrematureAnnouncement checks that premature networkMsgs are
+// TestPrematureAnnouncement checks that premature announcements are
 // not propagated to the router subsystem until block with according
 // block height received.
 func TestPrematureAnnouncement(t *testing.T) {
@@ -312,62 +457,150 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 	defer cleanup()
 
-	priv, err := btcec.NewPrivateKey(btcec.S256())
+	na, err := createNodeAnnouncement(nodeKeyPriv1)
 	if err != nil {
-		t.Fatalf("can't create node pub key: %v", err)
+		t.Fatalf("can't create node announcement: %v", err)
 	}
-	nodePub := priv.PubKey()
 
-	ca := createChannelAnnouncement(1)
-	ctx.discovery.ProcessRemoteAnnouncement(ca, nodePub)
+	// Pretending that we receive the valid channel announcement from
+	// remote side, but block height of this announcement is greater than
+	// highest know to us, for that reason it should be added to the
+	// repeat/premature batch.
+	ca, err := createRemoteChannelAnnouncement(1)
+	if err != nil {
+		t.Fatalf("can't create channel announcement: %v", err)
+	}
+
 	select {
-	case <-ctx.broadcastedMessage:
+	case <-ctx.discovery.ProcessRemoteAnnouncement(ca, na.NodeID):
+		t.Fatal("announcement was proceeded")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if len(ctx.router.infos) != 0 {
+		t.Fatal("edge was added to router")
+	}
+
+	// Pretending that we receive the valid channel update announcement from
+	// remote side, but block height of this announcement is greater than
+	// highest know to us, for that reason it should be added to the
+	// repeat/premature batch.
+	ua, err := createUpdateAnnouncement(1)
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+
+	select {
+	case <-ctx.discovery.ProcessRemoteAnnouncement(ua, na.NodeID):
 		t.Fatal("announcement was proceeded")
 	case <-time.After(100 * time.Millisecond):
 	}
 
 	if len(ctx.router.edges) != 0 {
-		t.Fatal("edge was added to router")
-	}
-
-	ua := createUpdateAnnouncement(1)
-	ctx.discovery.ProcessRemoteAnnouncement(ua, nodePub)
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("announcement was proceeded")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	if len(ctx.router.updates) != 0 {
 		t.Fatal("edge update was added to router")
 	}
 
+	// Generate new block and waiting the previously added announcements
+	// to be proceeded.
 	newBlock := &wire.MsgBlock{}
 	ctx.notifier.notifyBlock(newBlock.Header.BlockHash(), 1)
 
 	select {
 	case <-ctx.broadcastedMessage:
-		if err != nil {
-			t.Fatalf("announcememt was proceeded with err: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("announcememt wasn't proceeded")
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcememt wasn't broadcasted")
 	}
 
-	if len(ctx.router.edges) != 1 {
+	if len(ctx.router.infos) != 1 {
 		t.Fatalf("edge was't added to router: %v", err)
 	}
 
 	select {
 	case <-ctx.broadcastedMessage:
-		if err != nil {
-			t.Fatalf("announcememt was proceeded with err: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("announcememt wasn't proceeded")
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcememt wasn't broadcasted")
 	}
 
-	if len(ctx.router.updates) != 1 {
+	if len(ctx.router.edges) != 1 {
 		t.Fatalf("edge update wasn't added to router: %v", err)
+	}
+}
+
+// TestSignatureAnnouncement....
+func TestSignatureAnnouncement(t *testing.T) {
+	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	localKey := batch.nodeAnn1.NodeID
+	remoteKey := batch.nodeAnn2.NodeID
+
+	// Recreate lightning network topology. Initialize router with
+	// channel between two nodes.
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel announcement was broadcasted")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcasted")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcasted")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// Pretending that we receive local channel announcement from funding
+	// manager, thereby kick off the announcement exchange process.
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("announcements were broadcasted")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	if len(ctx.discovery.waitingProofs) != 1 {
+		t.Fatal("local proof annoucement should be stored")
+	}
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-time.After(time.Second):
+			t.Fatal("announcement wasn't broadcasted")
+		}
 	}
 }

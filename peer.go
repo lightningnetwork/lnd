@@ -494,12 +494,15 @@ out:
 			isChanUpdate = true
 			targetChan = msg.ChannelPoint
 
-		case *lnwire.NodeAnnouncement,
+		case *lnwire.ChannelUpdateAnnouncement,
 			*lnwire.ChannelAnnouncement,
-			*lnwire.ChannelUpdateAnnouncement:
+			*lnwire.NodeAnnouncement,
+			*lnwire.AnnounceSignatures:
 
 			p.server.discoverSrv.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
+		default:
+			peerLog.Errorf("unknown message received from peer "+"%v", p)
 		}
 
 		if isChanUpdate {

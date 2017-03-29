@@ -93,7 +93,7 @@ $ lnd --simnet --debughtlc
 ```
 
 #### Accurate as of:
-roasbeef/btcd commit: 707a14a
+roasbeef/btcd commit: 54362e17a5b80643ef1e12edc08895a2e2a1202b
 
 roasbeef/btcutil commit: d347e49
 

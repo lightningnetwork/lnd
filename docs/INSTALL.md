@@ -60,8 +60,8 @@ $ sed -i 's#; rpclimitpass=#rpclimitpass=kek#' ~/.btcd/btcd.conf
 
 **On MacOS:**
 ```
-$ sed -i 's#; rpclimituser=whatever_limited_username_you_want#rpclimituser=kek#' /Users/[username]/Library/Application Support/Btcd/btcd.conf
-$ sed -i 's#; rpclimitpass=#rpclimitpass=kek#' /Users/[username]/Library/Application Support/Btcd/btcd.conf
+$ sed -i '' 's#; rpclimituser=whatever_limited_username_you_want#rpclimituser=kek#' /Users/[username]/Library/Application\ Support/Btcd/btcd.conf
+$ sed -i '' 's#; rpclimitpass=#rpclimitpass=kek#' /Users/[username]/Library/Application\ Support/Btcd/btcd.conf
 ```
 
 If you did not have a `btcd.conf` file yet, you can simply paste the following into it:

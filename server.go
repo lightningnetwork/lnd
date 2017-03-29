@@ -156,7 +156,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	selfAddrs := make([]net.Addr, 0)
+	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
 		addr, err := net.ResolveTCPAddr("tcp", ip)
 		if err != nil {

@@ -619,13 +619,15 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 	case *[]net.Addr:
-		var addresses []net.Addr
-		var numAddrs [2]byte
-		if _, err = io.ReadFull(r, numAddrs[:]); err != nil {
+		var numAddrsBytes [2]byte
+		if _, err = io.ReadFull(r, numAddrsBytes[:]); err != nil {
 			return err
 		}
 
-		for i := 0; i < int(binary.BigEndian.Uint16(numAddrs[:])); i++ {
+		numAddrs := binary.BigEndian.Uint16(numAddrsBytes[:])
+		addresses := make([]net.Addr, 0, numAddrs)
+
+		for i := 0; i < int(numAddrs); i++ {
 			var descriptor [1]byte
 			if _, err = io.ReadFull(r, descriptor[:]); err != nil {
 				return err

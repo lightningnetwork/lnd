@@ -14,7 +14,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: master
+  version: 54362e17a5b80643ef1e12edc08895a2e2a1202b
   subpackages:
   - blockchain
   - btcec
@@ -63,4 +63,4 @@ import:
   version: ^1.0.0
 - package: google.golang.org/genproto
   subpackages:
-  - googleapis/api/annotation
+  - googleapis/api/annotations

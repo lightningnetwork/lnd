@@ -1,5 +1,5 @@
-hash: b5f8d00db4f35a6128083799a92fbad5d32bd9e3ddf312aace522d1ba27853b9
-updated: 2017-03-27T16:53:11.703257081-07:00
+hash: 41f2cbd2062a313a79725fe61f9aeae2076c7aec4ac0f854f988a74232771594
+updated: 2017-03-29T18:59:32.34035833-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -48,7 +48,7 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: c9c7427a2a70d2eb3bafa0ab2dc163e45f143317
+  version: 8ee79997227bf9b34611aee7946ae64735e6fd93
   subpackages:
   - jsonpb
   - proto
@@ -58,13 +58,14 @@ imports:
   subpackages:
   - runtime
   - runtime/internal
+  - third_party/googleapis/google/api
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/lightningnetwork/lightning-onion
   version: 0dd00eb9c6ffcefea7d3c6d6e502df218f49e228
 - name: github.com/roasbeef/btcd
-  version: 707a14a79daeb2440fe92feaeceb0fae68ab3e9b
+  version: 54362e17a5b80643ef1e12edc08895a2e2a1202b
   subpackages:
   - blockchain
   - btcec
@@ -109,7 +110,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 459e26527287adbc2adcc5d0d49abff9a5f315a7
+  version: 728b753d0135da6801d45a38e6f43ff55779c5c2
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -119,7 +120,7 @@ imports:
   - ripemd160
   - scrypt
 - name: golang.org/x/net
-  version: 6c23252515492caf9b228a9d5cabcdbde29f7f82
+  version: b4690f45fa1cafc47b1c280c2e75116efe40cc13
   subpackages:
   - context
   - http2
@@ -129,20 +130,12 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: afadfcc7779c1f4db0f6f6438afcb108d9c9c7cd
+  version: e24f485414aeafb646f6fca458b0bf869c0880a1
   subpackages:
   - unix
-- name: golang.org/x/text
-  version: fc7fa097411d30e6708badff276c4c164425590c
-  subpackages:
-  - secure/bidirule
-  - transform
-  - unicode/bidi
-  - unicode/norm
 - name: google.golang.org/genproto
   version: de9f5e90fe9b278809363f08c2072d2f2a429de7
   subpackages:
-  - googleapis/api/annotation
   - googleapis/api/annotations
 - name: google.golang.org/grpc
   version: cdee119ee21e61eef7093a41ba148fa83585e143

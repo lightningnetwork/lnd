@@ -353,7 +353,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 
 	// The following block ensures that after both nodes have restarted,
 	// they have reconnected before the execution of the next test.
-	peersTimeout := time.After(5 * time.Second)
+	peersTimeout := time.After(15 * time.Second)
 	checkPeersTick := time.NewTicker(100 * time.Millisecond)
 	defer checkPeersTick.Stop()
 peersPoll:

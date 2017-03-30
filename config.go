@@ -24,7 +24,7 @@ const (
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
 	defaultSPVMode            = false
-	defaultPeerPort           = 10011
+	defaultPeerPort           = 5656
 	defaultRPCHost            = "localhost"
 	defaultRPCUser            = "user"
 	defaultRPCPass            = "passwd"

@@ -296,11 +296,31 @@ func (p *peer) Start() error {
 	// Before we launch any of the helper goroutines off the peer struct,
 	// we'll first ensure proper adherance to the p2p protocl. The init
 	// message MUST be sent before any other message.
-	msg, _, err := p.readNextMessage()
-	if err != nil {
-		return err
+	readErr := make(chan error, 1)
+	msgChan := make(chan lnwire.Message, 1)
+	go func() {
+		msg, _, err := p.readNextMessage()
+		if err != nil {
+			readErr <- err
+			msgChan <- nil
+		}
+		readErr <- nil
+		msgChan <- msg
+	}()
+
+	select {
+	// In order to avoid blocking indefinately, we'll give the other peer
+	// an upper timeout of 5 seconds to respond before we bail out early.
+	case <-time.After(time.Second * 5):
+		return fmt.Errorf("peer did not complete handshake within 5 " +
+			"seconds")
+	case err := <-readErr:
+		if err != nil {
+			return err
+		}
 	}
 
+	msg := <-msgChan
 	if msg, ok := msg.(*lnwire.Init); ok {
 		if err := p.handleInitMsg(msg); err != nil {
 			return err

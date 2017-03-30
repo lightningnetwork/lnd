@@ -550,9 +550,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 
 	if err := p.Start(); err != nil {
 		srvrLog.Errorf("unable to start peer: %v", err)
-		if p.connReq != nil {
-			s.connMgr.Remove(p.connReq.ID())
-		}
 		p.Disconnect()
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,7 +204,17 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, err
 	}
 
-	host, err := net.ResolveTCPAddr("tcp", in.Addr.Host)
+	// If the address doesn't already have a port, we'll assume the current
+	// default port.
+	var addr string
+	_, _, err = net.SplitHostPort(in.Addr.Host)
+	if err != nil {
+		addr = net.JoinHostPort(in.Addr.Host, strconv.Itoa(defaultPeerPort))
+	} else {
+		addr = in.Addr.Host
+	}
+
+	host, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, err
 	}

@@ -45,6 +45,10 @@ type ChannelGraphSource interface {
 	// subsystem.
 	CurrentBlockHeight() (uint32, error)
 
+	// GetChannelByID return the channel by the channel id.
+	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
+		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
+
 	// ForEachNode is used to iterate over every node in router topology.
 	ForEachNode(func(node *channeldb.LightningNode) error) error
 
@@ -541,9 +545,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				"chan_id=%v", msg.ChannelID)
 		}
 
-		// TODO(andrew.shvv) Add validation that bitcoin keys are
-		// binded to the funding transaction.
-
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
@@ -560,14 +561,37 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		chanUtxo, err := r.cfg.Chain.GetUtxo(&fundingPoint.Hash, fundingPoint.Index)
 		if err != nil {
 			return errors.Errorf("unable to fetch utxo for "+
-				"chan_id=%v: %v", channelID, err)
+				"chan_id=%v: %v", msg.ChannelID, err)
+		}
+
+		// Recreate witness output to be sure that declared in
+		// channel edge bitcoin keys and channel value corresponds to
+		// the reality.
+		_, witnessOutput, err := lnwallet.GenFundingPkScript(
+			msg.BitcoinKey1.SerializeCompressed(),
+			msg.BitcoinKey2.SerializeCompressed(),
+			chanUtxo.Value,
+		)
+		if err != nil {
+			return errors.Errorf("unable to create funding pk "+
+				"script: %v", err)
+		}
+
+		// By checking the equality of witness pkscripts we checks that
+		// funding witness script is multisignature lock which contains
+		// both local and remote public keys which was declared in
+		// channel edge and also that the announced channel value is
+		// right.
+		if !bytes.Equal(witnessOutput.PkScript, chanUtxo.PkScript) {
+			return errors.New("pkscipts aren't equal, " +
+				"which means that either bitcoin keys" +
+				" are wrong or value don't correponds")
 		}
 
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
 		msg.Capacity = btcutil.Amount(chanUtxo.Value) - btcutil.Amount(5000)
 		msg.ChannelPoint = *fundingPoint
-
 		if err := r.cfg.Graph.AddChannelEdge(msg); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
 		}
@@ -680,9 +704,6 @@ func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.Out
 			"(max_index=%v), network_chan_id=%v\n", chanID.TxIndex,
 			numTxns-1, spew.Sdump(chanID))
 	}
-
-	// TODO(roasbeef): skipping validation here as the discovery service
-	// should handle full validate
 
 	// Finally once we have the block itself, we seek to the targeted
 	// transaction index to obtain the funding output and txid.
@@ -1010,6 +1031,15 @@ func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
 func (r *ChannelRouter) CurrentBlockHeight() (uint32, error) {
 	_, height, err := r.cfg.Chain.GetBestBlock()
 	return uint32(height), err
+}
+
+// GetChannelByID return the channel by the channel id.
+// NOTE: Part of the Router interface.
+func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
+	*channeldb.ChannelEdgeInfo,
+	*channeldb.ChannelEdgePolicy,
+	*channeldb.ChannelEdgePolicy, error) {
+	return r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
 // ForEachNode is used to iterate over every node in router topology.

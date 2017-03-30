@@ -65,11 +65,6 @@ func (r *mockGraphSource) UpdateEdge(policy *channeldb.ChannelEdgePolicy) error 
 	return nil
 }
 
-func (r *mockGraphSource) AddProof(chanID uint8,
-	proof *channeldb.ChannelAuthProof) error {
-	return nil
-}
-
 func (r *mockGraphSource) SelfEdges() ([]*channeldb.ChannelEdgePolicy, error) {
 	return nil, nil
 }

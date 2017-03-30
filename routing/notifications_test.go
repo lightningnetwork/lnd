@@ -10,8 +10,10 @@ import (
 
 	prand "math/rand"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -32,14 +34,20 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
+
+	priv1, _    = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKey1 = priv1.PubKey()
+
+	priv2, _    = btcec.NewPrivateKey(btcec.S256())
+	bitcoinKey2 = priv2.PubKey()
 )
 
-func createGraphNode() (*channeldb.LightningNode, error) {
+func createTestNode() (*channeldb.LightningNode, error) {
 	updateTime := prand.Int63()
 
 	priv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
-		return nil, err
+		return nil, errors.Errorf("unable create private key: %v", err)
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
@@ -54,29 +62,7 @@ func createGraphNode() (*channeldb.LightningNode, error) {
 	}, nil
 }
 
-func createTestNode() (*channeldb.LightningNode, error) {
-	priv, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	pub := priv.PubKey().SerializeCompressed()
-
-	alias, err := lnwire.NewAlias("kek" + string(pub[:]))
-	if err != nil {
-		return nil, err
-	}
-
-	return &channeldb.LightningNode{
-		LastUpdate: time.Now(),
-		Addresses:  testAddrs,
-		PubKey:     priv.PubKey(),
-		Alias:      alias.String(),
-		Features:   testFeatures,
-	}, nil
-}
-
-func randEdgePolicy(chanID lnwire.ShortChannelID,
+func randEdgePolicy(chanID *lnwire.ShortChannelID,
 	node *channeldb.LightningNode) *channeldb.ChannelEdgePolicy {
 
 	return &channeldb.ChannelEdgePolicy{
@@ -91,29 +77,37 @@ func randEdgePolicy(chanID lnwire.ShortChannelID,
 	}
 }
 
-func randChannelEdge(ctx *testCtx, chanValue btcutil.Amount,
-	fundingHeight uint32) (*wire.MsgTx, wire.OutPoint, lnwire.ShortChannelID) {
+func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
+	chanValue int64, fundingHeight uint32) (*wire.MsgTx, *wire.OutPoint,
+	*lnwire.ShortChannelID, error) {
 
 	fundingTx := wire.NewMsgTx(2)
-	fundingTx.TxOut = append(fundingTx.TxOut, &wire.TxOut{
-		Value: int64(chanValue),
-	})
+	_, tx, err := lnwallet.GenFundingPkScript(
+		bitcoinKey1,
+		bitcoinKey2,
+		chanValue,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	fundingTx.TxOut = append(fundingTx.TxOut, tx)
 	chanUtxo := wire.OutPoint{
 		Hash:  fundingTx.TxHash(),
 		Index: 0,
 	}
 
 	// With the utxo constructed, we'll mark it as closed.
-	ctx.chain.addUtxo(chanUtxo, chanValue)
+	ctx.chain.addUtxo(chanUtxo, tx)
 
 	// Our fake channel will be "confirmed" at height 101.
-	chanID := lnwire.ShortChannelID{
+	chanID := &lnwire.ShortChannelID{
 		BlockHeight: fundingHeight,
 		TxIndex:     0,
 		TxPosition:  0,
 	}
 
-	return fundingTx, chanUtxo, chanID
+	return fundingTx, &chanUtxo, chanID, nil
 }
 
 type mockChain struct {
@@ -169,11 +163,9 @@ func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	return &hash, nil
 }
 
-func (m *mockChain) addUtxo(op wire.OutPoint, value btcutil.Amount) {
+func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
 	m.Lock()
-	m.utxos[op] = wire.TxOut{
-		Value: int64(value),
-	}
+	m.utxos[op] = *out
 	m.Unlock()
 }
 func (m *mockChain) GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error) {
@@ -274,17 +266,20 @@ func (m *mockNotifier) Stop() error {
 // TestEdgeUpdateNotification tests that when edges are updated or added,
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
-	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtx(0)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
 
 	// First we'll create the utxo for the channel to be "closed"
-	const chanValue = btcutil.Amount(10000)
-	fundingTx, chanPoint, chanID := randChannelEdge(ctx, chanValue,
-		startingBlockHeight)
+	const chanValue = 10000
+	fundingTx, chanPoint, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
+		chanValue, 0)
+	if err != nil {
+		t.Fatalf("unbale create channel edge: %v", err)
+	}
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -319,8 +314,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		ChannelID:   chanID.ToUint64(),
 		NodeKey1:    node1.PubKey,
 		NodeKey2:    node2.PubKey,
-		BitcoinKey1: node1.PubKey,
-		BitcoinKey2: node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -330,7 +325,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	}
 
 	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatal(err)
+		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	// With the channel edge now in place, we'll subscribe for topology
@@ -360,7 +355,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			t.Fatalf("channel ID of edge doesn't match: "+
 				"expected %v, got %v", chanID.ToUint64(), edgeUpdate.ChanID)
 		}
-		if edgeUpdate.ChanPoint != chanPoint {
+		if edgeUpdate.ChanPoint != *chanPoint {
 			t.Fatalf("channel don't match: expected %v, got %v",
 				chanPoint, edgeUpdate.ChanPoint)
 		}
@@ -580,9 +575,13 @@ func TestChannelCloseNotification(t *testing.T) {
 	}
 
 	// First we'll create the utxo for the channel to be "closed"
-	const chanValue = btcutil.Amount(10000)
-	fundingTx, chanUtxo, chanID := randChannelEdge(ctx, chanValue,
-		startingBlockHeight)
+	const chanValue = 10000
+	fundingTx, chanUtxo, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
+		chanValue, startingBlockHeight)
+	if err != nil {
+		t.Fatalf("unable create channel edge: %v", err)
+	}
 
 	// We'll also add a record for the block that included our funding
 	// transaction.
@@ -608,8 +607,8 @@ func TestChannelCloseNotification(t *testing.T) {
 		ChannelID:   chanID.ToUint64(),
 		NodeKey1:    node1.PubKey,
 		NodeKey2:    node2.PubKey,
-		BitcoinKey1: node1.PubKey,
-		BitcoinKey2: node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -637,7 +636,7 @@ func TestChannelCloseNotification(t *testing.T) {
 			{
 				TxIn: []*wire.TxIn{
 					{
-						PreviousOutPoint: chanUtxo,
+						PreviousOutPoint: *chanUtxo,
 					},
 				},
 			},
@@ -678,7 +677,7 @@ func TestChannelCloseNotification(t *testing.T) {
 			t.Fatalf("close height of closed channel doesn't match: "+
 				"expected %v, got %v", blockHeight, closedChan.ClosedHeight)
 		}
-		if closedChan.ChanPoint != chanUtxo {
+		if closedChan.ChanPoint != *chanUtxo {
 			t.Fatalf("chan point of closed channel doesn't match: "+
 				"expected %v, got %v", chanUtxo, closedChan.ChanPoint)
 		}

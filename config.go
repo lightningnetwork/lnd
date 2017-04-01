@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,9 +28,8 @@ const (
 	defaultSPVMode            = false
 	defaultPeerPort           = 5656
 	defaultRPCHost            = "localhost"
-	defaultRPCUser            = "user"
-	defaultRPCPass            = "passwd"
-	defaultSPVHostAdr         = "localhost:18333"
+	defaultRPCUser            = ""
+	defaultRPCPass            = ""
 	defaultMaxPendingChannels = 1
 )
 
@@ -143,9 +144,9 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Multiple networks can't be selected simultaneously.
-	// Count number of network flags passed; assign active network params
-	// while we're at it.
+	// Multiple networks can't be selected simultaneously.  Count number of
+	// network flags passed; assign active network params while we're at
+	// it.
 	numNets := 0
 	if cfg.TestNet3 {
 		numNets++
@@ -172,6 +173,34 @@ func loadConfig() (*config, error) {
 			fmt.Fprintln(os.Stderr, usageMessage)
 			return nil, err
 		}
+	}
+
+	// If the rpcuser and rpcpass paramters aren't set, then we'll attempt
+	// to automatically obtain the properm mcredentials for btcd and set
+	// them within the configuration.
+	if cfg.RPCUser == "" || cfg.RPCPass == "" {
+		// If we're in simnet mode, then the running btcd instance
+		// won't read the RPC credentials from the configuration. So if
+		// lnd wasn't specified the paramters, then we won't be able to
+		// start.
+		if cfg.SimNet {
+			str := "%v: rpcuser and rpcpass must be set to your btcd " +
+				"node's RPC paramters"
+			return nil, fmt.Errorf(str, funcName)
+		}
+
+		fmt.Println("Attempting automatic RPC configuration to btcd")
+
+		confFile := filepath.Join(btcdHomeDir, "btcd.conf")
+		rpcUser, rpcPass, err := extractRPCParams(confFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract RPC "+
+				"credentials: %v, cannot start w/o RPC connection",
+				err)
+		}
+
+		fmt.Println("Automatically obtained btcd's RPC credentials")
+		cfg.RPCUser, cfg.RPCPass = rpcUser, rpcPass
 	}
 
 	// Append the network type to the data directory so it is "namespaced"
@@ -308,4 +337,50 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
 		return brontide.Dial(idPriv, lnAddr)
 	}
+}
+
+// extractRPCParams attempts to extract the RPC credentials for an existing
+// btcd instance. The passed path is expected to be the location of btcd's
+// application data directory on the target system.
+func extractRPCParams(btcdConfigPath string) (string, string, error) {
+	// First, we'll open up the btcd configuration file found at the target
+	// destination.
+	btcdConfigFile, err := os.Open(btcdConfigPath)
+	if err != nil {
+		return "", "", err
+	}
+	defer btcdConfigFile.Close()
+
+	// With the file open extract the contents of the configuration file so
+	// we can attempt o locate the RPC credentials.
+	configContents, err := ioutil.ReadAll(btcdConfigFile)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Attempt to locate the RPC user using a regular expression. If we
+	// don't have a match for our regular expression then we'll exit with
+	// an error.
+	rpcUserRegexp, err := regexp.Compile(`(?m)^\s*rpcuser=([^\s]+)`)
+	if err != nil {
+		return "", "", err
+	}
+	userSubmatches := rpcUserRegexp.FindSubmatch(configContents)
+	if userSubmatches == nil {
+		return "", "", fmt.Errorf("unable to find rpcuser in config")
+	}
+
+	// Similarly, we'll use another regular expression to find the set
+	// rpcpass (if any). If we can't find the pass, then we'll exit with an
+	// error.
+	rpcPassRegexp, err := regexp.Compile(`(?m)^\s*rpcpass=([^\s]+)`)
+	if err != nil {
+		return "", "", err
+	}
+	passSubmatches := rpcPassRegexp.FindSubmatch(configContents)
+	if passSubmatches == nil {
+		return "", "", fmt.Errorf("unable to find rpcuser in config")
+	}
+
+	return string(userSubmatches[1]), string(passSubmatches[1]), nil
 }

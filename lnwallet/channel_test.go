@@ -381,7 +381,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// Bob receives this signature message, revokes his prior commitment
-	// given to him by Alice,a nd then finally send a signature for Alice's
+	// given to him by Alice, and then finally send a signature for Alice's
 	// commitment transaction.
 	if err := bobChannel.ReceiveNewCommitment(aliceSig); err != nil {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)

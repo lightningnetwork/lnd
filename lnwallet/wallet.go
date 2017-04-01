@@ -242,7 +242,7 @@ type addSingleFunderSigsMsg struct {
 // a channel. However, once the chainntnfs package is complete, the wallet
 // will be compatible with multiple RPC/notification services such as Electrum,
 // Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node
-// at all, as SPV support is integrated inot btcwallet.
+// at all, as SPV support is integrated into btcwallet.
 type LightningWallet struct {
 	// This mutex is to be held when generating external keys to be used
 	// as multi-sig, and commitment keys within the channel.

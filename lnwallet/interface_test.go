@@ -1149,7 +1149,7 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		outputIndex = 1
 	}
 
-	/// WIth the index located, we can create a transaction spending the
+	/// With the index located, we can create a transaction spending the
 	//referenced output.
 	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(&wire.TxIn{

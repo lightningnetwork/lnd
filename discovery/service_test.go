@@ -351,7 +351,7 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 }
 
 type testCtx struct {
-	discovery          *Discovery
+	discovery          *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
 	broadcastedMessage chan lnwire.Message
@@ -559,7 +559,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 }
 
-// TestSignatureAnnouncement....
+// TestSignatureAnnouncement ensures that the AuthenticatedGossiper properly
+// processes partial and fully announcement signatures message.
 func TestSignatureAnnouncement(t *testing.T) {
 	ctx, cleanup, err := createTestCtx(proofMatureDelta)
 	if err != nil {
@@ -575,8 +576,8 @@ func TestSignatureAnnouncement(t *testing.T) {
 	localKey := batch.nodeAnn1.NodeID
 	remoteKey := batch.nodeAnn2.NodeID
 
-	// Recreate lightning network topology. Initialize router with
-	// channel between two nodes.
+	// Recreate lightning network topology. Initialize router with channel
+	// between two nodes.
 	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)

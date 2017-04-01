@@ -20,8 +20,8 @@ import (
 	"github.com/lightningnetwork/lightning-onion"
 )
 
-// ChannelGraphSource represent the source of information about the
-// topology of lightning network, it responsible for addition of nodes, edges
+// ChannelGraphSource represent the source of information about the topology of
+// lightning network, it responsible for addition of nodes, edges
 // and applying edges updates, return the current block with with out
 // topology is synchronized.
 type ChannelGraphSource interface {
@@ -34,15 +34,17 @@ type ChannelGraphSource interface {
 	// edge/channel might be used in construction of payment path.
 	AddEdge(edge *channeldb.ChannelEdgeInfo) error
 
-	// AddProof updates the channel edge info with proof which is needed
-	// to properly announce the edge to the rest of the network.
+	// AddProof updates the channel edge info with proof which is needed to
+	// properly announce the edge to the rest of the network.
 	AddProof(chanID lnwire.ShortChannelID, proof *channeldb.ChannelAuthProof) error
 
-	// UpdateEdge is used to update edge information, without this
-	// message edge considered as not fully constructed.
+	// UpdateEdge is used to update edge information, without this message
+	// edge considered as not fully constructed.
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
 
-	// ForAllOutgoingChannels is used to iterate over all self channels info.
+	// ForAllOutgoingChannels is used to iterate over all channels
+	// eminating from the "source" node which is the center of the
+	// star-graph.
 	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
@@ -53,11 +55,11 @@ type ChannelGraphSource interface {
 	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
 
-	// ForEachNode is used to iterate over every node in router topology.
+	// ForEachNode is used to iterate over every node in the known graph.
 	ForEachNode(func(node *channeldb.LightningNode) error) error
 
-	// ForEachChannel is used to iterate over every channel in router
-	// topology.
+	// ForEachChannel is used to iterate over every channel in the known
+	// graph.
 	ForEachChannel(func(chanInfo *channeldb.ChannelEdgeInfo,
 		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
@@ -497,9 +499,9 @@ func (r *ChannelRouter) networkHandler() {
 }
 
 // processUpdate processes a new relate authenticated channel/edge, node or
-// channel/edge update network update. If the update didn't affect the
-// internal state of the draft due to either being out of date, invalid, or
-// redundant, then error is returned.
+// channel/edge update network update. If the update didn't affect the internal
+// state of the draft due to either being out of date, invalid, or redundant,
+// then error is returned.
 func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	var invalidateCache bool
@@ -528,7 +530,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 
 		if err := r.cfg.Graph.AddLightningNode(msg); err != nil {
-			return errors.Errorf("unable to add msg %v to the "+
+			return errors.Errorf("unable to add node %v to the "+
 				"graph: %v", msg.PubKey.SerializeCompressed(), err)
 		}
 
@@ -978,9 +980,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	return [32]byte{}, nil, sendError
 }
 
-// AddNode is used to add node to the topology of the router, after
-// this node might be used in construction of payment path.
-// NOTE: Part of the ChannelGraphSource interface.
+// AddNode is used to add node to the topology of the router, after this node
+// might be used in construction of payment path.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
 	rMsg := &routingMsg{
 		msg: node,
@@ -995,10 +998,11 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
 	}
 }
 
-// AddEdge is used to add edge/channel to the topology of the router,
-// after all information about channel will be gathered this
+// AddEdge is used to add edge/channel to the topology of the router, after all
+// information about channel will be gathered this
 // edge/channel might be used in construction of payment path.
-// NOTE: Part of the ChannelGraphSource interface.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
 	rMsg := &routingMsg{
 		msg: edge,
@@ -1013,9 +1017,10 @@ func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
 	}
 }
 
-// UpdateEdge is used to update edge information, without this
-// message edge considered as not fully constructed.
-// NOTE: Part of the ChannelGraphSource interface.
+// UpdateEdge is used to update edge information, without this message edge
+// considered as not fully constructed.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
 	rMsg := &routingMsg{
 		msg: update,
@@ -1031,46 +1036,57 @@ func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
 }
 
 // CurrentBlockHeight returns the block height from POV of the router subsystem.
-// NOTE: Part of the ChannelGraphSource interface.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) CurrentBlockHeight() (uint32, error) {
 	_, height, err := r.cfg.Chain.GetBestBlock()
 	return uint32(height), err
 }
 
 // GetChannelByID return the channel by the channel id.
-// NOTE: Part of the Router interface.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 	*channeldb.ChannelEdgeInfo,
 	*channeldb.ChannelEdgePolicy,
 	*channeldb.ChannelEdgePolicy, error) {
+
 	return r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
 // ForEachNode is used to iterate over every node in router topology.
-// NOTE: Part of the ChannelGraphSource interface.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
 	return r.cfg.Graph.ForEachNode(cb)
 }
 
-// ForAllOutgoingChannels is used to iterate over all self channels info.
-// NOTE: Part of the ChannelGraphSource interface.
+// ForAllOutgoingChannels is used to iterate over all outgiong channel owned by
+// the router.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error {
+
 	return r.selfNode.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
 		c *channeldb.ChannelEdgePolicy) error {
 		return cb(c)
 	})
 }
 
-// ForEachChannel is used to iterate over every channel in router topology.
-// NOTE: Part of the ChannelGraphSource interface.
+// ForEachChannel is used to iterate over every known edge (channel) within our
+// view of the channel graph.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForEachChannel(cb func(chanInfo *channeldb.ChannelEdgeInfo,
 	e1, e2 *channeldb.ChannelEdgePolicy) error) error {
+
 	return r.cfg.Graph.ForEachChannel(cb)
 }
 
-// AddProof updates the channel edge info with proof which is needed
-// to properly announce the edge to the rest of the network.
-// NOTE: Part of the Router interface.
+// AddProof updates the channel edge info with proof which is needed to
+// properly announce the edge to the rest of the network.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 	proof *channeldb.ChannelAuthProof) error {
 

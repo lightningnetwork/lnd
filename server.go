@@ -62,7 +62,7 @@ type server struct {
 
 	chanRouter *routing.ChannelRouter
 
-	discoverSrv *discovery.Discovery
+	discoverSrv *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
 
@@ -187,17 +187,20 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		Features: globalFeatures,
 	}
 
-	// Initialize graph with authenticated lightning node, signature is
-	// needed in order to be able to announce node to other network.
+	// Initialize graph with authenticated lightning node. We need to
+	// generate a valid signature in order for other nodes on the network
+	// to accept our announcement.
 	messageSigner := lnwallet.NewMessageSigner(s.identityPriv)
-	if self.AuthSig, err = discovery.SignAnnouncement(messageSigner,
+	self.AuthSig, err = discovery.SignAnnouncement(messageSigner,
 		&lnwire.NodeAnnouncement{
 			Timestamp: uint32(self.LastUpdate.Unix()),
 			Addresses: self.Addresses,
 			NodeID:    self.PubKey,
 			Alias:     alias,
 			Features:  self.Features,
-		}); err != nil {
+		},
+	)
+	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
@@ -247,14 +250,14 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		Notifier: s.chainNotifier,
 		SignNodeKey: func(nodeKey,
 			fundingKey *btcec.PublicKey) (*btcec.Signature, error) {
+
 			data := nodeKey.SerializeCompressed()
 			return fundingSigner.SignData(data, fundingKey)
 		},
-		SignAnnouncement: func(msg lnwire.Message) (*btcec.Signature,
-			error) {
+		SignAnnouncement: func(msg lnwire.Message) (*btcec.Signature, error) {
 			return discovery.SignAnnouncement(messageSigner, msg)
 		},
-		SendToDiscovery: func(msg lnwire.Message) error {
+		SendAnnouncement: func(msg lnwire.Message) error {
 			s.discoverSrv.ProcessLocalAnnouncement(msg,
 				s.identityPriv.PubKey())
 			return nil
@@ -383,17 +386,17 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			}
 			srvrLog.Debugf("Attempting persistent connection to "+
 				"channel peer %v", lnAddr)
-			// Send the persistent connection request to
-			// the connection manager, saving the request
-			// itself so we can cancel/restart the process
-			// as needed.
+
+			// Send the persistent connection request to the
+			// connection manager, saving the request itself so we
+			// can cancel/restart the process as needed.
 			connReq := &connmgr.ConnReq{
 				Addr:      lnAddr,
 				Permanent: true,
 			}
 
-			s.persistentConnReqs[pubStr] =
-				append(s.persistentConnReqs[pubStr], connReq)
+			s.persistentConnReqs[pubStr] = append(s.persistentConnReqs[pubStr],
+				connReq)
 			go s.connMgr.Connect(connReq)
 		}
 	}

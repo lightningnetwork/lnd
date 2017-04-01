@@ -140,18 +140,22 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// SignNodeKey is used to generate signature for node public key with
-	// funding keys.
+	// SignNodeKey is used to generate a signature of a given node identity
+	// public key signed under the passed node funding key. This function
+	// closure is used to generate one half the channel proof which attests
+	// the target nodeKey is indeed in control of the channel funding key
+	// in question.
 	SignNodeKey func(nodeKey, fundingKey *btcec.PublicKey) (*btcec.Signature, error)
 
 	// SignAnnouncement is used to generate the signatures for channel
 	// update, and node announcements, and also to generate the proof for
-	// the channel announcement.
+	// the channel announcements. The key used to generate this signature
+	// is the identity public key of the running daemon.
 	SignAnnouncement func(msg lnwire.Message) (*btcec.Signature, error)
 
-	// SendToDiscovery is used by the FundingManager to announce newly created
-	// channels to the rest of the Lightning Network.
-	SendToDiscovery func(msg lnwire.Message) error
+	// SendAnnouncement is used by the FundingManager to announce newly
+	// created channels to the rest of the Lightning Network.
+	SendAnnouncement func(msg lnwire.Message) error
 
 	// SendToPeer allows the FundingManager to send messages to the peer
 	// node during the multiple steps involved in the creation of the
@@ -884,8 +888,7 @@ func (f *fundingManager) waitForFundingConfirmation(
 	}
 
 	fundingPoint := *completeChan.FundingOutpoint
-	fndgLog.Infof("ChannelPoint(%v) is now active",
-		fundingPoint)
+	fndgLog.Infof("ChannelPoint(%v) is now active", fundingPoint)
 
 	completeChan.IsPending = false
 	err := f.cfg.Wallet.ChannelDB.MarkChannelAsOpen(&fundingPoint)
@@ -913,7 +916,6 @@ func (f *fundingManager) waitForFundingConfirmation(
 		fndgLog.Errorf("Unable to find peer: %v", err)
 		return
 	}
-
 	newChanDone := make(chan struct{})
 	newChanMsg := &newChannelMsg{
 		channel: channel,
@@ -974,6 +976,7 @@ func (f *fundingManager) waitForFundingConfirmation(
 // the funding workflow.
 func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 	peerAddress *lnwire.NetAddress) {
+
 	f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}
 }
 
@@ -987,9 +990,8 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		return
 	}
 
-	// Register the new link with the L3 routing manager so this
-	// new channel can be utilized during path
-	// finding.
+	// Register the new link with the L3 routing manager so this new
+	// channel can be utilized during path finding.
 	go f.announceChannel(f.cfg.IDKey, fmsg.peerAddress.IdentityKey,
 		channel.LocalFundingKey, channel.RemoteFundingKey,
 		fmsg.msg.ChannelID, fundingPoint)
@@ -1073,28 +1075,37 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		FeeProportionalMillionths: 0,
 	}
 
+	// With the channel update announcement constructed, we'll generate a
+	// signature that signs a double-sha digest of the announcement.
+	// This'll serve to authenticate this announcement and other Other
+	// future updates we may send.
 	chanUpdateAnn.Signature, err = f.cfg.SignAnnouncement(chanUpdateAnn)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
 	}
 
-	// Channel proof should be announced in the separate message, so we
-	// already have the bitcoin signature but in order to construct
-	// the proof we also need node signature. Use message signer in order
-	// to sign the message with node private key.
+	// The channel existence proofs itself is currently announced in
+	// distinct message. In order to properly authenticate this message, we
+	// need two signatures: one under the identity public key used which
+	// signs the message itself and another signature of the identity
+	// public key under the funding key itself.
+	// TODO(roasbeef): need to revisit, ensure signatures are signed
+	// properly
 	nodeSig, err := f.cfg.SignAnnouncement(chanAnn)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate node "+
 			"signature for channel announcement: %v", err)
 	}
-
 	bitcoinSig, err := f.cfg.SignNodeKey(localPubKey, localFundingKey)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate bitcoin "+
 			"signature for node public key: %v", err)
 	}
 
+	// Finally, we'll generate the announcement proof which we'll use to
+	// provide the other side with the necessary signatures required to
+	// allow them to reconstruct the full channel announcement.
 	proof := &lnwire.AnnounceSignatures{
 		ChannelID:        chanPoint,
 		ShortChannelID:   chanID,
@@ -1110,12 +1121,12 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 }
 
 // announceChannel announces a newly created channel to the rest of the network
-// by crafting the two authenticated announcements required for the peers on the
-// network to recognize the legitimacy of the channel. The crafted
-// announcements are then send to the channel router to handle broadcasting to
+// by crafting the two authenticated announcements required for the peers on
+// the network to recognize the legitimacy of the channel. The crafted
+// announcements are then sent to the channel router to handle broadcasting to
 // the network during its next trickle.
-func (f *fundingManager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
-	localFundingKey, remoteFundingKey *btcec.PublicKey, chanID lnwire.ShortChannelID,
+func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
+	remoteFundingKey *btcec.PublicKey, chanID lnwire.ShortChannelID,
 	chanPoint wire.OutPoint) {
 
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey, localFundingKey,
@@ -1125,12 +1136,12 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKe
 		return
 	}
 
-	fndgLog.Infof("Send channel, channel update, and proof announcements"+
-		" for chanID=%v, shortChannelID=%v to discovery service",
-		chanPoint, chanID.ToUint64())
-	f.cfg.SendToDiscovery(ann.chanAnn)
-	f.cfg.SendToDiscovery(ann.chanUpdateAnn)
-	f.cfg.SendToDiscovery(ann.chanProof)
+	fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v", chanPoint,
+		spew.Sdump(chanID))
+
+	f.cfg.SendAnnouncement(ann.chanAnn)
+	f.cfg.SendAnnouncement(ann.chanUpdateAnn)
+	f.cfg.SendAnnouncement(ann.chanProof)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it
@@ -1211,7 +1222,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		return
 	}
 
-	fndgLog.Infof("Starting funding workflow with for pendingID(%v)", chanID)
+	fndgLog.Infof("Starting funding workflow with %v for pendingID(%v)",
+		msg.peerAddress.Address, chanID)
 
 	// TODO(roasbeef): add FundingRequestFromContribution func
 	// TODO(roasbeef): need to set fee/kb
@@ -1284,7 +1296,7 @@ func (f *fundingManager) handleErrorGenericMsg(fmsg *fundingErrorMsg) {
 			return
 		}
 
-		fndgLog.Errorf("Received funding error from %v: %v",
+		fndgLog.Errorf("Received funding error from %x: %v",
 			peerKey.SerializeCompressed(), newLogClosure(func() string {
 				return spew.Sdump(e)
 			}),

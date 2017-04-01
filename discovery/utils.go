@@ -35,17 +35,19 @@ func (k waitingProofKey) ToBytes() []byte {
 	return key[:]
 }
 
-// createChanAnnouncement helper function which creates the channel announcement
-// by the given channeldb objects.
+// createChanAnnouncement is a helper function which creates all channel
+// announcements given the necessary channel related database items. This
+// function is used to transform out databse structs into the coresponding wire
+// sturcts for announcing new channels to other peers, or simply syncing up a
+// peer's initial routing table upon connect.
 func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	chanInfo *channeldb.ChannelEdgeInfo,
-	e1, e2 *channeldb.ChannelEdgePolicy) (
-	*lnwire.ChannelAnnouncement,
-	*lnwire.ChannelUpdateAnnouncement,
-	*lnwire.ChannelUpdateAnnouncement) {
-	// First, using the parameters of the channel, along with the
-	// channel authentication chanProof, we'll create re-create the
-	// original authenticated channel announcement.
+	e1, e2 *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
+	*lnwire.ChannelUpdateAnnouncement, *lnwire.ChannelUpdateAnnouncement) {
+
+	// First, using the parameters of the channel, along with the channel
+	// authentication chanProof, we'll create re-create the original
+	// authenticated channel announcement.
 	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
 	chanAnn := &lnwire.ChannelAnnouncement{
 		NodeSig1:       chanProof.NodeSig1,
@@ -59,13 +61,13 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 		BitcoinKey2:    chanInfo.BitcoinKey2,
 	}
 
-	// We'll unconditionally queue the channel's existence chanProof as
-	// it will need to be processed before either of the channel
-	// update networkMsgs.
+	// We'll unconditionally queue the channel's existence chanProof as it
+	// will need to be processed before either of the channel update
+	// networkMsgs.
 
-	// Since it's up to a node's policy as to whether they
-	// advertise the edge in dire direction, we don't create an
-	// advertisement if the edge is nil.
+	// Since it's up to a node's policy as to whether they advertise the
+	// edge in dire direction, we don't create an advertisement if the edge
+	// is nil.
 	var edge1Ann, edge2Ann *lnwire.ChannelUpdateAnnouncement
 	if e1 != nil {
 		edge1Ann = &lnwire.ChannelUpdateAnnouncement{
@@ -95,10 +97,8 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	return chanAnn, edge1Ann, edge2Ann
 }
 
-// copyPubKey is copying the public key and setting curve.
-// NOTE: At the moment of creation the function was need only because we are
-// setting the curve to nil in the read message function and in order to
-// properly validate the signatures we need to set the curve again.
+// copyPubKey performs a copy of the target public key, setting a fresh curve
+// parameter during the process.
 func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	return &btcec.PublicKey{
 		Curve: btcec.S256(),
@@ -107,12 +107,16 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	}
 }
 
-// SignAnnouncement helper function which is used for signing the announce
-// messages.
+// SignAnnouncement is a helper function which is used to sign any outgoing
+// channel node node announcement messages.
 func SignAnnouncement(signer *lnwallet.MessageSigner,
 	msg lnwire.Message) (*btcec.Signature, error) {
-	var data []byte
-	var err error
+
+	var (
+		data []byte
+		err  error
+	)
+
 	switch m := msg.(type) {
 	case *lnwire.ChannelAnnouncement:
 		data, err = m.DataToSign()
@@ -125,7 +129,7 @@ func SignAnnouncement(signer *lnwallet.MessageSigner,
 			"of this format")
 	}
 	if err != nil {
-		return nil, errors.Errorf("can't get data to sign: %v", err)
+		return nil, errors.Errorf("unable to get data to sign: %v", err)
 	}
 
 	return signer.SignData(data)

@@ -220,9 +220,10 @@ func NewFundingSigner(wallet *BtcWallet) *FundingSigner {
 	}
 }
 
-// SignData sign given data with the private key which corresponds to
-// the given public key.
-// This is a part of the DataSigner interface.
+// SignData sign given data with the private key which corresponds to the given
+// public key.
+//
+// NOTE: This is a part of the DataSigner interface.
 func (s *FundingSigner) SignData(data []byte,
 	pubKey *btcec.PublicKey) (*btcec.Signature, error) {
 

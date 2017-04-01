@@ -476,14 +476,13 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 	}
 
 	for _, epochChan := range b.blockEpochClients {
-		// Attempt a non-blocking send. If the buffered channel is
-		// full, then we no-op and move onto the next client.
-		select {
-		case epochChan <- epoch:
-		case <-b.quit:
-			return
-		default:
-		}
+		go func(ntfnChan chan *chainntnfs.BlockEpoch) {
+			select {
+			case ntfnChan <- epoch:
+			case <-b.quit:
+				return
+			}
+		}(epochChan)
 	}
 }
 

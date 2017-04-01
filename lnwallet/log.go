@@ -5,7 +5,10 @@ import (
 	"io"
 
 	"github.com/btcsuite/btclog"
+	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcwallet/chain"
 	btcwallet "github.com/roasbeef/btcwallet/wallet"
+	"github.com/roasbeef/btcwallet/wtxmgr"
 )
 
 // walletLog is a logger that is initialized with no output filters.  This
@@ -29,7 +32,11 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	walletLog = logger
+
 	btcwallet.UseLogger(logger)
+	wtxmgr.UseLogger(logger)
+	btcrpcclient.UseLogger(logger)
+	chain.UseLogger(logger)
 }
 
 // SetLogWriter uses a specified io.Writer to output package logging info.

@@ -10,7 +10,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
-// newProofKey constructs new announcement signature message key.
+// newProofKey constructs a new announcement signature message key.
 func newProofKey(chanID uint64, isRemote bool) waitingProofKey {
 	return waitingProofKey{
 		chanID:   chanID,
@@ -18,9 +18,9 @@ func newProofKey(chanID uint64, isRemote bool) waitingProofKey {
 	}
 }
 
-// ToBytes represents the key in the byte format.
+// ToBytes returns a serialized representation of the key.
 func (k waitingProofKey) ToBytes() []byte {
-	var key [10]byte
+	var key [9]byte
 
 	var b uint8
 	if k.isRemote {
@@ -29,8 +29,8 @@ func (k waitingProofKey) ToBytes() []byte {
 		b = 1
 	}
 
-	binary.BigEndian.PutUint64(key[:], k.chanID)
-	key[9] = b
+	binary.BigEndian.PutUint64(key[:8], k.chanID)
+	key[8] = b
 
 	return key[:]
 }

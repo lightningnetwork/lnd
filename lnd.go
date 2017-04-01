@@ -17,6 +17,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	flags "github.com/btcsuite/go-flags"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -225,7 +226,10 @@ func main() {
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	if err := lndMain(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		os.Exit(1)
 	}
 }

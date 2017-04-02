@@ -62,7 +62,7 @@ func (d *AuthenticatedGossiper) validateNodeAnn(a *lnwire.NodeAnnouncement) erro
 	// return an error so this node announcement can be rejected.
 	dataHash := chainhash.DoubleHashB(data)
 	if !a.Signature.Verify(dataHash, copyPubKey(a.NodeID)) {
-		return errors.New("signature on node announcement is invalid!")
+		return errors.New("signature on node announcement is invalid")
 	}
 
 	return nil

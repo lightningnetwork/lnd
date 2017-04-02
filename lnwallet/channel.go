@@ -268,11 +268,6 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 	// index of a particular HTLC within the current commitment
 	// transaction.
 	locateOutputIndex := func(p *PaymentDescriptor) (uint16, error) {
-		var (
-			idx   uint16
-			found bool
-		)
-
 		pkScript := p.theirPrevPkScript
 		if ourCommit {
 			pkScript = p.ourPkScript
@@ -281,21 +276,17 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		for i, txOut := range c.txn.TxOut {
 			if bytes.Equal(txOut.PkScript, pkScript) &&
 				txOut.Value == int64(p.Amount) {
-				if contains(dups[p.RHash], uint16(i)) {
+				idx := uint16(i)
+				if contains(dups[p.RHash], idx) {
 					continue
 				}
-				found = true
-				idx = uint16(i)
 				dups[p.RHash] = append(dups[p.RHash], idx)
-				break
+				return idx, nil
 			}
 		}
-		if !found {
-			return 0, fmt.Errorf("could not find a matching " +
-				"output for the HTLC in the commitment transaction")
-		}
 
-		return idx, nil
+		return 0, fmt.Errorf("could not find a matching " +
+			"output for the HTLC in the commitment transaction")
 	}
 
 	var (

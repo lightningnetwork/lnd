@@ -115,7 +115,7 @@ bob$ lncli getinfo
 $ docker inspect "bob" | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
-alice$ lncli connect <bob_pubkey>@<bob_host>:5656
+alice$ lncli connect <bob_pubkey>@<bob_host>
 
 # Check list of peers on "Alice" side:
 alice$ lncli listpeers
@@ -295,7 +295,7 @@ After `btcd` synced, connect `Alice` to the `Faucet` node.
 $ docker-compose up -d "alice"; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
-alice$ lncli connect <faucet_identity_address>@<faucet_host>:5656
+alice$ lncli connect <faucet_identity_address>@<faucet_host>
 ```
 
 After connection was achieved the `Faucet` node should create the channel

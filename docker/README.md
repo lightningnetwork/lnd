@@ -250,7 +250,7 @@ bob$ lncli walletbalance
 In order to be more confident with `lnd` commands I suggest you to try 
 to create a mini lightning network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
 
-In this section we will try to connect our node to the faucent/hub node 
+In this section we will try to connect our node to the faucet/hub node 
 which will create with as the channel and send as some amount of 
 bitcoins. The schema will be following:
 

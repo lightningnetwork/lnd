@@ -295,7 +295,7 @@ After `btcd` synced, connect `Alice` to the `Faucet` node.
 $ docker-compose up -d "alice"; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
-alice$ lncli connect <faucet_identity_address>@<faucet_host>:10011
+alice$ lncli connect <faucet_identity_address>@<faucet_host>:5656
 ```
 
 After connection was achieved the `Faucet` node should create the channel

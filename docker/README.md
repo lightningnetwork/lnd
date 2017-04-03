@@ -115,7 +115,7 @@ bob$ lncli getinfo
 $ docker inspect "bob" | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
-alice$ lncli connect <bob_pubkey>@<bob_host>:10011
+alice$ lncli connect <bob_pubkey>@<bob_host>:5656
 
 # Check list of peers on "Alice" side:
 alice$ lncli listpeers
@@ -124,7 +124,7 @@ alice$ lncli listpeers
         {
             "pub_key": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
             "peer_id": 1,
-            "address": "172.19.0.4:10011",
+            "address": "172.19.0.4:5656",
             "bytes_sent": "357",
             "bytes_recv": "357",
             "sat_sent": "0",

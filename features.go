@@ -8,8 +8,4 @@ var globalFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
 
 // localFeatures is an feature vector which represent the features which
 // only affect the protocol between these two nodes.
-var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
-	{Name: "lcp-stop-and-wait", Flag: lnwire.RequiredFlag},
-	{Name: "48-bit-state-hint", Flag: lnwire.RequiredFlag},
-	{Name: "shachain", Flag: lnwire.RequiredFlag},
-})
+var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})

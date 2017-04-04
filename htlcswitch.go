@@ -33,14 +33,14 @@ var (
 
 // boundedLinkChan is a simple wrapper around a link's communication channel
 // that bounds the total flow into and through the channel. Channels attached
-// the link have a value which defines the max number of pending HTLC's present
+// the link have a value which defines the max number of pending HTLCs present
 // within the commitment transaction. Using this struct we establish a
 // synchronization primitive that ensure we don't send additional htlcPackets
-// to a link if the max limit has een reached. Once HTLC's are cleared from the
+// to a link if the max limit has een reached. Once HTLCs are cleared from the
 // commitment transaction, slots are freed up and more can proceed.
 type boundedLinkChan struct {
 	// slots is a buffered channel whose buffer is the total number of
-	// outstanding HTLC's we can add to a link's commitment transaction.
+	// outstanding HTLCs we can add to a link's commitment transaction.
 	// This channel is essentially used as a semaphore.
 	slots chan struct{}
 
@@ -646,7 +646,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 
 	// To ensure we never accidentally cause an HTLC overflow, we'll limit,
 	// we'll use this buffered channel as as semaphore in order to limit
-	// the number of outstanding HTLC's we extend to the target link.
+	// the number of outstanding HTLCs we extend to the target link.
 	//const numSlots = (lnwallet.MaxHTLCNumber / 2) - 1
 	const numSlots = lnwallet.MaxHTLCNumber - 5
 	newLink.boundedLinkChan = newBoundedLinkChan(numSlots, req.linkChan)

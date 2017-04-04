@@ -168,7 +168,7 @@ func NewFeatureVectorFromReader(r io.Reader) (*FeatureVector, error) {
 
 // Encode encodes the features vector into bytes representation, every feature
 // encoded as 2 bits where odd bit determine whether the feature is "optional"
-// and even bit told us whether the feature is "required". The even/odd
+// and even bit tell us whether the feature is "required". The even/odd
 // semantic allows future incompatible changes, or backward compatible changes.
 // Bits generally assigned in pairs, so that optional features can later become
 // compulsory.
@@ -203,7 +203,7 @@ func (f *FeatureVector) Encode(w io.Writer) error {
 
 // Compare checks that features are compatible and returns the features which
 // were present in both remote and local feature vectors. If remote/local node
-// doesn't have the feature and local/remote node require it than such vectors
+// doesn't have the feature and local/remote node require it then such vectors
 // are incompatible.
 func (f *FeatureVector) Compare(f2 *FeatureVector) (*SharedFeatures, error) {
 	shared := newSharedFeatures(f.Copy())
@@ -215,14 +215,14 @@ func (f *FeatureVector) Compare(f2 *FeatureVector) (*SharedFeatures, error) {
 				return nil, errors.New("Remote node hasn't " +
 					"locally required feature")
 			case OptionalFlag:
-				// If feature is optional and remote side
-				// haven't it than it might be safely disabled.
+				// If feature is optional and remote side doesn't
+				// have it then it might be safely disabled.
 				delete(shared.flags, index)
 				continue
 			}
 		}
 
-		// If feature exists on both sides than such feature might be
+		// If feature exists on both sides then such feature might be
 		// considered as active.
 		shared.flags[index] = flag
 	}
@@ -234,14 +234,14 @@ func (f *FeatureVector) Compare(f2 *FeatureVector) (*SharedFeatures, error) {
 				return nil, errors.New("Local node hasn't " +
 					"locally required feature")
 			case OptionalFlag:
-				// If feature is optional and local side
-				// haven't it than it might be safely disabled.
+				// If feature is optional and local side doesn't
+				// have it then it might be safely disabled.
 				delete(shared.flags, index)
 				continue
 			}
 		}
 
-		// If feature exists on both sides than such feature might be
+		// If feature exists on both sides then such feature might be
 		// considered as active.
 		shared.flags[index] = flag
 	}
@@ -249,7 +249,7 @@ func (f *FeatureVector) Compare(f2 *FeatureVector) (*SharedFeatures, error) {
 	return shared, nil
 }
 
-// Copy generate new distinct instance of the feature vector.
+// Copy generates new distinct instance of the feature vector.
 func (f *FeatureVector) Copy() *FeatureVector {
 	features := make([]Feature, len(f.featuresMap))
 
@@ -276,12 +276,12 @@ func newSharedFeatures(f *FeatureVector) *SharedFeatures {
 }
 
 // IsActive checks is feature active or not, it might be disabled during
-// comparision with remote feature vector if it was optional and remote peer
+// comparison with remote feature vector if it was optional and remote peer
 // doesn't support it.
 func (f *SharedFeatures) IsActive(name featureName) bool {
 	index, ok := f.featuresMap[name]
 	if !ok {
-		// If we even have no such feature in feature map, than it
+		// If we even have no such feature in feature map, then it
 		// can't be active in any circumstances.
 		return false
 	}

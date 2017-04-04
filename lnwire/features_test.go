@@ -31,7 +31,7 @@ func TestFeaturesRemoteRequireError(t *testing.T) {
 }
 
 // TestFeaturesLocalRequireError checks that we throw an error if local peer has
-// required feature which remote peer don't support.
+// required feature which remote peer doesn't support.
 func TestFeaturesLocalRequireError(t *testing.T) {
 	const (
 		first  = "first"
@@ -52,7 +52,7 @@ func TestFeaturesLocalRequireError(t *testing.T) {
 	}
 }
 
-// TestOptionalFeature checks that if remote peer don't have the feature but
+// TestOptionalFeature checks that if remote peer doesn't have the feature but
 // on our side this feature is optional than we mark this feature as disabled.
 func TestOptionalFeature(t *testing.T) {
 	const first = "first"

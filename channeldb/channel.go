@@ -490,7 +490,7 @@ type ChannelDelta struct {
 	// increasing.
 	UpdateNum uint64
 
-	// Htlcs is the set of HTLC's that are pending at this particular
+	// Htlcs is the set of HTLCs that are pending at this particular
 	// commitment height.
 	Htlcs []*HTLC
 }

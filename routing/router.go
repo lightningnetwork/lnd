@@ -312,9 +312,9 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	log.Infof("Syncing channel graph from height=%v (hash=%v) to height=%v "+
 		"(hash=%v)", pruneHeight, pruneHash, bestHeight, bestHash)
 
-	// If we're not yet caught up, then we'll walk forward in the chain in
-	// the chain pruning the channel graph with each new block in the chain
-	// that hasn't yet been consumed by the channel graph.
+	// If we're not yet caught up, then we'll walk forward in the chain
+	// pruning the channel graph with each new block in the chain that
+	// hasn't yet been consumed by the channel graph.
 	var numChansClosed uint32
 	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ {
 		// Using the next height, fetch the next block to use in our
@@ -378,8 +378,7 @@ func (r *ChannelRouter) networkHandler() {
 		case updateMsg := <-r.networkUpdates:
 			// Process the routing update to determine if this is
 			// either a new update from our PoV or an update to a
-			// prior vertex/edge we previously
-			// accepted.
+			// prior vertex/edge we previously accepted.
 			err := r.processUpdate(updateMsg.msg)
 			updateMsg.err <- err
 			if err != nil {
@@ -846,7 +845,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// Finally, encode Sphinx packet using it's wire representation to be
+	// Finally, encode Sphinx packet using its wire representation to be
 	// included within the HTLC add packet.
 	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {

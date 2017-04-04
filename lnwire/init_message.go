@@ -2,8 +2,8 @@ package lnwire
 
 import "io"
 
-// Init is the first message reveals the features supported or required by this
-// node. Nodes wait for receipt of the other's features to simplify error
+// Init is the first message and reveals the features supported or required by
+// this node. Nodes wait for receipt of the other's features to simplify error
 // diagnosis where features are incompatible. Each node MUST wait to receive
 // init before sending any other messages.
 type Init struct {
@@ -11,7 +11,7 @@ type Init struct {
 	// also advertised to other nodes.
 	GlobalFeatures *FeatureVector
 
-	// LocalFeatures is feature vector which only affect the protocol
+	// LocalFeatures is feature vector which only affects the protocol
 	// between two nodes.
 	LocalFeatures *FeatureVector
 }

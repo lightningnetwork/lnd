@@ -1271,7 +1271,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to recv bob's htlc: %v", err)
 	}
 
-	// Next, Alice initiates a state transition to include the HTLC's she
+	// Next, Alice initiates a state transition to include the HTLCs she
 	// added above in a new commitment state.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("unable to complete alice's state transition: %v", err)

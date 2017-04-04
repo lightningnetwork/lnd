@@ -14,7 +14,7 @@ const OnionPacketSize = 1254
 // HTLC to his remote commitment transaction. In addition to information
 // detailing the value, the ID, expiry, and the onion blob is also included
 // which allows Bob to derive the next hop in the route. The HTLC added by this
-// message is to be added to the remote node's "pending" HTLC's.  A subsequent
+// message is to be added to the remote node's "pending" HTLCs.  A subsequent
 // CommitSig message will move the pending HTLC to the newly created commitment
 // transaction, marking them as "staged".
 type UpdateAddHTLC struct {
@@ -37,7 +37,7 @@ type UpdateAddHTLC struct {
 	Amount btcutil.Amount
 
 	// PaymentHash is the payment hash to be included in the HTLC this
-	// request creates. The pre-image to this HTLC must be revelaed by the
+	// request creates. The pre-image to this HTLC must be revealed by the
 	// upstream peer in order to fully settle the HTLC.
 	PaymentHash [32]byte
 

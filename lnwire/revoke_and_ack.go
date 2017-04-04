@@ -10,7 +10,7 @@ import (
 // received, and validated. This message serves to revoke the prior commitment
 // transaction, which was the most up to date version until a CommitSig message
 // referencing the specified ChannelPoint was received.  Additionally, this
-// message also piggyback's the next revocation hash that Alice should use when
+// message also piggybacks the next revocation hash that Alice should use when
 // constructing the Bob's version of the next commitment transaction (which
 // would be done before sending a CommitSig message).  This piggybacking allows
 // Alice to send the next CommitSig message modifying Bob's commitment

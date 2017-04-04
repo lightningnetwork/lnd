@@ -6,13 +6,13 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
-// CommitSig is sent by either side to stage any pending HTLC's in the
+// CommitSig is sent by either side to stage any pending HTLCs in the
 // receiver's pending set into a new commitment state.  Implicitly, the new
 // commitment transaction constructed which has been signed by CommitSig
-// includes all HTLC's in the remote node's pending set. A CommitSig message
+// includes all HTLCs in the remote node's pending set. A CommitSig message
 // may be sent after a series of UpdateAddHTLC/UpdateFufillHTLC messages in
-// order to batch add several HTLC's with a single signature covering all
-// implicitly accepted HTLC's.
+// order to batch add several HTLCs with a single signature covering all
+// implicitly accepted HTLCs.
 type CommitSig struct {
 	// ChanID uniquely identifies to which currently active channel this
 	// CommitSig applies to.

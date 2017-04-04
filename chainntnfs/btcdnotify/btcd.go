@@ -476,7 +476,10 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 	}
 
 	for _, epochChan := range b.blockEpochClients {
+		b.wg.Add(1)
 		go func(ntfnChan chan *chainntnfs.BlockEpoch) {
+			defer b.wg.Done()
+
 			select {
 			case ntfnChan <- epoch:
 			case <-b.quit:

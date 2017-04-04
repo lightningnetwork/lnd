@@ -115,7 +115,7 @@ bob$ lncli getinfo
 $ docker inspect "bob" | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
-alice$ lncli connect <bob_pubkey>@<bob_host>:10011
+alice$ lncli connect <bob_pubkey>@<bob_host>
 
 # Check list of peers on "Alice" side:
 alice$ lncli listpeers
@@ -124,7 +124,7 @@ alice$ lncli listpeers
         {
             "pub_key": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
             "peer_id": 1,
-            "address": "172.19.0.4:10011",
+            "address": "172.19.0.4:5656",
             "bytes_sent": "357",
             "bytes_recv": "357",
             "sat_sent": "0",
@@ -250,7 +250,7 @@ bob$ lncli walletbalance
 In order to be more confident with `lnd` commands I suggest you to try 
 to create a mini lightning network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
 
-In this section we will try to connect our node to the faucent/hub node 
+In this section we will try to connect our node to the faucet/hub node 
 which will create with as the channel and send as some amount of 
 bitcoins. The schema will be following:
 
@@ -295,7 +295,7 @@ After `btcd` synced, connect `Alice` to the `Faucet` node.
 $ docker-compose up -d "alice"; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
-alice$ lncli connect <faucet_identity_address>@<faucet_host>:10011
+alice$ lncli connect <faucet_identity_address>@<faucet_host>
 ```
 
 After connection was achieved the `Faucet` node should create the channel

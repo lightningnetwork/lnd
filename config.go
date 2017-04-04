@@ -54,7 +54,7 @@ type config struct {
 	DataDir    string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	LogDir     string `long:"logdir" description:"Directory to log output."`
 
-	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 10011)"`
+	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 5656)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`

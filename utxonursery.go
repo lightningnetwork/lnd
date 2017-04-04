@@ -39,7 +39,7 @@ var (
 	// re-organized out of the chain.
 	kindergartenBucket = []byte("kdg")
 
-	// lastGraduatedHeightKey is used to persist the last blockheight that
+	// lastGraduatedHeightKey is used to persist the last block height that
 	// has been checked for graduating outputs. When the nursery is
 	// restarted, lastGraduatedHeightKey is used to determine the point
 	// from which it's necessary to catch up.
@@ -552,7 +552,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 		return nil, err
 	}
 
-	// If no time-locked outputs can be sweeped at this point, ten we can
+	// If no time-locked outputs can be swept at this point, ten we can
 	// exit early.
 	if len(results) == 0 {
 		return nil, nil

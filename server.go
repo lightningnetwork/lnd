@@ -538,7 +538,7 @@ func (s *server) WaitForShutdown() {
 }
 
 // broadcastReq is a message sent to the server by a related subsystem when it
-// wishes to broadcast one or more messages to all connected peers. Thi
+// wishes to broadcast one or more messages to all connected peers.
 type broadcastReq struct {
 	ignore *btcec.PublicKey
 	msgs   []lnwire.Message
@@ -573,7 +573,7 @@ func (s *server) broadcastMessage(skip *btcec.PublicKey, msgs ...lnwire.Message)
 	}
 }
 
-// sendReq is  message sent to the server by a related subsystem which it
+// sendReq is a message sent to the server by a related subsystem which it
 // wishes to send a set of messages to a specified peer.
 type sendReq struct {
 	target *btcec.PublicKey
@@ -587,8 +587,8 @@ type nodeAddresses struct {
 	addresses []*net.TCPAddr
 }
 
-// sendToPeer send a message to the server telling it to send the specific set
-// of message to a particular peer. If the peer connect be found, then this
+// sendToPeer sends a message to the server telling it to send the specific set
+// of messages to a particular peer. If the peer cannot be found, then this
 // method will return a non-nil error.
 func (s *server) sendToPeer(target *btcec.PublicKey, msgs ...lnwire.Message) error {
 	errChan := make(chan error, 1)
@@ -694,7 +694,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	}
 
 	// Now that we've established a connection, create a peer, and
-	// it to the set of currently active peers.
+	// add it to the set of currently active peers.
 	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
@@ -863,7 +863,7 @@ func (s *server) addPeer(p *peer) {
 	}
 
 	// Track the new peer in our indexes so we can quickly look it up either
-	// according to its public key, or it's peer ID.
+	// according to its public key, or its peer ID.
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 	s.peersMtx.Lock()
@@ -1023,7 +1023,7 @@ out:
 				len(sMsg.msgs), target)
 
 			// Launch a new goroutine to handle this send request,
-			// this allows us process this request asynchronously
+			// this allows us to process this request asynchronously
 			// without blocking future send requests.
 			go func() {
 				s.peersMtx.RLock()
@@ -1062,7 +1062,7 @@ out:
 	s.wg.Done()
 }
 
-// handleListPeers sends a lice of all currently active peers to the original
+// handleListPeers sends a slice of all currently active peers to the original
 // caller.
 func (s *server) handleListPeers(msg *listPeersMsg) {
 	s.peersMtx.RLock()

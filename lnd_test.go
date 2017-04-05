@@ -423,7 +423,7 @@ peersPoll:
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
 }
 
-// testChannelBalance creates a new channel between Alice and  Bob, then
+// testChannelBalance creates a new channel between Alice and Bob, then
 // checks channel balance to be equal amount specified while creation of channel.
 func testChannelBalance(net *networkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 5)
@@ -468,7 +468,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 	}
 
 	// As this is a single funder channel, Alice's balance should be
-	// exactly 0.5 BTC since now state transitions have taken place yet.
+	// exactly 0.5 BTC since no state transitions have taken place yet.
 	checkChannelBalance(net.Alice, amount)
 
 	// Ensure Bob currently has no available balance within the channel.
@@ -1453,7 +1453,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 		bobPaymentHashes[i] = resp.RHash
 	}
 
-	// As we'll be querying the state of bob's channels frequently we'll
+	// As we'll be querying the state of Bob's channels frequently we'll
 	// create a closure helper function for the purpose.
 	getBobChanInfo := func() (*lnrpc.ActiveChannel, error) {
 		req := &lnrpc.ListChannelsRequest{}
@@ -1732,7 +1732,7 @@ out:
 		}
 	}
 
-	// With the channels, open we can now start to test our multi-hop error
+	// With the channels open, we can now start to test our multi-hop error
 	// scenarios. First, we'll generate an invoice from carol that we'll
 	// use to test some error cases.
 	const payAmt = 10000
@@ -1828,7 +1828,7 @@ out:
 	}
 
 	// To do so, we'll push most of the funds in the channel over to
-	// Alice's side, leaving on 10k satoshis of available balance for bob.
+	// Alice's side, leaving on 10k satoshis of available balance for Bob.
 	invoiceReq = &lnrpc.Invoice{
 		Value: int64(chanAmt) - 10000,
 	}

@@ -36,7 +36,7 @@ var (
 // the link have a value which defines the max number of pending HTLCs present
 // within the commitment transaction. Using this struct we establish a
 // synchronization primitive that ensure we don't send additional htlcPackets
-// to a link if the max limit has een reached. Once HTLCs are cleared from the
+// to a link if the max limit has been reached. Once HTLCs are cleared from the
 // commitment transaction, slots are freed up and more can proceed.
 type boundedLinkChan struct {
 	// slots is a buffered channel whose buffer is the total number of
@@ -644,7 +644,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 		chanID:             chanID,
 	}
 
-	// To ensure we never accidentally cause an HTLC overflow, we'll limit,
+	// To ensure we never accidentally cause an HTLC overflow,
 	// we'll use this buffered channel as as semaphore in order to limit
 	// the number of outstanding HTLCs we extend to the target link.
 	//const numSlots = (lnwallet.MaxHTLCNumber / 2) - 1

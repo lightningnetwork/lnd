@@ -871,7 +871,7 @@ type txWatchRequest struct {
 	eventChan chan struct{}
 }
 
-// bitcoinNetworkWatcher is a goroutine which accepts async notification
+// networkWatcher is a goroutine which accepts async notification
 // requests for the broadcast of a target transaction, and then dispatches the
 // transaction once its seen on the Bitcoin network.
 func (n *networkHarness) networkWatcher() {

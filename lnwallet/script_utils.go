@@ -46,7 +46,7 @@ const (
 	// maxStateHint is the maximum state number we're able to encode using
 	// StateHintSize bytes amongst the sequence number and locktime fields
 	// of the commitment transaction.
-	maxStateHint = (1 << 48) - 1
+	maxStateHint uint64 = (1 << 48) - 1
 )
 
 // witnessScriptHash generates a pay-to-witness-script-hash public key script

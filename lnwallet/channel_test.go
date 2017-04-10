@@ -544,7 +544,8 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 	if aliceChannel.channelState.TotalSatoshisSent != satoshisTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
-			aliceChannel.channelState.TotalSatoshisSent, satoshisTransferred)
+			aliceChannel.channelState.TotalSatoshisSent,
+			satoshisTransferred)
 	}
 	if aliceChannel.channelState.TotalSatoshisReceived != 0 {
 		t.Fatalf("alice satoshis received incorrect %v vs %v expected",
@@ -552,7 +553,8 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 	if bobChannel.channelState.TotalSatoshisReceived != satoshisTransferred {
 		t.Fatalf("bob satoshis received incorrect %v vs %v expected",
-			bobChannel.channelState.TotalSatoshisReceived, satoshisTransferred)
+			bobChannel.channelState.TotalSatoshisReceived,
+			satoshisTransferred)
 	}
 	if bobChannel.channelState.TotalSatoshisSent != 0 {
 		t.Fatalf("bob satoshis sent incorrect %v vs %v expected",
@@ -567,24 +569,24 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 			aliceChannel.currentHeight, 2)
 	}
 	if aliceChannel.revocationWindowEdge != 3 {
-		t.Fatalf("alice revocation window not incremented, is %v should be %v",
-			aliceChannel.revocationWindowEdge, 3)
+		t.Fatalf("alice revocation window not incremented, is %v "+
+			"should be %v", aliceChannel.revocationWindowEdge, 3)
 	}
 	if bobChannel.revocationWindowEdge != 3 {
-		t.Fatalf("alice revocation window not incremented, is %v should be %v",
-			bobChannel.revocationWindowEdge, 3)
+		t.Fatalf("alice revocation window not incremented, is %v "+
+			"should be %v", bobChannel.revocationWindowEdge, 3)
 	}
 
 	// The logs of both sides should now be cleared since the entry adding
 	// the HTLC should have been removed once both sides receive the
 	// revocation.
 	if aliceChannel.localUpdateLog.Len() != 0 {
-		t.Fatalf("alice's local not updated, should be empty, has %v entries "+
-			"instead", aliceChannel.localUpdateLog.Len())
+		t.Fatalf("alice's local not updated, should be empty, has %v "+
+			"entries instead", aliceChannel.localUpdateLog.Len())
 	}
 	if aliceChannel.remoteUpdateLog.Len() != 0 {
-		t.Fatalf("alice's remote not updated, should be empty, has %v entries "+
-			"instead", aliceChannel.remoteUpdateLog.Len())
+		t.Fatalf("alice's remote not updated, should be empty, has %v "+
+			"entries instead", aliceChannel.remoteUpdateLog.Len())
 	}
 	if len(aliceChannel.localUpdateLog.updateIndex) != 0 {
 		t.Fatalf("alice's local log index not cleared, should be empty but "+
@@ -885,12 +887,14 @@ func TestForceClose(t *testing.T) {
 	if closeSummary.SelfOutputSignDesc == nil {
 		t.Fatalf("alice fails to include to-self output in ForceCloseSummary")
 	} else {
-		if closeSummary.SelfOutputSignDesc.PubKey != aliceChannel.channelState.OurCommitKey {
+		if closeSummary.SelfOutputSignDesc.PubKey !=
+			aliceChannel.channelState.OurCommitKey {
 			t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 		}
 		if closeSummary.SelfOutputSignDesc.Output.Value != int64(aliceAmount) {
 			t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
-				"expected %v, got %v", aliceChannel.channelState.OurBalance,
+				"expected %v, got %v",
+				aliceChannel.channelState.OurBalance,
 				closeSummary.SelfOutputSignDesc.Output.Value)
 		}
 	}
@@ -915,12 +919,14 @@ func TestForceClose(t *testing.T) {
 	if closeSummary.SelfOutputSignDesc == nil {
 		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
 	} else {
-		if closeSummary.SelfOutputSignDesc.PubKey != bobChannel.channelState.OurCommitKey {
+		if closeSummary.SelfOutputSignDesc.PubKey !=
+			bobChannel.channelState.OurCommitKey {
 			t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 		}
 		if closeSummary.SelfOutputSignDesc.Output.Value != int64(bobAmount) {
 			t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
-				"expected %v, got %v", bobChannel.channelState.OurBalance,
+				"expected %v, got %v",
+				bobChannel.channelState.OurBalance,
 				closeSummary.SelfOutputSignDesc.Output.Value)
 		}
 	}
@@ -943,7 +949,8 @@ func TestForceClose(t *testing.T) {
 	aliceChannel.ForceCloseSignal = make(chan struct{})
 	bobChannel.ForceCloseSignal = make(chan struct{})
 
-	// Have Bobs' to-self output be below her dust limit and check ForceCloseSummary again on both peers.
+	// Have Bobs' to-self output be below her dust limit and check
+	// ForceCloseSummary again on both peers.
 	htlc, preimage := createHTLC(0, bobAmount-htlcAmount)
 	if _, err := bobChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
@@ -980,12 +987,15 @@ func TestForceClose(t *testing.T) {
 	if closeSummary.SelfOutputSignDesc == nil {
 		t.Fatalf("alice fails to include to-self output in ForceCloseSummary")
 	} else {
-		if closeSummary.SelfOutputSignDesc.PubKey != aliceChannel.channelState.OurCommitKey {
+		if closeSummary.SelfOutputSignDesc.PubKey !=
+			aliceChannel.channelState.OurCommitKey {
 			t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 		}
-		if closeSummary.SelfOutputSignDesc.Output.Value != int64(aliceAmount) {
+		if closeSummary.SelfOutputSignDesc.Output.Value !=
+			int64(aliceAmount) {
 			t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
-				"expected %v, got %v", aliceChannel.channelState.OurBalance,
+				"expected %v, got %v",
+				aliceChannel.channelState.OurBalance,
 				closeSummary.SelfOutputSignDesc.Output.Value)
 		}
 	}
@@ -1006,7 +1016,8 @@ func TestForceClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to force close channel: %v", err)
 	}
-	// Bob's to-self output is below Bob's dust value and should be reflected in the ForceCloseSummary.
+	// Bob's to-self output is below Bob's dust value and should be
+	// reflected in the ForceCloseSummary.
 	if closeSummary.SelfOutputSignDesc != nil {
 		t.Fatalf("bob incorrectly includes to-self output in ForceCloseSummary")
 	}
@@ -1051,8 +1062,9 @@ func TestCheckDustLimit(t *testing.T) {
 	htlcAmount := btcutil.Amount(500)
 
 	if !((htlcAmount > aliceDustLimit) && (bobDustLimit > htlcAmount)) {
-		t.Fatal("htlc amount needs to be above Alice's dust limit, but " +
-			"below Bob's dust limit .")
+		t.Fatalf("htlc amount (%v) should be above Alice's dust limit (%v),"+
+			"and below Bob's dust limit (%v).", htlcAmount, aliceDustLimit,
+			bobDustLimit)
 	}
 
 	aliceAmount := aliceChannel.channelState.OurBalance
@@ -1077,25 +1089,31 @@ func TestCheckDustLimit(t *testing.T) {
 	// From Alice point of view HTLC's amount is bigger than dust limit.
 	commitment := aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 3 {
-		t.Fatal("htlc wasn't added")
+		t.Fatalf("incorrect number of outputs: expected %v, got %v",
+			3, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != aliceAmount-htlcAmount {
-		t.Fatal("our balance wasn't updated")
+		t.Fatalf("Alice has wrong balance: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != bobAmount {
-		t.Fatal("their balance was updated")
+		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
+			bobAmount, commitment.theirBalance)
 	}
 
 	// From Bob point of view HTLC's amount is lower then dust limit.
 	commitment = bobChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
-		t.Fatal("HTLC with dust amount was added")
+		t.Fatalf("Incorrect number of outputs: expected %v, got %v",
+			2, len(commitment.txn.TxOut))
 	}
 	if commitment.theirBalance != aliceAmount-htlcAmount {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.theirBalance)
 	}
 	if commitment.ourBalance != bobAmount {
-		t.Fatal("our balance was updated")
+		t.Fatalf("Bob has wrong balance: expected %v, got %v",
+			bobAmount, commitment.ourBalance)
 	}
 
 	// Settle HTLC and sign new commitment.
@@ -1108,29 +1126,35 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
 	}
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
-		t.Fatalf("Can't update the channel state: %v", err)
+		t.Fatalf("state transition error: %v", err)
 	}
 
 	commitment = aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
-		t.Fatal("HTLC wasn't settled")
+		t.Fatalf("wrong number of outputs: expected %v, got %v",
+			2, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != aliceAmount-htlcAmount {
-		t.Fatal("our balance wasn't updated")
+		t.Fatalf("Alice has wrong balance: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != bobAmount+htlcAmount {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
+			bobAmount, commitment.theirBalance)
 	}
 
 	commitment = bobChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
-		t.Fatal("HTLC with dust amount wasn't settled")
+		t.Fatalf("wrong number of outputs: expected %v, got %v",
+			2, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != bobAmount+htlcAmount {
-		t.Fatalf("our balance wasn't updated")
+		t.Fatalf("Bob has wrong balance: expected %v, got %v",
+			bobAmount+htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != aliceAmount-htlcAmount {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.theirBalance)
 	}
 
 	// Next we will test when a non-HTLC output in the commitment
@@ -1148,33 +1172,37 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("bob unable to receive htlc: %v", err)
 	}
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
-		t.Fatalf("Can't update the channel state: %v", err)
+		t.Fatalf("state transition error: %v", err)
 	}
 
 	// From Alice's point of view, her output is bigger than the dust limit
 	commitment = aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 3 {
-		t.Fatal("incorrect number of outputs in commitment transaction "+
-			"expected %v, got %v", 3, commitment.txn.TxOut)
+		t.Fatalf("incorrect number of outputs in commitment transaction "+
+			"expected %v, got %v", 3, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != aliceAmount-htlcAmount2 {
-		t.Fatal("our balance wasn't updated")
+		t.Fatalf("Alice has wrong balance: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != bobAmount {
-		t.Fatal("their balance was updated")
+		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
+			bobAmount, commitment.theirBalance)
 	}
 
 	// From Bob's point of view, Alice's output is lower than the dust limit
 	commitment = bobChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
-		t.Fatal("incorrect number of outputs in commitment transaction "+
-			"expected %v, got %v", 2, commitment.txn.TxOut)
+		t.Fatalf("incorrect number of outputs in commitment transaction "+
+			"expected %v, got %v", 2, len(commitment.txn.TxOut))
 	}
 	if commitment.theirBalance != aliceAmount-htlcAmount2 {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.theirBalance)
 	}
 	if commitment.ourBalance != bobAmount {
-		t.Fatal("our balance was updated")
+		t.Fatalf("Bob has wrong balance: expected %v, got %v",
+			bobAmount+htlcAmount, commitment.ourBalance)
 	}
 
 	// Settle HTLC and sign new commitment.
@@ -1187,33 +1215,36 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("alice unable to accept settle of outbound htlc: %v", err)
 	}
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
-		t.Fatalf("Can't update the channel state: %v", err)
+		t.Fatalf("state transition error: %v", err)
 	}
 
 	commitment = aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
-		t.Fatal("incorrect number of outputs in commitment transaction, "+
+		t.Fatalf("incorrect number of outputs in commitment transaction, "+
 			"expected %v got %v", 2, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != aliceAmount-htlcAmount2 {
-		t.Fatal("our balance wasn't updated")
+		t.Fatalf("Alice has wrong balance: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != bobAmount+htlcAmount2 {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
+			bobAmount, commitment.theirBalance)
 	}
 
 	commitment = bobChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 1 {
-		t.Fatal("incorrect number of outputs in commitment transaction, "+
+		t.Fatalf("incorrect number of outputs in commitment transaction, "+
 			"expected %v got %v", 1, len(commitment.txn.TxOut))
 	}
 	if commitment.ourBalance != bobAmount+htlcAmount2 {
-		t.Fatal("our balance wasn't updated")
+		t.Fatalf("Bob has wrong balance: expected %v, got %v",
+			bobAmount+htlcAmount, commitment.ourBalance)
 	}
 	if commitment.theirBalance != aliceAmount-htlcAmount2 {
-		t.Fatal("their balance wasn't updated")
+		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
+			aliceAmount-htlcAmount, commitment.theirBalance)
 	}
-
 }
 
 func TestStateUpdatePersistence(t *testing.T) {
@@ -1330,11 +1361,13 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
 	notifier := aliceChannel.channelEvents
-	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer, notifier, aliceChannels[0])
+	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer,
+		notifier, aliceChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier, bobChannels[0])
+	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier,
+		bobChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
@@ -1344,42 +1377,50 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The state update logs of the new channels and the old channels
 	// should now be identical other than the height the HTLCs were added.
-	if aliceChannel.localUpdateLog.logIndex != aliceChannelNew.localUpdateLog.logIndex {
+	if aliceChannel.localUpdateLog.logIndex !=
+		aliceChannelNew.localUpdateLog.logIndex {
 		t.Fatalf("alice log counter: expected %v, got %v",
 			aliceChannel.localUpdateLog.logIndex,
 			aliceChannelNew.localUpdateLog.logIndex)
 	}
-	if aliceChannel.remoteUpdateLog.logIndex != aliceChannelNew.remoteUpdateLog.logIndex {
+	if aliceChannel.remoteUpdateLog.logIndex !=
+		aliceChannelNew.remoteUpdateLog.logIndex {
 		t.Fatalf("alice log counter: expected %v, got %v",
 			aliceChannel.remoteUpdateLog.logIndex,
 			aliceChannelNew.remoteUpdateLog.logIndex)
 	}
-	if aliceChannel.localUpdateLog.Len() != aliceChannelNew.localUpdateLog.Len() {
+	if aliceChannel.localUpdateLog.Len() !=
+		aliceChannelNew.localUpdateLog.Len() {
 		t.Fatalf("alice log len: expected %v, got %v",
 			aliceChannel.localUpdateLog.Len(),
 			aliceChannelNew.localUpdateLog.Len())
 	}
-	if aliceChannel.remoteUpdateLog.Len() != aliceChannelNew.remoteUpdateLog.Len() {
+	if aliceChannel.remoteUpdateLog.Len() !=
+		aliceChannelNew.remoteUpdateLog.Len() {
 		t.Fatalf("alice log len: expected %v, got %v",
 			aliceChannel.remoteUpdateLog.Len(),
 			aliceChannelNew.remoteUpdateLog.Len())
 	}
-	if bobChannel.localUpdateLog.logIndex != bobChannelNew.localUpdateLog.logIndex {
+	if bobChannel.localUpdateLog.logIndex !=
+		bobChannelNew.localUpdateLog.logIndex {
 		t.Fatalf("bob log counter: expected %v, got %v",
 			bobChannel.localUpdateLog.logIndex,
 			bobChannelNew.localUpdateLog.logIndex)
 	}
-	if bobChannel.remoteUpdateLog.logIndex != bobChannelNew.remoteUpdateLog.logIndex {
+	if bobChannel.remoteUpdateLog.logIndex !=
+		bobChannelNew.remoteUpdateLog.logIndex {
 		t.Fatalf("bob log counter: expected %v, got %v",
 			bobChannel.remoteUpdateLog.logIndex,
 			bobChannelNew.remoteUpdateLog.logIndex)
 	}
-	if bobChannel.localUpdateLog.Len() != bobChannelNew.localUpdateLog.Len() {
+	if bobChannel.localUpdateLog.Len() !=
+		bobChannelNew.localUpdateLog.Len() {
 		t.Fatalf("bob log len: expected %v, got %v",
 			bobChannelNew.localUpdateLog.Len(),
 			bobChannelNew.localUpdateLog.Len())
 	}
-	if bobChannel.remoteUpdateLog.Len() != bobChannelNew.remoteUpdateLog.Len() {
+	if bobChannel.remoteUpdateLog.Len() !=
+		bobChannelNew.remoteUpdateLog.Len() {
 		t.Fatalf("bob log len: expected %v, got %v",
 			bobChannel.remoteUpdateLog.Len(),
 			bobChannelNew.remoteUpdateLog.Len())
@@ -1390,11 +1431,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := aliceChannelNew.localUpdateLog.lookup(htlc.Index)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
-			t.Fatalf("alice ourPkScript in ourLog: expected %X..., got %X...",
+			t.Fatalf("alice ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
 		}
 		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
-			t.Fatalf("alice theirPkScript in ourLog: expected %X..., got %X...",
+			t.Fatalf("alice theirPkScript in ourLog: expected %X, got %X",
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
@@ -1402,11 +1443,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookup(htlc.Index)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
-			t.Fatalf("alice ourPkScript in theirLog: expected %X..., got %X...",
+			t.Fatalf("alice ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
 		}
 		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
-			t.Fatalf("alice theirPkScript in theirLog: expected %X..., got %X...",
+			t.Fatalf("alice theirPkScript in theirLog: expected %X, got %X",
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
@@ -1414,11 +1455,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := bobChannelNew.localUpdateLog.lookup(htlc.Index)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
-			t.Fatalf("bob ourPkScript in ourLog: expected %X..., got %X...",
+			t.Fatalf("bob ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
 		}
 		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
-			t.Fatalf("bob theirPkScript in ourLog: expected %X..., got %X...",
+			t.Fatalf("bob theirPkScript in ourLog: expected %X, got %X",
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
@@ -1426,11 +1467,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := bobChannelNew.remoteUpdateLog.lookup(htlc.Index)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
-			t.Fatalf("bob ourPkScript in theirLog: expected %X..., got %X...",
+			t.Fatalf("bob ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
 		}
 		if !bytes.Equal(htlc.theirPkScript, restoredHtlc.theirPkScript) {
-			t.Fatalf("bob theirPkScript in theirLog: expected %X..., got %X...",
+			t.Fatalf("bob theirPkScript in theirLog: expected %X, got %X",
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
@@ -1596,7 +1637,7 @@ func TestCancelHTLC(t *testing.T) {
 	}
 }
 
-func TestCooperativeCloseDustAdherance(t *testing.T) {
+func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.

@@ -2189,7 +2189,8 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 			chanUpdate := graphUpdate.ChannelUpdates[0]
 			if chanUpdate.Capacity != int64(chanAmt) {
 				t.Fatalf("channel capacities mismatch: expected %v, "+
-					"got %v", chanAmt, chanUpdate.Capacity)
+					"got %v", chanAmt,
+					btcutil.Amount(chanUpdate.Capacity))
 			}
 			switch chanUpdate.AdvertisingNode {
 			case net.Alice.PubKeyStr:

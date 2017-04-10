@@ -110,7 +110,7 @@ can create an `lnd.conf`.
 Here's a sample `lnd.conf` to get you started:
 ```
 [Application Options]
-btcdhost=localhost:18834
+btcdhost=localhost:18334
 debuglevel=trace
 debughtlc=true
 maxpendingchannels=10

@@ -5,143 +5,150 @@ import "google/api/annotations.proto";
 package lnrpc;
 
 service Lightning {
-    rpc WalletBalance(WalletBalanceRequest) returns (WalletBalanceResponse) {
+    rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse) {
         option (google.api.http) = {
             get: "/v1/balance/blockchain"
         };
     }
-    rpc ChannelBalance(ChannelBalanceRequest) returns (ChannelBalanceResponse) {
+    rpc ChannelBalance (ChannelBalanceRequest) returns (ChannelBalanceResponse) {
         option (google.api.http) = {
             get: "/v1/balance/channels"
         };
     }
 
-    rpc GetTransactions(GetTransactionsRequest) returns (TransactionDetails) {
+    rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
         option (google.api.http) = {
             get: "/v1/transactions" 
         };
     }
-    rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse) {
+    rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse) {
         option (google.api.http) = {
             post: "/v1/transactions"
             body: "*"
         };
     }
-    rpc SubscribeTransactions(GetTransactionsRequest) returns (stream Transaction);
+    rpc SubscribeTransactions (GetTransactionsRequest) returns (stream Transaction);
 
-    rpc SendMany(SendManyRequest) returns (SendManyResponse);
+    rpc SendMany (SendManyRequest) returns (SendManyResponse);
 
-    rpc NewAddress(NewAddressRequest) returns (NewAddressResponse);
-    rpc NewWitnessAddress(NewWitnessAddressRequest) returns (NewAddressResponse) {
+    rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
+    rpc NewWitnessAddress (NewWitnessAddressRequest) returns (NewAddressResponse) {
         option (google.api.http) = {
             get: "/v1/newaddress"
         };
     }
 
-    rpc ConnectPeer(ConnectPeerRequest) returns (ConnectPeerResponse) {
+    rpc ConnectPeer (ConnectPeerRequest) returns (ConnectPeerResponse) {
         option (google.api.http) = {
             post: "/v1/peers"
             body: "*"
         };
     }
-    rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
+
+    rpc DisconnectPeer (DisconnectPeerRequest) returns (DisconnectPeerResponse) {
+        option (google.api.http) = {
+            delete: "/v1/peers/{pub_key}"
+        };
+    }
+
+    rpc ListPeers (ListPeersRequest) returns (ListPeersResponse) {
         option (google.api.http) = {
             get: "/v1/peers"
         };
     }
-    rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {
+    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse) {
         option (google.api.http) = {
             get: "/v1/getinfo"
         };
     }
 
     // TODO(roasbeef): merge with below with bool?
-    rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse) {
+    rpc PendingChannels (PendingChannelRequest) returns (PendingChannelResponse) {
         option (google.api.http) = {
            get: "/v1/channels/pending"
         };
     }
-    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {
+    rpc ListChannels (ListChannelsRequest) returns (ListChannelsResponse) {
         option (google.api.http) = {
             get: "/v1/channels"
         };
     }
-    rpc OpenChannelSync(OpenChannelRequest) returns (ChannelPoint) {
+    rpc OpenChannelSync (OpenChannelRequest) returns (ChannelPoint) {
         option (google.api.http) = {
             post: "/v1/channels"
             body: "*"
         };
     }
 
-    rpc OpenChannel(OpenChannelRequest) returns (stream OpenStatusUpdate);
+    rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
-    rpc CloseChannel(CloseChannelRequest) returns (stream CloseStatusUpdate) {
+    rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
             delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}"
         };
     }
 
-    rpc SendPayment(stream SendRequest) returns (stream SendResponse);
+    rpc SendPayment (stream SendRequest) returns (stream SendResponse);
 
-    rpc SendPaymentSync(SendRequest) returns (SendResponse) {
+    rpc SendPaymentSync (SendRequest) returns (SendResponse) {
         option (google.api.http) = {
             post: "/v1/channels/transactions"
             body: "*"
         };
     }
 
-    rpc AddInvoice(Invoice) returns (AddInvoiceResponse) {
+    rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {
         option (google.api.http) = {
             post: "/v1/invoices"
             body: "*"
         };
     }
-    rpc ListInvoices(ListInvoiceRequest) returns (ListInvoiceResponse) {
+    rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
             get: "/v1/invoices/{pending_only}"
         };
     }
-    rpc LookupInvoice(PaymentHash) returns (Invoice) {
+    rpc LookupInvoice (PaymentHash) returns (Invoice) {
         option (google.api.http) = {
             get: "/v1/invoices/{r_hash_str}"
         };
     }
-    rpc SubscribeInvoices(InvoiceSubscription) returns (stream Invoice) {
+    rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {
         option (google.api.http) = {
             get: "/v1/invoices/subscribe"
         };
     }
-    rpc DecodePayReq(PayReqString) returns (PayReq) {
+    rpc DecodePayReq (PayReqString) returns (PayReq) {
         option (google.api.http) = {
             get: "/v1/payreq/{pay_req}"
         };
     }
 
-    rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse){
+    rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse) {
         option (google.api.http) = {
             get: "/v1/payments"
         };
     };
 
-    rpc DeleteAllPayments(DeleteAllPaymentsRequest) returns (DeleteAllPaymentsResponse) {
+    rpc DeleteAllPayments (DeleteAllPaymentsRequest) returns (DeleteAllPaymentsResponse) {
         option (google.api.http) = {
             delete: "/v1/payments"
         };
     };
 
-    rpc DescribeGraph(ChannelGraphRequest) returns (ChannelGraph) {
+    rpc DescribeGraph (ChannelGraphRequest) returns (ChannelGraph) {
         option (google.api.http) = {
             get: "/v1/graph"
         };
     }
 
-    rpc GetChanInfo(ChanInfoRequest) returns (ChannelEdge) {
+    rpc GetChanInfo (ChanInfoRequest) returns (ChannelEdge) {
         option (google.api.http) = {
             get: "/v1/graph/edge/{chan_id}"
         };
     }
 
-    rpc GetNodeInfo(NodeInfoRequest) returns (NodeInfo) {
+    rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo) {
         option (google.api.http) = {
             get: "/v1/graph/node/{pub_key}"
         };
@@ -153,7 +160,7 @@ service Lightning {
         };
     }
 
-    rpc GetNetworkInfo(NetworkInfoRequest) returns (NetworkInfo) {
+    rpc GetNetworkInfo (NetworkInfoRequest) returns (NetworkInfo) {
         option (google.api.http) = {
             get: "/v1/graph/info"
         };
@@ -163,7 +170,7 @@ service Lightning {
 
     rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
 
-    rpc DebugLevel(DebugLevelRequest) returns (DebugLevelResponse);
+    rpc DebugLevel (DebugLevelRequest) returns (DebugLevelResponse);
 }
 
 message Transaction {
@@ -178,7 +185,7 @@ message Transaction {
 message GetTransactionsRequest {
 }
 message TransactionDetails {
-    repeated Transaction transactions = 1 [ json_name = "transactions" ];
+    repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
 message SendRequest {
@@ -193,8 +200,8 @@ message SendRequest {
     string payment_request = 6;
 }
 message SendResponse {
-    bytes payment_preimage = 1 [ json_name = "payment_preimage" ];
-    Route payment_route = 2 [ json_name = "payment_route" ];
+    bytes payment_preimage = 1 [json_name = "payment_preimage"];
+    Route payment_route = 2 [json_name = "payment_route"];
 }
 
 message ChannelPoint {
@@ -205,15 +212,15 @@ message ChannelPoint {
 }
 
 message LightningAddress {
-    string pubkey = 1 [ json_name = "pubkey" ];
-    string host = 2 [ json_name = "host" ];
+    string pubkey = 1 [json_name = "pubkey"];
+    string host = 2 [json_name = "host"];
 }
 
 message SendManyRequest {
     map<string, int64> AddrToAmount = 1;
 }
 message SendManyResponse {
-    string txid = 1 [ json_name = "txid" ];
+    string txid = 1 [json_name = "txid"];
 }
 
 message SendCoinsRequest {
@@ -221,7 +228,7 @@ message SendCoinsRequest {
     int64 amount = 2;
 }
 message SendCoinsResponse {
-    string txid = 1 [ json_name = "txid" ];
+    string txid = 1 [json_name = "txid"];
 }
 
 message NewAddressRequest {
@@ -232,9 +239,10 @@ message NewAddressRequest {
     }
     AddressType type = 1;
 }
-message NewWitnessAddressRequest {}
+message NewWitnessAddressRequest {
+}
 message NewAddressResponse {
-    string address = 1 [ json_name = "address" ];
+    string address = 1 [json_name = "address"];
 }
 
 message ConnectPeerRequest {
@@ -242,73 +250,82 @@ message ConnectPeerRequest {
     bool perm = 2;
 }
 message ConnectPeerResponse {
-    int32 peer_id = 1 [ json_name = "peer_id" ];
+    int32 peer_id = 1 [json_name = "peer_id"];
+}
+
+message DisconnectPeerRequest {
+    string pub_key = 1 [json_name = "pub_key"];
+}
+message DisconnectPeerResponse {
 }
 
 message HTLC {
-    bool incoming = 1 [ json_name = "incoming" ];
-    int64 amount = 2 [ json_name = "amount" ];
-    bytes hash_lock = 3 [ json_name = "hash_lock" ];
-    uint32 expiration_height = 4 [ json_name = "expiration_height" ];
-    uint32 revocation_delay = 5 [ json_name = "revocation_delay" ];
+    bool incoming = 1 [json_name = "incoming"];
+    int64 amount = 2 [json_name = "amount"];
+    bytes hash_lock = 3 [json_name = "hash_lock"];
+    uint32 expiration_height = 4 [json_name = "expiration_height"];
+    uint32 revocation_delay = 5 [json_name = "revocation_delay"];
 }
 
 message ActiveChannel {
-    bool active = 1 [ json_name = "active" ];
-    string remote_pubkey = 2 [ json_name = "remote_pubkey" ];
-    string channel_point = 3 [ json_name = "channel_point" ];
-    uint64 chan_id = 4 [ json_name = "chan_id" ];
+    bool active = 1 [json_name = "active"];
+    string remote_pubkey = 2 [json_name = "remote_pubkey"];
+    string channel_point = 3 [json_name = "channel_point"];
+    uint64 chan_id = 4 [json_name = "chan_id"];
 
-    int64 capacity = 5 [ json_name = "capacity" ];
-    int64 local_balance = 6 [ json_name = "local_balance" ];
-    int64 remote_balance = 7 [ json_name = "remote_balance" ];
+    int64 capacity = 5 [json_name = "capacity"];
+    int64 local_balance = 6 [json_name = "local_balance"];
+    int64 remote_balance = 7 [json_name = "remote_balance"];
 
-    int64 unsettled_balance = 8 [ json_name = "unsettled_balance" ];
-    int64 total_satoshis_sent = 9 [ json_name = "total_satoshis_sent" ];
-    int64 total_satoshis_received = 10 [ json_name = "total_satoshis_received" ];
-    uint64 num_updates = 11 [ json_name = "num_updates" ];
+    int64 unsettled_balance = 8 [json_name = "unsettled_balance"];
+    int64 total_satoshis_sent = 9 [json_name = "total_satoshis_sent"];
+    int64 total_satoshis_received = 10 [json_name = "total_satoshis_received"];
+    uint64 num_updates = 11 [json_name = "num_updates"];
 
-    repeated HTLC pending_htlcs = 12 [ json_name = "pending_htlcs" ];
+    repeated HTLC pending_htlcs = 12 [json_name = "pending_htlcs"];
 }
 
-message ListChannelsRequest {}
+message ListChannelsRequest {
+}
 message ListChannelsResponse {
-    repeated ActiveChannel channels = 11 [ json_name = "channels" ];
+    repeated ActiveChannel channels = 11 [json_name = "channels"];
 }
 
 message Peer {
-    string pub_key = 1 [ json_name = "pub_key" ];
-    int32 peer_id = 2 [ json_name = "peer_id" ];
-    string address = 3 [ json_name = "address" ];
+    string pub_key = 1 [json_name = "pub_key"];
+    int32 peer_id = 2 [json_name = "peer_id"];
+    string address = 3 [json_name = "address"];
 
-    uint64 bytes_sent = 4 [ json_name = "bytes_sent" ];
-    uint64 bytes_recv = 5 [ json_name = "bytes_recv" ];
+    uint64 bytes_sent = 4 [json_name = "bytes_sent"];
+    uint64 bytes_recv = 5 [json_name = "bytes_recv"];
 
-    int64 sat_sent = 6 [ json_name = "sat_sent" ];
-    int64 sat_recv = 7 [ json_name = "sat_recv" ];
+    int64 sat_sent = 6 [json_name = "sat_sent"];
+    int64 sat_recv = 7 [json_name = "sat_recv"];
 
-    bool inbound = 8 [ json_name = "inbound" ];
+    bool inbound = 8 [json_name = "inbound"];
 
-    int64 ping_time = 9 [ json_name = "ping_time" ];
+    int64 ping_time = 9 [json_name = "ping_time"];
 }
 
-message ListPeersRequest {}
+message ListPeersRequest {
+}
 message ListPeersResponse {
-    repeated Peer peers = 1 [ json_name = "peers" ];
+    repeated Peer peers = 1 [json_name = "peers"];
 }
 
-message GetInfoRequest{}
+message GetInfoRequest {
+}
 message GetInfoResponse {
-    string identity_pubkey = 1 [ json_name = "identity_pubkey" ];
-    string alias = 2 [ json_name = "alias" ];
+    string identity_pubkey = 1 [json_name = "identity_pubkey"];
+    string alias = 2 [json_name = "alias"];
 
-    uint32 num_pending_channels = 3 [ json_name = "num_pending_channels" ];
-    uint32 num_active_channels = 4 [ json_name = "num_active_channels" ];
+    uint32 num_pending_channels = 3 [json_name = "num_pending_channels"];
+    uint32 num_active_channels = 4 [json_name = "num_active_channels"];
 
-    uint32 num_peers = 5 [ json_name = "num_peers" ];
+    uint32 num_peers = 5 [json_name = "num_peers"];
 
-    uint32 block_height = 6 [ json_name = "block_height" ];
-    string block_hash  = 8 [ json_name = "block_hash" ];
+    uint32 block_height = 6 [json_name = "block_height"];
+    string block_hash = 8 [json_name = "block_hash"];
 
     bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
     bool testnet = 10 [ json_name = "testnet" ];
@@ -324,13 +341,13 @@ message ConfirmationUpdate {
 }
 
 message ChannelOpenUpdate {
-   ChannelPoint channel_point = 1 [ json_name = "channel_point"] ;
+    ChannelPoint channel_point = 1 [json_name = "channel_point"];
 }
 
 message ChannelCloseUpdate {
-    bytes closing_txid = 1 [ json_name = "closing_txid" ];
+    bytes closing_txid = 1 [json_name = "closing_txid"];
 
-    bool success = 2 [ json_name = "success" ];
+    bool success = 2 [json_name = "success"];
 }
 
 message CloseChannelRequest {
@@ -340,32 +357,32 @@ message CloseChannelRequest {
 }
 message CloseStatusUpdate {
     oneof update {
-        PendingUpdate close_pending = 1 [ json_name = "close_pending" ];
-        ConfirmationUpdate confirmation = 2 [ json_name = "confirmation" ];
-        ChannelCloseUpdate chan_close = 3 [ json_name = "chan_close" ];
+        PendingUpdate close_pending = 1 [json_name = "close_pending"];
+        ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
+        ChannelCloseUpdate chan_close = 3 [json_name = "chan_close"];
     }
 }
 
 message PendingUpdate {
-    bytes txid = 1 [ json_name = "txid" ];
-    uint32 output_index = 2 [ json_name = "output_index" ];
+    bytes txid = 1 [json_name = "txid"];
+    uint32 output_index = 2 [json_name = "output_index"];
 }
 
 message OpenChannelRequest {
-    int32 target_peer_id = 1 [ json_name = "target_peer_id" ];
-    bytes node_pubkey = 2 [ json_name = "node_pubkey" ];
-    string node_pubkey_string = 3 [ json_name = "node_pubkey_string" ];
+    int32 target_peer_id = 1 [json_name = "target_peer_id"];
+    bytes node_pubkey = 2 [json_name = "node_pubkey"];
+    string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
-    int64 local_funding_amount = 4 [ json_name = "local_funding_amount" ];
-    int64 push_sat = 5 [ json_name = "push_sat" ];
+    int64 local_funding_amount = 4 [json_name = "local_funding_amount"];
+    int64 push_sat = 5 [json_name = "push_sat"];
 
-    uint32 num_confs = 6 [ json_name = "num_confs" ];
+    uint32 num_confs = 6 [json_name = "num_confs"];
 }
 message OpenStatusUpdate {
     oneof update {
-        PendingUpdate chan_pending = 1 [ json_name = "chan_pending" ];
-        ConfirmationUpdate confirmation = 2 [ json_name = "confirmation" ];
-        ChannelOpenUpdate chan_open = 3 [ json_name = "chan_open" ];
+        PendingUpdate chan_pending = 1 [json_name = "chan_pending"];
+        ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
+        ChannelOpenUpdate chan_open = 3 [json_name = "chan_open"];
     }
 }
 
@@ -416,13 +433,13 @@ message WalletBalanceRequest {
     bool witness_only = 1;
 }
 message WalletBalanceResponse {
-    double balance = 1 [ json_name = "balance" ];
+    double balance = 1 [json_name = "balance"];
 }
 
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
-    int64 balance = 1 [ json_name = "balance" ];
+    int64 balance = 1 [json_name = "balance"];
 }
 
 message QueryRoutesRequest {
@@ -434,29 +451,29 @@ message QueryRoutesResponse {
 }
 
 message Hop {
-    uint64 chan_id = 1 [ json_name = "chan_id" ];
-    int64 chan_capacity = 2 [ json_name = "chan_capacity" ];
-    int64 amt_to_forward = 3 [ json_name = "amt_to_forward" ];
-    int64 fee = 4 [ json_name = "fee" ];
+    uint64 chan_id = 1 [json_name = "chan_id"];
+    int64 chan_capacity = 2 [json_name = "chan_capacity"];
+    int64 amt_to_forward = 3 [json_name = "amt_to_forward"];
+    int64 fee = 4 [json_name = "fee"];
 }
 
 message Route {
-    uint32 total_time_lock = 1 [ json_name = "total_time_lock" ];
-    int64 total_fees = 2 [ json_name = "total_fees" ];
-    int64 total_amt = 3 [ json_name = "total_amt" ];
+    uint32 total_time_lock = 1 [json_name = "total_time_lock"];
+    int64 total_fees = 2 [json_name = "total_fees"];
+    int64 total_amt = 3 [json_name = "total_amt"];
 
-    repeated Hop hops = 4 [ json_name = "hops" ];
+    repeated Hop hops = 4 [json_name = "hops"];
 }
 
-message NodeInfoRequest{
-    string pub_key = 1; 
+message NodeInfoRequest {
+    string pub_key = 1;
 }
 
 message NodeInfo {
-    LightningNode node = 1 [ json_name = "node" ];
+    LightningNode node = 1 [json_name = "node"];
 
-    uint32 num_channels = 2 [ json_name = "num_channels" ];
-    int64 total_capacity = 3 [ json_name = "total_capacity" ];
+    uint32 num_channels = 2 [json_name = "num_channels"];
+    int64 total_capacity = 3 [json_name = "total_capacity"];
 }
 
 message LightningNode {
@@ -472,52 +489,54 @@ message NodeAddress {
 }
 
 message RoutingPolicy {
-    uint32 time_lock_delta = 1 [ json_name = "time_lock_delta" ];
-    int64 min_htlc = 2 [ json_name = "min_htlc" ];
-    int64 fee_base_msat = 3 [ json_name = "fee_base_msat" ];
-    int64 fee_rate_milli_msat = 4 [ json_name = "fee_rate_milli_msat" ];
+    uint32 time_lock_delta = 1 [json_name = "time_lock_delta"];
+    int64 min_htlc = 2 [json_name = "min_htlc"];
+    int64 fee_base_msat = 3 [json_name = "fee_base_msat"];
+    int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
 }
 
 message ChannelEdge {
-    uint64 channel_id = 1 [ json_name = "channel_id" ];
-    string chan_point = 2 [ json_name = "chan_point" ];
+    uint64 channel_id = 1 [json_name = "channel_id"];
+    string chan_point = 2 [json_name = "chan_point"];
 
-    uint32 last_update = 3 [ json_name = "last_update" ];
+    uint32 last_update = 3 [json_name = "last_update"];
 
-    string node1_pub = 4 [ json_name = "node1_pub" ];
-    string node2_pub = 5 [ json_name = "node2_pub" ];
+    string node1_pub = 4 [json_name = "node1_pub"];
+    string node2_pub = 5 [json_name = "node2_pub"];
 
-    int64 capacity = 6 [ json_name = "capacity" ];
+    int64 capacity = 6 [json_name = "capacity"];
 
-    RoutingPolicy node1_policy = 7 [ json_name = "node1_policy" ];
-    RoutingPolicy node2_policy = 8 [ json_name = "node2_policy" ];
+    RoutingPolicy node1_policy = 7 [json_name = "node1_policy"];
+    RoutingPolicy node2_policy = 8 [json_name = "node2_policy"];
 }
 
-message ChannelGraphRequest{}
+message ChannelGraphRequest {
+}
 
 message ChannelGraph {
-    repeated LightningNode nodes = 1 [ json_name = "nodes" ];
-    repeated ChannelEdge edges = 2 [ json_name = "edges" ];
+    repeated LightningNode nodes = 1 [json_name = "nodes"];
+    repeated ChannelEdge edges = 2 [json_name = "edges"];
 }
 
 message ChanInfoRequest {
     uint64 chan_id = 1;
 }
 
-message NetworkInfoRequest{}
+message NetworkInfoRequest {
+}
 message NetworkInfo {
-    uint32 graph_diameter = 1 [ json_name = "graph_diameter" ];
-    double avg_out_degree = 2 [ json_name = "avg_out_degree" ];
-    uint32 max_out_degree = 3 [ json_name = "max_out_degree" ];
+    uint32 graph_diameter = 1 [json_name = "graph_diameter"];
+    double avg_out_degree = 2 [json_name = "avg_out_degree"];
+    uint32 max_out_degree = 3 [json_name = "max_out_degree"];
 
-    uint32 num_nodes = 4 [ json_name = "num_nodes" ];
-    uint32 num_channels = 5 [ json_name = "num_channels" ];
+    uint32 num_nodes = 4 [json_name = "num_nodes"];
+    uint32 num_channels = 5 [json_name = "num_channels"];
 
-    int64 total_network_capacity = 6 [ json_name = "total_network_capacity" ];
+    int64 total_network_capacity = 6 [json_name = "total_network_capacity"];
 
-    double avg_channel_size = 7 [ json_name = "avg_channel_size" ];
-    int64 min_channel_size = 8 [ json_name = "min_channel_size" ];
-    int64 max_channel_size = 9 [ json_name = "max_channel_size" ];
+    double avg_channel_size = 7 [json_name = "avg_channel_size"];
+    int64 min_channel_size = 8 [json_name = "min_channel_size"];
+    int64 max_channel_size = 9 [json_name = "max_channel_size"];
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in
@@ -557,59 +576,61 @@ message ClosedChannelUpdate {
 message SetAliasRequest {
     string new_alias = 1;
 }
-message SetAliasResponse{}
+message SetAliasResponse {
+}
 
 message Invoice {
-    string memo = 1 [ json_name = "memo" ];
-    bytes receipt = 2 [ json_name = "receipt" ];
+    string memo = 1 [json_name = "memo"];
+    bytes receipt = 2 [json_name = "receipt"];
 
-    bytes r_preimage = 3 [ json_name = "r_preimage" ];
-    bytes r_hash = 4 [ json_name = "r_hash" ];
+    bytes r_preimage = 3 [json_name = "r_preimage"];
+    bytes r_hash = 4 [json_name = "r_hash"];
 
-    int64 value = 5 [ json_name = "value" ];
+    int64 value = 5 [json_name = "value"];
 
-    bool settled = 6 [ json_name = "settled" ];
+    bool settled = 6 [json_name = "settled"];
 
-    int64 creation_date = 7 [ json_name = "creation_date" ];
-    int64 settle_date = 8 [ json_name = "settle_date" ];
+    int64 creation_date = 7 [json_name = "creation_date"];
+    int64 settle_date = 8 [json_name = "settle_date"];
 
-    string payment_request = 9 [ json_name = "payment_request" ];
+    string payment_request = 9 [json_name = "payment_request"];
 }
 message AddInvoiceResponse {
-    bytes r_hash = 1 [ json_name = "r_hash" ];
+    bytes r_hash = 1 [json_name = "r_hash"];
 
-    string payment_request = 2 [ json_name = "payment_request" ];
+    string payment_request = 2 [json_name = "payment_request"];
 }
 message PaymentHash {
-    string r_hash_str = 1 [ json_name = "r_hash_str" ];
-    bytes r_hash = 2 [ json_name = "r_hash" ];
+    string r_hash_str = 1 [json_name = "r_hash_str"];
+    bytes r_hash = 2 [json_name = "r_hash"];
 }
 message ListInvoiceRequest {
     bool pending_only = 1;
 }
 message ListInvoiceResponse {
-    repeated Invoice invoices = 1 [ json_name = "invoices" ];
+    repeated Invoice invoices = 1 [json_name = "invoices"];
 }
 
-message InvoiceSubscription {}
+message InvoiceSubscription {
+}
 
 
 message Payment {
-    string payment_hash = 1 [ json_name = "payment_hash" ];
-    int64 value = 2 [ json_name = "value" ];
+    string payment_hash = 1 [json_name = "payment_hash"];
+    int64 value = 2 [json_name = "value"];
 
-    int64 creation_date = 3 [ json_name = "creation_date" ];
+    int64 creation_date = 3 [json_name = "creation_date"];
 
     repeated string path = 4 [ json_name = "path" ];
 
-    int64 fee = 5 [ json_name = "fee" ];
+    int64 fee = 5 [json_name = "fee"];
 }
 
 message ListPaymentsRequest {
 }
 
 message ListPaymentsResponse {
-    repeated Payment payments = 1 [ json_name= "payments" ];
+    repeated Payment payments = 1 [json_name = "payments"];
 }
 
 message DeleteAllPaymentsRequest {
@@ -623,14 +644,14 @@ message DebugLevelRequest {
     string level_spec = 2;
 }
 message DebugLevelResponse {
-    string sub_systems = 1 [ json_name = "sub_systems" ];
+    string sub_systems = 1 [json_name = "sub_systems"];
 }
 
 message PayReqString {
     string pay_req = 1;
 }
 message PayReq {
-    string destination = 1 [ json_name = "destination" ];
-    string payment_hash = 2 [ json_name = "payment_hash" ];
-    int64 num_satoshis = 3 [ json_name = "num_satoshis" ];
+    string destination = 1 [json_name = "destination"];
+    string payment_hash = 2 [json_name = "payment_hash"];
+    int64 num_satoshis = 3 [json_name = "num_satoshis"];
 }

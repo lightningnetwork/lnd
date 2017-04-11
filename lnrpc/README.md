@@ -39,6 +39,8 @@ description):
        nested-pay-to-witness-key-hash (np2wkh).
   * ConnectPeer
      * Connects to a peer identified by a public key and host.
+  * DisconnectPeer
+     * Disconnects a peer identified by a public key.
   * ListPeers
      * Lists all available connected peers.
   * GetInfo

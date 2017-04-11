@@ -514,6 +514,30 @@
         ]
       }
     },
+    "/v1/peers/{pub_key}": {
+      "delete": {
+        "operationId": "DisconnectPeer",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDisconnectPeerResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pub_key",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/transactions": {
       "get": {
         "operationId": "GetTransactions",
@@ -951,6 +975,17 @@
       "type": "object"
     },
     "lnrpcDeleteAllPaymentsResponse": {
+      "type": "object"
+    },
+    "lnrpcDisconnectPeerRequest": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string"
+        }
+      }
+    },
+    "lnrpcDisconnectPeerResponse": {
       "type": "object"
     },
     "lnrpcGetInfoRequest": {

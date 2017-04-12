@@ -644,7 +644,7 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	}
 	s.pendingConnMtx.RUnlock()
 
-	s.peerConnected(conn, nil, false)
+	go s.peerConnected(conn, nil, false)
 }
 
 // outboundPeerConnected initializes a new peer in response to a new outbound
@@ -669,7 +669,7 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		return
 	}
 
-	s.peerConnected(conn, connReq, true)
+	go s.peerConnected(conn, connReq, true)
 }
 
 // addPeer adds the passed peer to the server's global state of all active

@@ -62,7 +62,7 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 	}
 	paymentBytes := b.Bytes()
 
-	return db.Update(func(tx *bolt.Tx) error {
+	return db.Batch(func(tx *bolt.Tx) error {
 		payments, err := tx.CreateBucketIfNotExists(paymentBucket)
 		if err != nil {
 			return err

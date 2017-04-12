@@ -276,7 +276,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			found bool
 		)
 
-		pkScript := p.theirPrevPkScript
+		pkScript := p.theirPkScript
 		if ourCommit {
 			pkScript = p.ourPkScript
 		}
@@ -294,8 +294,8 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			}
 		}
 		if !found {
-			return 0, fmt.Errorf("could not find a matching " +
-				"output for the HTLC in the commitment transaction")
+			return 0, fmt.Errorf("unable to find htlc: script=%x, value=%v",
+				pkScript, p.Amount)
 		}
 
 		return idx, nil
@@ -309,8 +309,8 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		if (ourCommit && htlc.isDustLocal) ||
 			(!ourCommit && htlc.isDustRemote) {
 			index = maxUint16
-		} else if index, err = locateOutputIndex(htlc); err != nil {
-			return nil, err
+		} else if index, err = locateOutputIndex(&htlc); err != nil {
+			return nil, fmt.Errorf("unable to find outgoing htlc: %v", err)
 		}
 
 		h := &channeldb.HTLC{
@@ -328,8 +328,8 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		if (ourCommit && htlc.isDustLocal) ||
 			(!ourCommit && htlc.isDustRemote) {
 			index = maxUint16
-		} else if index, err = locateOutputIndex(htlc); err != nil {
-			return nil, err
+		} else if index, err = locateOutputIndex(&htlc); err != nil {
+			return nil, fmt.Errorf("unable to find incoming htlc: %v", err)
 		}
 
 		h := &channeldb.HTLC{
@@ -2075,12 +2075,6 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
 
 	lc.localUpdateLog.appendUpdate(pd)
 
-	// Since we will not be adding this HTLC to any commitment transaction
-	// anymore, we should properly set theirPrevPkScript so we can generate
-	// a valid ChannelDelta for a revoked remote commitment.
-	addEntry := lc.remoteUpdateLog.lookup(targetHTLC.Index)
-	addEntry.theirPrevPkScript = addEntry.theirPkScript
-
 	lc.rHashMap[paymentHash][0] = nil
 	lc.rHashMap[paymentHash] = lc.rHashMap[paymentHash][1:]
 	if len(lc.rHashMap[paymentHash]) == 0 {
@@ -2117,12 +2111,6 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
-
-	// Since we will not be adding this HTLC to any commitment transaction
-	// anymore, we should properly set theirPrevPkScript so we can generate
-	// a valid ChannelDelta for a revoked remote commitment.
-	htlc.theirPrevPkScript = htlc.theirPkScript
-
 	return nil
 }
 
@@ -2149,11 +2137,6 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
-
-	// Since we will not be adding this HTLC to any commitment transaction
-	// anymore, we should properly set theirPrevPkScript so we can generate
-	// a valid ChannelDelta for a revoked remote commitment.
-	addEntry.theirPrevPkScript = addEntry.theirPkScript
 
 	lc.rHashMap[rHash][0] = nil
 	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
@@ -2186,11 +2169,6 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
-
-	// Since we will not be adding this HTLC to any commitment transaction
-	// anymore, we should properly set theirPrevPkScript so we can generate
-	// a valid ChannelDelta for a revoked remote commitment.
-	htlc.theirPrevPkScript = htlc.theirPkScript
 
 	return nil
 }
@@ -2282,7 +2260,6 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	if ourCommit {
 		paymentDesc.ourPkScript = htlcP2WSH
 	} else {
-		paymentDesc.theirPrevPkScript = paymentDesc.theirPkScript
 		paymentDesc.theirPkScript = htlcP2WSH
 	}
 

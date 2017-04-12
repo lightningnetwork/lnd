@@ -905,6 +905,15 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	errChan := make(chan error, 1)
 	payChan := make(chan *lnrpc.SendRequest)
 
+	// In order to limit the level of concurrency and prevent a client from
+	// attempting to OOM the server, we'll set up a semaphore to create an
+	// upper ceiling on the number of outstanding payments.
+	const numOutstandingPayments = 2000
+	htlcSema := make(chan struct{}, numOutstandingPayments)
+	for i := 0; i < numOutstandingPayments; i++ {
+		htlcSema <- struct{}{}
+	}
+
 	// Launch a new goroutine to handle reading new payment requests from
 	// the client. This way we can handle errors independently of blocking
 	// and waiting for the next payment request to come through.
@@ -980,13 +989,18 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// We launch a new goroutine to execute the current
 			// payment so we can continue to serve requests while
 			// this payment is being dispatched.
-			//
-			// TODO(roasbeef): semaphore to limit num outstanding
-			// goroutines.
 			go func() {
+				// Attempt to grab a free semaphore slot, using
+				// a defer to eventually release the slot
+				// regardless of payment success.
+				<-htlcSema
+				defer func() {
+					htlcSema <- struct{}{}
+				}()
+
 				// Construct a payment request to send to the
 				// channel router. If the payment is
-				// successful, the the route chosen will be
+				// successful, the route chosen will be
 				// returned. Otherwise, we'll get a non-nil
 				// error.
 				payment := &routing.LightningPayment{

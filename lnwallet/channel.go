@@ -236,8 +236,8 @@ type commitment struct {
 
 	// htlcs is the set of HTLCs which remain unsettled within this
 	// commitment.
-	outgoingHTLCs []*PaymentDescriptor
-	incomingHTLCs []*PaymentDescriptor
+	outgoingHTLCs []PaymentDescriptor
+	incomingHTLCs []PaymentDescriptor
 }
 
 // toChannelDelta converts the target commitment into a format suitable to be
@@ -1302,17 +1302,28 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(commitTx)
-
-	return &commitment{
+	c := &commitment{
 		txn:               commitTx,
 		height:            nextHeight,
 		ourBalance:        ourBalance,
 		ourMessageIndex:   ourLogIndex,
 		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
-		outgoingHTLCs:     filteredHTLCView.ourUpdates,
-		incomingHTLCs:     filteredHTLCView.theirUpdates,
-	}, nil
+	}
+
+	// In order to ensure _none_ of the HTLC's associated with this new
+	// commitment are mutated, we'll manually copy over each HTLC to its
+	// respective slice.
+	c.outgoingHTLCs = make([]PaymentDescriptor, len(filteredHTLCView.ourUpdates))
+	for i, htlc := range filteredHTLCView.ourUpdates {
+		c.outgoingHTLCs[i] = *htlc
+	}
+	c.incomingHTLCs = make([]PaymentDescriptor, len(filteredHTLCView.theirUpdates))
+	for i, htlc := range filteredHTLCView.theirUpdates {
+		c.incomingHTLCs[i] = *htlc
+	}
+
+	return c, nil
 }
 
 // evaluateHTLCView processes all update entries in both HTLC update logs,

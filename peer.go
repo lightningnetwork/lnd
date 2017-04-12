@@ -277,9 +277,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	return nil
 }
 
-// Start starts all helper goroutines the peer needs for normal operations.
-// In the case this peer has already been started, then this function is a
-// loop.
+// Start starts all helper goroutines the peer needs for normal operations.  In
+// the case this peer has already been started, then this function is a loop.
 func (p *peer) Start() error {
 	if atomic.AddInt32(&p.started, 1) != 1 {
 		return nil
@@ -294,7 +293,7 @@ func (p *peer) Start() error {
 	}
 
 	// Before we launch any of the helper goroutines off the peer struct,
-	// we'll first ensure proper adherance to the p2p protocl. The init
+	// we'll first ensure proper adherence to the p2p protocl. The init
 	// message MUST be sent before any other message.
 	readErr := make(chan error, 1)
 	msgChan := make(chan lnwire.Message, 1)
@@ -309,7 +308,7 @@ func (p *peer) Start() error {
 	}()
 
 	select {
-	// In order to avoid blocking indefinately, we'll give the other peer
+	// In order to avoid blocking indefinitely, we'll give the other peer
 	// an upper timeout of 5 seconds to respond before we bail out early.
 	case <-time.After(time.Second * 5):
 		return fmt.Errorf("peer did not complete handshake within 5 " +
@@ -1069,18 +1068,13 @@ type commitmentState struct {
 	// htlcSwitch, or subsystem that initiated the HTLC.
 	cancelReasons map[uint64]lnwire.FailCode
 
+	// pendingBatch is slice of payments which have been added to the
+	// channel update log, but not yet committed to latest commitment.
 	pendingBatch []*pendingPayment
 
 	// clearedHTCLs is a map of outgoing HTLCs we've committed to in our
 	// chain which have not yet been settled by the upstream peer.
 	clearedHTCLs map[uint64]*pendingPayment
-
-	// logCommitTimer is a timer which is sent upon if we go an interval
-	// without receiving/sending a commitment update. It's role is to
-	// ensure both chains converge to identical state in a timely manner.
-	// TODO(roasbeef): timer should be >> then RTT
-	logCommitTimer *time.Timer
-	logCommitTick  <-chan time.Time
 
 	// switchChan is a channel used to send packets to the htlc switch for
 	// forwarding.
@@ -1143,7 +1137,6 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		pendingCircuits: make(map[uint64]*sphinx.ProcessedPacket),
 		sphinx:          p.server.sphinx,
 		switchChan:      htlcPlex,
-		logCommitTimer:  time.NewTimer(300 * time.Millisecond),
 	}
 
 	// TODO(roasbeef): check to see if able to settle any currently pending
@@ -1153,6 +1146,9 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 
 	batchTimer := time.NewTicker(50 * time.Millisecond)
 	defer batchTimer.Stop()
+
+	logCommitTimer := time.NewTicker(300 * time.Millisecond)
+	defer logCommitTimer.Stop()
 out:
 	for {
 		select {
@@ -1176,7 +1172,7 @@ out:
 				state.chanPoint, p.id)
 			break out
 
-		case <-state.logCommitTick:
+		case <-logCommitTimer.C:
 			// If we haven't sent or received a new commitment
 			// update in some time, check to see if we have any
 			// pending updates we need to commit due to our
@@ -1508,16 +1504,6 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		}
 		p.queueMsg(nextRevocation, nil)
 
-
-			if !state.logCommitTimer.Stop() {
-				select {
-				case <-state.logCommitTimer.C:
-				default:
-				}
-			}
-
-			state.logCommitTimer.Reset(300 * time.Millisecond)
-			state.logCommitTick = state.logCommitTimer.C
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
 		// already have a commitment with the latest accepted state.
@@ -1731,17 +1717,6 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 	for _, update := range state.pendingBatch {
 		state.clearedHTCLs[update.index] = update
 	}
-
-	// We've just initiated a state transition, attempt to stop the
-	// logCommitTimer. If the timer already ticked, then we'll consume the
-	// value, dropping
-	if state.logCommitTimer != nil && !state.logCommitTimer.Stop() {
-		select {
-		case <-state.logCommitTimer.C:
-		default:
-		}
-	}
-	state.logCommitTick = nil
 
 	// Finally, clear our the current batch, and flip the pendingUpdate
 	// bool to indicate were waiting for a commitment signature.

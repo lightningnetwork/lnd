@@ -442,7 +442,8 @@ out:
 						payHash: payHash,
 						msg: &lnwire.UpdateFailHTLC{
 							Reason: []byte{uint8(lnwire.InsufficientCapacity)},
-						}, err: make(chan error, 1),
+						},
+						err: make(chan error, 1),
 					}
 
 					// Send the cancel message along the

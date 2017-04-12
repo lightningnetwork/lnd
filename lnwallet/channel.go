@@ -99,7 +99,7 @@ type updateType uint8
 
 const (
 	// Add is an update type that adds a new HTLC entry into the log.
-	// Either side can add a new penidng HTLC by adding a new Add entry
+	// Either side can add a new pending HTLC by adding a new Add entry
 	// into their update log.
 	Add updateType = iota
 
@@ -150,15 +150,6 @@ type PaymentDescriptor struct {
 	// settles or times out.
 	ParentIndex uint64
 
-	// Payload is an opaque blob which is used to complete multi-hop
-	// routing.
-	Payload []byte
-
-	// EntryType denotes the exact type of the PaymentDescriptor. In the
-	// case of a Timeout, or Settle type, then the Parent field will point
-	// into the log to the HTLC being modified.
-	EntryType updateType
-
 	// addCommitHeight[Remote|Local] encodes the height of the commitment
 	// which included this HTLC on either the remote or local commitment
 	// chain. This value is used to determine when an HTLC is fully
@@ -174,24 +165,36 @@ type PaymentDescriptor struct {
 	removeCommitHeightRemote uint64
 	removeCommitHeightLocal  uint64
 
-	// isForwarded denotes if an incoming HTLC has been forwarded to any
-	// possible upstream peers in the route.
-	isForwarded bool
+	// Payload is an opaque blob which is used to complete multi-hop
+	// routing.
+	Payload []byte
 
-	// [our|their|theirPrev]PkScript are the raw public key scripts that
-	// encodes the redemption rules for this particular HTLC. These fields
-	// will only be populated iff the EntryType of this PaymentDescriptor
-	// is Add. ourPkScript is the ourPkScript from the context of our local
-	// commitment chain. [their|theirPrev]PkScript are the two latest
-	// pkScripts from the context of the remote commitment chain.
-	ourPkScript       []byte
-	theirPkScript     []byte
-	theirPrevPkScript []byte
+	// [our|their|]PkScript are the raw public key scripts that encodes the
+	// redemption rules for this particular HTLC. These fields will only be
+	// populated iff the EntryType of this PaymentDescriptor is Add.
+	// ourPkScript is the ourPkScript from the context of our local
+	// commitment chain. theirPkScript is the latest pkScript from the
+	// context of the remote commitment chain.
+	//
+	// NOTE: These values may change within the logs themselves, however,
+	// they'll stay consistent within the commitment chain entries
+	// themselves.
+	ourPkScript   []byte
+	theirPkScript []byte
+
+	// EntryType denotes the exact type of the PaymentDescriptor. In the
+	// case of a Timeout, or Settle type, then the Parent field will point
+	// into the log to the HTLC being modified.
+	EntryType updateType
 
 	// isDust[Local|Remote] denotes if this HTLC is below the dust limit in
 	// locally or remotely.
 	isDustLocal  bool
 	isDustRemote bool
+
+	// isForwarded denotes if an incoming HTLC has been forwarded to any
+	// possible upstream peers in the route.
+	isForwarded bool
 }
 
 // commitment represents a commitment to a new state within an active channel.

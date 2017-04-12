@@ -124,8 +124,6 @@ const (
 // TODO(roasbeef): LogEntry interface??
 //  * need to separate attrs for cancel/add/settle
 type PaymentDescriptor struct {
-	sync.RWMutex
-
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
 	RHash PaymentHash
@@ -1725,7 +1723,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 	return nil
 }
 
-// FullSynced returns a boolean value reflecting if both commitment chains
+// FullySynced returns a boolean value reflecting if both commitment chains
 // (remote+local) are fully in sync. Both commitment chains are fully in sync
 // if the tip of each chain includes the latest committed changes from both
 // sides.

@@ -525,7 +525,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		if exists && lastUpdate.After(msg.LastUpdate) ||
 			lastUpdate.Equal(msg.LastUpdate) {
 
-			return newErrf(ErrOutdated, "ignoring outdated "+
+			return newErrf(ErrOutdated, "Ignoring outdated "+
 				"announcement for %x", msg.PubKey.SerializeCompressed())
 		}
 
@@ -547,7 +547,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		} else if exists {
 
-			return newErrf(ErrIgnored, "ignoring msg for known "+
+			return newErrf(ErrIgnored, "Ignoring msg for known "+
 				"chan_id=%v", msg.ChannelID)
 		}
 
@@ -629,7 +629,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		case 0:
 			if edge1Timestamp.After(msg.LastUpdate) ||
 				edge1Timestamp.Equal(msg.LastUpdate) {
-				return newErrf(ErrIgnored, "ignoring announcement "+
+				return newErrf(ErrIgnored, "Ignoring announcement "+
 					"(flags=%v) for known chan_id=%v", msg.Flags,
 					msg.ChannelID)
 
@@ -641,7 +641,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			if edge2Timestamp.After(msg.LastUpdate) ||
 				edge2Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "ignoring announcement "+
+				return newErrf(ErrIgnored, "Ignoring announcement "+
 					"(flags=%v) for known chan_id=%v", msg.Flags,
 					msg.ChannelID)
 			}

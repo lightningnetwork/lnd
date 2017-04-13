@@ -786,7 +786,11 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 }
 
 // ConnectNodes establishes an encrypted+authenticated p2p connection from node
-// a towards node b.
+// a towards node b. The function will return a non-nil error if the connection
+// was unable to be established.
+//
+// NOTE: This function may block for up to 15-seconds as it will not return
+// until the new connection is detected as being known to both nodes.
 func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) error {
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
@@ -799,8 +803,32 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 			Host:   b.p2pAddr,
 		},
 	}
-	_, err = a.ConnectPeer(ctx, req)
-	return err
+	if _, err := a.ConnectPeer(ctx, req); err != nil {
+		return err
+	}
+
+	timeout := time.After(time.Second * 15)
+	for {
+
+		select {
+		case <-timeout:
+			return fmt.Errorf("peers not connected within 15 seconds")
+		default:
+		}
+
+		// If node B is seen in the ListPeers response from node A,
+		// then we can exit early as the connection has been fully
+		// established.
+		resp, err := a.ListPeers(ctx, &lnrpc.ListPeersRequest{})
+		if err != nil {
+			return err
+		}
+		for _, peer := range resp.Peers {
+			if peer.PubKey == b.PubKeyStr {
+				return nil
+			}
+		}
+	}
 }
 
 // RestartNode  attempts to restart a lightning node by shutting it down

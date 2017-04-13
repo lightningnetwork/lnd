@@ -46,6 +46,11 @@ type ChannelContribution struct {
 	// initial version of this party's commitment transaction.
 	RevocationKey *btcec.PublicKey
 
+	// DustLimit is the threshold below which no HTLC output should be
+	// generated for this party. HTLCs below this amount are not
+	// enforceable on-chain from this party's point of view.
+	DustLimit btcutil.Amount
+
 	// CsvDelay The delay (in blocks) to be used for the pay-to-self output
 	// in this party's version of the commitment transaction.
 	CsvDelay uint32

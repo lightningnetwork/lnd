@@ -579,6 +579,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		MultiSigKey:     copyPubKey(msg.ChannelDerivationPoint),
 		CommitKey:       copyPubKey(msg.CommitmentKey),
 		DeliveryAddress: addrs[0],
+		DustLimit:       msg.DustLimit,
 		CsvDelay:        delay,
 	}
 	if err := reservation.ProcessSingleContribution(contribution); err != nil {
@@ -662,6 +663,7 @@ func (f *fundingManager) handleFundingResponse(fmsg *fundingResponseMsg) {
 		CommitKey:       copyPubKey(msg.CommitmentKey),
 		DeliveryAddress: addrs[0],
 		RevocationKey:   copyPubKey(msg.RevocationKey),
+		DustLimit:       msg.DustLimit,
 		CsvDelay:        msg.CsvDelay,
 	}
 	if err := resCtx.reservation.ProcessContribution(contribution); err != nil {

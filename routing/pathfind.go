@@ -530,14 +530,17 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 
 			// Create the new combined path by concatenating the
 			// rootPath to the spurPath.
-			newPath := append(rootPath, spurPath...)
+			newPathLen := len(rootPath) + len(spurPath)
+			newPath := path{
+				hops: make([]*ChannelHop, 0, newPathLen),
+				dist: newPathLen,
+			}
+			newPath.hops = append(newPath.hops, rootPath...)
+			newPath.hops = append(newPath.hops, spurPath...)
 
 			// We'll now add this newPath to the heap of candidate
 			// shortest paths.
-			heap.Push(&candidatePaths, path{
-				dist: len(newPath),
-				hops: newPath,
-			})
+			heap.Push(&candidatePaths, newPath)
 		}
 
 		// If our min-heap of candidate paths is empty, then we can

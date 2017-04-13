@@ -226,6 +226,9 @@ func (u *utxoNursery) catchUpKindergarten() error {
 	// Loop through and check for graduating outputs at each of the missed
 	// block heights.
 	for graduationHeight := lastGraduatedHeight + 1; graduationHeight <= uint32(bestHeight); graduationHeight++ {
+		utxnLog.Debugf("Attempting to graduate outputs at height=%v",
+			graduationHeight)
+
 		if err := u.graduateKindergarten(graduationHeight); err != nil {
 			return err
 		}

@@ -75,6 +75,10 @@ func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
 // isSamePath returns true if path1 and path2 travel through the exact same
 // edges, and false otherwise.
 func isSamePath(path1, path2 []*ChannelHop) bool {
+	if len(path1) != len(path2) {
+		return false
+	}
+
 	for i := 0; i < len(path1); i++ {
 		if path1[i].ChannelID != path2[i].ChannelID {
 			return false

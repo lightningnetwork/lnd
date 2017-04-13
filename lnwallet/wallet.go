@@ -529,6 +529,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	reservation.nodeAddr = req.nodeAddr
 	reservation.ourContribution.CsvDelay = req.csvDelay
+	reservation.ourContribution.DustLimit = req.ourDustLimit
 
 	reservation.partialState.NumConfsRequired = req.numConfs
 	reservation.partialState.IdentityPub = req.nodeID
@@ -779,16 +780,18 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	ourBalance := pendingReservation.partialState.OurBalance
 	theirBalance := pendingReservation.partialState.TheirBalance
 	ourCommitKey := ourContribution.CommitKey
-	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		ourRevokeKey, ourContribution.CsvDelay,
-		ourBalance, theirBalance, pendingReservation.partialState.OurDustLimit)
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey,
+		theirCommitKey, ourRevokeKey, ourContribution.CsvDelay,
+		ourBalance, theirBalance,
+		pendingReservation.ourContribution.DustLimit)
 	if err != nil {
 		req.err <- err
 		return
 	}
-	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		theirContribution.RevocationKey, theirContribution.CsvDelay,
-		theirBalance, ourBalance, pendingReservation.partialState.TheirDustLimit)
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey,
+		ourCommitKey, theirContribution.RevocationKey,
+		theirContribution.CsvDelay, theirBalance, ourBalance,
+		pendingReservation.theirContribution.DustLimit)
 	if err != nil {
 		req.err <- err
 		return
@@ -1109,18 +1112,19 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	theirCommitKey := pendingReservation.theirContribution.CommitKey
 	ourBalance := pendingReservation.partialState.OurBalance
 	theirBalance := pendingReservation.partialState.TheirBalance
-	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey, theirCommitKey,
-		pendingReservation.ourContribution.RevocationKey,
-		pendingReservation.ourContribution.CsvDelay, ourBalance, theirBalance,
-		pendingReservation.partialState.OurDustLimit)
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, ourCommitKey,
+		theirCommitKey, pendingReservation.ourContribution.RevocationKey,
+		pendingReservation.ourContribution.CsvDelay, ourBalance,
+		theirBalance, pendingReservation.ourContribution.DustLimit)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
 		return
 	}
-	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
-		req.revokeKey, pendingReservation.theirContribution.CsvDelay,
-		theirBalance, ourBalance, pendingReservation.partialState.TheirDustLimit)
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey,
+		ourCommitKey, req.revokeKey,
+		pendingReservation.theirContribution.CsvDelay, theirBalance,
+		ourBalance, pendingReservation.theirContribution.DustLimit)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil

@@ -304,8 +304,8 @@ func (p *peer) Start() error {
 
 	select {
 	// In order to avoid blocking indefinitely, we'll give the other peer
-	// an upper timeout of 5 seconds to respond before we bail out early.
-	case <-time.After(time.Second * 5):
+	// an upper timeout of 15 seconds to respond before we bail out early.
+	case <-time.After(time.Second * 15):
 		return fmt.Errorf("peer did not complete handshake within 5 " +
 			"seconds")
 	case err := <-readErr:

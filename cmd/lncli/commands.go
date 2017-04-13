@@ -1306,12 +1306,20 @@ func getNodeInfo(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	if !ctx.IsSet("pub_key") {
+	args := ctx.Args()
+
+	var pubKey string
+	switch {
+	case ctx.IsSet("pub_key"):
+		pubKey = ctx.String("pub_key")
+	case args.Present():
+		pubKey = args.First()
+	default:
 		return fmt.Errorf("pub_key argument missing")
 	}
 
 	req := &lnrpc.NodeInfoRequest{
-		PubKey: ctx.String("pub_key"),
+		PubKey: pubKey,
 	}
 
 	nodeInfo, err := client.GetNodeInfo(ctxb, req)
@@ -1426,7 +1434,7 @@ var debugLevelCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name:  "level",
-			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with loggin levels for each",
+			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with logging levels for each",
 		},
 	},
 	Action: debugLevel,
@@ -1436,7 +1444,6 @@ func debugLevel(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
-
 	req := &lnrpc.DebugLevelRequest{
 		Show:      ctx.Bool("show"),
 		LevelSpec: ctx.String("level"),

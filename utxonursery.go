@@ -367,6 +367,9 @@ out:
 				return
 			}
 
+			// TODO(roasbeef): if the BlockChainIO is rescanning
+			// will give stale data
+
 			// A new block has just been connected to the main
 			// chain which means we might be able to graduate some
 			// outputs out of the kindergarten bucket. Graduation

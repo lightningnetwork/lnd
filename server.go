@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -162,11 +163,20 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// of this server's addresses.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
-		addr, err := net.ResolveTCPAddr("tcp", ip)
+		var addr string
+		_, _, err = net.SplitHostPort(ip)
+		if err != nil {
+			addr = net.JoinHostPort(ip, strconv.Itoa(defaultPeerPort))
+		} else {
+			addr = ip
+		}
+
+		lnAddr, err := net.ResolveTCPAddr("tcp", addr)
 		if err != nil {
 			return nil, err
 		}
-		selfAddrs = append(selfAddrs, addr)
+
+		selfAddrs = append(selfAddrs, lnAddr)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -617,7 +627,7 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	s.peersMtx.Lock()
 	defer s.peersMtx.Unlock()
 
-	srvrLog.Tracef("New inbound connection from %v", conn.RemoteAddr())
+	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
 
@@ -653,7 +663,7 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	s.peersMtx.Lock()
 	defer s.peersMtx.Unlock()
 
-	srvrLog.Tracef("Established connection to: %v", conn.RemoteAddr())
+	srvrLog.Infof("Established connection to: %v", conn.RemoteAddr())
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
 

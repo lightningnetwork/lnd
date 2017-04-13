@@ -96,9 +96,6 @@ type peer struct {
 	inbound bool
 	id      int32
 
-	// For purposes of detecting retransmits, etc.
-	lastNMessages map[lnwire.Message]struct{}
-
 	// This mutex protects all the stats below it.
 	sync.RWMutex
 	timeConnected time.Time
@@ -183,8 +180,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		connReq: connReq,
 
 		server: server,
-
-		lastNMessages: make(map[lnwire.Message]struct{}),
 
 		sendQueueSync: make(chan struct{}, 1),
 		sendQueue:     make(chan outgoinMsg, 1),

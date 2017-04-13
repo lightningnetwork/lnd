@@ -461,7 +461,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 		if err := d.cfg.Router.AddNode(node); err != nil {
 			if routing.IsError(err, routing.ErrOutdated, routing.ErrIgnored) {
-				log.Info(err)
+				log.Debug(err)
 			} else {
 				log.Error(err)
 			}
@@ -539,7 +539,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
-				log.Info(err)
+				log.Debug(err)
 			} else {
 				log.Error(err)
 			}
@@ -630,7 +630,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 		if err := d.cfg.Router.UpdateEdge(update); err != nil {
 			if routing.IsError(err, routing.ErrOutdated, routing.ErrIgnored) {
-				log.Info(err)
+				log.Debug(err)
 			} else {
 				log.Error(err)
 			}

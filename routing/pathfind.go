@@ -494,10 +494,10 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 			// next round.
 			for _, path := range shortestPaths {
 				// If our current rootPath is a prefix of this
-				// shortest path, then we'll remove the ege
+				// shortest path, then we'll remove the edge
 				// directly _after_ our spur node from the
 				// graph so we don't repeat paths.
-				if isSamePath(rootPath, path[:i+1]) {
+				if len(path) > i+1 && isSamePath(rootPath, path[:i+1]) {
 					ignoredEdges[path[i+1].ChannelID] = struct{}{}
 				}
 			}

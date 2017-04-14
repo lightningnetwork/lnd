@@ -544,9 +544,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
-
 		} else if exists {
-
 			return newErrf(ErrIgnored, "Ignoring msg for known "+
 				"chan_id=%v", msg.ChannelID)
 		}
@@ -604,10 +602,11 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		invalidateCache = true
 		log.Infof("New channel discovered! Link "+
-			"connects %x and %x with ChannelPoint(%v), chan_id=%v",
+			"connects %x and %x with ChannelPoint(%v): "+
+			"chan_id=%v, capacity=%v",
 			msg.NodeKey1.SerializeCompressed(),
 			msg.NodeKey2.SerializeCompressed(),
-			fundingPoint, msg.ChannelID)
+			fundingPoint, msg.ChannelID, msg.Capacity)
 
 	case *channeldb.ChannelEdgePolicy:
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)

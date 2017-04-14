@@ -287,6 +287,18 @@ type Signer interface {
 	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error)
 }
 
+// MessageSigner represents an abstract object capable of signing arbitrary
+// messages. The capabilities of this interface are used to sign announcements
+// to the network, or just arbitrary messages that leverage the wallet's keys
+// to attest to some message.
+type MessageSigner interface {
+	// SignMessage attempts to sign a target message with the private key
+	// that corresponds to the passed public key. If the target private key
+	// is unable to be found, then an error will be returned. The actual
+	// digest signed is the double SHA-256 of the passed message.
+	SignMessage(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
+}
+
 // WalletDriver represents a "driver" for a particular concrete
 // WalletController implementation. A driver is identified by a globally unique
 // string identifier along with a 'New()' method which is responsible for

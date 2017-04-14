@@ -1142,7 +1142,7 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 	batchTimer := time.NewTicker(50 * time.Millisecond)
 	defer batchTimer.Stop()
 
-	logCommitTimer := time.NewTicker(300 * time.Millisecond)
+	logCommitTimer := time.NewTicker(100 * time.Millisecond)
 	defer logCommitTimer.Stop()
 out:
 	for {

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -340,8 +341,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, err
 	}
-	err = sourceNode.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
-		policy *channeldb.ChannelEdgePolicy) error {
+	err = sourceNode.ForEachChannel(nil, func(_ *bolt.Tx,
+		_ *channeldb.ChannelEdgeInfo, policy *channeldb.ChannelEdgePolicy) error {
+
 		pubStr := string(policy.Node.PubKey.SerializeCompressed())
 
 		// Add addresses from channel graph/NodeAnnouncements to the

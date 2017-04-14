@@ -217,11 +217,16 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo, *ChannelEdgePoli
 // executing the passed callback with each node encountered. If the callback
 // returns an error, then the transaction is aborted and the iteration stops
 // early.
-func (c *ChannelGraph) ForEachNode(cb func(*LightningNode) error) error {
-	// TODO(roasbeef): need to also pass in a transaction? or reverse order
-	// to get all in memory THEN execute callback?
-
-	return c.db.View(func(tx *bolt.Tx) error {
+//
+// If the caller wishes to re-use an existing boltdb transaction, then it
+// should be passed as the first argument.  Otherwise the first argument should
+// be nil and a fresh transaction will be created to execute the graph
+// traversal
+//
+// TODO(roasbeef): add iterator interface to allow for memory efficient graph
+// traversal when graph gets mega
+func (c *ChannelGraph) ForEachNode(tx *bolt.Tx, cb func(*bolt.Tx, *LightningNode) error) error {
+	traversal := func(tx *bolt.Tx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.Bucket(nodeBucket)
@@ -246,9 +251,19 @@ func (c *ChannelGraph) ForEachNode(cb func(*LightningNode) error) error {
 
 			// Execute the callback, the transaction will abort if
 			// this returns an error.
-			return cb(node)
+			return cb(tx, node)
 		})
-	})
+	}
+
+	// If no transaction was provided, then we'll create a new transaction
+	// to execute the transaction within.
+	if tx == nil {
+		return c.db.View(traversal)
+	}
+
+	// Otherwise, we re-use the existing transaction to execute the graph
+	// traversal.
+	return traversal(tx)
 }
 
 // SourceNode returns the source node of the graph. The source node is treated
@@ -962,13 +977,15 @@ func (c *ChannelGraph) HasLightningNode(pub *btcec.PublicKey) (time.Time, bool, 
 // ForEachChannel iterates through all the outgoing channel edges from this
 // node, executing the passed callback with each edge as its sole argument. If
 // the callback returns an error, then the iteration is halted with the error
-// propagated back up to the caller. If the caller wishes to re-use an existing
-// boltdb transaction, then it should be passed as the first argument.
-// Otherwise the first argument should be nil and a fresh transaction will be
-// created to execute the graph traversal.
-func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdgeInfo, *ChannelEdgePolicy) error) error {
-	// TODO(roasbeef): remove the option to pass in a transaction after
-	// all?
+// propagated back up to the caller.
+//
+// If the caller wishes to re-use an existing boltdb transaction, then it
+// should be passed as the first argument.  Otherwise the first argument should
+// be nil and a fresh transaction will be created to execute the graph
+// traversal.
+func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
+	cb func(*bolt.Tx, *ChannelEdgeInfo, *ChannelEdgePolicy) error) error {
+
 	nodePub := l.PubKey.SerializeCompressed()
 
 	traversal := func(tx *bolt.Tx) error {
@@ -1021,7 +1038,7 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx, cb func(*ChannelEdgeInfo, *C
 			}
 
 			// Finally, we execute the callback.
-			if err := cb(edgeInfo, edgePolicy); err != nil {
+			if err := cb(tx, edgeInfo, edgePolicy); err != nil {
 				return err
 			}
 		}

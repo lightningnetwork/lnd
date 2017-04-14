@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -533,7 +534,7 @@ func TestGraphTraversal(t *testing.T) {
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err = graph.ForEachNode(func(node *LightningNode) error {
+	err = graph.ForEachNode(nil, func(_ *bolt.Tx, node *LightningNode) error {
 		delete(nodeIndex, node.Alias)
 		return nil
 	})
@@ -630,7 +631,9 @@ func TestGraphTraversal(t *testing.T) {
 	// Finally, we want to test the ability to iterate over all the
 	// outgoing channels for a particular node.
 	numNodeChans := 0
-	err = firstNode.ForEachChannel(nil, func(_ *ChannelEdgeInfo, c *ChannelEdgePolicy) error {
+	err = firstNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
+		c *ChannelEdgePolicy) error {
+
 		// Each each should indicate that it's outgoing (pointed
 		// towards the second node).
 		if !c.Node.PubKey.IsEqual(secondNode.PubKey) {

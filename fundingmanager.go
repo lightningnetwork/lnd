@@ -140,18 +140,11 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// SignNodeKey is used to generate a signature of a given node identity
-	// public key signed under the passed node funding key. This function
-	// closure is used to generate one half the channel proof which attests
-	// the target nodeKey is indeed in control of the channel funding key
-	// in question.
-	SignNodeKey func(nodeKey, fundingKey *btcec.PublicKey) (*btcec.Signature, error)
-
-	// SignAnnouncement is used to generate the signatures for channel
-	// update, and node announcements, and also to generate the proof for
-	// the channel announcements. The key used to generate this signature
-	// is the identity public key of the running daemon.
-	SignAnnouncement func(msg lnwire.Message) (*btcec.Signature, error)
+	// SignMessage signs an arbitrary method with a given public key. The
+	// actual digest signed is the double sha-256 of the message. In the
+	// case that the private key corresponding to the passed public key
+	// cannot be located, then an error is returned.
+	SignMessage func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
 
 	// SendAnnouncement is used by the FundingManager to announce newly
 	// created channels to the rest of the Lightning Network.
@@ -1064,7 +1057,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		chanFlags = 1
 	}
 
-	// TODO(roasbeef): add real sig, populate proper FeeSchema
+	// TODO(roasbeef): populate proper FeeSchema
 	chanUpdateAnn := &lnwire.ChannelUpdateAnnouncement{
 		ShortChannelID:            chanID,
 		Timestamp:                 uint32(time.Now().Unix()),
@@ -1077,9 +1070,13 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 
 	// With the channel update announcement constructed, we'll generate a
 	// signature that signs a double-sha digest of the announcement.
-	// This'll serve to authenticate this announcement and other Other
-	// future updates we may send.
-	chanUpdateAnn.Signature, err = f.cfg.SignAnnouncement(chanUpdateAnn)
+	// This'll serve to authenticate this announcement and any other future
+	// updates we may send.
+	chanUpdateMsg, err := chanUpdateAnn.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+	chanUpdateAnn.Signature, err = f.cfg.SignMessage(f.cfg.IDKey, chanUpdateMsg)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement signature: %v", err)
@@ -1092,12 +1089,16 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// public key under the funding key itself.
 	// TODO(roasbeef): need to revisit, ensure signatures are signed
 	// properly
-	nodeSig, err := f.cfg.SignAnnouncement(chanAnn)
+	chanAnnMsg, err := chanAnn.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKey, chanAnnMsg)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate node "+
 			"signature for channel announcement: %v", err)
 	}
-	bitcoinSig, err := f.cfg.SignNodeKey(localPubKey, localFundingKey)
+	bitcoinSig, err := f.cfg.SignMessage(localFundingKey, selfBytes)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate bitcoin "+
 			"signature for node public key: %v", err)

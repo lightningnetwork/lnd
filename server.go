@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
@@ -38,6 +37,10 @@ type server struct {
 	// identityPriv is the private key used to authenticate any incoming
 	// connections.
 	identityPriv *btcec.PrivateKey
+
+	// nodeSigner is an implementation of the MessageSigner implementation
+	// that's backed by the identituy private key of the running lnd node.
+	nodeSigner *nodeSigner
 
 	// lightningID is the sha256 of the public key corresponding to our
 	// long-term identity private key.
@@ -96,8 +99,8 @@ type server struct {
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
-	bio lnwallet.BlockChainIO, wallet *lnwallet.LightningWallet,
-	chanDB *channeldb.DB, fundingSigner *btcwallet.FundingSigner) (*server, error) {
+	bio lnwallet.BlockChainIO, fundingSigner lnwallet.MessageSigner,
+	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
 
 	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
@@ -125,6 +128,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		htlcSwitch:  newHtlcSwitch(),
 
 		identityPriv: privKey,
+		nodeSigner:   newNodeSigner(privKey),
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
@@ -200,8 +204,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// Initialize graph with authenticated lightning node. We need to
 	// generate a valid signature in order for other nodes on the network
 	// to accept our announcement.
-	messageSigner := lnwallet.NewMessageSigner(s.identityPriv)
-	self.AuthSig, err = discovery.SignAnnouncement(messageSigner,
+	self.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
+		s.identityPriv.PubKey(),
 		&lnwire.NodeAnnouncement{
 			Timestamp: uint32(self.LastUpdate.Unix()),
 			Addresses: self.Addresses,
@@ -258,14 +262,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
 		Notifier: s.chainNotifier,
-		SignNodeKey: func(nodeKey,
-			fundingKey *btcec.PublicKey) (*btcec.Signature, error) {
+		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
+			if pubKey.IsEqual(s.identityPriv.PubKey()) {
+				return s.nodeSigner.SignMessage(pubKey, msg)
+			}
 
-			data := nodeKey.SerializeCompressed()
-			return fundingSigner.SignData(data, fundingKey)
-		},
-		SignAnnouncement: func(msg lnwire.Message) (*btcec.Signature, error) {
-			return discovery.SignAnnouncement(messageSigner, msg)
+			return fundingSigner.SignMessage(pubKey, msg)
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			s.discoverSrv.ProcessLocalAnnouncement(msg,

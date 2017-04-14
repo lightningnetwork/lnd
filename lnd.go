@@ -138,6 +138,7 @@ func lndMain() error {
 	}
 	signer := wc
 	bio := wc
+	fundingSigner := wc
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
@@ -159,9 +160,8 @@ func lndMain() error {
 		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
 
-	fundingSigner := btcwallet.NewFundingSigner(wc)
-	server, err := newServer(defaultListenAddrs, notifier, bio, wallet,
-		chanDB, fundingSigner)
+	server, err := newServer(defaultListenAddrs, notifier, bio,
+		fundingSigner, wallet, chanDB)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

@@ -981,7 +981,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			prevOut := txin.PreviousOutPoint
 			output, err := l.ChainIO.GetUtxo(&prevOut.Hash, prevOut.Index)
 			if output == nil {
-				msg.err <- fmt.Errorf("input to funding tx does not exist: %v", err)
+				msg.err <- fmt.Errorf("input to funding tx "+
+					"does not exist: %v", err)
+				msg.completeChan <- nil
 				return
 			}
 
@@ -990,12 +992,17 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 				fundingTx, i, txscript.StandardVerifyFlags, nil,
 				fundingHashCache, output.Value)
 			if err != nil {
-				// TODO(roasbeef): cancel at this stage if invalid sigs?
-				msg.err <- fmt.Errorf("cannot create script engine: %s", err)
+				// TODO(roasbeef): cancel at this stage if
+				// invalid sigs?
+				msg.err <- fmt.Errorf("cannot create script "+
+					"engine: %s", err)
+				msg.completeChan <- nil
 				return
 			}
 			if err = vm.Execute(); err != nil {
-				msg.err <- fmt.Errorf("cannot validate transaction: %s", err)
+				msg.err <- fmt.Errorf("cannot validate "+
+					"transaction: %s", err)
+				msg.completeChan <- nil
 				return
 			}
 
@@ -1022,7 +1029,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	sigHash, err := txscript.CalcWitnessSigHash(witnessScript, hashCache,
 		txscript.SigHashAll, commitTx, 0, channelValue)
 	if err != nil {
-		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid: %v", err)
+		msg.err <- fmt.Errorf("counterparty's commitment signature is "+
+			"invalid: %v", err)
+		msg.completeChan <- nil
 		return
 	}
 
@@ -1034,6 +1043,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		return
 	} else if !sig.Verify(sigHash, theirKey) {
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
+		msg.completeChan <- nil
 		return
 	}
 	res.partialState.OurCommitSig = theirCommitSig
@@ -1049,6 +1059,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Broacast the finalized funding transaction to the network.
 	if err := l.PublishTransaction(fundingTx); err != nil {
 		msg.err <- err
+		msg.completeChan <- nil
 		return
 	}
 
@@ -1058,6 +1069,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	nodeAddr := res.nodeAddr
 	if err := res.partialState.SyncPending(nodeAddr); err != nil {
 		msg.err <- err
+		msg.completeChan <- nil
 		return
 	}
 
@@ -1076,6 +1088,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	l.limboMtx.RUnlock()
 	if !ok {
 		req.err <- fmt.Errorf("attempted to update non-existant funding state")
+		req.completeChan <- nil
 		return
 	}
 
@@ -1102,6 +1115,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.partialState.OurDustLimit)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 	theirCommitTx, err := CreateCommitTx(fundingTxIn, theirCommitKey, ourCommitKey,
@@ -1109,6 +1123,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		theirBalance, ourBalance, pendingReservation.partialState.TheirDustLimit)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 
@@ -1118,6 +1133,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	err = initStateHints(ourCommitTx, theirCommitTx, req.obsfucator)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 
@@ -1138,6 +1154,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		txscript.SigHashAll, ourCommitTx, 0, channelValue)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 
@@ -1146,9 +1163,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	sig, err := btcec.ParseSignature(req.theirCommitmentSig, btcec.S256())
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	} else if !sig.Verify(sigHash, theirKey) {
 		req.err <- fmt.Errorf("counterparty's commitment signature is invalid")
+		req.completeChan <- nil
 		return
 	}
 	pendingReservation.partialState.OurCommitSig = req.theirCommitmentSig
@@ -1159,6 +1178,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	p2wsh, err := witnessScriptHash(witnessScript)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 	signDesc := SignDescriptor{
@@ -1175,6 +1195,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	sigTheirCommit, err := l.Signer.SignOutputRaw(theirCommitTx, &signDesc)
 	if err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 	pendingReservation.ourCommitmentSig = sigTheirCommit
@@ -1183,6 +1204,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// which will be used for the lifetime of this channel.
 	if err := pendingReservation.partialState.SyncPending(pendingReservation.nodeAddr); err != nil {
 		req.err <- err
+		req.completeChan <- nil
 		return
 	}
 

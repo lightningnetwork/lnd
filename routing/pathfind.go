@@ -5,6 +5,7 @@ import (
 
 	"container/heap"
 
+	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -277,7 +278,7 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	// map for the node set with a distance of "infinity".  We also mark
 	// add the node to our set of unvisited nodes.
 	distance := make(map[vertex]nodeWithDist)
-	if err := graph.ForEachNode(func(node *channeldb.LightningNode) error {
+	if err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
 		distance[newVertex(node.PubKey)] = nodeWithDist{
@@ -323,7 +324,8 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
 		pivot := newVertex(bestNode.PubKey)
-		err := bestNode.ForEachChannel(nil, func(edgeInfo *channeldb.ChannelEdgeInfo,
+		err := bestNode.ForEachChannel(nil, func(tx *bolt.Tx,
+			edgeInfo *channeldb.ChannelEdgeInfo,
 			edge *channeldb.ChannelEdgePolicy) error {
 
 			v := newVertex(edge.Node.PubKey)

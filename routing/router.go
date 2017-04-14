@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1057,7 +1058,9 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
-	return r.cfg.Graph.ForEachNode(cb)
+	return r.cfg.Graph.ForEachNode(nil, func(_ *bolt.Tx, n *channeldb.LightningNode) error {
+		return cb(n)
+	})
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgiong channel owned by
@@ -1066,8 +1069,9 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(_ *channeldb.ChannelEdgeInfo,
+	return r.selfNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *channeldb.ChannelEdgeInfo,
 		c *channeldb.ChannelEdgePolicy) error {
+
 		return cb(c)
 	})
 }

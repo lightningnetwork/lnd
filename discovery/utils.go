@@ -109,7 +109,7 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 
 // SignAnnouncement is a helper function which is used to sign any outgoing
 // channel node node announcement messages.
-func SignAnnouncement(signer *lnwallet.MessageSigner,
+func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
 	msg lnwire.Message) (*btcec.Signature, error) {
 
 	var (
@@ -132,5 +132,5 @@ func SignAnnouncement(signer *lnwallet.MessageSigner,
 		return nil, errors.Errorf("unable to get data to sign: %v", err)
 	}
 
-	return signer.SignData(data)
+	return signer.SignMessage(pubKey, data)
 }

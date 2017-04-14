@@ -16,7 +16,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
@@ -55,6 +54,26 @@ var (
 	trickleDelay     = time.Millisecond * 300
 	proofMatureDelta uint32
 )
+
+type mockSigner struct {
+	privKey *btcec.PrivateKey
+}
+
+func (n *mockSigner) SignMessage(pubKey *btcec.PublicKey,
+	msg []byte) (*btcec.Signature, error) {
+
+	if !pubKey.IsEqual(n.privKey.PubKey()) {
+		return nil, fmt.Errorf("unknown public key")
+	}
+
+	digest := chainhash.DoubleHashB(msg)
+	sign, err := n.privKey.Sign(digest)
+	if err != nil {
+		return nil, fmt.Errorf("can't sign the message: %v", err)
+	}
+
+	return sign, nil
+}
 
 type mockGraphSource struct {
 	nodes      []*channeldb.LightningNode
@@ -278,8 +297,8 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 		Features:  testFeatures,
 	}
 
-	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
-	if a.Signature, err = SignAnnouncement(signer, a); err != nil {
+	signer := mockSigner{priv}
+	if a.Signature, err = SignAnnouncement(&signer, priv.PubKey(), a); err != nil {
 		return nil, err
 	}
 
@@ -301,8 +320,9 @@ func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdateAnnounce
 		FeeProportionalMillionths: uint32(prand.Int31()),
 	}
 
-	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
-	if a.Signature, err = SignAnnouncement(signer, a); err != nil {
+	pub := nodeKeyPriv1.PubKey()
+	signer := mockSigner{nodeKeyPriv1}
+	if a.Signature, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
 
@@ -325,13 +345,15 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 		BitcoinKey2: bitcoinKeyPub2,
 	}
 
-	signer := lnwallet.NewMessageSigner(nodeKeyPriv1)
-	if a.NodeSig1, err = SignAnnouncement(signer, a); err != nil {
+	pub := nodeKeyPriv1.PubKey()
+	signer := mockSigner{nodeKeyPriv1}
+	if a.NodeSig1, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
 
-	signer = lnwallet.NewMessageSigner(nodeKeyPriv2)
-	if a.NodeSig2, err = SignAnnouncement(signer, a); err != nil {
+	pub = nodeKeyPriv2.PubKey()
+	signer = mockSigner{nodeKeyPriv2}
+	if a.NodeSig2, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
 
@@ -584,7 +606,7 @@ func TestSignatureAnnouncement(t *testing.T) {
 	}
 	select {
 	case <-ctx.broadcastedMessage:
-		t.Fatal("channel announcement was broadcasted")
+		t.Fatal("channel announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
 
@@ -594,7 +616,7 @@ func TestSignatureAnnouncement(t *testing.T) {
 	}
 	select {
 	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcasted")
+		t.Fatal("channel update announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
 
@@ -604,7 +626,7 @@ func TestSignatureAnnouncement(t *testing.T) {
 	}
 	select {
 	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcasted")
+		t.Fatal("channel update announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
 
@@ -617,12 +639,12 @@ func TestSignatureAnnouncement(t *testing.T) {
 
 	select {
 	case <-ctx.broadcastedMessage:
-		t.Fatal("announcements were broadcasted")
+		t.Fatal("announcements were broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
 
 	if len(ctx.discovery.waitingProofs) != 1 {
-		t.Fatal("local proof annoucement should be stored")
+		t.Fatal("local proof announcement should be stored")
 	}
 
 	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
@@ -634,7 +656,7 @@ func TestSignatureAnnouncement(t *testing.T) {
 		select {
 		case <-ctx.broadcastedMessage:
 		case <-time.After(time.Second):
-			t.Fatal("announcement wasn't broadcasted")
+			t.Fatal("announcement wasn't broadcast")
 		}
 	}
 }

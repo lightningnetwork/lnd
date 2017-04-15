@@ -968,7 +968,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd)
 		if sendError != nil {
 			log.Errorf("Attempt to send payment %x failed: %v",
-				payment.PaymentHash, err)
+				payment.PaymentHash, sendError)
 			continue
 		}
 

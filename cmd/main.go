@@ -40,13 +40,12 @@ func main() {
 
 		sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
 
-		var hopPayloads [][]byte
+		var hopsData []sphinx.HopData
 		for i := 0; i < len(route); i++ {
-			payload := bytes.Repeat([]byte{'A'}, 20)
-			hopPayloads = append(hopPayloads, payload)
+			hopsData = append(hopsData, sphinx.HopData{})
 		}
 
-		msg, err := sphinx.NewOnionPacket(route, sessionKey, hopPayloads, assocData)
+		msg, err := sphinx.NewOnionPacket(route, sessionKey, hopsData, assocData)
 		if err != nil {
 			log.Fatalf("Error creating message: %v", err)
 		}

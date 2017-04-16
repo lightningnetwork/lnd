@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -259,6 +260,11 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	s.rpcServer = newRPCServer(s)
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
 
+	var chanIDSeed [32]byte
+	if _, err := rand.Read(chanIDSeed[:]); err != nil {
+		return nil, err
+	}
+
 	s.fundingMgr, err = newFundingManager(fundingConfig{
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
@@ -275,10 +281,25 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 				s.identityPriv.PubKey())
 			return nil
 		},
-		ArbiterChan: s.breachArbiter.newContracts,
-		SendToPeer:  s.sendToPeer,
-		FindPeer:    s.findPeer,
-		FindChannel: s.rpcServer.fetchActiveChannel,
+		ArbiterChan:    s.breachArbiter.newContracts,
+		SendToPeer:     s.sendToPeer,
+		FindPeer:       s.findPeer,
+		TempChanIDSeed: chanIDSeed,
+		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
+			dbChannels, err := chanDB.FetchAllChannels()
+			if err != nil {
+				return nil, err
+			}
+
+			for _, channel := range dbChannels {
+				if chanID.IsChanPoint(channel.ChanID) {
+					return lnwallet.NewLightningChannel(wallet.Signer,
+						notifier, channel)
+				}
+			}
+
+			return nil, fmt.Errorf("unable to find channel")
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -356,8 +377,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			for _, lnAddress := range linkNodeAddrs.addresses {
 				var addrMatched bool
 				for _, polAddress := range policy.Node.Addresses {
-					polTCPAddr, ok :=
-						polAddress.(*net.TCPAddr)
+					polTCPAddr, ok := polAddress.(*net.TCPAddr)
 					if ok && polTCPAddr.IP.Equal(lnAddress.IP) {
 						addrMatched = true
 						addrs = append(addrs, polTCPAddr)

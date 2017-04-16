@@ -48,6 +48,7 @@ import:
   - ripemd160
   - scrypt
   - chacha20poly1305
+  - salsa20
 - package: golang.org/x/net
   subpackages:
   - context

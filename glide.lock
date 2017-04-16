@@ -1,5 +1,5 @@
-hash: 41f2cbd2062a313a79725fe61f9aeae2076c7aec4ac0f854f988a74232771594
-updated: 2017-03-29T18:59:32.34035833-07:00
+hash: d7fb4c2d71609f1962573424c1e2b7f3fc7814ead9204df61e51d8df45e40c78
+updated: 2017-04-15T14:38:49.036654404-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -54,11 +54,10 @@ imports:
   - proto
   - protoc-gen-go/descriptor
 - name: github.com/grpc-ecosystem/grpc-gateway
-  version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
+  version: 18d159699f2e83fc5bb9ef2f79465ca3f3122676
   subpackages:
   - runtime
   - runtime/internal
-  - third_party/googleapis/google/api
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
@@ -118,6 +117,8 @@ imports:
   - nacl/secretbox
   - poly1305
   - ripemd160
+  - salsa20
+  - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
   version: b4690f45fa1cafc47b1c280c2e75116efe40cc13
@@ -138,7 +139,7 @@ imports:
   subpackages:
   - googleapis/api/annotations
 - name: google.golang.org/grpc
-  version: cdee119ee21e61eef7093a41ba148fa83585e143
+  version: 8050b9cbc271307e5a716a9d782803d09b0d6f2d
   subpackages:
   - codes
   - credentials

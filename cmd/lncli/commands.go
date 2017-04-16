@@ -431,7 +431,7 @@ var closeChannelCommand = cli.Command{
 		cli.StringFlag{
 			Name: "time_limit",
 			Usage: "a relative deadline afterwhich the attempt should be " +
-				"abandonded",
+				"abandoned",
 		},
 		cli.BoolFlag{
 			Name: "force",

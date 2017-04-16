@@ -271,19 +271,19 @@ func (l *lightningNode) Stop() error {
 	// - start of the node wasn't initiated
 	// - process wasn't spawned
 	// - process already finished
-
 	select {
+	case <-l.quit:
+		return nil
 	case <-l.processExit:
 		return nil
 	default:
-		close(l.quit)
-		l.wg.Wait()
-
-		if runtime.GOOS == "windows" {
-			return l.cmd.Process.Signal(os.Kill)
-		}
-		return l.cmd.Process.Signal(os.Interrupt)
 	}
+
+	close(l.quit)
+	if runtime.GOOS == "windows" {
+		return l.cmd.Process.Signal(os.Kill)
+	}
+	return l.cmd.Process.Signal(os.Interrupt)
 }
 
 // Restart attempts to restart a lightning node by shutting it down cleanly,

@@ -118,11 +118,11 @@ type peer struct {
 	// active channels. Channels are indexed into the map by the txid of
 	// the funding transaction which opened the channel.
 	activeChanMtx    sync.RWMutex
-	activeChannels   map[wire.OutPoint]*lnwallet.LightningChannel
+	activeChannels   map[lnwire.ChannelID]*lnwallet.LightningChannel
 	chanSnapshotReqs chan *chanSnapshotReq
 
 	htlcManMtx   sync.RWMutex
-	htlcManagers map[wire.OutPoint]chan lnwire.Message
+	htlcManagers map[lnwire.ChannelID]chan lnwire.Message
 
 	// newChannels is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
@@ -176,8 +176,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		sendQueue:     make(chan outgoinMsg, 1),
 		outgoingQueue: make(chan outgoinMsg, outgoingQueueLen),
 
-		activeChannels:   make(map[wire.OutPoint]*lnwallet.LightningChannel),
-		htlcManagers:     make(map[wire.OutPoint]chan lnwire.Message),
+		activeChannels:   make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
+		htlcManagers:     make(map[lnwire.ChannelID]chan lnwire.Message),
 		chanSnapshotReqs: make(chan *chanSnapshotReq),
 		newChannels:      make(chan *newChannelMsg, 1),
 
@@ -216,19 +216,17 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		chanID := dbChan.ChanID
 		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
 			p.server.chainNotifier, dbChan)
 		if err != nil {
 			return err
 		}
 
-		chanPoint := wire.OutPoint{
-			Hash:  chanID.Hash,
-			Index: chanID.Index,
-		}
+		chanPoint := *dbChan.ChanID
+		chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+
 		p.activeChanMtx.Lock()
-		p.activeChannels[chanPoint] = lnChan
+		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
 		peerLog.Infof("peerID(%v) loaded ChannelPoint(%v)", p.id, chanPoint)
@@ -244,7 +242,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		upstreamLink := make(chan lnwire.Message, 10)
 		p.htlcManMtx.Lock()
-		p.htlcManagers[chanPoint] = upstreamLink
+		p.htlcManagers[chanID] = upstreamLink
 		p.htlcManMtx.Unlock()
 
 		p.wg.Add(1)
@@ -421,7 +419,7 @@ out:
 
 		var (
 			isChanUpdate bool
-			targetChan   wire.OutPoint
+			targetChan   lnwire.ChannelID
 		)
 
 		switch msg := nextMsg.(type) {
@@ -450,25 +448,25 @@ out:
 		case *lnwire.CloseRequest:
 			p.remoteCloseChanReqs <- msg
 
-		case *lnwire.ErrorGeneric:
-			p.server.fundingMgr.processErrorGeneric(msg, p.addr)
+		case *lnwire.Error:
+			p.server.fundingMgr.processFundingError(msg, p.addr)
 
 		// TODO(roasbeef): create ChanUpdater interface for the below
 		case *lnwire.UpdateAddHTLC:
 			isChanUpdate = true
-			targetChan = msg.ChannelPoint
+			targetChan = msg.ChanID
 		case *lnwire.UpdateFufillHTLC:
 			isChanUpdate = true
-			targetChan = msg.ChannelPoint
+			targetChan = msg.ChanID
 		case *lnwire.UpdateFailHTLC:
 			isChanUpdate = true
-			targetChan = msg.ChannelPoint
+			targetChan = msg.ChanID
 		case *lnwire.RevokeAndAck:
 			isChanUpdate = true
-			targetChan = msg.ChannelPoint
+			targetChan = msg.ChanID
 		case *lnwire.CommitSig:
 			isChanUpdate = true
-			targetChan = msg.ChannelPoint
+			targetChan = msg.ChanID
 
 		case *lnwire.ChannelUpdateAnnouncement,
 			*lnwire.ChannelAnnouncement,
@@ -721,7 +719,8 @@ out:
 		select {
 		case req := <-p.chanSnapshotReqs:
 			p.activeChanMtx.RLock()
-			snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
+			snapshots := make([]*channeldb.ChannelSnapshot, 0,
+				len(p.activeChannels))
 			for _, activeChan := range p.activeChannels {
 				snapshot := activeChan.StateSnapshot()
 				snapshots = append(snapshots, snapshot)
@@ -730,10 +729,11 @@ out:
 			req.resp <- snapshots
 
 		case newChanReq := <-p.newChannels:
-			chanPoint := *newChanReq.channel.ChannelPoint()
+			chanPoint := newChanReq.channel.ChannelPoint()
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 			p.activeChanMtx.Lock()
-			p.activeChannels[chanPoint] = newChanReq.channel
+			p.activeChannels[chanID] = newChanReq.channel
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
@@ -753,11 +753,12 @@ out:
 			// new channel.
 			upstreamLink := make(chan lnwire.Message, 10)
 			p.htlcManMtx.Lock()
-			p.htlcManagers[chanPoint] = upstreamLink
+			p.htlcManagers[chanID] = upstreamLink
 			p.htlcManMtx.Unlock()
 
 			p.wg.Add(1)
-			go p.htlcManager(newChanReq.channel, plexChan, downstreamLink, upstreamLink)
+			go p.htlcManager(newChanReq.channel, plexChan,
+				downstreamLink, upstreamLink)
 
 			close(newChanReq.done)
 
@@ -802,7 +803,9 @@ func (p *peer) executeCooperativeClose(channel *lnwallet.LightningChannel) (*cha
 	if err != nil {
 		return nil, err
 	}
-	closeReq := lnwire.NewCloseRequest(*chanPoint, closeSig)
+
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	closeReq := lnwire.NewCloseRequest(chanID, closeSig)
 	p.queueMsg(closeReq, nil)
 
 	return txid, nil
@@ -818,8 +821,10 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 		closingTxid *chainhash.Hash
 	)
 
+	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
+
 	p.activeChanMtx.RLock()
-	channel := p.activeChannels[*req.chanPoint]
+	channel := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 
 	switch req.CloseType {
@@ -911,20 +916,16 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 // handleRemoteClose completes a request for cooperative channel closure
 // initiated by the remote node.
 func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
-	chanPoint := req.ChannelPoint
-	key := wire.OutPoint{
-		Hash:  chanPoint.Hash,
-		Index: chanPoint.Index,
-	}
-
 	p.activeChanMtx.RLock()
-	channel, ok := p.activeChannels[key]
+	channel, ok := p.activeChannels[req.ChanID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
-		peerLog.Errorf("unable to close channel, ChannelPoint(%v) is "+
-			"unknown", key)
+		peerLog.Errorf("unable to close channel, ChannelID(%v) is "+
+			"unknown", req.ChanID)
 		return
 	}
+
+	chanPoint := channel.ChannelPoint()
 
 	// Now that we have their signature for the closure transaction, we
 	// can assemble the final closure transaction, complete with our
@@ -955,27 +956,26 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	}
 
 	// TODO(roasbeef): also wait for confs before removing state
-	peerLog.Infof("ChannelPoint(%v) is now "+
-		"closed", key)
+	peerLog.Infof("ChannelPoint(%v) is now closed", chanPoint)
 	if err := wipeChannel(p, channel); err != nil {
 		peerLog.Errorf("unable to wipe channel: %v", err)
 	}
 
-	p.server.breachArbiter.settledContracts <- &req.ChannelPoint
+	p.server.breachArbiter.settledContracts <- chanPoint
 }
 
 // wipeChannel removes the passed channel from all indexes associated with the
 // peer, and deletes the channel from the database.
 func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
-	chanID := channel.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 
 	p.activeChanMtx.Lock()
-	delete(p.activeChannels, *chanID)
+	delete(p.activeChannels, chanID)
 	p.activeChanMtx.Unlock()
 
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
-	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, chanID)
+	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, &chanID)
 
 	// Additionally, close up "down stream" link for the htlcManager which
 	// has been assigned to this channel. This servers the link between the
@@ -985,7 +985,7 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 
 	// If the channel can't be found in the map, then this channel has
 	// already been wiped.
-	htlcWireLink, ok := p.htlcManagers[*chanID]
+	htlcWireLink, ok := p.htlcManagers[chanID]
 	if !ok {
 		p.htlcManMtx.RUnlock()
 		return nil
@@ -999,7 +999,7 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	// goroutine should have exited gracefully due to the channel closure
 	// above.
 	p.htlcManMtx.RLock()
-	delete(p.htlcManagers, *chanID)
+	delete(p.htlcManagers, chanID)
 	p.htlcManMtx.RUnlock()
 
 	// Finally, we purge the channel's state from the database, leaving a
@@ -1072,6 +1072,7 @@ type commitmentState struct {
 
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
+	chanID    lnwire.ChannelID
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment
@@ -1104,9 +1105,11 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		p.queueMsg(rev, nil)
 	}
 
+	chanPoint := channel.ChannelPoint()
 	state := &commitmentState{
 		channel:         channel,
-		chanPoint:       channel.ChannelPoint(),
+		chanPoint:       chanPoint,
+		chanID:          lnwire.NewChanIDFromOutPoint(chanPoint),
 		clearedHTCLs:    make(map[uint64]*pendingPayment),
 		htlcsToSettle:   make(map[uint64]*channeldb.Invoice),
 		htlcsToCancel:   make(map[uint64]lnwire.FailCode),
@@ -1253,7 +1256,7 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		// downstream channel, so we add the new HTLC
 		// to our local log, then update the commitment
 		// chains.
-		htlc.ChannelPoint = *state.chanPoint
+		htlc.ChanID = state.chanID
 		index, err := state.channel.AddHTLC(htlc)
 		if err != nil {
 			// TODO: possibly perform fallback/retry logic
@@ -1272,7 +1275,7 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 				msg: &lnwire.UpdateFailHTLC{
 					Reason: []byte{byte(0)},
 				},
-				srcLink: *state.chanPoint,
+				srcLink: state.chanID,
 			}
 			return
 		}
@@ -1303,7 +1306,7 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		// With the HTLC settled, we'll need to populate the wire
 		// message to target the specific channel and HTLC to be
 		// cancelled.
-		htlc.ChannelPoint = *state.chanPoint
+		htlc.ChanID = state.chanID
 		htlc.ID = logIndex
 
 		// Then we send the HTLC settle message to the connected peer
@@ -1324,7 +1327,7 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		// message to target the specific channel and HTLC to be
 		// cancelled. The "Reason" field will have already been set
 		// within the switch.
-		htlc.ChannelPoint = *state.chanPoint
+		htlc.ChanID = state.chanID
 		htlc.ID = logIndex
 
 		// Finally, we send the HTLC message to the peer which
@@ -1559,7 +1562,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 				}
 
 				settleMsg := &lnwire.UpdateFufillHTLC{
-					ChannelPoint:    *state.chanPoint,
+					ChanID:          state.chanID,
 					ID:              logIndex,
 					PaymentPreimage: preimage,
 				}
@@ -1589,9 +1592,9 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			}
 
 			cancelMsg := &lnwire.UpdateFailHTLC{
-				ChannelPoint: *state.chanPoint,
-				ID:           logIndex,
-				Reason:       []byte{byte(reason)},
+				ChanID: state.chanID,
+				ID:     logIndex,
+				Reason: []byte{byte(reason)},
 			}
 			p.queueMsg(cancelMsg, nil)
 			delete(state.htlcsToCancel, htlc.Index)
@@ -1619,7 +1622,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 				// Send this fully activated HTLC to the htlc
 				// switch to continue the chained clear/settle.
-				pkt, err := logEntryToHtlcPkt(*state.chanPoint,
+				pkt, err := logEntryToHtlcPkt(state.chanID,
 					htlc, onionPkt, reason)
 				if err != nil {
 					peerLog.Errorf("unable to make htlc pkt: %v",
@@ -1640,7 +1643,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// payment bandwidth.
 		// TODO(roasbeef): ideally should wait for next state update.
 		if bandwidthUpdate != 0 {
-			p.server.htlcSwitch.UpdateLink(state.chanPoint,
+			p.server.htlcSwitch.UpdateLink(state.chanID,
 				bandwidthUpdate)
 		}
 
@@ -1684,8 +1687,8 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 	}
 
 	commitSig := &lnwire.CommitSig{
-		ChannelPoint: *state.chanPoint,
-		CommitSig:    parsedSig,
+		ChanID:    state.chanID,
+		CommitSig: parsedSig,
 	}
 	p.queueMsg(commitSig, nil)
 
@@ -1707,8 +1710,7 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 // log entry the corresponding htlcPacket with src/dest set along with the
 // proper wire message. This helper method is provided in order to aid an
 // htlcManager in forwarding packets to the htlcSwitch.
-func logEntryToHtlcPkt(chanPoint wire.OutPoint,
-	pd *lnwallet.PaymentDescriptor,
+func logEntryToHtlcPkt(chanID lnwire.ChannelID, pd *lnwallet.PaymentDescriptor,
 	onionPkt *sphinx.ProcessedPacket,
 	reason lnwire.FailCode) (*htlcPacket, error) {
 
@@ -1750,7 +1752,7 @@ func logEntryToHtlcPkt(chanPoint wire.OutPoint,
 	pkt.amt = pd.Amount
 	pkt.msg = msg
 
-	pkt.srcLink = chanPoint
+	pkt.srcLink = chanID
 	pkt.onion = onionPkt
 
 	return pkt, nil

@@ -108,15 +108,15 @@ func (b *boundedLinkChan) restoreSlots(numSlots uint32) {
 // metadata such as the current available bandwidth of the link (in satoshis)
 // which aid the switch in optimally forwarding HTLCs.
 type link struct {
+	chanID lnwire.ChannelID
+
 	capacity btcutil.Amount
 
 	availableBandwidth int64 // atomic
 
-	*boundedLinkChan
-
 	peer *peer
 
-	chanPoint *wire.OutPoint
+	*boundedLinkChan
 }
 
 // htlcPacket is a wrapper around an lnwire message which adds, times out, or
@@ -127,7 +127,7 @@ type htlcPacket struct {
 
 	dest chainhash.Hash
 
-	srcLink wire.OutPoint
+	srcLink lnwire.ChannelID
 	onion   *sphinx.ProcessedPacket
 
 	msg lnwire.Message
@@ -192,11 +192,11 @@ type htlcSwitch struct {
 	started  int32 // atomic
 	shutdown int32 // atomic
 
-	// chanIndex maps a channel's outpoint to a link which contains
-	// additional information about the channel, and additionally houses a
-	// pointer to the peer managing the channel.
+	// chanIndex maps a channel's ID to a link which contains additional
+	// information about the channel, and additionally houses a pointer to
+	// the peer managing the channel.
 	chanIndexMtx sync.RWMutex
-	chanIndex    map[wire.OutPoint]*link
+	chanIndex    map[lnwire.ChannelID]*link
 
 	// interfaces maps a node's ID to the set of links (active channels) we
 	// currently have open with that peer.
@@ -240,7 +240,7 @@ type htlcSwitch struct {
 // newHtlcSwitch creates a new htlcSwitch.
 func newHtlcSwitch() *htlcSwitch {
 	return &htlcSwitch{
-		chanIndex:        make(map[wire.OutPoint]*link),
+		chanIndex:        make(map[lnwire.ChannelID]*link),
 		interfaces:       make(map[chainhash.Hash][]*link),
 		onionIndex:       make(map[[ripemd160.Size]byte][]*link),
 		paymentCircuits:  make(map[circuitKey]*paymentCircuit),
@@ -359,7 +359,7 @@ out:
 				n := atomic.AddInt64(&link.availableBandwidth,
 					-int64(amt))
 				hswcLog.Tracef("Decrementing link %v bandwidth to %v",
-					link.chanPoint, n)
+					link.chanID, n)
 
 				continue out
 			}
@@ -435,7 +435,7 @@ out:
 					hswcLog.Errorf("unable to forward HTLC "+
 						"link %v has insufficient "+
 						"capacity, have %v need %v",
-						clearLink[0].chanPoint, linkBandwidth,
+						clearLink[0].chanID, linkBandwidth,
 						int64(wireMsg.Amount))
 
 					pkt := &htlcPacket{
@@ -462,8 +462,8 @@ out:
 				h.paymentCircuits[cKey] = circuit
 
 				hswcLog.Debugf("Creating onion circuit for %x: %v<->%v",
-					cKey[:], clearLink[0].chanPoint,
-					settleLink.chanPoint)
+					cKey[:], clearLink[0].chanID,
+					settleLink.chanID)
 
 				// With the circuit initiated, send the htlcPkt
 				// to the clearing link within the circuit to
@@ -482,7 +482,7 @@ out:
 				n := atomic.AddInt64(&circuit.clear.availableBandwidth,
 					-int64(pkt.amt))
 				hswcLog.Tracef("Decrementing link %v bandwidth to %v",
-					circuit.clear.chanPoint, n)
+					circuit.clear.chanID, n)
 
 				deltaSatRecv += pkt.amt
 
@@ -510,8 +510,8 @@ out:
 
 				hswcLog.Debugf("Closing completed onion "+
 					"circuit for %x: %v<->%v", rHash[:],
-					circuit.clear.chanPoint,
-					circuit.settle.chanPoint)
+					circuit.clear.chanID,
+					circuit.settle.chanID)
 
 				circuit.settle.sendAndRestore(&htlcPacket{
 					msg: wireMsg,
@@ -525,7 +525,7 @@ out:
 				n := atomic.AddInt64(&circuit.settle.availableBandwidth,
 					int64(pkt.amt))
 				hswcLog.Tracef("Incrementing link %v bandwidth to %v",
-					circuit.settle.chanPoint, n)
+					circuit.settle.chanID, n)
 
 				deltaSatSent += pkt.amt
 
@@ -556,7 +556,7 @@ out:
 					int64(pkt.amt))
 				hswcLog.Debugf("HTLC %x has been cancelled, "+
 					"incrementing link %v bandwidth to %v", pkt.payHash,
-					circuit.clear.chanPoint, n)
+					circuit.clear.chanID, n)
 
 				// With our link info updated, we now continue
 				// the error propagation by sending the
@@ -636,11 +636,12 @@ out:
 // adds the link to the existing set of links for the target interface.
 func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	chanPoint := req.linkInfo.ChannelPoint
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	newLink := &link{
 		capacity:           req.linkInfo.Capacity,
 		availableBandwidth: int64(req.linkInfo.LocalBalance),
 		peer:               req.peer,
-		chanPoint:          chanPoint,
+		chanID:             chanID,
 	}
 
 	// To ensure we never accidentally cause an HTLC overflow, we'll limit,
@@ -655,7 +656,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	// close them, update their link capacity, or possibly during multi-hop
 	// HTLC forwarding.
 	h.chanIndexMtx.Lock()
-	h.chanIndex[*chanPoint] = newLink
+	h.chanIndex[chanID] = newLink
 	h.chanIndexMtx.Unlock()
 
 	interfaceID := req.peer.lightningID
@@ -687,8 +688,8 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 // this link leaves the interface empty, then the interface entry itself is
 // also deleted.
 func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
-	hswcLog.Debugf("unregistering active link, interface=%v, chan_point=%v",
-		hex.EncodeToString(req.chanInterface[:]), req.chanPoint)
+	hswcLog.Debugf("unregistering active link, interface=%v, chan_id=%v",
+		hex.EncodeToString(req.chanInterface[:]), req.chanID)
 
 	chanInterface := req.chanInterface
 
@@ -704,21 +705,21 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 
 	// A request with a nil channel point indicates that all the current
 	// links for this channel should be cleared.
-	if req.chanPoint == nil {
+	if req.chanID == nil {
 		hswcLog.Debugf("purging all active links for interface %v",
 			hex.EncodeToString(chanInterface[:]))
 
 		for _, link := range links {
-			delete(h.chanIndex, *link.chanPoint)
+			delete(h.chanIndex, link.chanID)
 		}
 
 		links = nil
 	} else {
-		delete(h.chanIndex, *req.chanPoint)
+		delete(h.chanIndex, *req.chanID)
 
 		for i := 0; i < len(links); i++ {
 			chanLink := links[i]
-			if chanLink.chanPoint == req.chanPoint {
+			if chanLink.chanID == *req.chanID {
 				// We perform an in-place delete by sliding
 				// every element down one, then slicing off the
 				// last element. Additionally, we update the
@@ -762,18 +763,20 @@ func (h *htlcSwitch) handleUnregisterLink(req *unregisterLinkMsg) {
 // handleCloseLink sends a message to the peer responsible for the target
 // channel point, instructing it to initiate a cooperative channel closure.
 func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
+	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
+
 	h.chanIndexMtx.RLock()
-	targetLink, ok := h.chanIndex[*req.chanPoint]
+	targetLink, ok := h.chanIndex[chanID]
 	h.chanIndexMtx.RUnlock()
 
 	if !ok {
-		req.err <- fmt.Errorf("channel point %v not found, or peer "+
+		req.err <- fmt.Errorf("channel %v not found, or peer "+
 			"offline", req.chanPoint)
 		return
 	}
 
 	hswcLog.Debugf("requesting interface %v to close link %v",
-		hex.EncodeToString(targetLink.peer.lightningID[:]), req.chanPoint)
+		hex.EncodeToString(targetLink.peer.lightningID[:]), chanID)
 	targetLink.peer.localCloseChanReqs <- req
 
 	// TODO(roasbeef): if type was CloseBreach initiate force closure with
@@ -784,7 +787,7 @@ func (h *htlcSwitch) handleCloseLink(req *closeLinkReq) {
 // channel's available bandwidth by the delta specified within the message.
 func (h *htlcSwitch) handleLinkUpdate(req *linkInfoUpdateMsg) {
 	h.chanIndexMtx.RLock()
-	link, ok := h.chanIndex[*req.targetLink]
+	link, ok := h.chanIndex[req.targetLink]
 	h.chanIndexMtx.RUnlock()
 	if !ok {
 		hswcLog.Errorf("received link update for non-existent link: %v",
@@ -828,7 +831,7 @@ func (h *htlcSwitch) RegisterLink(p *peer, linkInfo *channeldb.ChannelSnapshot,
 // unregisterLinkMsg is a message which requests the active link be unregistered.
 type unregisterLinkMsg struct {
 	chanInterface [32]byte
-	chanPoint     *wire.OutPoint
+	chanID        *lnwire.ChannelID
 
 	// remoteID is the identity public key of the node we're removing the
 	// link between. The public key is expected to be serialized in
@@ -842,13 +845,15 @@ type unregisterLinkMsg struct {
 // UnregisterLink requests the htlcSwitch to register the new active link. An
 // unregistered link will no longer be considered a candidate to forward
 // HTLCs.
-func (h *htlcSwitch) UnregisterLink(remotePub *btcec.PublicKey, chanPoint *wire.OutPoint) {
+func (h *htlcSwitch) UnregisterLink(remotePub *btcec.PublicKey,
+	chanID *lnwire.ChannelID) {
+
 	done := make(chan struct{}, 1)
 	rawPub := remotePub.SerializeCompressed()
 
 	h.linkControl <- &unregisterLinkMsg{
 		chanInterface: sha256.Sum256(rawPub),
-		chanPoint:     chanPoint,
+		chanID:        chanID,
 		remoteID:      rawPub,
 		done:          done,
 	}
@@ -904,7 +909,7 @@ func (h *htlcSwitch) CloseLink(chanPoint *wire.OutPoint,
 // linkInfoUpdateMsg encapsulates a request for the htlc switch to update the
 // metadata related to the target link.
 type linkInfoUpdateMsg struct {
-	targetLink *wire.OutPoint
+	targetLink lnwire.ChannelID
 
 	bandwidthDelta btcutil.Amount
 }
@@ -913,9 +918,9 @@ type linkInfoUpdateMsg struct {
 // within the link by the passed satoshi delta. This function may be used when
 // re-anchoring to boost the capacity of a channel, or once a peer settles an
 // HTLC invoice.
-func (h *htlcSwitch) UpdateLink(chanPoint *wire.OutPoint, delta btcutil.Amount) {
+func (h *htlcSwitch) UpdateLink(chanID lnwire.ChannelID, delta btcutil.Amount) {
 	h.linkControl <- &linkInfoUpdateMsg{
-		targetLink:     chanPoint,
+		targetLink:     chanID,
 		bandwidthDelta: delta,
 	}
 }

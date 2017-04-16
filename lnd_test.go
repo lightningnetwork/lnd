@@ -700,8 +700,8 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 				bobBalance, amt)
 		}
 
-		// Both channels should also have properly accunted from the amount
-		// that has been sent/received over the channel.
+		// Both channels should also have properly accounted from the
+		// amount that has been sent/received over the channel.
 		listReq := &lnrpc.ListChannelsRequest{}
 		aliceListChannels, err := net.Alice.ListChannels(ctxb, listReq)
 		if err != nil {
@@ -788,6 +788,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 
 	// With the payment completed all balance related stats should be
 	// properly updated.
+	time.Sleep(time.Millisecond * 200)
 	assertPaymentBalance(paymentAmt)
 
 	// Create another invoice for Bob, this time leaving off the preimage
@@ -815,6 +816,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 
 	// The second payment should also have succeeded, with the balances
 	// being update accordingly.
+	time.Sleep(time.Millisecond * 200)
 	assertPaymentBalance(paymentAmt * 2)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -2073,9 +2075,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
-	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
 
 	ipAddresses := map[string]bool{
 		"192.168.1.1:8333":                            true,
@@ -2096,10 +2096,7 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
-	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
-	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice, dave,
-		chanAmt, 0)
-
+	time.Sleep(time.Millisecond * 200)
 	req := &lnrpc.ChannelGraphRequest{}
 	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
 	if err != nil {
@@ -2130,7 +2127,10 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("expected IP addresses not in channel "+
 			"graph: %v", ipAddresses)
 	}
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+
+	if err := dave.Shutdown(); err != nil {
+		t.Fatalf("unable to shutdown dave: %v", err)
+	}
 }
 
 type testCase struct {

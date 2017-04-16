@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // AnnounceSignatures this is a direct message between two endpoints of a
@@ -16,7 +15,7 @@ type AnnounceSignatures struct {
 	// Channel id is better for users and debugging and short channel id is
 	// used for quick test on existence of the particular utxo inside the
 	// block chain, because it contains information about block.
-	ChannelID wire.OutPoint
+	ChannelID ChannelID
 
 	// ShortChannelID is the unique description of the funding
 	// transaction. It is constructed with the most significant 3 bytes

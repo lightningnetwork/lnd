@@ -250,26 +250,29 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 	case wire.OutPoint:
-		// TODO(roasbeef): consolidate with above
-		// First write out the previous txid.
 		var h [32]byte
 		copy(h[:], e.Hash[:])
 		if _, err := w.Write(h[:]); err != nil {
 			return err
 		}
 
-		// Then the exact index of this output.
-		var idx [4]byte
-		binary.BigEndian.PutUint32(idx[:], e.Index)
+		var idx [2]byte
+		binary.BigEndian.PutUint16(idx[:], uint16(e.Index))
 		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
-		// TODO(roasbeef): *MsgTx
+
 	case int64, float64:
 		err := binary.Write(w, binary.BigEndian, e)
 		if err != nil {
 			return err
 		}
+
+	case ChannelID:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+
 	case ShortChannelID:
 		// Check that field fit in 3 bytes and write the blockHeight
 		if e.BlockHeight > ((1 << 24) - 1) {
@@ -573,7 +576,6 @@ func readElement(r io.Reader, element interface{}) error {
 		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
 		return nil
 	case *wire.OutPoint:
-		// TODO(roasbeef): consolidate with above
 		var h [32]byte
 		if _, err = io.ReadFull(r, h[:]); err != nil {
 			return err
@@ -582,20 +584,29 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-		// Index
-		var idxBytes [4]byte
+
+		var idxBytes [2]byte
 		_, err = io.ReadFull(r, idxBytes[:])
 		if err != nil {
 			return err
 		}
-		index := binary.BigEndian.Uint32(idxBytes[:])
+		index := binary.BigEndian.Uint16(idxBytes[:])
 
-		*e = wire.OutPoint{Hash: *hash, Index: index}
+		*e = wire.OutPoint{
+			Hash:  *hash,
+			Index: uint32(index),
+		}
 	case *int64, *float64:
 		err := binary.Read(r, binary.BigEndian, e)
 		if err != nil {
 			return err
 		}
+
+	case *ChannelID:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
+			return err
+		}
+
 	case *ShortChannelID:
 		var blockHeight [4]byte
 		if _, err = io.ReadFull(r, blockHeight[1:]); err != nil {

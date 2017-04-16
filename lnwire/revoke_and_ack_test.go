@@ -8,7 +8,7 @@ import (
 
 func TestRevokeAndAckEncodeDecode(t *testing.T) {
 	cr := &RevokeAndAck{
-		ChannelPoint:       *outpoint1,
+		ChanID:             ChannelID(revHash),
 		Revocation:         revHash,
 		NextRevocationKey:  pubKey,
 		NextRevocationHash: revHash,

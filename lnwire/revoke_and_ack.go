@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // RevokeAndAck is sent by either side once a CommitSig message has been
@@ -17,9 +16,9 @@ import (
 // Alice to send the next CommitSig message modifying Bob's commitment
 // transaction without first asking for a revocation hash initially.
 type RevokeAndAck struct {
-	// ChannelPoint uniquely identifies to which currently active channel
-	// this RevokeAndAck applies to.
-	ChannelPoint wire.OutPoint
+	// ChanID uniquely identifies to which currently active channel this
+	// RevokeAndAck applies to.
+	ChanID ChannelID
 
 	// Revocation is the preimage to the revocation hash of the now prior
 	// commitment transaction.
@@ -58,12 +57,8 @@ var _ Message = (*RevokeAndAck)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint (8)
-	// Revocation (32)
-	// NextRevocationKey (33)
-	// NextRevocationHash (32)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		c.Revocation[:],
 		&c.NextRevocationKey,
 		c.NextRevocationHash[:],
@@ -76,7 +71,7 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.Revocation[:],
 		c.NextRevocationKey,
 		c.NextRevocationHash[:],
@@ -96,8 +91,8 @@ func (c *RevokeAndAck) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) MaxPayloadLength(uint32) uint32 {
-	// 36 + 32 + 33 + 32
-	return 133
+	// 32 + 32 + 33 + 32
+	return 129
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

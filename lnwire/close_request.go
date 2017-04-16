@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"io"
@@ -21,8 +20,8 @@ import (
 // both sides are able to arrive at an identical closure transaction as they
 // know the order of the inputs/outputs.
 type CloseRequest struct {
-	// ChannelPoint serves to identify which channel is to be closed.
-	ChannelPoint wire.OutPoint
+	// ChanID serves to identify which channel is to be closed.
+	ChanID ChannelID
 
 	// RequesterCloseSig is the signature of the requester for the fully
 	// assembled closing transaction.
@@ -36,10 +35,10 @@ type CloseRequest struct {
 }
 
 // NewCloseRequest creates a new CloseRequest.
-func NewCloseRequest(cp wire.OutPoint, sig *btcec.Signature) *CloseRequest {
+func NewCloseRequest(cid ChannelID, sig *btcec.Signature) *CloseRequest {
 	// TODO(roasbeef): update once fees aren't hardcoded
 	return &CloseRequest{
-		ChannelPoint:      cp,
+		ChanID:            cid,
 		RequesterCloseSig: sig,
 	}
 }
@@ -53,12 +52,8 @@ var _ Message = (*CloseRequest)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint (8)
-	// RequesterCloseSig (73)
-	// 	First byte length then sig
-	// Fee (8)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		&c.RequesterCloseSig,
 		&c.Fee)
 }
@@ -68,11 +63,8 @@ func (c *CloseRequest) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
-	// ChannelID
-	// RequesterCloseSig
-	// Fee
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.RequesterCloseSig,
 		c.Fee)
 }

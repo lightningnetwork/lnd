@@ -13,7 +13,7 @@ func TestChannelAnnoucementEncodeDecode(t *testing.T) {
 	ca := &ChannelAnnouncement{
 		NodeSig1:       someSig,
 		NodeSig2:       someSig,
-		ShortChannelID: someChannelID,
+		ShortChannelID: someShortChannelID,
 		BitcoinSig1:    someSig,
 		BitcoinSig2:    someSig,
 		NodeID1:        pubKey,
@@ -65,7 +65,7 @@ func TestChannelAnnoucementValidation(t *testing.T) {
 	secondBitcoinSig, _ := secondBitcoinPrivKey.Sign(hash)
 
 	ca := &ChannelAnnouncement{
-		ShortChannelID: someChannelID,
+		ShortChannelID: someShortChannelID,
 		BitcoinSig1:    firstBitcoinSig,
 		BitcoinSig2:    secondBitcoinSig,
 		NodeID1:        firstNodePubKey,

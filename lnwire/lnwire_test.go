@@ -64,7 +64,7 @@ var (
 	maxUint24 uint32 = (1 << 24) - 1
 	maxUint16 uint16 = (1 << 16) - 1
 
-	someChannelID = ShortChannelID{
+	someShortChannelID = ShortChannelID{
 		BlockHeight: maxUint24,
 		TxIndex:     maxUint24,
 		TxPosition:  maxUint16,

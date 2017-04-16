@@ -12,9 +12,9 @@ import (
 // message is received and processed by Alice, she is free to broadcast the
 // funding transaction.
 type SingleFundingSignComplete struct {
-	// ChannelID serves to uniquely identify the future channel created by
-	// the initiated single funder workflow.
-	ChannelID uint64
+	// PendingChannelID serves to uniquely identify the future channel
+	// created by the initiated single funder workflow.
+	PendingChannelID [32]byte
 
 	// CommitSignature is Bobs's signature for Alice's version of the
 	// commitment transaction.
@@ -23,12 +23,12 @@ type SingleFundingSignComplete struct {
 
 // NewSingleFundingSignComplete creates a new empty SingleFundingSignComplete
 // message.
-func NewSingleFundingSignComplete(chanID uint64,
+func NewSingleFundingSignComplete(chanID [32]byte,
 	sig *btcec.Signature) *SingleFundingSignComplete {
 
 	return &SingleFundingSignComplete{
-		ChannelID:       chanID,
-		CommitSignature: sig,
+		PendingChannelID: chanID,
+		CommitSignature:  sig,
 	}
 }
 
@@ -38,10 +38,8 @@ func NewSingleFundingSignComplete(chanID uint64,
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingSignComplete) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
-	// CommitmentSignature (73)
 	return readElements(r,
-		&c.ChannelID,
+		c.PendingChannelID[:],
 		&c.CommitSignature)
 }
 
@@ -52,7 +50,7 @@ func (c *SingleFundingSignComplete) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingSignComplete) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelID,
+		c.PendingChannelID[:],
 		c.CommitSignature)
 }
 
@@ -65,13 +63,13 @@ func (c *SingleFundingSignComplete) Command() uint32 {
 }
 
 // MaxPayloadLength returns the maximum allowed payload length for a
-// SingleFundingSignComplete. This is calculated by summing the max length of all
-// the fields within a SingleFundingSignComplete. The final breakdown
-// is: 8 + 73 = 81
+// SingleFundingSignComplete. This is calculated by summing the max length of
+// all the fields within a SingleFundingSignComplete.
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingSignComplete) MaxPayloadLength(uint32) uint32 {
-	return 81
+	// 32 + 64
+	return 96
 }
 
 // Validate examines each populated field within the SingleFundingSignComplete

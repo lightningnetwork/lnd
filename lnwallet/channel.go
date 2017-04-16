@@ -1804,7 +1804,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	// ACK'd index within the log to right at this set of pending changes.
 	lc.remoteUpdateLog.ackTransition()
 
-	revocationMsg.ChannelPoint = *lc.channelState.ChanID
+	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(lc.channelState.ChanID)
 	return revocationMsg, nil
 }
 
@@ -1954,7 +1954,7 @@ func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, erro
 	// InitialRevocationWindow
 
 	revMsg := &lnwire.RevokeAndAck{}
-	revMsg.ChannelPoint = *lc.channelState.ChanID
+	revMsg.ChanID = lnwire.NewChanIDFromOutPoint(lc.channelState.ChanID)
 
 	nextHeight := lc.revocationWindowEdge + 1
 	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)

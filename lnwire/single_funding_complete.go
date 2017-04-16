@@ -15,10 +15,9 @@ import (
 // required for him to generate a signature for Alice's version of the
 // commitment transaction.
 type SingleFundingComplete struct {
-	// ChannelID serves to uniquely identify the future channel created by
-	// the initiated single funder workflow.
-	// TODO(roasbeef): change all to PendingChannelID, document schema
-	ChannelID uint64
+	// PendingChannelID serves to uniquely identify the future channel
+	// created by the initiated single funder workflow.
+	PendingChannelID [32]byte
 
 	// FundingOutPoint is the outpoint (txid:index) of the funding
 	// transaction. With this value, Bob will be able to generate a
@@ -46,12 +45,12 @@ type SingleFundingComplete struct {
 
 // NewSingleFundingComplete creates, and returns a new empty
 // SingleFundingResponse.
-func NewSingleFundingComplete(chanID uint64, fundingPoint wire.OutPoint,
+func NewSingleFundingComplete(pChanID [32]byte, fundingPoint wire.OutPoint,
 	commitSig *btcec.Signature, revokeKey *btcec.PublicKey,
 	obsfucator [6]byte) *SingleFundingComplete {
 
 	return &SingleFundingComplete{
-		ChannelID:           chanID,
+		PendingChannelID:    pChanID,
 		FundingOutPoint:     fundingPoint,
 		CommitSignature:     commitSig,
 		RevocationKey:       revokeKey,
@@ -65,12 +64,8 @@ func NewSingleFundingComplete(chanID uint64, fundingPoint wire.OutPoint,
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
-	// FundingOutPoint (36)
-	// CommitmentSignature (73)
-	// RevocationKey (33)
 	return readElements(r,
-		&s.ChannelID,
+		s.PendingChannelID[:],
 		&s.FundingOutPoint,
 		&s.CommitSignature,
 		&s.RevocationKey,
@@ -83,12 +78,8 @@ func (s *SingleFundingComplete) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) Encode(w io.Writer, pver uint32) error {
-	// ChannelID (8)
-	// FundingOutPoint (36)
-	// Commitment Signature (73)
-	// RevocationKey (33)
 	return writeElements(w,
-		s.ChannelID,
+		s.PendingChannelID[:],
 		s.FundingOutPoint,
 		s.CommitSignature,
 		s.RevocationKey,
@@ -105,12 +96,12 @@ func (s *SingleFundingComplete) Command() uint32 {
 
 // MaxPayloadLength returns the maximum allowed payload length for a
 // SingleFundingComplete. This is calculated by summing the max length of all
-// the fields within a SingleFundingComplete. Therefore, the final breakdown
-// is: 8 + 36 + 33 + 73 + 4 = 154
+// the fields within a SingleFundingComplete.
 //
 // This is part of the lnwire.Message interface.
 func (s *SingleFundingComplete) MaxPayloadLength(uint32) uint32 {
-	return 154
+	// 32 + 36 + 64 + 33 + 6
+	return 171
 }
 
 // Validate examines each populated field within the SingleFundingComplete for

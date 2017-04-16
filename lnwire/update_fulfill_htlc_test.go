@@ -8,7 +8,7 @@ import (
 
 func TestUpdateFufillHTLCEncodeDecode(t *testing.T) {
 	// First create a new HTLCSR message.
-	settleReq := NewUpdateFufillHTLC(*outpoint1, 23, revHash)
+	settleReq := NewUpdateFufillHTLC(ChannelID(revHash), 23, revHash)
 
 	// Next encode the HTLCSR message into an empty bytes buffer.
 	var b bytes.Buffer

@@ -8,7 +8,7 @@ import (
 
 func TestFundingLockedWire(t *testing.T) {
 	// First create a new FundingLocked message.
-	fl := NewFundingLocked(*outpoint1, someChannelID, pubKey)
+	fl := NewFundingLocked(ChannelID(revHash), pubKey)
 
 	// Next encode the FundingLocked message into an empty bytes buffer.
 	var b bytes.Buffer

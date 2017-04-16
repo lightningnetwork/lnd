@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // CommitSig is sent by either side to stage any pending HTLC's in the
@@ -15,9 +14,9 @@ import (
 // order to batch add several HTLC's with a single signature covering all
 // implicitly accepted HTLC's.
 type CommitSig struct {
-	// ChannelPoint uniquely identifies to which currently active channel
-	// this CommitSig applies to.
-	ChannelPoint wire.OutPoint
+	// ChanID uniquely identifies to which currently active channel this
+	// CommitSig applies to.
+	ChanID ChannelID
 
 	// CommitSig is Alice's signature for Bob's new commitment transaction.
 	// Alice is able to send this signature without requesting any
@@ -44,10 +43,8 @@ var _ Message = (*CommitSig)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint(8)
-	// RequesterCommitSig(73max+2)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		&c.CommitSig,
 	)
 }
@@ -58,7 +55,7 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.CommitSig,
 	)
 }
@@ -76,8 +73,8 @@ func (c *CommitSig) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
-	// 36 + 73
-	return 109
+	// 32 + 64
+	return 96
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

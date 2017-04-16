@@ -9,8 +9,8 @@ import (
 func TestUpdateFailHTLC(t *testing.T) {
 	// First create a new UFH message.
 	cancelMsg := &UpdateFailHTLC{
-		ChannelPoint: *outpoint1,
-		ID:           22,
+		ChanID: ChannelID(revHash),
+		ID:     22,
 	}
 	cancelMsg.Reason = []byte{byte(UnknownDestination)}
 

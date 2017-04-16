@@ -11,11 +11,11 @@ import (
 func TestUpdateAddHTLCEncodeDecode(t *testing.T) {
 	// First create a new UPAH message.
 	addReq := &UpdateAddHTLC{
-		ChannelPoint: *outpoint1,
-		ID:           99,
-		Expiry:       uint32(144),
-		Amount:       btcutil.Amount(123456000),
-		PaymentHash:  revHash,
+		ChanID:      ChannelID(revHash),
+		ID:          99,
+		Expiry:      uint32(144),
+		Amount:      btcutil.Amount(123456000),
+		PaymentHash: revHash,
 	}
 	copy(addReq.OnionBlob[:], bytes.Repeat([]byte{23}, OnionPacketSize))
 

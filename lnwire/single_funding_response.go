@@ -10,12 +10,12 @@ import (
 
 // SingleFundingResponse is the message Bob sends to Alice after she initiates
 // the single funder channel workflow via a SingleFundingRequest message. Once
-// Alice receives Bob's reponse, then she has all the items neccessary to
+// Alice receives Bob's response, then she has all the items necessary to
 // construct the funding transaction, and both commitment transactions.
 type SingleFundingResponse struct {
-	// ChannelID serves to uniquely identify the future channel created by
-	// the initiated single funder workflow.
-	ChannelID uint64
+	// PendingChannelID serves to uniquely identify the future channel
+	// created by the initiated single funder workflow.
+	PendingChannelID [32]byte
 
 	// ChannelDerivationPoint is an secp256k1 point which will be used to
 	// derive the public key the responder will use for the half of the
@@ -60,12 +60,12 @@ type SingleFundingResponse struct {
 
 // NewSingleFundingResponse creates, and returns a new empty
 // SingleFundingResponse.
-func NewSingleFundingResponse(chanID uint64, rk, ck, cdp *btcec.PublicKey,
+func NewSingleFundingResponse(chanID [32]byte, rk, ck, cdp *btcec.PublicKey,
 	delay uint32, deliveryScript PkScript,
 	dustLimit btcutil.Amount, confDepth uint32) *SingleFundingResponse {
 
 	return &SingleFundingResponse{
-		ChannelID:              chanID,
+		PendingChannelID:       chanID,
 		ChannelDerivationPoint: cdp,
 		CommitmentKey:          ck,
 		RevocationKey:          rk,
@@ -86,16 +86,8 @@ var _ Message = (*SingleFundingResponse)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
-	// ChannelID (8)
-	// ChannelDerivationPoint (33)
-	// CommitmentKey (33)
-	// RevocationKey (33)
-	// CsvDelay (4)
-	// DeliveryPkScript (final delivery)
-	// DustLimit (8)
-	// ConfirmationDepth (4)
 	return readElements(r,
-		&c.ChannelID,
+		c.PendingChannelID[:],
 		&c.ChannelDerivationPoint,
 		&c.CommitmentKey,
 		&c.RevocationKey,
@@ -112,7 +104,7 @@ func (c *SingleFundingResponse) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingResponse) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelID,
+		c.PendingChannelID[:],
 		c.ChannelDerivationPoint,
 		c.CommitmentKey,
 		c.RevocationKey,
@@ -139,8 +131,8 @@ func (c *SingleFundingResponse) Command() uint32 {
 func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
 	var length uint32
 
-	// ChannelID - 8 bytes
-	length += 8
+	// PendingChannelID - 32 bytes
+	length += 32
 
 	// ChannelDerivationPoint - 33 bytes
 	length += 33
@@ -177,10 +169,6 @@ func (c *SingleFundingResponse) Validate() error {
 	if c.ChannelDerivationPoint == nil {
 		return fmt.Errorf("The channel derivation point must be non-nil")
 	}
-	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
-	//	return fmt.Errorf("The channel derivation point must have an odd " +
-	//		"y-coordinate")
-	//}
 
 	// The delivery pkScript must be amongst the supported script
 	// templates.

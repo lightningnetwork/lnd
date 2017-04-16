@@ -20,9 +20,9 @@ import (
 // to provide the responder with an SPV proof of funding transaction inclusion
 // after a sufficient number of confirmations.
 type SingleFundingRequest struct {
-	// ChannelID serves to uniquely identify the future channel created by
-	// the initiated single funder workflow.
-	ChannelID uint64
+	// PendingChannelID serves to uniquely identify the future channel
+	// created by the initiated single funder workflow.
+	PendingChannelID [32]byte
 
 	// ChannelType represents the type of channel this request would like
 	// to open. At this point, the only supported channels are type 0
@@ -84,14 +84,14 @@ type SingleFundingRequest struct {
 }
 
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
-func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
+func NewSingleFundingRequest(chanID [32]byte, chanType uint8, coinType uint64,
 	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
 	cdp *btcec.PublicKey, deliveryScript PkScript,
 	dustLimit btcutil.Amount, pushSat btcutil.Amount,
 	confDepth uint32) *SingleFundingRequest {
 
 	return &SingleFundingRequest{
-		ChannelID:              chanID,
+		PendingChannelID:       chanID,
 		ChannelType:            chanType,
 		CoinType:               coinType,
 		FeePerKb:               fee,
@@ -113,7 +113,7 @@ func NewSingleFundingRequest(chanID uint64, chanType uint8, coinType uint64,
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&c.ChannelID,
+		c.PendingChannelID[:],
 		&c.ChannelType,
 		&c.CoinType,
 		&c.FeePerKb,
@@ -134,7 +134,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelID,
+		c.PendingChannelID[:],
 		c.ChannelType,
 		c.CoinType,
 		c.FeePerKb,
@@ -165,8 +165,8 @@ func (c *SingleFundingRequest) Command() uint32 {
 func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
 	var length uint32
 
-	// ChannelID - 8 bytes
-	length += 8
+	// PendingChannelID - 32 bytes
+	length += 32
 
 	// ChannelType - 1 byte
 	length++
@@ -223,17 +223,6 @@ func (c *SingleFundingRequest) Validate() error {
 		return fmt.Errorf("commitment transaction must have non-zero" +
 			" CSV delay")
 	}
-
-	// The channel derivation point must be non-nil, and have an odd
-	// y-coordinate.
-	if c.ChannelDerivationPoint == nil {
-		return fmt.Errorf("the channel derivation point must be " +
-			"non-nil")
-	}
-	//if c.ChannelDerivationPoint.Y.Bit(0) != 1 {
-	//return fmt.Errorf("The channel derivation point must have an odd " +
-	//"y-coordinate")
-	//}
 
 	// The delivery pkScript must be amongst the supported script
 	// templates.

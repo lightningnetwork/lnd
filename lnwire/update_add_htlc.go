@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -20,9 +19,9 @@ const OnionPacketSize = 1254
 // CommitSig message will move the pending HTLC to the newly created commitment
 // transaction, marking them as "staged".
 type UpdateAddHTLC struct {
-	// ChannelPoint is the particular active channel that this
+	// ChanID is the particular active channel that this
 	// UpdateAddHTLC is binded to.
-	ChannelPoint wire.OutPoint
+	ChanID ChannelID
 
 	// ID is the identification server for this HTLC. This value is
 	// explicitly included as it allows nodes to survive single-sided
@@ -70,14 +69,8 @@ var _ Message = (*UpdateAddHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint(8)
-	// ID(4)
-	// Expiry(4)
-	// Amount(8)
-	// PaymentHash(32)
-	// OnionBlob(1254)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		&c.ID,
 		&c.Expiry,
 		&c.Amount,
@@ -92,7 +85,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.ID,
 		c.Expiry,
 		c.Amount,
@@ -114,8 +107,8 @@ func (c *UpdateAddHTLC) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) MaxPayloadLength(uint32) uint32 {
-	// 1342
-	return 36 + 8 + 4 + 8 + 32 + 1254
+	// 1338
+	return 32 + 8 + 4 + 8 + 32 + 1254
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
@@ -128,6 +121,7 @@ func (c *UpdateAddHTLC) Validate() error {
 		// negative payments. Maybe for some wallets, but not this one!
 		return fmt.Errorf("amount paid cannot be negative")
 	}
+
 	// We're good!
 	return nil
 }

@@ -12,7 +12,7 @@ import (
 func TestSingleFundingSignCompleteWire(t *testing.T) {
 	// First create a new SFSC message.
 	sfsc := NewSingleFundingSignComplete(
-		22,
+		revHash,
 		&btcec.Signature{
 			R: new(big.Int).SetInt64(9),
 			S: new(big.Int).SetInt64(11),

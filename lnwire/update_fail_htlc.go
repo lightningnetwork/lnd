@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcd/wire"
-)
+import "io"
 
 // FailCode specifies the precise reason that an upstream HTLC was cancelled.
 // Each UpdateFailHTLC message carries a FailCode which is to be passed back
@@ -82,8 +78,8 @@ type OpaqueReason []byte
 // the route to fully undo the HTLC.
 type UpdateFailHTLC struct {
 	// ChannelPoint is the particular active channel that this
-	// UpdateFailHTLC is binded to.
-	ChannelPoint wire.OutPoint
+	// UpdateFailHTLC is bound to.
+	ChanID ChannelID
 
 	// ID references which HTLC on the remote node's commitment transaction
 	// has timed out.
@@ -105,11 +101,8 @@ var _ Message = (*UpdateFailHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint(8)
-	// HTLCKey(8)
-	// Reason(??)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		&c.ID,
 		&c.Reason,
 	)
@@ -121,7 +114,7 @@ func (c *UpdateFailHTLC) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.ID,
 		c.Reason,
 	)
@@ -140,8 +133,8 @@ func (c *UpdateFailHTLC) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) MaxPayloadLength(uint32) uint32 {
-	// 36 + 8 + 154
-	return 198
+	// 32 +  8  + 154
+	return 194
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

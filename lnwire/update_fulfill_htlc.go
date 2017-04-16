@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcd/wire"
-)
+import "io"
 
 // UpdateFufillHTLC is sent by Alice to Bob when she wishes to settle a
 // particular HTLC referenced by its HTLCKey within a specific active channel
@@ -12,9 +8,9 @@ import (
 // Alice to "lock-in" the removal of the specified HTLC, possible containing a
 // batch signature covering several settled HTLC's.
 type UpdateFufillHTLC struct {
-	// ChannelPoint references an active channel which holds the HTLC to be
+	// ChanID references an active channel which holds the HTLC to be
 	// settled.
-	ChannelPoint wire.OutPoint
+	ChanID ChannelID
 
 	// ID denotes the exact HTLC stage within the receiving node's
 	// commitment transaction to be removed.
@@ -26,11 +22,11 @@ type UpdateFufillHTLC struct {
 }
 
 // NewUpdateFufillHTLC returns a new empty UpdateFufillHTLC.
-func NewUpdateFufillHTLC(chanPoint wire.OutPoint, id uint64,
+func NewUpdateFufillHTLC(chanID ChannelID, id uint64,
 	preimage [32]byte) *UpdateFufillHTLC {
 
 	return &UpdateFufillHTLC{
-		ChannelPoint:    chanPoint,
+		ChanID:          chanID,
 		ID:              id,
 		PaymentPreimage: preimage,
 	}
@@ -45,11 +41,8 @@ var _ Message = (*UpdateFufillHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFufillHTLC) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint(8)
-	// ID(8)
-	// PaymentPreimage(32)
 	return readElements(r,
-		&c.ChannelPoint,
+		&c.ChanID,
 		&c.ID,
 		c.PaymentPreimage[:],
 	)
@@ -61,7 +54,7 @@ func (c *UpdateFufillHTLC) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFufillHTLC) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelPoint,
+		c.ChanID,
 		c.ID,
 		c.PaymentPreimage[:],
 	)
@@ -80,8 +73,8 @@ func (c *UpdateFufillHTLC) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFufillHTLC) MaxPayloadLength(uint32) uint32 {
-	// 36 + 8 + (32 * 15)
-	return 524
+	// 32 + 8 + 32
+	return 72
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

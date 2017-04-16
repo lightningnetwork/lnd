@@ -5,53 +5,44 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 // FundingLocked is the message that both parties to a new channel creation
-// send once they have observed the funding transaction being confirmed on
-// the blockchain. FundingLocked contains the signatures necessary for the
-// channel participants to advertise the existence of the channel to the
-// rest of the network.
+// send once they have observed the funding transaction being confirmed on the
+// blockchain. FundingLocked contains the signatures necessary for the channel
+// participants to advertise the existence of the channel to the rest of the
+// network.
 type FundingLocked struct {
-	// ChannelOutpoint is the outpoint of the channel's funding
-	// transaction. This can be used to query for the channel in the
-	// database.
-	ChannelOutpoint wire.OutPoint
+	// ChanID is the outpoint of the channel's funding transaction. This
+	// can be used to query for the channel in the database.
+	ChanID ChannelID
 
-	// ChannelId serves to uniquely identify the channel created by the
-	// current channel funding workflow.
-	ChannelID ShortChannelID
-
-	// NextPerCommitmentPoint is the secret that can be used to revoke
-	// the next commitment transaction for the channel.
+	// NextPerCommitmentPoint is the secret that can be used to revoke the
+	// next commitment transaction for the channel.
 	NextPerCommitmentPoint *btcec.PublicKey
 }
 
-// NewFundingLocked creates a new FundingLocked message, populating it with
-// the necessary IDs and revocation secret..
-func NewFundingLocked(op wire.OutPoint, cid ShortChannelID,
-	npcp *btcec.PublicKey) *FundingLocked {
+// NewFundingLocked creates a new FundingLocked message, populating it with the
+// necessary IDs and revocation secret.
+func NewFundingLocked(cid ChannelID, npcp *btcec.PublicKey) *FundingLocked {
 	return &FundingLocked{
-		ChannelOutpoint:        op,
-		ChannelID:              cid,
+		ChanID:                 cid,
 		NextPerCommitmentPoint: npcp,
 	}
 }
 
-// A compile time check to ensure FundingLocked implements the
-// lnwire.Message interface.
+// A compile time check to ensure FundingLocked implements the lnwire.Message
+// interface.
 var _ Message = (*FundingLocked)(nil)
 
-// Decode deserializes the serialized FundingLocked message stored in the passed
-// io.Reader into the target FundingLocked using the deserialization
+// Decode deserializes the serialized FundingLocked message stored in the
+// passed io.Reader into the target FundingLocked using the deserialization
 // rules defined by the passed protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&c.ChannelOutpoint,
-		&c.ChannelID,
+		&c.ChanID,
 		&c.NextPerCommitmentPoint)
 }
 
@@ -62,8 +53,7 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		c.ChannelOutpoint,
-		c.ChannelID,
+		c.ChanID,
 		c.NextPerCommitmentPoint)
 }
 
@@ -83,15 +73,13 @@ func (c *FundingLocked) Command() uint32 {
 func (c *FundingLocked) MaxPayloadLength(uint32) uint32 {
 	var length uint32
 
-	// ChannelOutpoint - 36 bytes
-	length += 36
-
-	// ChannelID - 8 bytes
-	length += 8
+	// ChanID - 32 bytes
+	length += 32
 
 	// NextPerCommitmentPoint - 33 bytes
 	length += 33
 
+	// 65 bytes
 	return length
 }
 

@@ -8,8 +8,8 @@ import (
 
 func TestCommitSigEncodeDecode(t *testing.T) {
 	commitSignature := &CommitSig{
-		ChannelPoint: *outpoint1,
-		CommitSig:    commitSig,
+		ChanID:    ChannelID(revHash),
+		CommitSig: commitSig,
 	}
 
 	// Next encode the CS message into an empty bytes buffer.

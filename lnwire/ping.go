@@ -2,41 +2,40 @@ package lnwire
 
 import "io"
 
-// Pong defines a message which is the direct response to a received Ping
-// message. A Pong reply indicates that a connection is still active. The Pong
-// reply to a Ping message should contain the nonce carried in the original
-// Pong message.
-type Pong struct {
-	// Nonce is the unique nonce that was associated with the Ping message
-	// that this Pong is replying to.
+// Ping defines a message which is sent by peers periodically to determine if
+// the connection is still valid. Each ping message should carry a unique nonce
+// which is to be echoed back within the Pong response.
+type Ping struct {
+	// Nonce is a unique value associated with this ping message. The pong
+	// message that responds to this ping should reference the same value.
 	Nonce uint64
 }
 
-// NewPong returns a new Pong message binded to the specified nonce.
-func NewPong(nonce uint64) *Pong {
-	return &Pong{
+// NewPing returns a new Ping message binded to the specified nonce.
+func NewPing(nonce uint64) *Ping {
+	return &Ping{
 		Nonce: nonce,
 	}
 }
 
-// A compile time check to ensure Pong implements the lnwire.Message interface.
-var _ Message = (*Pong)(nil)
+// A compile time check to ensure Ping implements the lnwire.Message interface.
+var _ Message = (*Ping)(nil)
 
-// Decode deserializes a serialized Pong message stored in the passed io.Reader
+// Decode deserializes a serialized Ping message stored in the passed io.Reader
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) Decode(r io.Reader, pver uint32) error {
+func (p *Ping) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&p.Nonce,
 	)
 }
 
-// Encode serializes the target Pong into the passed io.Writer observing the
+// Encode serializes the target Ping into the passed io.Writer observing the
 // protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) Encode(w io.Writer, pver uint32) error {
+func (p *Ping) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		p.Nonce,
 	)
@@ -46,22 +45,22 @@ func (p *Pong) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) Command() uint32 {
-	return CmdPong
+func (p *Ping) Command() uint32 {
+	return CmdPing
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a Pong
+// MaxPayloadLength returns the maximum allowed payload size for a Ping
 // complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) MaxPayloadLength(uint32) uint32 {
+func (p Ping) MaxPayloadLength(uint32) uint32 {
 	return 8
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present
-// on the Pong are valid.
+// on the Ping are valid.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) Validate() error {
+func (p *Ping) Validate() error {
 	return nil
 }

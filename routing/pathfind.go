@@ -168,6 +168,9 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 		Hops: make([]*Hop, len(pathEdges)),
 	}
 
+	// TODO(roasbeef): need to do sanity check to ensure we don't make a
+	// "dust" payment: over x% of money sending to fees
+
 	// The running amount is the total amount of satoshis required at this
 	// point in the route. We start this value at the amount we want to
 	// send to the destination. This value will then get successively

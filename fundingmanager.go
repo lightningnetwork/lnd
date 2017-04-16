@@ -943,11 +943,82 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 		return
 	}
 
-	// Now that the channel is open, we need to notify a number of parties
-	// of this event.
+	// Next, we'll send over the funding locked message which marks that we
+	// consider the channel open by presenting the remote party with our
+	// next revocation key. Without the revocation key, the remote party
+	// will be unable to propose state transitions.
+	nextRevocation, err := channel.NextRevocationkey()
+	if err != nil {
+		fndgLog.Errorf("unable to create next revocation: %v", err)
+		return
+	}
+	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
+	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
 
-	// First we send the newly opened channel to the source peer.
-	peer, err := f.cfg.FindPeer(completeChan.IdentityPub)
+	// With the block height and the transaction index known, we can
+	// construct the compact chanID which is used on the network to unique
+	// identify channels.
+	shortChanID := lnwire.ShortChannelID{
+		BlockHeight: confDetails.BlockHeight,
+		TxIndex:     confDetails.TxIndex,
+		TxPosition:  uint16(fundingPoint.Index),
+	}
+
+	fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v", fundingPoint,
+		spew.Sdump(shortChanID))
+
+	// Register the new link with the L3 routing manager so this new
+	// channel can be utilized during path finding.
+	go f.announceChannel(f.cfg.IDKey, completeChan.IdentityPub,
+		channel.LocalFundingKey, channel.RemoteFundingKey,
+		shortChanID, chanID)
+	return
+}
+
+// processFundingLocked sends a message to the fundingManager allowing it to finish
+// the funding workflow.
+func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
+	peerAddress *lnwire.NetAddress) {
+
+	f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}
+}
+
+// handleFundingLocked finalizes the channel funding process and enables the channel
+// to enter normal operating mode.
+func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
+	// First, we'll attempt to locate the channel who's funding workflow is
+	// being finalized by this message. We got to the database rather than
+	// our reservation map as we may have restarted, mid funding flow.
+	chanID := fmsg.msg.ChanID
+	channel, err := f.cfg.FindChannel(chanID)
+	if err != nil {
+		fndgLog.Errorf("Unable to locate ChannelID(%v), cannot complete "+
+			"funding", chanID)
+		return
+	}
+
+	// With the channel retrieved, we'll send the breach arbiter the new
+	// channel so it can watch for attempts to breach the channel's
+	// contract by the remote
+	// party.
+	f.cfg.ArbiterChan <- channel
+
+	// Launch a defer so we _ensure_ that the channel barrier is properly
+	// closed even if the target peer is not longer online at this point.
+	defer func() {
+		// Close the active channel barrier signalling the readHandler
+		// that commitment related modifications to this channel can
+		// now proceed.
+		f.barrierMtx.Lock()
+		fndgLog.Tracef("Closing chan barrier for ChanID(%v)", chanID)
+		close(f.newChanBarriers[chanID])
+		delete(f.newChanBarriers, chanID)
+		f.barrierMtx.Unlock()
+	}()
+
+	// Finally, we'll find the peer that sent us this message so we can
+	// provide it with the fully initialized channel state.
+	peer, err := f.cfg.FindPeer(fmsg.peerAddress.IdentityKey)
 	if err != nil {
 		fndgLog.Errorf("Unable to find peer: %v", err)
 		return
@@ -966,71 +1037,6 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 		return
 	case <-newChanDone: // Fallthrough if we're not quitting.
 	}
-
-	// Close the active channel barrier signalling the readHandler that
-	// commitment related modifications to this channel can now proceed.
-	f.barrierMtx.Lock()
-	fndgLog.Tracef("Closing chan barrier for ChannelPoint(%v)", fundingPoint)
-	close(f.newChanBarriers[fundingPoint])
-	delete(f.newChanBarriers, fundingPoint)
-	f.barrierMtx.Unlock()
-
-	// Afterwards we send the breach arbiter the new channel so it can
-	// watch for attempts to breach the channel's contract by the remote
-	// party.
-	f.cfg.ArbiterChan <- channel
-
-	// With the block height and the transaction index known, we can
-	// construct the compact chainID which is used on the network to unique
-	// identify channels.
-	// TODO(roasbeef): remove after spec change, no more chanID's!!!
-	chanID := lnwire.ShortChannelID{
-		BlockHeight: confDetails.BlockHeight,
-		TxIndex:     confDetails.TxIndex,
-		TxPosition:  uint16(fundingPoint.Index),
-	}
-
-	// With the channel finally open, we'll now send over the funding
-	// locked message which marks that we consider the channel open by
-	// presenting the remote party with our next revocation key. Without
-	// the revocation key, the remote party will be unable to propose state
-	// transitions.
-	nextRevocation, err := channel.NextRevocationkey()
-	if err != nil {
-		fndgLog.Errorf("unable to create next revocation: %v", err)
-		return
-	}
-	fundingLockedMsg := lnwire.NewFundingLocked(fundingPoint, chanID,
-		nextRevocation)
-
-	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
-
-	return
-}
-
-// processFundingLocked sends a message to the fundingManager allowing it to finish
-// the funding workflow.
-func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
-	peerAddress *lnwire.NetAddress) {
-
-	f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}
-}
-
-// handleFundingLocked finalizes the channel funding process and enables the channel
-// to enter normal operating mode.
-func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
-	fundingPoint := fmsg.msg.ChannelOutpoint
-	channel, err := f.cfg.FindChannel(fundingPoint)
-	if err != nil {
-		fndgLog.Errorf("error looking up channel for outpoint: %v", fundingPoint)
-		return
-	}
-
-	// Register the new link with the L3 routing manager so this new
-	// channel can be utilized during path finding.
-	go f.announceChannel(f.cfg.IDKey, fmsg.peerAddress.IdentityKey,
-		channel.LocalFundingKey, channel.RemoteFundingKey,
-		fmsg.msg.ChannelID, fundingPoint)
 }
 
 // channelProof is one half of the proof necessary to create an authenticated

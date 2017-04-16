@@ -174,6 +174,16 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case ErrorData:
+		var l [2]byte
+		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
+		if _, err := w.Write(l[:]); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
 	case OpaqueReason:
 		var l [2]byte
 		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
@@ -511,6 +521,17 @@ func readElement(r io.Reader, element interface{}) error {
 		reasonLen := binary.BigEndian.Uint16(l[:])
 
 		*e = OpaqueReason(make([]byte, reasonLen))
+		if _, err := io.ReadFull(r, *e); err != nil {
+			return err
+		}
+	case *ErrorData:
+		var l [2]byte
+		if _, err := io.ReadFull(r, l[:]); err != nil {
+			return err
+		}
+		errorLen := binary.BigEndian.Uint16(l[:])
+
+		*e = ErrorData(make([]byte, errorLen))
 		if _, err := io.ReadFull(r, *e); err != nil {
 			return err
 		}

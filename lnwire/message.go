@@ -49,7 +49,7 @@ const (
 	CmdRevokeAndAck = uint32(2010)
 
 	// Commands for reporting protocol errors.
-	CmdErrorGeneric = uint32(4000)
+	CmdError = uint32(4000)
 
 	// Commands for discovery service.
 	CmdChannelAnnouncement       = uint32(5000)
@@ -119,8 +119,8 @@ func makeEmptyMessage(command uint32) (Message, error) {
 		msg = &CommitSig{}
 	case CmdRevokeAndAck:
 		msg = &RevokeAndAck{}
-	case CmdErrorGeneric:
-		msg = &ErrorGeneric{}
+	case CmdError:
+		msg = &Error{}
 	case CmdChannelAnnouncement:
 		msg = &ChannelAnnouncement{}
 	case CmdChannelUpdateAnnouncement:

@@ -137,15 +137,6 @@ type peer struct {
 	// over.
 	remoteCloseChanReqs chan *lnwire.CloseRequest
 
-	// nextPendingChannelID is an integer which represents the id of the
-	// next pending channel. Pending channels are tracked by this id
-	// throughout their lifetime until they become active channels, or are
-	// cancelled. Channels id's initiated by an outbound node start from 0,
-	// while channels initiated by an inbound node start from 2^63. In
-	// either case, this value is always monotonically increasing.
-	nextPendingChannelID uint64
-	pendingChannelMtx    sync.RWMutex
-
 	server *server
 
 	// localSharedFeatures is a product of comparison of our and their
@@ -198,15 +189,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
-	}
-
-	// Initiate the pending channel identifier properly depending on if this
-	// node is inbound or outbound. This value will be used in an increasing
-	// manner to track pending channels.
-	if p.inbound {
-		p.nextPendingChannelID = 1 << 63
-	} else {
-		p.nextPendingChannelID = 0
 	}
 
 	// Fetch and then load all the active channels we have with this
@@ -1719,17 +1701,6 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 	state.pendingBatch = nil
 
 	return nil
-}
-
-// fetchNextPendingChanID provides unique IDs for each channel opened between
-// two peers
-func (p *peer) fetchNextPendingChanID() uint64 {
-	p.pendingChannelMtx.Lock()
-	defer p.pendingChannelMtx.Unlock()
-
-	chanID := p.nextPendingChannelID
-	p.nextPendingChannelID++
-	return chanID
 }
 
 // logEntryToHtlcPkt converts a particular Lightning Commitment Protocol (LCP)

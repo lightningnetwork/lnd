@@ -8,11 +8,11 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
-// ChannelUpdateAnnouncement message is used after channel has been initially
-// announced. Each side independently announces its fees and minimum expiry for
-// HTLCs and other parameters. Also this message is used to redeclare initially
-// setted channel parameters.
-type ChannelUpdateAnnouncement struct {
+// ChannelUpdate message is used after channel has been initially announced.
+// Each side independently announces its fees and minimum expiry for HTLCs and
+// other parameters. Also this message is used to redeclare initially setted
+// channel parameters.
+type ChannelUpdate struct {
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
 	Signature *btcec.Signature
@@ -47,15 +47,15 @@ type ChannelUpdateAnnouncement struct {
 	FeeProportionalMillionths uint32
 }
 
-// A compile time check to ensure ChannelUpdateAnnouncement implements the
-// lnwire.Message interface.
-var _ Message = (*ChannelUpdateAnnouncement)(nil)
+// A compile time check to ensure ChannelUpdate implements the lnwire.Message
+// interface.
+var _ Message = (*ChannelUpdate)(nil)
 
 // Validate performs any necessary sanity checks to ensure all fields present
-// on the ChannelUpdateAnnouncement are valid.
+// on the ChannelUpdate are valid.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) Validate() error {
+func (a *ChannelUpdate) Validate() error {
 	// NOTE: As far as we don't have the node id (public key) in this
 	// message, we can't validate the signature on this stage, it should
 	// be validated latter - in discovery service handler.
@@ -67,11 +67,11 @@ func (a *ChannelUpdateAnnouncement) Validate() error {
 	return nil
 }
 
-// Decode deserializes a serialized ChannelUpdateAnnouncement stored in the
-// passed io.Reader observing the specified protocol version.
+// Decode deserializes a serialized ChannelUpdate stored in the passed
+// io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.Signature,
 		&a.ShortChannelID,
@@ -84,11 +84,11 @@ func (a *ChannelUpdateAnnouncement) Decode(r io.Reader, pver uint32) error {
 	)
 }
 
-// Encode serializes the target ChannelUpdateAnnouncement into the passed
-// io.Writer observing the protocol version specified.
+// Encode serializes the target ChannelUpdate into the passed io.Writer
+// observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.Signature,
 		a.ShortChannelID,
@@ -105,15 +105,15 @@ func (a *ChannelUpdateAnnouncement) Encode(w io.Writer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) Command() uint32 {
-	return CmdChannelUpdateAnnouncement
+func (a *ChannelUpdate) Command() uint32 {
+	return CmdChannelUpdate
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
+func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
 	var length uint32
 
 	// Signature - 64 bytes
@@ -143,9 +143,9 @@ func (a *ChannelUpdateAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	return length
 }
 
-// DataToSign is used to retrieve part of the announcement message which
-// should be signed.
-func (a *ChannelUpdateAnnouncement) DataToSign() ([]byte, error) {
+// DataToSign is used to retrieve part of the announcement message which should
+// be signed.
+func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
 	var w bytes.Buffer

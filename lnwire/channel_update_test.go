@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestChannelUpdateAnnouncementEncodeDecode(t *testing.T) {
-	cua := &ChannelUpdateAnnouncement{
+func TestChannelUpdateEncodeDecode(t *testing.T) {
+	cua := &ChannelUpdate{
 		Signature:                 someSig,
 		ShortChannelID:            someShortChannelID,
 		Timestamp:                 maxUint32,
@@ -21,7 +21,7 @@ func TestChannelUpdateAnnouncementEncodeDecode(t *testing.T) {
 	// Next encode the CUA message into an empty bytes buffer.
 	var b bytes.Buffer
 	if err := cua.Encode(&b, 0); err != nil {
-		t.Fatalf("unable to encode ChannelUpdateAnnouncement: %v", err)
+		t.Fatalf("unable to encode ChannelUpdate: %v", err)
 	}
 
 	// Ensure the max payload estimate is correct.
@@ -32,7 +32,7 @@ func TestChannelUpdateAnnouncementEncodeDecode(t *testing.T) {
 	}
 
 	// Deserialize the encoded CUA message into a new empty struct.
-	cua2 := &ChannelUpdateAnnouncement{}
+	cua2 := &ChannelUpdate{}
 	if err := cua2.Decode(&b, 0); err != nil {
 		t.Fatalf("unable to decode ChannelUpdateAnnouncement: %v", err)
 	}

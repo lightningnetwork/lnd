@@ -5,8 +5,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"sync"
 
 	"github.com/aead/chacha20"
@@ -22,18 +24,22 @@ const (
 	hmacSize = 32
 
 	// Length of the serialized address used to uniquely identify
-	// the next hop to forward the onion to
+	// the next hop to forward the onion to. BOLT 04 defines this
+	// as 8 byte channel_id
 	addressSize = 8
-
-	// Default message size in bytes. This is probably *much* too big atm?
-	messageSize = 0
 
 	// The maximum path length. This should be set to an
 	// estiamate of the upper limit of the diameter of the node graph.
 	NumMaxHops = 20
 
-	// Fixed size of hop_data
-	hopDataSize = (hmacSize + addressSize)
+	// Number of padding bytes in the hopData.
+	padSize = 16
+
+	// Fixed size of hop_data. BOLT 04 currently specifies this to
+	// be 1 byte realm, 8 byte channel_id, 4 byte amount to
+	// forward, 4 byte outgoing CLTV value, 16 bytes padding and
+	// 32 bytes HMAC for a total of 65 bytes per hop.
+	hopDataSize = (1 + addressSize + 8 + padSize + hmacSize)
 
 	// Size in bytes of the shared secrets.
 	sharedSecretSize = 32
@@ -93,7 +99,23 @@ type HopData struct {
 
 // Serialize HopData into writer
 func (hd *HopData) Encode(w io.Writer) error {
+	if _, err := w.Write([]byte{hd.Realm}); err != nil {
+		return err
+	}
+
 	if _, err := w.Write(hd.NextAddress[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, hd.ForwardAmount); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, hd.OutgoingCltv); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(bytes.Repeat([]byte{0x00}, padSize)); err != nil {
 		return err
 	}
 
@@ -106,9 +128,24 @@ func (hd *HopData) Encode(w io.Writer) error {
 
 // Deserialize HopData from reader
 func (hd *HopData) Decode(r io.Reader) error {
+
+	if _, err := io.ReadFull(r, []byte{hd.Realm}); err != nil {
+		return err
+	}
+
 	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
 		return err
 	}
+
+	if err := binary.Read(r, binary.BigEndian, hd.ForwardAmount); err != nil {
+		return err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, hd.OutgoingCltv); err != nil {
+		return err
+	}
+
+	io.CopyN(ioutil.Discard, r, padSize)
 
 	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
 		return err
@@ -169,25 +206,26 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 
 	// Same goes for the HMAC
 	var nextHmac [hmacSize]byte
-	nextAddress := bytes.Repeat([]byte{0x00}, 20)
 
 	// Now we compute the routing information for each hop, along with a
 	// MAC of the routing info using the shared key for that hop.
 	for i := numHops - 1; i >= 0; i-- {
-		// We'll derive the three keys we need for each hop in order
-		// to: generate our stream cipher bytes for the
-		// mixHeader+hopPayloads, and calculate the MAC over the entire
+		// We'll derive the three keys we need for each hop in
+		// order to: generate our stream cipher bytes for the
+		// mixHeader, and calculate the MAC over the entire
 		// constructed packet.
 		rhoKey := generateKey("rho", hopSharedSecrets[i])
 		muKey := generateKey("mu", hopSharedSecrets[i])
+
+		hopsData[i].HMAC = nextHmac
 
 		// Shift and obfuscate routing info
 		streamBytes := generateCipherStream(rhoKey, numStreamBytes)
 
 		rightShift(mixHeader[:], hopDataSize)
-		copy(mixHeader[:], nextAddress[:])
-		copy(mixHeader[addressSize:], nextHmac[:])
-
+		buf := &bytes.Buffer{}
+		hopsData[i].Encode(buf)
+		copy(mixHeader[:], buf.Bytes())
 		xor(mixHeader[:], mixHeader[:], streamBytes[:routingInfoSize])
 
 		// We need to overwrite these so every node generates a correct padding
@@ -202,7 +240,6 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		// attacks.
 		packet := append(mixHeader[:], assocData...)
 		nextHmac = calcMac(muKey, packet)
-		nextAddress = btcutil.Hash160(paymentPath[i].SerializeCompressed())
 	}
 
 	header := &MixHeader{
@@ -631,7 +668,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
 
-	if bytes.Compare(bytes.Repeat([]byte{0x00}, 20), hopData.HMAC[:]) == 0 {
+	if bytes.Compare(bytes.Repeat([]byte{0x00}, hmacSize), hopData.HMAC[:]) == 0 {
 		action = ExitNode
 	}
 

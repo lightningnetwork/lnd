@@ -42,7 +42,12 @@ func main() {
 
 		var hopsData []sphinx.HopData
 		for i := 0; i < len(route); i++ {
-			hopsData = append(hopsData, sphinx.HopData{})
+			hopsData = append(hopsData, sphinx.HopData{
+				Realm:         0x00,
+				ForwardAmount: uint32(i),
+				OutgoingCltv:  uint32(i),
+			})
+			copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 		}
 
 		msg, err := sphinx.NewOnionPacket(route, sessionKey, hopsData, assocData)

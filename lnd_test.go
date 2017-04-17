@@ -1509,6 +1509,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 
 	// Next query for Bob's channel state, as we sent 3 payments of 10k
 	// satoshis each, Bob should now see his balance as being 30k satoshis.
+	time.Sleep(time.Millisecond * 200)
 	bobChan, err := getBobChanInfo()
 	if err != nil {
 		t.Fatalf("unable to get bob's channel info: %v", err)

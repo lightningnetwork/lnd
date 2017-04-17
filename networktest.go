@@ -279,12 +279,17 @@ func (l *lightningNode) Stop() error {
 	default:
 	}
 
+	if runtime.GOOS == "windows" {
+		if err := l.cmd.Process.Signal(os.Kill); err != nil {
+			return err
+		}
+	} else if err := l.cmd.Process.Signal(os.Interrupt); err != nil {
+		return err
+	}
+
 	close(l.quit)
 	l.wg.Wait()
-	if runtime.GOOS == "windows" {
-		return l.cmd.Process.Signal(os.Kill)
-	}
-	return l.cmd.Process.Signal(os.Interrupt)
+	return nil
 }
 
 // Restart attempts to restart a lightning node by shutting it down cleanly,

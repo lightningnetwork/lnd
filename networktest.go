@@ -351,7 +351,10 @@ func (l *lightningNode) lightningNetworkWatcher() {
 	}
 
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
+	l.wg.Add(1)
 	go func() {
+		defer l.wg.Done()
+
 		ctxb := context.Background()
 		req := &lnrpc.GraphTopologySubscription{}
 		topologyClient, err := l.SubscribeChannelGraph(ctxb, req)
@@ -748,7 +751,7 @@ out:
 	}
 
 	// Now that the initial test network has been initialized, launch the
-	// network wather.
+	// network watcher.
 	go n.networkWatcher()
 
 	return nil

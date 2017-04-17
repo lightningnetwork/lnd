@@ -280,6 +280,7 @@ func (l *lightningNode) Stop() error {
 	}
 
 	close(l.quit)
+	l.wg.Wait()
 	if runtime.GOOS == "windows" {
 		return l.cmd.Process.Signal(os.Kill)
 	}

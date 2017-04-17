@@ -28,15 +28,19 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		sphinxPacket *OnionPacket
 	)
 
-	var hopPayloads [][]byte
+	var hopsData []HopData
 	for i := 0; i < len(route); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)}, HopPayloadSize)
-		hopPayloads = append(hopPayloads, payload)
+		hopsData = append(hopsData, HopData{
+			Realm:         0x00,
+			ForwardAmount: uint32(i),
+			OutgoingCltv:  uint32(i),
+		})
+		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 	}
 
 	d, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
 	for i := 0; i < b.N; i++ {
-		sphinxPacket, err = NewOnionPacket(route, d, hopPayloads, nil)
+		sphinxPacket, err = NewOnionPacket(route, d, hopsData, nil)
 		if err != nil {
 			b.Fatalf("unable to create packet: %v", err)
 		}

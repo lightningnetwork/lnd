@@ -33,17 +33,21 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 		route[i] = nodes[i].onionKey.PubKey()
 	}
 
-	var hopPayloads [][]byte
-	for i := 0; i < len(nodes); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)}, HopPayloadSize)
-		hopPayloads = append(hopPayloads, payload)
+	var hopsData []HopData
+	for i := 0; i < numHops; i++ {
+		hopsData = append(hopsData, HopData{
+			Realm:         0x00,
+			ForwardAmount: uint32(i),
+			OutgoingCltv:  uint32(i),
+		})
+		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 	}
 
 	// Generate a forwarding message to route to the final node via the
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
-	fwdMsg, err := NewOnionPacket(route, sessionKey, hopPayloads, nil)
+	fwdMsg, err := NewOnionPacket(route, sessionKey, hopsData, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
@@ -88,7 +92,8 @@ func TestSphinxCorrectness(t *testing.T) {
 
 			// The next hop should have been parsed as node[i+1].
 			parsedNextHop := processAction.NextHop[:]
-			if !bytes.Equal(parsedNextHop, nodes[i+1].nodeID[:]) {
+			expected := bytes.Repeat([]byte{byte(i)}, addressSize)
+			if !bytes.Equal(parsedNextHop, expected) {
 				t.Fatalf("Processing error, next hop parsed incorrectly."+
 					" next hop shoud be %v, was instead parsed as %v",
 					hex.EncodeToString(nodes[i+1].nodeID[:]),

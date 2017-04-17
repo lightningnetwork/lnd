@@ -374,7 +374,10 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// multi-hop HTLCs aren't sent over this link, nor any other
 		// links associated with this peer.
 		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
-		if err := contract.DeleteState(); err != nil {
+
+		// We mark this channel as pending closure, and treat the breached
+		// as a force close.
+		if err := contract.MarkAsClosing(true); err != nil {
 			brarLog.Errorf("unable to delete channel state: %v", err)
 		}
 

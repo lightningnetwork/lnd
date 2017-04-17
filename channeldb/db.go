@@ -10,6 +10,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -307,6 +308,18 @@ func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
 	return fetchChannels(d, true)
 }
 
+// FetchChannelsPendingClose returns the list of channels that has been
+// marked as 'Closing', but have not yet got the closing tx confirmed on-chain
+func (d *DB) FetchChannelsPendingClose() ([]*ClosedChannelSummary, error) {
+	return fetchClosedChannels(d, true)
+}
+
+// FetchClosedChannels will return the list of channels that have been
+// fully closed, with the closing tx confirmed.
+func (d *DB) FetchClosedChannels() ([]*ClosedChannelSummary, error) {
+	return fetchClosedChannels(d, false)
+}
+
 // fetchChannels attempts to retrieve channels currently stored in the
 // database. The pendingOnly parameter determines whether only pending
 // channels will be returned. If no active channels exist within the network,
@@ -360,6 +373,38 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 	return channels, err
 }
 
+func fetchClosedChannels(d *DB, pendingOnly bool) ([]*ClosedChannelSummary, error) {
+	var channels []*ClosedChannelSummary
+
+	err := d.View(func(tx *bolt.Tx) error {
+		closedChanBucket := tx.Bucket(closedChannelBucket)
+		if closedChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Prefix scan over the isPending keys
+		c := closedChanBucket.Cursor()
+		for k, v := c.Seek(isPendingPrefix); k != nil && bytes.HasPrefix(k, isPendingPrefix); k, v = c.Next() {
+			pending := byteOrder.Uint16(v) == 1
+			chanID := k[len(isPendingPrefix):]
+
+			// Include the summary if we consider all channels (not only pending), or
+			// if we consider only pending channels and this one is
+			if !pendingOnly || pending {
+				summary, err := fetchClosedChannelSummary(closedChanBucket, chanID)
+				if err != nil {
+					return err
+				}
+				channels = append(channels, summary)
+			}
+		}
+
+		return nil
+	})
+
+	return channels, err
+}
+
 // MarkChannelAsOpen records the finalization of the funding process and marks
 // a channel as available for use.
 func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
@@ -384,6 +429,42 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 		scratch := make([]byte, 2)
 		byteOrder.PutUint16(scratch, uint16(0))
 		return openChanBucket.Put(keyPrefix, scratch)
+	})
+}
+
+// MarkChannelAsFullyClosed marks the channel identified by outpoint as
+// fully closed. This means the closing tx is confirmed on chain, and
+// provided to this method. Note that we assume the channel already is
+// found in the database as closed with 'IsPending == true'.
+func (d *DB) MarkChannelAsFullyClosed(outpoint *wire.OutPoint,
+	closingTxId *chainhash.Hash) error {
+	return d.Update(func(tx *bolt.Tx) error {
+		closedChanBucket := tx.Bucket(closedChannelBucket)
+		if closedChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, outpoint); err != nil {
+			return err
+		}
+
+		closingTxKey := make([]byte, len(closingTxPrefix)+b.Len())
+		copy(closingTxKey[:len(closingTxPrefix)], closingTxPrefix)
+		copy(closingTxKey[len(closingTxPrefix):], b.Bytes())
+		if err := closedChanBucket.Put(closingTxKey, closingTxId.CloneBytes()); err != nil {
+			return err
+		}
+
+		//TODO: Add check for existing values?
+		pendingKey := make([]byte, 3+b.Len())
+		copy(pendingKey[:3], isPendingPrefix)
+		copy(pendingKey[3:], b.Bytes())
+
+		pendingValue := make([]byte, 2)
+		byteOrder.PutUint16(pendingValue[:], uint16(0))
+
+		return closedChanBucket.Put(pendingKey, pendingValue)
 	})
 }
 

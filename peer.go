@@ -879,6 +879,12 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 		return
 	}
 
+	// Local close initiated, mark channel as pending close
+	if err := channel.MarkAsClosing(false); err != nil {
+		req.err <- err
+		return
+	}
+
 	// Update the caller with a new event detailing the current pending
 	// state of this request.
 	req.updates <- &lnrpc.CloseStatusUpdate{
@@ -918,6 +924,13 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 				req.err <- err
 				return
 			}
+
+			if err := p.server.chanDB.MarkChannelAsFullyClosed(req.chanPoint, closingTxid); err != nil {
+				peerLog.Errorf("unable to mark as fully closed: %v", err)
+				req.err <- err
+				return
+			}
+
 		case <-p.quit:
 			return
 		}
@@ -979,17 +992,50 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 		return
 	}
 
-	// TODO(roasbeef): also wait for confs before removing state
-	peerLog.Infof("ChannelPoint(%v) is now closed", chanPoint)
-	if err := wipeChannel(p, channel); err != nil {
-		peerLog.Errorf("unable to wipe channel: %v", err)
+	// Mark as channel closing, as we just broadcasted the closing tx
+	if err := channel.MarkAsClosing(false); err != nil {
+		peerLog.Errorf("unable to mark ChannelPoint(%v) as closing: %v ",
+			chanPoint, err)
+		return
 	}
 
-	p.server.breachArbiter.settledContracts <- chanPoint
+	// Start a go routine that will mark the channel as fully closed after one
+	// confirmation
+	txid := closeTx.TxHash()
+	go func() {
+		notifier := p.server.chainNotifier
+		confNtfn, err := notifier.RegisterConfirmationsNtfn(&txid, 1)
+		if err != nil {
+			peerLog.Errorf("error registering for conf ntfn: %v", err)
+			return
+		}
+
+		select {
+		case _, ok := <-confNtfn.Confirmed:
+			if !ok {
+				peerLog.Errorf("conf ntfn not ok")
+				return
+			}
+
+			peerLog.Infof("ChannelPoint(%v) is now fully closed", chanPoint)
+			if err := wipeChannel(p, channel); err != nil {
+				peerLog.Errorf("unable to wipe channel: %v", err)
+			}
+
+			if err := p.server.chanDB.MarkChannelAsFullyClosed(chanPoint, &txid); err != nil {
+				peerLog.Errorf("unable to mark as fully closed: %v", err)
+			}
+
+			// Now we consider this channel settled
+			p.server.breachArbiter.settledContracts <- chanPoint
+		case <-p.quit:
+			return
+		}
+	}()
 }
 
 // wipeChannel removes the passed channel from all indexes associated with the
-// peer, and deletes the channel from the database.
+// peer
 func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 
@@ -1025,14 +1071,6 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 	p.htlcManMtx.RLock()
 	delete(p.htlcManagers, chanID)
 	p.htlcManMtx.RUnlock()
-
-	// Finally, we purge the channel's state from the database, leaving a
-	// small summary for historical records.
-	if err := channel.DeleteState(); err != nil {
-		peerLog.Errorf("Unable to delete ChannelPoint(%v) "+
-			"from db: %v", chanID, err)
-		return err
-	}
 
 	return nil
 }
@@ -1160,11 +1198,39 @@ out:
 			// TODO(roasbeef): need to send HTLC outputs to nursery
 			peerLog.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				state.chanPoint)
-			if err := wipeChannel(p, channel); err != nil {
-				peerLog.Errorf("unable to wipe channel %v", err)
-			}
 
-			p.server.breachArbiter.settledContracts <- state.chanPoint
+			// Start a go routine that will mark the channel as fully closed once the
+			// spending transaction is confirmed on-chain
+			go func() {
+				notifier := p.server.chainNotifier
+				spendNtfn, err := notifier.RegisterSpendNtfn(state.chanPoint)
+				if err != nil {
+					peerLog.Errorf("error registering for spend ntfn: %v", err)
+					return
+				}
+
+				select {
+				case spend, ok := <-spendNtfn.Spend:
+					if !ok {
+						peerLog.Errorf("spend ntfn not ok")
+						return
+					}
+
+					peerLog.Infof("ChannelPoint(%v) is now fully closed", chanPoint)
+					if err := wipeChannel(p, channel); err != nil {
+						peerLog.Errorf("unable to wipe channel: %v", err)
+					}
+
+					if err := p.server.chanDB.MarkChannelAsFullyClosed(chanPoint, spend.SpenderTxHash); err != nil {
+						peerLog.Errorf("unable to mark as fully closed: %v", err)
+					}
+
+					// Now we consider this channel settled
+					p.server.breachArbiter.settledContracts <- chanPoint
+				case <-p.quit:
+					return
+				}
+			}()
 
 			break out
 

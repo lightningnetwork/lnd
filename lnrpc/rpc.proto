@@ -18,7 +18,7 @@ service Lightning {
 
     rpc GetTransactions(GetTransactionsRequest) returns (TransactionDetails) {
         option (google.api.http) = {
-            get: "/v1/transactions" 
+            get: "/v1/transactions"
         };
     }
     rpc SendCoins(SendCoinsRequest) returns (SendCoinsResponse) {
@@ -59,6 +59,11 @@ service Lightning {
     rpc PendingChannels(PendingChannelRequest) returns (PendingChannelResponse) {
         option (google.api.http) = {
            get: "/v1/channels/pending"
+        };
+    }
+    rpc ClosedChannels(ClosedChannelsRequest) returns (ClosedChannelsResponse) {
+        option (google.api.http) = {
+            get: "/v1/channels/closed"
         };
     }
     rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse) {
@@ -392,6 +397,14 @@ message PendingChannelResponse {
     repeated PendingChannel pending_channels = 1 [ json_name = "pending_channels" ];
 }
 
+message ClosedChannelsRequest {}
+message ClosedChannelsResponse {
+    message ClosedChannel {
+        string closing_txid = 1 [ json_name = "closing_txid" ];
+    }
+    repeated ClosedChannel channels = 2 [ json_name = "channels" ];
+}
+
 message WalletBalanceRequest {
     bool witness_only = 1;
 }
@@ -429,7 +442,7 @@ message Route {
 }
 
 message NodeInfoRequest{
-    string pub_key = 1; 
+    string pub_key = 1;
 }
 
 message NodeInfo {
@@ -505,7 +518,7 @@ message NetworkInfo {
 
 message GraphTopologySubscription {}
 message GraphTopologyUpdate {
-    repeated NodeUpdate node_updates = 1; 
+    repeated NodeUpdate node_updates = 1;
     repeated ChannelEdgeUpdate channel_updates = 2;
     repeated ClosedChannelUpdate closed_chans = 3;
 }

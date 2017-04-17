@@ -461,7 +461,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				// state.
 				// TODO(roasbeef): check close summary to see
 				// if we need to sweep any HTLC's
-				if err := channel.DeleteState(); err != nil {
+				if err := channel.MarkAsClosing(true); err != nil {
 					return err
 				}
 				return fmt.Errorf("channel has been closed by remote party")
@@ -504,10 +504,11 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				rpcsLog.Infof("ChannelPoint(%v) is now "+
 					"closed at height %v", chanPoint,
 					txConf.BlockHeight)
-				if err := channel.DeleteState(); err != nil {
+				if err := r.server.chanDB.MarkChannelAsFullyClosed(chanPoint, closingTxid); err != nil {
 					errChan <- err
 					return
 				}
+
 			case <-r.quit:
 				return
 			}
@@ -622,6 +623,12 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 			return spew.Sdump(closeTx)
 		}))
 	if err := r.server.lnwallet.PublishTransaction(closeTx); err != nil {
+		return nil, err
+	}
+
+	// We just broadcasted our commitment, so we can consider the channel
+	// pending closure.
+	if err := channel.MarkAsClosing(true); err != nil {
 		return nil, err
 	}
 
@@ -797,10 +804,45 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 	if includeClose {
+		pendingCloseChans, err := r.server.chanDB.FetchChannelsPendingClose()
+		if err != nil {
+			return nil, err
+		}
+		for _, pendingClose := range pendingCloseChans {
+			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
+				ChannelPoint: pendingClose.ChanID.String(),
+				LocalBalance: int64(pendingClose.OurBalance),
+				ClosingTxid:  pendingClose.ClosingTx.String(),
+				Status:       lnrpc.ChannelStatus_CLOSING,
+			}
+			pendingChannels = append(pendingChannels, pendingChan)
+		}
 	}
 
 	return &lnrpc.PendingChannelResponse{
 		PendingChannels: pendingChannels,
+	}, nil
+}
+
+// ClosedChannels returns channels that are pending closure or are
+// fully closed.
+func (r *rpcServer) ClosedChannels(ctx context.Context,
+	in *lnrpc.ClosedChannelsRequest) (*lnrpc.ClosedChannelsResponse, error) {
+
+	var closedChannels []*lnrpc.ClosedChannelsResponse_ClosedChannel
+	closedChans, err := r.server.chanDB.FetchClosedChannels()
+	if err != nil {
+		return nil, err
+	}
+	for _, channel := range closedChans {
+		closedChan := &lnrpc.ClosedChannelsResponse_ClosedChannel{
+			ClosingTxid: channel.ClosingTx.String(),
+		}
+		closedChannels = append(closedChannels, closedChan)
+	}
+
+	return &lnrpc.ClosedChannelsResponse{
+		Channels: closedChannels,
 	}, nil
 }
 

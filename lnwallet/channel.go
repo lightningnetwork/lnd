@@ -1001,10 +1001,9 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
 			"detected", lc.channelState.ChanID)
 
-		// As we've deleted that the channel has been closed,
-		// immediately delete the state from disk, creating a close
-		// summary for future usage by related sub-systems.
-		if err := lc.DeleteState(); err != nil {
+		// The remote peer has closed the channel unilaterally, so we mark
+		// the channel as force closed.
+		if err := lc.MarkAsClosing(true); err != nil {
 			walletLog.Errorf("unable to delete channel state: %v",
 				err)
 		}
@@ -2547,11 +2546,19 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	return closeTx, nil
 }
 
-// DeleteState deletes all state concerning the channel from the underlying
-// database, only leaving a small summary describing metadata of the
-// channel's lifetime.
-func (lc *LightningChannel) DeleteState() error {
-	return lc.channelState.CloseChannel()
+// MarkAsClosing deletes all state concerning the channel from the database
+// of open channels, and instead adds a small summary containing information
+// useful for the closed channel to the closedChanBucket. Note that the
+// channel will be maked 'pending closure', and can be marked fully closed
+// after the closing tx is confirmed using MarkChannelAsFullyClosed
+func (lc *LightningChannel) MarkAsClosing(forceClosed bool) error {
+	summary := &channeldb.ClosedChannelSummary{
+		ChanID:      lc.channelState.ChanID,
+		IsPending:   true,
+		ForceClosed: forceClosed,
+		OurBalance:  lc.channelState.OurBalance,
+	}
+	return lc.channelState.CloseChannel(summary)
 }
 
 // StateSnapshot returns a snapshot of the current fully committed state within

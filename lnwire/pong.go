@@ -2,7 +2,7 @@ package lnwire
 
 import "io"
 
-// PingPayload is a set of opaque bytes sent in response to a ping message.
+// PongPayload is a set of opaque bytes sent in response to a ping message.
 type PongPayload []byte
 
 // Pong defines a message which is the direct response to a received Ping

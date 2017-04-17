@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"container/list"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
@@ -436,7 +434,8 @@ out:
 			atomic.StoreInt64(&p.pingTime, delay)
 
 		case *lnwire.Ping:
-			p.queueMsg(lnwire.NewPong(msg.Nonce), nil)
+			pongBytes := make([]byte, msg.NumPongBytes)
+			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
 		case *lnwire.SingleFundingRequest:
 			p.server.fundingMgr.processFundingRequest(msg, p.addr)
@@ -694,25 +693,14 @@ func (p *peer) pingHandler() {
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
 
-	var pingBuf [8]byte
+	// TODO(roasbeef): make dynamic in order to create fake cover traffic
+	const numPingBytes = 16
 
 out:
 	for {
 		select {
 		case <-pingTicker.C:
-			// Fill the ping buffer with fresh randomness. If we're
-			// unable to read enough bytes, then we simply defer
-			// sending the ping to the next interval.
-			if _, err := rand.Read(pingBuf[:]); err != nil {
-				peerLog.Errorf("unable to send ping to %v: %v", p,
-					err)
-				continue
-			}
-
-			// Convert the bytes read into a uint64, and queue the
-			// message for sending.
-			nonce := binary.BigEndian.Uint64(pingBuf[:])
-			p.queueMsg(lnwire.NewPing(nonce), nil)
+			p.queueMsg(lnwire.NewPing(numPingBytes), nil)
 		case <-p.quit:
 			break out
 		}

@@ -2,20 +2,24 @@ package lnwire
 
 import "io"
 
+// PingPayload is a set of opaque bytes sent in response to a ping message.
+type PongPayload []byte
+
 // Pong defines a message which is the direct response to a received Ping
 // message. A Pong reply indicates that a connection is still active. The Pong
 // reply to a Ping message should contain the nonce carried in the original
 // Pong message.
 type Pong struct {
-	// Nonce is the unique nonce that was associated with the Ping message
-	// that this Pong is replying to.
-	Nonce uint64
+	// PongBytes is a set of opaque bytes that corresponds to the
+	// NumPongBytes defined in the ping message that this this pong is
+	// replying to.
+	PongBytes PongPayload
 }
 
-// NewPong returns a new Pong message binded to the specified nonce.
-func NewPong(nonce uint64) *Pong {
+// NewPong returns a new Pong message.
+func NewPong(pongBytes []byte) *Pong {
 	return &Pong{
-		Nonce: nonce,
+		PongBytes: pongBytes,
 	}
 }
 
@@ -28,7 +32,7 @@ var _ Message = (*Pong)(nil)
 // This is part of the lnwire.Message interface.
 func (p *Pong) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&p.Nonce,
+		&p.PongBytes,
 	)
 }
 
@@ -38,7 +42,7 @@ func (p *Pong) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (p *Pong) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		p.Nonce,
+		p.PongBytes,
 	)
 }
 
@@ -55,7 +59,7 @@ func (p *Pong) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (p *Pong) MaxPayloadLength(uint32) uint32 {
-	return 8
+	return 65532
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

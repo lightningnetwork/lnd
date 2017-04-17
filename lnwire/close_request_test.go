@@ -10,7 +10,7 @@ import (
 
 func TestCloseRequestEncodeDecode(t *testing.T) {
 	cr := &CloseRequest{
-		ChannelPoint:      *outpoint1,
+		ChanID:            ChannelID(revHash),
 		RequesterCloseSig: commitSig,
 		Fee:               btcutil.Amount(10000),
 	}

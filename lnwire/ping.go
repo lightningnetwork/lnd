@@ -2,19 +2,28 @@ package lnwire
 
 import "io"
 
+// PingPayload is a set of opaque bytes used to pad out a ping message.
+type PingPayload []byte
+
 // Ping defines a message which is sent by peers periodically to determine if
-// the connection is still valid. Each ping message should carry a unique nonce
-// which is to be echoed back within the Pong response.
+// the connection is still valid. Each ping message carries the number of bytes
+// to pad the pong response with, and also a number of bytes to be ignored at
+// the end of the ping message (which is padding).
 type Ping struct {
-	// Nonce is a unique value associated with this ping message. The pong
-	// message that responds to this ping should reference the same value.
-	Nonce uint64
+	// NumPongBytes is the number of bytes the pong response to this
+	// message should carry.
+	NumPongBytes uint16
+
+	// PaddingBytes is a set of opaque bytes used to pad out this ping
+	// message. Using this field in conjunction to the one above, it's
+	// possible for node to generate fake cover traffic.
+	PaddingBytes PingPayload
 }
 
-// NewPing returns a new Ping message binded to the specified nonce.
-func NewPing(nonce uint64) *Ping {
+// NewPing returns a new Ping message.
+func NewPing(numBytes uint16) *Ping {
 	return &Ping{
-		Nonce: nonce,
+		NumPongBytes: numBytes,
 	}
 }
 
@@ -27,8 +36,8 @@ var _ Message = (*Ping)(nil)
 // This is part of the lnwire.Message interface.
 func (p *Ping) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&p.Nonce,
-	)
+		&p.NumPongBytes,
+		&p.PaddingBytes)
 }
 
 // Encode serializes the target Ping into the passed io.Writer observing the
@@ -37,8 +46,8 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (p *Ping) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		p.Nonce,
-	)
+		p.NumPongBytes,
+		p.PaddingBytes)
 }
 
 // Command returns the integer uniquely identifying this message type on the
@@ -54,7 +63,7 @@ func (p *Ping) Command() uint32 {
 //
 // This is part of the lnwire.Message interface.
 func (p Ping) MaxPayloadLength(uint32) uint32 {
-	return 8
+	return 65532
 }
 
 // Validate performs any necessary sanity checks to ensure all fields present

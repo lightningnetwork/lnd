@@ -809,10 +809,14 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			return nil, err
 		}
 		for _, pendingClose := range pendingCloseChans {
+			closingTx := ""
+			if pendingClose.ClosingTx != nil {
+				closingTx = pendingClose.ClosingTx.String()
+			}
 			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
 				ChannelPoint: pendingClose.ChanID.String(),
 				LocalBalance: int64(pendingClose.OurBalance),
-				ClosingTxid:  pendingClose.ClosingTx.String(),
+				ClosingTxid:  closingTx,
 				Status:       lnrpc.ChannelStatus_CLOSING,
 			}
 			pendingChannels = append(pendingChannels, pendingChan)
@@ -834,6 +838,10 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	rpcsLog.Infof("[closedchannels] fetched %v channels from DB",
+		len(closedChans))
+
 	for _, channel := range closedChans {
 		closedChan := &lnrpc.ClosedChannelsResponse_ClosedChannel{
 			ClosingTxid: channel.ClosingTx.String(),

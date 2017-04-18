@@ -175,18 +175,11 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarne
 // detected as closed, an assertion checks that the transaction is found within
 // a block.
 func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarness,
-	node, otherNode *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool,
-	postCloseChannelAssert func(), postChannelConfirmedCloseAssert func(*chainhash.Hash)) *chainhash.Hash {
+	node *lightningNode, fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
 	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
-	}
-
-	// Execute assert post the call to CloseChannel, if provided. This will typically
-	// make sure the number of pending channels is what we expect.
-	if postCloseChannelAssert != nil {
-		postCloseChannelAssert()
 	}
 
 	// Finally, generate a single block, wait for the final close status
@@ -200,13 +193,6 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 	}
 
 	assertTxInBlock(t, block, closingTxid)
-
-	// Execute assert post closeing tx confirmed, if provided. This typically
-	// asserts that the channel is marked as closed and the closing tx is
-	// recorded in the database.
-	if postChannelConfirmedCloseAssert != nil {
-		postChannelConfirmedCloseAssert(closingTxid)
-	}
 
 	return closingTxid
 }
@@ -342,21 +328,7 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	postClosedChannelAssert := func() {
-		// Channel should be considered pending close by both Alice and Bob
-		assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_CLOSING, 1)
-	}
-	postChannelConfirmedCloseAssert := func(closingTxid *chainhash.Hash) {
-		// Before we can assert the status of the channel, we must wait for the
-		// remote node to get the close
-		if err := net.Bob.WaitForNetworkChannelClose(ctxt, chanPoint); err != nil {
-			t.Fatalf("error waiting for channel close remote side: %v", err)
-		}
-
-		// Make sure the database is updated, marking the channel as closed
-		assertChannelClosed(ctxt, t, net.Alice, net.Bob, closingTxid)
-	}
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, postClosedChannelAssert, postChannelConfirmedCloseAssert)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testFundingPersistence is intended to ensure that the Funding Manager
@@ -488,7 +460,7 @@ peersPoll:
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, true, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
 }
 
 func testPendingChannelsForceClose(net *networkHarness, t *harnessTest) {
@@ -549,29 +521,43 @@ func testPendingChannelsForceClose(net *networkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_OPENING, 0)
 
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
+	// Now let Alice do a force close of the channel. We will then assert that
+	// both nodes will consider the channel as pending closure, then finally as
+	// closed after the commitment transaction Alice broadcasted is confirmed.
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: pendingUpdate.Txid,
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	postClosedChannelAssert := func() {
-		// Channel should be considered pending close by both Alice and Bob
-		assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_CLOSING, 1)
-	}
-	postChannelConfirmedCloseAssert := func(closingTxid *chainhash.Hash) {
-		// Before we can assert the status of the channel, we must wait fo the
-		// remote node to get the close
-		if err := net.Bob.WaitForNetworkChannelClose(ctxt, chanPoint); err != nil {
-			t.Fatalf("error waiting for channel close remote side: %v", err)
-		}
 
-		// Make sure the database is updated, marking the channel as closed
-		assertChannelClosed(ctxt, t, net.Alice, net.Bob, closingTxid)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+
+	closeUpdates, _, err := net.CloseChannel(ctxt, net.Alice, chanPoint, true)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
 	}
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, true, postClosedChannelAssert, postChannelConfirmedCloseAssert)
+
+	// Both should consider the channel pending close
+	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_CLOSING, 1)
+
+	// Generate a single block, wait for the final close status update, then
+	// ensure that the closing transaction was included in the mined block.
+	block = mineBlocks(t, net, 1)[0]
+
+	closingTxid, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	if err != nil {
+		t.Fatalf("error while waiting for channel close: %v", err)
+	}
+	assertTxInBlock(t, block, closingTxid)
+
+	// Now assert that both nodes are considering this channel closed.
+	// Before we can assert the status of the channel, we must wait for the
+	// remote node to be aware of the close.
+	if err := net.Bob.WaitForNetworkChannelClose(ctxt, chanPoint); err != nil {
+		t.Fatalf("error waiting for channel close remote side: %v", err)
+	}
+
+	// Make sure the database is updated, marking the channel as closed
+	assertChannelClosed(ctxt, t, net.Alice, net.Bob, closingTxid)
 }
 
 func testPendingChannelsCoopClose(net *networkHarness, t *harnessTest) {
@@ -632,29 +618,44 @@ func testPendingChannelsCoopClose(net *networkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_OPENING, 0)
 
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
+	// Now let Alice do a cooperative close of the channel. We will then assert
+	// that both nodes will consider the channel as pending closure, then finally
+	// as closed after the commitment transaction Alice broadcasted is confirmed.
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: pendingUpdate.Txid,
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	postClosedChannelAssert := func() {
-		// Channel should be considered pending close by both Alice and Bob
-		assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_CLOSING, 1)
-	}
-	postChannelConfirmedCloseAssert := func(closingTxid *chainhash.Hash) {
-		// Before we can assert the status of the channel, we must wait for the
-		// remote node to get the close
-		if err := net.Bob.WaitForNetworkChannelClose(ctxt, chanPoint); err != nil {
-			t.Fatalf("error waiting for channel close remote side: %v", err)
-		}
 
-		// Make sure the database is updated, marking the channel as closed
-		assertChannelClosed(ctxt, t, net.Alice, net.Bob, closingTxid)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+
+	closeUpdates, _, err := net.CloseChannel(ctxt, net.Alice, chanPoint, false)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
 	}
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, postClosedChannelAssert, postChannelConfirmedCloseAssert)
+
+	// Both should consider the channel pending close
+	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, lnrpc.ChannelStatus_CLOSING, 1)
+
+	// Generate a single block, wait for the final close status update, then
+	// ensure that the closing transaction was included in the mined block.
+	block = mineBlocks(t, net, 1)[0]
+
+	closingTxid, err := net.WaitForChannelClose(ctxt, closeUpdates)
+	if err != nil {
+		t.Fatalf("error while waiting for channel close: %v", err)
+	}
+	assertTxInBlock(t, block, closingTxid)
+
+	// Now assert that both nodes are considering this channel closed.
+	// Before we can assert the status of the channel, we must wait for the
+	// remote node to be aware of the close.
+
+	if err := net.Bob.WaitForNetworkChannelClose(ctxt, chanPoint); err != nil {
+		t.Fatalf("error waiting for channel close remote side: %v", err)
+	}
+
+	// Make sure the database is updated, marking the channel as closed
+	assertChannelClosed(ctxt, t, net.Alice, net.Bob, closingTxid)
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then
@@ -711,7 +712,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 	// Finally close the channel between Alice and Bob, asserting that the
 	// channel has been properly closed on-chain.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	closeChannelAndAssert(ctx, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+	closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
 }
 
 // testChannelForceClosure performs a test to exercise the behavior of "force"
@@ -1054,7 +1055,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	assertPaymentBalance(paymentAmt * 2)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 func testListPayments(net *networkHarness, t *harnessTest) {
@@ -1190,7 +1191,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 func testMultiHopPayments(net *networkHarness, t *harnessTest) {
@@ -1388,9 +1389,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	assertAsymmetricBalance(carol, carolFundPoint, sourceBal, sinkBal)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPointAlice, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, carol, net.Alice, chanPointCarol, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 
 	// Finally, shutdown the node we created for the duration of the tests,
 	// only leaving the two seed nodes (Alice and Bob) within our test
@@ -1489,7 +1490,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testBasicChannelCreation test multiple channel opening and closing.
@@ -1513,7 +1514,7 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(ctx, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+		closeChannelAndAssert(ctx, t, net, net.Alice, chanPoint, false)
 	}
 }
 
@@ -1621,7 +1622,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// channel has been properly closed on-chain.
 	for _, chanPoint := range chanPoints {
 		ctxt, _ := context.WithTimeout(context.Background(), timeout)
-		closeChannelAndAssert(ctxt, t, net, net.Alice, carol, chanPoint, false, nil, nil)
+		closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 	}
 
 	// Finally, shutdown the node we created for the duration of the tests,
@@ -1809,8 +1810,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
-	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, net.Alice, chanPoint,
-		true, nil, nil)
+	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, chanPoint, true)
 
 	// Query the mempool for Alice's justice transaction, this should be
 	// broadcast as Bob's contract breaching transaction gets confirmed
@@ -2137,13 +2137,13 @@ out:
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPointAlice, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 
 	// Force close Bob's final channel, also mining enough blocks to
 	// trigger a sweep of the funds by the utxoNursery.
 	// TODO(roasbeef): use config value for default CSV here.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, carol, chanPointBob, true, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPointBob, true)
 	if _, err := net.Miner.Node.Generate(5); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -2235,7 +2235,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	// Now we'll test that updates upon a channel closure are properly sent
 	// when channels are closed within the network.
 	ctxt, _ = context.WithTimeout(context.Background(), timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, net.Bob, chanPoint, false, nil, nil)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 
 	// Similar to the case above, we should receive another notification
 	// detailing the channel closure.

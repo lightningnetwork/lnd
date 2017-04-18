@@ -1810,7 +1810,8 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
-	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, chanPoint, true)
+	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, chanPoint,
+		true)
 
 	// Query the mempool for Alice's justice transaction, this should be
 	// broadcast as Bob's contract breaching transaction gets confirmed

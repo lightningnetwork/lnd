@@ -64,7 +64,7 @@ const (
 	keyLen = 32
 )
 
-// MixHeader is the onion wrapped hop-to-hop routing information neccessary to
+// OnionPacket is the onion wrapped hop-to-hop routing information neccessary to
 // propagate a message through the mix-net without intermediate nodes having
 // knowledge of their position within the route, the source, the destination,
 // and finally the identities of the past/future nodes in the route. At each hop
@@ -73,7 +73,7 @@ const (
 // header, decrypt the next set of routing information, and re-randomize the
 // ephemeral key for the next node in the path. This per-hop re-randomization
 // allows us to only propgate a single group element through the onion route.
-type MixHeader struct {
+type OnionPacket struct {
 	Version      byte
 	EphemeralKey *btcec.PublicKey
 	RoutingInfo  [routingInfoSize]byte
@@ -154,13 +154,28 @@ func (hd *HopData) Decode(r io.Reader) error {
 	return nil
 }
 
-// NewMixHeader creates a new mix header which is capable of
+// GenerateSharedSecret generates a shared secret based on a private key and a
+// public key using Diffie-Hellman key exchange (ECDH) (RFC 4753).
+// This was modified from the btcec library to match the secret generation in
+// libsecp256k1, i.e., it returns the compressed serialization of the pubkey, not
+// just the x-coordinate.
+func GenerateSharedSecret(privkey *btcec.PrivateKey, pubkey *btcec.PublicKey) []byte {
+	x, y := pubkey.Curve.ScalarMult(pubkey.X, pubkey.Y, privkey.D.Bytes())
+
+	var temp [65]byte
+	temp[0] = 0x04
+	copy(temp[1:], x.Bytes())
+	copy(temp[33:], y.Bytes())
+
+	res, _ := btcec.ParsePubKey(temp[:], btcec.S256())
+	return res.SerializeCompressed()
+}
+
+// NewOnionPacket creates a new onion packet which is capable of
 // obliviously routing a message through the mix-net path outline by
-// 'paymentPath'.  This function returns the created mix header along
-// with a derived shared secret for each node in the path.
-func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	hopsData []HopData, assocData []byte) (*MixHeader,
-	[][sharedSecretSize]byte, error) {
+// 'paymentPath'.
+func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
+	hopsData []HopData, assocData []byte) (*OnionPacket, error) {
 
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
@@ -242,13 +257,13 @@ func NewMixHeader(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
 		nextHmac = calcMac(muKey, packet)
 	}
 
-	header := &MixHeader{
+	packet := &OnionPacket{
 		Version:      0x01,
 		EphemeralKey: hopEphemeralPubKeys[0],
 		RoutingInfo:  mixHeader,
 		HeaderMAC:    nextHmac,
 	}
-	return header, hopSharedSecrets, nil
+	return packet, nil
 }
 
 // Shift the byte-slice by the given number of bytes to the right and
@@ -289,35 +304,13 @@ func generateHeaderPadding(key string, numHops int, hopSize int,
 	return filler
 }
 
-// OnionPacket represents a forwarding message containing onion wrapped
-// hop-to-hop routing information along with an onion encrypted payload message
-// addressed to the final destination.
-type OnionPacket struct {
-	Header *MixHeader
-}
-
-// NewOnionPaccket generates the a mix header containing the neccessary onion
-// routing information required to propagate the message through the mixnet,
-// eventually reaching the final node specified by a zero identifier.
-func NewOnionPacket(route []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	hopsData []HopData, assocData []byte) (*OnionPacket, error) {
-
-	// Compute the mix header, and shared secrets for each hop.
-	mixHeader, _, err := NewMixHeader(route, sessionKey, hopsData, assocData)
-	if err != nil {
-		return nil, err
-	}
-
-	return &OnionPacket{Header: mixHeader}, nil
-}
-
 // Encode serializes the raw bytes of the onoin packet into the passed
 // io.Writer. The form encoded within the passed io.Writer is suitable for
 // either storing on disk, or sending over the network.
 func (f *OnionPacket) Encode(w io.Writer) error {
-	ephemeral := f.Header.EphemeralKey.SerializeCompressed()
+	ephemeral := f.EphemeralKey.SerializeCompressed()
 
-	if _, err := w.Write([]byte{f.Header.Version}); err != nil {
+	if _, err := w.Write([]byte{f.Version}); err != nil {
 		return err
 	}
 
@@ -325,11 +318,11 @@ func (f *OnionPacket) Encode(w io.Writer) error {
 		return err
 	}
 
-	if _, err := w.Write(f.Header.RoutingInfo[:]); err != nil {
+	if _, err := w.Write(f.RoutingInfo[:]); err != nil {
 		return err
 	}
 
-	if _, err := w.Write(f.Header.HeaderMAC[:]); err != nil {
+	if _, err := w.Write(f.HeaderMAC[:]); err != nil {
 		return err
 	}
 
@@ -343,27 +336,26 @@ func (f *OnionPacket) Encode(w io.Writer) error {
 func (f *OnionPacket) Decode(r io.Reader) error {
 	var err error
 
-	f.Header = &MixHeader{}
 	var buf [1]byte
 	if _, err := io.ReadFull(r, buf[:]); err != nil {
 		return err
 	}
-	f.Header.Version = buf[0]
+	f.Version = buf[0]
 
 	var ephemeral [33]byte
 	if _, err := io.ReadFull(r, ephemeral[:]); err != nil {
 		return err
 	}
-	f.Header.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
+	f.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.ReadFull(r, f.Header.RoutingInfo[:]); err != nil {
+	if _, err := io.ReadFull(r, f.RoutingInfo[:]); err != nil {
 		return err
 	}
 
-	if _, err := io.ReadFull(r, f.Header.HeaderMAC[:]); err != nil {
+	if _, err := io.ReadFull(r, f.HeaderMAC[:]); err != nil {
 		return err
 	}
 
@@ -530,12 +522,6 @@ type ProcessedPacket struct {
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
 	Packet *OnionPacket
-
-	// DestMsg is the final e2e message addressed to the final destination.
-	//
-	// NOTE: This field will only be populated iff the above Action is
-	// ExitNode.
-	DestMsg []byte
 }
 
 // Router is an onion router within the Sphinx network. The router is capable
@@ -588,11 +574,10 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 // returned which houses the newly parsed packet, along with instructions on
 // what to do next.
 func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*ProcessedPacket, error) {
-	mixHeader := onionPkt.Header
 
-	dhKey := mixHeader.EphemeralKey
-	routeInfo := mixHeader.RoutingInfo
-	headerMac := mixHeader.HeaderMAC
+	dhKey := onionPkt.EphemeralKey
+	routeInfo := onionPkt.RoutingInfo
+	headerMac := onionPkt.HeaderMAC
 
 	// Ensure that the public key is on our curve.
 	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
@@ -655,12 +640,10 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	copy(nextMixHeader[:], hopInfo[hopDataSize:])
 
 	nextFwdMsg := &OnionPacket{
-		Header: &MixHeader{
-			Version:      onionPkt.Header.Version,
-			EphemeralKey: nextDHKey,
-			RoutingInfo:  nextMixHeader,
-			HeaderMAC:    hopData.HMAC,
-		},
+		Version:      onionPkt.Version,
+		EphemeralKey: nextDHKey,
+		RoutingInfo:  nextMixHeader,
+		HeaderMAC:    hopData.HMAC,
 	}
 
 	// By default we'll assume that there are additional hops in the route.

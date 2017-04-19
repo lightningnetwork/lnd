@@ -145,8 +145,8 @@ func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
 	// CsvDelay - 4 bytes
 	length += 4
 
-	// DeliveryPkScript - 25 bytes
-	length += 25
+	// DeliveryPkScript - 34 bytes + 1 varInt
+	length += 35
 
 	// DustLimit - 8 bytes
 	length += 8

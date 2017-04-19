@@ -153,20 +153,7 @@ func (a *NodeAnnouncement) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
-	// Signature - 64 bytes
-	// Timestamp - 4 bytes
-	// NodeID - 33 bytes
-	// RGBColor - 3 bytes
-	// Alias - 32 bytes
-	// Features - variable
-	// NumAddresses - 2 bytes
-	// AddressDescriptor - 1 byte
-	// Ipv4 - 4 bytes (optional)
-	// Ipv6 - 16 bytes (optional)
-	// Port - 2 bytes (optional)
-
-	// Base size, 140, but can be variable due to multiple addresses
-	return 8192
+	return 65533
 }
 
 // DataToSign returns the part of the message that should be signed.

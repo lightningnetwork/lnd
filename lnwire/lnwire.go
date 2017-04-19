@@ -169,9 +169,10 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case PkScript:
-		// Make sure it's P2PKH or P2SH size or less.
+		// The largest script we'll accept is a p2wsh which is exactly
+		// 34 bytes long.
 		scriptLength := len(e)
-		if scriptLength > 25 {
+		if scriptLength > 34 {
 			return fmt.Errorf("'PkScript' too long")
 		}
 
@@ -425,7 +426,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 	case *PkScript:
-		pkScript, err := wire.ReadVarBytes(r, 0, 25, "pkscript")
+		pkScript, err := wire.ReadVarBytes(r, 0, 34, "pkscript")
 		if err != nil {
 			return err
 		}

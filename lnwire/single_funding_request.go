@@ -147,7 +147,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.ConfirmationDepth)
 }
 
-// Command returns the uint32 code which uniquely identifies this message as a
+// MsgType returns the uint32 code which uniquely identifies this message as a
 // SingleFundingRequest on the wire.
 //
 // This is part of the lnwire.Message interface.
@@ -191,8 +191,8 @@ func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
 	// ChannelDerivationPoint - 33 bytes
 	length += 33
 
-	// DeliveryPkScript - 25 bytes
-	length += 25
+	// DeliveryPkScript - 34 bytes + 1 byte varInt
+	length += 35
 
 	// DustLimit - 8 bytes
 	length += 8

@@ -1,17 +1,16 @@
 package lnwire
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"net"
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -23,32 +22,6 @@ const MaxSliceLength = 65535
 // PkScript is simple type definition which represents a raw serialized public
 // key script.
 type PkScript []byte
-
-// CreditsAmount are the native currency unit used within the Lightning Network.
-// Credits are denominated in sub-satoshi amounts, so micro-satoshis (1/1000).
-// This value is purposefully signed in order to allow the expression of negative
-// fees.
-//
-// "In any science-fiction movie, anywhere in the galaxy, currency is referred
-// to as 'credits.'"
-// 	--Sam Humphries. Ebert, Roger (1999). Ebert's bigger little movie
-// 	glossary. Andrews McMeel. p. 172.
-//
-// https://en.wikipedia.org/wiki/List_of_fictional_currencies
-// https://en.wikipedia.org/wiki/Fictional_currency#Trends_in_the_use_of_fictional_currencies
-// http://tvtropes.org/pmwiki/pmwiki.php/Main/WeWillSpendCreditsInTheFuture
-// US Display format: 1 BTC = 100,000,000'000 XCB
-// Or in BTC = 1.00000000'000
-// Credits (XCB, accountants should use XCB :^)
-type CreditsAmount int64
-
-// ToSatoshi converts an amount in Credits to the coresponding amount
-// expressed in Satoshis.
-//
-// NOTE: This function rounds down by default (floor).
-func (c CreditsAmount) ToSatoshi() int64 {
-	return int64(c / 1000)
-}
 
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.

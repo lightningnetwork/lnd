@@ -136,14 +136,14 @@ func NewFeatureVectorFromReader(r io.Reader) (*FeatureVector, error) {
 
 	// Read the length of the feature vector.
 	var l [2]byte
-	if _, err := r.Read(l[:]); err != nil {
+	if _, err := io.ReadFull(r, l[:]); err != nil {
 		return nil, err
 	}
 	length := binary.BigEndian.Uint16(l[:])
 
 	// Read the feature vector data.
 	data := make([]byte, length)
-	if _, err := r.Read(data); err != nil {
+	if _, err := io.ReadFull(r, data[:]); err != nil {
 		return nil, err
 	}
 

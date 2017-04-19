@@ -72,7 +72,7 @@ func (d *AuthenticatedGossiper) validateNodeAnn(a *lnwire.NodeAnnouncement) erro
 // checking that the included signature covers he announcement and has been
 // signed by the node's private key.
 func (d *AuthenticatedGossiper) validateChannelUpdateAnn(pubKey *btcec.PublicKey,
-	a *lnwire.ChannelUpdateAnnouncement) error {
+	a *lnwire.ChannelUpdate) error {
 
 	data, err := a.DataToSign()
 	if err != nil {

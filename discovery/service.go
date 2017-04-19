@@ -369,7 +369,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Iterate over our channels and construct the
 			// announcements array.
 			err := d.cfg.Router.ForAllOutgoingChannels(func(p *channeldb.ChannelEdgePolicy) error {
-				c := &lnwire.ChannelUpdateAnnouncement{
+				c := &lnwire.ChannelUpdate{
 					Signature:                 p.Signature,
 					ShortChannelID:            lnwire.NewShortChanIDFromInt(p.ChannelID),
 					Timestamp:                 uint32(p.LastUpdate.Unix()),
@@ -561,7 +561,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 	// A new authenticated channel edge update has arrived. This indicates
 	// that the directional information for an already known channel has
 	// been updated.
-	case *lnwire.ChannelUpdateAnnouncement:
+	case *lnwire.ChannelUpdate:
 		blockHeight := msg.ShortChannelID.BlockHeight
 		shortChanID := msg.ShortChannelID.ToUint64()
 
@@ -662,8 +662,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			prefix = "remote"
 		}
 
-		log.Infof("Received new channel announcement: %v",
-			spew.Sdump(msg))
+		log.Infof("Received new channel announcement: %v", spew.Sdump(msg))
 
 		// By the specification, channel announcement proofs should be
 		// sent after some number of confirmations after channel was
@@ -721,7 +720,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			key := newProofKey(chanInfo.ChannelID, nMsg.isRemote)
 			d.waitingProofs[key] = msg
 
-			// If proof was sent b a local sub-system, then we'll
+			// If proof was sent by a local sub-system, then we'll
 			// send the announcement signature to the remote node
 			// so they can also reconstruct the full channel
 			// announcement.
@@ -863,17 +862,12 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 	// for the announcement we originally retrieved.
 	var numNodes uint32
 	if err := d.cfg.Router.ForEachNode(func(node *channeldb.LightningNode) error {
-		alias, err := lnwire.NewAlias(node.Alias)
-		if err != nil {
-			return err
-		}
-
 		ann := &lnwire.NodeAnnouncement{
 			Signature: node.AuthSig,
 			Timestamp: uint32(node.LastUpdate.Unix()),
 			Addresses: node.Addresses,
 			NodeID:    node.PubKey,
-			Alias:     alias,
+			Alias:     lnwire.NewAlias(node.Alias),
 			Features:  node.Features,
 		}
 		announceMessages = append(announceMessages, ann)

@@ -43,7 +43,7 @@ func (k waitingProofKey) ToBytes() []byte {
 func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	chanInfo *channeldb.ChannelEdgeInfo,
 	e1, e2 *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
-	*lnwire.ChannelUpdateAnnouncement, *lnwire.ChannelUpdateAnnouncement) {
+	*lnwire.ChannelUpdate, *lnwire.ChannelUpdate) {
 
 	// First, using the parameters of the channel, along with the channel
 	// authentication chanProof, we'll create re-create the original
@@ -68,9 +68,9 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// Since it's up to a node's policy as to whether they advertise the
 	// edge in dire direction, we don't create an advertisement if the edge
 	// is nil.
-	var edge1Ann, edge2Ann *lnwire.ChannelUpdateAnnouncement
+	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
 	if e1 != nil {
-		edge1Ann = &lnwire.ChannelUpdateAnnouncement{
+		edge1Ann = &lnwire.ChannelUpdate{
 			Signature:                 e1.Signature,
 			ShortChannelID:            chanID,
 			Timestamp:                 uint32(e1.LastUpdate.Unix()),
@@ -82,7 +82,7 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 		}
 	}
 	if e2 != nil {
-		edge2Ann = &lnwire.ChannelUpdateAnnouncement{
+		edge2Ann = &lnwire.ChannelUpdate{
 			Signature:                 e2.Signature,
 			ShortChannelID:            chanID,
 			Timestamp:                 uint32(e2.LastUpdate.Unix()),
@@ -120,7 +120,7 @@ func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
 	switch m := msg.(type) {
 	case *lnwire.ChannelAnnouncement:
 		data, err = m.DataToSign()
-	case *lnwire.ChannelUpdateAnnouncement:
+	case *lnwire.ChannelUpdate:
 		data, err = m.DataToSign()
 	case *lnwire.NodeAnnouncement:
 		data, err = m.DataToSign()

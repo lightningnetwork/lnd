@@ -1051,7 +1051,7 @@ type channelProof struct {
 // send out to the network after a new channel has been created locally.
 type chanAnnouncement struct {
 	chanAnn       *lnwire.ChannelAnnouncement
-	chanUpdateAnn *lnwire.ChannelUpdateAnnouncement
+	chanUpdateAnn *lnwire.ChannelUpdate
 	chanProof     *lnwire.AnnounceSignatures
 }
 
@@ -1107,7 +1107,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	}
 
 	// TODO(roasbeef): populate proper FeeSchema
-	chanUpdateAnn := &lnwire.ChannelUpdateAnnouncement{
+	chanUpdateAnn := &lnwire.ChannelUpdate{
 		ShortChannelID:            shortChanID,
 		Timestamp:                 uint32(time.Now().Unix()),
 		Flags:                     chanFlags,

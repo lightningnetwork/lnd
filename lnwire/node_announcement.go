@@ -31,12 +31,12 @@ type Alias struct {
 }
 
 // NewAlias create the alias from string and also checks spec requirements.
-func NewAlias(s string) (Alias, error) {
+func NewAlias(s string) Alias {
 	data := []byte(s)
 	return newAlias(data)
 }
 
-func newAlias(data []byte) (Alias, error) {
+func newAlias(data []byte) Alias {
 	var a [32]byte
 
 	rawAlias := data
@@ -54,7 +54,7 @@ func newAlias(data []byte) (Alias, error) {
 	return Alias{
 		data:     a,
 		aliasLen: aliasEnd,
-	}, nil
+	}
 }
 
 func (a *Alias) String() string {

@@ -747,10 +747,7 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-		*e, err = newAlias(a[:])
-		if err != nil {
-			return err
-		}
+		*e = newAlias(a[:])
 	default:
 		return fmt.Errorf("Unknown type in readElement: %T", e)
 	}

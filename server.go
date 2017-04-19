@@ -190,10 +190,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	// In order to have ability to announce the self node we need to
 	// sign the node announce message, and include the signature in the
 	// node channeldb object.
-	alias, err := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
-	if err != nil {
-		return nil, fmt.Errorf("can't create alias: %v", err)
-	}
+	alias := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
 	self := &channeldb.LightningNode{
 		LastUpdate: time.Now(),
 		Addresses:  selfAddrs,

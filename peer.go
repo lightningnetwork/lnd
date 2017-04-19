@@ -271,7 +271,7 @@ func (p *peer) Start() error {
 	readErr := make(chan error, 1)
 	msgChan := make(chan lnwire.Message, 1)
 	go func() {
-		msg, _, err := p.readNextMessage()
+		msg, err := p.readNextMessage()
 		if err != nil {
 			readErr <- err
 			msgChan <- nil
@@ -372,19 +372,19 @@ func (p *peer) String() string {
 
 // readNextMessage reads, and returns the next message on the wire along with
 // any additional raw payload.
-func (p *peer) readNextMessage() (lnwire.Message, []byte, error) {
-	// TODO(roasbeef): use our own net magic?
-	n, nextMsg, rawPayload, err := lnwire.ReadMessage(p.conn, 0,
-		p.addr.ChainNet)
+func (p *peer) readNextMessage() (lnwire.Message, error) {
+	// TODO(roasbeef): should take diff of what was read
+	//   * also switch to message oriented reading
+	n, nextMsg, err := lnwire.ReadMessage(p.conn, 0)
 	atomic.AddUint64(&p.bytesReceived, uint64(n))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(nextMsg, true)
 
-	return nextMsg, rawPayload, nil
+	return nextMsg, nil
 }
 
 // readHandler is responsible for reading messages off the wire in series, then
@@ -397,7 +397,7 @@ func (p *peer) readHandler() {
 
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
-		nextMsg, _, err := p.readNextMessage()
+		nextMsg, err := p.readNextMessage()
 		if err != nil {
 			peerLog.Infof("unable to read message from %v: %v",
 				p, err)
@@ -470,7 +470,7 @@ out:
 			isChanUpdate = true
 			targetChan = msg.ChanID
 
-		case *lnwire.ChannelUpdateAnnouncement,
+		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
 			*lnwire.NodeAnnouncement,
 			*lnwire.AnnounceSignatures:
@@ -586,7 +586,7 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	// TODO(roasbeef): add message summaries
 	p.logWireMessage(msg, false)
 
-	n, err := lnwire.WriteMessage(p.conn, msg, 0, p.addr.ChainNet)
+	n, err := lnwire.WriteMessage(p.conn, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
 	return err

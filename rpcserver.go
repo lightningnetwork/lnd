@@ -1101,7 +1101,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	// With the payment completed successfully, we now ave the details of
-	// the completed payment to the databse for historical record keeping.
+	// the completed payment to the database for historical record keeping.
 	if err := r.savePayment(route, amt, rHash[:]); err != nil {
 		return nil, err
 	}

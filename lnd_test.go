@@ -221,7 +221,8 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 // numChannelsPending sends an RPC request to a node to get a count of the
 // node's channels that are currently in a pending state (with a broadcast,
 // but not confirmed funding transaction).
-func numChannelsPending(ctxt context.Context, node *lightningNode, channelStatus lnrpc.ChannelStatus) (int, error) {
+func numChannelsPending(ctxt context.Context, node *lightningNode,
+	channelStatus lnrpc.ChannelStatus) (int, error) {
 	pendingChansRequest := &lnrpc.PendingChannelRequest{
 		Status: channelStatus,
 	}
@@ -258,7 +259,9 @@ func assertNumChannelsPending(ctxt context.Context, t *harnessTest,
 }
 
 func assertChannelIsPending(ctxt context.Context, t *harnessTest,
-	node *lightningNode, channelStatus lnrpc.ChannelStatus, fundingChanPoint *lnrpc.ChannelPoint) {
+	node *lightningNode, channelStatus lnrpc.ChannelStatus,
+	fundingChanPoint *lnrpc.ChannelPoint) {
+
 	isPending, err := hasChannelPending(ctxt, node, channelStatus, fundingChanPoint)
 	if err != nil {
 		t.Fatalf("error fetching node's (%v) pending channels %v",
@@ -269,7 +272,9 @@ func assertChannelIsPending(ctxt context.Context, t *harnessTest,
 	}
 }
 
-func hasChannelPending(ctxt context.Context, node *lightningNode, channelStatus lnrpc.ChannelStatus, fundingChanPoint *lnrpc.ChannelPoint) (bool, error) {
+func hasChannelPending(ctxt context.Context, node *lightningNode,
+	channelStatus lnrpc.ChannelStatus, fundingChanPoint *lnrpc.ChannelPoint) (bool, error) {
+
 	pendingChansRequest := &lnrpc.PendingChannelRequest{
 		Status: channelStatus,
 	}
@@ -296,7 +301,9 @@ func hasChannelPending(ctxt context.Context, node *lightningNode, channelStatus 
 	return false, nil
 }
 
-func hasChannelClosed(ctxt context.Context, node *lightningNode, txid *chainhash.Hash) (bool, error) {
+func hasChannelClosed(ctxt context.Context, node *lightningNode,
+	txid *chainhash.Hash) (bool, error) {
+
 	closedChansRequest := &lnrpc.ClosedChannelsRequest{}
 	resp, err := node.ClosedChannels(ctxt, closedChansRequest)
 	if err != nil {

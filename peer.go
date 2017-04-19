@@ -925,7 +925,8 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 				return
 			}
 
-			if err := p.server.chanDB.MarkChannelAsFullyClosed(req.chanPoint, closingTxid); err != nil {
+			if err := p.server.chanDB.MarkChannelAsFullyClosed(req.chanPoint,
+				closingTxid); err != nil {
 				peerLog.Errorf("unable to mark as fully closed: %v", err)
 				req.err <- err
 				return
@@ -1221,7 +1222,8 @@ out:
 						peerLog.Errorf("unable to wipe channel: %v", err)
 					}
 
-					if err := p.server.chanDB.MarkChannelAsFullyClosed(chanPoint, spend.SpenderTxHash); err != nil {
+					if err := p.server.chanDB.MarkChannelAsFullyClosed(chanPoint,
+						spend.SpenderTxHash); err != nil {
 						peerLog.Errorf("unable to mark as fully closed: %v", err)
 					}
 

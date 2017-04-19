@@ -747,7 +747,8 @@ func TestFetchClosedChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make dummy hash: %v", err)
 	}
-	if err := cdb.MarkChannelAsFullyClosed(pendingClose[0].ChanID, dummyTxID); err != nil {
+	if err = cdb.MarkChannelAsFullyClosed(pendingClose[0].ChanID,
+		dummyTxID); err != nil {
 		t.Fatalf("failed fully closing channel: %v", err)
 	}
 

@@ -326,7 +326,9 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			revokedFunds, totalFunds)
 
 		// We have swept the funds, so we can finally mark the channel as closed.
-		if err := b.db.MarkChannelAsFullyClosed(&breachInfo.chanPoint, &justiceTXID); err != nil {
+		if err := b.db.MarkChannelAsFullyClosed(&breachInfo.chanPoint,
+			&justiceTXID); err != nil {
+
 			brarLog.Errorf("Unable to mark channel as fully closed: %v", err)
 		}
 

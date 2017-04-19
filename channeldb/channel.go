@@ -869,7 +869,8 @@ func putClosedChannelSummary(tx *bolt.Tx, summary *ClosedChannelSummary) error {
 	return closedChanBucket.Put(heightKey, heightValue)
 }
 
-func fetchClosedChannelSummary(closedChanBucket *bolt.Bucket, chanID []byte) (*ClosedChannelSummary, error) {
+func fetchClosedChannelSummary(closedChanBucket *bolt.Bucket,
+	chanID []byte) (*ClosedChannelSummary, error) {
 
 	summary := &ClosedChannelSummary{}
 
@@ -910,7 +911,8 @@ func fetchClosedChannelSummary(closedChanBucket *bolt.Bucket, chanID []byte) (*C
 	copy(pendingKey[:len(ourBalancePrefix)], ourBalancePrefix)
 	copy(pendingKey[len(ourBalancePrefix):], chanID)
 
-	summary.OurBalance = btcutil.Amount(byteOrder.Uint64(closedChanBucket.Get(balanceKey)))
+	summary.OurBalance = btcutil.Amount(
+		byteOrder.Uint64(closedChanBucket.Get(balanceKey)))
 
 	// Get 'MaturityHight'
 	heightKey := make([]byte, len(maturityHeightPrefix)+len(chanID))

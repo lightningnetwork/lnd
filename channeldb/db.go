@@ -437,7 +437,7 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 // provided to this method. Note that we assume the channel already is
 // found in the database as closed with 'IsPending == true'.
 func (d *DB) MarkChannelAsFullyClosed(outpoint *wire.OutPoint,
-	closingTxId *chainhash.Hash) error {
+	closingTxID *chainhash.Hash) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		closedChanBucket := tx.Bucket(closedChannelBucket)
 		if closedChanBucket == nil {
@@ -452,7 +452,7 @@ func (d *DB) MarkChannelAsFullyClosed(outpoint *wire.OutPoint,
 		closingTxKey := make([]byte, len(closingTxPrefix)+b.Len())
 		copy(closingTxKey[:len(closingTxPrefix)], closingTxPrefix)
 		copy(closingTxKey[len(closingTxPrefix):], b.Bytes())
-		if err := closedChanBucket.Put(closingTxKey, closingTxId.CloneBytes()); err != nil {
+		if err := closedChanBucket.Put(closingTxKey, closingTxID.CloneBytes()); err != nil {
 			return err
 		}
 

@@ -372,7 +372,14 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// the database. This involves "closing" the channel which removes all
 	// written state, and creates a small "summary" elsewhere within the
 	// database.
-	if err := state.CloseChannel(); err != nil {
+	summary := &ClosedChannelSummary{
+		ChanID:      state.ChanID,
+		IsPending:   true,
+		ForceClosed: false,
+		OurBalance:  state.OurBalance,
+	}
+
+	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
@@ -597,7 +604,13 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// Now attempt to delete the channel from the database.
-	if err := updatedChannel[0].CloseChannel(); err != nil {
+	summary := &ClosedChannelSummary{
+		ChanID:      updatedChannel[0].ChanID,
+		IsPending:   true,
+		ForceClosed: false,
+		OurBalance:  updatedChannel[0].OurBalance,
+	}
+	if err := updatedChannel[0].CloseChannel(summary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
 	}
 
@@ -698,7 +711,13 @@ func TestFetchClosedChannels(t *testing.T) {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
 
-	if err := state.CloseChannel(); err != nil {
+	summary := &ClosedChannelSummary{
+		ChanID:      state.ChanID,
+		IsPending:   true,
+		ForceClosed: false,
+		OurBalance:  state.OurBalance,
+	}
+	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 

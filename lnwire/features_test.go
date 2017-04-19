@@ -72,6 +72,11 @@ func TestOptionalFeature(t *testing.T) {
 		t.Fatal("locally feature was set but remote peer notified us" +
 			" that it don't have it")
 	}
+
+	// A feature with a non-existent name shouldn't be active.
+	if shared.IsActive("nothere") {
+		t.Fatal("non-existent feature shouldn't be active")
+	}
 }
 
 // TestSetRequireAfterInit checks that we can change the feature flag after
@@ -115,5 +120,23 @@ func TestDecodeEncodeFeaturesVector(t *testing.T) {
 	if !reflect.DeepEqual(f.flags, nf.flags) {
 		t.Fatalf("encode/decode feature vector don't match %v vs "+
 			"%v", spew.Sdump(f), spew.Sdump(nf))
+	}
+}
+
+func TestFeatureFlagString(t *testing.T) {
+	if OptionalFlag.String() != "optional" {
+		t.Fatalf("incorrect string, expected optional got %v",
+			OptionalFlag.String())
+	}
+
+	if RequiredFlag.String() != "required" {
+		t.Fatalf("incorrect string, expected required got %v",
+			OptionalFlag.String())
+	}
+
+	fakeFlag := featureFlag(9)
+	if fakeFlag.String() != "<unknown>" {
+		t.Fatalf("incorrect string, expected <unknown> got %v",
+			fakeFlag.String())
 	}
 }

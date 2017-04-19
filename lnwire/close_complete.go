@@ -26,12 +26,6 @@ type CloseComplete struct {
 	ResponderCloseSig *btcec.Signature
 }
 
-// NewCloseComplete creates a new empty CloseComplete message.
-// TODO(roasbeef): add params to all constructors...
-func NewCloseComplete() *CloseComplete {
-	return &CloseComplete{}
-}
-
 // A compile time check to ensure CloseComplete implements the lnwire.Message
 // interface.
 var _ Message = (*CloseComplete)(nil)

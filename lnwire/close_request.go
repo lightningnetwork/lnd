@@ -85,17 +85,3 @@ func (c *CloseRequest) MaxPayloadLength(pver uint32) uint32 {
 	// 36 + 73 + 8
 	return 117
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the CloseRequest are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *CloseRequest) Validate() error {
-	// Fee must be greater than 0.
-	if c.Fee < 0 {
-		return fmt.Errorf("fee must be greater than zero")
-	}
-
-	// We're good!
-	return nil
-}

@@ -103,23 +103,3 @@ func (s *SingleFundingComplete) MaxPayloadLength(uint32) uint32 {
 	// 32 + 36 + 64 + 33 + 6
 	return 171
 }
-
-// Validate examines each populated field within the SingleFundingComplete for
-// field sanity.
-//
-// This is part of the lnwire.Message interface.
-func (s *SingleFundingComplete) Validate() error {
-	var zeroHash [32]byte
-	if bytes.Equal(zeroHash[:], s.FundingOutPoint.Hash[:]) {
-		return fmt.Errorf("funding outpoint hash must be non-zero")
-	}
-
-	if s.CommitSignature == nil {
-		return fmt.Errorf("commitment signature must be non-nil")
-	}
-
-	// TODO(roasbeef): fin validation
-
-	// We're good!
-	return nil
-}

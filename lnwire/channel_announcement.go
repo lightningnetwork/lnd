@@ -43,14 +43,6 @@ type ChannelAnnouncement struct {
 // lnwire.Message interface.
 var _ Message = (*ChannelAnnouncement)(nil)
 
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the ChannelAnnouncement are valid.
-//
-// This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Validate() error {
-	return nil
-}
-
 // Decode deserializes a serialized ChannelAnnouncement stored in the passed
 // io.Reader observing the specified protocol version.
 //

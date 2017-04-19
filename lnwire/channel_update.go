@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"bytes"
-	"errors"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -50,22 +49,6 @@ type ChannelUpdate struct {
 // A compile time check to ensure ChannelUpdate implements the lnwire.Message
 // interface.
 var _ Message = (*ChannelUpdate)(nil)
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the ChannelUpdate are valid.
-//
-// This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Validate() error {
-	// NOTE: As far as we don't have the node id (public key) in this
-	// message, we can't validate the signature on this stage, it should
-	// be validated latter - in discovery service handler.
-
-	if a.TimeLockDelta == 0 {
-		return errors.New("expiry should be greater then zero")
-	}
-
-	return nil
-}
 
 // Decode deserializes a serialized ChannelUpdate stored in the passed
 // io.Reader observing the specified protocol version.

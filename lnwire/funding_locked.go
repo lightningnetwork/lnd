@@ -82,17 +82,3 @@ func (c *FundingLocked) MaxPayloadLength(uint32) uint32 {
 	// 65 bytes
 	return length
 }
-
-// Validate examines each populated field within the FundingLocked message for
-// field sanity. For example, signature fields MUST NOT be nil.
-//
-// This is part of the lnwire.Message interface.
-func (c *FundingLocked) Validate() error {
-	if c.NextPerCommitmentPoint == nil {
-		return fmt.Errorf("the next per commitment point must be " +
-			"non-nil.")
-	}
-
-	// We're good!
-	return nil
-}

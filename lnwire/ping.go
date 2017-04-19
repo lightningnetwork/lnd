@@ -65,11 +65,3 @@ func (p *Ping) Command() uint32 {
 func (p Ping) MaxPayloadLength(uint32) uint32 {
 	return 65532
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the Ping are valid.
-//
-// This is part of the lnwire.Message interface.
-func (p *Ping) Validate() error {
-	return nil
-}

@@ -110,18 +110,3 @@ func (c *UpdateAddHTLC) MaxPayloadLength(uint32) uint32 {
 	// 1338
 	return 32 + 8 + 4 + 8 + 32 + 1254
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the UpdateAddHTLC are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *UpdateAddHTLC) Validate() error {
-	if c.Amount < 0 {
-		// While fees can be negative, it's too confusing to allow
-		// negative payments. Maybe for some wallets, but not this one!
-		return fmt.Errorf("amount paid cannot be negative")
-	}
-
-	// We're good!
-	return nil
-}

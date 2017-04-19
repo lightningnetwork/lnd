@@ -76,12 +76,3 @@ func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
 	// 32 + 64
 	return 96
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the CommitSig are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *CommitSig) Validate() error {
-	// We're good!
-	return nil
-}

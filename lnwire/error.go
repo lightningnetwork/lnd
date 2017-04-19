@@ -108,16 +108,3 @@ func (c *Error) MaxPayloadLength(uint32) uint32 {
 	// 32 + 2 + 655326
 	return 65536
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the Error are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *Error) Validate() error {
-	if len(c.Data) > math.MaxUint16 {
-		return fmt.Errorf("problem string length too long")
-	}
-
-	// We're good!
-	return nil
-}

@@ -61,11 +61,3 @@ func (p *Pong) Command() uint32 {
 func (p *Pong) MaxPayloadLength(uint32) uint32 {
 	return 65532
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the Pong are valid.
-//
-// This is part of the lnwire.Message interface.
-func (p *Pong) Validate() error {
-	return nil
-}

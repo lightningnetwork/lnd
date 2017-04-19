@@ -94,12 +94,3 @@ func (c *RevokeAndAck) MaxPayloadLength(uint32) uint32 {
 	// 32 + 32 + 33 + 32
 	return 129
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the RevokeAndAck are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *RevokeAndAck) Validate() error {
-	// We're good!
-	return nil
-}

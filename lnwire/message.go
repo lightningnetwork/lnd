@@ -84,7 +84,6 @@ type Message interface {
 	Encode(io.Writer, uint32) error
 	Command() uint32
 	MaxPayloadLength(uint32) uint32
-	Validate() error
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type

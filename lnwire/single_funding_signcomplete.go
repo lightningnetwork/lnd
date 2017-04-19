@@ -71,16 +71,3 @@ func (c *SingleFundingSignComplete) MaxPayloadLength(uint32) uint32 {
 	// 32 + 64
 	return 96
 }
-
-// Validate examines each populated field within the SingleFundingSignComplete
-// for field sanity.
-//
-// This is part of the lnwire.Message interface.
-func (c *SingleFundingSignComplete) Validate() error {
-	if c.CommitSignature == nil {
-		return fmt.Errorf("commitment signature must be non-nil")
-	}
-
-	// We're good!
-	return nil
-}

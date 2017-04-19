@@ -157,35 +157,3 @@ func (c *SingleFundingResponse) MaxPayloadLength(uint32) uint32 {
 
 	return length
 }
-
-// Validate examines each populated field within the SingleFundingResponse for
-// field sanity. For example, all fields MUST NOT be negative, and all pkScripts
-// must belong to the allowed set of public key scripts.
-//
-// This is part of the lnwire.Message interface.
-func (c *SingleFundingResponse) Validate() error {
-	// The channel derivation point must be non-nil, and have an odd
-	// y-coordinate.
-	if c.ChannelDerivationPoint == nil {
-		return fmt.Errorf("The channel derivation point must be non-nil")
-	}
-
-	// The delivery pkScript must be amongst the supported script
-	// templates.
-	if !isValidPkScript(c.DeliveryPkScript) {
-		return fmt.Errorf("Valid delivery public key scripts MUST be: " +
-			"P2PKH, P2WKH, P2SH, or P2WSH.")
-	}
-
-	if c.DustLimit <= 0 {
-		return fmt.Errorf("Dust limit shouldn't be below or equal to " +
-			"zero.")
-	}
-
-	if c.ConfirmationDepth == 0 {
-		return fmt.Errorf("ConfirmationDepth must be non-zero")
-	}
-
-	// We're good!
-	return nil
-}

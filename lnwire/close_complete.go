@@ -76,12 +76,3 @@ func (c *CloseComplete) MaxPayloadLength(uint32) uint32 {
 	// 141 + 73 + 32
 	return 141
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the CloseComplete are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *CloseComplete) Validate() error {
-	// We're good!
-	return nil
-}

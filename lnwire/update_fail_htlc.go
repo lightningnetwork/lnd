@@ -136,12 +136,3 @@ func (c *UpdateFailHTLC) MaxPayloadLength(uint32) uint32 {
 	// 32 +  8  + 154
 	return 194
 }
-
-// Validate performs any necessary sanity checks to ensure all fields present
-// on the UpdateFailHTLC are valid.
-//
-// This is part of the lnwire.Message interface.
-func (c *UpdateFailHTLC) Validate() error {
-	// We're good!
-	return nil
-}

@@ -843,8 +843,13 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 		len(closedChans))
 
 	for _, channel := range closedChans {
+		closingTxid := ""
+		if channel.ClosingTx != nil {
+			closingTxid = channel.ClosingTx.String()
+		}
 		closedChan := &lnrpc.ClosedChannelsResponse_ClosedChannel{
-			ClosingTxid: channel.ClosingTx.String(),
+			ChannelPoint: channel.ChanID.String(),
+			ClosingTxid:  closingTxid,
 		}
 		closedChannels = append(closedChannels, closedChan)
 	}

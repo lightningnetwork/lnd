@@ -206,6 +206,15 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 
 	assertTxInBlock(t, block, closingTxid)
 
+	// If otherNode is provided, we need to wait for the channel close to
+	// propagate before the final assert
+	if otherNode != nil {
+		time.Sleep(time.Millisecond * 200)
+	}
+
+	// Now check that the channel is marked fully closed in the database.
+	assertChannelClosed(ctx, t, node, otherNode, closingTxid)
+
 	return closingTxid
 }
 
@@ -314,16 +323,18 @@ func assertChannelClosed(ctxt context.Context, t *harnessTest,
 		t.Fatalf("error checking alice's node (%v) closed channels %v",
 			alice.nodeID, err)
 	}
-	bobHas, err := hasChannelClosed(ctxt, bob, txid)
-	if err != nil {
-		t.Fatalf("error checking bob's node (%v) closed channels %v",
-			bob.nodeID, err)
-	}
 	if !aliceHas {
 		t.Fatalf("could not find alice's closed channel")
 	}
-	if !bobHas {
-		t.Fatalf("could not find bob's closed channel")
+	if bob != nil {
+		bobHas, err := hasChannelClosed(ctxt, bob, txid)
+		if err != nil {
+			t.Fatalf("error checking bob's node (%v) closed channels %v",
+				bob.nodeID, err)
+		}
+		if !bobHas {
+			t.Fatalf("could not find bob's closed channel")
+		}
 	}
 }
 
@@ -1864,8 +1875,16 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
-	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, net.Alice, chanPoint,
+	// We pass nil as otherNode to closeChannelAndAssert, since Alice won't
+	// consider the channel fully closed before the justice tx is mined, which
+	// we will check later.
+	breachTXID := closeChannelAndAssert(ctxb, t, net, net.Bob, nil, chanPoint,
 		true)
+
+	// Check that Alice is considering the channel pending close. Sleep to let
+	// the breach info propagate.
+	time.Sleep(time.Millisecond * 300)
+	assertChannelIsPending(ctxb, t, net.Alice, lnrpc.ChannelStatus_CLOSING, chanPoint)
 
 	// Query the mempool for Alice's justice transaction, this should be
 	// broadcast as Bob's contract breaching transaction gets confirmed
@@ -1923,7 +1942,9 @@ poll:
 
 	// Finally, obtain Alice's channel state, she shouldn't report any
 	// channel as she just successfully brought Bob to justice by sweeping
-	// all the channel funds.
+	// all the channel funds. Also check that the channel is marked as fully
+	// closed in the database.
+	time.Sleep(time.Millisecond * 300)
 	req := &lnrpc.ListChannelsRequest{}
 	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)
 	if err != nil {
@@ -1932,6 +1953,15 @@ poll:
 	if len(aliceChanInfo.Channels) != 0 {
 		t.Fatalf("alice shouldn't have a channel: %v",
 			spew.Sdump(aliceChanInfo.Channels))
+	}
+	aliceHas, err := hasChannelClosed(ctxb, net.Alice, justiceTx.Hash())
+	if err != nil {
+		t.Fatalf("error checking alice's node (%v) closed channels %v",
+			net.Alice.nodeID, err)
+	}
+	if !aliceHas {
+		t.Fatalf("could not find the justice tx as a closing tx for any" +
+			" of alice's closed channel")
 	}
 }
 

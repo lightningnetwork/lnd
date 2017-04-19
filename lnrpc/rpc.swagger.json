@@ -589,6 +589,9 @@
     "ClosedChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
+        "channel_point": {
+          "type": "string"
+        },
         "closing_txid": {
           "type": "string"
         }

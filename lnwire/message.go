@@ -19,7 +19,6 @@ const MessageHeaderSize = 12
 
 // MaxMessagePayload is the maximum bytes a message can be regardless of other
 // individual limits imposed by messages themselves.
-const MaxMessagePayload = 1024 * 1024 * 32 //  32MB
 
 // Commands used in lightning message headers which detail the type of message.
 // TODO(roasbeef): update with latest type numbering from spec
@@ -34,6 +33,7 @@ const (
 
 	// Command for locking a funded channel
 	CmdFundingLocked = uint32(200)
+const MaxMessagePayload = 65535 // 65KB
 
 	// Commands for the workflow of cooperatively closing an active channel.
 	CmdCloseRequest  = uint32(300)

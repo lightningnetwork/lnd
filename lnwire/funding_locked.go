@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -57,12 +56,12 @@ func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
 		c.NextPerCommitmentPoint)
 }
 
-// Command returns the uint32 code which uniquely identifies this message as a
+// MsgType returns the uint32 code which uniquely identifies this message as a
 // FundingLocked message on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *FundingLocked) Command() uint32 {
-	return CmdFundingLocked
+func (c *FundingLocked) MsgType() MessageType {
+	return MsgFundingLocked
 }
 
 // MaxPayloadLength returns the maximum allowed payload length for a

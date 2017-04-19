@@ -1,9 +1,6 @@
 package lnwire
 
-import (
-	"github.com/go-errors/errors"
-	"io"
-)
+import "io"
 
 // Init is the first message reveals the features supported or required by this
 // node. Nodes wait for receipt of the other's features to simplify error
@@ -27,22 +24,20 @@ func NewInitMessage(gf, lf *FeatureVector) *Init {
 	}
 }
 
+// A compile time check to ensure Init implements the lnwire.Message
+// interface.
+var _ Message = (*Init)(nil)
+
 // Decode deserializes a serialized Init message stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
-	// LocalFeatures(~)
-	// GlobalFeatures(~)
 	return readElements(r,
 		&msg.LocalFeatures,
 		&msg.GlobalFeatures,
 	)
 }
-
-// A compile time check to ensure Init implements the lnwire.Message
-// interface.
-var _ Message = (*Init)(nil)
 
 // Encode serializes the target Init into the passed io.Writer observing
 // the protocol version specified.
@@ -55,12 +50,12 @@ func (msg *Init) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (msg *Init) Command() uint32 {
-	return CmdInit
+func (msg *Init) MsgType() MessageType {
+	return MsgInit
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a Init

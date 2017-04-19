@@ -50,12 +50,12 @@ func (p *Ping) Encode(w io.Writer, pver uint32) error {
 		p.PaddingBytes)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (p *Ping) Command() uint32 {
-	return CmdPing
+func (p *Ping) MsgType() MessageType {
+	return MsgPing
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a Ping

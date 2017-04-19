@@ -4,10 +4,9 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/roasbeef/btcd/wire"
 )
 
 // MessageHeaderSize is the number of bytes in a lightning message header.
@@ -19,53 +18,42 @@ const MessageHeaderSize = 12
 
 // MaxMessagePayload is the maximum bytes a message can be regardless of other
 // individual limits imposed by messages themselves.
-
-// Commands used in lightning message headers which detail the type of message.
-// TODO(roasbeef): update with latest type numbering from spec
-const (
-	CmdInit = uint32(1)
-
-	// Commands for opening a channel funded by one party (single funder).
-	CmdSingleFundingRequest      = uint32(100)
-	CmdSingleFundingResponse     = uint32(110)
-	CmdSingleFundingComplete     = uint32(120)
-	CmdSingleFundingSignComplete = uint32(130)
-
-	// Command for locking a funded channel
-	CmdFundingLocked = uint32(200)
 const MaxMessagePayload = 65535 // 65KB
 
-	// Commands for the workflow of cooperatively closing an active channel.
-	CmdCloseRequest  = uint32(300)
-	CmdCloseComplete = uint32(310)
+// MessageType is the unique 2 byte big-endian integer that indicates the type
+// of message on the wire. All messages have a very simple header which
+// consists simply of 2-byte message type. We omit a length field, and checksum
+// as the Lighting Protocol is intended to be encapsulated within a
+// confidential+authenticated cryptographic messaging protocol.
+type MessageType uint16
 
-	// Commands for negotiating HTLCs.
-	CmdUpdateAddHTLC    = uint32(1000)
-	CmdUpdateFufillHTLC = uint32(1010)
-	CmdUpdateFailHTLC   = uint32(1020)
-
-	// Commands for modifying commitment transactions.
-	CmdCommitSig    = uint32(2000)
-	CmdRevokeAndAck = uint32(2010)
-
-	// Commands for reporting protocol errors.
-	CmdError = uint32(4000)
-
-	// Commands for discovery service.
-	CmdChannelAnnouncement       = uint32(5000)
-	CmdChannelUpdateAnnouncement = uint32(5010)
-	CmdNodeAnnouncement          = uint32(5020)
-	CmdAnnounceSignatures        = uint32(5030)
-
-	// Commands for connection keep-alive.
-	CmdPing = uint32(6000)
-	CmdPong = uint32(6010)
+const (
+	MsgInit                      MessageType = 16
+	MsgError                                 = 17
+	MsgPing                                  = 18
+	MsgPong                                  = 19
+	MsgSingleFundingRequest                  = 32
+	MsgSingleFundingResponse                 = 33
+	MsgSingleFundingComplete                 = 34
+	MsgSingleFundingSignComplete             = 35
+	MsgFundingLocked                         = 36
+	MsgCloseRequest                          = 39
+	MsgCloseComplete                         = 40
+	MsgUpdateAddHTLC                         = 128
+	MsgUpdateFufillHTLC                      = 130
+	MsgUpdateFailHTLC                        = 131
+	MsgCommitSig                             = 132
+	MsgRevokeAndAck                          = 133
+	MsgChannelAnnouncement                   = 256
+	MsgNodeAnnouncement                      = 257
+	MsgChannelUpdate                         = 258
+	MsgAnnounceSignatures                    = 259
 )
 
 // UnknownMessage is an implementation of the error interface that allows the
 // creation of an error in response to an unknown message.
 type UnknownMessage struct {
-	messageType uint32
+	messageType MessageType
 }
 
 // Error returns a human readable string describing the error.
@@ -82,58 +70,58 @@ func (u *UnknownMessage) Error() string {
 type Message interface {
 	Decode(io.Reader, uint32) error
 	Encode(io.Writer, uint32) error
-	Command() uint32
+	MsgType() MessageType
 	MaxPayloadLength(uint32) uint32
 }
 
 // makeEmptyMessage creates a new empty message of the proper concrete type
-// based on the command ID.
-func makeEmptyMessage(command uint32) (Message, error) {
+// based on the passed message type.
+func makeEmptyMessage(msgType MessageType) (Message, error) {
 	var msg Message
 
-	switch command {
-	case CmdInit:
+	switch msgType {
+	case MsgInit:
 		msg = &Init{}
-	case CmdSingleFundingRequest:
+	case MsgSingleFundingRequest:
 		msg = &SingleFundingRequest{}
-	case CmdSingleFundingResponse:
+	case MsgSingleFundingResponse:
 		msg = &SingleFundingResponse{}
-	case CmdSingleFundingComplete:
+	case MsgSingleFundingComplete:
 		msg = &SingleFundingComplete{}
-	case CmdSingleFundingSignComplete:
+	case MsgSingleFundingSignComplete:
 		msg = &SingleFundingSignComplete{}
-	case CmdFundingLocked:
+	case MsgFundingLocked:
 		msg = &FundingLocked{}
-	case CmdCloseRequest:
+	case MsgCloseRequest:
 		msg = &CloseRequest{}
-	case CmdCloseComplete:
+	case MsgCloseComplete:
 		msg = &CloseComplete{}
-	case CmdUpdateAddHTLC:
+	case MsgUpdateAddHTLC:
 		msg = &UpdateAddHTLC{}
-	case CmdUpdateFailHTLC:
+	case MsgUpdateFailHTLC:
 		msg = &UpdateFailHTLC{}
-	case CmdUpdateFufillHTLC:
+	case MsgUpdateFufillHTLC:
 		msg = &UpdateFufillHTLC{}
-	case CmdCommitSig:
+	case MsgCommitSig:
 		msg = &CommitSig{}
-	case CmdRevokeAndAck:
+	case MsgRevokeAndAck:
 		msg = &RevokeAndAck{}
-	case CmdError:
+	case MsgError:
 		msg = &Error{}
-	case CmdChannelAnnouncement:
+	case MsgChannelAnnouncement:
 		msg = &ChannelAnnouncement{}
-	case CmdChannelUpdateAnnouncement:
-		msg = &ChannelUpdateAnnouncement{}
-	case CmdNodeAnnouncement:
+	case MsgChannelUpdate:
+		msg = &ChannelUpdate{}
+	case MsgNodeAnnouncement:
 		msg = &NodeAnnouncement{}
-	case CmdPing:
+	case MsgPing:
 		msg = &Ping{}
-	case CmdAnnounceSignatures:
+	case MsgAnnounceSignatures:
 		msg = &AnnounceSignatures{}
-	case CmdPong:
+	case MsgPong:
 		msg = &Pong{}
 	default:
-		return nil, fmt.Errorf("unhandled command [%d]", command)
+		return nil, fmt.Errorf("unknown message type [%d]", msgType)
 	}
 
 	return msg, nil

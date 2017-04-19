@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -152,8 +151,8 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 // SingleFundingRequest on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *SingleFundingRequest) Command() uint32 {
-	return CmdSingleFundingRequest
+func (c *SingleFundingRequest) MsgType() MessageType {
+	return MsgSingleFundingRequest
 }
 
 // MaxPayloadLength returns the maximum allowed payload length for a

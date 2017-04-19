@@ -1,8 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
-
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 
@@ -69,12 +67,12 @@ func (c *CloseRequest) Encode(w io.Writer, pver uint32) error {
 		c.Fee)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *CloseRequest) Command() uint32 {
-	return CmdCloseRequest
+func (c *CloseRequest) MsgType() MessageType {
+	return MsgCloseRequest
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message

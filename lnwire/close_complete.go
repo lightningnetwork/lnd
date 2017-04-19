@@ -41,8 +41,6 @@ var _ Message = (*CloseComplete)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
-	// ChannelPoint (8)
-	// ResponderCloseSig (73)
 	return readElements(r,
 		&c.ChannelPoint,
 		&c.ResponderCloseSig)
@@ -53,19 +51,17 @@ func (c *CloseComplete) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CloseComplete) Encode(w io.Writer, pver uint32) error {
-	// ChannelPoint (8)
-	// ResponderCloseSig (73)
 	return writeElements(w,
 		c.ChannelPoint,
 		c.ResponderCloseSig)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *CloseComplete) Command() uint32 {
-	return CmdCloseComplete
+func (c *CloseComplete) MsgType() MessageType {
+	return MsgCloseComplete
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a CloseComplete

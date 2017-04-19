@@ -1,9 +1,7 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
-	"math"
 
 	"google.golang.org/grpc/codes"
 )
@@ -92,12 +90,12 @@ func (c *Error) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying an Error message on the
+// MsgType returns the integer uniquely identifying an Error message on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *Error) Command() uint32 {
-	return CmdError
+func (c *Error) MsgType() MessageType {
+	return MsgError
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a Error

@@ -84,12 +84,12 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Command() uint32 {
-	return CmdChannelUpdate
+func (a *ChannelUpdate) MsgType() MessageType {
+	return MsgChannelUpdate
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message

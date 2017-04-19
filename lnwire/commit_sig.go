@@ -60,12 +60,12 @@ func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *CommitSig) Command() uint32 {
-	return CmdCommitSig
+func (c *CommitSig) MsgType() MessageType {
+	return MsgCommitSig
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a

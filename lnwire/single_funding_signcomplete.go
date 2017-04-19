@@ -1,7 +1,6 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -54,12 +53,12 @@ func (c *SingleFundingSignComplete) Encode(w io.Writer, pver uint32) error {
 		c.CommitSignature)
 }
 
-// Command returns the uint32 code which uniquely identifies this message as a
+// MsgType returns the uint32 code which uniquely identifies this message as a
 // SingleFundingSignComplete on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *SingleFundingSignComplete) Command() uint32 {
-	return CmdSingleFundingSignComplete
+func (c *SingleFundingSignComplete) MsgType() MessageType {
+	return MsgSingleFundingSignComplete
 }
 
 // MaxPayloadLength returns the maximum allowed payload length for a

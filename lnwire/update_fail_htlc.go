@@ -120,12 +120,12 @@ func (c *UpdateFailHTLC) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *UpdateFailHTLC) Command() uint32 {
-	return CmdUpdateFailHTLC
+func (c *UpdateFailHTLC) MsgType() MessageType {
+	return MsgUpdateFailHTLC
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a UpdateFailHTLC

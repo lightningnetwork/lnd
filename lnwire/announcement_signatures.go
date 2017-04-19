@@ -66,12 +66,12 @@ func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) Command() uint32 {
-	return CmdAnnounceSignatures
+func (a *AnnounceSignatures) MsgType() MessageType {
+	return MsgAnnounceSignatures
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for this message

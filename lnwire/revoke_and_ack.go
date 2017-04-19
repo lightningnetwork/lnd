@@ -78,12 +78,12 @@ func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
 	)
 }
 
-// Command returns the integer uniquely identifying this message type on the
+// MsgType returns the integer uniquely identifying this message type on the
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *RevokeAndAck) Command() uint32 {
-	return CmdRevokeAndAck
+func (c *RevokeAndAck) MsgType() MessageType {
+	return MsgRevokeAndAck
 }
 
 // MaxPayloadLength returns the maximum allowed payload size for a

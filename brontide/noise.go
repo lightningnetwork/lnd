@@ -680,11 +680,11 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 
 	// Next, using the length read from the packet header, read the
 	// encrypted packet itself.
+	var cipherText [math.MaxUint16 + macSize]byte
 	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
-	cipherText := make([]byte, pktLen)
-	if _, err := io.ReadFull(r, cipherText[:]); err != nil {
+	if _, err := io.ReadFull(r, cipherText[:pktLen]); err != nil {
 		return nil, err
 	}
 
-	return b.recvCipher.Decrypt(nil, nil, cipherText)
+	return b.recvCipher.Decrypt(nil, nil, cipherText[:pktLen])
 }

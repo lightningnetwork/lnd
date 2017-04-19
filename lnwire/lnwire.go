@@ -62,8 +62,8 @@ const (
 
 // writeElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol. The passed
-// io.Writer should be backed by an appropriatly sized byte slice, or be able
-// to dynamically expand to accomdate additional data.
+// io.Writer should be backed by an appropriately sized byte slice, or be able
+// to dynamically expand to accommodate additional data.
 //
 // TODO(roasbeef): this should eventually draw from a buffer pool for
 // serialization.
@@ -114,46 +114,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case []uint64:
-		// Enforce a max number of elements in a uint64 slice.
-		numItems := len(e)
-		if numItems > 65535 {
-			return fmt.Errorf("Too many []uint64s")
-		}
-
-		// First write out the the number of elements in the slice as a
-		// length prefix.
-		if err := writeElement(w, uint16(numItems)); err != nil {
-			return err
-		}
-
-		// After the prefix detailing the number of elements, write out
-		// each uint64 in series.
-		for i := 0; i < numItems; i++ {
-			if err := writeElement(w, e[i]); err != nil {
-				return err
-			}
-		}
-	case []*btcec.Signature:
-		// Enforce a sane number for the maximum number of signatures.
-		numSigs := len(e)
-		if numSigs > 127 {
-			return fmt.Errorf("too many signatures")
-		}
-
-		// First write out the the number of elements in the slice as a
-		// length prefix.
-		if err := writeElement(w, uint8(numSigs)); err != nil {
-			return err
-		}
-
-		// After the prefix detailing the number of elements, write out
-		// each signature in series.
-		for i := 0; i < numSigs; i++ {
-			if err := writeElement(w, e[i]); err != nil {
-				return err
-			}
-		}
 	case *btcec.Signature:
 		var b [64]byte
 		err := serializeSigToWire(&b, e)
@@ -162,16 +122,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 		// Write buffer
 		if _, err = w.Write(b[:]); err != nil {
-			return err
-		}
-	case *chainhash.Hash:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-	case wire.BitcoinNet:
-		var b [4]byte
-		binary.BigEndian.PutUint32(b[:], uint32(e))
-		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
 	case PingPayload:
@@ -214,10 +164,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
-	case [6]byte:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
 	case []byte:
 		if _, err := w.Write(e[:]); err != nil {
 			return err
@@ -230,48 +176,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 		if err := wire.WriteVarBytes(w, 0, e); err != nil {
-			return err
-		}
-	case string:
-		strlen := len(e)
-		if strlen > MaxSliceLength {
-			return fmt.Errorf("string too long")
-		}
-
-		if err := wire.WriteVarString(w, 0, e); err != nil {
-			return err
-		}
-	case []*wire.TxIn:
-		// Write the size (1-byte)
-		if len(e) > 127 {
-			return fmt.Errorf("Too many txins")
-		}
-
-		// Write out the number of txins.
-		if err := writeElement(w, uint8(len(e))); err != nil {
-			return err
-		}
-
-		// Append the actual TxIns (Size: NumOfTxins * 36)
-		// During serialization we leave out the sequence number to
-		// eliminate any funny business.
-		for _, in := range e {
-			if err := writeElement(w, in); err != nil {
-				return err
-			}
-		}
-	case *wire.TxIn:
-		// First write out the previous txid.
-		var h [32]byte
-		copy(h[:], e.PreviousOutPoint.Hash[:])
-		if _, err := w.Write(h[:]); err != nil {
-			return err
-		}
-
-		// Then the exact index of the previous out point.
-		var idx [4]byte
-		binary.BigEndian.PutUint32(idx[:], e.PreviousOutPoint.Index)
-		if _, err := w.Write(idx[:]); err != nil {
 			return err
 		}
 	case *FeatureVector:
@@ -289,12 +193,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		var idx [2]byte
 		binary.BigEndian.PutUint16(idx[:], uint16(e.Index))
 		if _, err := w.Write(idx[:]); err != nil {
-			return err
-		}
-
-	case int64, float64:
-		err := binary.Write(w, binary.BigEndian, e)
-		if err != nil {
 			return err
 		}
 
@@ -450,12 +348,6 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = btcutil.Amount(int64(binary.BigEndian.Uint64(b[:])))
-	case **chainhash.Hash:
-		var b chainhash.Hash
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = &b
 	case **btcec.PublicKey:
 		var b [btcec.PubKeyBytesLenCompressed]byte
 		if _, err = io.ReadFull(r, b[:]); err != nil {
@@ -475,48 +367,6 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = f
 
-	case *[]uint64:
-		var numItems uint16
-		if err := readElement(r, &numItems); err != nil {
-			return err
-		}
-		// if numItems > 65535 {
-		// 	return fmt.Errorf("Too many items in []uint64")
-		// }
-
-		// Read the number of items
-		var items []uint64
-		for i := uint16(0); i < numItems; i++ {
-			var item uint64
-			err = readElement(r, &item)
-			if err != nil {
-				return err
-			}
-			items = append(items, item)
-		}
-		*e = items
-	case *[]*btcec.Signature:
-		var numSigs uint8
-		err = readElement(r, &numSigs)
-		if err != nil {
-			return err
-		}
-		if numSigs > 127 {
-			return fmt.Errorf("too many signatures")
-		}
-
-		// Read that number of signatures
-		var sigs []*btcec.Signature
-		for i := uint8(0); i < numSigs; i++ {
-			sig := new(btcec.Signature)
-			err = readElement(r, &sig)
-			if err != nil {
-				return err
-			}
-			sigs = append(sigs, sig)
-		}
-		*e = sigs
-		return nil
 	case **btcec.Signature:
 		var b [64]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -526,13 +376,6 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case *wire.BitcoinNet:
-		var b [4]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = wire.BitcoinNet(binary.BigEndian.Uint32(b[:]))
-		return nil
 	case *OpaqueReason:
 		var l [2]byte
 		if _, err := io.ReadFull(r, l[:]); err != nil {
@@ -577,10 +420,6 @@ func readElement(r io.Reader, element interface{}) error {
 		if _, err := io.ReadFull(r, *e); err != nil {
 			return err
 		}
-	case *[6]byte:
-		if _, err := io.ReadFull(r, e[:]); err != nil {
-			return err
-		}
 	case []byte:
 		if _, err := io.ReadFull(r, e); err != nil {
 			return err
@@ -591,53 +430,6 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = pkScript
-	case *string:
-		str, err := wire.ReadVarString(r, 0)
-		if err != nil {
-			return err
-		}
-		*e = str
-	case *[]*wire.TxIn:
-		// Read the size (1-byte number of txins)
-		var numScripts uint8
-		if err := readElement(r, &numScripts); err != nil {
-			return err
-		}
-		if numScripts > 127 {
-			return fmt.Errorf("Too many txins")
-		}
-
-		// Append the actual TxIns
-		txins := make([]*wire.TxIn, 0, numScripts)
-		for i := uint8(0); i < numScripts; i++ {
-			outpoint := new(wire.OutPoint)
-			txin := wire.NewTxIn(outpoint, nil, nil)
-			if err := readElement(r, &txin); err != nil {
-				return err
-			}
-			txins = append(txins, txin)
-		}
-		*e = txins
-	case **wire.TxIn:
-		// Hash
-		var h [32]byte
-		if _, err = io.ReadFull(r, h[:]); err != nil {
-			return err
-		}
-		hash, err := chainhash.NewHash(h[:])
-		if err != nil {
-			return err
-		}
-		(*e).PreviousOutPoint.Hash = *hash
-
-		// Index
-		var idxBytes [4]byte
-		_, err = io.ReadFull(r, idxBytes[:])
-		if err != nil {
-			return err
-		}
-		(*e).PreviousOutPoint.Index = binary.BigEndian.Uint32(idxBytes[:])
-		return nil
 	case *wire.OutPoint:
 		var h [32]byte
 		if _, err = io.ReadFull(r, h[:]); err != nil {
@@ -658,11 +450,6 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = wire.OutPoint{
 			Hash:  *hash,
 			Index: uint32(index),
-		}
-	case *int64, *float64:
-		err := binary.Read(r, binary.BigEndian, e)
-		if err != nil {
-			return err
 		}
 
 	case *ChannelID:
@@ -766,57 +553,4 @@ func readElements(r io.Reader, elements ...interface{}) error {
 		}
 	}
 	return nil
-}
-
-// validatePkScript determines if the passed pkScript is a valid pkScript within
-// lnwire. The only pkScript templates that lnwire currently allows are:
-// P2SH, P2WSH, P2PKH, and P2WKH.
-func isValidPkScript(pkScript PkScript) bool {
-	// A nil pkScript is obviously invalid.
-	if pkScript == nil {
-		return false
-	}
-
-	switch len(pkScript) {
-	case 25:
-		// A valid p2pkh script must be exactly 25 bytes. It must begin
-		// with the define prefix, and end with the define suffix.
-		p2pkhPrefix := []byte{txscript.OP_DUP, txscript.OP_HASH160}
-		p2pkhSuffix := []byte{txscript.OP_EQUALVERIFY, txscript.OP_CHECKSIG,
-			txscript.OP_DATA_20}
-		if !bytes.Equal(pkScript[0:3], p2pkhPrefix) ||
-			!bytes.Equal(pkScript[23:25], p2pkhSuffix) {
-			return false
-		}
-	case 22:
-		// P2WKH
-		// A valid P2WKH script must be exactly 22 bytes, with the first
-		// two op codes being an OP_0 marking a version zero witness
-		// program, and the second byte being a 20 byte push data.
-		if pkScript[0] != txscript.OP_0 ||
-			pkScript[1] != txscript.OP_DATA_20 {
-			return false
-		}
-	case 23:
-		// A valid P2SH script must begin with OP_HASH160 PUSHDATA(20),
-		// contain 20 bytes, then end with an OP_EQUAL.
-		p2shPrefix := []byte{txscript.OP_HASH160, txscript.OP_DATA_20}
-		p2shSuffix := []byte{txscript.OP_EQUAL}
-		if !bytes.Equal(pkScript[0:2], p2shPrefix) ||
-			!bytes.Equal(pkScript[22:23], p2shSuffix) {
-			return false
-		}
-	case 34:
-		// A P2WSH script must be exactly 34 bytes, with the first two
-		// op codes being an OP_0 marking a version zero witness program,
-		// and the second byte being a 32 byte push data.
-		if pkScript[0] != txscript.OP_0 ||
-			pkScript[1] != txscript.OP_DATA_32 {
-			return false
-		}
-	default:
-		return false
-	}
-
-	return true
 }

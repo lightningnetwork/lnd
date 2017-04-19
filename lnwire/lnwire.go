@@ -191,6 +191,12 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+		if e.Index > math.MaxUint16 {
+			return fmt.Errorf("index for outpoint (%v) is "+
+				"greater than max index of %v", e.Index,
+				math.MaxUint16)
+		}
+
 		var idx [2]byte
 		binary.BigEndian.PutUint16(idx[:], uint16(e.Index))
 		if _, err := w.Write(idx[:]); err != nil {

@@ -325,6 +325,11 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			"have been claimed", breachInfo.chanPoint,
 			revokedFunds, totalFunds)
 
+		// We have swept the funds, so we can finally mark the channel as closed.
+		if err := b.db.MarkChannelAsFullyClosed(&breachInfo.chanPoint, &justiceTXID); err != nil {
+			brarLog.Errorf("Unable to mark channel as fully closed: %v", err)
+		}
+
 		// TODO(roasbeef): add peer to blacklist?
 
 		// TODO(roasbeef): close other active channels with offending peer
@@ -375,12 +380,6 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// links associated with this peer.
 		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
 
-		// We mark this channel as pending closure, and treat the breached
-		// as a force close.
-		if err := contract.MarkAsClosing(true); err != nil {
-			brarLog.Errorf("unable to delete channel state: %v", err)
-		}
-
 		// TODO(roasbeef): need to handle case of remote broadcast
 		// mid-local initiated state-transition, possible false-positive?
 
@@ -412,6 +411,12 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			desc.InputIndex = inputIndex
 
 			return lnwallet.CommitSpendRevoke(b.wallet.Signer, desc, tx)
+		}
+
+		// We mark this channel as pending closure, and treat the breach
+		// as a force close.
+		if err := contract.MarkAsClosing(true); err != nil {
+			brarLog.Errorf("unable to delete channel state: %v", err)
 		}
 
 		// Finally, with the two witness generation funcs created, we

@@ -186,7 +186,11 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 	assertChannelIsPending(ctx, t, node, lnrpc.ChannelStatus_CLOSING, fundingChanPoint)
 	if otherNode != nil {
 		// We do a nil check here, since passing nil for otherNode indicates that
-		// this node is already shutdown
+		// this node is already shutdown. A small sleep makes sure the channel
+		// closure has propagated to the other node.
+		time.Sleep(time.Millisecond * 200)
+
+		// then check that the channel is marked as pending.
 		assertChannelIsPending(ctx, t, otherNode, lnrpc.ChannelStatus_CLOSING, fundingChanPoint)
 	}
 
@@ -1308,7 +1312,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		rHashes[i] = resp.RHash
 	}
 
-	// Wait for carol to recognize both the Channel from herself to Carol,
+	// Wait for carol to recognize both the Channel from herself to Alice,
 	// and also the channel from Alice to Bob.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
@@ -1788,6 +1792,9 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	if err := sendPayments(0, numInvoices/2); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
+
+	// A small sleep to make sure bob has received the payment
+	time.Sleep(time.Millisecond * 100)
 
 	// Next query for Bob's channel state, as we sent 3 payments of 10k
 	// satoshis each, Bob should now see his balance as being 30k satoshis.

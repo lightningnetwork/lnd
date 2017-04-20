@@ -1570,3 +1570,105 @@ func stopDaemon(ctx *cli.Context) error {
 
 	return nil
 }
+
+var signMessageCommand = cli.Command{
+	Name:      "signmessage",
+	Usage:     "sign a message with the node's private key",
+	ArgsUsage: "msg",
+	Description: "Sign msg with the resident node's private key. Returns a the signature as a zbase32 string.\n\n" +
+		"   Positional arguments and flags can be used interchangeably but not at the same time!",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "msg",
+			Usage: "the message to sign",
+		},
+	},
+	Action: signMessage,
+}
+
+func signMessage(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var msg []byte
+
+	switch {
+	case ctx.IsSet("msg"):
+		msg = []byte(ctx.String("msg"))
+	case ctx.Args().Present():
+		msg = []byte(ctx.Args().First())
+	default:
+		return fmt.Errorf("msg argument missing")
+	}
+
+	resp, err := client.SignMessage(ctxb, &lnrpc.SignMessageRequest{Msg: msg})
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var verifyMessageCommand = cli.Command{
+	Name:      "verifymessage",
+	Usage:     "verify a message signed with the signature",
+	ArgsUsage: "msg signature",
+	Description: "Verify that the message was signed with a properly-formed signature.\n" +
+		"   The signature must be zbase32 encoded and signed with the private key of\n" +
+		"   an active node in the resident node's channel database.\n\n" +
+		"   Positional arguments and flags can be used interchangeably but not at the same time!",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "msg",
+			Usage: "the message to verify",
+		},
+		cli.StringFlag{
+			Name:  "signature",
+			Usage: "the zbase32 encoded signature of the message",
+		},
+	},
+	Action: verifyMessage,
+}
+
+func verifyMessage(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		msg       []byte
+		signature string
+	)
+
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("msg"):
+		msg = []byte(ctx.String("msg"))
+	case args.Present():
+		msg = []byte(ctx.Args().First())
+		args = args.Tail()
+	default:
+		return fmt.Errorf("msg argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("signature"):
+		signature = ctx.String("signature")
+	case args.Present():
+		signature = args.First()
+	default:
+		return fmt.Errorf("signature argument missing")
+	}
+
+	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: signature}
+	resp, err := client.VerifyMessage(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}

@@ -80,6 +80,8 @@ func main() {
 		decodePayReqComamnd,
 		listChainTxnsCommand,
 		stopCommand,
+		signMessageCommand,
+		verifyMessageCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

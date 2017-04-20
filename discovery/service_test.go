@@ -224,7 +224,7 @@ type annBatch struct {
 	nodeAnn2       *lnwire.NodeAnnouncement
 	localChanAnn   *lnwire.ChannelAnnouncement
 	remoteChanAnn  *lnwire.ChannelAnnouncement
-	chanUpdAnn     *lnwire.ChannelUpdateAnnouncement
+	chanUpdAnn     *lnwire.ChannelUpdate
 	localProofAnn  *lnwire.AnnounceSignatures
 	remoteProofAnn *lnwire.AnnounceSignatures
 }
@@ -284,10 +284,7 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	error) {
 	var err error
 
-	alias, err := lnwire.NewAlias("kek" + string(priv.Serialize()))
-	if err != nil {
-		return nil, err
-	}
+	alias := lnwire.NewAlias("kek" + string(priv.Serialize()))
 
 	a := &lnwire.NodeAnnouncement{
 		Timestamp: uint32(prand.Int31()),
@@ -305,11 +302,10 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	return a, nil
 }
 
-func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdateAnnouncement,
-	error) {
+func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdate, error) {
 	var err error
 
-	a := &lnwire.ChannelUpdateAnnouncement{
+	a := &lnwire.ChannelUpdate{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},

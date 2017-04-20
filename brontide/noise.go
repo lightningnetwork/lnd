@@ -686,5 +686,6 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
+	// TODO(roasbeef): modify to let pass in slice
 	return b.recvCipher.Decrypt(nil, nil, cipherText[:pktLen])
 }

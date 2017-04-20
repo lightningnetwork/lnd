@@ -84,17 +84,24 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	return b, nil
 }
 
+// ReadMessage uses the connection in a message-oriented instructing it to read
+// the next _full_ message with the brontide stream. This function will block
+// until the read succeeds.
+func (c *Conn) ReadNextMessage() ([]byte, error) {
+	return c.noise.ReadMessage(c.conn)
+}
+
 // Read reads data from the connection.  Read can be made to time out and
 // return a Error with Timeout() == true after a fixed time limit; see
 // SetDeadline and SetReadDeadline.
 //
 // Part of the net.Conn interface.
 func (c *Conn) Read(b []byte) (n int, err error) {
-	// In order to reconcile the differences between the record abstraction of
-	// our AEAD connection, and the stream abstraction of TCP, we maintain an
-	// intermediate read buffer. If this buffer becomes depleated, then we read
-	// the next record, and feed it into the buffer. Otherwise, we read
-	// directly from the buffer.
+	// In order to reconcile the differences between the record abstraction
+	// of our AEAD connection, and the stream abstraction of TCP, we
+	// maintain an intermediate read buffer. If this buffer becomes
+	// depleated, then we read the next record, and feed it into the
+	// buffer. Otherwise, we read directly from the buffer.
 	if c.readBuf.Len() == 0 {
 		plaintext, err := c.noise.ReadMessage(c.conn)
 		if err != nil {

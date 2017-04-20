@@ -111,7 +111,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 		// Finally, we'll deserialize the message from the written
 		// buffer, and finally assert that the messages are equal.
-		_, newMsg, err := ReadMessage(&b, 0)
+		newMsg, err := ReadMessage(&b, 0)
 		if err != nil {
 			t.Fatalf("unable to read msg: %v", err)
 			return false

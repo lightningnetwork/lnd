@@ -20,6 +20,8 @@ const MaxMessagePayload = 65535 // 65KB
 // confidential+authenticated cryptographic messaging protocol.
 type MessageType uint16
 
+// The currently defined message types within this current version of the
+// Lightning protocol.
 const (
 	MsgInit                      MessageType = 16
 	MsgError                                 = 17

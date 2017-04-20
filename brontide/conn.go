@@ -84,9 +84,9 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 	return b, nil
 }
 
-// ReadMessage uses the connection in a message-oriented instructing it to read
-// the next _full_ message with the brontide stream. This function will block
-// until the read succeeds.
+// ReadNextMessage uses the connection in a message-oriented instructing it to
+// read the next _full_ message with the brontide stream. This function will
+// block until the read succeeds.
 func (c *Conn) ReadNextMessage() ([]byte, error) {
 	return c.noise.ReadMessage(c.conn)
 }

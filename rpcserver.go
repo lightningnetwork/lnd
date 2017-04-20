@@ -31,6 +31,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
+	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
 )
 
@@ -186,6 +187,61 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 
 	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
+}
+
+// SignMessage signs a message with the resident node's private key. The
+// returned signature string is zbase32 encoded and pubkey recoverable,
+// meaning that only the message digest and signature are needed for
+// verification.
+func (r *rpcServer) SignMessage(ctx context.Context,
+	in *lnrpc.SignMessageRequest) (*lnrpc.SignMessageResponse, error) {
+
+	if in.Msg == nil {
+		return nil, fmt.Errorf("need a message to sign")
+	}
+
+	pubkey := r.server.identityPriv.PubKey()
+	sigBytes, err := r.server.nodeSigner.SignCompact(pubkey, in.Msg)
+	if err != nil {
+		return nil, err
+	}
+
+	sig := zbase32.EncodeToString(sigBytes)
+	return &lnrpc.SignMessageResponse{Signature: sig}, nil
+}
+
+// VerifyMessage verifies a signature over a msg. The signature must be
+// zbase32 encoded and signed by an active node in the resident node's
+// channel database.
+func (r *rpcServer) VerifyMessage(ctx context.Context,
+	in *lnrpc.VerifyMessageRequest) (*lnrpc.VerifyMessageResponse, error) {
+
+	if in.Msg == nil {
+		return nil, fmt.Errorf("need a message to verify")
+	}
+
+	// The signature should be zbase32 encoded
+	sig, err := zbase32.DecodeString(in.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signature: %v", err)
+	}
+
+	digest := chainhash.DoubleHashB(in.Msg)
+
+	// RecoverCompact both recovers the pubkey and validates the signature.
+	pubKey, _, err := btcec.RecoverCompact(btcec.S256(), sig, digest)
+	if err != nil {
+		return &lnrpc.VerifyMessageResponse{Valid: false}, nil
+	}
+
+	graph := r.server.chanDB.ChannelGraph()
+	// TODO(phlip9): Require valid nodes to have capital in active channels.
+	_, active, err := graph.HasLightningNode(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query graph: %v", err)
+	}
+
+	return &lnrpc.VerifyMessageResponse{Valid: active}, nil
 }
 
 // ConnectPeer attempts to establish a connection to a remote peer.

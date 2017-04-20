@@ -37,6 +37,12 @@ description):
      * Returns a new address, the following address types are supported:
        pay-to-public-key-hash (p2pkh), pay-to-witness-key-hash (p2wkh), and
        nested-pay-to-witness-key-hash (np2wkh).
+  * SignMessage
+     * Signs a message with the node's identity key and returns a
+       zbase32 encoded signature.
+  * VerifyMessage
+     * Verifies a signature signed by another node on a message. The other node
+       must be an active node in the channel database.
   * ConnectPeer
      * Connects to a peer identified by a public key and host.
   * DisconnectPeer

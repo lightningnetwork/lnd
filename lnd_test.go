@@ -2351,6 +2351,65 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 	}
 }
 
+func testNodeSignVerify(net *networkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// bob should be able to verify alice's signature
+
+	aliceMsg := []byte("alice msg")
+
+	// alice: sign "alice msg"
+
+	sigReq := &lnrpc.SignMessageRequest{Msg: aliceMsg}
+	sigResp, err := net.Alice.SignMessage(ctxb, sigReq)
+	if err != nil {
+		t.Fatalf("SignMessage rpc call failed: %v", err)
+	}
+	aliceSig := sigResp.Signature
+
+	// bob: verify alice's signature -> should succeed
+
+	verifyReq := &lnrpc.VerifyMessageRequest{
+		Msg: aliceMsg, Signature: aliceSig}
+	verifyResp, err := net.Bob.VerifyMessage(ctxb, verifyReq)
+	if err != nil {
+		t.Fatalf("VerifyMessage failed: %v", err)
+	}
+	if !verifyResp.Valid {
+		t.Fatalf("alice's signature didn't validate")
+	}
+
+	// carol is a new node that is unconnected to alice or bob
+
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+
+	carolMsg := []byte("carol msg")
+
+	// carol: sign "carol msg"
+
+	sigReq = &lnrpc.SignMessageRequest{Msg: carolMsg}
+	sigResp, err = carol.SignMessage(ctxb, sigReq)
+	if err != nil {
+		t.Fatalf("SignMessage rpc call failed: %v", err)
+	}
+	carolSig := sigResp.Signature
+
+	// bob: verify carol's signature -> should fail
+
+	verifyReq = &lnrpc.VerifyMessageRequest{
+		Msg: carolMsg, Signature: carolSig}
+	verifyResp, err = net.Bob.VerifyMessage(ctxb, verifyReq)
+	if err != nil {
+		t.Fatalf("VerifyMessage failed: %v", err)
+	}
+	if verifyResp.Valid {
+		t.Fatalf("carol's signature should not be valid")
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -2419,6 +2478,10 @@ var testsCases = []*testCase{
 		// is borked since we trick him into attempting to cheat Alice?
 		name: "revoked uncooperative close retribution",
 		test: testRevokedCloseRetribution,
+	},
+	{
+		name: "node sign verify",
+		test: testNodeSignVerify,
 	},
 }
 

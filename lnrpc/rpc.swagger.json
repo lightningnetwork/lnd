@@ -1706,6 +1706,23 @@
     "lnrpcSetAliasResponse": {
       "type": "object"
     },
+    "lnrpcSignMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcSignMessageResponse": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
     "lnrpcStopRequest": {
       "type": "object"
     },
@@ -1751,6 +1768,27 @@
           "items": {
             "$ref": "#/definitions/lnrpcTransaction"
           }
+        }
+      }
+    },
+    "lnrpcVerifyMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte"
+        },
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
+    "lnrpcVerifyMessageResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },

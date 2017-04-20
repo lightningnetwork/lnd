@@ -397,7 +397,11 @@ func (l *lightningNode) lightningNetworkWatcher() {
 				panic(fmt.Errorf("unable read update ntfn: %v", err))
 			}
 
-			graphUpdates <- update
+			select {
+			case graphUpdates <- update:
+			case <-l.quit:
+				return
+			}
 		}
 	}()
 

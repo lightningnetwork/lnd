@@ -38,6 +38,9 @@ service Lightning {
         };
     }
 
+    rpc SignMessage (SignMessageRequest) returns (SignMessageResponse);
+    rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse);
+
     rpc ConnectPeer (ConnectPeerRequest) returns (ConnectPeerResponse) {
         option (google.api.http) = {
             post: "/v1/peers"
@@ -245,6 +248,21 @@ message NewWitnessAddressRequest {
 }
 message NewAddressResponse {
     string address = 1 [json_name = "address"];
+}
+
+message SignMessageRequest {
+    bytes msg = 1 [ json_name = "msg" ];
+}
+message SignMessageResponse {
+    string signature = 1 [ json_name = "signature" ];
+}
+
+message VerifyMessageRequest {
+    bytes msg = 1 [ json_name = "msg" ];
+    string signature = 2 [ json_name = "signature" ];
+}
+message VerifyMessageResponse {
+    bool valid = 1 [ json_name = "valid" ];
 }
 
 message ConnectPeerRequest {

@@ -200,9 +200,14 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	pubkey, err := btcec.ParsePubKey(pubkeyHex, btcec.S256())
+	pubKey, err := btcec.ParsePubKey(pubkeyHex, btcec.S256())
 	if err != nil {
 		return nil, err
+	}
+
+	// Connections to ourselves are disallowed for obvious reasons.
+	if pubKey.IsEqual(r.server.identityPriv.PubKey()) {
+		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
 	// If the address doesn't already have a port, we'll assume the current
@@ -221,7 +226,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	}
 
 	peerAddr := &lnwire.NetAddress{
-		IdentityKey: pubkey,
+		IdentityKey: pubKey,
 		Address:     host,
 		ChainNet:    activeNetParams.Net,
 	}
@@ -269,8 +274,8 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	}
 
 	var (
-		nodepubKey      *btcec.PublicKey
-		nodepubKeyBytes []byte
+		nodePubKey      *btcec.PublicKey
+		nodePubKeyBytes []byte
 		err             error
 	)
 
@@ -280,18 +285,25 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// object so we can easily manipulate it. If this isn't set, then we
 	// expected the TargetPeerId to be set accordingly.
 	if len(in.NodePubkey) != 0 {
-		nodepubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
+		nodePubKey, err = btcec.ParsePubKey(in.NodePubkey, btcec.S256())
 		if err != nil {
 			return err
 		}
-		nodepubKeyBytes = nodepubKey.SerializeCompressed()
+
+		// Making a channel to ourselves wouldn't be of any use, so we
+		// explicitly disallow them.
+		if nodePubKey.IsEqual(r.server.identityPriv.PubKey()) {
+			return fmt.Errorf("cannot open channel to self")
+		}
+
+		nodePubKeyBytes = nodePubKey.SerializeCompressed()
 	}
 
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		nodepubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
+		nodePubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
 
 	var outpoint wire.OutPoint
 out:
@@ -300,7 +312,7 @@ out:
 		case err := <-errChan:
 			rpcsLog.Errorf("unable to open channel to "+
 				"identityPub(%x) nor peerID(%v): %v",
-				nodepubKeyBytes, in.TargetPeerId, err)
+				nodePubKeyBytes, in.TargetPeerId, err)
 			return err
 		case fundingUpdate := <-updateChan:
 			rpcsLog.Tracef("[openchannel] sending update: %v",

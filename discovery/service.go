@@ -490,8 +490,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is premature: "+
 				"advertises height %v, only height %v is known",
-				msg.ShortChannelID, msg.ShortChannelID.BlockHeight,
-				d.bestHeight)
+				msg.ShortChannelID.ToUint64(),
+				msg.ShortChannelID.BlockHeight, d.bestHeight)
 
 			d.prematureAnnouncements[blockHeight] = append(
 				d.prematureAnnouncements[blockHeight],

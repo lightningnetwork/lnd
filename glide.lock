@@ -1,5 +1,5 @@
-hash: c5c56b20caad86b97a1b15b1887760a850fdcc00f3b112e88cb4e1394ee6e975
-updated: 2017-04-22T16:22:38.73022133-07:00
+hash: 27febf7c52c3a45adf8cedc20c963f810a111e28222d85c39b7be43930312156
+updated: 2017-04-24T16:08:45.663963201-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -15,8 +15,6 @@ imports:
   - token
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
-- name: github.com/btcsuite/bolt
-  version: da4838c39653ed69caa78c99ca68001a89eb973f
 - name: github.com/btcsuite/btclog
   version: 73889fb79bd687870312b6e40effcecffbd57d30
 - name: github.com/btcsuite/fastsha256
@@ -87,7 +85,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 8e06194d49fc1cef9b86dd87c029f8afb37423a0
+  version: 689fccd15fdf3c01cd35734ffe12409bc35a343b
   subpackages:
   - chain
   - internal/helpers

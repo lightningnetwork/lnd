@@ -33,7 +33,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 8e06194d49fc1cef9b86dd87c029f8afb37423a0
+  version: 689fccd15fdf3c01cd35734ffe12409bc35a343b
   subpackages:
   - chain
   - waddrmgr

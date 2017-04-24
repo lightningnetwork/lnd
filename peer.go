@@ -273,14 +273,6 @@ func (p *peer) Start() error {
 	return nil
 }
 
-// Stop signals the peer for a graceful shutdown. All active goroutines will be
-// signaled to wrap up any final actions. This function will also block until
-// all goroutines have exited.
-func (p *peer) Stop() error {
-	// If we're already disconnecting, just exit.
-	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
-		return nil
-	}
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
@@ -291,17 +283,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-	// Ensure that the TCP connection is properly closed before continuing.
-	p.conn.Close()
 		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
 			p.server.chainNotifier, dbChan)
 		if err != nil {
 			return err
 		}
 
-	// Signal all worker goroutines to gracefully exit.
-	close(p.quit)
-	p.wg.Wait()
 		chanPoint := *dbChan.ChanID
 		chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 

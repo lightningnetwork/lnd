@@ -205,11 +205,11 @@ func (p *peer) Start() error {
 	// Exchange local and global features, the init message should be very
 	// first between two nodes.
 	if err := p.sendInitMsg(); err != nil {
-		return err
+		return fmt.Errorf("unable to send init msg: %v", err)
 	}
 
 	// Before we launch any of the helper goroutines off the peer struct,
-	// we'll first ensure proper adherence to the p2p protocl. The init
+	// we'll first ensure proper adherence to the p2p protocol. The init
 	// message MUST be sent before any other message.
 	readErr := make(chan error, 1)
 	msgChan := make(chan lnwire.Message, 1)
@@ -231,7 +231,7 @@ func (p *peer) Start() error {
 			"seconds")
 	case err := <-readErr:
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to read init msg: %v", err)
 		}
 	}
 
@@ -1264,7 +1264,7 @@ out:
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	localSharedFeatures, err := p.server.localFeatures.Compare(msg.LocalFeatures)
 	if err != nil {
-		err := errors.Errorf("can compare remote and local feature "+
+		err := errors.Errorf("can't compare remote and local feature "+
 			"vectors: %v", err)
 		peerLog.Error(err)
 		return err
@@ -1273,7 +1273,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	globalSharedFeatures, err := p.server.globalFeatures.Compare(msg.GlobalFeatures)
 	if err != nil {
-		err := errors.Errorf("can compare remote and global feature "+
+		err := errors.Errorf("can't compare remote and global feature "+
 			"vectors: %v", err)
 		peerLog.Error(err)
 		return err

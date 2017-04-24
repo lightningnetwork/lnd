@@ -476,6 +476,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				if err := channel.DeleteState(); err != nil {
 					return err
 				}
+				// TODO(roasbeef): also unregister link?
 				return fmt.Errorf("channel has been closed by remote party")
 			}
 
@@ -1252,6 +1253,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	return &lnrpc.Invoice{
 		Memo:         string(invoice.Memo[:]),
 		Receipt:      invoice.Receipt[:],
+		RHash:        rHash,
 		RPreimage:    preimage[:],
 		Value:        int64(invoice.Terms.Value),
 		CreationDate: invoice.CreationDate.Unix(),
@@ -1278,9 +1280,12 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	for i, dbInvoice := range dbInvoices {
 		invoiceAmount := dbInvoice.Terms.Value
 		paymentPreimge := dbInvoice.Terms.PaymentPreimage[:]
+		rHash := sha256.Sum256(paymentPreimge)
+
 		invoice := &lnrpc.Invoice{
 			Memo:         string(dbInvoice.Memo[:]),
 			Receipt:      dbInvoice.Receipt[:],
+			RHash:        rHash[:],
 			RPreimage:    paymentPreimge,
 			Value:        int64(invoiceAmount),
 			Settled:      dbInvoice.Terms.Settled,
@@ -1312,10 +1317,13 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 		select {
 		// TODO(roasbeef): include newly added invoices?
 		case settledInvoice := <-invoiceClient.SettledInvoices:
+			preImage := settledInvoice.Terms.PaymentPreimage[:]
+			rHash := sha256.Sum256(preImage)
 			invoice := &lnrpc.Invoice{
 				Memo:      string(settledInvoice.Memo[:]),
 				Receipt:   settledInvoice.Receipt[:],
-				RPreimage: settledInvoice.Terms.PaymentPreimage[:],
+				RHash:     rHash[:],
+				RPreimage: preImage,
 				Value:     int64(settledInvoice.Terms.Value),
 				Settled:   settledInvoice.Terms.Settled,
 			}

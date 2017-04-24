@@ -94,10 +94,6 @@ func New(cfg *Config) (*BtcWallet, error) {
 		}
 	}
 
-	if err := wallet.Manager.Unlock(cfg.PrivatePass); err != nil {
-		return nil, err
-	}
-
 	// Create a special websockets rpc client for btcd which will be used
 	// by the wallet for notifications, calls, etc.
 	rpcc, err := chain.NewRPCClient(cfg.NetParams, cfg.RPCHost,
@@ -138,6 +134,10 @@ func (b *BtcWallet) Start() error {
 	// Pass the rpc client into the wallet so it can sync up to the
 	// current main chain.
 	b.wallet.SynchronizeRPC(b.rpc)
+
+	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
+		return err
+	}
 
 	return nil
 }

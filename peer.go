@@ -342,21 +342,6 @@ func (p *peer) Disconnect() {
 
 	close(p.quit)
 
-	// If this connection was established persistently, then notify the
-	// connection manager that the peer has been disconnected.
-	if p.connReq != nil {
-		p.server.connMgr.Disconnect(p.connReq.ID())
-	}
-
-	// Launch a goroutine to clean up the remaining resources.
-	go func() {
-		// Tell the switch to unregister all links associated with this
-		// peer. Passing nil as the target link indicates that all
-		// links associated with this interface should be closed.
-		p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, nil)
-
-		p.server.donePeers <- p
-	}()
 }
 
 // String returns the string representation of this peer.

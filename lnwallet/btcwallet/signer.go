@@ -11,6 +11,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
+	base "github.com/roasbeef/btcwallet/wallet"
 )
 
 // FetchInputInfo queries for the WalletController's knowledge of the passed
@@ -35,7 +36,8 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	b.cacheMtx.RUnlock()
 
 	// Otherwse, we manually look up the output within the tx store.
-	txDetail, err := b.wallet.TxStore.TxDetails(&prevOut.Hash)
+	txid := &prevOut.Hash
+	txDetail, err := base.UnstableAPI(b.wallet).TxDetails(txid)
 	if err != nil {
 		return nil, err
 	} else if txDetail == nil {
@@ -64,9 +66,9 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 	// Therefore, we simply select the key for the first address we know
 	// of.
 	for _, addr := range addrs {
-		wAddr, err := b.wallet.Manager.Address(addr)
+		addr, err := b.wallet.AddressInfo(addr)
 		if err == nil {
-			return wAddr, nil
+			return addr, nil
 		}
 	}
 
@@ -85,12 +87,7 @@ func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error
 		return nil, err
 	}
 
-	walletddr, err := b.wallet.Manager.Address(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	return walletddr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+	return b.wallet.PrivKeyForAddress(addr)
 }
 
 // SignOutputRaw generates a signature for the passed transaction according to

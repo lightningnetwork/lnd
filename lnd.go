@@ -131,7 +131,7 @@ func lndMain() error {
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
-	wc, err := btcwallet.New(walletConfig)
+	wc, err := btcwallet.New(*walletConfig)
 	if err != nil {
 		fmt.Printf("unable to create wallet controller: %v\n", err)
 		return err

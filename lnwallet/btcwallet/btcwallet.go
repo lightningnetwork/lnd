@@ -26,8 +26,9 @@ const (
 )
 
 var (
-	lnNamespace = []byte("ln")
-	rootKey     = []byte("ln-root")
+	lnNamespace          = []byte("ln")
+	rootKey              = []byte("ln-root")
+	waddrmgrNamespaceKey = []byte("waddrmgr")
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -41,10 +42,9 @@ type BtcWallet struct {
 	// rpc is an an active RPC connection to btcd full-node.
 	rpc *chain.RPCClient
 
-	// lnNamespace is a namespace within btcwallet's walletdb used to store
-	// persistent state required by the WalletController interface but not
-	// natively supported by btcwallet.
-	lnNamespace walletdb.Namespace
+	db walletdb.DB
+
+	cfg *Config
 
 	netParams *chaincfg.Params
 
@@ -60,7 +60,7 @@ var _ lnwallet.WalletController = (*BtcWallet)(nil)
 
 // New returns a new fully initialized instance of BtcWallet given a valid
 // configuration struct.
-func New(cfg *Config) (*BtcWallet, error) {
+func New(cfg Config) (*BtcWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
 	netDir := networkDir(cfg.DataDir, cfg.NetParams)
 
@@ -102,18 +102,28 @@ func New(cfg *Config) (*BtcWallet, error) {
 		return nil, err
 	}
 
+	// Create a bucket within the wallet's database dedicated to storing
+	// our LN specific data.
 	db := wallet.Database()
-	walletNamespace, err := db.Namespace(lnNamespace)
+	err = walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		_, err := tx.CreateTopLevelBucket(lnNamespace)
+		if err != nil && err != walletdb.ErrBucketExists {
+			return err
+		}
+
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &BtcWallet{
-		wallet:      wallet,
-		rpc:         rpcc,
-		lnNamespace: walletNamespace,
-		netParams:   cfg.NetParams,
-		utxoCache:   make(map[wire.OutPoint]*wire.TxOut),
+		cfg:       &cfg,
+		wallet:    wallet,
+		db:        db,
+		rpc:       rpcc,
+		netParams: cfg.NetParams,
+		utxoCache: make(map[wire.OutPoint]*wire.TxOut),
 	}, nil
 }
 
@@ -219,14 +229,9 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
-	// Using the ID address, request the private key coresponding to the
+	// Using the ID address, request the private key corresponding to the
 	// address from the wallet's address manager.
-	walletAddr, err := b.wallet.Manager.Address(a)
-	if err != nil {
-		return nil, err
-	}
-
-	return walletAddr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+	return b.wallet.PrivKeyForAddress(a)
 }
 
 // NewRawKey retrieves the next key within our HD key-chain for use within as a
@@ -241,12 +246,7 @@ func (b *BtcWallet) NewRawKey() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	pkAddr, err := b.wallet.Manager.Address(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	return pkAddr.(waddrmgr.ManagedPubKeyAddress).PubKey(), nil
+	return b.wallet.PubKeyForAddress(addr)
 }
 
 // FetchRootKey returns a root key which is intended to be used as an initial
@@ -258,10 +258,10 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 	// locally within the database, then used to obtain the key from the
 	// wallet based on the address hash.
 	var rootAddrHash []byte
-	if err := b.lnNamespace.Update(func(tx walletdb.Tx) error {
-		rootBucket := tx.RootBucket()
+	if err := walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		lnBucket := tx.ReadBucket(lnNamespace)
 
-		rootAddrHash = rootBucket.Get(rootKey)
+		rootAddrHash = lnBucket.Get(rootKey)
 		return nil
 	}); err != nil {
 		return nil, err
@@ -271,17 +271,19 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 		// Otherwise, we need to generate a fresh address from the
 		// wallet, then stores it's hash160 within the database so we
 		// can look up the exact key later.
-		rootAddr, err := b.wallet.Manager.NextExternalAddresses(defaultAccount,
-			1, waddrmgr.WitnessPubKey)
-		if err != nil {
-			return nil, err
-		}
+		if err := walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+			addrs, err := b.wallet.Manager.NextExternalAddresses(addrmgrNs,
+				defaultAccount, 1, waddrmgr.WitnessPubKey)
+			if err != nil {
+				return err
+			}
+			rootAddr := addrs[0].Address()
 
-		if err := b.lnNamespace.Update(func(tx walletdb.Tx) error {
-			rootBucket := tx.RootBucket()
+			lnBucket := tx.ReadWriteBucket(lnNamespace)
 
-			rootAddrHash = rootAddr[0].Address().ScriptAddress()
-			return rootBucket.Put(rootKey, rootAddrHash)
+			rootAddrHash = rootAddr.ScriptAddress()
+			return lnBucket.Put(rootKey, rootAddrHash)
 		}); err != nil {
 			return nil, err
 		}
@@ -295,12 +297,13 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	walletAddr, err := b.wallet.Manager.Address(rootAddr)
+
+	priv, err := b.wallet.PrivKeyForAddress(rootAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	return walletAddr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+	return priv, nil
 }
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to

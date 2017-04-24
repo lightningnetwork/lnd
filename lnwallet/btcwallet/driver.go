@@ -26,7 +26,7 @@ func createNewWallet(args ...interface{}) (lnwallet.WalletController, error) {
 			"incorrect, expected a *btcrpcclient.ConnConfig")
 	}
 
-	return New(config)
+	return New(*config)
 }
 
 // init registers a driver for the BtcWallet concrete implementation of the

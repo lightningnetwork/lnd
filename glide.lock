@@ -1,5 +1,5 @@
-hash: d7fb4c2d71609f1962573424c1e2b7f3fc7814ead9204df61e51d8df45e40c78
-updated: 2017-04-15T14:38:49.036654404-07:00
+hash: c5c56b20caad86b97a1b15b1887760a850fdcc00f3b112e88cb4e1394ee6e975
+updated: 2017-04-22T16:22:38.73022133-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -48,13 +48,13 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: 8ee79997227bf9b34611aee7946ae64735e6fd93
+  version: 2bba0603135d7d7f5cb73b2125beeda19c09f4ef
   subpackages:
   - jsonpb
   - proto
   - protoc-gen-go/descriptor
 - name: github.com/grpc-ecosystem/grpc-gateway
-  version: 18d159699f2e83fc5bb9ef2f79465ca3f3122676
+  version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
   subpackages:
   - runtime
   - runtime/internal
@@ -87,7 +87,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 780d9ff180a119a45437b5835114a991f69fd39f
+  version: 8e06194d49fc1cef9b86dd87c029f8afb37423a0
   subpackages:
   - chain
   - internal/helpers
@@ -109,7 +109,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 728b753d0135da6801d45a38e6f43ff55779c5c2
+  version: 96846453c37f0876340a66a47f3f75b1f3a6cd2d
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -121,7 +121,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: b4690f45fa1cafc47b1c280c2e75116efe40cc13
+  version: 0b588ed7a0cd59c271d128ec8c429c1c1607e8ab
   subpackages:
   - context
   - http2
@@ -131,11 +131,18 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: e24f485414aeafb646f6fca458b0bf869c0880a1
+  version: ea9bcade75cb975a0b9738936568ab388b845617
   subpackages:
   - unix
+- name: golang.org/x/text
+  version: a9a820217f98f7c8a207ec1e45a874e1fe12c478
+  subpackages:
+  - secure/bidirule
+  - transform
+  - unicode/bidi
+  - unicode/norm
 - name: google.golang.org/genproto
-  version: de9f5e90fe9b278809363f08c2072d2f2a429de7
+  version: 411e09b969b1170a9f0c467558eb4c4c110d9c77
   subpackages:
   - googleapis/api/annotations
 - name: google.golang.org/grpc

@@ -322,24 +322,7 @@ func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
 	wallet WalletController, signer Signer, bio BlockChainIO,
 	netParams *chaincfg.Params) (*LightningWallet, error) {
 
-	// TODO(roasbeef): need a another wallet level config
-
-	// Fetch the root derivation key from the wallet's HD chain. We'll use
-	// this to generate specific Lightning related secrets on the fly.
-	rootKey, err := wallet.FetchRootKey()
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO(roasbeef): always re-derive on the fly?
-	rootKeyRaw := rootKey.Serialize()
-	rootMasterKey, err := hdkeychain.NewMaster(rootKeyRaw, netParams)
-	if err != nil {
-		return nil, err
-	}
-
 	return &LightningWallet{
-		rootKey:          rootMasterKey,
 		chainNotifier:    notifier,
 		Signer:           signer,
 		WalletController: wallet,
@@ -364,6 +347,20 @@ func (l *LightningWallet) Startup() error {
 
 	// Start the underlying wallet controller.
 	if err := l.Start(); err != nil {
+		return err
+	}
+
+	// Fetch the root derivation key from the wallet's HD chain. We'll use
+	// this to generate specific Lightning related secrets on the fly.
+	rootKey, err := l.FetchRootKey()
+	if err != nil {
+		return err
+	}
+
+	// TODO(roasbeef): always re-derive on the fly?
+	rootKeyRaw := rootKey.Serialize()
+	l.rootKey, err = hdkeychain.NewMaster(rootKeyRaw, l.netParams)
+	if err != nil {
 		return err
 	}
 

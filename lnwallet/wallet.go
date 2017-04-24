@@ -349,6 +349,7 @@ func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
 		nextFundingID:    0,
 		fundingLimbo:     make(map[uint64]*ChannelReservation),
 		lockedOutPoints:  make(map[wire.OutPoint]struct{}),
+		netParams:        netParams,
 		quit:             make(chan struct{}),
 	}, nil
 }

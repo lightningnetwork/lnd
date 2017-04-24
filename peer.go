@@ -319,7 +319,13 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	return nil
 }
 
-// TODO(roasbeef): add WaitForShutdown method
+// WaitForDisconnect waits until the peer has disconnected. A peer may be
+// disconnected if the local or remote side terminating the connection, or an
+// irrecoverable protocol error has been encountered.
+func (p *peer) WaitForDisconnect() {
+	<-p.quit
+
+}
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources

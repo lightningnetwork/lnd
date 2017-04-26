@@ -51,7 +51,7 @@ var (
 	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
 	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
-	trickleDelay     = time.Millisecond * 300
+	trickleDelay     = time.Millisecond * 100
 	proofMatureDelta uint32
 )
 
@@ -577,10 +577,10 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 }
 
-// TestSignatureAnnouncement ensures that the AuthenticatedGossiper properly
+// TestSignatureAnnouncementLocalFirst ensures that the AuthenticatedGossiper properly
 // processes partial and fully announcement signatures message.
-func TestSignatureAnnouncement(t *testing.T) {
-	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+func TestSignatureAnnouncementLocalFirst(t *testing.T) {
+	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
 	}
@@ -654,5 +654,88 @@ func TestSignatureAnnouncement(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("announcement wasn't broadcast")
 		}
+	}
+}
+
+// TestOrphanSignatureAnnouncement ensures that the gossiper properly
+// processes announcement with unknown channel ids.
+func TestOrphanSignatureAnnouncement(t *testing.T) {
+	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	localKey := batch.nodeAnn1.NodeID
+	remoteKey := batch.nodeAnn2.NodeID
+
+	// Pretending that we receive local channel announcement from funding
+	// manager, thereby kick off the announcement exchange process, in
+	// this case the announcement should be added in the orphan batch
+	// because we haven't announce the channel yet.
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
+	if err != nil {
+		t.Fatalf("unable to proceed announcement: %v", err)
+	}
+
+	if len(ctx.discovery.waitingProofs) != 1 {
+		t.Fatal("local proof announcement should be stored")
+	}
+
+	// Recreate lightning network topology. Initialize router with channel
+	// between two nodes.
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("channel update announcement was broadcast")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// After that we process local announcement, and waiting to receive
+	// the channel announcement.
+	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-ctx.broadcastedMessage:
+		case <-time.After(time.Second):
+			t.Fatal("announcement wasn't broadcast")
+		}
+	}
+
+	if len(ctx.discovery.waitingProofs) != 0 {
+		t.Fatal("index should be removed")
 	}
 }

@@ -226,7 +226,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- errors.New("discovery has shut down")
+		nMsg.err <- errors.New("gossiper has shut down")
 	}
 
 	return nMsg.err
@@ -252,7 +252,7 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- errors.New("discovery has shut down")
+		nMsg.err <- errors.New("gossiper has shut down")
 	}
 
 	return nMsg.err
@@ -589,6 +589,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			err := errors.Errorf("unable to validate "+
 				"channel update short_chan_id=%v: %v",
 				shortChanID, err)
+			log.Error(err)
 			nMsg.err <- err
 			return nil
 		}
@@ -686,10 +687,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// before proceeding further.
 		chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
 		if err != nil {
-			err := errors.Errorf("unable to process channel "+
-				"%v proof with short_chan_id=%v: %v", prefix,
-				shortChanID, err)
-			nMsg.err <- err
+			// TODO(andrew.shvv) this is dangerous because remote
+			// node might rewrite the waiting proof.
+			key := newProofKey(shortChanID, nMsg.isRemote)
+			d.waitingProofs[key] = msg
+
+			log.Infof("Orphan %v proof announcement with "+
+				"short_chan_id=%v, adding"+
+				"to waiting batch", prefix, shortChanID)
+			nMsg.err <- nil
 			return nil
 		}
 
@@ -799,6 +805,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			nMsg.err <- err
 			return nil
 		}
+		delete(d.waitingProofs, oppositeKey)
 
 		// Proof was successfully created and now can announce the
 		// channel to the remain network.

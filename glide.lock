@@ -1,5 +1,5 @@
 hash: 27febf7c52c3a45adf8cedc20c963f810a111e28222d85c39b7be43930312156
-updated: 2017-04-24T16:08:45.663963201-07:00
+updated: 2017-04-26T21:22:25.305054061-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -75,7 +75,7 @@ imports:
   - txscript
   - wire
 - name: github.com/roasbeef/btcrpcclient
-  version: 38480d7c28ff1882772e35d903bfe84aad925153
+  version: dee1f888e35688b4f7514bbc6a054efde48abf65
 - name: github.com/roasbeef/btcutil
   version: d347e49b656d2a7f6d06cc9e2daebc5acded5728
   subpackages:
@@ -107,7 +107,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 96846453c37f0876340a66a47f3f75b1f3a6cd2d
+  version: c7af5bf2638a1164f2eb5467c39c6cffbd13a02e
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -119,7 +119,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: 0b588ed7a0cd59c271d128ec8c429c1c1607e8ab
+  version: da118f7b8e5954f39d0d2130ab35d4bf0e3cb344
   subpackages:
   - context
   - http2
@@ -129,7 +129,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: ea9bcade75cb975a0b9738936568ab388b845617
+  version: 9ccfe848b9db8435a24c424abbc07a921adf1df5
   subpackages:
   - unix
 - name: golang.org/x/text

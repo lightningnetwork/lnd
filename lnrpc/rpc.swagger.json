@@ -96,6 +96,22 @@
         ]
       }
     },
+    "/v1/channels/closed": {
+      "get": {
+        "operationId": "ClosedChannels",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcClosedChannelsResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/pending": {
       "get": {
         "summary": "TODO(roasbeef): merge with below with bool?",
@@ -570,6 +586,17 @@
     }
   },
   "definitions": {
+    "ClosedChannelsResponseClosedChannel": {
+      "type": "object",
+      "properties": {
+        "channel_point": {
+          "type": "string"
+        },
+        "closing_txid": {
+          "type": "string"
+        }
+      }
+    },
     "NewAddressRequestAddressType": {
       "type": "string",
       "enum": [
@@ -865,6 +892,20 @@
         },
         "chan_point": {
           "$ref": "#/definitions/lnrpcChannelPoint"
+        }
+      }
+    },
+    "lnrpcClosedChannelsRequest": {
+      "type": "object"
+    },
+    "lnrpcClosedChannelsResponse": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClosedChannelsResponseClosedChannel"
+          }
         }
       }
     },

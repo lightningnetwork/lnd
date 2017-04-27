@@ -11,6 +11,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -68,6 +69,10 @@ var (
 	satReceivedPrefix    = []byte("srp")
 	netFeesPrefix        = []byte("ntp")
 	isPendingPrefix      = []byte("pdg")
+	forceClosedPrefix    = []byte("forceclosed")
+	closingTxPrefix      = []byte("closingtx")
+	ourBalancePrefix     = []byte("ourbalance")
+	maturityHeightPrefix = []byte("maturityheight")
 
 	// chanIDKey stores the node, and channelID for an active channel.
 	chanIDKey = []byte("cik")
@@ -654,7 +659,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 // entails deleting all saved state within the database concerning this
 // channel, as well as created a small channel summary for record keeping
 // purposes.
-func (c *OpenChannel) CloseChannel() error {
+func (c *OpenChannel) CloseChannel(summary *ClosedChannelSummary) error {
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data
 		// related to current, active channels.
@@ -716,7 +721,7 @@ func (c *OpenChannel) CloseChannel() error {
 
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.
-		return putClosedChannelSummary(tx, outPointBytes)
+		return putClosedChannelSummary(tx, summary)
 	})
 }
 
@@ -768,7 +773,35 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
-func putClosedChannelSummary(tx *bolt.Tx, chanID []byte) error {
+// ClosedChannelSummary contains the information we want to save in
+// the database for a closed channel
+type ClosedChannelSummary struct {
+	// ChanID is the outpoint for this channel's funding transaction,
+	// and is used as a unique identifier for the channel
+	ChanID *wire.OutPoint
+
+	// IsPending indicates whether this channel is in the 'pending close'
+	// state, which means the channel closing transaction has been
+	// broadcast, but not confirmed yet. The moment it gets confirmed,
+	// the channel is not considered pending anymore
+	IsPending bool
+
+	// ForceClosed indicates whether the closure of this channel was a
+	// result of a unilateral (force) close
+	ForceClosed bool
+
+	// ClosingTx is the txid of the closing transaction
+	ClosingTx *chainhash.Hash
+
+	// OurBalance is the balance at time of close
+	OurBalance btcutil.Amount
+
+	// MaturityHight is the block height at which the time locked
+	// output of the closing tx can be claimed
+	MaturityHight uint64
+}
+
+func putClosedChannelSummary(tx *bolt.Tx, summary *ClosedChannelSummary) error {
 	// For now, a summary of a closed channel simply involves recording the
 	// outpoint of the funding transaction.
 	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
@@ -776,9 +809,119 @@ func putClosedChannelSummary(tx *bolt.Tx, chanID []byte) error {
 		return err
 	}
 
-	// TODO(roasbeef): add other info
-	//  * should likely have each in own bucket per node
-	return closedChanBucket.Put(chanID, nil)
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, summary.ChanID); err != nil {
+		return err
+	}
+
+	// Store 'IsPending' bool as uint16
+	pendingKey := make([]byte, 3+b.Len())
+	copy(pendingKey[:3], isPendingPrefix)
+	copy(pendingKey[3:], b.Bytes())
+
+	pendingValue := make([]byte, 2)
+	if summary.IsPending {
+		byteOrder.PutUint16(pendingValue[:], uint16(1))
+	} else {
+		byteOrder.PutUint16(pendingValue[:], uint16(0))
+	}
+
+	if err := closedChanBucket.Put(pendingKey, pendingValue); err != nil {
+		return err
+	}
+
+	// Store 'ForceClosed' bool as uint16
+	forceKey := make([]byte, len(forceClosedPrefix)+b.Len())
+	copy(pendingKey[:len(forceClosedPrefix)], forceClosedPrefix)
+	copy(pendingKey[len(forceClosedPrefix):], b.Bytes())
+
+	forceValue := make([]byte, 2)
+	if summary.ForceClosed {
+		byteOrder.PutUint16(forceValue[:], uint16(1))
+	} else {
+		byteOrder.PutUint16(forceValue[:], uint16(0))
+	}
+
+	if err := closedChanBucket.Put(forceKey, forceValue); err != nil {
+		return err
+	}
+
+	// Store 'OurBalance' Amount as uint64
+	balanceKey := make([]byte, len(ourBalancePrefix)+b.Len())
+	copy(pendingKey[:len(ourBalancePrefix)], ourBalancePrefix)
+	copy(pendingKey[len(ourBalancePrefix):], b.Bytes())
+
+	balanceValue := make([]byte, 8)
+	byteOrder.PutUint64(balanceValue[:], uint64(summary.OurBalance))
+
+	if err := closedChanBucket.Put(balanceKey, balanceValue); err != nil {
+		return err
+	}
+
+	// Store 'MaturityHight'
+	heightKey := make([]byte, len(maturityHeightPrefix)+b.Len())
+	copy(pendingKey[:len(maturityHeightPrefix)], maturityHeightPrefix)
+	copy(pendingKey[len(maturityHeightPrefix):], b.Bytes())
+
+	heightValue := make([]byte, 8)
+	byteOrder.PutUint64(heightValue[:], summary.MaturityHight)
+
+	return closedChanBucket.Put(heightKey, heightValue)
+}
+
+func fetchClosedChannelSummary(closedChanBucket *bolt.Bucket,
+	chanID []byte) (*ClosedChannelSummary, error) {
+
+	summary := &ClosedChannelSummary{}
+
+	summary.ChanID = &wire.OutPoint{}
+	if err := readOutpoint(bytes.NewReader(chanID), summary.ChanID); err != nil {
+		return nil, err
+	}
+
+	// Get 'IsPending'
+	pendingKey := make([]byte, len(isPendingPrefix)+len(chanID))
+	copy(pendingKey[:len(isPendingPrefix)], isPendingPrefix)
+	copy(pendingKey[len(isPendingPrefix):], chanID)
+
+	summary.IsPending = byteOrder.Uint16(closedChanBucket.Get(pendingKey)) == 1
+
+	// Get 'ForceClosed'
+	forceKey := make([]byte, len(forceClosedPrefix)+len(chanID))
+	copy(pendingKey[:len(forceClosedPrefix)], forceClosedPrefix)
+	copy(pendingKey[len(forceClosedPrefix):], chanID)
+
+	summary.ForceClosed = byteOrder.Uint16(closedChanBucket.Get(forceKey)) == 1
+
+	// Get 'ClosingTx'
+	closingTxKey := make([]byte, len(closingTxPrefix)+len(chanID))
+	copy(closingTxKey[:len(closingTxPrefix)], closingTxPrefix)
+	copy(closingTxKey[len(closingTxPrefix):], chanID)
+	closingTxBytes := closedChanBucket.Get(closingTxKey)
+	if closingTxBytes != nil {
+		closingTx, err := chainhash.NewHash(closingTxBytes)
+		if err != nil {
+			return nil, err
+		}
+		summary.ClosingTx = closingTx
+	}
+
+	// Get OurBalance
+	balanceKey := make([]byte, len(ourBalancePrefix)+len(chanID))
+	copy(pendingKey[:len(ourBalancePrefix)], ourBalancePrefix)
+	copy(pendingKey[len(ourBalancePrefix):], chanID)
+
+	summary.OurBalance = btcutil.Amount(
+		byteOrder.Uint64(closedChanBucket.Get(balanceKey)))
+
+	// Get 'MaturityHight'
+	heightKey := make([]byte, len(maturityHeightPrefix)+len(chanID))
+	copy(pendingKey[:len(maturityHeightPrefix)], maturityHeightPrefix)
+	copy(pendingKey[len(maturityHeightPrefix):], chanID)
+
+	summary.MaturityHight = byteOrder.Uint64(closedChanBucket.Get(heightKey))
+
+	return summary, nil
 }
 
 // putChannel serializes, and stores the current state of the channel in its

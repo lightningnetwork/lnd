@@ -262,6 +262,8 @@ out:
 
 				close(b.blockEpochClients[msg.epochID])
 				delete(b.blockEpochClients, msg.epochID)
+
+				close(msg.done)
 			}
 		case registerMsg := <-b.notificationRegistry:
 			switch msg := registerMsg.(type) {
@@ -707,6 +709,8 @@ type blockEpochRegistration struct {
 // cancel an outstanding epoch notification that has yet to be dispatched.
 type epochCancel struct {
 	epochID uint64
+
+	done chan struct{}
 }
 
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the
@@ -726,10 +730,17 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, er
 		return &chainntnfs.BlockEpochEvent{
 			Epochs: registration.epochChan,
 			Cancel: func() {
-				select {
-				case b.notificationCancels <- &epochCancel{
+				cancel := &epochCancel{
 					epochID: registration.epochID,
-				}:
+					done:    make(chan struct{}),
+				}
+
+				select {
+				case b.notificationCancels <- cancel:
+					select {
+					case <-cancel.done:
+					case <-b.quit:
+					}
 				case <-b.quit:
 					return
 				}

@@ -1459,7 +1459,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		// There are additional hops left within this route, so we
 		// track the next hop according to the index of this HTLC
-		// within their log. When forwarding locked-in HLTCs to the
+		// within their log. When forwarding locked-in HTLCs to the
 		// switch, we'll attach the routing information so the switch
 		// can finalize the circuit.
 		case sphinx.MoreHops:

@@ -200,8 +200,7 @@ func (r *rpcServer) SignMessage(ctx context.Context,
 		return nil, fmt.Errorf("need a message to sign")
 	}
 
-	pubkey := r.server.identityPriv.PubKey()
-	sigBytes, err := r.server.nodeSigner.SignCompact(pubkey, in.Msg)
+	sigBytes, err := r.server.nodeSigner.SignCompact(in.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +211,8 @@ func (r *rpcServer) SignMessage(ctx context.Context,
 
 // VerifyMessage verifies a signature over a msg. The signature must be
 // zbase32 encoded and signed by an active node in the resident node's
-// channel database.
+// channel database. In addition to returning the validity of the signature,
+// VerifyMessage also returns the recovered pubkey from the signature.
 func (r *rpcServer) VerifyMessage(ctx context.Context,
 	in *lnrpc.VerifyMessageRequest) (*lnrpc.VerifyMessageResponse, error) {
 
@@ -226,6 +226,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 		return nil, fmt.Errorf("failed to decode signature: %v", err)
 	}
 
+	// The signature is over the double-sha256 hash of the message.
 	digest := chainhash.DoubleHashB(in.Msg)
 
 	// RecoverCompact both recovers the pubkey and validates the signature.
@@ -233,15 +234,18 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	if err != nil {
 		return &lnrpc.VerifyMessageResponse{Valid: false}, nil
 	}
+	pubKeyHex := hex.EncodeToString(pubKey.SerializeCompressed())
 
-	graph := r.server.chanDB.ChannelGraph()
+	// Query the channel graph to ensure a node in the network with active
+	// channels signed the message.
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
+	graph := r.server.chanDB.ChannelGraph()
 	_, active, err := graph.HasLightningNode(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
 
-	return &lnrpc.VerifyMessageResponse{Valid: active}, nil
+	return &lnrpc.VerifyMessageResponse{Valid: active, Pubkey: pubKeyHex}, nil
 }
 
 // ConnectPeer attempts to establish a connection to a remote peer.

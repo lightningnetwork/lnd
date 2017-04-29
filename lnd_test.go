@@ -2352,14 +2352,20 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 }
 
 func testNodeSignVerify(net *networkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
-	// bob should be able to verify alice's signature
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	pushAmt := btcutil.Amount(100000)
+
+	// Create a channel between alice and bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	aliceBobCh := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		chanAmt, pushAmt)
 
 	aliceMsg := []byte("alice msg")
 
-	// alice: sign "alice msg"
-
+	// alice signs "alice msg" and sends her signature to bob.
 	sigReq := &lnrpc.SignMessageRequest{Msg: aliceMsg}
 	sigResp, err := net.Alice.SignMessage(ctxb, sigReq)
 	if err != nil {
@@ -2367,10 +2373,9 @@ func testNodeSignVerify(net *networkHarness, t *harnessTest) {
 	}
 	aliceSig := sigResp.Signature
 
-	// bob: verify alice's signature -> should succeed
-
-	verifyReq := &lnrpc.VerifyMessageRequest{
-		Msg: aliceMsg, Signature: aliceSig}
+	// bob verifying alice's signature should succeed since alice and bob are
+	// connected.
+	verifyReq := &lnrpc.VerifyMessageRequest{Msg: aliceMsg, Signature: aliceSig}
 	verifyResp, err := net.Bob.VerifyMessage(ctxb, verifyReq)
 	if err != nil {
 		t.Fatalf("VerifyMessage failed: %v", err)
@@ -2378,9 +2383,11 @@ func testNodeSignVerify(net *networkHarness, t *harnessTest) {
 	if !verifyResp.Valid {
 		t.Fatalf("alice's signature didn't validate")
 	}
+	if verifyResp.Pubkey != net.Alice.PubKeyStr {
+		t.Fatalf("alice's signature doesn't contain alice's pubkey.")
+	}
 
-	// carol is a new node that is unconnected to alice or bob
-
+	// carol is a new node that is unconnected to alice or bob.
 	carol, err := net.NewNode(nil)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -2388,8 +2395,7 @@ func testNodeSignVerify(net *networkHarness, t *harnessTest) {
 
 	carolMsg := []byte("carol msg")
 
-	// carol: sign "carol msg"
-
+	// carol signs "carol msg" and sends her signature to bob.
 	sigReq = &lnrpc.SignMessageRequest{Msg: carolMsg}
 	sigResp, err = carol.SignMessage(ctxb, sigReq)
 	if err != nil {
@@ -2397,10 +2403,8 @@ func testNodeSignVerify(net *networkHarness, t *harnessTest) {
 	}
 	carolSig := sigResp.Signature
 
-	// bob: verify carol's signature -> should fail
-
-	verifyReq = &lnrpc.VerifyMessageRequest{
-		Msg: carolMsg, Signature: carolSig}
+	// bob verifying carol's signature should fail since they are not connected.
+	verifyReq = &lnrpc.VerifyMessageRequest{Msg: carolMsg, Signature: carolSig}
 	verifyResp, err = net.Bob.VerifyMessage(ctxb, verifyReq)
 	if err != nil {
 		t.Fatalf("VerifyMessage failed: %v", err)
@@ -2408,6 +2412,18 @@ func testNodeSignVerify(net *networkHarness, t *harnessTest) {
 	if verifyResp.Valid {
 		t.Fatalf("carol's signature should not be valid")
 	}
+	if verifyResp.Pubkey != carol.PubKeyStr {
+		t.Fatalf("carol's signature doesn't contain her pubkey")
+	}
+
+	// Clean up carol's node.
+	if err := carol.Shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+
+	// Close the channel between alice and bob.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceBobCh, false)
 }
 
 type testCase struct {
@@ -2474,14 +2490,14 @@ var testsCases = []*testCase{
 		test: testNodeAnnouncement,
 	},
 	{
+		name: "node sign verify",
+		test: testNodeSignVerify,
+	},
+	{
 		// TODO(roasbeef): test always needs to be last as Bob's state
 		// is borked since we trick him into attempting to cheat Alice?
 		name: "revoked uncooperative close retribution",
 		test: testRevokedCloseRetribution,
-	},
-	{
-		name: "node sign verify",
-		test: testNodeSignVerify,
 	},
 }
 

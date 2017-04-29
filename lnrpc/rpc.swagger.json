@@ -1789,6 +1789,9 @@
         "valid": {
           "type": "boolean",
           "format": "boolean"
+        },
+        "pubkey": {
+          "type": "string"
         }
       }
     },

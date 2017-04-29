@@ -44,31 +44,25 @@ func (n *nodeSigner) SignMessage(pubKey *btcec.PublicKey,
 	return sign, nil
 }
 
-// SignCompact signs a double-sha256 digest of the passed msg under the
-// resident node's private key. If the target public key is _not_ the node's
-// private key, then an error will be returned. The returned signature is a
-// pubkey-recoverable signature.
-func (n *nodeSigner) SignCompact(pubKey *btcec.PublicKey,
-	msg []byte) ([]byte, error) {
-
-	// If this isn't our identity public key, then we'll exit early with an
-	// error as we can't sign with this key.
-	if !pubKey.IsEqual(n.privKey.PubKey()) {
-		return nil, fmt.Errorf("unknown public key")
-	}
+// SignCompact signs a double-sha256 digest of the msg parameter under the
+// resident node's private key. The returned signature is a pubkey-recoverable
+// signature.
+func (n *nodeSigner) SignCompact(msg []byte) ([]byte, error) {
 
 	// Otherwise, we'll sign the dsha256 of the target message.
 	digest := chainhash.DoubleHashB(msg)
+
 	// Should the signature reference a compressed public key or not.
-	compressedPubKey := false
+	isCompressedKey := false
+
 	// btcec.SignCompact returns a pubkey-recoverable signature
-	sign, err := btcec.SignCompact(
-		btcec.S256(), n.privKey, digest, compressedPubKey)
+	sig, err := btcec.SignCompact(btcec.S256(), n.privKey, digest,
+		isCompressedKey)
 	if err != nil {
 		return nil, fmt.Errorf("can't sign the message: %v", err)
 	}
 
-	return sign, nil
+	return sig, nil
 }
 
 // A compile time check to ensure that nodeSigner implements the MessageSigner

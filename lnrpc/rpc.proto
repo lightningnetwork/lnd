@@ -263,6 +263,7 @@ message VerifyMessageRequest {
 }
 message VerifyMessageResponse {
     bool valid = 1 [ json_name = "valid" ];
+    string pubkey = 2 [ json_name = "pubkey" ];
 }
 
 message ConnectPeerRequest {

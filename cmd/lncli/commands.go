@@ -1625,7 +1625,7 @@ var verifyMessageCommand = cli.Command{
 			Usage: "the message to verify",
 		},
 		cli.StringFlag{
-			Name:  "signature",
+			Name:  "sig",
 			Usage: "the zbase32 encoded signature of the message",
 		},
 	},
@@ -1638,8 +1638,8 @@ func verifyMessage(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		msg       []byte
-		signature string
+		msg []byte
+		sig string
 	)
 
 	args := ctx.Args()
@@ -1655,15 +1655,15 @@ func verifyMessage(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("signature"):
-		signature = ctx.String("signature")
+	case ctx.IsSet("sig"):
+		sig = ctx.String("sig")
 	case args.Present():
-		signature = args.First()
+		sig = args.First()
 	default:
 		return fmt.Errorf("signature argument missing")
 	}
 
-	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: signature}
+	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
 	resp, err := client.VerifyMessage(ctxb, req)
 	if err != nil {
 		return err

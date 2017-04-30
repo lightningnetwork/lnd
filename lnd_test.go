@@ -895,27 +895,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
 		chanAmt, 0)
 
-	assertPaymentBalance := func(amt btcutil.Amount) {
-		balReq := &lnrpc.ChannelBalanceRequest{}
-
-		// The balances of Alice and Bob should be updated accordingly.
-		aliceBalance, err := net.Alice.ChannelBalance(ctxb, balReq)
-		if err != nil {
-			t.Fatalf("unable to query for alice's balance: %v", err)
-		}
-		bobBalance, err := net.Bob.ChannelBalance(ctxb, balReq)
-		if err != nil {
-			t.Fatalf("unable to query for bob's balance: %v", err)
-		}
-		if aliceBalance.Balance != int64(chanAmt-amt) {
-			t.Fatalf("Alice's balance is incorrect got %v, expected %v",
-				aliceBalance, int64(chanAmt-amt))
-		}
-		if bobBalance.Balance != int64(amt) {
-			t.Fatalf("Bob's balance is incorrect got %v, expected %v",
-				bobBalance, amt)
-		}
-
+	assertAmountSent := func(amt btcutil.Amount) {
 		// Both channels should also have properly accounted from the
 		// amount that has been sent/received over the channel.
 		listReq := &lnrpc.ListChannelsRequest{}
@@ -1005,7 +985,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	// With the payment completed all balance related stats should be
 	// properly updated.
 	time.Sleep(time.Millisecond * 200)
-	assertPaymentBalance(paymentAmt)
+	assertAmountSent(paymentAmt)
 
 	// Create another invoice for Bob, this time leaving off the preimage
 	// to one will be randomly generated. We'll test the proper
@@ -1033,7 +1013,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	// The second payment should also have succeeded, with the balances
 	// being update accordingly.
 	time.Sleep(time.Millisecond * 200)
-	assertPaymentBalance(paymentAmt * 2)
+	assertAmountSent(paymentAmt * 2)
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
@@ -1292,9 +1272,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	case <-finClear:
 	}
 
-	assertAsymmetricBalance := func(node *lightningNode,
-		chanPoint wire.OutPoint, localBalance,
-		remoteBalance int64) {
+	assertAmountPaid := func(node *lightningNode,
+		chanPoint wire.OutPoint, amountSent,
+		amountReceived int64) {
 
 		channelName := ""
 		switch chanPoint {
@@ -1304,7 +1284,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 			channelName = "Alice(local) => Bob(remote)"
 		}
 
-		checkBalance := func() error {
+		checkAmountPaid := func() error {
 			listReq := &lnrpc.ListChannelsRequest{}
 			resp, err := node.ListChannels(ctxb, listReq)
 			if err != nil {
@@ -1316,16 +1296,19 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 					continue
 				}
 
-				if channel.LocalBalance != localBalance {
-					return fmt.Errorf("%v: incorrect local "+
-						"balances: %v != %v", channelName,
-						channel.LocalBalance, localBalance)
+				if channel.TotalSatoshisSent != amountSent {
+					return fmt.Errorf("%v: incorrect amount"+
+						" sent: %v != %v", channelName,
+						channel.TotalSatoshisSent,
+						amountSent)
 				}
-
-				if channel.RemoteBalance != remoteBalance {
-					return fmt.Errorf("%v: incorrect remote "+
-						"balances: %v != %v", channelName,
-						channel.RemoteBalance, remoteBalance)
+				if channel.TotalSatoshisReceived !=
+					amountReceived {
+					return fmt.Errorf("%v: inccrrect amount"+
+						" received: %v != %v",
+						channelName,
+						channel.TotalSatoshisReceived,
+						amountReceived)
 				}
 
 				return nil
@@ -1347,9 +1330,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 
 		for {
 			isTimeover := atomic.LoadUint32(&timeover) == 1
-			if err := checkBalance(); err != nil {
+			if err := checkAmountPaid(); err != nil {
 				if isTimeover {
-					t.Fatalf("Check balance failed: %v", err)
+					t.Fatalf("Check amount Paid failed: %v", err)
 				}
 			} else {
 				break
@@ -1362,12 +1345,11 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// payment flow generated above. The order of asserts corresponds to
 	// increasing of time is needed to embed the HTLC in commitment
 	// transaction, in channel Carol->Alice->Bob, order is Bob,Alice,Carol.
-	const sourceBal = int64(95000)
-	const sinkBal = int64(5000)
-	assertAsymmetricBalance(net.Bob, aliceFundPoint, sinkBal, sourceBal)
-	assertAsymmetricBalance(net.Alice, aliceFundPoint, sourceBal, sinkBal)
-	assertAsymmetricBalance(net.Alice, carolFundPoint, sinkBal, sourceBal)
-	assertAsymmetricBalance(carol, carolFundPoint, sourceBal, sinkBal)
+	const amountPaid = int64(5000)
+	assertAmountPaid(net.Bob, aliceFundPoint, int64(0), amountPaid)
+	assertAmountPaid(net.Alice, aliceFundPoint, amountPaid, int64(0))
+	assertAmountPaid(net.Alice, carolFundPoint, int64(0), amountPaid)
+	assertAmountPaid(carol, carolFundPoint, amountPaid, int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)

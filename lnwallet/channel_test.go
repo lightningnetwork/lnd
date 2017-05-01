@@ -329,6 +329,20 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	return channelAlice, channelBob, cleanUpFunc, nil
 }
 
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+// TODO(bvu): Refactor when dynamic fee estimation is added.
+func calcStaticFee(numHTLCs int) btcutil.Amount {
+	const (
+		commitWeight = btcutil.Amount(724)
+		htlcWeight   = 172
+		feePerByte   = btcutil.Amount(50 * 4)
+	)
+	return feePerByte * (commitWeight +
+		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+}
+
 // TestSimpleAddSettleWorkflow tests a simple channel scenario wherein the
 // local node (Alice in this case) creates a new outgoing HTLC to bob, commits
 // this change, then bob immediately commits a settlement of the HTLC after the
@@ -429,25 +443,27 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 			"forward %v", len(htlcs))
 	}
 
-	// At this point, both sides should have the proper balance, and
-	// commitment height updated within their local channel state.
-	aliceBalance := btcutil.Amount(4 * 1e8)
-	bobBalance := btcutil.Amount(5 * 1e8)
-	if aliceChannel.channelState.OurBalance != aliceBalance {
-		t.Fatalf("alice has incorrect local balance %v vs %v",
-			aliceChannel.channelState.OurBalance, aliceBalance)
+	// At this point, both sides should have the proper number of satoshis
+	// sent, and commitment height updated within their local channel
+	// state.
+	aliceSent := uint64(0)
+	bobSent := uint64(0)
+
+	if aliceChannel.channelState.TotalSatoshisSent != aliceSent {
+		t.Fatalf("alice has incorrect satoshis sent: %v vs %v",
+			aliceChannel.channelState.TotalSatoshisSent, aliceSent)
 	}
-	if aliceChannel.channelState.TheirBalance != bobBalance {
-		t.Fatalf("alice has incorrect remote balance %v vs %v",
-			aliceChannel.channelState.TheirBalance, bobBalance)
+	if aliceChannel.channelState.TotalSatoshisReceived != bobSent {
+		t.Fatalf("alice has incorrect satoshis received %v vs %v",
+			aliceChannel.channelState.TotalSatoshisReceived, bobSent)
 	}
-	if bobChannel.channelState.OurBalance != bobBalance {
-		t.Fatalf("bob has incorrect local balance %v vs %v",
-			bobChannel.channelState.OurBalance, bobBalance)
+	if bobChannel.channelState.TotalSatoshisSent != bobSent {
+		t.Fatalf("bob has incorrect satoshis sent %v vs %v",
+			bobChannel.channelState.TotalSatoshisSent, bobSent)
 	}
-	if bobChannel.channelState.TheirBalance != aliceBalance {
-		t.Fatalf("bob has incorrect remote balance %v vs %v",
-			bobChannel.channelState.TheirBalance, aliceBalance)
+	if bobChannel.channelState.TotalSatoshisReceived != aliceSent {
+		t.Fatalf("bob has incorrect satoshis received %v vs %v",
+			bobChannel.channelState.TotalSatoshisReceived, aliceSent)
 	}
 	if bobChannel.currentHeight != 1 {
 		t.Fatalf("bob has incorrect commitment height, %v vs %v",
@@ -526,25 +542,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel should
 	// show 1 BTC received. They should also be at commitment height two,
 	// with the revocation window extended by by 1 (5).
-	aliceSettleBalance := btcutil.Amount(4 * 1e8)
-	bobSettleBalance := btcutil.Amount(6 * 1e8)
 	satoshisTransferred := uint64(100000000)
-	if aliceChannel.channelState.OurBalance != aliceSettleBalance {
-		t.Fatalf("alice has incorrect local balance %v vs %v",
-			aliceChannel.channelState.OurBalance, aliceSettleBalance)
-	}
-	if aliceChannel.channelState.TheirBalance != bobSettleBalance {
-		t.Fatalf("alice has incorrect remote balance %v vs %v",
-			aliceChannel.channelState.TheirBalance, bobSettleBalance)
-	}
-	if bobChannel.channelState.OurBalance != bobSettleBalance {
-		t.Fatalf("bob has incorrect local balance %v vs %v",
-			bobChannel.channelState.OurBalance, bobSettleBalance)
-	}
-	if bobChannel.channelState.TheirBalance != aliceSettleBalance {
-		t.Fatalf("bob has incorrect remote balance %v vs %v",
-			bobChannel.channelState.TheirBalance, aliceSettleBalance)
-	}
 	if aliceChannel.channelState.TotalSatoshisSent != satoshisTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
 			aliceChannel.channelState.TotalSatoshisSent,
@@ -1060,6 +1058,42 @@ func TestCheckDustLimit(t *testing.T) {
 	}
 	defer cleanUp()
 
+	assertChannelState := func(chanA, chanB *LightningChannel, numOutsA,
+		numOutsB int, amountSentA, amountSentB uint64) {
+
+		commitment := chanA.localCommitChain.tip()
+		if len(commitment.txn.TxOut) != numOutsA {
+			t.Fatalf("incorrect # of outputs: expected %v, got %v",
+				numOutsA, len(commitment.txn.TxOut))
+		}
+		commitment = chanB.localCommitChain.tip()
+		if len(commitment.txn.TxOut) != numOutsB {
+			t.Fatalf("Incorrect # of outputs: expected %v, got %v",
+				numOutsB, len(commitment.txn.TxOut))
+		}
+
+		if chanA.channelState.TotalSatoshisSent != amountSentA {
+			t.Fatalf("alice satoshis sent incorrect: expected %v, "+
+				"got %v", amountSentA,
+				chanA.channelState.TotalSatoshisSent)
+		}
+		if chanA.channelState.TotalSatoshisReceived != amountSentB {
+			t.Fatalf("alice satoshis received incorrect: expected"+
+				"%v, got %v", amountSentB,
+				chanA.channelState.TotalSatoshisReceived)
+		}
+		if chanB.channelState.TotalSatoshisSent != amountSentB {
+			t.Fatalf("bob satoshis sent incorrect: expected %v, "+
+				" got %v", amountSentB,
+				chanB.channelState.TotalSatoshisSent)
+		}
+		if chanB.channelState.TotalSatoshisReceived != amountSentA {
+			t.Fatalf("bob satoshis received incorrect: expected "+
+				"%v, got %v", amountSentA,
+				chanB.channelState.TotalSatoshisReceived)
+		}
+	}
+
 	aliceDustLimit := aliceChannel.channelState.OurDustLimit
 	bobDustLimit := bobChannel.channelState.OurDustLimit
 	htlcAmount := btcutil.Amount(500)
@@ -1069,9 +1103,6 @@ func TestCheckDustLimit(t *testing.T) {
 			"and below Bob's dust limit (%v).", htlcAmount, aliceDustLimit,
 			bobDustLimit)
 	}
-
-	aliceAmount := aliceChannel.channelState.OurBalance
-	bobAmount := bobChannel.channelState.OurBalance
 
 	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
@@ -1090,34 +1121,8 @@ func TestCheckDustLimit(t *testing.T) {
 	// will be settled.
 
 	// From Alice point of view HTLC's amount is bigger than dust limit.
-	commitment := aliceChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 3 {
-		t.Fatalf("incorrect number of outputs: expected %v, got %v",
-			3, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != aliceAmount-htlcAmount {
-		t.Fatalf("Alice has wrong balance: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != bobAmount {
-		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
-			bobAmount, commitment.theirBalance)
-	}
-
 	// From Bob point of view HTLC's amount is lower then dust limit.
-	commitment = bobChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 2 {
-		t.Fatalf("Incorrect number of outputs: expected %v, got %v",
-			2, len(commitment.txn.TxOut))
-	}
-	if commitment.theirBalance != aliceAmount-htlcAmount {
-		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.theirBalance)
-	}
-	if commitment.ourBalance != bobAmount {
-		t.Fatalf("Bob has wrong balance: expected %v, got %v",
-			bobAmount, commitment.ourBalance)
-	}
+	assertChannelState(aliceChannel, bobChannel, 3, 2, 0, 0)
 
 	// Settle HTLC and sign new commitment.
 	settleIndex, err := bobChannel.SettleHTLC(preimage)
@@ -1132,41 +1137,15 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("state transition error: %v", err)
 	}
 
-	commitment = aliceChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 2 {
-		t.Fatalf("wrong number of outputs: expected %v, got %v",
-			2, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != aliceAmount-htlcAmount {
-		t.Fatalf("Alice has wrong balance: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != bobAmount+htlcAmount {
-		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
-			bobAmount, commitment.theirBalance)
-	}
-
-	commitment = bobChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 2 {
-		t.Fatalf("wrong number of outputs: expected %v, got %v",
-			2, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != bobAmount+htlcAmount {
-		t.Fatalf("Bob has wrong balance: expected %v, got %v",
-			bobAmount+htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != aliceAmount-htlcAmount {
-		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.theirBalance)
-	}
+	assertChannelState(aliceChannel, bobChannel, 2, 2, uint64(htlcAmount), 0)
 
 	// Next we will test when a non-HTLC output in the commitment
 	// transaction is below the dust limit.  We create an HTLC that will
 	// only leave a small enough amount to Alice such that Bob will
 	// consider it a dust output.
-	aliceAmount = aliceChannel.channelState.OurBalance
-	bobAmount = bobChannel.channelState.OurBalance
-	htlcAmount2 := aliceAmount - htlcAmount
+
+	aliceAmount := btcutil.Amount(5e8)
+	htlcAmount2 := aliceAmount - btcutil.Amount(1000)
 	htlc, preimage = createHTLC(0, htlcAmount2)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
@@ -1179,34 +1158,8 @@ func TestCheckDustLimit(t *testing.T) {
 	}
 
 	// From Alice's point of view, her output is bigger than the dust limit
-	commitment = aliceChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 3 {
-		t.Fatalf("incorrect number of outputs in commitment transaction "+
-			"expected %v, got %v", 3, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != aliceAmount-htlcAmount2 {
-		t.Fatalf("Alice has wrong balance: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != bobAmount {
-		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
-			bobAmount, commitment.theirBalance)
-	}
-
 	// From Bob's point of view, Alice's output is lower than the dust limit
-	commitment = bobChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 2 {
-		t.Fatalf("incorrect number of outputs in commitment transaction "+
-			"expected %v, got %v", 2, len(commitment.txn.TxOut))
-	}
-	if commitment.theirBalance != aliceAmount-htlcAmount2 {
-		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.theirBalance)
-	}
-	if commitment.ourBalance != bobAmount {
-		t.Fatalf("Bob has wrong balance: expected %v, got %v",
-			bobAmount+htlcAmount, commitment.ourBalance)
-	}
+	assertChannelState(aliceChannel, bobChannel, 3, 2, uint64(htlcAmount), 0)
 
 	// Settle HTLC and sign new commitment.
 	settleIndex, err = bobChannel.SettleHTLC(preimage)
@@ -1221,33 +1174,8 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("state transition error: %v", err)
 	}
 
-	commitment = aliceChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 2 {
-		t.Fatalf("incorrect number of outputs in commitment transaction, "+
-			"expected %v got %v", 2, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != aliceAmount-htlcAmount2 {
-		t.Fatalf("Alice has wrong balance: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != bobAmount+htlcAmount2 {
-		t.Fatalf("Alice has wrong balance for Bob: expected %v, got %v",
-			bobAmount, commitment.theirBalance)
-	}
-
-	commitment = bobChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 1 {
-		t.Fatalf("incorrect number of outputs in commitment transaction, "+
-			"expected %v got %v", 1, len(commitment.txn.TxOut))
-	}
-	if commitment.ourBalance != bobAmount+htlcAmount2 {
-		t.Fatalf("Bob has wrong balance: expected %v, got %v",
-			bobAmount+htlcAmount, commitment.ourBalance)
-	}
-	if commitment.theirBalance != aliceAmount-htlcAmount2 {
-		t.Fatalf("Bob has wrong balance for Alice: expected %v, got %v",
-			aliceAmount-htlcAmount, commitment.theirBalance)
-	}
+	assertChannelState(aliceChannel, bobChannel, 2, 1,
+		uint64(htlcAmount+htlcAmount2), 0)
 }
 
 func TestStateUpdatePersistence(t *testing.T) {
@@ -1267,9 +1195,6 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to sync bob's channel: %v", err)
 	}
 
-	aliceStartingBalance := aliceChannel.channelState.OurBalance
-	bobStartingBalance := bobChannel.channelState.OurBalance
-
 	const numHtlcs = 4
 
 	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
@@ -1281,7 +1206,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		rHash := sha256.Sum256(alicePreimage[:])
 		h := &lnwire.UpdateAddHTLC{
 			PaymentHash: rHash,
-			Amount:      btcutil.Amount(500),
+			Amount:      btcutil.Amount(5000),
 			Expiry:      uint32(10),
 		}
 
@@ -1295,7 +1220,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	rHash := sha256.Sum256(bobPreimage[:])
 	bobh := &lnwire.UpdateAddHTLC{
 		PaymentHash: rHash,
-		Amount:      btcutil.Amount(500),
+		Amount:      btcutil.Amount(5000),
 		Expiry:      uint32(10),
 	}
 	if _, err := bobChannel.AddHTLC(bobh); err != nil {
@@ -1317,20 +1242,6 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// state update in order to re-sync their states.
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
 		t.Fatalf("unable to complete bob's state transition: %v", err)
-	}
-
-	// The balances of both channels should be updated accordingly.
-	aliceBalance := aliceChannel.channelState.OurBalance
-	expectedAliceBalance := aliceStartingBalance - btcutil.Amount(1500)
-	bobBalance := bobChannel.channelState.OurBalance
-	expectedBobBalance := bobStartingBalance - btcutil.Amount(500)
-	if aliceBalance != expectedAliceBalance {
-		t.Fatalf("expected %v alice balance, got %v", int64(expectedAliceBalance),
-			int64(aliceBalance))
-	}
-	if bobBalance != expectedBobBalance {
-		t.Fatalf("expected %v bob balance, got %v", int64(expectedBobBalance),
-			int64(bobBalance))
 	}
 
 	// The latest commitment from both sides should have all the HTLCs.
@@ -1419,7 +1330,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if bobChannel.localUpdateLog.Len() !=
 		bobChannelNew.localUpdateLog.Len() {
 		t.Fatalf("bob log len: expected %v, got %v",
-			bobChannelNew.localUpdateLog.Len(),
+			bobChannel.localUpdateLog.Len(),
 			bobChannelNew.localUpdateLog.Len())
 	}
 	if bobChannel.remoteUpdateLog.Len() !=
@@ -1511,37 +1422,23 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to update commitments: %v", err)
 	}
 
-	// The balances of both sides should have been updated accordingly.
-	aliceBalance = aliceChannelNew.channelState.OurBalance
-	expectedAliceBalance = aliceStartingBalance - btcutil.Amount(1000)
-	bobBalance = bobChannelNew.channelState.OurBalance
-	expectedBobBalance = bobStartingBalance + btcutil.Amount(1000)
-	if aliceBalance != expectedAliceBalance {
-		t.Fatalf("expected %v alice balance, got %v", expectedAliceBalance,
-			aliceBalance)
-	}
-	if bobBalance != expectedBobBalance {
-		t.Fatalf("expected %v bob balance, got %v", expectedBobBalance,
-			bobBalance)
-	}
-
 	// The amounts transferred should been updated as per the amounts in
 	// the HTLCs
-	if aliceChannelNew.channelState.TotalSatoshisSent != 1500 {
+	if aliceChannelNew.channelState.TotalSatoshisSent != 15000 {
 		t.Fatalf("expected %v alice satoshis sent, got %v",
-			3000, aliceChannelNew.channelState.TotalSatoshisSent)
+			15000, aliceChannelNew.channelState.TotalSatoshisSent)
 	}
-	if aliceChannelNew.channelState.TotalSatoshisReceived != 500 {
+	if aliceChannelNew.channelState.TotalSatoshisReceived != 5000 {
 		t.Fatalf("expected %v alice satoshis received, got %v",
-			1000, aliceChannelNew.channelState.TotalSatoshisReceived)
+			5000, aliceChannelNew.channelState.TotalSatoshisReceived)
 	}
-	if bobChannelNew.channelState.TotalSatoshisSent != 500 {
+	if bobChannelNew.channelState.TotalSatoshisSent != 5000 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			1000, bobChannel.channelState.TotalSatoshisSent)
+			5000, bobChannel.channelState.TotalSatoshisSent)
 	}
-	if bobChannelNew.channelState.TotalSatoshisReceived != 1500 {
+	if bobChannelNew.channelState.TotalSatoshisReceived != 15000 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			3000, bobChannel.channelState.TotalSatoshisSent)
+			15000, bobChannel.channelState.TotalSatoshisSent)
 	}
 }
 
@@ -1580,7 +1477,8 @@ func TestCancelHTLC(t *testing.T) {
 
 	// With the HTLC committed, Alice's balance should reflect the clearing
 	// of the new HTLC.
-	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 4)
+	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin*4) -
+		calcStaticFee(1)
 	if aliceChannel.channelState.OurBalance != aliceExpectedBalance {
 		t.Fatalf("Alice's balance is wrong: expected %v, got %v",
 			aliceExpectedBalance, aliceChannel.channelState.OurBalance)
@@ -1622,9 +1520,10 @@ func TestCancelHTLC(t *testing.T) {
 	}
 
 	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 5)
-	if aliceChannel.channelState.OurBalance != expectedBalance {
+	if aliceChannel.channelState.OurBalance != expectedBalance-calcStaticFee(0) {
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			aliceChannel.channelState.OurBalance, expectedBalance)
+			aliceChannel.channelState.OurBalance, expectedBalance-
+				calcStaticFee(0))
 	}
 	if aliceChannel.channelState.TheirBalance != expectedBalance {
 		t.Fatalf("balance is wrong: expected %v, got %v",
@@ -1634,9 +1533,10 @@ func TestCancelHTLC(t *testing.T) {
 		t.Fatalf("balance is wrong: expected %v, got %v",
 			bobChannel.channelState.OurBalance, expectedBalance)
 	}
-	if bobChannel.channelState.TheirBalance != expectedBalance {
+	if bobChannel.channelState.TheirBalance != expectedBalance-calcStaticFee(0) {
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			bobChannel.channelState.TheirBalance, expectedBalance)
+			bobChannel.channelState.TheirBalance,
+			expectedBalance-calcStaticFee(0))
 	}
 }
 
@@ -1699,7 +1599,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// Next we'll modify the current balances and dust limits such that
 	// Bob's current balance is above _below_ his dust limit.
 	aliceBal := btcutil.Amount(btcutil.SatoshiPerBitcoin)
-	bobBal := btcutil.Amount(500)
+	bobBal := btcutil.Amount(250)
 	setBalances(aliceBal, bobBal)
 
 	// Attempt another cooperative channel closure. It should succeed
@@ -1716,14 +1616,13 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 
 	// The closure transaction should only have a single output, and that
 	// output should be Alice's balance.
-	// TODO(roasbeef): remove -5000 after fees are no longer hard coded
 	if len(closeTx.TxOut) != 1 {
 		t.Fatalf("close tx has wrong number of outputs: expected %v "+
 			"got %v", 1, len(closeTx.TxOut))
 	}
-	if closeTx.TxOut[0].Value != int64(aliceBal-5000) {
+	if closeTx.TxOut[0].Value != int64(aliceBal-calcStaticFee(0)) {
 		t.Fatalf("alice's balance is incorrect: expected %v, got %v",
-			aliceBal-5000, closeTx.TxOut[0].Value)
+			aliceBal-calcStaticFee(0), closeTx.TxOut[0].Value)
 	}
 
 	// Finally, we'll modify the current balances and dust limits such that
@@ -1745,7 +1644,6 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 
 	// The closure transaction should only have a single output, and that
 	// output should be Bob's balance.
-	// TODO(roasbeef): remove -5000 after fees are no longer hard coded
 	if len(closeTx.TxOut) != 1 {
 		t.Fatalf("close tx has wrong number of outputs: expected %v "+
 			"got %v", 1, len(closeTx.TxOut))

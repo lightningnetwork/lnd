@@ -37,7 +37,8 @@ const (
 	// rotations, etc.
 	identityKeyIndex = hdkeychain.HardenedKeyStart + 2
 
-	commitFee = 5000
+	commitWeight = btcutil.Amount(724)
+	htlcWeight   = 172
 )
 
 var (
@@ -526,8 +527,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
-	totalCapacity := req.capacity + commitFee
-	reservation := NewChannelReservation(totalCapacity, req.fundingAmount,
+	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
 		req.minFeeRate, l, id, req.numConfs, req.pushSat)
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
@@ -551,9 +551,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	if req.fundingAmount != 0 {
 		// TODO(roasbeef): consult model for proper fee rate on funding
 		// tx
-		feeRate := uint64(10)
-		amt := req.fundingAmount + commitFee
-		err := l.selectCoinsAndChange(feeRate, amt, ourContribution)
+		err := l.selectCoinsAndChange(uint64(req.minFeeRate),
+			req.fundingAmount, ourContribution)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil

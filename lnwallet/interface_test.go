@@ -339,8 +339,9 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		return nil, err
 	}
 
+	estimator := lnwallet.StaticFeeEstimator{FeeRate: 250}
 	wallet, err := lnwallet.NewLightningWallet(cdb, notifier, wc, signer,
-		bio, netParams)
+		bio, estimator, netParams)
 	if err != nil {
 		return nil, err
 	}

@@ -306,12 +306,15 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	bobSigner := &mockSigner{bobKeyPriv}
 
 	notifier := &mockNotfier{}
+	estimator := &StaticFeeEstimator{50, 6}
 
-	channelAlice, err := NewLightningChannel(aliceSigner, notifier, aliceChannelState)
+	channelAlice, err := NewLightningChannel(aliceSigner, notifier,
+		estimator, aliceChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	channelBob, err := NewLightningChannel(bobSigner, notifier, bobChannelState)
+	channelBob, err := NewLightningChannel(bobSigner, notifier,
+		estimator, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1362,12 +1365,12 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 	notifier := aliceChannel.channelEvents
 	aliceChannelNew, err := NewLightningChannel(aliceChannel.signer,
-		notifier, aliceChannels[0])
+		notifier, aliceChannel.feeEstimator, aliceChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
 	bobChannelNew, err := NewLightningChannel(bobChannel.signer, notifier,
-		bobChannels[0])
+		bobChannel.feeEstimator, bobChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}

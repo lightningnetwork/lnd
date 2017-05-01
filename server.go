@@ -62,8 +62,9 @@ type server struct {
 
 	chainNotifier chainntnfs.ChainNotifier
 
-	bio      lnwallet.BlockChainIO
-	lnwallet *lnwallet.LightningWallet
+	bio          lnwallet.BlockChainIO
+	lnwallet     *lnwallet.LightningWallet
+	feeEstimator lnwallet.FeeEstimator
 
 	fundingMgr *fundingManager
 	chanDB     *channeldb.DB
@@ -108,8 +109,8 @@ type server struct {
 // passed listener address.
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	bio lnwallet.BlockChainIO, fundingSigner lnwallet.MessageSigner,
-	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB,
-	chainView chainview.FilteredChainView) (*server, error) {
+	wallet *lnwallet.LightningWallet, estimator lnwallet.FeeEstimator,
+	chanDB *channeldb.DB, chainView chainview.FilteredChainView) (*server, error) {
 
 	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
@@ -131,6 +132,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		bio:           bio,
 		chainNotifier: notifier,
 		chanDB:        chanDB,
+		feeEstimator:  estimator,
 
 		invoices:    newInvoiceRegistry(chanDB),
 		utxoNursery: newUtxoNursery(chanDB, notifier, wallet),
@@ -264,7 +266,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.rpcServer = newRPCServer(s)
 	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier,
-		s.htlcSwitch, s.bio)
+		s.htlcSwitch, s.bio, s.feeEstimator)
 
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -272,10 +274,11 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
-		IDKey:    s.identityPriv.PubKey(),
-		Wallet:   wallet,
-		ChainIO:  s.bio,
-		Notifier: s.chainNotifier,
+		IDKey:        s.identityPriv.PubKey(),
+		Wallet:       wallet,
+		ChainIO:      s.bio,
+		Notifier:     s.chainNotifier,
+		FeeEstimator: s.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
 			if pubKey.IsEqual(s.identityPriv.PubKey()) {
 				return s.nodeSigner.SignMessage(pubKey, msg)
@@ -300,8 +303,10 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(channel.ChanID) {
-					return lnwallet.NewLightningChannel(wallet.Signer,
-						notifier, channel)
+					return lnwallet.NewLightningChannel(
+						wallet.Signer, notifier,
+						lnwallet.StaticFeeEstimator{FeeRate: 250},
+						channel)
 				}
 			}
 

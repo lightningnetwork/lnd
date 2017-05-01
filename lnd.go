@@ -149,11 +149,12 @@ func lndMain() error {
 	signer := wc
 	bio := wc
 	fundingSigner := wc
+	estimator := lnwallet.StaticFeeEstimator{FeeRate: 250}
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	wallet, err := lnwallet.NewLightningWallet(chanDB, notifier, wc, signer,
-		bio, activeNetParams.Params)
+		bio, estimator, activeNetParams.Params)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return err
@@ -191,7 +192,7 @@ func lndMain() error {
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
 	server, err := newServer(defaultListenAddrs, notifier, bio,
-		fundingSigner, wallet, chanDB, chainView)
+		fundingSigner, wallet, estimator, chanDB, chainView)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

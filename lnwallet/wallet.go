@@ -273,6 +273,10 @@ type LightningWallet struct {
 	// update the commitment state.
 	Signer Signer
 
+	// FeeEstimator is the implementation that the wallet will use for the
+	// calculation of on-chain transaction fees.
+	FeeEstimator FeeEstimator
+
 	// ChainIO is an instance of the BlockChainIO interface. ChainIO is
 	// used to lookup the existence of outputs within the UTXO set.
 	ChainIO BlockChainIO
@@ -320,12 +324,13 @@ type LightningWallet struct {
 // initialized/started before being passed as a function arugment.
 func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
 	wallet WalletController, signer Signer, bio BlockChainIO,
-	netParams *chaincfg.Params) (*LightningWallet, error) {
+	fe FeeEstimator, netParams *chaincfg.Params) (*LightningWallet, error) {
 
 	return &LightningWallet{
 		chainNotifier:    notifier,
 		Signer:           signer,
 		WalletController: wallet,
+		FeeEstimator:     fe,
 		ChainIO:          bio,
 		ChannelDB:        cdb,
 		msgChan:          make(chan interface{}, msgBufferSize),
@@ -490,6 +495,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
+	minFeeRate := btcutil.Amount(l.FeeEstimator.EstimateFeePerWeight(1))
 
 	l.msgChan <- &initFundingReserveMsg{
 		capacity:      capacity,
@@ -497,6 +503,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 		fundingAmount: ourFundAmt,
 		csvDelay:      csvDelay,
 		ourDustLimit:  ourDustLimit,
+		minFeeRate:    minFeeRate,
 		pushSat:       pushSat,
 		nodeID:        theirID,
 		nodeAddr:      theirAddr,
@@ -1433,4 +1440,29 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 
 		return selectedUtxos, changeAmt, nil
 	}
+}
+
+// StaticFeeEstimator will return a static value for all fee calculation
+// requests. It is designed to be replaced by a proper fee calcuation
+// implementation.
+type StaticFeeEstimator struct {
+	FeeRate      uint64
+	Confirmation uint32
+}
+
+// EstimateFeePerByte will return a static value for fee calculations.
+func (e StaticFeeEstimator) EstimateFeePerByte(numBlocks uint32) uint64 {
+	return e.FeeRate
+}
+
+// EstimateFeePerWeight will return a static value for fee calculations.
+func (e StaticFeeEstimator) EstimateFeePerWeight(numBlocks uint32) uint64 {
+	return e.FeeRate * 4
+}
+
+// EstimateConfirmation will return a static value representing the estimated
+// number of blocks that will be required to confirm a transaction for the
+// given fee rate.
+func (e StaticFeeEstimator) EstimateConfirmation(satPerByte int64) uint32 {
+	return e.Confirmation
 }

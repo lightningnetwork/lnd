@@ -571,6 +571,10 @@ type LightningChannel struct {
 
 	status channelState
 
+	// feeEstimator is used to calculate the fee rate for the channel's
+	// commitment and cooperative close transactions.
+	feeEstimator FeeEstimator
+
 	// Capcity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
@@ -679,11 +683,13 @@ type LightningChannel struct {
 // automatically persist pertinent state to the database in an efficient
 // manner.
 func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
-	state *channeldb.OpenChannel) (*LightningChannel, error) {
+	fe FeeEstimator, state *channeldb.OpenChannel) (*LightningChannel,
+	error) {
 
 	lc := &LightningChannel{
 		signer:                signer,
 		channelEvents:         events,
+		feeEstimator:          fe,
 		currentHeight:         state.NumUpdates,
 		remoteCommitChain:     newCommitmentChain(state.NumUpdates),
 		localCommitChain:      newCommitmentChain(state.NumUpdates),

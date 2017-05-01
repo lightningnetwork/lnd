@@ -130,6 +130,10 @@ type fundingConfig struct {
 	// funds from on-chain transaction outputs into Lightning channels.
 	Wallet *lnwallet.LightningWallet
 
+	// FeeEstimator calculates appropriate fee rates based on historical
+	// transaction information.
+	FeeEstimator lnwallet.FeeEstimator
+
 	// ArbiterChan allows the FundingManager to notify the BreachArbiter
 	// that a new channel has been created that should be observed to
 	// ensure that the channel counterparty hasn't broadcasted an invalid
@@ -959,7 +963,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 
 	// With the channel marked open, we'll create the state-machine object
 	// which wraps the database state.
-	channel, err := lnwallet.NewLightningChannel(nil, nil, completeChan)
+	channel, err := lnwallet.NewLightningChannel(nil, nil,
+		f.cfg.FeeEstimator, completeChan)
 	if err != nil {
 		fndgLog.Errorf("error creating new lightning channel: %v", err)
 		return

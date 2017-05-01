@@ -28,6 +28,7 @@ type breachArbiter struct {
 	notifier   chainntnfs.ChainNotifier
 	chainIO    lnwallet.BlockChainIO
 	htlcSwitch *htlcSwitch
+	estimator  lnwallet.FeeEstimator
 
 	// breachObservers is a map which tracks all the active breach
 	// observers we're currently managing. The key of the map is the
@@ -64,7 +65,7 @@ type breachArbiter struct {
 // its dependent objects.
 func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
 	notifier chainntnfs.ChainNotifier, h *htlcSwitch,
-	chain lnwallet.BlockChainIO) *breachArbiter {
+	chain lnwallet.BlockChainIO, fe lnwallet.FeeEstimator) *breachArbiter {
 
 	return &breachArbiter{
 		wallet:     wallet,
@@ -72,6 +73,7 @@ func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
 		notifier:   notifier,
 		chainIO:    chain,
 		htlcSwitch: h,
+		estimator:  fe,
 
 		breachObservers:   make(map[wire.OutPoint]chan struct{}),
 		breachedContracts: make(chan *retributionInfo),
@@ -110,7 +112,7 @@ func (b *breachArbiter) Start() error {
 		len(activeChannels))
 	for i, chanState := range activeChannels {
 		channel, err := lnwallet.NewLightningChannel(nil, b.notifier,
-			chanState)
+			b.estimator, chanState)
 		if err != nil {
 			brarLog.Errorf("unable to load channel from "+
 				"disk: %v", err)

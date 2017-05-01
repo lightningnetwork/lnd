@@ -367,7 +367,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		}
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
-		if edgeUpdate.Capacity != chanValue-5000 {
+		if edgeUpdate.Capacity != chanValue {
 			t.Fatalf("capacity of edge doesn't match: "+
 				"expected %v, got %v", chanValue, edgeUpdate.Capacity)
 		}
@@ -682,7 +682,7 @@ func TestChannelCloseNotification(t *testing.T) {
 		}
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
-		if closedChan.Capacity != chanValue-5000 {
+		if closedChan.Capacity != chanValue {
 			t.Fatalf("capacity of closed channel doesn't match: "+
 				"expected %v, got %v", chanValue, closedChan.Capacity)
 		}

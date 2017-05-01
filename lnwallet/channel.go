@@ -683,8 +683,7 @@ type LightningChannel struct {
 // automatically persist pertinent state to the database in an efficient
 // manner.
 func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
-	fe FeeEstimator, state *channeldb.OpenChannel) (*LightningChannel,
-	error) {
+	fe FeeEstimator, state *channeldb.OpenChannel) (*LightningChannel, error) {
 
 	lc := &LightningChannel{
 		signer:                signer,
@@ -719,6 +718,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		ourMessageIndex:   0,
 		theirBalance:      state.TheirBalance,
 		theirMessageIndex: 0,
+		fee:               state.CommitFee,
 	})
 	walletLog.Debugf("ChannelPoint(%v), starting local commitment: %v",
 		state.ChanID, newLogClosure(func() string {
@@ -739,6 +739,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		ourMessageIndex:   0,
 		theirBalance:      state.TheirBalance,
 		theirMessageIndex: 0,
+		fee:               state.CommitFee,
 	}
 	if logTail == nil {
 		remoteCommitment.height = 0
@@ -1193,8 +1194,6 @@ func (lc *LightningChannel) restoreStateLogs() error {
 	lc.localCommitChain.tail().theirMessageIndex = theirCounter
 	lc.remoteCommitChain.tail().ourMessageIndex = ourCounter
 	lc.remoteCommitChain.tail().theirMessageIndex = theirCounter
-	lc.localCommitChain.tail().fee = lc.channelState.CommitFee
-	lc.remoteCommitChain.tail().fee = lc.channelState.CommitFee
 
 	return nil
 }
@@ -1262,6 +1261,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	ourBalance = commitChain.tip().ourBalance
 	theirBalance = commitChain.tip().theirBalance
 
+	// Add the fee from the previous commitment state back to the
+	// initiator's balance, so that the fee can be recalculated and
+	// re-applied in case fee estimation parameters have changed or the
+	// number of outstanding HTLCs has changed.
 	if lc.channelState.IsInitiator {
 		ourBalance = ourBalance + commitChain.tip().fee
 	} else if !lc.channelState.IsInitiator {
@@ -1278,24 +1281,54 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	filteredHTLCView := lc.evaluateHTLCView(htlcView, &ourBalance, &theirBalance,
 		nextHeight, remoteChain)
 
+	// Determine how many current HTLCs are over the dust limit, and should
+	// be counted for the purpose of fee calculation.
+	var dustLimit btcutil.Amount
+	if remoteChain {
+		dustLimit = lc.channelState.TheirDustLimit
+	} else {
+		dustLimit = lc.channelState.OurDustLimit
+	}
+	numHTLCs := 0
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlc.Amount < dustLimit {
+			continue
+		}
+		numHTLCs++
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlc.Amount < dustLimit {
+			continue
+		}
+		numHTLCs++
+	}
+
+	// Calculate the fee for the commitment transaction based on its size.
+	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
+		(commitWeight + btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+
+	if lc.channelState.IsInitiator {
+		ourBalance = ourBalance - commitFee
+	} else if !lc.channelState.IsInitiator {
+		theirBalance = theirBalance - commitFee
+	}
+
 	var selfKey *btcec.PublicKey
 	var remoteKey *btcec.PublicKey
 	var delay uint32
-	var delayBalance, p2wkhBalance, dustLimit btcutil.Amount
+	var delayBalance, p2wkhBalance btcutil.Amount
 	if remoteChain {
 		selfKey = lc.channelState.TheirCommitKey
 		remoteKey = lc.channelState.OurCommitKey
 		delay = lc.channelState.RemoteCsvDelay
 		delayBalance = theirBalance
 		p2wkhBalance = ourBalance
-		dustLimit = lc.channelState.TheirDustLimit
 	} else {
 		selfKey = lc.channelState.OurCommitKey
 		remoteKey = lc.channelState.TheirCommitKey
 		delay = lc.channelState.LocalCsvDelay
 		delayBalance = ourBalance
 		p2wkhBalance = theirBalance
-		dustLimit = lc.channelState.OurDustLimit
 	}
 
 	// Generate a new commitment transaction with all the latest
@@ -1352,6 +1385,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		ourMessageIndex:   ourLogIndex,
 		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
+		fee:               commitFee,
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new
@@ -2502,6 +2536,17 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 		return nil, nil, ErrChanClosing
 	}
 
+	// Calculate the fee for the commitment transaction based on its size.
+	// For a cooperative close, there should be no HTLCs.
+	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
+		commitWeight / 1000
+
+	if lc.channelState.IsInitiator {
+		lc.channelState.OurBalance = lc.channelState.OurBalance - commitFee
+	} else {
+		lc.channelState.TheirBalance = lc.channelState.TheirBalance - commitFee
+	}
+
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurDustLimit, lc.channelState.TheirDustLimit,
 		lc.channelState.OurBalance, lc.channelState.TheirBalance,
@@ -2550,6 +2595,17 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 	if lc.status == channelClosing || lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, ErrChanClosing
+	}
+
+	// Calculate the fee for the commitment transaction based on its size.
+	// For a cooperative close, there should be no HTLCs.
+	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
+		commitWeight / 1000
+
+	if lc.channelState.IsInitiator {
+		lc.channelState.OurBalance = lc.channelState.OurBalance - commitFee
+	} else {
+		lc.channelState.TheirBalance = lc.channelState.TheirBalance - commitFee
 	}
 
 	// Create the transaction used to return the current settled balance
@@ -2694,15 +2750,6 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(fundingTxIn)
-
-	// The initiator of a cooperative closure pays the fee in entirety.
-	// Determine if we're the initiator so we can compute fees properly.
-	if initiator {
-		// TODO(roasbeef): take sat/byte here instead of properly calc
-		ourBalance -= 5000
-	} else {
-		theirBalance -= 5000
-	}
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

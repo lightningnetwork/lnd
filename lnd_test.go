@@ -283,6 +283,20 @@ func assertNumConnections(ctxt context.Context, t *harnessTest,
 	}
 }
 
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+// TODO(bvu): Refactor when dynamic fee estimation is added.
+func calcStaticFee(numHTLCs int) btcutil.Amount {
+	const (
+		commitWeight = btcutil.Amount(724)
+		htlcWeight   = 172
+		feePerByte   = btcutil.Amount(250 * 4)
+	)
+	return feePerByte * (commitWeight +
+		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+}
+
 // testBasicChannelFunding performs a test exercising expected behavior from a
 // basic funding workflow. The test creates a new channel between Alice and
 // Bob, then immediately closes the channel after asserting some expected post
@@ -322,9 +336,9 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get bobs's balance: %v", err)
 	}
-	if aliceBal.Balance != int64(chanAmt-pushAmt) {
+	if aliceBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
 		t.Fatalf("alice's balance is incorrect: expected %v got %v",
-			chanAmt-pushAmt, aliceBal)
+			chanAmt-pushAmt-calcStaticFee(0), aliceBal)
 	}
 	if bobBal.Balance != int64(pushAmt) {
 		t.Fatalf("bob's balance is incorrect: expected %v got %v",
@@ -631,7 +645,7 @@ func testChannelBalance(net *networkHarness, t *harnessTest) {
 
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount)
+	checkChannelBalance(net.Alice, amount-calcStaticFee(0))
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
@@ -1864,6 +1878,7 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
+	commitFee := calcStaticFee(0)
 	assertBaseBalance := func() {
 		balReq := &lnrpc.ChannelBalanceRequest{}
 		aliceBal, err := net.Alice.ChannelBalance(ctxb, balReq)
@@ -1874,13 +1889,13 @@ func testHtlcErrorPropagation(net *networkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to get channel balance: %v", err)
 		}
-		if aliceBal.Balance != int64(chanAmt) {
+		if aliceBal.Balance != int64(chanAmt-commitFee) {
 			t.Fatalf("alice has an incorrect balance: expected %v got %v",
-				int64(chanAmt), aliceBal)
+				int64(chanAmt-commitFee), aliceBal)
 		}
-		if bobBal.Balance != int64(chanAmt) {
+		if bobBal.Balance != int64(chanAmt-commitFee) {
 			t.Fatalf("bob has an incorrect balance: expected %v got %v",
-				int64(chanAmt), bobBal)
+				int64(chanAmt-commitFee), bobBal)
 		}
 	}
 

@@ -155,6 +155,8 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		initiator    bool
 	)
 
+	commitFee := minFeeRate * commitWeight / 1000
+
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
 	// some funds to us within the first commitment state.
@@ -166,20 +168,22 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
 
-		if capacity == fundingAmt+commitFee {
+		if capacity == fundingAmt {
 			// If we're initiating a single funder workflow, then
 			// we pay all the initial fees within the commitment
 			// transaction. We also deduct our balance by the
 			// amount pushed as part of the initial state.
 			ourBalance = capacity - commitFee - pushSat
+			theirBalance = capacity - fundingAmt + pushSat
 		} else {
 			// Otherwise, this is a dual funder workflow where both
 			// slides split the amount funded and the commitment
 			// fee.
-			ourBalance = fundingAmt - commitFee
+			ourBalance = fundingAmt - (commitFee / 2)
+			theirBalance = capacity - fundingAmt -
+				(commitFee / 2) + pushSat
 		}
 
-		theirBalance = capacity - fundingAmt - commitFee + pushSat
 		initiator = true
 	}
 

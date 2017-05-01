@@ -101,6 +101,20 @@ func assertReservationDeleted(res *lnwallet.ChannelReservation, t *testing.T) {
 	}
 }
 
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+// TODO(bvu): Refactor when dynamic fee estimation is added.
+func calcStaticFee(numHTLCs int) btcutil.Amount {
+	const (
+		commitWeight = btcutil.Amount(724)
+		htlcWeight   = 172
+		feePerByte   = btcutil.Amount(250 * 4)
+	)
+	return feePerByte * (commitWeight +
+		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+}
+
 // bobNode represents the other party involved as a node within LN. Bob is our
 // only "default-route", we have a direct connection with him.
 type bobNode struct {
@@ -454,7 +468,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 
 	// TODO(roasbeef): account for current hard-coded commit fee,
 	// need to remove bob all together
-	chanCapacity := int64(10e8 + 5000)
+	chanCapacity := int64(10e8)
 	// Alice responds with her output, change addr, multi-sig key and signatures.
 	// Bob then responds with his signatures.
 	bobsSigs, err := bobNode.signFundingTx(fundingTx)
@@ -572,9 +586,10 @@ func testCancelNonExistantReservation(miner *rpctest.Harness,
 
 	t.Log("Running cancel reservation tests")
 
+	feeRate := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
 	// Create our own reservation, give it some ID.
-	res := lnwallet.NewChannelReservation(1000, 1000, 5000, wallet, 22,
-		numReqConfs, 10)
+	res := lnwallet.NewChannelReservation(1000, 1000, feeRate, wallet,
+		22, numReqConfs, 10)
 
 	// Attempt to cancel this reservation. This should fail, we know
 	// nothing of it.
@@ -691,7 +706,7 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 		chanReservation.FundingRedeemScript(),
 		// TODO(roasbeef): account for current hard-coded fee, need to
 		// remove bobNode entirely
-		int64(fundingAmt)+5000)
+		int64(fundingAmt))
 	if err != nil {
 		t.Fatalf("bob is unable to sign alice's commit tx: %v", err)
 	}
@@ -781,6 +796,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// include any inputs or change addresses, as only Bob will construct
 	// the funding transaction.
 	bobContribution := bobNode.Contribution(ourContribution.CommitKey)
+	bobContribution.DustLimit = lnwallet.DefaultDustLimit()
 	if err := chanReservation.ProcessSingleContribution(bobContribution); err != nil {
 		t.Fatalf("unable to process bob's contribution: %v", err)
 	}
@@ -815,7 +831,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 		ourContribution.MultiSigKey.SerializeCompressed(),
 		bobContribution.MultiSigKey.SerializeCompressed(),
 		// TODO(roasbeef): account for hard-coded fee, remove bob node
-		int64(capacity)+5000)
+		int64(capacity))
 	if err != nil {
 		t.Fatalf("unable to generate multi-sig output: %v", err)
 	}
@@ -843,10 +859,11 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// Next, manually create Alice's commitment transaction, signing the
 	// fully sorted and state hinted transaction.
 	fundingTxIn := wire.NewTxIn(fundingOutpoint, nil, nil)
+
 	aliceCommitTx, err := lnwallet.CreateCommitTx(fundingTxIn,
 		ourContribution.CommitKey, bobContribution.CommitKey,
 		ourContribution.RevocationKey, ourContribution.CsvDelay, 0,
-		capacity, lnwallet.DefaultDustLimit())
+		capacity-calcStaticFee(0), lnwallet.DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create alice's commit tx: %v", err)
 	}
@@ -857,7 +874,7 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	}
 	bobCommitSig, err := bobNode.signCommitTx(aliceCommitTx,
 		// TODO(roasbeef): account for hard-coded fee, remove bob node
-		fundingRedeemScript, int64(capacity)+5000)
+		fundingRedeemScript, int64(capacity))
 	if err != nil {
 		t.Fatalf("unable to sign alice's commit tx: %v", err)
 	}

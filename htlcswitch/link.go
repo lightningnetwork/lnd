@@ -9,8 +9,6 @@ import (
 
 	"io"
 
-	"github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -56,54 +54,29 @@ type ChannelLinkConfig struct {
 // switch. Additionally, the link encapsulate logic of commitment protocol
 // message ordering and updates.
 type channelLink struct {
-	// htlcsToSettle is a list of preimages which allow us to settle one or
-	// many of the pending HTLCs we've received from the upstream peer.
-	htlcsToSettle map[uint64]*channeldb.Invoice
-
-	// htlcsToCancel is a set of HTLCs identified by their log index which
-	// are to be cancelled upon the next state transition.
-	htlcsToCancel map[uint64]lnwire.FailCode
-
 	// cancelReasons stores the reason why a particular HTLC was cancelled.
 	// The index of the HTLC within the log is mapped to the cancellation
 	// reason. This value is used to thread the proper error through to the
 	// htlcSwitch, or subsystem that initiated the HTLC.
+	// TODO(andrew.shvv) remove after payment descriptor start store
+	// htlc cancel reasons.
 	cancelReasons map[uint64]lnwire.OpaqueReason
 
 	// blobs tracks the remote log index of the incoming htlc's,
 	// mapped to the htlc onion blob which encapsulates the next hop.
-	// TODO(andrew.shvv) state machine might be used instead to determine
-	// the pending number of updates.
+	// TODO(andrew.shvv) remove after payment descriptor start store
+	// htlc onion blobs.
 	blobs map[uint64][lnwire.OnionPacketSize]byte
 
-	// pendingBatch is slice of payments which have been added to the
-	// channel update log, but not yet committed to latest commitment.
-	pendingBatch []*pendingPayment
+	// batchCounter is the number of updates which we received from
+	// remote side, but not include in commitment transaciton yet.
+	// TODO(andrew.shvv) remove after we add additional
+	// BatchNumber() method in state machine.
+	batchCounter uint64
 
-	// clearedHTCLs is a map of outgoing HTLCs we've committed to in our
-	// chain which have not yet been settled by the upstream peer.
-	clearedHTCLs map[uint64]*pendingPayment
-
-	// switchChan is a channel used to send packets to the htlc switch for
-	// forwarding.
-	switchChan chan<- *htlcPacket
-
-	// sphinx is an instance of the Sphinx onion Router for this node. The
-	// router will be used to process all incoming Sphinx packets embedded
-	// within HTLC add messages.
-	sphinx *sphinx.Router
-
-	// pendingCircuits tracks the remote log index of the incoming HTLCs,
-	// mapped to the processed Sphinx packet contained within the HTLC.
-	// This map is used as a staging area between when an HTLC is added to
-	// the log, and when it's locked into the commitment state of both
-	// chains. Once locked in, the processed packet is sent to the switch
-	// along with the HTLC to forward the packet to the next hop.
-	pendingCircuits map[uint64]*sphinx.ProcessedPacket
-
-	channel   *lnwallet.LightningChannel
-	chanPoint *wire.OutPoint
-	chanID    lnwire.ChannelID
+	// channel is a lightning network channel to which we apply htlc
+	// updates.
+	channel *lnwallet.LightningChannel
 
 	// cfg is a structure which carries all dependable fields/handlers
 	// which may affect behaviour of the service.
@@ -128,6 +101,22 @@ type channelLink struct {
 	shutdown int32
 	wg       sync.WaitGroup
 	quit     chan struct{}
+}
+
+// NewChannelLink create new instance of channel link.
+func NewChannelLink(cfg *ChannelLinkConfig,
+	channel *lnwallet.LightningChannel) ChannelLink {
+
+	return &channelLink{
+		cfg:           cfg,
+		channel:       channel,
+		blobs:         make(map[uint64][lnwire.OnionPacketSize]byte),
+		upstream:      make(chan lnwire.Message),
+		downstream:    make(chan *htlcPacket),
+		control:       make(chan interface{}),
+		cancelReasons: make(map[uint64]lnwire.OpaqueReason),
+		quit:          make(chan struct{}),
+	}
 }
 
 // A compile time check to ensure channelLink implements the ChannelLink
@@ -229,8 +218,7 @@ out:
 			// update in some time, check to see if we have any
 			// pending updates we need to commit due to our
 			// commitment chains being desynchronized.
-			if l.channel.FullySynced() &&
-				len(l.htlcsToSettle) == 0 {
+			if l.channel.FullySynced() {
 				continue
 			}
 
@@ -244,7 +232,7 @@ out:
 		case <-batchTimer.C:
 			// If the current batch is empty, then we have no work
 			// here.
-			if len(l.pendingBatch) == 0 {
+			if l.batchCounter == 0 {
 				continue
 			}
 
@@ -313,14 +301,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		htlc.ID = index
 
 		l.cfg.Peer.SendMessage(htlc)
-
-		l.pendingBatch = append(l.pendingBatch, &pendingPayment{
-			htlc:     htlc,
-			index:    index,
-			preImage: pkt.preImage,
-			err:      pkt.err,
-			done:     pkt.done,
-		})
+		l.batchCounter++
 
 	case *lnwire.UpdateFufillHTLC:
 		// An HTLC we forward to the switch has just settled somewhere
@@ -372,7 +353,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 	// If this newly added update exceeds the min batch size for adds, or
 	// this is a settle request, then initiate an update.
 	// TODO(roasbeef): enforce max HTLCs in flight limit
-	if len(l.pendingBatch) >= 10 || isSettle {
+	if l.batchCounter >= 10 || isSettle {
 		if err := l.updateCommitTx(); err != nil {
 			log.Errorf("unable to update "+
 				"commitment: %v", err)
@@ -506,7 +487,7 @@ func (l *channelLink) updateCommitTx() error {
 	sigTheirs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		log.Tracef("revocation window exhausted, unable to send %v",
-			len(l.pendingBatch))
+			l.batchCounter)
 		return nil
 	} else if err != nil {
 		return err
@@ -523,67 +504,8 @@ func (l *channelLink) updateCommitTx() error {
 	}
 	l.cfg.Peer.SendMessage(commitSig)
 
-	// As we've just cleared out a batch, move all pending updates to the
-	// map of cleared HTLCs, clearing out the set of pending updates.
-	for _, update := range l.pendingBatch {
-		l.clearedHTCLs[update.index] = update
-	}
-
-	// Finally, clear our the current batch, and flip the pendingUpdate
-	// bool to indicate were waiting for a commitment signature.
-	// TODO(roasbeef): re-slice instead to avoid GC?
-	l.pendingBatch = nil
-
+	l.batchCounter = 0
 	return nil
-}
-
-// logEntryToHtlcPkt converts a particular Lightning Commitment Protocol (LCP)
-// log entry the corresponding htlcPacket with src/dest set along with the
-// proper wire message. This helper method is provided in order to aid an
-// htlcManager in forwarding packets to the htlcSwitch.
-func logEntryToHtlcPkt(chanID lnwire.ChannelID, pd *lnwallet.PaymentDescriptor,
-	onionPkt *sphinx.ProcessedPacket,
-	reason lnwire.FailCode) (*htlcPacket, error) {
-
-	pkt := &htlcPacket{}
-
-	// TODO(roasbeef): alter after switch to log entry interface
-	var msg lnwire.Message
-	switch pd.EntryType {
-
-	case lnwallet.Add:
-		// TODO(roasbeef): timeout, onion blob, etc
-		var b bytes.Buffer
-		if err := onionPkt.Packet.Encode(&b); err != nil {
-			return nil, err
-		}
-
-		htlc := &lnwire.UpdateAddHTLC{
-			Amount:      pd.Amount,
-			PaymentHash: pd.RHash,
-		}
-		copy(htlc.OnionBlob[:], b.Bytes())
-		msg = htlc
-
-	case lnwallet.Settle:
-		msg = &lnwire.UpdateFufillHTLC{
-			PaymentPreimage: pd.RPreimage,
-		}
-
-	case lnwallet.Fail:
-		// For cancellation messages, we'll also need to set the rHash
-		// within the htlcPacket so the switch knows on which outbound
-		// link to forward the cancellation message
-		msg = &lnwire.UpdateFailHTLC{
-			Reason: []byte{byte(reason)},
-		}
-		pkt.payHash = pd.RHash
-	}
-
-	pkt.htlc = msg
-	pkt.src = chanID
-
-	return pkt, nil
 }
 
 // Peer returns the representation of remote peer with which we

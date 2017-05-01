@@ -40,6 +40,10 @@ const (
 	// IncorrectValue indicates that the HTLC ultimately extended to the
 	// destination did not match the value that was expected.
 	IncorrectValue FailCode = 5
+
+	// UnknownError indicates the error which should be returned, but
+	// not exist in specification yet.
+	UnknownError FailCode = 6
 )
 
 // String returns a human-readable version of the FailCode type.

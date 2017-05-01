@@ -45,6 +45,54 @@ const (
 	MsgAnnounceSignatures                    = 259
 )
 
+// String return the string representation of message type.
+func (t MessageType) String() string {
+	switch t {
+	case MsgInit:
+		return "Init"
+	case MsgSingleFundingRequest:
+		return "SingleFundingRequest"
+	case MsgSingleFundingResponse:
+		return "SingleFundingResponse"
+	case MsgSingleFundingComplete:
+		return "SingleFundingComplete"
+	case MsgSingleFundingSignComplete:
+		return "SingleFundingSignComplete"
+	case MsgFundingLocked:
+		return "FundingLocked"
+	case MsgShutdown:
+		return "Shutdown"
+	case MsgClosingSigned:
+		return "ClosingSigned"
+	case MsgUpdateAddHTLC:
+		return "UpdateAddHTLC"
+	case MsgUpdateFailHTLC:
+		return "UpdateFailHTLC"
+	case MsgUpdateFufillHTLC:
+		return "UpdateFufillHTLC"
+	case MsgCommitSig:
+		return "CommitSig"
+	case MsgRevokeAndAck:
+		return "RevokeAndAck"
+	case MsgError:
+		return "Error"
+	case MsgChannelAnnouncement:
+		return "ChannelAnnouncement"
+	case MsgChannelUpdate:
+		return "ChannelUpdate"
+	case MsgNodeAnnouncement:
+		return "NodeAnnouncement"
+	case MsgPing:
+		return "Ping"
+	case MsgAnnounceSignatures:
+		return "AnnounceSignatures"
+	case MsgPong:
+		return "Pong"
+	default:
+		return "<unknown>"
+	}
+}
+
 // UnknownMessage is an implementation of the error interface that allows the
 // creation of an error in response to an unknown message.
 type UnknownMessage struct {

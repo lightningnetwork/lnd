@@ -752,7 +752,7 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 	return privRevoke
 }
 
-// deriveRevocationRoot derives an root unique to a channel given the
+// DeriveRevocationRoot derives an root unique to a channel given the
 // private key for our public key in the 2-of-2 multi-sig, and the remote
 // node's multi-sig public key. The seed is derived using the HKDF[1][2]
 // instantiated with sha-256. The secret data used is our multi-sig private
@@ -760,7 +760,7 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 //
 // [1]: https://eprint.iacr.org/2010/264.pdf
 // [2]: https://tools.ietf.org/html/rfc5869
-func deriveRevocationRoot(derivationRoot *btcec.PrivateKey,
+func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 	localMultiSigKey *btcec.PublicKey,
 	remoteMultiSigKey *btcec.PublicKey) *chainhash.Hash {
 

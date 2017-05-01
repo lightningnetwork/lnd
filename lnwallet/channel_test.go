@@ -202,7 +202,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	bobRoot := deriveRevocationRoot(bobKeyPriv, bobKeyPub, aliceKeyPub)
+	bobRoot := DeriveRevocationRoot(bobKeyPriv, bobKeyPub, aliceKeyPub)
 	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
@@ -210,7 +210,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	bobRevokeKey := DeriveRevocationPubkey(aliceKeyPub, bobFirstRevoke[:])
 
-	aliceRoot := deriveRevocationRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub)
+	aliceRoot := DeriveRevocationRoot(aliceKeyPriv, aliceKeyPub, bobKeyPub)
 	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {

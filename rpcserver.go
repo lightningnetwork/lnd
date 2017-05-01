@@ -1862,6 +1862,14 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 	}, nil
 }
 
+// StopDaemon will send a shutdown request to the interrupt handler, triggering
+// a graceful shutdown of the daemon.
+func (r *rpcServer) StopDaemon(context.Context, *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+
+	shutdownRequestChannel <- struct{}{}
+	return &lnrpc.StopResponse{}, nil
+}
+
 // SubscribeChannelGraph launches a streaming RPC that allows the caller to
 // receive notifications upon any changes the channel graph topology from the
 // review of the responding node. Events notified include: new nodes coming
@@ -1894,7 +1902,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 			// or the notification client was cancelled. So we'll
 			// exit early.
 			if !ok {
-				return errors.New("sever shutting down")
+				return errors.New("server shutting down")
 			}
 
 			// Convert the struct from the channel router into the

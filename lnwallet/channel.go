@@ -232,6 +232,11 @@ type commitment struct {
 	ourBalance   btcutil.Amount
 	theirBalance btcutil.Amount
 
+	// fee is the amount that will be paid as fees for this commitment
+	// transaction. The fee is recorded here so that it can be added
+	// back and recalculated for each new update to the channel state.
+	fee btcutil.Amount
+
 	// htlcs is the set of HTLCs which remain unsettled within this
 	// commitment.
 	outgoingHTLCs []PaymentDescriptor
@@ -251,6 +256,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		LocalBalance:  c.ourBalance,
 		RemoteBalance: c.theirBalance,
 		UpdateNum:     c.height,
+		CommitFee:     c.fee,
 		Htlcs:         make([]*channeldb.HTLC, 0, numHtlcs),
 	}
 
@@ -1181,6 +1187,8 @@ func (lc *LightningChannel) restoreStateLogs() error {
 	lc.localCommitChain.tail().theirMessageIndex = theirCounter
 	lc.remoteCommitChain.tail().ourMessageIndex = ourCounter
 	lc.remoteCommitChain.tail().theirMessageIndex = theirCounter
+	lc.localCommitChain.tail().fee = lc.channelState.CommitFee
+	lc.remoteCommitChain.tail().fee = lc.channelState.CommitFee
 
 	return nil
 }
@@ -1245,12 +1253,13 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// TODO(roasbeef): don't assume view is always fetched from tip?
 	var ourBalance, theirBalance btcutil.Amount
-	if commitChain.tip() == nil {
-		ourBalance = lc.channelState.OurBalance
-		theirBalance = lc.channelState.TheirBalance
-	} else {
-		ourBalance = commitChain.tip().ourBalance
-		theirBalance = commitChain.tip().theirBalance
+	ourBalance = commitChain.tip().ourBalance
+	theirBalance = commitChain.tip().theirBalance
+
+	if lc.channelState.IsInitiator {
+		ourBalance = ourBalance + commitChain.tip().fee
+	} else if !lc.channelState.IsInitiator {
+		theirBalance = theirBalance + commitChain.tip().fee
 	}
 
 	nextHeight := commitChain.tip().height + 1

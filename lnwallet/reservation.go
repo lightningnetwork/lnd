@@ -215,6 +215,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 			TheirBalance: theirBalance,
 			MinFeePerKb:  minFeeRate,
 			Db:           wallet.ChannelDB,
+			CommitFee:    commitFee,
 		},
 		numConfsToOpen: numConfs,
 		pushSat:        pushSat,

@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"errors"
+	"io"
+)
 
 // FailCode specifies the precise reason that an upstream HTLC was cancelled.
 // Each UpdateFailHTLC message carries a FailCode which is to be passed back
@@ -71,6 +74,17 @@ func (c FailCode) String() string {
 // failure reason and additional some supplemental data. The contents of this
 // slice can only be decrypted by the sender of the original HTLC.
 type OpaqueReason []byte
+
+// ToFailCode converts the reason in fail code.
+// TODO(andrew.shvv) Future version of this method should implement
+// decryption opaque reason logic.
+func (r OpaqueReason) ToFailCode() (FailCode, error) {
+	if len(r) != 1 {
+		return 0, errors.New("wrong opaque code length")
+	}
+
+	return FailCode(r[0]), nil
+}
 
 // UpdateFailHTLC is sent by Alice to Bob in order to remove a previously added
 // HTLC. Upon receipt of an UpdateFailHTLC the HTLC should be removed from the

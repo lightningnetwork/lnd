@@ -773,7 +773,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Now that we have their commitment key, we can create the revocation
 	// key for the first version of our commitment transaction. To do so,
 	// we'll first create our root, then produce the first pre-image.
-	root := deriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
+	root := DeriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
 	producer := shachain.NewRevocationProducer(*root)
 	pendingReservation.partialState.RevocationProducer = producer
 	firstPreimage, err := producer.AtIndex(0)
@@ -914,7 +914,7 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	// Now that we know their commitment key, we can create the revocation
 	// key for our version of the initial commitment transaction.
-	root := deriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
+	root := DeriveRevocationRoot(masterElkremRoot, ourKey, theirKey)
 	producer := shachain.NewRevocationProducer(*root)
 	firstPreimage, err := producer.AtIndex(0)
 	if err != nil {

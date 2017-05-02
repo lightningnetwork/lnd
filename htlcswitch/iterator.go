@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"encoding/hex"
+	"io"
 
 	"github.com/btcsuite/golangcrypto/ripemd160"
 	"github.com/roasbeef/btcutil"
@@ -28,4 +29,15 @@ func (h HopID) String() string {
 // IsEqual checks does the two hop ids are equal.
 func (h HopID) IsEqual(h2 HopID) bool {
 	return bytes.Equal(h[:], h2[:])
+}
+
+// HopIterator interface represent the entity which is able to give route
+// hops one by one. This interface is used to have an abstraction over the
+// algorithm which we use to determine the next hope in htlc route.
+type HopIterator interface {
+	// Next returns next hop if exist and nil if route is ended.
+	Next() *HopID
+
+	// Encode encodes iterator and writes it to the writer.
+	Encode(w io.Writer) error
 }

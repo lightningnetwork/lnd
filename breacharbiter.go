@@ -7,6 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
@@ -27,8 +28,8 @@ type breachArbiter struct {
 	db         *channeldb.DB
 	notifier   chainntnfs.ChainNotifier
 	chainIO    lnwallet.BlockChainIO
-	htlcSwitch *htlcSwitch
 	estimator  lnwallet.FeeEstimator
+	htlcSwitch *htlcswitch.Switch
 
 	// breachObservers is a map which tracks all the active breach
 	// observers we're currently managing. The key of the map is the
@@ -64,7 +65,7 @@ type breachArbiter struct {
 // newBreachArbiter creates a new instance of a breachArbiter initialized with
 // its dependent objects.
 func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
-	notifier chainntnfs.ChainNotifier, h *htlcSwitch,
+	notifier chainntnfs.ChainNotifier, h *htlcswitch.Switch,
 	chain lnwallet.BlockChainIO, fe lnwallet.FeeEstimator) *breachArbiter {
 
 	return &breachArbiter{
@@ -482,7 +483,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// breached in order to ensure any incoming or outgoing
 		// multi-hop HTLCs aren't sent over this link, nor any other
 		// links associated with this peer.
-		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
+		b.htlcSwitch.CloseLink(chanPoint, htlcswitch.CloseBreach)
 		chanInfo := contract.StateSnapshot()
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:      *chanPoint,

@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"io"
+
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -25,6 +27,10 @@ type ChannelLinkConfig struct {
 	// Switch is a subsystem which is used to forward the incoming htlc
 	// packets to other peer which should handle it.
 	Switch *Switch
+
+	// DecodeOnion function responsible for decoding htlc Sphinx onion blob,
+	// and creating hop iterator which will give us next destination of htlc.
+	DecodeOnion func(r io.Reader, meta []byte) (HopIterator, error)
 
 	// Peer is a lightning network node with which we have the channel
 	// link opened.

@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/connmgr"
@@ -96,6 +97,7 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "HSWC":
 		hswcLog = logger
+		htlcswitch.UseLogger(logger)
 
 	case "UTXN":
 		utxnLog = logger

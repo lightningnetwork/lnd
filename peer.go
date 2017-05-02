@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"container/list"
 	"crypto/sha256"
 	"fmt"
@@ -11,11 +10,16 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/brontide"
+
+	"github.com/btcsuite/fastsha256"
+
+	"bytes"
+
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -24,7 +28,6 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -121,16 +124,13 @@ type peer struct {
 	activeChannels   map[lnwire.ChannelID]*lnwallet.LightningChannel
 	chanSnapshotReqs chan *chanSnapshotReq
 
-	htlcManMtx   sync.RWMutex
-	htlcManagers map[lnwire.ChannelID]chan lnwire.Message
-
 	// newChannels is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
 	newChannels chan *newChannelMsg
 
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
-	localCloseChanReqs chan *closeLinkReq
+	localCloseChanReqs chan *htlcswitch.ChanClose
 
 	// shutdownChanReqs is used to send the Shutdown messages that initiate
 	// the cooperative close workflow.
@@ -180,11 +180,10 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		outgoingQueue: make(chan outgoinMsg, outgoingQueueLen),
 
 		activeChannels:   make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
-		htlcManagers:     make(map[lnwire.ChannelID]chan lnwire.Message),
 		chanSnapshotReqs: make(chan *chanSnapshotReq),
 		newChannels:      make(chan *newChannelMsg, 1),
 
-		localCloseChanReqs:    make(chan *closeLinkReq),
+		localCloseChanReqs:    make(chan *htlcswitch.ChanClose),
 		shutdownChanReqs:      make(chan *lnwire.Shutdown),
 		closingSignedChanReqs: make(chan *lnwire.ClosingSigned),
 
@@ -310,17 +309,20 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
-		downstreamLink := make(chan *htlcPacket, 10)
-		plexChan := p.server.htlcSwitch.RegisterLink(p,
-			dbChan.Snapshot(), downstreamLink)
+		sphinxDecoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
+		link := htlcswitch.NewChannelLink(
+			&htlcswitch.ChannelLinkConfig{
+				Peer:             p,
+				DecodeOnion:      sphinxDecoder.Decode,
+				SettledContracts: p.server.breachArbiter.settledContracts,
+				DebugHTLC:        cfg.DebugHTLC,
+				Registry:         p.server.invoices,
+				Switch:           p.server.htlcSwitch,
+			}, lnChan)
 
-		upstreamLink := make(chan lnwire.Message, 10)
-		p.htlcManMtx.Lock()
-		p.htlcManagers[chanID] = upstreamLink
-		p.htlcManMtx.Unlock()
-
-		p.wg.Add(1)
-		go p.htlcManager(lnChan, plexChan, downstreamLink, upstreamLink)
+		if err := p.server.htlcSwitch.AddLink(link); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -488,19 +490,15 @@ out:
 
 		if isChanUpdate {
 			sendUpdate := func() {
-				// Dispatch the commitment update message to
-				// the proper active goroutine dedicated to
-				// this channel.
-				p.htlcManMtx.RLock()
-				channel, ok := p.htlcManagers[targetChan]
-				p.htlcManMtx.RUnlock()
-				if !ok {
+				// Dispatch the commitment update message to the proper
+				// active goroutine dedicated to this channel.
+				link, err := p.server.htlcSwitch.GetLink(targetChan)
+				if err != nil {
 					peerLog.Errorf("recv'd update for unknown "+
 						"channel %v from %v", targetChan, p)
 					return
 				}
-
-				channel <- nextMsg
+				link.HandleChannelUpdate(nextMsg)
 			}
 
 			// Check the map of active channel streams, if this map
@@ -756,7 +754,7 @@ func (p *peer) channelManager() {
 	// a cooperative channel close. When an lnwire.Shutdown is received,
 	// this allows the node to determine the next step to be taken in the
 	// workflow.
-	chanShutdowns := make(map[lnwire.ChannelID]*closeLinkReq)
+	chanShutdowns := make(map[lnwire.ChannelID]*htlcswitch.ChanClose)
 
 	// shutdownSigs is a map of signatures maintained by the responder in a
 	// cooperative channel close. This map enables us to respond to
@@ -788,26 +786,22 @@ out:
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
 				"with peerId(%v)", chanPoint, p.id)
 
-			// Now that the channel is open, notify the Htlc
-			// Switch of a new active link.
-			// TODO(roasbeef): register needs to account for
-			// in-flight htlc's on restart
-			chanSnapShot := newChanReq.channel.StateSnapshot()
-			downstreamLink := make(chan *htlcPacket, 10)
-			plexChan := p.server.htlcSwitch.RegisterLink(p,
-				chanSnapShot, downstreamLink)
+			decoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
+			link := htlcswitch.NewChannelLink(
+				&htlcswitch.ChannelLinkConfig{
+					Peer:             p,
+					DecodeOnion:      decoder.Decode,
+					SettledContracts: p.server.breachArbiter.settledContracts,
+					DebugHTLC:        cfg.DebugHTLC,
+					Registry:         p.server.invoices,
+					Switch:           p.server.htlcSwitch,
+				}, newChanReq.channel)
 
-			// With the channel registered to the HtlcSwitch spawn
-			// a goroutine to handle commitment updates for this
-			// new channel.
-			upstreamLink := make(chan lnwire.Message, 10)
-			p.htlcManMtx.Lock()
-			p.htlcManagers[chanID] = upstreamLink
-			p.htlcManMtx.Unlock()
-
-			p.wg.Add(1)
-			go p.htlcManager(newChanReq.channel, plexChan,
-				downstreamLink, upstreamLink)
+			err := p.server.htlcSwitch.AddLink(link)
+			if err != nil {
+				peerLog.Errorf("can't register new channel "+
+					"link(%v) with peerId(%v)", chanPoint, p.id)
+			}
 
 			close(newChanReq.done)
 
@@ -816,12 +810,12 @@ out:
 		case req := <-p.localCloseChanReqs:
 			// So we'll first transition the channel to a state of
 			// pending shutdown.
-			chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
 			// We'll only track this shutdown request if this is a
 			// regular close request, and not in response to a
 			// channel breach.
-			if req.CloseType == CloseRegular {
+			if req.CloseType == htlcswitch.CloseRegular {
 				chanShutdowns[chanID] = req
 			}
 
@@ -899,8 +893,8 @@ out:
 //
 // TODO(roasbeef): if no more active channels with peer call Remove on connMgr
 // with peerID
-func (p *peer) handleLocalClose(req *closeLinkReq) {
-	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
+func (p *peer) handleLocalClose(req *htlcswitch.ChanClose) {
+	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[chanID]
@@ -909,7 +903,7 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
 			"unknown", chanID)
 		peerLog.Errorf(err.Error())
-		req.err <- err
+		req.Err <- err
 		return
 	}
 
@@ -917,22 +911,22 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
-	case CloseRegular:
+	case htlcswitch.CloseRegular:
 		err := p.sendShutdown(channel)
 		if err != nil {
-			req.err <- err
+			req.Err <- err
 			return
 		}
 
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.
-	case CloseBreach:
+	case htlcswitch.CloseBreach:
 		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
-			"channel", req.chanPoint)
-		if err := wipeChannel(p, channel); err != nil {
+			"channel", req.ChanPoint)
+		if err := p.WipeChannel(channel); err != nil {
 			peerLog.Infof("Unable to wipe channel after detected "+
 				"breach: %v", err)
-			req.err <- err
+			req.Err <- err
 			return
 		}
 		return
@@ -1003,8 +997,8 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 // of an unresponsive remote party, the initiator can either choose to execute
 // a force closure, or backoff for a period of time, and retry the cooperative
 // closure.
-func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSigned) {
-	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
+func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.ClosingSigned) {
+	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
@@ -1012,7 +1006,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
 			"unknown", chanID)
 		peerLog.Errorf(err.Error())
-		req.err <- err
+		req.Err <- err
 		return
 	}
 
@@ -1027,7 +1021,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	// so generate our signature.
 	initiatorSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
 	if err != nil {
-		req.err <- err
+		req.Err <- err
 		return
 	}
 	initSig := append(initiatorSig, byte(txscript.SigHashAll))
@@ -1039,7 +1033,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	closeTx, err := channel.CompleteCooperativeClose(initSig, respSig,
 		feeRate)
 	if err != nil {
-		req.err <- err
+		req.Err <- err
 		// TODO(roasbeef): send ErrorGeneric to other side
 		return
 	}
@@ -1048,7 +1042,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	// create a mirrored close signed message with our completed signature.
 	parsedSig, err := btcec.ParseSignature(initSig, btcec.S256())
 	if err != nil {
-		req.err <- err
+		req.Err <- err
 		return
 	}
 	closingSigned := lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
@@ -1062,7 +1056,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	if err := p.server.lnwallet.PublishTransaction(closeTx); err != nil {
 		peerLog.Errorf("channel close tx from "+
 			"ChannelPoint(%v) rejected: %v",
-			req.chanPoint, err)
+			req.ChanPoint, err)
 		// TODO(roasbeef): send ErrorGeneric to other side
 		return
 	}
@@ -1070,9 +1064,9 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	// Once we've completed the cooperative channel closure, we'll wipe the
 	// channel so we reject any incoming forward or payment requests via
 	// this channel.
-	p.server.breachArbiter.settledContracts <- req.chanPoint
-	if err := wipeChannel(p, channel); err != nil {
-		req.err <- err
+	p.server.breachArbiter.settledContracts <- req.ChanPoint
+	if err := p.WipeChannel(channel); err != nil {
+		req.Err <- err
 		return
 	}
 
@@ -1081,7 +1075,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	closingTxid := closeTx.TxHash()
 	chanInfo := channel.StateSnapshot()
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:      *req.chanPoint,
+		ChanPoint:      *req.ChanPoint,
 		ClosingTXID:    closingTxid,
 		RemotePub:      &chanInfo.RemoteIdentity,
 		Capacity:       chanInfo.Capacity,
@@ -1090,13 +1084,13 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 		IsPending:      true,
 	}
 	if err := channel.DeleteState(closeSummary); err != nil {
-		req.err <- err
+		req.Err <- err
 		return
 	}
 
 	// Update the caller with a new event detailing the current pending
 	// state of this request.
-	req.updates <- &lnrpc.CloseStatusUpdate{
+	req.Updates <- &lnrpc.CloseStatusUpdate{
 		Update: &lnrpc.CloseStatusUpdate_ClosePending{
 			ClosePending: &lnrpc.PendingUpdate{
 				Txid: closingTxid[:],
@@ -1106,7 +1100,7 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 
 	_, bestHeight, err := p.server.bio.GetBestBlock()
 	if err != nil {
-		req.err <- err
+		req.Err <- err
 		return
 	}
 
@@ -1114,21 +1108,21 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	// ChainNotifier once the closure transaction obtains a single
 	// confirmation.
 	notifier := p.server.chainNotifier
-	go waitForChanToClose(uint32(bestHeight), notifier, req.err,
-		req.chanPoint, &closingTxid, func() {
+	go waitForChanToClose(uint32(bestHeight), notifier, req.Err,
+		req.ChanPoint, &closingTxid, func() {
 
 			// First, we'll mark the database as being fully closed
 			// so we'll no longer watch for its ultimate closure
 			// upon startup.
-			err := p.server.chanDB.MarkChanFullyClosed(req.chanPoint)
+			err := p.server.chanDB.MarkChanFullyClosed(req.ChanPoint)
 			if err != nil {
-				req.err <- err
+				req.Err <- err
 				return
 			}
 
 			// Respond to the local subsystem which requested the
 			// channel closure.
-			req.updates <- &lnrpc.CloseStatusUpdate{
+			req.Updates <- &lnrpc.CloseStatusUpdate{
 				Update: &lnrpc.CloseStatusUpdate_ChanClose{
 					ChanClose: &lnrpc.ChannelCloseUpdate{
 						ClosingTxid: closingTxid[:],
@@ -1188,7 +1182,7 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	// we'll wipe the channel from all our local indexes and also signal to
 	// the switch that this channel is now closed.
 	peerLog.Infof("ChannelPoint(%v) is now closed", chanPoint)
-	if err := wipeChannel(p, channel); err != nil {
+	if err := p.WipeChannel(channel); err != nil {
 		peerLog.Errorf("unable to wipe channel: %v", err)
 	}
 
@@ -1288,14 +1282,14 @@ func (p *peer) sendShutdown(channel *lnwallet.LightningChannel) error {
 	// Finally, we'll unregister the link from the switch in order to
 	// Prevent the HTLC switch from receiving additional HTLCs for this
 	// channel.
-	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, &chanID)
+	p.server.htlcSwitch.RemoveLink(chanID)
 
 	return nil
 }
 
-// wipeChannel removes the passed channel from all indexes associated with the
+// WipeChannel removes the passed channel from all indexes associated with the
 // peer, and deletes the channel from the database.
-func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
+func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
 	channel.Stop()
 
 	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
@@ -1306,245 +1300,17 @@ func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
 
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
-	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, &chanID)
 
-	// Additionally, close up "down stream" link for the htlcManager which
-	// has been assigned to this channel. This servers the link between the
-	// htlcManager and the switch, signalling that the channel is no longer
-	// active.
-	p.htlcManMtx.RLock()
-
-	// If the channel can't be found in the map, then this channel has
-	// already been wiped.
-	htlcWireLink, ok := p.htlcManagers[chanID]
-	if !ok {
-		p.htlcManMtx.RUnlock()
-		return nil
+	if err := p.server.htlcSwitch.RemoveLink(chanID); err != nil {
+		if err == htlcswitch.ErrChannelLinkNotFound {
+			peerLog.Warnf("unable remove channel link with "+
+				"ChannelPoint(%v): %v", chanID, err)
+			return nil
+		}
+		return err
 	}
-
-	close(htlcWireLink)
-
-	p.htlcManMtx.RUnlock()
-
-	// Next, we remove the htlcManager from our internal map as the
-	// goroutine should have exited gracefully due to the channel closure
-	// above.
-	p.htlcManMtx.RLock()
-	delete(p.htlcManagers, chanID)
-	p.htlcManMtx.RUnlock()
 
 	return nil
-}
-
-// pendingPayment represents a pending HTLC which has yet to be settled by the
-// upstream peer. A pending payment encapsulates the initial HTLC add request
-// additionally coupling the index of the HTLC within the log, and an error
-// channel to signal the payment requester once the payment has been fully
-// fufilled.
-type pendingPayment struct {
-	htlc  *lnwire.UpdateAddHTLC
-	index uint64
-
-	preImage chan [32]byte
-	err      chan error
-	done     chan struct{}
-}
-
-// commitmentState is the volatile+persistent state of an active channel's
-// commitment update state-machine. This struct is used by htlcManager's to
-// save meta-state required for proper functioning.
-type commitmentState struct {
-	// htlcsToSettle is a list of preimages which allow us to settle one or
-	// many of the pending HTLCs we've received from the upstream peer.
-	htlcsToSettle map[uint64]*channeldb.Invoice
-
-	// htlcsToCancel is a set of HTLCs identified by their log index which
-	// are to be cancelled upon the next state transition.
-	htlcsToCancel map[uint64]lnwire.FailCode
-
-	// cancelReasons stores the reason why a particular HTLC was cancelled.
-	// The index of the HTLC within the log is mapped to the cancellation
-	// reason. This value is used to thread the proper error through to the
-	// htlcSwitch, or subsystem that initiated the HTLC.
-	cancelReasons map[uint64]lnwire.FailCode
-
-	// pendingBatch is slice of payments which have been added to the
-	// channel update log, but not yet committed to latest commitment.
-	pendingBatch []*pendingPayment
-
-	// pendingSettle is counter which tracks the current number of settles
-	// that have been sent, but not yet committed to the commitment.
-	pendingSettle uint32
-
-	// clearedHTCLs is a map of outgoing HTLCs we've committed to in our
-	// chain which have not yet been settled by the upstream peer.
-	clearedHTCLs map[uint64]*pendingPayment
-
-	// switchChan is a channel used to send packets to the htlc switch for
-	// forwarding.
-	switchChan chan<- *htlcPacket
-
-	// sphinx is an instance of the Sphinx onion Router for this node. The
-	// router will be used to process all incoming Sphinx packets embedded
-	// within HTLC add messages.
-	sphinx *sphinx.Router
-
-	// pendingCircuits tracks the remote log index of the incoming HTLCs,
-	// mapped to the processed Sphinx packet contained within the HTLC.
-	// This map is used as a staging area between when an HTLC is added to
-	// the log, and when it's locked into the commitment state of both
-	// chains. Once locked in, the processed packet is sent to the switch
-	// along with the HTLC to forward the packet to the next hop.
-	pendingCircuits map[uint64]*sphinx.ProcessedPacket
-
-	// logCommitTimer is a timer which is sent upon if we go an interval
-	// without receiving/sending a commitment update. It's role is to
-	// ensure both chains converge to identical state in a timely manner.
-	// TODO(roasbeef): timer should be >> then RTT
-	logCommitTimer *time.Timer
-	logCommitTick  <-chan time.Time
-
-	channel   *lnwallet.LightningChannel
-	chanPoint *wire.OutPoint
-	chanID    lnwire.ChannelID
-
-	sync.RWMutex
-}
-
-// htlcManager is the primary goroutine which drives a channel's commitment
-// update state-machine in response to messages received via several channels.
-// The htlcManager reads messages from the upstream (remote) peer, and also
-// from several possible downstream channels managed by the htlcSwitch. In the
-// event that an htlc needs to be forwarded, then send-only htlcPlex chan is
-// used which sends htlc packets to the switch for forwarding. Additionally,
-// the htlcManager handles acting upon all timeouts for any active HTLCs,
-// manages the channel's revocation window, and also the htlc trickle
-// queue+timer for this active channels.
-func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
-	htlcPlex chan<- *htlcPacket, downstreamLink <-chan *htlcPacket,
-	upstreamLink <-chan lnwire.Message) {
-
-	chanStats := channel.StateSnapshot()
-	peerLog.Infof("HTLC manager for ChannelPoint(%v) started, "+
-		"our_balance=%v, their_balance=%v, chain_height=%v",
-		channel.ChannelPoint(), chanStats.LocalBalance,
-		chanStats.RemoteBalance, chanStats.NumUpdates)
-
-	// A new session for this active channel has just started, therefore we
-	// need to send our initial revocation window to the remote peer.
-	for i := 0; i < lnwallet.InitialRevocationWindow; i++ {
-		rev, err := channel.ExtendRevocationWindow()
-		if err != nil {
-			peerLog.Errorf("unable to expand revocation window: %v", err)
-			continue
-		}
-		p.queueMsg(rev, nil)
-	}
-
-	chanPoint := channel.ChannelPoint()
-	state := &commitmentState{
-		channel:         channel,
-		chanPoint:       chanPoint,
-		chanID:          lnwire.NewChanIDFromOutPoint(chanPoint),
-		clearedHTCLs:    make(map[uint64]*pendingPayment),
-		htlcsToSettle:   make(map[uint64]*channeldb.Invoice),
-		htlcsToCancel:   make(map[uint64]lnwire.FailCode),
-		cancelReasons:   make(map[uint64]lnwire.FailCode),
-		pendingCircuits: make(map[uint64]*sphinx.ProcessedPacket),
-		sphinx:          p.server.sphinx,
-		logCommitTimer:  time.NewTimer(300 * time.Millisecond),
-		switchChan:      htlcPlex,
-	}
-
-	// TODO(roasbeef): check to see if able to settle any currently pending
-	// HTLCs
-	//   * also need signals when new invoices are added by the
-	//   invoiceRegistry
-
-	batchTimer := time.NewTicker(50 * time.Millisecond)
-	defer batchTimer.Stop()
-
-out:
-	for {
-		select {
-		case <-channel.UnilateralCloseSignal:
-			// TODO(roasbeef): need to send HTLC outputs to nursery
-			peerLog.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
-				state.chanPoint)
-			if err := wipeChannel(p, channel); err != nil {
-				peerLog.Errorf("unable to wipe channel %v", err)
-			}
-
-			p.server.breachArbiter.settledContracts <- state.chanPoint
-
-			break out
-
-		case <-channel.ForceCloseSignal:
-			// TODO(roasbeef): path never taken now that server
-			// force closes's directly?
-			peerLog.Warnf("ChannelPoint(%v) has been force "+
-				"closed, disconnecting from peerID(%x)",
-				state.chanPoint, p.id)
-			break out
-
-		case <-state.logCommitTick:
-			// If we haven't sent or received a new commitment
-			// update in some time, check to see if we have any
-			// pending updates we need to commit due to our
-			// commitment chains being desynchronized.
-			if state.channel.FullySynced() &&
-				len(state.htlcsToSettle) == 0 {
-				continue
-			}
-
-			if err := p.updateCommitTx(state); err != nil {
-				peerLog.Errorf("unable to update commitment: %v",
-					err)
-				p.Disconnect()
-				break out
-			}
-
-		case <-batchTimer.C:
-			// If the either batch is empty, then we have no work
-			// here.
-			//
-			// TODO(roasbeef): should be combined, will be fixed by
-			// andrew's PR
-			if len(state.pendingBatch) == 0 && state.pendingSettle == 0 {
-				continue
-			}
-
-			// Otherwise, attempt to extend the remote commitment
-			// chain including all the currently pending entries.
-			// If the send was unsuccessful, then abandon the
-			// update, waiting for the revocation window to open
-			// up.
-			if err := p.updateCommitTx(state); err != nil {
-				peerLog.Errorf("unable to update "+
-					"commitment: %v", err)
-				p.Disconnect()
-				break out
-			}
-
-		case pkt := <-downstreamLink:
-			p.handleDownStreamPkt(state, pkt)
-
-		case msg, ok := <-upstreamLink:
-			// If the upstream message link is closed, this signals
-			// that the channel itself is being closed, therefore
-			// we exit.
-			if !ok {
-				break out
-			}
-
-			p.handleUpstreamMsg(state, msg)
-		case <-p.quit:
-			break out
-		}
-	}
-
-	p.wg.Done()
-	peerLog.Tracef("htlcManager for peer %v done", p)
 }
 
 // handleInitMsg handles the incoming init message which contains global and
@@ -1582,557 +1348,21 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC
-// Switch. Possible messages sent by the switch include requests to forward new
-// HTLCs, timeout previously cleared HTLCs, and finally to settle currently
-// cleared HTLCs with the upstream peer.
-func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
-	var isSettle bool
-	switch htlc := pkt.msg.(type) {
-	case *lnwire.UpdateAddHTLC:
-		// A new payment has been initiated via the
-		// downstream channel, so we add the new HTLC
-		// to our local log, then update the commitment
-		// chains.
-		htlc.ChanID = state.chanID
-		index, err := state.channel.AddHTLC(htlc)
-		if err != nil {
-			// TODO: possibly perform fallback/retry logic
-			// depending on type of error
-			peerLog.Errorf("Adding HTLC rejected: %v", err)
-			pkt.err <- err
-			close(pkt.done)
-
-			// The HTLC was unable to be added to the state
-			// machine, as a result, we'll signal the switch to
-			// cancel the pending payment.
-			// TODO(roasbeef): need to update link as well if local
-			// HTLC?
-			state.switchChan <- &htlcPacket{
-				amt: htlc.Amount,
-				msg: &lnwire.UpdateFailHTLC{
-					Reason: []byte{byte(0)},
-				},
-				srcLink: state.chanID,
-			}
-			return
-		}
-
-		p.queueMsg(htlc, nil)
-
-		state.pendingBatch = append(state.pendingBatch, &pendingPayment{
-			htlc:     htlc,
-			index:    index,
-			preImage: pkt.preImage,
-			err:      pkt.err,
-			done:     pkt.done,
-		})
-
-	case *lnwire.UpdateFufillHTLC:
-		// An HTLC we forward to the switch has just settled somewhere
-		// upstream. Therefore we settle the HTLC within the our local
-		// state machine.
-		pre := htlc.PaymentPreimage
-		logIndex, err := state.channel.SettleHTLC(pre)
-		if err != nil {
-			// TODO(roasbeef): broadcast on-chain
-			peerLog.Errorf("settle for incoming HTLC rejected: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// With the HTLC settled, we'll need to populate the wire
-		// message to target the specific channel and HTLC to be
-		// cancelled.
-		htlc.ChanID = state.chanID
-		htlc.ID = logIndex
-
-		// Then we send the HTLC settle message to the connected peer
-		// so we can continue the propagation of the settle message.
-		p.queueMsg(htlc, nil)
-		isSettle = true
-
-		state.pendingSettle++
-
-	case *lnwire.UpdateFailHTLC:
-		// An HTLC cancellation has been triggered somewhere upstream,
-		// we'll remove then HTLC from our local state machine.
-		logIndex, err := state.channel.FailHTLC(pkt.payHash)
-		if err != nil {
-			peerLog.Errorf("unable to cancel HTLC: %v", err)
-			return
-		}
-
-		// With the HTLC removed, we'll need to populate the wire
-		// message to target the specific channel and HTLC to be
-		// cancelled. The "Reason" field will have already been set
-		// within the switch.
-		htlc.ChanID = state.chanID
-		htlc.ID = logIndex
-
-		// Finally, we send the HTLC message to the peer which
-		// initially created the HTLC.
-		p.queueMsg(htlc, nil)
-		isSettle = true
-
-		state.pendingSettle++
-	}
-
-	// If this newly added update exceeds the min batch size for adds, or
-	// this is a settle request, then initiate an update.
-	// TODO(roasbeef): enforce max HTLCs in flight limit
-	if len(state.pendingBatch) >= 10 || isSettle {
-		if err := p.updateCommitTx(state); err != nil {
-			peerLog.Errorf("unable to update "+
-				"commitment: %v", err)
-			p.Disconnect()
-			return
-		}
-	}
-}
-
-// handleUpstreamMsg processes wire messages related to commitment state
-// updates from the upstream peer. The upstream peer is the peer whom we have a
-// direct channel with, updating our respective commitment chains.
-func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
-	switch htlcPkt := msg.(type) {
-	// TODO(roasbeef): timeouts
-	//  * fail if can't parse sphinx mix-header
-	case *lnwire.UpdateAddHTLC:
-		// Before adding the new HTLC to the state machine, parse the
-		// onion object in order to obtain the routing information.
-		blobReader := bytes.NewReader(htlcPkt.OnionBlob[:])
-		onionPkt := &sphinx.OnionPacket{}
-		if err := onionPkt.Decode(blobReader); err != nil {
-			peerLog.Errorf("unable to decode onion pkt: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// We just received an add request from an upstream peer, so we
-		// add it to our state machine, then add the HTLC to our
-		// "settle" list in the event that we know the preimage
-		index, err := state.channel.ReceiveHTLC(htlcPkt)
-		if err != nil {
-			peerLog.Errorf("Receiving HTLC rejected: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// TODO(roasbeef): perform sanity checks on per-hop payload
-		//  * time-lock is sane, fee, chain, etc
-
-		// Attempt to process the Sphinx packet. We include the payment
-		// hash of the HTLC as it's authenticated within the Sphinx
-		// packet itself as associated data in order to thwart attempts
-		// a replay attacks. In the case of a replay, an attacker is
-		// *forced* to use the same payment hash twice, thereby losing
-		// their money entirely.
-		rHash := htlcPkt.PaymentHash[:]
-		sphinxPacket, err := state.sphinx.ProcessOnionPacket(onionPkt, rHash)
-		if err != nil {
-			// If we're unable to parse the Sphinx packet, then
-			// we'll cancel the HTLC after the current commitment
-			// transition.
-			peerLog.Errorf("unable to process onion pkt: %v", err)
-			state.htlcsToCancel[index] = lnwire.SphinxParseError
-			return
-		}
-
-		switch sphinxPacket.Action {
-		// We're the designated payment destination. Therefore we
-		// attempt to see if we have an invoice locally which'll allow
-		// us to settle this HTLC.
-		case sphinx.ExitNode:
-			rHash := htlcPkt.PaymentHash
-			invoice, err := p.server.invoices.LookupInvoice(rHash)
-			if err != nil {
-				// If we're the exit node, but don't recognize
-				// the payment hash, then we'll fail the HTLC
-				// on the next state transition.
-				peerLog.Errorf("unable to settle HTLC, "+
-					"payment hash (%x) unrecognized", rHash[:])
-				state.htlcsToCancel[index] = lnwire.UnknownPaymentHash
-				return
-			}
-
-			// If we're not currently in debug mode, and the
-			// extended HTLC doesn't meet the value requested, then
-			// we'll fail the HTLC.
-			if !cfg.DebugHTLC && htlcPkt.Amount < invoice.Terms.Value {
-				peerLog.Errorf("rejecting HTLC due to incorrect "+
-					"amount: expected %v, received %v",
-					invoice.Terms.Value, htlcPkt.Amount)
-				state.htlcsToCancel[index] = lnwire.IncorrectValue
-			} else {
-				// Otherwise, everything is in order and we'll
-				// settle the HTLC after the current state
-				// transition.
-				state.htlcsToSettle[index] = invoice
-			}
-
-		// There are additional hops left within this route, so we
-		// track the next hop according to the index of this HTLC
-		// within their log. When forwarding locked-in HLTC's to the
-		// switch, we'll attach the routing information so the switch
-		// can finalize the circuit.
-		case sphinx.MoreHops:
-			state.Lock()
-			state.pendingCircuits[index] = sphinxPacket
-			state.Unlock()
-		default:
-			peerLog.Errorf("mal formed onion packet")
-			state.htlcsToCancel[index] = lnwire.SphinxParseError
-		}
-
-	case *lnwire.UpdateFufillHTLC:
-		pre := htlcPkt.PaymentPreimage
-		idx := htlcPkt.ID
-		if err := state.channel.ReceiveHTLCSettle(pre, idx); err != nil {
-			// TODO(roasbeef): broadcast on-chain
-			peerLog.Errorf("settle for outgoing HTLC rejected: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// TODO(roasbeef): add preimage to DB in order to swipe
-		// repeated r-values
-	case *lnwire.UpdateFailHTLC:
-		idx := htlcPkt.ID
-		if err := state.channel.ReceiveFailHTLC(idx); err != nil {
-			peerLog.Errorf("unable to recv HTLC cancel: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		state.Lock()
-		state.cancelReasons[idx] = lnwire.FailCode(htlcPkt.Reason[0])
-		state.Unlock()
-
-	case *lnwire.CommitSig:
-		// We just received a new update to our local commitment chain,
-		// validate this new commitment, closing the link if invalid.
-		// TODO(roasbeef): redundant re-serialization
-		sig := htlcPkt.CommitSig.Serialize()
-		if err := state.channel.ReceiveNewCommitment(sig); err != nil {
-			peerLog.Errorf("unable to accept new commitment: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// As we've just just accepted a new state, we'll now
-		// immediately send the remote peer a revocation for our prior
-		// state.
-		nextRevocation, err := state.channel.RevokeCurrentCommitment()
-		if err != nil {
-			peerLog.Errorf("unable to revoke commitment: %v", err)
-			return
-		}
-		p.queueMsg(nextRevocation, nil)
-
-		if !state.logCommitTimer.Stop() {
-			select {
-			case <-state.logCommitTimer.C:
-			default:
-			}
-		}
-
-		state.logCommitTimer.Reset(300 * time.Millisecond)
-		state.logCommitTick = state.logCommitTimer.C
-
-		// If both commitment chains are fully synced from our PoV,
-		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted state.
-		if state.channel.FullySynced() {
-			return
-		}
-
-		// Otherwise, the remote party initiated the state transition,
-		// so we'll reply with a signature to provide them with their
-		// version of the latest commitment state.
-		if err := p.updateCommitTx(state); err != nil {
-			peerLog.Errorf("unable to update commitment: %v", err)
-			p.Disconnect()
-			return
-		}
-
-	case *lnwire.RevokeAndAck:
-		// We've received a revocation from the remote chain, if valid,
-		// this moves the remote chain forward, and expands our
-		// revocation window.
-		htlcsToForward, err := state.channel.ReceiveRevocation(htlcPkt)
-		if err != nil {
-			peerLog.Errorf("unable to accept revocation: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// If any of the HTLCs eligible for forwarding are pending
-		// settling or timing out previous outgoing payments, then we
-		// can them from the pending set, and signal the requester (if
-		// existing) that the payment has been fully fulfilled.
-		var bandwidthUpdate btcutil.Amount
-		settledPayments := make(map[lnwallet.PaymentHash]struct{})
-		cancelledHtlcs := make(map[uint64]struct{})
-		for _, htlc := range htlcsToForward {
-			parentIndex := htlc.ParentIndex
-			if p, ok := state.clearedHTCLs[parentIndex]; ok {
-				switch htlc.EntryType {
-				// If the HTLC was settled successfully, then
-				// we return a nil error as well as the payment
-				// preimage back to the possible caller.
-				case lnwallet.Settle:
-					p.preImage <- htlc.RPreimage
-					p.err <- nil
-
-				// Otherwise, the HTLC failed, so we propagate
-				// the error back to the potential caller.
-				case lnwallet.Fail:
-					state.Lock()
-					errMsg := state.cancelReasons[parentIndex]
-					state.Unlock()
-
-					p.preImage <- [32]byte{}
-					p.err <- errors.New(errMsg.String())
-				}
-
-				close(p.done)
-
-				delete(state.clearedHTCLs, htlc.ParentIndex)
-			}
-
-			// TODO(roasbeef): rework log entries to a shared
-			// interface.
-			if htlc.EntryType != lnwallet.Add {
-				continue
-			}
-
-			// If we can settle this HTLC within our local state
-			// update log, then send the update entry to the remote
-			// party.
-			invoice, ok := state.htlcsToSettle[htlc.Index]
-			if ok {
-				preimage := invoice.Terms.PaymentPreimage
-				logIndex, err := state.channel.SettleHTLC(preimage)
-				if err != nil {
-					peerLog.Errorf("unable to settle htlc: %v", err)
-					p.Disconnect()
-					continue
-				}
-
-				settleMsg := &lnwire.UpdateFufillHTLC{
-					ChanID:          state.chanID,
-					ID:              logIndex,
-					PaymentPreimage: preimage,
-				}
-				p.queueMsg(settleMsg, nil)
-
-				delete(state.htlcsToSettle, htlc.Index)
-				settledPayments[htlc.RHash] = struct{}{}
-
-				bandwidthUpdate += htlc.Amount
-				continue
-			}
-
-			// Alternatively, if we marked this HTLC for
-			// cancellation, then immediately cancel the HTLC as
-			// it's now locked in within both commitment
-			// transactions.
-			reason, ok := state.htlcsToCancel[htlc.Index]
-			if !ok {
-				continue
-			}
-
-			logIndex, err := state.channel.FailHTLC(htlc.RHash)
-			if err != nil {
-				peerLog.Errorf("unable to cancel htlc: %v", err)
-				p.Disconnect()
-				continue
-			}
-
-			cancelMsg := &lnwire.UpdateFailHTLC{
-				ChanID: state.chanID,
-				ID:     logIndex,
-				Reason: []byte{byte(reason)},
-			}
-			p.queueMsg(cancelMsg, nil)
-			delete(state.htlcsToCancel, htlc.Index)
-
-			cancelledHtlcs[htlc.Index] = struct{}{}
-		}
-
-		go func() {
-			for _, htlc := range htlcsToForward {
-				// We don't need to forward any HTLCs that we
-				// just settled or cancelled above.
-				// TODO(roasbeef): key by index instead?
-				state.RLock()
-				if _, ok := settledPayments[htlc.RHash]; ok {
-					state.RUnlock()
-					continue
-				}
-				if _, ok := cancelledHtlcs[htlc.Index]; ok {
-					state.RUnlock()
-					continue
-				}
-				state.RUnlock()
-
-				state.Lock()
-				onionPkt := state.pendingCircuits[htlc.Index]
-				delete(state.pendingCircuits, htlc.Index)
-
-				reason := state.cancelReasons[htlc.ParentIndex]
-				delete(state.cancelReasons, htlc.ParentIndex)
-				state.Unlock()
-
-				// Send this fully activated HTLC to the htlc
-				// switch to continue the chained clear/settle.
-				pkt, err := logEntryToHtlcPkt(state.chanID,
-					htlc, onionPkt, reason)
-				if err != nil {
-					peerLog.Errorf("unable to make htlc pkt: %v",
-						err)
-					continue
-				}
-
-				state.switchChan <- pkt
-			}
-
-		}()
-
-		if len(settledPayments) == 0 && len(cancelledHtlcs) == 0 {
-			return
-		}
-
-		// Send an update to the htlc switch of our newly available
-		// payment bandwidth.
-		// TODO(roasbeef): ideally should wait for next state update.
-		if bandwidthUpdate != 0 {
-			p.server.htlcSwitch.UpdateLink(state.chanID,
-				bandwidthUpdate)
-		}
-
-		// With all the settle updates added to the local and remote
-		// HTLC logs, initiate a state transition by updating the
-		// remote commitment chain.
-		if err := p.updateCommitTx(state); err != nil {
-			peerLog.Errorf("unable to update commitment: %v", err)
-			p.Disconnect()
-			return
-		}
-
-		// Notify the invoiceRegistry of the invoices we just settled
-		// with this latest commitment update.
-		// TODO(roasbeef): wait until next transition?
-		for invoice := range settledPayments {
-			err := p.server.invoices.SettleInvoice(chainhash.Hash(invoice))
-			if err != nil {
-				peerLog.Errorf("unable to settle invoice: %v", err)
-			}
-		}
-	}
-}
-
-// updateCommitTx signs, then sends an update to the remote peer adding a new
-// commitment to their commitment chain which includes all the latest updates
-// we've received+processed up to this point.
-func (p *peer) updateCommitTx(state *commitmentState) error {
-	sigTheirs, err := state.channel.SignNextCommitment()
-	if err == lnwallet.ErrNoWindow {
-		peerLog.Tracef("ChannelPoint(%v): revocation window exhausted, unable to send %v",
-			state.chanPoint, len(state.pendingBatch))
-		return nil
-	} else if err != nil {
-		return err
-	}
-
-	parsedSig, err := btcec.ParseSignature(sigTheirs, btcec.S256())
-	if err != nil {
-		return fmt.Errorf("unable to parse sig: %v", err)
-	}
-
-	commitSig := &lnwire.CommitSig{
-		ChanID:    state.chanID,
-		CommitSig: parsedSig,
-	}
-	p.queueMsg(commitSig, nil)
-
-	// As we've just cleared out a batch, move all pending updates to the
-	// map of cleared HTLCs, clearing out the set of pending updates.
-	for _, update := range state.pendingBatch {
-		state.clearedHTCLs[update.index] = update
-	}
-
-	// We've just initiated a state transition, attempt to stop the
-	// logCommitTimer. If the timer already ticked, then we'll consume the
-	// value, dropping
-	if state.logCommitTimer != nil && !state.logCommitTimer.Stop() {
-		select {
-		case <-state.logCommitTimer.C:
-		default:
-		}
-	}
-	state.logCommitTick = nil
-
-	// Finally, clear our the current batch, and flip the pendingUpdate
-	// bool to indicate were waiting for a commitment signature.
-	// TODO(roasbeef): re-slice instead to avoid GC?
-	state.pendingBatch = nil
-	state.pendingSettle = 0
-
+// SendMessage sends message to the remote peer which represented by
+// this peer.
+func (p *peer) SendMessage(msg lnwire.Message) error {
+	p.queueMsg(msg, nil)
 	return nil
 }
 
-// logEntryToHtlcPkt converts a particular Lightning Commitment Protocol (LCP)
-// log entry the corresponding htlcPacket with src/dest set along with the
-// proper wire message. This helper method is provided in order to aid an
-// htlcManager in forwarding packets to the htlcSwitch.
-func logEntryToHtlcPkt(chanID lnwire.ChannelID, pd *lnwallet.PaymentDescriptor,
-	onionPkt *sphinx.ProcessedPacket,
-	reason lnwire.FailCode) (*htlcPacket, error) {
+// ID returns the lightning network peer id.
+func (p *peer) ID() [sha256.Size]byte {
+	return fastsha256.Sum256(p.PubKey())
+}
 
-	pkt := &htlcPacket{}
-
-	// TODO(roasbeef): alter after switch to log entry interface
-	var msg lnwire.Message
-	switch pd.EntryType {
-
-	case lnwallet.Add:
-		// TODO(roasbeef): timeout, onion blob, etc
-		var b bytes.Buffer
-		if err := onionPkt.Packet.Encode(&b); err != nil {
-			return nil, err
-		}
-
-		htlc := &lnwire.UpdateAddHTLC{
-			Amount:      pd.Amount,
-			PaymentHash: pd.RHash,
-		}
-		copy(htlc.OnionBlob[:], b.Bytes())
-		msg = htlc
-
-	case lnwallet.Settle:
-		msg = &lnwire.UpdateFufillHTLC{
-			PaymentPreimage: pd.RPreimage,
-		}
-
-	case lnwallet.Fail:
-		// For cancellation messages, we'll also need to set the rHash
-		// within the htlcPacket so the switch knows on which outbound
-		// link to forward the cancellation message
-		msg = &lnwire.UpdateFailHTLC{
-			Reason: []byte{byte(reason)},
-		}
-		pkt.payHash = pd.RHash
-	}
-
-	pkt.amt = pd.Amount
-	pkt.msg = msg
-
-	pkt.srcLink = chanID
-	pkt.onion = onionPkt
-
-	return pkt, nil
+// PubKey returns the peer public key.
+func (p *peer) PubKey() []byte {
+	return p.addr.IdentityKey.SerializeCompressed()
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

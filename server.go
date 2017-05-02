@@ -434,6 +434,7 @@ func (s *server) establishPersistentConnections() error {
 			}
 		}
 		pubStr := string(node.IdentityPub.SerializeCompressed())
+
 		nodeAddrs := &nodeAddresses{
 			pubKey:    node.IdentityPub,
 			addresses: node.Addresses,
@@ -947,6 +948,12 @@ type connectPeerMsg struct {
 	err chan error
 }
 
+type disconnectPeerMsg struct {
+	pubKey string
+
+	err chan error
+}
+
 // listPeersMsg is a message sent to the server in order to obtain a listing
 // of all currently active channels.
 type listPeersMsg struct {
@@ -1057,6 +1064,8 @@ out:
 			}()
 		case query := <-s.queries:
 			switch msg := query.(type) {
+			case *disconnectPeerMsg:
+				s.handleDisconnectPeer(msg)
 			case *connectPeerMsg:
 				s.handleConnectPeer(msg)
 			case *listPeersMsg:
@@ -1157,6 +1166,57 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 	}
 }
 
+// handleDisconnectPeer attempts to disconnect one peer from another
+func (s *server) handleDisconnectPeer(msg *disconnectPeerMsg) {
+	pubKey, err := hex.DecodeString(msg.pubKey)
+	if err != nil {
+		msg.err <- fmt.Errorf("unable to DecodeString public key: %v", err)
+		return
+	}
+
+	// Ensure we're already connected to this peer.
+	s.peersMtx.RLock()
+	peer, ok := s.peersByPub[string(pubKey)]
+	s.peersMtx.RUnlock()
+	if !ok {
+		msg.err <- fmt.Errorf("unable to find peer(%v) by public key(%v)", peer, msg.pubKey)
+		return
+	}
+
+	// Get all pending and active channels corresponding with current node.
+	allChannels, err := s.chanDB.FetchAllChannels()
+	if err != nil {
+		msg.err <- fmt.Errorf("unable to get opened channels: %v", err)
+		return
+	}
+
+	// Filter by public key all channels corresponding with the detached node.
+	var nodeChannels []*channeldb.OpenChannel
+
+	for _, channel := range allChannels {
+		if hex.EncodeToString(channel.IdentityPub.SerializeCompressed()) == msg.pubKey {
+			nodeChannels = append(nodeChannels, channel)
+		}
+	}
+
+	// Send server info logs containing channels id's and raise error about
+	// primary closing channels before start disconnecting peer.
+	if len(nodeChannels) > 0 {
+		for _, channel := range nodeChannels {
+			srvrLog.Infof("Before disconnect peer(%v) close channel: %v",
+				msg.pubKey, channel.ChanID)
+		}
+		msg.err <- fmt.Errorf("before disconnect peer(%v) you have to close "+
+			"active and pending channels corresponding to that peer; %v",
+			msg.pubKey, nodeChannels)
+		return
+	}
+
+	srvrLog.Infof("Disconnecting from %v", peer)
+	peer.Disconnect()
+	msg.err <- nil
+}
+
 // handleOpenChanReq first locates the target peer, and if found hands off the
 // request to the funding manager allowing it to initiate the channel funding
 // workflow.
@@ -1209,6 +1269,20 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 		addr:       addr,
 		persistent: perm,
 		err:        errChan,
+	}
+
+	return <-errChan
+}
+
+// DisconnectFromPeer sends the request to server to close the connection
+// with peer identified by public key.
+func (s *server) DisconnectFromPeer(pubkey string) error {
+
+	errChan := make(chan error, 1)
+
+	s.queries <- &disconnectPeerMsg{
+		pubKey: pubkey,
+		err:    errChan,
 	}
 
 	return <-errChan

@@ -240,6 +240,16 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	return &lnrpc.ConnectPeerResponse{}, nil
 }
 
+// DisconnectPeer attempts to disconnect one peer from another identified by a given pubKey.
+func (r *rpcServer) DisconnectPeer(ctx context.Context, in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
+	if err := r.server.DisconnectFromPeer(in.PubKey); err != nil {
+		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
+	}
+	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
+
+	return &lnrpc.DisconnectPeerResponse{}, nil
+}
+
 // OpenChannel attempts to open a singly funded channel specified in the
 // request to a remote peer.
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
@@ -644,19 +654,19 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	pendingChannels, err := r.server.fundingMgr.NumPendingChannels()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to get number of pending channels: %v", err)
 	}
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
 	bestHash, bestHeight, err := r.server.bio.GetBestBlock()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
 	isSynced, err := r.server.lnwallet.IsSynced()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to sync PoV of the wallet with current best block in the main chain: %v", err)
 	}
 
 	activeChains := make([]string, registeredChains.NumActiveChains())

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -29,8 +28,9 @@ import (
 )
 
 var (
-	cfg             *config
-	shutdownChannel = make(chan struct{})
+	cfg              *config
+	shutdownChannel  = make(chan struct{})
+	registeredChains = newChainRegistry()
 )
 
 // lndMain is the true entry point for lnd. This function is required since
@@ -64,22 +64,31 @@ func lndMain() error {
 	// network related metadata.
 	chanDB, err := channeldb.Open(cfg.DataDir)
 	if err != nil {
-		fmt.Println("unable to open channeldb: ", err)
+		ltndLog.Errorf("unable to open channeldb: ", err)
 		return err
 	}
 	defer chanDB.Close()
+
+	// Set the RPC config from the "home" chain. Multi-chain isn't yet
+	// active, so we'll restrict usage to a particular chain for now.
+	homeChainConfig := cfg.Bitcoin
+	if registeredChains.PrimaryChain() == litecoinChain {
+		homeChainConfig = cfg.Litecoin
+	}
+	ltndLog.Infof("Primary chain is set to: %v",
+		registeredChains.PrimaryChain())
 
 	// Next load btcd's TLS cert for the RPC connection. If a raw cert was
 	// specified in the config, then we'll set that directly. Otherwise, we
 	// attempt to read the cert from the path specified in the config.
 	var rpcCert []byte
-	if cfg.RawRPCCert != "" {
-		rpcCert, err = hex.DecodeString(cfg.RawRPCCert)
+	if homeChainConfig.RawRPCCert != "" {
+		rpcCert, err = hex.DecodeString(homeChainConfig.RawRPCCert)
 		if err != nil {
 			return err
 		}
 	} else {
-		certFile, err := os.Open(cfg.RPCCert)
+		certFile, err := os.Open(homeChainConfig.RPCCert)
 		if err != nil {
 			return err
 		}
@@ -96,14 +105,14 @@ func lndMain() error {
 	// specified, then we use that directly. Otherwise, we assume the
 	// default port according to the selected chain parameters.
 	var btcdHost string
-	if strings.Contains(cfg.RPCHost, ":") {
-		btcdHost = cfg.RPCHost
+	if strings.Contains(homeChainConfig.RPCHost, ":") {
+		btcdHost = homeChainConfig.RPCHost
 	} else {
-		btcdHost = fmt.Sprintf("%v:%v", cfg.RPCHost, activeNetParams.rpcPort)
+		btcdHost = fmt.Sprintf("%v:%v", homeChainConfig.RPCHost, activeNetParams.rpcPort)
 	}
 
-	btcdUser := cfg.RPCUser
-	btcdPass := cfg.RPCPass
+	btcdUser := homeChainConfig.RPCUser
+	btcdPass := homeChainConfig.RPCPass
 
 	// TODO(roasbeef): parse config here and select chosen notifier instead
 	rpcConfig := &btcrpcclient.ConnConfig{
@@ -124,10 +133,10 @@ func lndMain() error {
 	// TODO(roasbeef): parse config here select chosen WalletController
 	walletConfig := &btcwallet.Config{
 		PrivatePass: []byte("hello"),
-		DataDir:     filepath.Join(cfg.DataDir, "lnwallet"),
+		DataDir:     homeChainConfig.ChainDir,
 		RPCHost:     btcdHost,
-		RPCUser:     cfg.RPCUser,
-		RPCPass:     cfg.RPCPass,
+		RPCUser:     homeChainConfig.RPCUser,
+		RPCPass:     homeChainConfig.RPCPass,
 		CACert:      rpcCert,
 		NetParams:   activeNetParams.Params,
 	}
@@ -160,6 +169,18 @@ func lndMain() error {
 		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
 
+	// Finally before we start the server, we'll register the "holy
+	// trinity" of interface for our current "home chain" with the active
+	// chainRegistry interface.
+	primaryChain := registeredChains.PrimaryChain()
+	registeredChains.RegisterChain(primaryChain, &chainControl{
+		chainIO:       bio,
+		chainNotifier: notifier,
+		wallet:        wallet,
+	})
+
+	// With all the relevant chains initialized, we can finally start the
+	// server itself.
 	server, err := newServer(defaultListenAddrs, notifier, bio,
 		fundingSigner, wallet, chanDB)
 	if err != nil {

@@ -70,7 +70,7 @@ $ btcctl --testnet getpeerinfo | more
 ### Start lnd: (once btcd has synced testnet)
 
 ```
-$ lnd --testnet --debuglevel=debug --externalip=X.X.X.X
+$ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --externalip=X.X.X.X
 ```
 
 If you'd like to signal to other nodes on the network that you'll accept
@@ -83,7 +83,8 @@ reachable IP address.
 If doing local development, you'll want to start both `btcd` and `lnd` in the
 `simnet` mode. Simnet is similar to regtest in that you'll be able to instantly
 mine blocks as needed to test `lnd` locally. In order to start either daemon in
-the `simnet` mode add the `--simnet` flag instead of the `--testnet` flag.
+the `simnet` mode add the `--bitcoin.simnet` flag instead of the
+`--bitcoin.testnet` flag.
 
 Another relevant command line flag for local testing of new `lnd` developments
 is the `--debughtlc` flag. When starting `lnd` with this flag, it'll be able to
@@ -92,14 +93,14 @@ won't need to manually insert invoices in order to test payment connectivity.
 To send this "special" HTLC type, include the `--debugsend` command at the end
 of your `sendpayment` commands.
 ```
-$ lnd --simnet --debughtlc
+$ lnd --bitcoin.active --bitcoin.simnet --debughtlc
 ```
 
 ### Create an lnd.conf (Optional)
 
 Optionally, if you'd like to have a persistent configuration between `lnd`
-launches, allowing you to simply type `lnd --testnet` at the command line. You
-can create an `lnd.conf`. 
+launches, allowing you to simply type `lnd --bitcoin.testnet --bitcoin.active`
+at the command line. You can create an `lnd.conf`. 
 
 **On MacOS, located at:**
 `/Users/[username]/Library/Application Support/Lnd/lnd.conf`
@@ -110,13 +111,21 @@ can create an `lnd.conf`.
 Here's a sample `lnd.conf` to get you started:
 ```
 [Application Options]
-btcdhost=localhost:18334
 debuglevel=trace
 debughtlc=true
 maxpendingchannels=10
 profile=5060
 externalip=128.111.13.23,111.32.29.29
+
+[Bitcoin]
+bitcoin.active=1
+bitcoin.rpchost=localhost:18334
 ```
+
+Notice the `[Bitcoin]` section. This section houses the parameters for the
+Bitcoin chain. Also `lnd` also supports Litecoin, one is able to also specified
+(but not concurrently with Bitcoin!) the proper parameters, so `lnd` knows to
+be active on Litecoin's testnet4.
 
 #### Accurate as of:
 roasbeef/btcd commit: 54362e17a5b80643ef1e12edc08895a2e2a1202b

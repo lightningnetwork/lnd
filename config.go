@@ -25,11 +25,8 @@ const (
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
-	defaultSPVMode            = false
 	defaultPeerPort           = 5656
 	defaultRPCHost            = "localhost"
-	defaultRPCUser            = ""
-	defaultRPCPass            = ""
 	defaultMaxPendingChannels = 1
 )
 
@@ -39,9 +36,26 @@ var (
 	defaultDataDir    = filepath.Join(lndHomeDir, defaultDataDirname)
 	defaultLogDir     = filepath.Join(lndHomeDir, defaultLogDirname)
 
-	btcdHomeDir        = btcutil.AppDataDir("btcd", false)
-	defaultRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
+	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
+	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
+
+	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
+	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
 )
+
+type chainConfig struct {
+	Active   bool   `long:"active" destination:"If the chain should be active or not."`
+	ChainDir string `long:"chaindir" description:"The directory to store the chains's data within."`
+
+	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
+	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
+	RPCPass    string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
+	RPCCert    string `long:"rpccert" description:"File containing the daemon's certificate file"`
+	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
+
+	TestNet3 bool `long:"testnet" description:"Use the test network"`
+	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
+}
 
 // config defines the configuration options for lnd.
 //
@@ -61,17 +75,13 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
-	PeerPort           int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort            int    `long:"rpcport" description:"The port for the rpc server"`
-	RPCHost            string `long:"btcdhost" description:"The btcd rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
-	RPCUser            string `short:"u" long:"rpcuser" description:"Username for RPC connections"`
-	RPCPass            string `short:"P" long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
-	RPCCert            string `long:"rpccert" description:"File containing btcd's certificate file"`
-	RawRPCCert         string `long:"rawrpccert" description:"The raw bytes of btcd's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
-	TestNet3           bool   `long:"testnet" description:"Use the test network"`
-	SimNet             bool   `long:"simnet" description:"Use the simulation test network"`
-	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
-	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
+	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
+	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+
+	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
+	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -90,11 +100,17 @@ func loadConfig() (*config, error) {
 		LogDir:             defaultLogDir,
 		PeerPort:           defaultPeerPort,
 		RPCPort:            defaultRPCPort,
-		RPCHost:            defaultRPCHost,
-		RPCUser:            defaultRPCUser,
-		RPCPass:            defaultRPCPass,
-		RPCCert:            defaultRPCCertFile,
 		MaxPendingChannels: defaultMaxPendingChannels,
+		Bitcoin: &chainConfig{
+			RPCHost:  defaultRPCHost,
+			ChainDir: filepath.Join(defaultDataDir, bitcoinChain.String()),
+			RPCCert:  defaultBtcdRPCCertFile,
+		},
+		Litecoin: &chainConfig{
+			RPCHost:  defaultRPCHost,
+			ChainDir: filepath.Join(defaultDataDir, litecoinChain.String()),
+			RPCCert:  defaultLtcdRPCCertFile,
+		},
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -144,23 +160,72 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Multiple networks can't be selected simultaneously.  Count number of
-	// network flags passed; assign active network params while we're at
-	// it.
-	numNets := 0
-	if cfg.TestNet3 {
-		numNets++
-		activeNetParams = testNetParams
-	}
-	if cfg.SimNet {
-		numNets++
-		activeNetParams = simNetParams
-	}
-	if numNets > 1 {
-		str := "%s: The testnet, segnet, and simnet params can't be " +
-			"used together -- choose one of the three"
+	// At this moment, multiple active chains are not supported.
+	if cfg.Litecoin.Active && cfg.Bitcoin.Active {
+		str := "%s: Currently both Bitcoin and Litecoin cannot be " +
+			"active together"
 		err := fmt.Errorf(str, funcName)
 		return nil, err
+	}
+
+	if cfg.Litecoin.Active {
+		if cfg.Litecoin.SimNet {
+			str := "%s: simnet mode for litecoin not currently supported"
+			return nil, fmt.Errorf(str, funcName)
+		}
+
+		// The litecoin chain is the current active chain. However
+		// throuhgout the codebase we required chiancfg.Params. So as a
+		// temporary hack, we'll mutate the default net params for
+		// bitcoin with the litecoin specific informat.ion
+		paramCopy := bitcoinTestNetParams
+		applyLitecoinParams(&paramCopy)
+		activeNetParams = paramCopy
+
+		// Attempt to parse out the RPC credentials for the litecoin
+		// chain if the information wasn't specified
+		err := parseRPCParams(cfg.Litecoin, litecoinChain, funcName)
+		if err != nil {
+			err := fmt.Errorf("unable to load RPC credentials for "+
+				"ltcd: %v", err)
+			return nil, err
+		}
+
+		// Finally we'll register the litecoin chain as our current
+		// primary chain.
+		registeredChains.RegisterPrimaryChain(litecoinChain)
+	}
+	if cfg.Bitcoin.Active {
+		// Multiple networks can't be selected simultaneously.  Count
+		// number of network flags passed; assign active network params
+		// while we're at it.
+		numNets := 0
+		if cfg.Bitcoin.TestNet3 {
+			numNets++
+			activeNetParams = bitcoinTestNetParams
+		}
+		if cfg.Bitcoin.SimNet {
+			activeNetParams = bitcoinSimNetParams
+		}
+		if numNets > 1 {
+			str := "%s: The testnet, segnet, and simnet params can't be " +
+				"used together -- choose one of the three"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		// If needed, we'll attempt to automatically configure the RPC
+		// control plan for the target btcd node.
+		err := parseRPCParams(cfg.Bitcoin, bitcoinChain, funcName)
+		if err != nil {
+			err := fmt.Errorf("unable to load RPC credentials for "+
+				"btcd: %v", err)
+			return nil, err
+		}
+
+		// Finally we'll register the bitcoin chain as our current
+		// primary chain.
+		registeredChains.RegisterPrimaryChain(bitcoinChain)
 	}
 
 	// Validate profile port number.
@@ -175,47 +240,25 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// If the rpcuser and rpcpass paramters aren't set, then we'll attempt
-	// to automatically obtain the properm mcredentials for btcd and set
-	// them within the configuration.
-	if cfg.RPCUser == "" || cfg.RPCPass == "" {
-		// If we're in simnet mode, then the running btcd instance
-		// won't read the RPC credentials from the configuration. So if
-		// lnd wasn't specified the paramters, then we won't be able to
-		// start.
-		if cfg.SimNet {
-			str := "%v: rpcuser and rpcpass must be set to your btcd " +
-				"node's RPC paramters"
-			return nil, fmt.Errorf(str, funcName)
-		}
-
-		fmt.Println("Attempting automatic RPC configuration to btcd")
-
-		confFile := filepath.Join(btcdHomeDir, "btcd.conf")
-		rpcUser, rpcPass, err := extractRPCParams(confFile)
-		if err != nil {
-			return nil, fmt.Errorf("unable to extract RPC "+
-				"credentials: %v, cannot start w/o RPC connection",
-				err)
-		}
-
-		fmt.Println("Automatically obtained btcd's RPC credentials")
-		cfg.RPCUser, cfg.RPCPass = rpcUser, rpcPass
-	}
-
 	// Append the network type to the data directory so it is "namespaced"
 	// per network. In addition to the block database, there are other
 	// pieces of data that are saved to disk such as address manager state.
 	// All data is specific to a network, so namespacing the data directory
 	// means each individual piece of serialized data does not have to
 	// worry about changing names per network and such.
+	// TODO(roasbeef): when we go full multi-chain remove the additional
+	// namespacing on the target chain.
 	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
 	cfg.DataDir = filepath.Join(cfg.DataDir, activeNetParams.Name)
+	cfg.DataDir = filepath.Join(cfg.DataDir,
+		registeredChains.primaryChain.String())
 
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 	cfg.LogDir = filepath.Join(cfg.LogDir, activeNetParams.Name)
+	cfg.LogDir = filepath.Join(cfg.LogDir,
+		registeredChains.primaryChain.String())
 
 	// Initialize logging at the default logging level.
 	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename))
@@ -337,6 +380,46 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
 		return brontide.Dial(idPriv, lnAddr)
 	}
+}
+
+func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error {
+	// If the rpcuser and rpcpass paramters aren't set, then we'll attempt
+	// to automatically obtain the properm mcredentials for btcd and set
+	// them within the configuration.
+	if cConfig.RPCUser != "" || cConfig.RPCPass != "" {
+		return nil
+	}
+
+	// If we're in simnet mode, then the running btcd instance won't read
+	// the RPC credentials from the configuration. So if lnd wasn't
+	// specified the paramters, then we won't be able to start.
+	if cConfig.SimNet {
+		str := "%v: rpcuser and rpcpass must be set to your btcd " +
+			"node's RPC paramters"
+		return fmt.Errorf(str, funcName)
+	}
+
+	daemonName := "btcd"
+	if net == litecoinChain {
+		daemonName = "ltcd"
+	}
+	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
+
+	homeDir := btcdHomeDir
+	if net == litecoinChain {
+		homeDir = ltcdHomeDir
+	}
+	confFile := filepath.Join(homeDir, fmt.Sprintf("%v.conf", daemonName))
+	rpcUser, rpcPass, err := extractRPCParams(confFile)
+	if err != nil {
+		return fmt.Errorf("unable to extract RPC "+
+			"credentials: %v, cannot start w/o RPC connection",
+			err)
+	}
+
+	fmt.Printf("Automatically obtained %v's RPC credentials\n", daemonName)
+	cConfig.RPCUser, cConfig.RPCPass = rpcUser, rpcPass
+	return nil
 }
 
 // extractRPCParams attempts to extract the RPC credentials for an existing

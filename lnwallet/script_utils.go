@@ -24,8 +24,6 @@ var (
 	// time is in seconds.
 	SequenceLockTimeSeconds = uint32(1 << 22)
 
-	OP_CHECKSEQUENCEVERIFY byte = txscript.OP_NOP3
-
 	// TimelockShift is used to make sure the commitment transaction is
 	// spendable by setting the locktime with it so that it is larger than
 	// 500,000,000, thus interpreting it as Unix epoch timestamp and not
@@ -236,7 +234,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddInt64(int64(absoluteTimeout))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddInt64(int64(relativeTimeout))
-	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 	builder.AddOp(txscript.OP_2DROP)
 	builder.AddData(senderKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -401,7 +399,7 @@ func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddData(paymentHash)
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 	builder.AddInt64(int64(relativeTimeout))
-	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddData(receiverKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -599,7 +597,7 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	builder.AddData(selfKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
 	builder.AddInt64(int64(csvTimeout))
-	builder.AddOp(OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 
 	builder.AddOp(txscript.OP_ENDIF)
 

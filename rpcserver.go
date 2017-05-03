@@ -675,6 +675,10 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, err
 	}
 
+	activeChains := make([]string, registeredChains.NumActiveChains())
+	for i, chain := range registeredChains.ActiveChains() {
+		activeChains[i] = chain.String()
+	}
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:     hex.EncodeToString(idPub),
@@ -685,6 +689,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BlockHash:          bestHash.String(),
 		SyncedToChain:      isSynced,
 		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
+		Chains:             activeChains,
 	}, nil
 }
 

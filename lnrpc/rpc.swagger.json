@@ -970,6 +970,12 @@
         "testnet": {
           "type": "boolean",
           "format": "boolean"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

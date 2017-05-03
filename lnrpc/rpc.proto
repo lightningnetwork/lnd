@@ -312,6 +312,8 @@ message GetInfoResponse {
 
     bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
     bool testnet = 10 [ json_name = "testnet" ];
+
+    repeated string chains = 11[ json_name = "chains" ] ;
 }
 
 message ConfirmationUpdate {

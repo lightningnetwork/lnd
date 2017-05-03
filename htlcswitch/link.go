@@ -17,6 +17,33 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+// ChannelLinkConfig defines the configuration for the channel link. ALL
+// elements within the configuration MUST be non-nil for channel link to carry
+// out its duties.
+type ChannelLinkConfig struct {
+	// Switch is a subsystem which is used to forward the incoming htlc
+	// packets to other peer which should handle it.
+	Switch *Switch
+
+	// Peer is a lightning network node with which we have the channel
+	// link opened.
+	Peer Peer
+
+	// Registry is a sub-system which responsible for managing the
+	// invoices in thread-safe manner.
+	Registry InvoiceDatabase
+
+	// SettledContracts is used to notify that a channel has peacefully been
+	// closed. Once a channel has been closed the other subsystem no longer
+	// needs to watch for breach closes.
+	SettledContracts chan *wire.OutPoint
+
+	// DebugHTLC should be turned on if you want all HTLCs sent to a node
+	// with the debug htlc R-Hash are immediately settled in the next
+	// available state transition.
+	DebugHTLC bool
+}
+
 // commitmentState is the volatile+persistent state of an active channel's
 // commitment update state-machine. This struct is used by htlcManager's to
 // save meta-state required for proper functioning.
@@ -63,6 +90,10 @@ type commitmentState struct {
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
 	chanID    lnwire.ChannelID
+
+	// cfg is a structure which carries all dependable fields/handlers
+	// which may affect behaviour of the service.
+	cfg *ChannelLinkConfig
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment

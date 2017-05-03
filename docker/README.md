@@ -109,6 +109,9 @@ bob$ lncli getinfo
     "block_hash": "7d0bc86ea4151ed3b5be908ea883d2ac3073263537bcf8ca2dca4bec22e79d50",
     "synced_to_chain": true,
     "testnet": false
+    "chains": [
+        "bitcoin"
+    ]
 }
 
 # Get the IP address of "Bob" node:

@@ -2,19 +2,21 @@ package htlcswitch
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/Masterminds/glide/cfg"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/pkg/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/Masterminds/glide/cfg"
 )
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -44,10 +46,12 @@ type ChannelLinkConfig struct {
 	DebugHTLC bool
 }
 
-// commitmentState is the volatile+persistent state of an active channel's
-// commitment update state-machine. This struct is used by htlcManager's to
-// save meta-state required for proper functioning.
-type commitmentState struct {
+// channelLink is the service which drives a channel's commitment update
+// state-machine. In the event that an htlc needs to be propagated to another
+// link, then forward handler from config is used which sends htlc to the
+// switch. Additionally, the link encapsulate logic of commitment protocol
+// message ordering and updates.
+type channelLink struct {
 	// htlcsToSettle is a list of preimages which allow us to settle one or
 	// many of the pending HTLCs we've received from the upstream peer.
 	htlcsToSettle map[uint64]*channeldb.Invoice
@@ -94,6 +98,62 @@ type commitmentState struct {
 	// cfg is a structure which carries all dependable fields/handlers
 	// which may affect behaviour of the service.
 	cfg *ChannelLinkConfig
+
+	// upstream is a channel which responsible for propagating the
+	// received from remote peer messages, with which we have an opened
+	// channel, to handler function.
+	upstream chan lnwire.Message
+
+	// downstream is a channel which responsible for propagating
+	// the received htlc switch packet which are forwarded from anther
+	// channel to the handler function.
+	downstream chan *htlcPacket
+
+	// control is used to propagate the commands to its handlers. This
+	// channel is needed in order to handle commands in sequence manner,
+	// i.e in the main handler loop.
+	control chan interface{}
+
+	started  int32
+	shutdown int32
+	wg       sync.WaitGroup
+	quit     chan struct{}
+}
+
+// A compile time check to ensure channelLink implements the ChannelLink
+// interface.
+var _ ChannelLink = (*channelLink)(nil)
+
+// Start starts all helper goroutines required for the operation of the
+// channel link.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) Start() error {
+	if !atomic.CompareAndSwapInt32(&l.started, 0, 1) {
+		log.Warnf("channel link(%v): already started", l)
+		return nil
+	}
+
+	log.Infof("channel link(%v): starting", l)
+
+	l.wg.Add(1)
+	go l.htlcHandler()
+
+	return nil
+}
+
+// Stop gracefully stops all active helper goroutines, then waits until they've
+// exited.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) Stop() {
+	if !atomic.CompareAndSwapInt32(&l.shutdown, 0, 1) {
+		log.Warnf("channel link(%v): already stopped", l)
+		return
+	}
+
+	log.Infof("channel link(%v): stopping", l)
+
+	close(l.quit)
+	l.wg.Wait()
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment
@@ -742,4 +802,83 @@ func logEntryToHtlcPkt(chanID lnwire.ChannelID, pd *lnwallet.PaymentDescriptor,
 	pkt.onion = onionPkt
 
 	return pkt, nil
+}
+
+// Peer returns the representation of remote peer with which we
+// have the channel link opened.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) Peer() Peer {
+	return l.cfg.Peer
+}
+
+// ChannelPoint returns the unique identificator of the channel link.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) ChanID() lnwire.ChannelID {
+	return lnwire.NewChanIDFromOutPoint(l.channel.ChannelPoint())
+}
+
+// getBandwidthCmd is a wrapper for get bandwidth handler.
+type getBandwidthCmd struct {
+	done chan btcutil.Amount
+}
+
+// Bandwidth returns the amount which current link might pass
+// through channel link. Execution through control channel gives as
+// confidence that bandwidth will not be changed during function execution.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) Bandwidth() btcutil.Amount {
+	command := &getBandwidthCmd{
+		done: make(chan btcutil.Amount, 1),
+	}
+
+	select {
+	case l.control <- command:
+		return <-command.done
+	case <-l.quit:
+		return 0
+	}
+}
+
+// getBandwidth returns the amount which current link might pass
+// through channel link.
+// NOTE: Should be use inside main goroutine only, otherwise the result might
+// be accurate.
+func (l *channelLink) getBandwidth() btcutil.Amount {
+	return l.channel.LocalAvailableBalance() - l.queue.pendingAmount()
+}
+
+// Stats return the statistics of channel link.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) Stats() (uint64, btcutil.Amount, btcutil.Amount) {
+	snapshot := l.channel.StateSnapshot()
+	return snapshot.NumUpdates,
+		btcutil.Amount(snapshot.TotalSatoshisSent),
+		btcutil.Amount(snapshot.TotalSatoshisReceived)
+}
+
+// String returns the string representation of channel link.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) String() string {
+	return l.channel.ChannelPoint().String()
+}
+
+// HandleSwitchPacket handles the switch packets. This packets which might
+// be forwarded to us from another channel link in case the htlc update came
+// from another peer or if the update was created by user
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) HandleSwitchPacket(packet *htlcPacket) {
+	select {
+	case l.downstream <- packet:
+	case <-l.quit:
+	}
+}
+
+// HandleChannelUpdate handles the htlc requests as settle/add/fail which
+// sent to us from remote peer we have a channel with.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
+	select {
+	case l.upstream <- message:
+	case <-l.quit:
+	}
 }

@@ -27,7 +27,6 @@ _testmain.go
 /lnd
 
 cmd/cmd
-**.key
 **.hex
 
 cmd/lncli/lncli

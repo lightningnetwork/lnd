@@ -65,3 +65,6 @@ import:
 - package: google.golang.org/genproto
   subpackages:
   - googleapis/api/annotations
+- package: github.com/ltcsuite/ltcd
+  subpackages:
+  - chaincfg

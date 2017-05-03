@@ -558,7 +558,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 		return nil, err
 	}
 
-	// If no time-locked outputs can be swept at this point, ten we can
+	// If no time-locked outputs can be swept at this point, then we can
 	// exit early.
 	if len(results) == 0 {
 		return nil, nil
@@ -592,7 +592,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 // user's wallet.
 func sweepGraduatingOutputs(wallet *lnwallet.LightningWallet, kgtnOutputs []*kidOutput) error {
 	// Create a transaction which sweeps all the newly mature outputs into
-	// a output controlled by the wallet.
+	// an output controlled by the wallet.
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
 	sweepTx, err := createSweepTx(wallet, kgtnOutputs)
@@ -805,7 +805,7 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 }
 
 // deserializeKidOutput takes a byte array representation of a kidOutput
-// and converts it to an struct. Note that the witnessFunc method isn't added
+// and converts it to a struct. Note that the witnessFunc method isn't added
 // during deserialization and must be added later based on the value of the
 // witnessType field.
 func deserializeKidOutput(r io.Reader) (*kidOutput, error) {

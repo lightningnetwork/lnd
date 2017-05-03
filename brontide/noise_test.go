@@ -166,7 +166,7 @@ func TestWriteMessageChunking(t *testing.T) {
 
 	// Launch a new goroutine to write the large message generated above in
 	// chunks. We spawn a new goroutine because otherwise, we may block as
-	// the kernal waits for the buffer to flush.
+	// the kernel waits for the buffer to flush.
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {

@@ -6,7 +6,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
-// AnnounceSignatures this is a direct message between two endpoints of a
+// AnnounceSignatures is a direct message between two endpoints of a
 // channel and serves as an opt-in mechanism to allow the announcement of
 // the channel to the rest of the network. It contains the necessary
 // signatures by the sender to construct the channel announcement message.
@@ -25,12 +25,12 @@ type AnnounceSignatures struct {
 	ShortChannelID ShortChannelID
 
 	// NodeSignature is the signature which contains the signed announce
-	// channel message, by this signature we proof that we posses of the
+	// channel message, by this signature we prove that we posses of the
 	// node pub key and creating the reference node_key -> bitcoin_key.
 	NodeSignature *btcec.Signature
 
 	// BitcoinSignature is the signature which contains the signed node
-	// public key, by this signature we proof that we posses of the
+	// public key, by this signature we prove that we posses of the
 	// bitcoin key and and creating the reverse reference bitcoin_key ->
 	// node_key.
 	BitcoinSignature *btcec.Signature

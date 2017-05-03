@@ -11,14 +11,14 @@ import (
 // between two peers in the overlay, which is propagated by the discovery
 // service over broadcast handler.
 type ChannelAnnouncement struct {
-	// This signatures are used by nodes in order to create cross
+	// These signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
 	// this node.
 	NodeSig1 *btcec.Signature
 	NodeSig2 *btcec.Signature
 
-	// This signatures are used by nodes in order to create cross
+	// These signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring the bitcoin
 	// signatures proves they control the channel.
 	BitcoinSig1 *btcec.Signature
@@ -28,12 +28,12 @@ type ChannelAnnouncement struct {
 	ShortChannelID ShortChannelID
 
 	// The public keys of the two nodes who are operating the channel, such
-	// that is NodeID1 the numerically-lesser than NodeID2 (ascending
+	// that NodeID1 is numerically-lesser than NodeID2 (ascending
 	// numerical order).
 	NodeID1 *btcec.PublicKey
 	NodeID2 *btcec.PublicKey
 
-	// Public keys which corresponds to the keys which was declared in
+	// Public keys which corresponds to the keys which were declared in
 	// multisig funding transaction output.
 	BitcoinKey1 *btcec.PublicKey
 	BitcoinKey2 *btcec.PublicKey

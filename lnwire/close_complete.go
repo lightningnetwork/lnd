@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-// CloseComplete is sent by Bob signalling a fufillment and completion of
+// CloseComplete is sent by Bob signalling a fulfillment and completion of
 // Alice's prior CloseRequest message. After Alice receives Bob's CloseComplete
 // message, she is able to broadcast the fully signed transaction executing a
 // cooperative closure of the channel.

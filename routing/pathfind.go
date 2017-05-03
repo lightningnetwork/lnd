@@ -105,7 +105,7 @@ type Route struct {
 
 	// TotalFees is the sum of the fees paid at each hop within the final
 	// route. In the case of a one-hop payment, this value will be zero as
-	// we don't need to pay a fee it ourself.
+	// we don't need to pay a fee to ourself.
 	TotalFees btcutil.Amount
 
 	// TotalAmount is the total amount of funds required to complete a
@@ -266,7 +266,7 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // Dijkstra's algorithm to find a single shortest path between the source node
 // and the destination. The distance metric used for edges is related to the
 // time-lock+fee costs along a particular edge. If a path is found, this
-// function returns a slice of ChannelHop structs which encoded the chosen path
+// function returns a slice of ChannelHop structs which encode the chosen path
 // from the target to the source.
 func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
 	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
@@ -278,8 +278,8 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	var nodeHeap distanceHeap
 
 	// For each node/vertex the graph we create an entry in the distance
-	// map for the node set with a distance of "infinity".  We also mark
-	// add the node to our set of unvisited nodes.
+	// map for the node set with a distance of "infinity".  We also add
+	// the node to our set of unvisited nodes.
 	distance := make(map[vertex]nodeWithDist)
 	if err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks

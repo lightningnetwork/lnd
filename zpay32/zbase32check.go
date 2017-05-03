@@ -18,7 +18,7 @@ import (
 // (payment hash), 8-bytes for the payment amount in satoshis.
 const invoiceSize = 33 + 32 + 8
 
-// ErrCheckSumMismatch is returned byt he Decode function fi when
+// ErrCheckSumMismatch is returned by the Decode function if when
 // decoding an encoded invoice, the checksum doesn't match indicating
 // an error somewhere in the bitstream.
 var ErrCheckSumMismatch = errors.New("the checksum is incorrect")

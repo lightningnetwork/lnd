@@ -6,7 +6,7 @@ import "io"
 // particular HTLC referenced by its HTLCKey within a specific active channel
 // referenced by ChannelPoint.  A subsequent CommitSig message will be sent by
 // Alice to "lock-in" the removal of the specified HTLC, possible containing a
-// batch signature covering several settled HTLC's.
+// batch signature covering several settled HTLCs.
 type UpdateFufillHTLC struct {
 	// ChanID references an active channel which holds the HTLC to be
 	// settled.

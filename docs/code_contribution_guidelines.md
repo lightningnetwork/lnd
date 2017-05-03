@@ -344,7 +344,7 @@ Functions should _not_ just be layed out as a bare contiguous block of code.
 
 #### 4.5.6. Protobuf Compilation
 
-The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
+The `lnd` project uses `protobuf`, and its extension [`gRPC`](http://www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity
 of all protos checked, in we require that all contributors pin against the
 _exact same_ version of `protoc`. As of the writing of this article, the `lnd`

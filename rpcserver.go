@@ -263,7 +263,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	const minChannelSize = btcutil.Amount(6000)
 
 	// Restrict the size of the channel we'll actually open. Atm, we
-	// require the amount to be above 6k satoahis s we currently hard-coded
+	// require the amount to be above 6k satoahis as we currently hard-coded
 	// a 5k satoshi fee in several areas. As a result 6k sat is the min
 	// channnel size that allows us to safely sit above the dust threshold
 	// after fees are applied
@@ -463,8 +463,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			rpcsLog.Errorf("unable to force close transaction: %v", err)
 
 			// If the transaction we broadcast is detected as a
-			// double spend, the this indicates that the remote
-			// party has broadcast their commitment transaction be
+			// double spend, this indicates that the remote
+			// party has broadcast their commitment transaction but
 			// we didn't notice.
 			if strings.Contains(err.Error(), "fully-spent") ||
 				strings.Contains(err.Error(), "double spend") {
@@ -513,7 +513,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				}
 
 				// As the channel has been closed, we can now
-				// delete it's state from the database.
+				// delete its state from the database.
 				rpcsLog.Infof("ChannelPoint(%v) is now "+
 					"closed at height %v", chanPoint,
 					txConf.BlockHeight)
@@ -582,7 +582,7 @@ out:
 	return nil
 }
 
-// fetchActiveChannel attempts to locate a channel identified by it's channel
+// fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels.
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.LightningChannel, error) {
 	dbChannels, err := r.server.chanDB.FetchAllChannels()
@@ -629,7 +629,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	txid := closeTx.TxHash()
 
 	// With the close transaction in hand, broadcast the transaction to the
-	// network, thereby entering the psot channel resolution state.
+	// network, thereby entering the post channel resolution state.
 	rpcsLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
 		channel.ChannelPoint(), newLogClosure(func() string {
 			return spew.Sdump(closeTx)
@@ -646,7 +646,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 }
 
 // GetInfo serves a request to the "getinfo" RPC call. This call returns
-// general information concerning the lightning node including it's LN ID,
+// general information concerning the lightning node including its LN ID,
 // identity address, and information concerning the number of open+pending
 // channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
@@ -715,7 +715,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// In order to display the total number of satoshis of outbound
 		// (sent) and inbound (recv'd) satoshis that have been
 		// transported through this peer, we'll sum up the sent/recv'd
-		// values for each of the active channels we ahve with the
+		// values for each of the active channels we have with the
 		// peer.
 		chans := serverPeer.ChannelSnapshots()
 		for _, c := range chans {
@@ -1118,7 +1118,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		return nil, err
 	}
 
-	// With the payment completed successfully, we now ave the details of
+	// With the payment completed successfully, we now add the details of
 	// the completed payment to the database for historical record keeping.
 	if err := r.savePayment(route, amt, rHash[:]); err != nil {
 		return nil, err
@@ -1455,7 +1455,7 @@ func (r *rpcServer) DescribeGraph(context.Context,
 
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
-	// the routing policies of th nodes connecting the two edges.
+	// the routing policies of the nodes connecting the two edges.
 	err = graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
 		c1, c2 *channeldb.ChannelEdgePolicy) error {
 
@@ -1515,7 +1515,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	return edge
 }
 
-// GetChainInfo returns the latest authenticated network announcement for the
+// GetChanInfo returns the latest authenticated network announcement for the
 // given channel identified by its channel ID: an 8-byte integer which uniquely
 // identifies the location of transaction's funding output within the block
 // chain.
@@ -1597,7 +1597,7 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 	}, nil
 }
 
-// QueryRoutes attempts to query the daemons' Channel Router for a possible
+// QueryRoutes attempts to query the daemon's Channel Router for a possible
 // route to a target destination capable of carrying a specific amount of
 // satoshis within the route's flow. The retuned route contains the full
 // details required to craft and send an HTLC, also including the necessary
@@ -1809,7 +1809,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	}
 }
 
-// marshallTopologyChange performs a mapping from the topology change sturct
+// marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
 func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopologyUpdate {

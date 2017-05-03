@@ -20,12 +20,12 @@ type SingleFundingResponse struct {
 	// derive the public key the responder will use for the half of the
 	// 2-of-2 multi-sig. Using the channel derivation point (CDP), and the
 	// responder's identity public key (A), the channel public key is
-	// computed as: C = A + CDP. In order to be valid all CDP's MUST have
+	// computed as: C = A + CDP. In order to be valid all CDPs MUST have
 	// an odd y-coordinate.
 	ChannelDerivationPoint *btcec.PublicKey
 
 	// CommitmentKey is key the responder to the funding workflow wishes to
-	// use within their versino of the commitment transaction for any
+	// use within their version of the commitment transaction for any
 	// delayed (CSV) or immediate outputs to them.
 	CommitmentKey *btcec.PublicKey
 
@@ -33,7 +33,7 @@ type SingleFundingResponse struct {
 	// clause within the self-output of the responder's commitment
 	// transaction. Once an initial new state is created, the responder
 	// will send a preimage which will allow the initiator to sweep the
-	// responder's funds if the violate the contract.
+	// responder's funds if she violate the contract.
 	RevocationKey *btcec.PublicKey
 
 	// CsvDelay is the number of blocks to use for the relative time lock

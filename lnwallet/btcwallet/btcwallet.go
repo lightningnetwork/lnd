@@ -132,7 +132,7 @@ func New(cfg Config) (*BtcWallet, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
-	// Establish an RPC connection in additino to starting the goroutines
+	// Establish an RPC connection in addition to starting the goroutines
 	// in the underlying wallet.
 	if err := b.rpc.Start(); err != nil {
 		return err

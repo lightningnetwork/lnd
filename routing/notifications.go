@@ -249,17 +249,17 @@ type ChannelEdgeUpdate struct {
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
 	MinHTLC btcutil.Amount
 
-	// BaseFee is the base fee that will charged for all HTLC's forwarded
+	// BaseFee is the base fee that will charged for all HTLCs forwarded
 	// across the this channel direction.
 	BaseFee btcutil.Amount
 
-	// FeeRate is the fee rate that will be shared for all HTLC's forwarded
+	// FeeRate is the fee rate that will be shared for all HTLCs forwarded
 	// across this channel direction.
 	FeeRate btcutil.Amount
 
 	// TimeLockDelta is the time-lock expressed in blocks that will be
-	// added to outgoing HTLC's from incoming HTLC's. This value is the
-	// difference of the incoming and outgoing HTLC's time-locks routed
+	// added to outgoing HTLCs from incoming HTLCs. This value is the
+	// difference of the incoming and outgoing HTLCs time-locks routed
 	// through this hop.
 	TimeLockDelta uint16
 

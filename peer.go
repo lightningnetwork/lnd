@@ -405,7 +405,7 @@ out:
 				continue
 
 			// If the error we encountered wasn't just a message we
-			// didn't recognize, then we'll stop all processing s
+			// didn't recognize, then we'll stop all processing as
 			// this is a fatal error.
 			default:
 				break out
@@ -857,7 +857,7 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 
 	switch req.CloseType {
 	// A type of CloseRegular indicates that the user has opted to close
-	// out this channel on-chian, so we execute the cooperative channel
+	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case CloseRegular:
 		closingTxid, err = p.executeCooperativeClose(channel)
@@ -1459,7 +1459,7 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 
 		// There are additional hops left within this route, so we
 		// track the next hop according to the index of this HTLC
-		// within their log. When forwarding locked-in HLTC's to the
+		// within their log. When forwarding locked-in HTLCs to the
 		// switch, we'll attach the routing information so the switch
 		// can finalize the circuit.
 		case sphinx.MoreHops:

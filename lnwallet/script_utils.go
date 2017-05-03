@@ -228,7 +228,7 @@ func senderHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
 	builder.AddOp(txscript.OP_ELSE)
 
 	// In this case, the sender will need to wait for an absolute HTLC
-	// timeout, then afterwards a relative timeout before we claim re-claim
+	// timeout, then afterwards a relative timeout before we re-claim
 	// the unsettled funds. This delay gives the other party a chance to
 	// present the preimage to the revocation hash in the event that the
 	// sender (at this time) broadcasts this commitment transaction after

@@ -53,7 +53,7 @@ type SingleFundingRequest struct {
 	CsvDelay uint32
 
 	// CommitmentKey is key the initiator of the funding workflow wishes to
-	// use within their versino of the commitment transaction for any
+	// use within their version of the commitment transaction for any
 	// delayed (CSV) or immediate outputs to them.
 	CommitmentKey *btcec.PublicKey
 
@@ -61,7 +61,7 @@ type SingleFundingRequest struct {
 	// derive the public key the initiator will use for the half of the
 	// 2-of-2 multi-sig. Using the channel derivation point (CDP), and the
 	// initiators identity public key (A), the channel public key is
-	// computed as: C = A + CDP. In order to be valid all CDP's MUST have
+	// computed as: C = A + CDP. In order to be valid all CDPs MUST have
 	// an odd y-coordinate.
 	ChannelDerivationPoint *btcec.PublicKey
 

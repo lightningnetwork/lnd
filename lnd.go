@@ -64,7 +64,7 @@ func lndMain() error {
 	// network related metadata.
 	chanDB, err := channeldb.Open(cfg.DataDir)
 	if err != nil {
-		ltndLog.Errorf("unable to open channeldb: ", err)
+		ltndLog.Errorf("unable to open channeldb: %v", err)
 		return err
 	}
 	defer chanDB.Close()

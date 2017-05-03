@@ -110,13 +110,15 @@ type lightningNode struct {
 
 // newLightningNode creates a new test lightning node instance from the passed
 // rpc config and slice of extra arguments.
-func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*lightningNode, error) {
+func newLightningNode(btcrpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*lightningNode, error) {
 	var err error
 
 	cfg := &config{
-		RPCHost: rpcConfig.Host,
-		RPCUser: rpcConfig.User,
-		RPCPass: rpcConfig.Pass,
+		Bitcoin: &chainConfig{
+			RPCHost: btcrpcConfig.Host,
+			RPCUser: btcrpcConfig.User,
+			RPCPass: btcrpcConfig.Pass,
+		},
 	}
 
 	nodeNum := numActiveNodes
@@ -140,7 +142,7 @@ func newLightningNode(rpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*li
 		cfg:               cfg,
 		p2pAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
 		rpcAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
-		rpcCert:           rpcConfig.Certificates,
+		rpcCert:           btcrpcConfig.Certificates,
 		nodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
 		processExit:       make(chan struct{}),
@@ -155,15 +157,16 @@ func (l *lightningNode) genArgs() []string {
 	var args []string
 
 	encodedCert := hex.EncodeToString(l.rpcCert)
-	args = append(args, fmt.Sprintf("--btcdhost=%v", l.cfg.RPCHost))
-	args = append(args, fmt.Sprintf("--rpcuser=%v", l.cfg.RPCUser))
-	args = append(args, fmt.Sprintf("--rpcpass=%v", l.cfg.RPCPass))
-	args = append(args, fmt.Sprintf("--rawrpccert=%v", encodedCert))
+	args = append(args, "--bitcoin.active")
+	args = append(args, "--bitcoin.simnet")
+	args = append(args, fmt.Sprintf("--bitcoin.rpchost=%v", l.cfg.Bitcoin.RPCHost))
+	args = append(args, fmt.Sprintf("--bitcoin.rpcuser=%v", l.cfg.Bitcoin.RPCUser))
+	args = append(args, fmt.Sprintf("--bitcoin.rpcpass=%v", l.cfg.Bitcoin.RPCPass))
+	args = append(args, fmt.Sprintf("--bitcoin.rawrpccert=%v", encodedCert))
 	args = append(args, fmt.Sprintf("--rpcport=%v", l.cfg.RPCPort))
 	args = append(args, fmt.Sprintf("--peerport=%v", l.cfg.PeerPort))
 	args = append(args, fmt.Sprintf("--logdir=%v", l.cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", l.cfg.DataDir))
-	args = append(args, fmt.Sprintf("--simnet"))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)

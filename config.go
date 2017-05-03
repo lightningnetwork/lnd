@@ -102,14 +102,12 @@ func loadConfig() (*config, error) {
 		RPCPort:            defaultRPCPort,
 		MaxPendingChannels: defaultMaxPendingChannels,
 		Bitcoin: &chainConfig{
-			RPCHost:  defaultRPCHost,
-			ChainDir: filepath.Join(defaultDataDir, bitcoinChain.String()),
-			RPCCert:  defaultBtcdRPCCertFile,
+			RPCHost: defaultRPCHost,
+			RPCCert: defaultBtcdRPCCertFile,
 		},
 		Litecoin: &chainConfig{
-			RPCHost:  defaultRPCHost,
-			ChainDir: filepath.Join(defaultDataDir, litecoinChain.String()),
-			RPCCert:  defaultLtcdRPCCertFile,
+			RPCHost: defaultRPCHost,
+			RPCCert: defaultLtcdRPCCertFile,
 		},
 	}
 
@@ -190,6 +188,7 @@ func loadConfig() (*config, error) {
 				"ltcd: %v", err)
 			return nil, err
 		}
+		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, litecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
@@ -222,6 +221,7 @@ func loadConfig() (*config, error) {
 				"btcd: %v", err)
 			return nil, err
 		}
+		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir, bitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.

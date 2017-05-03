@@ -1536,7 +1536,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	// With the temporary file created, copy Bob's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	bobDbPath := filepath.Join(net.Bob.cfg.DataDir, "simnet/channel.db")
+	bobDbPath := filepath.Join(net.Bob.cfg.DataDir, "simnet/bitcoin/channel.db")
 	if err := copyFile(bobTempDbFile, bobDbPath); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}

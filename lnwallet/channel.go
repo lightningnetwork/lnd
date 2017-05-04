@@ -2550,8 +2550,8 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 // DeleteState deletes all state concerning the channel from the underlying
 // database, only leaving a small summary describing metadata of the
 // channel's lifetime.
-func (lc *LightningChannel) DeleteState() error {
-	return lc.channelState.CloseChannel()
+func (lc *LightningChannel) DeleteState(c *channeldb.ChannelCloseSummary) error {
+	return lc.channelState.CloseChannel(c)
 }
 
 // StateSnapshot returns a snapshot of the current fully committed state within

@@ -31,12 +31,6 @@ cmd/cmd
 **.hex
 
 cmd/lncli/lncli
-cmd/lnshell/lnshell
-
-sighash143/sighash143
-sighash143/*.hex
-
-test_wal/*
 
 # vim
 **.swp
@@ -49,3 +43,5 @@ vendor
 *.idea
 profile.cov
 profile.tmp
+
+.DS_Store

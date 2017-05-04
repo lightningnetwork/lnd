@@ -1125,10 +1125,17 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if msg.persistent {
-		go s.connMgr.Connect(&connmgr.ConnReq{
+		connReq := &connmgr.ConnReq{
 			Addr:      addr,
 			Permanent: true,
-		})
+		}
+
+		s.pendingConnMtx.Lock()
+		s.persistentConnReqs[targetPub] = append(s.persistentConnReqs[targetPub],
+			connReq)
+		s.pendingConnMtx.Unlock()
+
+		go s.connMgr.Connect(connReq)
 		msg.err <- nil
 	} else {
 		// If we're not making a persistent connection, then we'll

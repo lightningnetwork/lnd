@@ -406,11 +406,7 @@ func (f *fundingManager) reservationCoordinator() {
 
 // handleNumPending handles a request for the total number of pending channels.
 func (f *fundingManager) handleNumPending(msg *numPendingReq) {
-	var numPending uint32
-	for _, peerChannels := range f.activeReservations {
-		numPending += uint32(len(peerChannels))
-	}
-
+	// TODO(roasbeef): remove this method?
 	dbPendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
 	if err != nil {
 		close(msg.resp)
@@ -418,9 +414,7 @@ func (f *fundingManager) handleNumPending(msg *numPendingReq) {
 		return
 	}
 
-	numPending = numPending + uint32(len(dbPendingChannels))
-
-	msg.resp <- numPending
+	msg.resp <- uint32(len(dbPendingChannels))
 	msg.err <- nil
 }
 

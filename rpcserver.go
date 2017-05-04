@@ -470,73 +470,29 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		r.server.breachArbiter.settledContracts <- chanPoint
+
+		// With the necessary indexes cleaned up, we'll now force close
+		// the channel.
 		closingTxid, err := r.forceCloseChan(channel)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)
-
-			// If the transaction we broadcast is detected as a
-			// double spend, the this indicates that the remote
-			// party has broadcast their commitment transaction be
-			// we didn't notice.
-			if strings.Contains(err.Error(), "fully-spent") ||
-				strings.Contains(err.Error(), "double spend") {
-
-				// In this case, we'll clean up the channel
-				// state.
-				// TODO(roasbeef): check close summary to see
-				// if we need to sweep any HTLC's
-				if err := channel.DeleteState(); err != nil {
-					return err
-				}
-				// TODO(roasbeef): also unregister link?
-				return fmt.Errorf("channel has been closed by remote party")
-			}
-
 			return err
 		}
 
-		updateChan = make(chan *lnrpc.CloseStatusUpdate)
-		errChan = make(chan error)
-		go func() {
-			// With the transaction broadcast, we send our first
-			// update to the client.
-			updateChan <- &lnrpc.CloseStatusUpdate{
-				Update: &lnrpc.CloseStatusUpdate_ClosePending{
-					ClosePending: &lnrpc.PendingUpdate{
-						Txid: closingTxid[:],
-					},
+		// With the transaction broadcast, we send our first update to
+		// the client.
+		updateChan = make(chan *lnrpc.CloseStatusUpdate, 1)
+		updateChan <- &lnrpc.CloseStatusUpdate{
+			Update: &lnrpc.CloseStatusUpdate_ClosePending{
+				ClosePending: &lnrpc.PendingUpdate{
+					Txid: closingTxid[:],
 				},
-			}
+			},
+		}
 
-			// Next, we enter the second phase, waiting for the
-			// channel to be confirmed before we finalize the force
-			// closure.
-			notifier := r.server.chainNotifier
-			confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxid, 1)
-			if err != nil {
-				errChan <- err
-				return
-			}
-
-			select {
-			case txConf, ok := <-confNtfn.Confirmed:
-				if !ok {
-					return
-				}
-
-				// As the channel has been closed, we can now
-				// delete it's state from the database.
-				rpcsLog.Infof("ChannelPoint(%v) is now "+
-					"closed at height %v", chanPoint,
-					txConf.BlockHeight)
-				if err := channel.DeleteState(); err != nil {
-					errChan <- err
-					return
-				}
-			case <-r.quit:
-				return
-			}
-
+		errChan = make(chan error, 1)
+		notifier := r.server.chainNotifier
+		go waitForChanToClose(notifier, errChan, chanPoint, closingTxid, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			updateChan <- &lnrpc.CloseStatusUpdate{
@@ -547,12 +503,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 					},
 				},
 			}
+		})
 
-			// Finally, signal to the breachArbiter that it no
-			// longer needs to watch the channel as it's been
-			// closed.
-			r.server.breachArbiter.settledContracts <- chanPoint
-		}()
+		// TODO(roasbeef): utxo nursery marks as fully closed
 
 	} else {
 		// Otherwise, the caller has requested a regular interactive
@@ -641,7 +594,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	txid := closeTx.TxHash()
 
 	// With the close transaction in hand, broadcast the transaction to the
-	// network, thereby entering the psot channel resolution state.
+	// network, thereby entering the postk channel resolution state.
 	rpcsLog.Infof("Broadcasting force close transaction, ChannelPoint(%v): %v",
 		channel.ChannelPoint(), newLogClosure(func() string {
 			return spew.Sdump(closeTx)
@@ -650,9 +603,28 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 		return nil, err
 	}
 
+	// Now that the closing transaction has been broadcast successfully,
+	// we'll mark this channel as being in the pending closed state. The
+	// UTXO nursery will mark the channel as fully closed once all the
+	// outputs have been swept.
+	chanPoint := channel.ChannelPoint()
+	chanInfo := channel.StateSnapshot()
+	closeInfo := &channeldb.ChannelCloseSummary{
+		ChanPoint:   *chanPoint,
+		ClosingTXID: closeTx.TxHash(),
+		RemotePub:   &chanInfo.RemoteIdentity,
+		Capacity:    chanInfo.Capacity,
+		OurBalance:  chanInfo.LocalBalance,
+		CloseType:   channeldb.ForceClose,
+		IsPending:   true,
+	}
+	if err := channel.DeleteState(closeInfo); err != nil {
+		return nil, err
+	}
+
 	// Send the closed channel summary over to the utxoNursery in order to
 	// have its outputs swept back into the wallet once they're mature.
-	r.server.utxoNursery.incubateOutputs(closeSummary)
+	r.server.utxoNursery.IncubateOutputs(closeSummary)
 
 	return &txid, nil
 }

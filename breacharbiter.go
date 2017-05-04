@@ -120,6 +120,51 @@ func (b *breachArbiter) Start() error {
 	b.wg.Add(1)
 	go b.contractObserver(channelsToWatch)
 
+	// Additionally, we'll also want to retrieve any pending close or force
+	// close transactions to we can properly mark them as resolved in the
+	// database.
+	pendingCloseChans, err := b.db.FetchClosedChannels(true)
+	if err != nil {
+		brarLog.Errorf("unable to fetch closing channels: %v", err)
+		return err
+	}
+	for _, pendingClose := range pendingCloseChans {
+		// If this channel was force closed, and we have a non-zero
+		// balance, then the utxoNursery is currently watching over it.
+		// As a result we don't need to watch over it.
+		if pendingClose.CloseType == channeldb.ForceClose &&
+			pendingClose.OurBalance != 0 {
+			continue
+		}
+
+		brarLog.Infof("Watching for the closure of ChannelPoint(%v)",
+			pendingClose.ChanPoint)
+
+		chanPoint := &pendingClose.ChanPoint
+		closeTXID := &pendingClose.ClosingTXID
+		confNtfn, err := b.notifier.RegisterConfirmationsNtfn(closeTXID, 1)
+		if err != nil {
+			return err
+		}
+
+		go func() {
+			// In the case that the ChainNotifier is shutting down,
+			// all subscriber notification channels will be closed,
+			// generating a nil receive.
+			confInfo, ok := <-confNtfn.Confirmed
+			if !ok {
+				return
+			}
+
+			brarLog.Infof("ChannelPoint(%v) is fully closed, "+
+				"at height: %v", chanPoint, confInfo.BlockHeight)
+
+			if err := b.db.MarkChanFullyClosed(chanPoint); err != nil {
+				brarLog.Errorf("unable to mark chan as closed: %v", err)
+			}
+		}()
+	}
+
 	return nil
 }
 

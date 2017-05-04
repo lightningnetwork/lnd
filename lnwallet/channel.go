@@ -2273,23 +2273,27 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 // rightfully owned outputs.
 // TODO(roasbeef): generalize, add HTLC info, etc.
 type ForceCloseSummary struct {
+	// ChanPoint is the outpoint that created the channel which has been
+	// force closed.
+	ChanPoint wire.OutPoint
+
+	// SelfOutpoint is the output created by the above close tx which is
+	// spendable by us after a relative time delay.
+	SelfOutpoint wire.OutPoint
+
 	// CloseTx is the transaction which closed the channel on-chain. If we
 	// initiate the force close, then this'll be our latest commitment
 	// state. Otherwise, this'll be the state that the remote peer
 	// broadcasted on-chain.
 	CloseTx *wire.MsgTx
 
-	// SelfOutpoint is the output created by the above close tx which is
-	// spendable by us after a relative time delay.
-	SelfOutpoint wire.OutPoint
+	// SelfOutputSignDesc is a fully populated sign descriptor capable of
+	// generating a valid signature to sweep the self output.
+	SelfOutputSignDesc *SignDescriptor
 
 	// SelfOutputMaturity is the relative maturity period before the above
 	// output can be claimed.
 	SelfOutputMaturity uint32
-
-	// SelfOutputSignDesc is a fully populated sign descriptor capable of
-	// generating a valid signature to sweep the self output.
-	SelfOutputSignDesc *SignDescriptor
 }
 
 // getSignedCommitTx function take the latest commitment transaction and populate
@@ -2408,7 +2412,8 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	close(lc.ForceCloseSignal)
 
 	return &ForceCloseSummary{
-		CloseTx: commitTx,
+		ChanPoint: *lc.channelState.ChanID,
+		CloseTx:   commitTx,
 		SelfOutpoint: wire.OutPoint{
 			Hash:  commitTx.TxHash(),
 			Index: delayIndex,

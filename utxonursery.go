@@ -740,6 +740,16 @@ func (u *utxoNursery) graduateKindergarten(blockHeight uint32) error {
 		if err != nil {
 			return err
 		}
+
+		// Now that the sweeping transaction has been broadcast, for
+		// each of the immature outputs, we'll mark them as being fully
+		// closed within the database.
+		for _, closedChan := range kgtnOutputs {
+			err := u.db.MarkChanFullyClosed(&closedChan.originChanPoint)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	// Using a re-org safety margin of 6-blocks, delete any outputs which

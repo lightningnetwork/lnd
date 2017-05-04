@@ -261,7 +261,11 @@ func (u *utxoNursery) Stop() error {
 // before its funds will be available to be moved into the user's wallet.  The
 // struct includes a witnessGenerator closure which will be used to generate
 // the witness required to sweep the output once it's mature.
+//
+// TODO(roasbeef): rename to immatureOutput?
 type kidOutput struct {
+	originChanPoint wire.OutPoint
+
 	amt      btcutil.Amount
 	outPoint wire.OutPoint
 
@@ -286,7 +290,7 @@ type incubationRequest struct {
 // incubateOutputs sends a request to utxoNursery to incubate the outputs
 // defined within the summary of a closed channel. Individually, as all outputs
 // reach maturity they'll be swept back into the wallet.
-func (u *utxoNursery) incubateOutputs(closeSummary *lnwallet.ForceCloseSummary) {
+func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) {
 	var incReq incubationRequest
 
 	// It could be that our to-self output was below the dust limit. In that
@@ -295,6 +299,7 @@ func (u *utxoNursery) incubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 	if closeSummary.SelfOutputSignDesc != nil {
 		outputAmt := btcutil.Amount(closeSummary.SelfOutputSignDesc.Output.Value)
 		selfOutput := &kidOutput{
+			originChanPoint:  closeSummary.ChanPoint,
 			amt:              outputAmt,
 			outPoint:         closeSummary.SelfOutpoint,
 			blocksToMaturity: closeSummary.SelfOutputMaturity,
@@ -769,6 +774,9 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 	if err := writeOutpoint(w, &kid.outPoint); err != nil {
 		return err
 	}
+	if err := writeOutpoint(w, &kid.originChanPoint); err != nil {
+		return err
+	}
 
 	byteOrder.PutUint32(scratch[:4], kid.blocksToMaturity)
 	if _, err := w.Write(scratch[:4]); err != nil {
@@ -822,6 +830,9 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	kid.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
 	if err := readOutpoint(io.LimitReader(r, 40), &kid.outPoint); err != nil {
+		return nil, err
+	}
+	if err := readOutpoint(io.LimitReader(r, 40), &kid.originChanPoint); err != nil {
 		return nil, err
 	}
 

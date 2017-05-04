@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -166,23 +165,29 @@ var (
 
 	kidOutputs = []kidOutput{
 		{
+			originChanPoint:  outPoints[1],
 			amt:              btcutil.Amount(13e7),
 			outPoint:         outPoints[0],
 			blocksToMaturity: uint32(100),
+			witnessType:      commitmentTimeLock,
 			confHeight:       uint32(1770001),
 		},
 
 		{
+			originChanPoint:  outPoints[0],
 			amt:              btcutil.Amount(24e7),
 			outPoint:         outPoints[1],
 			blocksToMaturity: uint32(50),
+			witnessType:      commitmentTimeLock,
 			confHeight:       uint32(22342321),
 		},
 
 		{
+			originChanPoint:  outPoints[2],
 			amt:              btcutil.Amount(2e5),
 			outPoint:         outPoints[2],
 			blocksToMaturity: uint32(12),
+			witnessType:      commitmentTimeLock,
 			confHeight:       uint32(34241),
 		},
 	}
@@ -236,7 +241,7 @@ func TestSerializeKidOutput(t *testing.T) {
 
 	deserializedKid, err := deserializeKidOutput(&b)
 	if err != nil {
-		fmt.Printf(err.Error())
+		t.Fatalf(err.Error())
 	}
 
 	if !reflect.DeepEqual(kid, deserializedKid) {

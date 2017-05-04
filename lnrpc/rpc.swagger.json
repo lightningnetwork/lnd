@@ -108,20 +108,6 @@
             }
           }
         },
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "enum": [
-              "ALL",
-              "OPENING",
-              "CLOSING"
-            ],
-            "default": "ALL"
-          }
-        ],
         "tags": [
           "Lightning"
         ]
@@ -579,10 +565,44 @@
       ],
       "default": "WITNESS_PUBKEY_HASH"
     },
+    "PendingChannelResponseClosedChannel": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "$ref": "#/definitions/PendingChannelResponsePendingChannel"
+        },
+        "closing_txid": {
+          "type": "string"
+        }
+      }
+    },
+    "PendingChannelResponseForceClosedChannel": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "$ref": "#/definitions/PendingChannelResponsePendingChannel"
+        },
+        "closing_txid": {
+          "type": "string"
+        },
+        "limbo_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "maturity_height": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "blocks_til_maturity": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "PendingChannelResponsePendingChannel": {
       "type": "object",
       "properties": {
-        "identity_key": {
+        "remote_node_pub": {
           "type": "string"
         },
         "channel_point": {
@@ -599,12 +619,22 @@
         "remote_balance": {
           "type": "string",
           "format": "int64"
+        }
+      }
+    },
+    "PendingChannelResponsePendingOpenChannel": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "$ref": "#/definitions/PendingChannelResponsePendingChannel"
         },
-        "closing_txid": {
-          "type": "string"
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64"
         },
-        "status": {
-          "$ref": "#/definitions/lnrpcChannelStatus"
+        "blocks_till_open": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -808,15 +838,6 @@
           "format": "int64"
         }
       }
-    },
-    "lnrpcChannelStatus": {
-      "type": "string",
-      "enum": [
-        "ALL",
-        "OPENING",
-        "CLOSING"
-      ],
-      "default": "ALL"
     },
     "lnrpcCloseChannelRequest": {
       "type": "object",
@@ -1452,20 +1473,31 @@
       }
     },
     "lnrpcPendingChannelRequest": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "$ref": "#/definitions/lnrpcChannelStatus"
-        }
-      }
+      "type": "object"
     },
     "lnrpcPendingChannelResponse": {
       "type": "object",
       "properties": {
-        "pending_channels": {
+        "total_limbo_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "pending_open_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponsePendingChannel"
+            "$ref": "#/definitions/PendingChannelResponsePendingOpenChannel"
+          }
+        },
+        "pending_closing_channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PendingChannelResponseClosedChannel"
+          }
+        },
+        "pending_force_closing_channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PendingChannelResponseForceClosedChannel"
           }
         }
       }

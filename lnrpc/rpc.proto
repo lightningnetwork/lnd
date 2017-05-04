@@ -369,29 +369,47 @@ message OpenStatusUpdate {
     }
 }
 
-enum ChannelStatus {
-    ALL = 0;
-    OPENING = 1;
-    CLOSING = 2;
-}
-message PendingChannelRequest {
-    ChannelStatus status = 1;
-}
+message PendingChannelRequest {}
 message PendingChannelResponse {
     message PendingChannel {
-        string identity_key = 1 [ json_name = "identity_key" ];
+        string remote_node_pub = 1 [ json_name = "remote_node_pub" ];
         string channel_point = 2 [ json_name = "channel_point" ];
 
         int64 capacity = 3 [ json_name = "capacity" ];
+
         int64 local_balance = 4 [ json_name = "local_balance" ];
         int64 remote_balance = 5 [ json_name = "remote_balance" ];
-
-        string closing_txid = 6 [ json_name = "closing_txid" ];
-
-        ChannelStatus status = 7 [ json_name = "status" ];
     }
 
-    repeated PendingChannel pending_channels = 1 [ json_name = "pending_channels" ];
+    message PendingOpenChannel {
+        PendingChannel channel = 1 [ json_name = "channel" ];
+
+        uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
+        uint32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
+    }
+
+    message ClosedChannel {
+        PendingChannel channel = 1;
+
+        string closing_txid = 2 [ json_name = "closing_txid" ];
+    }
+
+    message ForceClosedChannel {
+        PendingChannel channel = 1 [ json_name = "channel" ];
+
+        // TODO(roasbeef): HTLC's as well?
+
+        string closing_txid = 2 [ json_name = "closing_txid" ];
+
+        int64 limbo_balance = 3 [ json_name = "limbo_balance" ];
+        uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+        uint32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+    }
+
+    int64 total_limbo_balance = 1 [ json_name = "total_limbo_balance" ];
+    repeated PendingOpenChannel pending_open_channels = 2 [ json_name = "pending_open_channels" ];
+    repeated ClosedChannel pending_closing_channels = 3 [ json_name = "pending_closing_channels" ];
+    repeated ForceClosedChannel pending_force_closing_channels =  4 [ json_name = "pending_force_closing_channels" ];
 }
 
 message WalletBalanceRequest {

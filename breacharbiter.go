@@ -92,7 +92,7 @@ func (b *breachArbiter) Start() error {
 	// it to watch for channel breaches.
 	activeChannels, err := b.db.FetchAllChannels()
 	if err != nil && err != channeldb.ErrNoActiveChannels {
-		brarLog.Errorf("unable to fetch active channels")
+		brarLog.Errorf("unable to fetch active channels: %v", err)
 		return err
 	}
 
@@ -109,7 +109,8 @@ func (b *breachArbiter) Start() error {
 		channel, err := lnwallet.NewLightningChannel(nil, b.notifier,
 			chanState)
 		if err != nil {
-			brarLog.Errorf("unable to load channel from disk")
+			brarLog.Errorf("unable to load channel from "+
+				"disk: %v", err)
 			return err
 		}
 
@@ -359,6 +360,30 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 	case <-settleSignal:
 		contract.Stop()
 		return
+
+	// The channel has been closed by a normal means: force closing with
+	// the latest commitment transaction.
+	case closeInfo := <-contract.UnilateralClose:
+		// Launch a goroutine to cancel out this contract within the
+		// breachArbiter's main goroutine.
+		go func() {
+			b.settledContracts <- chanPoint
+		}()
+
+		// Next, we'll launch a goroutine to wait until the closing
+		// transaction has been confirmed so we can mark the contract
+		// as resolved in the database.
+		//
+		// TODO(roasbeef): also notify utxoNursery, might've had
+		// outbound HTLC's in flight
+		go waitForChanToClose(b.notifier, nil, chanPoint, closeInfo.SpenderTxHash, func() {
+			brarLog.Infof("Force closed ChannelPoint(%v) is "+
+				"fully closed, updating DB", chanPoint)
+
+			if err := b.db.MarkChanFullyClosed(chanPoint); err != nil {
+				brarLog.Errorf("unable to mark chan as closed: %v", err)
+			}
+		})
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the

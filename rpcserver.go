@@ -452,12 +452,24 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// As the first part of the force closure, we first fetch the
 		// channel from the database, then execute a direct force
 		// closure broadcasting our current commitment transaction.
-		// TODO(roasbeef): d/c peer if connected?
-		//  * otherwise safety no guaranteed
 		channel, err := r.fetchActiveChannel(*chanPoint)
 		if err != nil {
 			return err
 		}
+
+		// As we're force closing this channel, as a precaution, we'll
+		// ensure that the switch doesn't continue to see this channel
+		// as eligible for forwarding HTLC's. If the peer is online,
+		// then we'll also purge all of its indexes.
+		remotePub := &channel.StateSnapshot().RemoteIdentity
+		if peer, err := r.server.findPeer(remotePub); err == nil {
+			wipeChannel(peer, channel)
+		} else {
+			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
+			r.server.htlcSwitch.UnregisterLink(remotePub, &chanID)
+		}
+
+		r.server.breachArbiter.settledContracts <- chanPoint
 		closingTxid, err := r.forceCloseChan(channel)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)

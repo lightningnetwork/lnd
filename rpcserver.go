@@ -771,41 +771,114 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 // PendingChannels returns a list of all the channels that are currently
 // considered "pending". A channel is pending if it has finished the funding
 // workflow and is waiting for confirmations for the funding txn, or is in the
-// process of closure, either initiated cooperatively or non-coopertively.
+// process of closure, either initiated cooperatively or non-cooperatively.
 func (r *rpcServer) PendingChannels(ctx context.Context,
 	in *lnrpc.PendingChannelRequest) (*lnrpc.PendingChannelResponse, error) {
 
-	both := in.Status == lnrpc.ChannelStatus_ALL
-	includeOpen := (in.Status == lnrpc.ChannelStatus_OPENING) || both
-	includeClose := (in.Status == lnrpc.ChannelStatus_CLOSING) || both
-	rpcsLog.Debugf("[pendingchannels] %v", in.Status)
+	rpcsLog.Debugf("[pendingchannels]")
 
-	var pendingChannels []*lnrpc.PendingChannelResponse_PendingChannel
-	if includeOpen {
-		pendingOpenChans, err := r.server.fundingMgr.PendingChannels()
-		if err != nil {
-			return nil, err
+	resp := &lnrpc.PendingChannelResponse{}
+
+	// First, we'll populate the response with all the channels that are
+	// soon to be opened. We can easily fetch this data from the database
+	// and map the db struct to the proto response.
+	pendingOpenChannels, err := r.server.chanDB.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelResponse_PendingOpenChannel,
+		len(pendingOpenChannels))
+	for i, pendingChan := range pendingOpenChannels {
+		pub := pendingChan.IdentityPub.SerializeCompressed()
+		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelResponse_PendingOpenChannel{
+			Channel: &lnrpc.PendingChannelResponse_PendingChannel{
+				RemoteNodePub: hex.EncodeToString(pub),
+				ChannelPoint:  pendingChan.ChanID.String(),
+				Capacity:      int64(pendingChan.Capacity),
+				LocalBalance:  int64(pendingChan.OurBalance),
+				RemoteBalance: int64(pendingChan.TheirBalance),
+			},
+			// TODO(roasbeef): need to track confirmation height
 		}
-		for _, pendingOpen := range pendingOpenChans {
-			// TODO(roasbeef): add confirmation progress
-			pub := pendingOpen.identityPub.SerializeCompressed()
-			pendingChan := &lnrpc.PendingChannelResponse_PendingChannel{
-				IdentityKey:   hex.EncodeToString(pub),
-				ChannelPoint:  pendingOpen.channelPoint.String(),
-				Capacity:      int64(pendingOpen.capacity),
-				LocalBalance:  int64(pendingOpen.localBalance),
-				RemoteBalance: int64(pendingOpen.remoteBalance),
-				Status:        lnrpc.ChannelStatus_OPENING,
+	}
+
+	_, currentHeight, err := r.server.bio.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Next, we'll examine the channels that are soon to be closed so we
+	// can populate these fields within the response.
+	pendingCloseChannels, err := r.server.chanDB.FetchClosedChannels(true)
+	if err != nil {
+		return nil, err
+	}
+	for _, pendingClose := range pendingCloseChannels {
+		// First construct the channel struct itself, this will be
+		// needed regardless of how this channel was closed.
+		pub := pendingClose.RemotePub.SerializeCompressed()
+		chanPoint := pendingClose.ChanPoint
+		channel := &lnrpc.PendingChannelResponse_PendingChannel{
+			RemoteNodePub: hex.EncodeToString(pub),
+			ChannelPoint:  chanPoint.String(),
+			Capacity:      int64(pendingClose.Capacity),
+			LocalBalance:  int64(pendingClose.OurBalance),
+		}
+
+		closeTXID := pendingClose.ClosingTXID.String()
+
+		switch pendingClose.CloseType {
+
+		// If the channel was closed cooperatively, then we'll only
+		// need to tack on the closing txid.
+		case channeldb.CooperativeClose:
+			resp.PendingClosingChannels = append(
+				resp.PendingClosingChannels,
+				&lnrpc.PendingChannelResponse_ClosedChannel{
+					Channel:     channel,
+					ClosingTxid: closeTXID,
+				},
+			)
+
+		// If the channel was force closed, then we'll need to query
+		// the utxoNursery for additional information.
+		case channeldb.ForceClose:
+			forceClose := &lnrpc.PendingChannelResponse_ForceClosedChannel{
+				Channel:     channel,
+				ClosingTxid: closeTXID,
 			}
-			pendingChannels = append(pendingChannels, pendingChan)
+
+			nurseryInfo, err := r.server.utxoNursery.NurseryReport(&chanPoint)
+			if err != nil {
+				return nil, err
+			}
+
+			// If the nursery knows of this channel, then we can
+			// populate information detailing exactly how much
+			// funds are time locked and also the height in which
+			// we can ultimately sweep the funds into the wallet.
+			if nurseryInfo != nil {
+				forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
+				forceClose.MaturityHeight = nurseryInfo.maturityHeight
+
+				// If the transaction has been confirmed, then
+				// we can compute how many blocks it has left.
+				if forceClose.MaturityHeight != 0 {
+					forceClose.BlocksTilMaturity = (forceClose.MaturityHeight -
+						uint32(currentHeight))
+				}
+
+				resp.TotalLimboBalance += int64(nurseryInfo.limboBalance)
+			}
+
+			resp.PendingForceClosingChannels = append(
+				resp.PendingForceClosingChannels,
+				forceClose,
+			)
 		}
 	}
-	if includeClose {
-	}
 
-	return &lnrpc.PendingChannelResponse{
-		PendingChannels: pendingChannels,
-	}, nil
+	return resp, nil
 }
 
 // ListChannels returns a description of all direct active, open channels the

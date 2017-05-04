@@ -252,7 +252,7 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 
 // fetchNodeChannels retrieves all active channels from the target
 // nodeChanBucket. This function is typically used to fetch all the active
-// channels related to a particualr node.
+// channels related to a particular node.
 func (d *DB) fetchNodeChannels(openChanBucket,
 	nodeChanBucket *bolt.Bucket) ([]*OpenChannel, error) {
 
@@ -387,6 +387,49 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 	})
 }
 
+// FetchClosedChannels attempts to fetch all closed channels from the database.
+// The pendingOnly bool toggles if channels that aren't yet fully closed should
+// be returned int he response or not. When a channel was cooperatively closed,
+// it becomes fully closed after a single confirmation.  When a channel was
+// forcibly closed, it will become fully closed after _all_ the pending funds
+// (if any) have been swept.
+func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, error) {
+	var chanSummaries []*ChannelCloseSummary
+
+	if err := d.View(func(tx *bolt.Tx) error {
+		closeBucket := tx.Bucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrNoClosedChannels
+		}
+
+		return closeBucket.ForEach(func(chanID []byte, summaryBytes []byte) error {
+			// The first byte of the summary is a bool which
+			// indicates if this channel is pending closure, or has
+			// been fully closed.
+			isPending := summaryBytes[0]
+
+			// If the query specified to only include pending
+			// channels, then we'll skip any channels which aren't
+			// currently pending.
+			if pendingOnly && isPending != 0x01 {
+				return nil
+			}
+
+			summaryReader := bytes.NewReader(summaryBytes)
+			chanSummary, err := deserializeCloseChannelSummary(summaryReader)
+			if err != nil {
+				return err
+			}
+
+			chanSummaries = append(chanSummaries, chanSummary)
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummaries, nil
+}
 // syncVersions function is used for safe db version synchronization. It applies
 // migration functions to the current database and recovers the previous
 // state of db if at least one error/panic appeared during migration.

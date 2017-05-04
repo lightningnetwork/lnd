@@ -776,7 +776,9 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 
 	var balance btcutil.Amount
 	for _, channel := range channels {
-		balance += channel.OurBalance
+		if !channel.IsPending {
+			balance += channel.OurBalance
+		}
 	}
 
 	return &lnrpc.ChannelBalanceResponse{Balance: int64(balance)}, nil

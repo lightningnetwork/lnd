@@ -644,6 +644,10 @@ type LightningChannel struct {
 	// their version of the commitment transaction on-chain.
 	UnilateralCloseSignal chan struct{}
 
+	// UnilateralClose is a channel that will be sent upon by the close
+	// observer once the unilateral close of a channel is detected.
+	UnilateralClose chan *chainntnfs.SpendDetail
+
 	// ContractBreach is a channel that is used to communicate the data
 	// necessary to fully resolve the channel in the case that a contract
 	// breach is detected. A contract breach occurs it is detected that the
@@ -687,6 +691,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		RemoteDeliveryScript:  state.TheirDeliveryScript,
 		FundingWitnessScript:  state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
+		UnilateralClose:       make(chan *chainntnfs.SpendDetail, 1),
 		UnilateralCloseSignal: make(chan struct{}),
 		ContractBreach:        make(chan *BreachRetribution, 1),
 		LocalFundingKey:       state.OurMultiSigKey,
@@ -1022,6 +1027,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// Notify any subscribers that we've detected a unilateral
 		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
+		lc.UnilateralClose <- commitSpend
 
 	// If the state number broadcast is lower than the remote node's
 	// current un-revoked height, then THEY'RE ATTEMPTING TO VIOLATE THE

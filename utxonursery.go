@@ -166,6 +166,9 @@ func (u *utxoNursery) reloadPreschool() error {
 
 		return psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
 			psclOutput, err := deserializeKidOutput(bytes.NewBuffer(kidBytes))
+			if err != nil {
+				return err
+			}
 
 			outpoint := psclOutput.outPoint
 			sourceTxid := outpoint.Hash

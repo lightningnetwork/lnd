@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -650,11 +652,71 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 	return delta, nil
 }
 
+// ClosureType is an enum like structure that details exactly _how_ a channel
+// was closed. Three closure types are currently possible: cooperative, force,
+// and breach.
+type ClosureType uint8
+
+const (
+	// Cooperative indicates that a channel has been closed cooperatively.
+	// This means that both channel peers were online and signed a new
+	// transaction paying out the settled balance of the contract.
+	CooperativeClose ClosureType = iota
+
+	// Force indicates that one peer unilaterally broadcast their current
+	// commitment state on-chain.
+	ForceClose
+
+	// Beach indicates that one peer attempted to broadcast a prior
+	// _revoked_ channel state.
+	BreachClose
+)
+
+// ChannelCloseSummary contains the final state of a channel at the point it
+// was close. Once a channel is closed, all the information pertaining to that
+// channel within the openChannelBucket is deleted, and a compact summary is
+// but in place instead.
+type ChannelCloseSummary struct {
+	// ChanPoint is the outpoint for this channel's funding transaction,
+	// and is used as a unique identifier for the channel.
+	ChanPoint wire.OutPoint
+
+	// ClosingTXID is the txid of the transaction which ultimately closed
+	// this channel.
+	ClosingTXID chainhash.Hash
+
+	// RemotePub is the public key of the remote peer that we formerly had
+	// a channel with.
+	RemotePub *btcec.PublicKey
+
+	// Capacity was the total capacity of the channel.
+	Capacity btcutil.Amount
+
+	// OurBalance is our total balance settled balance at the time of
+	// channel closure.
+	OurBalance btcutil.Amount
+
+	// CloseType details exactly _how_ the channel was closed. Three
+	// closure types are possible: cooperative, force, and breach.
+	CloseType ClosureType
+
+	// IsPending indicates whether this channel is in the 'pending close'
+	// state, which means the channel closing transaction has been
+	// broadcast, but not confirmed yet or has not yet been fully resolved.
+	// In the case of a channel that has been cooperatively closed, it will
+	// no longer be considered pending as soon as the closing transaction
+	// has been confirmed. However, for channel that have been force
+	// closed, they'll stay marked as "pending" until _all_ the pending
+	// funds have been swept.
+	IsPending bool
+}
+
 // CloseChannel closes a previously active lightning channel. Closing a channel
 // entails deleting all saved state within the database concerning this
-// channel, as well as created a small channel summary for record keeping
-// purposes.
-func (c *OpenChannel) CloseChannel() error {
+// channel. This method also takes a struct that summarizes the state of the
+// channel at closing, this compact representation will be the only component
+// of a channel left over after a full closing.
+func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First fetch the top level bucket which stores all data
 		// related to current, active channels.
@@ -716,7 +778,7 @@ func (c *OpenChannel) CloseChannel() error {
 
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.
-		return putClosedChannelSummary(tx, outPointBytes)
+		return putChannelCloseSummary(tx, outPointBytes, summary)
 	})
 }
 
@@ -768,17 +830,109 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
-func putClosedChannelSummary(tx *bolt.Tx, chanID []byte) error {
-	// For now, a summary of a closed channel simply involves recording the
-	// outpoint of the funding transaction.
+func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
+	summary *ChannelCloseSummary) error {
+
 	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
 	if err != nil {
 		return err
 	}
 
-	// TODO(roasbeef): add other info
-	//  * should likely have each in own bucket per node
-	return closedChanBucket.Put(chanID, nil)
+	var b bytes.Buffer
+	if err := serializeChannelCloseSummary(&b, summary); err != nil {
+		return err
+	}
+
+	return closedChanBucket.Put(chanID, b.Bytes())
+}
+
+func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
+	if err := writeBool(w, cs.IsPending); err != nil {
+		return err
+	}
+
+	if err := writeOutpoint(w, &cs.ChanPoint); err != nil {
+		return err
+	}
+	if _, err := w.Write(cs.ClosingTXID[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, cs.OurBalance); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, cs.Capacity); err != nil {
+		return err
+	}
+
+	if _, err := w.Write([]byte{byte(cs.CloseType)}); err != nil {
+		return err
+	}
+
+	pub := cs.RemotePub.SerializeCompressed()
+	if _, err := w.Write(pub); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func fetchChannelCloseSummary(tx *bolt.Tx,
+	chanID []byte) (*ChannelCloseSummary, error) {
+
+	closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
+	if err != nil {
+		return nil, err
+	}
+
+	summaryBytes := closedChanBucket.Get(chanID)
+	if summaryBytes == nil {
+		return nil, fmt.Errorf("closed channel summary not found")
+	}
+
+	summaryReader := bytes.NewReader(summaryBytes)
+	return deserializeCloseChannelSummary(summaryReader)
+}
+
+func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
+	c := &ChannelCloseSummary{}
+
+	var err error
+	c.IsPending, err = readBool(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := readOutpoint(r, &c.ChanPoint); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(r, c.ClosingTXID[:]); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, byteOrder, &c.OurBalance); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &c.Capacity); err != nil {
+		return nil, err
+	}
+
+	var closeType [1]byte
+	if _, err := io.ReadFull(r, closeType[:]); err != nil {
+		return nil, err
+	}
+	c.CloseType = ClosureType(closeType[0])
+
+	var pub [33]byte
+	if _, err := io.ReadFull(r, pub[:]); err != nil {
+		return nil, err
+	}
+	c.RemotePub, err = btcec.ParsePubKey(pub[:], btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 // putChannel serializes, and stores the current state of the channel in its
@@ -2044,4 +2198,32 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 	o.Index = byteOrder.Uint32(scratch)
 
 	return nil
+}
+
+func writeBool(w io.Writer, b bool) error {
+	boolByte := byte(0x01)
+	if !b {
+		boolByte = byte(0x00)
+	}
+
+	if _, err := w.Write([]byte{boolByte}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// TODO(roasbeef): make sweep to use this and above everywhere
+//   * using this because binary.Write can only handle bools post go1.8
+func readBool(r io.Reader) (bool, error) {
+	var boolByte [1]byte
+	if _, err := io.ReadFull(r, boolByte[:]); err != nil {
+		return false, err
+	}
+
+	if boolByte[0] == 0x00 {
+		return false, nil
+	}
+
+	return true, nil
 }

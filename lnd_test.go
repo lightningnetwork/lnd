@@ -197,30 +197,28 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 	return closingTxid
 }
 
-// numChannelsPending sends an RPC request to a node to get a count of the
-// node's channels that are currently in a pending state (with a broadcast,
-// but not confirmed funding transaction).
-func numChannelsPending(ctxt context.Context, node *lightningNode) (int, error) {
-	pendingChansRequest := &lnrpc.PendingChannelRequest{
-		Status: lnrpc.ChannelStatus_OPENING,
-	}
+// numOpenChannelsPending sends an RPC request to a node to get a count of the
+// node's channels that are currently in a pending state (with a broadcast, but
+// not confirmed funding transaction).
+func numOpenChannelsPending(ctxt context.Context, node *lightningNode) (int, error) {
+	pendingChansRequest := &lnrpc.PendingChannelRequest{}
 	resp, err := node.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		return 0, err
 	}
-	return len(resp.PendingChannels), nil
+	return len(resp.PendingOpenChannels), nil
 }
 
-// assertNumChannelsPending asserts that a pair of nodes have the expected
+// assertNumOpenChannelsPending asserts that a pair of nodes have the expected
 // number of pending channels between them.
-func assertNumChannelsPending(ctxt context.Context, t *harnessTest,
+func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 	alice, bob *lightningNode, expected int) {
-	aliceNumChans, err := numChannelsPending(ctxt, alice)
+	aliceNumChans, err := numOpenChannelsPending(ctxt, alice)
 	if err != nil {
 		t.Fatalf("error fetching alice's node (%v) pending channels %v",
 			alice.nodeID, err)
 	}
-	bobNumChans, err := numChannelsPending(ctxt, bob)
+	bobNumChans, err := numOpenChannelsPending(ctxt, bob)
 	if err != nil {
 		t.Fatalf("error fetching bob's node (%v) pending channels %v",
 			bob.nodeID, err)
@@ -319,7 +317,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	// been broadcast, but not confirmed. Alice and Bob's nodes
 	// should reflect this when queried via RPC.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
@@ -382,7 +380,7 @@ peersPoll:
 	// Both nodes should still show a single channel as pending.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
 
 	// Finally, mine the last block which should mark the channel as open.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
@@ -393,7 +391,7 @@ peersPoll:
 	// be no pending channels remaining for either node.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
 
 	// The channel should be listed in the peer information returned by
 	// both peers.

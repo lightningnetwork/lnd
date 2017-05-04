@@ -664,19 +664,7 @@ func pendingChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	var channelStatus lnrpc.ChannelStatus
-	switch {
-	case ctx.Bool("all"):
-		channelStatus = lnrpc.ChannelStatus_ALL
-	case ctx.Bool("open"):
-		channelStatus = lnrpc.ChannelStatus_OPENING
-	case ctx.Bool("close"):
-		channelStatus = lnrpc.ChannelStatus_CLOSING
-	default:
-		channelStatus = lnrpc.ChannelStatus_ALL
-	}
-
-	req := &lnrpc.PendingChannelRequest{Status: channelStatus}
+	req := &lnrpc.PendingChannelRequest{}
 	resp, err := client.PendingChannels(ctxb, req)
 	if err != nil {
 		return err

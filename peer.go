@@ -1772,8 +1772,8 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 func (p *peer) updateCommitTx(state *commitmentState) error {
 	sigTheirs, err := state.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
-		peerLog.Tracef("revocation window exhausted, unable to send %v",
-			len(state.pendingBatch))
+		peerLog.Tracef("ChannelPoint(%v): revocation window exhausted, unable to send %v",
+			state.chanPoint, len(state.pendingBatch))
 		return nil
 	} else if err != nil {
 		return err

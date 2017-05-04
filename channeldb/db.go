@@ -430,6 +430,38 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 
 	return chanSummaries, nil
 }
+
+// MarkChanFullyClosed marks a channel as fully closed within the database. A
+// channel should be marked as fully closed if the channel was initially
+// cooperatively closed and it's reach a single confirmation, or after all the
+// pending funds in a channel that has been forcibly closed have been swept.
+func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
+	return d.Update(func(tx *bolt.Tx) error {
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, chanPoint); err != nil {
+			return err
+		}
+
+		chanID := b.Bytes()
+
+		closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		chanSummary := closedChanBucket.Get(chanID)
+		if chanSummary == nil {
+			return fmt.Errorf("no closed channel by that chanID found")
+		}
+
+		newSummary := make([]byte, len(chanSummary))
+		copy(newSummary[:], chanSummary[:])
+		newSummary[0] = 0x00
+
+		return closedChanBucket.Put(chanID, newSummary)
+	})
+}
+
 // syncVersions function is used for safe db version synchronization. It applies
 // migration functions to the current database and recovers the previous
 // state of db if at least one error/panic appeared during migration.

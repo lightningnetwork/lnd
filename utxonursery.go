@@ -421,6 +421,137 @@ out:
 	}
 }
 
+// contractMaturityReport is a report that details the maturity progress of a
+// particular force closed contract.
+type contractMaturityReport struct {
+	// chanPoint is the channel point of the original contract that is now
+	// awaiting maturity within the utxoNursery.
+	chanPoint wire.OutPoint
+
+	// limboBalance is the total number of frozen coins within this
+	// contract.
+	limboBalance btcutil.Amount
+
+	// confirmationHeight is the block height that this output originally
+	// confirmed at.
+	confirmationHeight uint32
+
+	// maturityHeight is the input age required for this output to reach
+	// maturity.
+	maturityRequirement uint32
+
+	// maturityHeight is the absolute block height that this output will mature
+	// at.
+	maturityHeight uint32
+}
+
+// NurseryReport attempts to return a nursery report stored for the target
+// outpoint. A nursery report details the maturity/sweeping progress for a
+// contract that was previously force closed. If a report entry for the target
+// chanPoint is unable to be constructed, then an error will be returned.
+func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturityReport, error) {
+	var report *contractMaturityReport
+	if err := u.db.View(func(tx *bolt.Tx) error {
+		// First we'll examine the preschool bucket as the target
+		// contract may not yet have been confirmed.
+		psclBucket := tx.Bucket(preschoolBucket)
+		if psclBucket == nil {
+			return nil
+		}
+		psclIndex := tx.Bucket(preschoolIndex)
+		if psclIndex == nil {
+			return nil
+		}
+
+		var b bytes.Buffer
+		if err := writeOutpoint(&b, chanPoint); err != nil {
+			return err
+		}
+		chanPointBytes := b.Bytes()
+
+		var outputReader *bytes.Reader
+
+		// If the target contract hasn't been confirmed yet, then we
+		// can just construct the report from this information.
+		if outPoint := psclIndex.Get(chanPointBytes); outPoint != nil {
+			// The channel entry hasn't yet been fully confirmed
+			// yet, so we'll dig into the preschool bucket to fetch
+			// the channel information.
+			outputBytes := psclBucket.Get(outPoint)
+			if outputBytes == nil {
+				return nil
+			}
+
+			outputReader = bytes.NewReader(outputBytes)
+		} else {
+			// Otherwise, we'll have to consult out contract index,
+			// so fetch that bucket as well as the kindergarten
+			// bucket.
+			indexBucket := tx.Bucket(contractIndex)
+			if indexBucket == nil {
+				return fmt.Errorf("contract not found, " +
+					"contract index not populated")
+			}
+			kgtnBucket := tx.Bucket(kindergartenBucket)
+			if kgtnBucket == nil {
+				return fmt.Errorf("contract not found, " +
+					"kindergarten bucket not populated")
+			}
+
+			// Attempt to query the index to see if we have an
+			// entry for this particular contract.
+			indexInfo := indexBucket.Get(chanPointBytes)
+			if indexInfo == nil {
+				return fmt.Errorf("contract not found in index")
+			}
+
+			// If an entry is found, then using the height store in
+			// the first 4 bytes, we'll fetch the height that this
+			// entry matures at.
+			height := indexInfo[:4]
+			heightRow := kgtnBucket.Get(height)
+			if heightRow == nil {
+				return fmt.Errorf("contract not found")
+			}
+
+			// Once we have the entry itself, we'll slice of the
+			// last for bytes so we can seek into this row to fetch
+			// the contract's information.
+			offset := byteOrder.Uint32(indexInfo[4:])
+			outputReader = bytes.NewReader(heightRow[offset:])
+		}
+
+		// With the proper set of bytes received, we'll deserialize the
+		// information for this immature output.
+		immatureOutput, err := deserializeKidOutput(outputReader)
+		if err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): should actually be list of outputs
+		report = &contractMaturityReport{
+			chanPoint:           *chanPoint,
+			limboBalance:        immatureOutput.amt,
+			maturityRequirement: immatureOutput.blocksToMaturity,
+		}
+
+		// If the confirmation height is set, then this means the
+		// contract has been confirmed, and we know the final maturity
+		// height.
+		if immatureOutput.confHeight != 0 {
+			report.confirmationHeight = immatureOutput.confHeight
+			report.maturityHeight = (immatureOutput.blocksToMaturity +
+				immatureOutput.confHeight)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return report, nil
+}
+
 // enterPreschool is the first stage in the process of transferring funds from
 // a force closed channel into the user's wallet. When an output is in the
 // "preschool" stage, the daemon is waiting for the initial confirmation of the

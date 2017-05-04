@@ -372,7 +372,14 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// the database. This involves "closing" the channel which removes all
 	// written state, and creates a small "summary" elsewhere within the
 	// database.
-	if err := state.CloseChannel(); err != nil {
+	closeSummary := &ChannelCloseSummary{
+		ChanPoint:  *state.ChanID,
+		RemotePub:  state.IdentityPub,
+		OurBalance: btcutil.Amount(500),
+		IsPending:  false,
+		CloseType:  CooperativeClose,
+	}
+	if err := state.CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
@@ -597,7 +604,14 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// Now attempt to delete the channel from the database.
-	if err := updatedChannel[0].CloseChannel(); err != nil {
+	closeSummary := &ChannelCloseSummary{
+		ChanPoint:  *channel.ChanID,
+		RemotePub:  channel.IdentityPub,
+		OurBalance: btcutil.Amount(500),
+		IsPending:  false,
+		CloseType:  ForceClose,
+	}
+	if err := updatedChannel[0].CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
 	}
 
@@ -664,5 +678,103 @@ func TestFetchPendingChannels(t *testing.T) {
 	if len(pendingChannels) != 0 {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
 			"got %v", 0, len(pendingChannels))
+	}
+}
+
+func TestFetchClosedChannels(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// First create a test channel, that we'll be closing within this pull
+	// request.
+	state, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+
+	// Next sync the channel to disk, marking it as being in a pending open
+	// state.
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	if err := state.SyncPending(addr); err != nil {
+		t.Fatalf("unable to save and serialize channel state: %v", err)
+	}
+
+	// Next, simulate the confirmation of the channel by marking it as
+	// pending within the database.
+	if err := cdb.MarkChannelAsOpen(state.ChanID); err != nil {
+		t.Fatalf("unable to mark channel as open: %v", err)
+	}
+
+	// Next, close the channel by including a close channel summary in the
+	// database.
+	summary := &ChannelCloseSummary{
+		ChanPoint:   *state.ChanID,
+		ClosingTXID: rev,
+		RemotePub:   state.IdentityPub,
+		Capacity:    state.Capacity,
+		OurBalance:  state.OurBalance,
+		CloseType:   ForceClose,
+		IsPending:   true,
+	}
+	if err := state.CloseChannel(summary); err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// Query the database to ensure that the channel has now been properly
+	// closed. We should get the same result whether querying for pending
+	// channels only, or not.
+	pendingClosed, err := cdb.FetchClosedChannels(true)
+	if err != nil {
+		t.Fatalf("failed fetcing closed channels: %v", err)
+	}
+	if len(pendingClosed) != 1 {
+		t.Fatalf("incorrect number of pending closed channels: expecting %v,"+
+			"got %v", 1, len(pendingClosed))
+	}
+	if !reflect.DeepEqual(summary, pendingClosed[0]) {
+		t.Fatalf("database summaries don't match: expected %v got %v",
+			spew.Sdump(summary), spew.Sdump(pendingClosed[0]))
+	}
+	closed, err := cdb.FetchClosedChannels(false)
+	if err != nil {
+		t.Fatalf("failed fetching all closed channels: %v", err)
+	}
+	if len(closed) != 1 {
+		t.Fatalf("incorrect number of closed channels: expecting %v, "+
+			"got %v", 1, len(closed))
+	}
+	if !reflect.DeepEqual(summary, closed[0]) {
+		t.Fatalf("database summaries don't match: expected %v got %v",
+			spew.Sdump(summary), spew.Sdump(closed[0]))
+	}
+
+	// Mark the channel as fully closed
+	if err := cdb.MarkChanFullyClosed(state.ChanID); err != nil {
+		t.Fatalf("failed fully closing channel: %v", err)
+	}
+
+	// The channel should no longer be considered pending, but should still
+	// be retrieved when fetching all the closed channels.
+	closed, err = cdb.FetchClosedChannels(false)
+	if err != nil {
+		t.Fatalf("failed fetcing closed channels: %v", err)
+	}
+	if len(closed) != 1 {
+		t.Fatalf("incorrect number of closed channels: expecting %v, "+
+			"got %v", 1, len(closed))
+	}
+	pendingClose, err := cdb.FetchClosedChannels(true)
+	if err != nil {
+		t.Fatalf("failed fetching channels pending close: %v", err)
+	}
+	if len(pendingClose) != 0 {
+		t.Fatalf("incorrect number of closed channels: expecting %v, "+
+			"got %v", 0, len(closed))
 	}
 }

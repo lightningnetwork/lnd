@@ -81,4 +81,8 @@ var (
 	// ErrUnknownAddressType is returned when a node's addressType is not
 	// an expected value.
 	ErrUnknownAddressType = fmt.Errorf("address type cannot be resolved")
+
+	// ErrNoClosedChannels is returned when a node is queries for all the
+	// channels it has closed, but it hasn't yet closed any channels.
+	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
 )

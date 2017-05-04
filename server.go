@@ -449,6 +449,8 @@ func (s *server) establishPersistentConnections() error {
 	if err != nil {
 		return err
 	}
+	// TODO(roasbeef): instead iterate over link nodes and query graph for
+	// each of the nodes.
 	err = sourceNode.ForEachChannel(nil, func(_ *bolt.Tx,
 		_ *channeldb.ChannelEdgeInfo, policy *channeldb.ChannelEdgePolicy) error {
 
@@ -667,13 +669,23 @@ func (s *server) peerTerminationWatcher(p *peer) {
 
 		// If so, then we'll attempt to re-establish a persistent
 		// connection to the peer.
-		// TODO(roasbeef): get latest port info?
+		// TODO(roasbeef): look up latest info for peer in database
 		connReq := &connmgr.ConnReq{
 			Addr:      p.addr,
 			Permanent: true,
 		}
 
 		s.pendingConnMtx.Lock()
+
+		// We'll only need to re-launch a connection requests if one
+		// isn't already currently pending.
+		if _, ok := s.persistentConnReqs[pubStr]; ok {
+			return
+		}
+
+		// Otherwise, we'll launch a new connection requests in order
+		// to attempt to maintain a persistent connection with this
+		// peer.
 		s.persistentConnReqs[pubStr] = append(s.persistentConnReqs[pubStr],
 			connReq)
 		s.pendingConnMtx.Unlock()

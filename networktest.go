@@ -664,7 +664,6 @@ func (n *networkHarness) SetUp() error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
-
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
 	var wg sync.WaitGroup
@@ -845,6 +844,25 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 			}
 		}
 	}
+}
+
+// DisconnectNodes disconnects node a from node b by sending RPC message
+// from a node to b node
+func (n *networkHarness) DisconnectNodes(ctx context.Context, a, b *lightningNode) error {
+	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.DisconnectPeerRequest{
+		PubKey: bobInfo.IdentityPubkey,
+	}
+
+	if _, err := a.DisconnectPeer(ctx, req); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // RestartNode  attempts to restart a lightning node by shutting it down

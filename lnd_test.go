@@ -260,6 +260,29 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 	}
 }
 
+//assertNumConnections asserts number current connections between two peers
+func assertNumConnections(ctxt context.Context, t *harnessTest,
+	alice, bob *lightningNode, expected int) {
+	aliceNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+	if err != nil {
+		t.Fatalf("unable to fetch alice's node (%v) list peers %v",
+			alice.nodeID, err)
+	}
+	bobNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+	if err != nil {
+		t.Fatalf("unable to fetch bob's node (%v) list peers %v",
+			bob.nodeID, err)
+	}
+	if len(aliceNumPeers.Peers) != expected {
+		t.Fatalf("number of peers connected to alice is incorrect: expected %v, got %v",
+			expected, len(aliceNumPeers.Peers))
+	}
+	if len(bobNumPeers.Peers) != expected {
+		t.Fatalf("number of peers connected to bob is incorrect: expected %v, got %v",
+			expected, len(bobNumPeers.Peers))
+	}
+}
+
 // testBasicChannelFunding performs a test exercising expected behavior from a
 // basic funding workflow. The test creates a new channel between Alice and
 // Bob, then immediately closes the channel after asserting some expected post
@@ -313,6 +336,121 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	// relevant channel closing post conditions.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
+// testDisconnectingTargetPeer performs a test which
+// disconnects Alice-peer from Bob-peer and then re-connects them again
+func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
+
+	ctxb := context.Background()
+
+	// Check existing connection.
+	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+
+	chanAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin / 2)
+	pushAmt := btcutil.Amount(0)
+
+	timeout := time.Duration(time.Second * 10)
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+
+	// Create a new channel that requires 1 confs before it's considered
+	// open, then broadcast the funding transaction
+	const numConfs = 1
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
+		chanAmt, pushAmt, numConfs)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// At this point, the channel's funding transaction will have
+	// been broadcast, but not confirmed. Alice and Bob's nodes
+	// should reflect this when queried via RPC.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+
+	// Disconnect Alice-peer from Bob-peer and get error
+	// causes by one pending channel with detach node is existing.
+	if err := net.DisconnectNodes(ctxt, net.Alice, net.Bob); err == nil {
+		t.Fatalf("Bob's peer was disconnected from Alice's"+
+			" while one pending channel is existing: err %v", err)
+	}
+
+	// Check existing connection.
+	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+
+	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
+	if err != nil {
+		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
+			" %v", err)
+	}
+
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened. The funding transaction should be found
+	// within the newly mined block.
+	block := mineBlocks(t, net, 1)[0]
+	assertTxInBlock(t, block, fundingTxID)
+
+	// At this point, the channel should be fully opened and there should
+	// be no pending channels remaining for either node.
+	time.Sleep(time.Millisecond * 3000)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	outPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: pendingUpdate.OutputIndex,
+	}
+
+	// Check both nodes to ensure that the channel is ready for operation.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.AssertChannelExists(ctxt, net.Alice, &outPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.AssertChannelExists(ctxt, net.Bob, &outPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: pendingUpdate.Txid,
+		OutputIndex: pendingUpdate.OutputIndex,
+	}
+
+	// Disconnect Alice-peer from Bob-peer and get error
+	// causes by one active channel with detach node is existing.
+	if err := net.DisconnectNodes(ctxt, net.Alice, net.Bob); err == nil {
+		t.Fatalf("Bob's peer was disconnected from Alice's"+
+			" while one active channel is existing: err %v", err)
+	}
+
+	// Check existing connection.
+	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
+
+	// Disconnect Alice-peer from Bob-peer without getting error
+	// about existing channels.
+	if err := net.DisconnectNodes(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to disconnect Bob's peer from Alice's: err %v", err)
+	}
+
+	// Check zero peer connections.
+	assertNumConnections(ctxb, t, net.Alice, net.Bob, 0)
+
+	// Finally, re-connect both nodes.
+	if err := net.ConnectNodes(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
+	}
+
+	// Check existing connection.
+	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
 }
 
 // testFundingPersistence is intended to ensure that the Funding Manager
@@ -2220,6 +2358,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "disconnecting target peer",
+		test: testDisconnectingTargetPeer,
 	},
 	{
 		name: "graph topology notifications",

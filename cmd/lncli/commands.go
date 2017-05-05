@@ -254,7 +254,14 @@ var disconnectCommand = cli.Command{
 	Name:      "disconnect",
 	Usage:     "disconnect a remote lnd peer identified by public key",
 	ArgsUsage: "<pubkey>",
-	Action:    disconnectPeer,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "node_key",
+			Usage: "The hex-encoded compressed public key of the peer " +
+				"to disconnect from",
+		},
+	},
+	Action: disconnectPeer,
 }
 
 func disconnectPeer(ctx *cli.Context) error {
@@ -262,9 +269,14 @@ func disconnectPeer(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	pubKey := ctx.Args().First()
-	if pubKey == "" {
-		return fmt.Errorf("target address expected in format: <pubkey>")
+	var pubKey string
+	switch {
+	case ctx.IsSet("node_key"):
+		pubKey = ctx.String("node_key")
+	case ctx.Args().Present():
+		pubKey = ctx.Args().First()
+	default:
+		return fmt.Errorf("must specify target public key")
 	}
 
 	req := &lnrpc.DisconnectPeerRequest{

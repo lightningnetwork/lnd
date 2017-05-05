@@ -57,6 +57,7 @@ func main() {
 		sendManyCommand,
 		sendCoinsCommand,
 		connectCommand,
+		disconnectCommand,
 		openChannelCommand,
 		closeChannelCommand,
 		listPeersCommand,
@@ -78,7 +79,6 @@ func main() {
 		debugLevelCommand,
 		decodePayReqComamnd,
 		listChainTxnsCommand,
-		disconnectCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

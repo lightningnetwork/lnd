@@ -658,16 +658,17 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 type ClosureType uint8
 
 const (
-	// Cooperative indicates that a channel has been closed cooperatively.
-	// This means that both channel peers were online and signed a new
-	// transaction paying out the settled balance of the contract.
+	// CooperativeClose indicates that a channel has been closed
+	// cooperatively.  This means that both channel peers were online and
+	// signed a new transaction paying out the settled balance of the
+	// contract.
 	CooperativeClose ClosureType = iota
 
-	// Force indicates that one peer unilaterally broadcast their current
-	// commitment state on-chain.
+	// ForceClose indicates that one peer unilaterally broadcast their
+	// current commitment state on-chain.
 	ForceClose
 
-	// Beach indicates that one peer attempted to broadcast a prior
+	// BreachClose indicates that one peer attempted to broadcast a prior
 	// _revoked_ channel state.
 	BreachClose
 )

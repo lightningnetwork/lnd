@@ -558,6 +558,33 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to execute force channel closure: %v", err)
 	}
 
+	// Now that the channel has been force closed, it should show up in the
+	// PendingChannels RPC under the force close section.
+	pendingChansRequest := &lnrpc.PendingChannelRequest{}
+	pendingChanResp, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	var found bool
+	txid, _ := chainhash.NewHash(chanPoint.FundingTxid[:])
+	op := wire.OutPoint{
+		Hash:  *txid,
+		Index: chanPoint.OutputIndex,
+	}
+	for _, forceClose := range pendingChanResp.PendingForceClosingChannels {
+		if forceClose.Channel.ChannelPoint == op.String() {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("channel not marked as force close for alice")
+	}
+
+	// TODO(roasbeef): should check default value in config here instead,
+	// or make delay a param
+	const defaultCSV = 4
+
 	// The several restarts in this test are intended to ensure that when a
 	// channel is force-closed, the UTXO nursery has persisted the state of
 	// the channel in the closure process and will recover the correct state
@@ -584,6 +611,25 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	duration := time.Millisecond * 300
 	time.Sleep(duration)
 
+	// Now that the channel has been force closed, it should now have the
+	// height and number of blocks to confirm populated.
+	pendingChan, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	if len(pendingChan.PendingForceClosingChannels) == 0 {
+		t.Fatalf("channel not marked as force close for alice")
+	}
+	forceClosedChan := pendingChan.PendingForceClosingChannels[0]
+	if forceClosedChan.MaturityHeight == 0 {
+		t.Fatalf("force close channel marked as not confirmed")
+	}
+	if forceClosedChan.BlocksTilMaturity != defaultCSV {
+		t.Fatalf("force closed channel has incorrect maturity time: "+
+			"expected %v, got %v", forceClosedChan.BlocksTilMaturity,
+			defaultCSV)
+	}
+
 	// The following restart is intended to ensure that outputs from the
 	// force close commitment transaction have been persisted once the
 	// transaction has been confirmed, but before the outputs are spendable
@@ -596,9 +642,6 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	// For the persistence test, we generate three blocks, then trigger
 	// a restart and then generate the final block that should trigger
 	// the creation of the sweep transaction.
-	// TODO(roasbeef): should check default value in config here instead,
-	// or make delay a param
-	const defaultCSV = 4
 	if _, err := net.Miner.Node.Generate(defaultCSV - 1); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
@@ -675,6 +718,16 @@ mempoolPoll:
 	}
 
 	assertTxInBlock(t, block, sweepTx.Hash())
+
+	// Now that the channel has been fully swept, it should no longer show
+	// up within the pending channels RPC.
+	pendingChans, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	if len(pendingChans.PendingForceClosingChannels) != 0 {
+		t.Fatalf("no channels should be shown as force closed")
+	}
 
 	// At this point, Bob should now be aware of his new immediately
 	// spendable on-chain balance, as it was Alice who broadcast the

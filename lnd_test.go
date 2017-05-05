@@ -182,6 +182,30 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
+	txid, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to convert to chainhash: %v", err)
+	}
+	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
+
+	// At this point, the channel should now be marked as being in the
+	// state of "pending close".
+	pendingChansRequest := &lnrpc.PendingChannelRequest{}
+	pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+	var found bool
+	for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+		if pendingClose.Channel.ChannelPoint == chanPointStr {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("channel not marked as pending close")
+	}
+
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.

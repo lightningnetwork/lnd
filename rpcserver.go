@@ -240,12 +240,47 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	return &lnrpc.ConnectPeerResponse{}, nil
 }
 
-// DisconnectPeer attempts to disconnect one peer from another identified by a given pubKey.
-func (r *rpcServer) DisconnectPeer(ctx context.Context, in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
-	if err := r.server.DisconnectFromPeer(in.PubKey); err != nil {
+// DisconnectPeer attempts to disconnect one peer from another identified by a
+// given pubKey. In the case that we currently ahve a pending or active channel
+// with the target peer, then
+func (r *rpcServer) DisconnectPeer(ctx context.Context,
+	in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
+
+	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
+
+	// First we'll validate the string passed in within the request to
+	// ensure that it's a valid hex-string, and also a valid compressed
+	// public key.
+	pubKeyBytes, err := hex.DecodeString(in.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode pubkey bytes: %v", err)
+	}
+	peerPubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+	}
+
+	// Next, we'll fetch the pending/active channels we have with a
+	// particular peer.
+	nodeChannels, err := r.server.chanDB.FetchOpenChannels(peerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels for peer: %v", err)
+	}
+
+	// In order to avoid erroneously disconnecting from a peer that we have
+	// an active channel with, if we have any channels active with this
+	// peer, then we'll disallow disconnecting from them.
+	if len(nodeChannels) > 0 {
+		return nil, fmt.Errorf("cannot disconnect from peer(%x), "+
+			"all active channels with the peer need to be closed "+
+			"first", pubKeyBytes)
+	}
+
+	// With all initial validation complete, we'll now request that the
+	// sever disconnects from the per.
+	if err := r.server.DisconnectPeer(peerPubKey); err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
 	}
-	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
 
 	return &lnrpc.DisconnectPeerResponse{}, nil
 }

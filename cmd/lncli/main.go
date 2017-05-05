@@ -78,6 +78,7 @@ func main() {
 		debugLevelCommand,
 		decodePayReqComamnd,
 		listChainTxnsCommand,
+		disconnectCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

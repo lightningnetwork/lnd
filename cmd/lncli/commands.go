@@ -250,6 +250,36 @@ func connectPeer(ctx *cli.Context) error {
 	return nil
 }
 
+var disconnectCommand = cli.Command{
+	Name:      "disconnect",
+	Usage:     "disconnect a remote lnd peer identified by public key",
+	ArgsUsage: "<pubkey>",
+	Action:    disconnectPeer,
+}
+
+func disconnectPeer(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	pubKey := ctx.Args().First()
+	if pubKey == "" {
+		return fmt.Errorf("target address expected in format: <pubkey>")
+	}
+
+	req := &lnrpc.DisconnectPeerRequest{
+		PubKey: pubKey,
+	}
+
+	lnid, err := client.DisconnectPeer(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(lnid)
+	return nil
+}
+
 // TODO(roasbeef): change default number of confirmations
 var openChannelCommand = cli.Command{
 	Name:  "openchannel",

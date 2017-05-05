@@ -1,39 +1,12 @@
 package discovery
 
 import (
-	"encoding/binary"
-
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 )
-
-// newProofKey constructs a new announcement signature message key.
-func newProofKey(chanID uint64, isRemote bool) waitingProofKey {
-	return waitingProofKey{
-		chanID:   chanID,
-		isRemote: isRemote,
-	}
-}
-
-// ToBytes returns a serialized representation of the key.
-func (k waitingProofKey) ToBytes() []byte {
-	var key [9]byte
-
-	var b uint8
-	if k.isRemote {
-		b = 0
-	} else {
-		b = 1
-	}
-
-	binary.BigEndian.PutUint64(key[:8], k.chanID)
-	key[8] = b
-
-	return key[:]
-}
 
 // createChanAnnouncement is a helper function which creates all channel
 // announcements given the necessary channel related database items. This

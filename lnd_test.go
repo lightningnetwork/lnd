@@ -188,22 +188,24 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarn
 	}
 	chanPointStr := fmt.Sprintf("%v:%v", txid, fundingChanPoint.OutputIndex)
 
-	// At this point, the channel should now be marked as being in the
-	// state of "pending close".
-	pendingChansRequest := &lnrpc.PendingChannelRequest{}
-	pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
-	if err != nil {
-		t.Fatalf("unable to query for pending channels: %v", err)
-	}
-	var found bool
-	for _, pendingClose := range pendingChanResp.PendingClosingChannels {
-		if pendingClose.Channel.ChannelPoint == chanPointStr {
-			found = true
-			break
+	// If we didn't force close the transaction, at this point, the channel
+	// should now be marked as being in the state of "pending close".
+	if !force {
+		pendingChansRequest := &lnrpc.PendingChannelRequest{}
+		pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
+		if err != nil {
+			t.Fatalf("unable to query for pending channels: %v", err)
 		}
-	}
-	if !found {
-		t.Fatalf("channel not marked as pending close")
+		var found bool
+		for _, pendingClose := range pendingChanResp.PendingClosingChannels {
+			if pendingClose.Channel.ChannelPoint == chanPointStr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("channel not marked as pending close")
+		}
 	}
 
 	// Finally, generate a single block, wait for the final close status
@@ -442,7 +444,7 @@ peersPoll:
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then

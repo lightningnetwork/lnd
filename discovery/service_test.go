@@ -13,6 +13,9 @@ import (
 
 	"time"
 
+	"io/ioutil"
+	"os"
+
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -54,6 +57,31 @@ var (
 	trickleDelay     = time.Millisecond * 100
 	proofMatureDelta uint32
 )
+
+// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
+// callback which cleans up the created temporary directories is also returned
+// and intended to be executed after the test completes.
+func makeTestDB() (*channeldb.DB, func(), error) {
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Next, create channeldb for the first time.
+	cdb, err := channeldb.Open(tempDirName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		cdb.Close()
+		os.RemoveAll(tempDirName)
+	}
+
+	return cdb, cleanUp, nil
+}
 
 type mockSigner struct {
 	privKey *btcec.PrivateKey
@@ -369,7 +397,7 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 }
 
 type testCtx struct {
-	discovery          *AuthenticatedGossiper
+	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
 	broadcastedMessage chan lnwire.Message
@@ -383,8 +411,13 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
 
+	db, cleanUpDb, err := makeTestDB()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	broadcastedMessage := make(chan lnwire.Message, 10)
-	discovery, err := New(Config{
+	gossiper, err := New(Config{
 		Notifier: notifier,
 		Broadcast: func(_ *btcec.PublicKey, msgs ...lnwire.Message) error {
 			for _, msg := range msgs {
@@ -398,22 +431,26 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		Router:           router,
 		TrickleDelay:     trickleDelay,
 		ProofMatureDelta: proofMatureDelta,
+		DB:               db,
 	})
 	if err != nil {
+		cleanUpDb()
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
 	}
-	if err := discovery.Start(); err != nil {
+	if err := gossiper.Start(); err != nil {
+		cleanUpDb()
 		return nil, nil, fmt.Errorf("unable to start router: %v", err)
 	}
 
 	cleanUp := func() {
-		discovery.Stop()
+		gossiper.Stop()
+		cleanUpDb()
 	}
 
 	return &testCtx{
 		router:             router,
 		notifier:           notifier,
-		discovery:          discovery,
+		gossiper:           gossiper,
 		broadcastedMessage: broadcastedMessage,
 	}, cleanUp, nil
 }
@@ -428,7 +465,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	defer cleanup()
 
 	// Create node valid, signed announcement, process it with with
-	// discovery service, check that valid announcement have been
+	// gossiper service, check that valid announcement have been
 	// propagated farther into the lightning network, and check that we
 	// added new node into router.
 	na, err := createNodeAnnouncement(nodeKeyPriv1)
@@ -436,7 +473,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(na, na.NodeID)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(na, na.NodeID)
 	if err != nil {
 		t.Fatalf("can't process remote announcement: %v", err)
 	}
@@ -459,7 +496,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("can't create channel announcement: %v", err)
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(ca, na.NodeID)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, na.NodeID)
 	if err != nil {
 		t.Fatalf("can't process remote announcement: %v", err)
 	}
@@ -482,7 +519,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(ua, na.NodeID)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(ua, na.NodeID)
 	if err != nil {
 		t.Fatalf("can't process remote announcement: %v", err)
 	}
@@ -523,7 +560,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.discovery.ProcessRemoteAnnouncement(ca, na.NodeID):
+	case <-ctx.gossiper.ProcessRemoteAnnouncement(ca, na.NodeID):
 		t.Fatal("announcement was proceeded")
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -542,7 +579,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.discovery.ProcessRemoteAnnouncement(ua, na.NodeID):
+	case <-ctx.gossiper.ProcessRemoteAnnouncement(ua, na.NodeID):
 		t.Fatal("announcement was proceeded")
 	case <-time.After(100 * time.Millisecond):
 	}
@@ -596,7 +633,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -606,7 +643,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -616,7 +653,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -628,7 +665,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -639,11 +676,21 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	if len(ctx.discovery.waitingProofs) != 1 {
-		t.Fatal("local proof announcement should be stored")
+	number := 0
+	if err := ctx.gossiper.waitingProofs.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
+	if number != 1 {
+		t.Fatal("wrong number of objects in storage")
+	}
+
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -654,6 +701,20 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("announcement wasn't broadcast")
 		}
+	}
+
+	number = 0
+	if err := ctx.gossiper.waitingProofs.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+	); err != nil && err != channeldb.ErrWaitingProofNotFound {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
+	}
+
+	if number != 0 {
+		t.Fatal("waiting proof should be removed from storage")
 	}
 }
 
@@ -678,18 +739,28 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// manager, thereby kick off the announcement exchange process, in
 	// this case the announcement should be added in the orphan batch
 	// because we haven't announce the channel yet.
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to proceed announcement: %v", err)
 	}
 
-	if len(ctx.discovery.waitingProofs) != 1 {
-		t.Fatal("local proof announcement should be stored")
+	number := 0
+	if err := ctx.gossiper.waitingProofs.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
+	}
+
+	if number != 1 {
+		t.Fatal("wrong number of objects in storage")
 	}
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -700,7 +771,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -710,7 +781,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.discovery.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -722,7 +793,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	// After that we process local announcement, and waiting to receive
 	// the channel announcement.
-	err = <-ctx.discovery.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -735,7 +806,17 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		}
 	}
 
-	if len(ctx.discovery.waitingProofs) != 0 {
-		t.Fatal("index should be removed")
+	number = 0
+	if err := ctx.gossiper.waitingProofs.ForAll(
+		func(*channeldb.WaitingProof) error {
+			number++
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("unable to retrieve objects from store: %v", err)
+	}
+
+	if number != 0 {
+		t.Fatal("wrong number of objects in storage")
 	}
 }

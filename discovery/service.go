@@ -16,17 +16,6 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// waitingProofKey is the proof key which uniquely identifies the announcement
-// signature message. The goal of this key is distinguish the local and remote
-// proof for the same channel id.
-//
-// TODO(andrew.shvv) move to the channeldb package after waiting proof map
-// becomes persistent.
-type waitingProofKey struct {
-	chanID   uint64
-	isRemote bool
-}
-
 // networkMsg couples a routing related wire message with the peer that
 // originally sent it.
 type networkMsg struct {
@@ -79,18 +68,27 @@ type Config struct {
 	// network the pending batch of new announcements we've received since
 	// the last trickle tick.
 	TrickleDelay time.Duration
+
+	// DB is a global boltdb instance which is needed to pass it in
+	// waiting proof storage to make waiting proofs persistent.
+	DB *channeldb.DB
 }
 
 // New creates a new AuthenticatedGossiper instance, initialized with the
 // passed configuration paramters.
 func New(cfg Config) (*AuthenticatedGossiper, error) {
+	storage, err := channeldb.NewWaitingProofStore(cfg.DB)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AuthenticatedGossiper{
 		cfg:                    &cfg,
 		networkMsgs:            make(chan *networkMsg),
 		quit:                   make(chan struct{}),
 		syncRequests:           make(chan *syncRequest),
 		prematureAnnouncements: make(map[uint32][]*networkMsg),
-		waitingProofs:          make(map[waitingProofKey]*lnwire.AnnounceSignatures),
+		waitingProofs:          storage,
 	}, nil
 }
 
@@ -110,7 +108,7 @@ type AuthenticatedGossiper struct {
 	quit    chan struct{}
 	wg      sync.WaitGroup
 
-	// cfg is a copy of the configuration struct that the discovery service
+	// cfg is a copy of the configuration struct that the gossiper service
 	// was initialized with.
 	cfg *Config
 
@@ -128,17 +126,15 @@ type AuthenticatedGossiper struct {
 	// TODO(roasbeef): limit premature networkMsgs to N
 	prematureAnnouncements map[uint32][]*networkMsg
 
-	// waitingProofs is a map of partial channel proof announcement
-	// messages. We use this map to buffer half of the material needed to
-	// reconstruct a full authenticated channel announcement. Once we
-	// receive the other half the channel proof, we'll be able to properly
-	// validate it an re-broadcast it out to the network.
-	//
-	// TODO(andrew.shvv) make this map persistent.
-	waitingProofs map[waitingProofKey]*lnwire.AnnounceSignatures
+	// waitingProofs is a persistent storage of partial channel proof
+	// announcement messages. We use it to buffer half of the material
+	// needed to reconstruct a full authenticated channel announcement. Once
+	// we receive the other half the channel proof, we'll be able to
+	// properly validate it an re-broadcast it out to the network.
+	waitingProofs *channeldb.WaitingProofStore
 
 	// networkMsgs is a channel that carries new network broadcasted
-	// message from outside the discovery service to be processed by the
+	// message from outside the gossiper service to be processed by the
 	// networkHandler.
 	networkMsgs chan *networkMsg
 
@@ -415,7 +411,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					nodePub, err)
 			}
 
-		// The discovery has been signalled to exit, to we exit our
+		// The gossiper has been signalled to exit, to we exit our
 		// main loop so the wait group can be decremented.
 		case <-d.quit:
 			return
@@ -689,8 +685,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		if err != nil {
 			// TODO(andrew.shvv) this is dangerous because remote
 			// node might rewrite the waiting proof.
-			key := newProofKey(shortChanID, nMsg.isRemote)
-			d.waitingProofs[key] = msg
+			proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
+			if err := d.waitingProofs.Add(proof); err != nil {
+				err := errors.Errorf("unable to store "+
+					"the proof for short_chan_id=%v: %v",
+					shortChanID, err)
+				log.Error(err)
+				nMsg.err <- err
+				return nil
+			}
 
 			log.Infof("Orphan %v proof announcement with "+
 				"short_chan_id=%v, adding"+
@@ -720,11 +723,26 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// announcement. If we didn't receive the opposite half of the
 		// proof than we should store it this one, and wait for
 		// opposite to be received.
-		oppositeKey := newProofKey(chanInfo.ChannelID, !nMsg.isRemote)
-		oppositeProof, ok := d.waitingProofs[oppositeKey]
-		if !ok {
-			key := newProofKey(chanInfo.ChannelID, nMsg.isRemote)
-			d.waitingProofs[key] = msg
+		proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
+		oppositeProof, err := d.waitingProofs.Get(proof.OppositeKey())
+		if err != nil && err != channeldb.ErrWaitingProofNotFound {
+			err := errors.Errorf("unable to get "+
+				"the opposite proof for short_chan_id=%v: %v",
+				shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
+		}
+
+		if err == channeldb.ErrWaitingProofNotFound {
+			if err := d.waitingProofs.Add(proof); err != nil {
+				err := errors.Errorf("unable to store "+
+					"the proof for short_chan_id=%v: %v",
+					shortChanID, err)
+				log.Error(err)
+				nMsg.err <- err
+				return nil
+			}
 
 			// If proof was sent by a local sub-system, then we'll
 			// send the announcement signature to the remote node
@@ -805,7 +823,14 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			nMsg.err <- err
 			return nil
 		}
-		delete(d.waitingProofs, oppositeKey)
+
+		if err := d.waitingProofs.Remove(proof.OppositeKey()); err != nil {
+			err := errors.Errorf("unable remove opposite proof "+
+				"for the channel with chanID=%v: %v", msg.ChannelID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
+		}
 
 		// Proof was successfully created and now can announce the
 		// channel to the remain network.

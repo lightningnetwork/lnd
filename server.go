@@ -254,6 +254,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 		SendToPeer:       s.sendToPeer,
 		TrickleDelay:     time.Millisecond * 300,
 		ProofMatureDelta: 0,
+		DB:               chanDB,
 	})
 	if err != nil {
 		return nil, err

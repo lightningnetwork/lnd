@@ -1140,6 +1140,7 @@ func (s *server) handleConnectPeer(msg *connectPeerMsg) {
 		}
 
 		s.pendingConnMtx.Lock()
+		s.persistentPeers[targetPub] = struct{}{}
 		s.persistentConnReqs[targetPub] = append(s.persistentConnReqs[targetPub],
 			connReq)
 		s.pendingConnMtx.Unlock()

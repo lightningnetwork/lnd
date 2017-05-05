@@ -861,6 +861,7 @@ mempoolPoll:
 
 	// Now that the channel has been fully swept, it should no longer show
 	// up within the pending channels RPC.
+	time.Sleep(time.Millisecond * 300)
 	pendingChans, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)

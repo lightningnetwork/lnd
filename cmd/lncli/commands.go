@@ -1564,7 +1564,6 @@ func stopDaemon(ctx *cli.Context) error {
 	defer cleanUp()
 
 	_, err := client.StopDaemon(ctxb, &lnrpc.StopRequest{})
-
 	if err != nil {
 		return err
 	}

@@ -115,7 +115,8 @@ debuglevel=trace
 debughtlc=true
 maxpendingchannels=10
 profile=5060
-externalip=128.111.13.23,111.32.29.29
+externalip=128.111.13.23
+externalip=111.32.29.29
 
 [Bitcoin]
 bitcoin.active=1

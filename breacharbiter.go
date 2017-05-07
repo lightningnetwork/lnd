@@ -1,20 +1,34 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 
+	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
+
+// retributionBucket stores retribution state on disk between detecting a
+// contract breach, broadcasting a justice transaction that sweeps the channel,
+// and finally witnessing the justice transaction confirm on the blockchain. It
+// is critical that such state is persisted on disk, so that if our node
+// restarts at any point during the retribution procedure, we can recover and
+// continue from the persisted state.
+var retributionBucket = []byte("ret")
 
 // breachArbiter is a special subsystem which is responsible for watching and
 // acting on the detection of any attempted uncooperative channel breaches by
@@ -25,12 +39,11 @@ import (
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
-	wallet     *lnwallet.LightningWallet
-	db         *channeldb.DB
-	notifier   chainntnfs.ChainNotifier
-	chainIO    lnwallet.BlockChainIO
-	estimator  lnwallet.FeeEstimator
-	htlcSwitch *htlcswitch.Switch
+	wallet           *lnwallet.LightningWallet
+	notifier         chainntnfs.ChainNotifier
+	htlcSwitch       *htlcSwitch
+	db               *channeldb.DB
+	retributionStore *retributionStore
 
 	// breachObservers is a map which tracks all the active breach
 	// observers we're currently managing. The key of the map is the
@@ -44,7 +57,7 @@ type breachArbiter struct {
 	// struct to send the necessary information required to punish a
 	// counterparty once a channel breach is detected. Breach observers
 	// use this to communicate with the main contractObserver goroutine.
-	breachedContracts chan *retributionInfo
+	breachedContracts chan *retribution
 
 	// newContracts is a channel which is used by outside subsystems to
 	// notify the breachArbiter of a new contract (a channel) that should
@@ -70,15 +83,14 @@ func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
 	chain lnwallet.BlockChainIO, fe lnwallet.FeeEstimator) *breachArbiter {
 
 	return &breachArbiter{
-		wallet:     wallet,
-		db:         db,
-		notifier:   notifier,
-		chainIO:    chain,
-		htlcSwitch: h,
-		estimator:  fe,
+		wallet:           wallet,
+		notifier:         notifier,
+		htlcSwitch:       h,
+		db:               db,
+		retributionStore: newRetributionStore(db),
 
 		breachObservers:   make(map[wire.OutPoint]chan struct{}),
-		breachedContracts: make(chan *retributionInfo),
+		breachedContracts: make(chan *retribution),
 		newContracts:      make(chan *lnwallet.LightningChannel),
 		settledContracts:  make(chan *wire.OutPoint),
 		quit:              make(chan struct{}),
@@ -94,7 +106,31 @@ func (b *breachArbiter) Start() error {
 
 	brarLog.Tracef("Starting breach arbiter")
 
-	// First we need to query that database state for all currently active
+	// We load any pending retributions from the database. For each retribution
+	// we need to restart the retribution procedure to claim our just reward.
+	err := b.retributionStore.ForAll(func(ret *retribution) error {
+		// Register for a notification when the breach transaction is confirmed
+		// on chain.
+		breachTXID := &ret.commitHash
+		confChan, err := b.notifier.RegisterConfirmationsNtfn(breachTXID, 1)
+		if err != nil {
+			brarLog.Errorf("unable to register for conf updates for txid: "+
+				"%v, err: %v", breachTXID, err)
+			return err
+		}
+
+		// Launch a new goroutine which to finalize the channel retribution
+		// after the breach transaction confirms.
+		b.wg.Add(1)
+		go b.exactRetribution(confChan, ret)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// We need to query that database state for all currently active
 	// channels, each of these channels will need a goroutine assigned to
 	// it to watch for channel breaches.
 	activeChannels, err := b.db.FetchAllChannels()
@@ -248,19 +284,24 @@ out:
 				breachTXID, 1, uint32(currentHeight),
 			)
 			if err != nil {
-				brarLog.Errorf("unable to register for conf for txid: %v",
-					breachTXID)
+				brarLog.Errorf("unable to register for conf updates for txid: "+
+					"%v, err: %v", breachTXID, err)
 				continue
 			}
 
-			brarLog.Warnf("A channel has been breached with tx: %v. "+
+			brarLog.Warnf("A channel has been breached with txid: %v. "+
 				"Waiting for confirmation, then justice will be served!",
 				breachTXID)
 
-			// With the notification registered, we launch a new
-			// goroutine which will finalize the channel
-			// retribution after the breach transaction has been
-			// confirmed.
+			// Persist the pending retribution state to disk.
+			if err := b.retributionStore.Add(breachInfo); err != nil {
+				brarLog.Errorf("unable to persist breach info to db: %v", err)
+				continue
+			}
+
+			// With the notification registered and retribution state persisted,
+			// we launch a new goroutine which will finalize the channel
+			// retribution after the breach transaction has been confirmed.
 			b.wg.Add(1)
 			go b.exactRetribution(confChan, breachInfo)
 
@@ -320,108 +361,6 @@ out:
 	}
 
 	return
-}
-
-// exactRetribution is a goroutine which is executed once a contract breach has
-// been detected by a breachObserver. This function is responsible for
-// punishing a counterparty for violating the channel contract by sweeping ALL
-// the lingering funds within the channel into the daemon's wallet.
-//
-// NOTE: This MUST be run as a goroutine.
-func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
-	breachInfo *retributionInfo) {
-
-	defer b.wg.Done()
-
-	// TODO(roasbeef): state needs to be checkpointed here
-
-	select {
-	case _, ok := <-confChan.Confirmed:
-		// If the second value is !ok, then the channel has been closed
-		// signifying a daemon shutdown, so we exit.
-		if !ok {
-			return
-		}
-
-		// Otherwise, if this is a real confirmation notification, then
-		// we fall through to complete our duty.
-	case <-b.quit:
-		return
-	}
-
-	brarLog.Debugf("Breach transaction %v has been confirmed, sweeping "+
-		"revoked funds", breachInfo.commitHash)
-
-	// With the breach transaction confirmed, we now create the justice tx
-	// which will claim ALL the funds within the channel.
-	justiceTx, err := b.createJusticeTx(breachInfo)
-	if err != nil {
-		brarLog.Errorf("unable to create justice tx: %v", err)
-		return
-	}
-
-	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
-		return spew.Sdump(justiceTx)
-	}))
-
-	_, currentHeight, err := b.chainIO.GetBestBlock()
-	if err != nil {
-		brarLog.Errorf("unable to get current height: %v", err)
-		return
-	}
-
-	// Finally, broadcast the transaction, finalizing the channels'
-	// retribution against the cheating counterparty.
-	if err := b.wallet.PublishTransaction(justiceTx); err != nil {
-		brarLog.Errorf("unable to broadcast "+
-			"justice tx: %v", err)
-		return
-	}
-
-	// As a conclusionary step, we register for a notification to be
-	// dispatched once the justice tx is confirmed. After confirmation we
-	// notify the caller that initiated the retribution workflow that the
-	// deed has been done.
-	justiceTXID := justiceTx.TxHash()
-	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1,
-		uint32(currentHeight))
-	if err != nil {
-		brarLog.Errorf("unable to register for conf for txid: %v",
-			justiceTXID)
-		return
-	}
-
-	select {
-	case _, ok := <-confChan.Confirmed:
-		if !ok {
-			return
-		}
-
-		// TODO(roasbeef): factor in HTLCs
-		revokedFunds := breachInfo.revokedOutput.amt
-		totalFunds := revokedFunds + breachInfo.selfOutput.amt
-
-		brarLog.Infof("Justice for ChannelPoint(%v) has "+
-			"been served, %v revoked funds (%v total) "+
-			"have been claimed", breachInfo.chanPoint,
-			revokedFunds, totalFunds)
-
-		// With the channel closed, mark it in the database as such.
-		err := b.db.MarkChanFullyClosed(&breachInfo.chanPoint)
-		if err != nil {
-			brarLog.Errorf("unable to mark chan as closed: %v", err)
-		}
-
-		// TODO(roasbeef): add peer to blacklist?
-
-		// TODO(roasbeef): close other active channels with offending peer
-
-		close(breachInfo.doneChan)
-
-		return
-	case <-b.quit:
-		return
-	}
 }
 
 // breachObserver notifies the breachArbiter contract observer goroutine that a
@@ -559,26 +498,28 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			return lnwallet.CommitSpendRevoke(b.wallet.Cfg.Signer, &desc, tx)
 		}
 
-		// Finally, with the two witness generation funcs created, we
-		// send the retribution information to the utxo nursery.
+		// Finally, we send the retribution information into the breachArbiter
+		// event loop to deal swift justice.
 		// TODO(roasbeef): populate htlc breaches
-		b.breachedContracts <- &retributionInfo{
+		b.breachedContracts <- &retribution{
 			commitHash: breachInfo.BreachTransaction.TxHash(),
 			chanPoint:  *chanPoint,
 
 			selfOutput: &breachedOutput{
-				amt:         btcutil.Amount(localSignDesc.Output.Value),
-				outpoint:    breachInfo.LocalOutpoint,
-				witnessFunc: localWitness,
+				amt:            btcutil.Amount(localSignDesc.Output.Value),
+				outpoint:       breachInfo.LocalOutpoint,
+				signDescriptor: localSignDesc,
+				witnessType:    localWitnessType,
 			},
 
 			revokedOutput: &breachedOutput{
-				amt:         btcutil.Amount(remoteSignDesc.Output.Value),
-				outpoint:    breachInfo.RemoteOutpoint,
-				witnessFunc: remoteWitness,
+				amt:            btcutil.Amount(remoteSignDesc.Output.Value),
+				outpoint:       breachInfo.RemoteOutpoint,
+				signDescriptor: remoteSignDesc,
+				witnessType:    remoteWitnessType,
 			},
 
-			doneChan: make(chan struct{}),
+			htlcOutputs: []*breachedOutput{},
 		}
 
 	case <-b.quit:
@@ -586,40 +527,114 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 	}
 }
 
-// breachedOutput contains all the information needed to sweep a breached
-// output. A breached output is an output that we are now entitled to due to a
-// revoked commitment transaction being broadcast.
-type breachedOutput struct {
-	amt         btcutil.Amount
-	outpoint    wire.OutPoint
-	witnessFunc witnessGenerator
+// exactRetribution is a goroutine which is executed once a contract breach has
+// been detected by a breachObserver. This function is responsible for
+// punishing a counterparty for violating the channel contract by sweeping ALL
+// the lingering funds within the channel into the daemon's wallet.
+//
+// NOTE: This MUST be run as a goroutine.
+func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
+	breachInfo *retributionInfo) {
 
-	twoStageClaim bool
-}
+	defer b.wg.Done()
 
-// retributionInfo encapsulates all the data needed to sweep all the contested
-// funds within a channel whose contract has been breached by the prior
-// counterparty. This struct is used by the utxoNursery to create the justice
-// transaction which spends all outputs of the commitment transaction into an
-// output controlled by the wallet.
-type retributionInfo struct {
-	commitHash chainhash.Hash
-	chanPoint  wire.OutPoint
+	// TODO(roasbeef): state needs to be checkpointed here
 
-	selfOutput *breachedOutput
+	select {
+	case _, ok := <-confChan.Confirmed:
+		// If the second value is !ok, then the channel has been closed
+		// signifying a daemon shutdown, so we exit.
+		if !ok {
+			return
+		}
 
-	revokedOutput *breachedOutput
+		// Otherwise, if this is a real confirmation notification, then
+		// we fall through to complete our duty.
+	case <-b.quit:
+		return
+	}
 
-	htlcOutputs *[]breachedOutput
+	brarLog.Debugf("Breach transaction %v has been confirmed, sweeping "+
+		"revoked funds", breachInfo.commitHash)
 
-	doneChan chan struct{}
+	// With the breach transaction confirmed, we now create the justice tx
+	// which will claim ALL the funds within the channel.
+	justiceTx, err := b.createJusticeTx(breachInfo)
+	if err != nil {
+		brarLog.Errorf("unable to create justice tx: %v", err)
+		return
+	}
+
+	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
+		return spew.Sdump(justiceTx)
+	}))
+
+	_, currentHeight, err := b.chainIO.GetBestBlock()
+	if err != nil {
+		brarLog.Errorf("unable to get current height: %v", err)
+		return
+	}
+
+	// Finally, broadcast the transaction, finalizing the channels'
+	// retribution against the cheating counterparty.
+	if err := b.wallet.PublishTransaction(justiceTx); err != nil {
+		brarLog.Errorf("unable to broadcast "+
+			"justice tx: %v", err)
+		return
+	}
+
+	// As a conclusionary step, we register for a notification to be
+	// dispatched once the justice tx is confirmed. After confirmation we
+	// notify the caller that initiated the retribution workflow that the
+	// deed has been done.
+	justiceTXID := justiceTx.TxHash()
+	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1,
+		uint32(currentHeight))
+	if err != nil {
+		brarLog.Errorf("unable to register for conf for txid: %v",
+			justiceTXID)
+		return
+	}
+
+	select {
+	case _, ok := <-confChan.Confirmed:
+		if !ok {
+			return
+		}
+
+		// TODO(roasbeef): factor in HTLCs
+		revokedFunds := breachInfo.revokedOutput.amt
+		totalFunds := revokedFunds + breachInfo.selfOutput.amt
+
+		brarLog.Infof("Justice for ChannelPoint(%v) has "+
+			"been served, %v revoked funds (%v total) "+
+			"have been claimed", breachInfo.chanPoint,
+			revokedFunds, totalFunds)
+
+		// With the channel closed, mark it in the database as such.
+		err := b.db.MarkChanFullyClosed(&breachInfo.chanPoint)
+		if err != nil {
+			brarLog.Errorf("unable to mark chan as closed: %v", err)
+		}
+
+		// TODO(roasbeef): add peer to blacklist?
+
+		// TODO(roasbeef): close other active channels with offending peer
+
+		close(breachInfo.doneChan)
+
+		return
+	case <-b.quit:
+		return
+	}
 }
 
 // createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
-func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error) {
+func (b *breachArbiter) createJusticeTx(r *retribution) (*wire.MsgTx, error) {
+
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
 	// TODO(roasbeef): possibly create many outputs to minimize change in
@@ -656,13 +671,17 @@ func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error)
 	// witnesses for both commitment outputs, and all the pending HTLCs at
 	// this state in the channel's history.
 	// TODO(roasbeef): handle the 2-layer HTLCs
-	localWitness, err := r.selfOutput.witnessFunc(justiceTx, hashCache, 0)
+	localWitnessFunc := r.selfOutput.witnessType.GenWitnessFunc(
+		&b.wallet.Signer, r.selfOutput.signDescriptor)
+	localWitness, err := localWitnessFunc(justiceTx, hashCache, 0)
 	if err != nil {
 		return nil, err
 	}
 	justiceTx.TxIn[0].Witness = localWitness
 
-	remoteWitness, err := r.revokedOutput.witnessFunc(justiceTx, hashCache, 1)
+	remoteWitnessFunc := r.revokedOutput.witnessType.GenWitnessFunc(
+		&b.wallet.Signer, r.revokedOutput.signDescriptor)
+	remoteWitness, err := remoteWitnessFunc(justiceTx, hashCache, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -735,4 +754,270 @@ func (b *breachArbiter) craftCommitSweepTx(closeInfo *lnwallet.UnilateralCloseSu
 	brarLog.Infof("Sweeping commitment output with: %v", spew.Sdump(sweepTx))
 
 	return sweepTx, nil
+}
+
+// breachedOutput contains all the information needed to sweep a breached
+// output. A breached output is an output that we are now entitled to due to a
+// revoked commitment transaction being broadcast.
+type breachedOutput struct {
+	amt      btcutil.Amount
+	outpoint wire.OutPoint
+
+	signDescriptor *lnwallet.SignDescriptor
+	witnessType    lnwallet.WitnessType
+
+	twoStageClaim bool
+}
+
+// retribution encapsulates all the data needed to sweep all the contested
+// funds within a channel whose contract has been breached by the prior
+// counterparty. This struct is used to create the justice transaction which
+// spends all outputs of the commitment transaction into an output controlled
+// by the wallet.
+type retribution struct {
+	commitHash chainhash.Hash
+	chanPoint  wire.OutPoint
+
+	selfOutput    *breachedOutput
+	revokedOutput *breachedOutput
+	htlcOutputs   []*breachedOutput
+}
+
+// retributionStore handles persistence of retribution states to disk and is
+// backed by a boltdb bucket. The primary responsibility of the retribution
+// store is to ensure that we can recover from a restart in the middle of a
+// breached contract retribution.
+type retributionStore struct {
+	db *channeldb.DB
+}
+
+// newRetributionStore creates a new instance of a retributionStore.
+func newRetributionStore(db *channeldb.DB) *retributionStore {
+	return &retributionStore{
+		db: db,
+	}
+}
+
+// Add adds a retribution state to the retributionStore, which is then persisted
+// to disk.
+func (rs *retributionStore) Add(ret *retribution) error {
+	return rs.db.Update(func(tx *bolt.Tx) error {
+		// If this is our first contract breach, the retributionBucket won't
+		// exist, in which case, we just create a new bucket.
+		retBucket, err := tx.CreateBucketIfNotExists(retributionBucket)
+		if err != nil {
+			return err
+		}
+
+		var outBuf bytes.Buffer
+		if err := lnwire.WriteOutPoint(&outBuf, &ret.chanPoint); err != nil {
+			return err
+		}
+
+		var retBuf bytes.Buffer
+		if err := ret.Encode(&retBuf); err != nil {
+			return err
+		}
+
+		if err := retBucket.Put(outBuf.Bytes(), retBuf.Bytes()); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// Remove removes a retribution state from the retributionStore database.
+func (rs *retributionStore) Remove(key *wire.OutPoint) error {
+	return rs.db.Update(func(tx *bolt.Tx) error {
+		retBucket := tx.Bucket(retributionBucket)
+
+		// We return an error if the bucket is not already created, since normal
+		// operation of the breach arbiter should never try to remove a
+		// finalized retribution state that is not already stored in the db.
+		if retBucket == nil {
+			return errors.New("unable to remove retribution because the " +
+				"db bucket doesn't exist.")
+		}
+
+		var outBuf bytes.Buffer
+		if err := lnwire.WriteOutPoint(&outBuf, key); err != nil {
+			return err
+		}
+
+		if err := retBucket.Delete(outBuf.Bytes()); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// ForAll iterates through all stored retributions and executes the passed
+// callback function on each retribution.
+func (rs *retributionStore) ForAll(cb func(*retribution) error) error {
+	return rs.db.View(func(tx *bolt.Tx) error {
+		// If the bucket does not exist, then there are no pending retributions.
+		retBucket := tx.Bucket(retributionBucket)
+		if retBucket == nil {
+			return nil
+		}
+
+		// Otherwise, we fetch each serialized retribution info, deserialize
+		// it, and execute the passed in callback function on it.
+		return retBucket.ForEach(func(outBytes, retBytes []byte) error {
+			ret := &retribution{}
+			if err := ret.Decode(bytes.NewBuffer(retBytes)); err != nil {
+				return err
+			}
+
+			return cb(ret)
+		})
+	})
+}
+
+// Encode serializes the retribution into the passed byte stream.
+func (ret *retribution) Encode(w io.Writer) error {
+	if _, err := w.Write(ret.commitHash[:]); err != nil {
+		return err
+	}
+
+	if err := lnwire.WriteOutPoint(w, &ret.chanPoint); err != nil {
+		return err
+	}
+
+	if err := ret.selfOutput.Encode(w); err != nil {
+		return err
+	}
+
+	if err := ret.revokedOutput.Encode(w); err != nil {
+		return err
+	}
+
+	numHtlcOutputs := len(ret.htlcOutputs)
+	if err := wire.WriteVarInt(w, 0, uint64(numHtlcOutputs)); err != nil {
+		return err
+	}
+
+	for i := 0; i < numHtlcOutputs; i++ {
+		if err := ret.htlcOutputs[i].Encode(w); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Dencode deserializes a retribution from the passed byte stream.
+func (ret *retribution) Decode(r io.Reader) error {
+	var scratch [32]byte
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return err
+	}
+	hash, err := chainhash.NewHash(scratch[:])
+	if err != nil {
+		return err
+	}
+	ret.commitHash = *hash
+
+	if err := lnwire.ReadOutPoint(r, &ret.chanPoint); err != nil {
+		return err
+	}
+
+	ret.selfOutput = &breachedOutput{}
+	if err := ret.selfOutput.Decode(r); err != nil {
+		return err
+	}
+
+	ret.revokedOutput = &breachedOutput{}
+	if err := ret.revokedOutput.Decode(r); err != nil {
+		return err
+	}
+
+	numHtlcOutputsU64, err := wire.ReadVarInt(r, 0)
+	if err != nil {
+		return err
+	}
+	numHtlcOutputs := int(numHtlcOutputsU64)
+
+	ret.htlcOutputs = make([]*breachedOutput, numHtlcOutputs)
+	for i := 0; i < numHtlcOutputs; i++ {
+		ret.htlcOutputs[i] = &breachedOutput{}
+		if err := ret.htlcOutputs[i].Decode(r); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Encode serializes a breachedOutput into the passed byte stream.
+func (bo *breachedOutput) Encode(w io.Writer) error {
+	var scratch [8]byte
+
+	binary.BigEndian.PutUint64(scratch[:8], uint64(bo.amt))
+	if _, err := w.Write(scratch[:8]); err != nil {
+		return err
+	}
+
+	if err := lnwire.WriteOutPoint(w, &bo.outpoint); err != nil {
+		return err
+	}
+
+	if err := lnwallet.WriteSignDescriptor(w, bo.signDescriptor); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint16(scratch[:2], uint16(bo.witnessType))
+	if _, err := w.Write(scratch[:2]); err != nil {
+		return err
+	}
+
+	if bo.twoStageClaim {
+		scratch[0] = 1
+	} else {
+		scratch[0] = 0
+	}
+	if _, err := w.Write(scratch[:1]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode deserializes a breachedOutput from the passed byte stream.
+func (bo *breachedOutput) Decode(r io.Reader) error {
+	var scratch [8]byte
+
+	if _, err := io.ReadFull(r, scratch[:8]); err != nil {
+		return err
+	}
+	bo.amt = btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
+
+	if err := lnwire.ReadOutPoint(r, &bo.outpoint); err != nil {
+		return err
+	}
+
+	signDescriptor := lnwallet.SignDescriptor{}
+	if err := lnwallet.ReadSignDescriptor(r, &signDescriptor); err != nil {
+		return err
+	}
+	bo.signDescriptor = &signDescriptor
+
+	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
+		return err
+	}
+	bo.witnessType = lnwallet.WitnessType(binary.BigEndian.Uint16(scratch[:2]))
+
+	if _, err := io.ReadFull(r, scratch[:1]); err != nil {
+		return err
+	}
+	if scratch[0] == 1 {
+		bo.twoStageClaim = true
+	} else {
+		bo.twoStageClaim = false
+	}
+
+	return nil
 }

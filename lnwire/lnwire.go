@@ -4,13 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 
 	"net"
 
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -158,21 +156,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 	case wire.OutPoint:
-		var h [32]byte
-		copy(h[:], e.Hash[:])
-		if _, err := w.Write(h[:]); err != nil {
-			return err
-		}
-
-		if e.Index > math.MaxUint16 {
-			return fmt.Errorf("index for outpoint (%v) is "+
-				"greater than max index of %v", e.Index,
-				math.MaxUint16)
-		}
-
-		var idx [2]byte
-		binary.BigEndian.PutUint16(idx[:], uint16(e.Index))
-		if _, err := w.Write(idx[:]); err != nil {
+		if err := WriteOutPoint(w, &e); err != nil {
 			return err
 		}
 
@@ -411,25 +395,8 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = pkScript
 	case *wire.OutPoint:
-		var h [32]byte
-		if _, err = io.ReadFull(r, h[:]); err != nil {
+		if err := ReadOutPoint(r, e); err != nil {
 			return err
-		}
-		hash, err := chainhash.NewHash(h[:])
-		if err != nil {
-			return err
-		}
-
-		var idxBytes [2]byte
-		_, err = io.ReadFull(r, idxBytes[:])
-		if err != nil {
-			return err
-		}
-		index := binary.BigEndian.Uint16(idxBytes[:])
-
-		*e = wire.OutPoint{
-			Hash:  *hash,
-			Index: uint32(index),
 		}
 
 	case *ChannelID:

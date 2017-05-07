@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -272,7 +273,7 @@ func (d *DB) fetchNodeChannels(openChanBucket,
 
 		outBytes := bytes.NewReader(k)
 		chanID := &wire.OutPoint{}
-		if err := readOutpoint(outBytes, chanID); err != nil {
+		if err := lnwire.ReadOutPoint(outBytes, chanID); err != nil {
 			return err
 		}
 
@@ -372,7 +373,7 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 		// Generate the database key, which will consist of the IsPending
 		// prefix followed by the channel's outpoint.
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, outpoint); err != nil {
+		if err := lnwire.WriteOutPoint(&b, outpoint); err != nil {
 			return err
 		}
 		keyPrefix := make([]byte, 3+b.Len())

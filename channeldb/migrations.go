@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -69,7 +70,7 @@ func deliveryScriptBugMigration(tx *bolt.Tx) error {
 			// progress.
 			outBytes := bytes.NewReader(k)
 			chanID := &wire.OutPoint{}
-			if err := readOutpoint(outBytes, chanID); err != nil {
+			if err := lnwire.ReadOutPoint(outBytes, chanID); err != nil {
 				return err
 			}
 

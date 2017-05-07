@@ -612,9 +612,16 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			revokedFunds, totalFunds)
 
 		// With the channel closed, mark it in the database as such.
-		err := b.db.MarkChanFullyClosed(&breachInfo.chanPoint)
+		err := b.db.MarkChanFullyClosed(&ret.chanPoint)
 		if err != nil {
 			brarLog.Errorf("unable to mark chan as closed: %v", err)
+		}
+
+		// Justice has been carried out; we can safely delete the retribution
+		// info from the database.
+		err = b.retributionStore.Remove(&ret.chanPoint)
+		if err != nil {
+			brarLog.Errorf("unable to remove retribution from the db: %v", err)
 		}
 
 		// TODO(roasbeef): add peer to blacklist?

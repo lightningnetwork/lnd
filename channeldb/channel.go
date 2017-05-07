@@ -853,7 +853,7 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &cs.ChanPoint); err != nil {
+	if err := lnwire.WriteOutPoint(w, &cs.ChanPoint); err != nil {
 		return err
 	}
 	if _, err := w.Write(cs.ClosingTXID[:]); err != nil {
@@ -905,7 +905,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		return nil, err
 	}
 
-	if err := readOutpoint(r, &c.ChanPoint); err != nil {
+	if err := lnwire.ReadOutPoint(r, &c.ChanPoint); err != nil {
 		return nil, err
 	}
 	if _, err := io.ReadFull(r, c.ClosingTXID[:]); err != nil {

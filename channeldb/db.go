@@ -439,7 +439,7 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, chanPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
 			return err
 		}
 

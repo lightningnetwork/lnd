@@ -14,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -76,44 +75,6 @@ var (
 	// retreive information about a queried contract.
 	ErrContractNotFound = fmt.Errorf("unable to locate contract")
 )
-
-// witnessType determines how an output's witness will be generated. The
-// default commitmentTimeLock type will generate a witness that will allow
-// spending of a time-locked transaction enforced by CheckSequenceVerify.
-type witnessType uint16
-
-const (
-	commitmentTimeLock witnessType = 0
-)
-
-// witnessGenerator represents a function which is able to generate the final
-// witness for a particular public key script. This function acts as an
-// abstraction layer, hiding the details of the underlying script from the
-// utxoNursery.
-type witnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-	inputIndex int) ([][]byte, error)
-
-// generateFunc will return the witnessGenerator function that a kidOutput uses
-// to generate the witness for a sweep transaction. Currently there is only one
-// witnessType but this will be expanded.
-func (wt witnessType) generateFunc(signer *lnwallet.Signer,
-	descriptor *lnwallet.SignDescriptor) witnessGenerator {
-
-	switch wt {
-	case commitmentTimeLock:
-		return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-			inputIndex int) ([][]byte, error) {
-
-			desc := descriptor
-			desc.SigHashes = hc
-			desc.InputIndex = inputIndex
-
-			return lnwallet.CommitSpendTimeout(*signer, desc, tx)
-		}
-	}
-
-	return nil
-}
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
 // by the broadcast of a commitment transaction either by us, or the remote
@@ -292,7 +253,7 @@ func (u *utxoNursery) Stop() error {
 
 // kidOutput represents an output that's waiting for a required blockheight
 // before its funds will be available to be moved into the user's wallet.  The
-// struct includes a witnessGenerator closure which will be used to generate
+// struct includes a WitnessGenerator closure which will be used to generate
 // the witness required to sweep the output once it's mature.
 //
 // TODO(roasbeef): rename to immatureOutput?
@@ -302,13 +263,14 @@ type kidOutput struct {
 	amt      btcutil.Amount
 	outPoint wire.OutPoint
 
-	witnessFunc witnessGenerator
-
+	// TODO(roasbeef): using block timeouts everywhere currently, will need
+	// to modify logic later to account for MTP based timeouts.
 	blocksToMaturity uint32
 	confHeight       uint32
 
 	signDescriptor *lnwallet.SignDescriptor
-	witnessType    witnessType
+	witnessType    lnwallet.WitnessType
+	witnessFunc    lnwallet.WitnessGenerator
 }
 
 // incubationRequest is a request to the utxoNursery to incubate a set of
@@ -335,7 +297,7 @@ func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 			outPoint:         closeSummary.SelfOutpoint,
 			blocksToMaturity: closeSummary.SelfOutputMaturity,
 			signDescriptor:   closeSummary.SelfOutputSignDesc,
-			witnessType:      commitmentTimeLock,
+			witnessType:      lnwallet.CommitmentTimeLock,
 		}
 
 		incReq.outputs = append(incReq.outputs, selfOutput)
@@ -805,7 +767,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 		return nil, err
 	}
 
-	// If no time-locked outputs can be swept at this point, ten we can
+	// If no time-locked outputs can be swept at this point, then we can
 	// exit early.
 	if len(results) == 0 {
 		return nil, nil
@@ -1050,8 +1012,7 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	serializedPubKey := kid.signDescriptor.PubKey.SerializeCompressed()
-	if err := wire.WriteVarBytes(w, 0, serializedPubKey); err != nil {
+	if err := lnwallet.WriteSignDescriptor(w, kid.signDescriptor); err != nil {
 		return err
 	}
 
@@ -1107,7 +1068,7 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return nil, err
 	}
-	kid.witnessType = witnessType(byteOrder.Uint16(scratch[:2]))
+	kid.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
 
 	kid.signDescriptor = &lnwallet.SignDescriptor{}
 
@@ -1143,7 +1104,6 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	if _, err := r.Read(scratch[:4]); err != nil {
 		return nil, err
 	}
-	kid.signDescriptor.HashType = txscript.SigHashType(byteOrder.Uint32(scratch[:4]))
 
 	return kid, nil
 }

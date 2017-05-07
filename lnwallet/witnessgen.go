@@ -13,16 +13,17 @@ import (
 type WitnessType uint16
 
 const (
-	// Witness that allows us to spend the output of a commitment transaction
-	// after a relative lock-time lockout.
+	// CommitmentTimeLock is a witness that allows us to spend the output of a
+	// commitment transaction after a relative lock-time lockout.
 	CommitmentTimeLock WitnessType = 0
 
-	// Witness that allows us to spend a settled no-delay output immediately on
-	// a counterparty's commitment transaction.
+	// CommitmentNoDelay is a witness that allows us to spend a settled no-delay
+	// output immediately on a counterparty's commitment transaction.
 	CommitmentNoDelay WitnessType = 1
 
-	// Witness that allows us to sweep the settled output of a malicious
-	// counterparty's who broadcasts a revoked commitment transaction.
+	// CommitmentRevoke is a witness that allows us to sweep the settled output
+	// of a malicious counterparty's who broadcasts a revoked commitment
+	// transaction.
 	CommitmentRevoke WitnessType = 2
 )
 

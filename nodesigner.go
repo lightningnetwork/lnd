@@ -53,7 +53,7 @@ func (n *nodeSigner) SignCompact(msg []byte) ([]byte, error) {
 	digest := chainhash.DoubleHashB(msg)
 
 	// Should the signature reference a compressed public key or not.
-	isCompressedKey := false
+	isCompressedKey := true
 
 	// btcec.SignCompact returns a pubkey-recoverable signature
 	sig, err := btcec.SignCompact(btcec.S256(), n.privKey, digest,

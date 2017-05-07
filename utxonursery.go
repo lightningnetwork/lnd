@@ -441,7 +441,7 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 		}
 
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, chanPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
 			return err
 		}
 		chanPointBytes := b.Bytes()
@@ -563,7 +563,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// track all the immature outpoints for a particular channel's
 		// chanPoint.
 		var b bytes.Buffer
-		err = writeOutpoint(&b, &k.originChanPoint)
+		err = lnwire.WriteOutPoint(&b, &k.originChanPoint)
 		if err != nil {
 			return err
 		}
@@ -604,7 +604,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	// array form prior to database insertion.
 	err := db.Update(func(tx *bolt.Tx) error {
 		var originPoint bytes.Buffer
-		if err := writeOutpoint(&originPoint, &k.originChanPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&originPoint, &k.originChanPoint); err != nil {
 			return err
 		}
 
@@ -916,7 +916,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 		}
 		for _, sweptOutput := range sweptOutputs {
 			var chanPoint bytes.Buffer
-			err := writeOutpoint(&chanPoint, &sweptOutput.originChanPoint)
+			err := lnwire.WriteOutPoint(&chanPoint, &sweptOutput.originChanPoint)
 			if err != nil {
 				return err
 			}
@@ -993,7 +993,7 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 	if err := lnwire.WriteOutPoint(w, &kid.outPoint); err != nil {
 		return err
 	}
-	if err := writeOutpoint(w, &kid.originChanPoint); err != nil {
+	if err := lnwire.WriteOutPoint(w, &kid.originChanPoint); err != nil {
 		return err
 	}
 
@@ -1051,7 +1051,9 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := readOutpoint(io.LimitReader(r, 40), &kid.originChanPoint); err != nil {
+
+	err = lnwire.ReadOutPoint(io.LimitReader(r, 40), &kid.originChanPoint)
+	if err != nil {
 		return nil, err
 	}
 

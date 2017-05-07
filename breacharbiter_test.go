@@ -231,7 +231,7 @@ func initBreachedOutputs() error {
 		sd := &breachSignDescs[i]
 		pubkey, err := btcec.ParsePubKey(breachKeys[i], btcec.S256())
 		if err != nil {
-			fmt.Errorf("unable to parse pubkey: %v", breachKeys[i])
+			return fmt.Errorf("unable to parse pubkey: %v", breachKeys[i])
 		}
 		sd.PubKey = pubkey
 		bo.signDescriptor = sd
@@ -303,7 +303,7 @@ func TestRetributionSerialization(t *testing.T) {
 // callback which cleans up the created temporary directories is also returned
 // and intended to be executed after the test completes.
 func makeTestDB() (*channeldb.DB, func(), error) {
-	var db *channeldb.DB = nil
+	var db *channeldb.DB
 
 	// First, create a temporary directory to be used for the duration of
 	// this test.
@@ -331,7 +331,7 @@ func makeTestDB() (*channeldb.DB, func(), error) {
 func countRetributions(t *testing.T, rs *retributionStore) int {
 	count := 0
 	err := rs.ForAll(func(_ *retribution) error {
-		count += 1
+		count++
 		return nil
 	})
 	if err != nil {

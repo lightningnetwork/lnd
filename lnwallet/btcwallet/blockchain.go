@@ -26,8 +26,8 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 // GetUtxo returns the original output referenced by the passed outpoint.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error) {
-	txout, err := b.rpc.GetTxOut(txid, index, false)
+func (b *BtcWallet) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
+	txout, err := b.rpc.GetTxOut(&op.Hash, op.Index, false)
 	if err != nil {
 		return nil, err
 	} else if txout == nil {

@@ -209,9 +209,12 @@ type BlockChainIO interface {
 	// most-work chain the implementation is aware of.
 	GetBestBlock() (*chainhash.Hash, int32, error)
 
-	// GetTxOut returns the original output referenced by the passed
-	// outpoint.
-	GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error)
+	// GetUtxo attempts to return the passed outpoint if it's still a
+	// member of the utxo set. The passed height hint should be the "birth
+	// height" of the passed outpoint. In the case that the output is in
+	// the UTXO set, then the output corresponding to that output is
+	// returned.  Otherwise, a non-nil error will be returned.
+	GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error)
 
 	// GetTransaction returns the full transaction identified by the passed
 	// transaction ID.

@@ -70,6 +70,7 @@ var (
 	satReceivedPrefix    = []byte("srp")
 	netFeesPrefix        = []byte("ntp")
 	isPendingPrefix      = []byte("pdg")
+	openHeightPrefix     = []byte("open-height-prefix")
 
 	// chanIDKey stores the node, and channelID for an active channel.
 	chanIDKey = []byte("cik")
@@ -129,6 +130,10 @@ const (
 // to an on-disk log, which can then subsequently be queried in order to
 // "time-travel" to a prior state.
 type OpenChannel struct {
+	// OpeningHeight is the height in which this channel was officially
+	// marked open.
+	OpeningHeight uint32
+
 	// IdentityPub is the identity public key of the remote node this
 	// channel has been established with.
 	IdentityPub *btcec.PublicKey
@@ -356,17 +361,18 @@ func (c *OpenChannel) SyncPending(addr *net.TCPAddr) error {
 			return err
 		}
 
-		// If a LinkNode for this identity public key already exsits, then
-		// we can exit early.
+		// If a LinkNode for this identity public key already exists,
+		// then we can exit early.
 		nodePub := c.IdentityPub.SerializeCompressed()
 		if nodeInfoBucket.Get(nodePub) != nil {
 			return nil
 		}
 
 		// Next, we need to establish a (possibly) new LinkNode
-		// relationship for this channel. The LinkNode metadata contains
-		// reachability, up-time, and service bits related information.
-		// TODO(roasbeef): net info shuld be in lnwire.NetAddress
+		// relationship for this channel. The LinkNode metadata
+		// contains reachability, up-time, and service bits related
+		// information.
+		// TODO(roasbeef): net info should be in lnwire.NetAddress
 		linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addr)
 
 		return putLinkNode(nodeInfoBucket, linkNode)
@@ -966,6 +972,9 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanIsPending(openChanBucket, channel); err != nil {
 		return err
 	}
+	if err := putChanOpenHeight(openChanBucket, channel); err != nil {
+		return err
+	}
 
 	// Next, write out the fields of the channel update less frequently.
 	if err := putChannelIDs(nodeChanBucket, channel); err != nil {
@@ -1053,6 +1062,9 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanIsPending(openChanBucket, channel); err != nil {
 		return nil, err
 	}
+	if err := fetchChanOpenHeight(openChanBucket, channel); err != nil {
+		return nil, err
+	}
 
 	return channel, nil
 }
@@ -1081,6 +1093,9 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := deleteChanIsPending(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteChanOpenHeight(openChanBucket, channelID); err != nil {
 		return err
 	}
 
@@ -1445,6 +1460,44 @@ func fetchChanIsPending(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 	}
 
 	return nil
+}
+
+func putChanOpenHeight(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
+	copy(keyPrefix[:3], openHeightPrefix)
+
+	var scratch [4]byte
+	byteOrder.PutUint32(scratch[:], channel.OpeningHeight)
+	return openChanBucket.Put(keyPrefix, scratch[:])
+}
+
+func fetchChanOpenHeight(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, channel.ChanID); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix[3:], b.Bytes())
+	copy(keyPrefix[:3], openHeightPrefix)
+
+	openHeightBytes := openChanBucket.Get(keyPrefix)
+	channel.OpeningHeight = byteOrder.Uint32(openHeightBytes)
+
+	return nil
+}
+
+func deleteChanOpenHeight(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
+	copy(keyPrefix[3:], chanID)
+	copy(keyPrefix[:3], openHeightPrefix)
+	return openChanBucket.Delete(keyPrefix)
 }
 
 func putChannelIDs(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error {

@@ -666,8 +666,21 @@ func TestFetchPendingChannels(t *testing.T) {
 			"got %v", 1, len(pendingChannels))
 	}
 
-	if err := cdb.MarkChannelAsOpen(pendingChannels[0].ChanID); err != nil {
+	const openHeight = 100
+	err = cdb.MarkChannelAsOpen(pendingChannels[0].ChanID, openHeight)
+	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
+	}
+
+	// Next, we'll re-fetch the channel to ensure that the open height was
+	// properly set.
+	openChans, err := cdb.FetchAllChannels()
+	if err != nil {
+		t.Fatalf("unable to fetch channels: %v", err)
+	}
+	if openChans[0].OpeningHeight != openHeight {
+		t.Fatalf("channel opening heights don't match: expected %v, "+
+			"got %v", openChans[0].OpeningHeight, openHeight)
 	}
 
 	pendingChannels, err = cdb.FetchPendingChannels()
@@ -707,7 +720,8 @@ func TestFetchClosedChannels(t *testing.T) {
 
 	// Next, simulate the confirmation of the channel by marking it as
 	// pending within the database.
-	if err := cdb.MarkChannelAsOpen(state.ChanID); err != nil {
+	const openHeight = 100
+	if err := cdb.MarkChannelAsOpen(state.ChanID, openHeight); err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
 

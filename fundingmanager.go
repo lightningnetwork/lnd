@@ -922,7 +922,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// Now that the channel has been fully confirmed, we'll mark it as open
 	// within the database.
 	completeChan.IsPending = false
-	err = f.cfg.Wallet.ChannelDB.MarkChannelAsOpen(&fundingPoint)
+	err = f.cfg.Wallet.ChannelDB.MarkChannelAsOpen(&fundingPoint,
+		confDetails.BlockHeight)
 	if err != nil {
 		fndgLog.Errorf("error setting channel pending flag to false: "+
 			"%v", err)

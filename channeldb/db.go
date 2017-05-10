@@ -344,6 +344,7 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 				return fmt.Errorf("unable to read channel for "+
 					"node_key=%x: %v", k, err)
 			}
+			// TODO(roasbeef): simplify
 			if pendingOnly {
 				for _, channel := range nodeChannels {
 					if channel.IsPending {
@@ -361,16 +362,17 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 }
 
 // MarkChannelAsOpen records the finalization of the funding process and marks
-// a channel as available for use.
-func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
+// a channel as available for use. Additionally the height in which this
+// channel as opened will also be recorded within the database.
+func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint, openHeight uint32) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
 			return ErrNoActiveChannels
 		}
 
-		// Generate the database key, which will consist of the IsPending
-		// prefix followed by the channel's outpoint.
+		// Generate the database key, which will consist of the
+		// IsPending prefix followed by the channel's outpoint.
 		var b bytes.Buffer
 		if err := writeOutpoint(&b, outpoint); err != nil {
 			return err
@@ -379,11 +381,20 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint) error {
 		copy(keyPrefix[3:], b.Bytes())
 		copy(keyPrefix[:3], isPendingPrefix)
 
-		// For the database value, store a zero, since the channel is no
-		// longer pending.
-		scratch := make([]byte, 2)
-		byteOrder.PutUint16(scratch, uint16(0))
-		return openChanBucket.Put(keyPrefix, scratch)
+		// For the database value, store a zero, since the channel is
+		// no longer pending.
+		scratch := make([]byte, 4)
+		byteOrder.PutUint16(scratch[:2], uint16(0))
+		if err := openChanBucket.Put(keyPrefix, scratch[:2]); err != nil {
+			return err
+		}
+
+		// Finally, we'll also store the opening height for this
+		// channel as well.
+		byteOrder.PutUint32(scratch, openHeight)
+		copy(keyPrefix[:3], openHeightPrefix)
+
+		return openChanBucket.Put(keyPrefix, scratch[:])
 	})
 }
 

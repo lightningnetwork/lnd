@@ -561,7 +561,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelDelta, error) {
 		}
 
 		logBucket := nodeChanBucket.Bucket(channelLogBucket)
-		if nodeChanBucket == nil {
+		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
 
@@ -635,7 +635,7 @@ func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error)
 		}
 
 		logBucket := nodeChanBucket.Bucket(channelLogBucket)
-		if nodeChanBucket == nil {
+		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
 

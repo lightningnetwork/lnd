@@ -287,6 +287,11 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to brodacst tx: %v", err)
 	}
 
+	_, currentHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
 	// Now we mine a single block, which should include our spend. The
 	// notification should also be sent off.
 	if _, err := miner.Node.Generate(1); err != nil {
@@ -308,7 +313,7 @@ func testSpendNotification(miner *rpctest.Harness,
 		case ntfn := <-spentNtfn:
 			// We've received the spend nftn. So now verify all the
 			// fields have been set properly.
-			if ntfn.SpentOutPoint != outpoint {
+			if *ntfn.SpentOutPoint != *outpoint {
 				t.Fatalf("ntfn includes wrong output, reports "+
 					"%v instead of %v",
 					ntfn.SpentOutPoint, outpoint)
@@ -322,6 +327,11 @@ func testSpendNotification(miner *rpctest.Harness,
 				t.Fatalf("ntfn includes wrong spending input "+
 					"index, reports %v, should be %v",
 					ntfn.SpenderInputIndex, 0)
+			}
+			if ntfn.SpendingHeight != currentHeight {
+				t.Fatalf("ntfn has wrong spending height: "+
+					"expected %v, got %v", currentHeight,
+					ntfn.SpendingHeight)
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatalf("spend ntfn never received")

@@ -369,15 +369,22 @@ out:
 				// the notification subscriber.
 				if clients, ok := b.spendNotifications[prevOut]; ok {
 					spenderSha := newSpend.tx.Hash()
-					for _, ntfn := range clients {
-						spendDetails := &chainntnfs.SpendDetail{
-							SpentOutPoint: ntfn.targetOutpoint,
-							SpenderTxHash: spenderSha,
-							// TODO(roasbeef): copy tx?
-							SpendingTx:        spendingTx.MsgTx(),
-							SpenderInputIndex: uint32(i),
-						}
+					spendDetails := &chainntnfs.SpendDetail{
+						SpentOutPoint:     &prevOut,
+						SpenderTxHash:     spenderSha,
+						SpendingTx:        spendingTx.MsgTx(),
+						SpenderInputIndex: uint32(i),
+					}
+					// TODO(roasbeef): after change to
+					// loadfilter, only notify on block
+					// inclusion?
+					if newSpend.details != nil {
+						spendDetails.SpendingHeight = newSpend.details.Height
+					} else {
+						spendDetails.SpendingHeight = currentHeight
+					}
 
+					for _, ntfn := range clients {
 						chainntnfs.Log.Infof("Dispatching "+
 							"spend notification for "+
 							"outpoint=%v", ntfn.targetOutpoint)

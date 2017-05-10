@@ -1330,6 +1330,47 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 	return edgeInfo, policy1, policy2, nil
 }
 
+// ChannelView returns the verifiable edge information for each active channel
+// within the known channel graph. The set of UTXO's returned are the ones that
+// need to be watched on chain to detect channel closes on the resident
+// blockchain.
+func (c *ChannelGraph) ChannelView() ([]wire.OutPoint, error) {
+	var chanPoints []wire.OutPoint
+	if err := c.db.View(func(tx *bolt.Tx) error {
+		// We're going to iterate over the entire channel index, so
+		// we'll need to fetch the edgeBucket to get to the index as
+		// it's a sub-bucket.
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		chanIndex := edges.Bucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// Once we have the proper bucket, we'll range over each key
+		// (which is the channel point for the channel) and decode it,
+		// accumulating each entry.
+		return chanIndex.ForEach(func(chanPointBytes, _ []byte) error {
+			chanPointReader := bytes.NewReader(chanPointBytes)
+
+			var chanPoint wire.OutPoint
+			err := readOutpoint(chanPointReader, &chanPoint)
+			if err != nil {
+				return err
+			}
+
+			chanPoints = append(chanPoints, chanPoint)
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanPoints, nil
+}
+
 // NewChannelEdgePolicy returns a new blank ChannelEdgePolicy.
 func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 	return &ChannelEdgePolicy{db: c.db}

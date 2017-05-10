@@ -683,7 +683,28 @@ func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	}
 	if numChans != n {
 		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: expected %v chans instead have %v", line, n, numChans)
+		t.Fatalf("line %v: expected %v chans instead have %v", line,
+			n, numChans)
+	}
+}
+
+func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
+	if len(a) != len(b) {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: chan views dont match", line)
+	}
+
+	chanViewSet := make(map[wire.OutPoint]struct{})
+	for _, op := range a {
+		chanViewSet[op] = struct{}{}
+	}
+
+	for _, op := range b {
+		if _, ok := chanViewSet[*op]; !ok {
+			_, _, line, _ := runtime.Caller(1)
+			t.Fatalf("line %v: chanPoint(%v) not found in first view",
+				line, op)
+		}
 	}
 }
 
@@ -768,6 +789,14 @@ func TestGraphPruning(t *testing.T) {
 		}
 	}
 
+	// With all the channel points added, we'll consult the graph to ensure
+	// it has the same channel view as the one we just constructed.
+	channelView, err := graph.ChannelView()
+	if err != nil {
+		t.Fatalf("unable to get graph channel view: %v", err)
+	}
+	assertChanViewEqual(t, channelView, channelPoints)
+
 	// Now with our test graph created, we can test the pruning
 	// capabilities of the channel graph.
 
@@ -792,6 +821,13 @@ func TestGraphPruning(t *testing.T) {
 	// Count up the number of channels known within the graph, only 2
 	// should be remaining.
 	asserNumChans(t, graph, 2)
+
+	// Those channels should also be missing from the channel view.
+	channelView, err = graph.ChannelView()
+	if err != nil {
+		t.Fatalf("unable to get graph channel view: %v", err)
+	}
+	assertChanViewEqual(t, channelView, channelPoints[2:])
 
 	// Next we'll create a block that doesn't close any channels within the
 	// graph to test the negative error case.
@@ -833,12 +869,22 @@ func TestGraphPruning(t *testing.T) {
 			2, len(prunedChans))
 	}
 
-	// TODO(roasbeef): asser that proper chans have been closed
-
 	// The prune tip should be updated, and no channels should be found
 	// within the current graph.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	asserNumChans(t, graph, 0)
+
+	// Finally, the channel view at this point in the graph should now be
+	// completely empty.
+	// Those channels should also be missing from the channel view.
+	channelView, err = graph.ChannelView()
+	if err != nil {
+		t.Fatalf("unable to get graph channel view: %v", err)
+	}
+	if len(channelView) != 0 {
+		t.Fatalf("channel view should be empty, instead have: %v",
+			channelView)
+	}
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

@@ -757,15 +757,23 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 	s.peersMtx.Lock()
 	defer s.peersMtx.Unlock()
 
+	// If we already have an inbound connection to this peer, then ignore
+	// this new connection.
+	nodePub := conn.(*brontide.Conn).RemotePub()
+	pubStr := string(nodePub.SerializeCompressed())
+	if _, ok := s.inboundPeers[pubStr]; ok {
+		srvrLog.Debugf("Ignoring duplicate inbound connection")
+		conn.Close()
+		return
+	}
+
 	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
 	localPub := s.identityPriv.PubKey()
-	nodePub := conn.(*brontide.Conn).RemotePub()
 
 	// Check to see if we should drop our connection, if not, then we'll
 	// close out this connection with the remote peer. This
 	// prevents us from having duplicate connections, or none.
-	pubStr := string(nodePub.SerializeCompressed())
 	if connectedPeer, ok := s.peersByPub[pubStr]; ok {
 		// If the connection we've already established should be kept,
 		// then we'll close out this connection s.t there's only a

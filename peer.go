@@ -237,6 +237,8 @@ func (p *peer) Start() error {
 		}
 	}
 
+	// Once the init message arrives, we can parse it so we can figure out
+	// the negotiation of features for this session.
 	msg := <-msgChan
 	if msg, ok := msg.(*lnwire.Init); ok {
 		if err := p.handleInitMsg(msg); err != nil {
@@ -246,13 +248,6 @@ func (p *peer) Start() error {
 		return errors.New("very first message between nodes " +
 			"must be init message")
 	}
-
-	p.wg.Add(5)
-	go p.queueHandler()
-	go p.writeHandler()
-	go p.readHandler()
-	go p.channelManager()
-	go p.pingHandler()
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.
@@ -271,6 +266,13 @@ func (p *peer) Start() error {
 	if err := p.loadActiveChannels(activeChans); err != nil {
 		return fmt.Errorf("unable to load channels: %v", err)
 	}
+
+	p.wg.Add(5)
+	go p.queueHandler()
+	go p.writeHandler()
+	go p.readHandler()
+	go p.channelManager()
+	go p.pingHandler()
 
 	return nil
 }

@@ -618,7 +618,8 @@ type spendCancel struct {
 // outpoint has been spent by a transaction on-chain. Once a spend of the target
 // outpoint has been detected, the details of the spending event will be sent
 // across the 'Spend' channel.
-func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
+func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	_ uint32) (*chainntnfs.SpendEvent, error) {
 
 	if err := b.chainConn.NotifySpent([]*wire.OutPoint{outpoint}); err != nil {
 		return nil, err
@@ -694,7 +695,7 @@ type confirmationsNotification struct {
 // which will be triggered once the txid reaches numConfs number of
 // confirmations.
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
+	numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationsNotification{
 		txid:             txid,

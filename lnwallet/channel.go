@@ -775,7 +775,8 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// the remote party has broadcasted a commitment transaction
 		// on-chain.
 		fundingOut := &lc.fundingTxIn.PreviousOutPoint
-		channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut)
+		openHeight := lc.channelState.OpeningHeight
+		channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut, openHeight)
 		if err != nil {
 			return nil, err
 		}

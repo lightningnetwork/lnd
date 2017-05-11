@@ -69,8 +69,8 @@ func genMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 
 	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
 	// order. The signatures within the scriptSig must also adhere to the
-	// order, ensuring that the signatures for each public key appears
-	// in the proper order on the stack.
+	// order, ensuring that the signatures for each public key appears in
+	// the proper order on the stack.
 	if bytes.Compare(aPub, bPub) == -1 {
 		aPub, bPub = bPub, aPub
 	}

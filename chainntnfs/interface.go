@@ -89,7 +89,7 @@ type TxConfirmation struct {
 // disconnected from the blockchain as a result of a re-org.
 //
 // Once the txid reaches the specified number of confirmations, the 'Confirmed'
-// channel will be sent upon fufulling the notification.
+// channel will be sent upon fulfilling the notification.
 //
 // If the event that the original transaction becomes re-org'd out of the main
 // chain, the 'NegativeConf' will be sent upon with a value representing the
@@ -133,7 +133,7 @@ type SpendEvent struct {
 	Spend <-chan *SpendDetail // MUST be buffered.
 
 	// Cancel is a closure that should be executed by the caller in the
-	// case that they wish to prematurely abandon their regsitered spend
+	// case that they wish to prematurely abandon their registered spend
 	// notification.
 	Cancel func()
 }
@@ -141,7 +141,7 @@ type SpendEvent struct {
 // BlockEpoch represents metadata concerning each new block connected to the
 // main chain.
 type BlockEpoch struct {
-	// Hash is the block hash of the latest blcok to be added to the tip of
+	// Hash is the block hash of the latest block to be added to the tip of
 	// the main chain.
 	Hash *chainhash.Hash
 

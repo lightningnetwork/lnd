@@ -155,66 +155,11 @@ func (u *utxoNursery) Start() error {
 
 	utxnLog.Tracef("Starting UTXO nursery")
 
-	if err := u.reloadPreschool(); err != nil {
-		return err
-	}
-
-	// Register with the notifier to receive notifications for each newly
-	// connected block. We register during startup to ensure that no blocks
-	// are missed while we are handling blocks that were missed during the
-	// time the UTXO nursery was unavailable.
-	newBlockChan, err := u.notifier.RegisterBlockEpochNtfn()
-	if err != nil {
-		return err
-	}
-	if err := u.catchUpKindergarten(); err != nil {
-		return err
-	}
-
-	u.wg.Add(1)
-	go u.incubator(newBlockChan)
-
-	return nil
-}
-
-// reloadPreschool re-initializes the chain notifier with all of the outputs
-// that had been saved to the "preschool" database bucket prior to shutdown.
-func (u *utxoNursery) reloadPreschool() error {
-	return u.db.View(func(tx *bolt.Tx) error {
-		psclBucket := tx.Bucket(preschoolBucket)
-		if psclBucket == nil {
-			return nil
-		}
-
-		return psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
-			psclOutput, err := deserializeKidOutput(bytes.NewBuffer(kidBytes))
-			if err != nil {
-				return err
-			}
-
-			outpoint := psclOutput.outPoint
-			sourceTxid := outpoint.Hash
-
-			confChan, err := u.notifier.RegisterConfirmationsNtfn(&sourceTxid, 1)
-			if err != nil {
-				return err
-			}
-
-			utxnLog.Infof("Preschool outpoint %v re-registered for confirmation "+
-				"notification.", psclOutput.outPoint)
-			go psclOutput.waitForPromotion(u.db, confChan)
-			return nil
-		})
-	})
-}
-
-// catchUpKindergarten handles the graduation of kindergarten outputs from
-// blocks that were missed while the UTXO Nursery was down or offline.
-// graduateMissedBlocks is called during the startup of the UTXO Nursery.
-func (u *utxoNursery) catchUpKindergarten() error {
+	// Query the database for the most recently processed block. We'll use
+	// this to strict the search space when asking for confirmation
+	// notifications, and also to scan the chain to graduate now mature
+	// outputs.
 	var lastGraduatedHeight uint32
-
-	// Query the database for the most recently processed block
 	err := u.db.View(func(tx *bolt.Tx) error {
 		kgtnBucket := tx.Bucket(kindergartenBucket)
 		if kgtnBucket == nil {
@@ -232,6 +177,65 @@ func (u *utxoNursery) catchUpKindergarten() error {
 		return err
 	}
 
+	if err := u.reloadPreschool(lastGraduatedHeight); err != nil {
+		return err
+	}
+
+	// Register with the notifier to receive notifications for each newly
+	// connected block. We register during startup to ensure that no blocks
+	// are missed while we are handling blocks that were missed during the
+	// time the UTXO nursery was unavailable.
+	newBlockChan, err := u.notifier.RegisterBlockEpochNtfn()
+	if err != nil {
+		return err
+	}
+	if err := u.catchUpKindergarten(lastGraduatedHeight); err != nil {
+		return err
+	}
+
+	u.wg.Add(1)
+	go u.incubator(newBlockChan, lastGraduatedHeight)
+
+	return nil
+}
+
+// reloadPreschool re-initializes the chain notifier with all of the outputs
+// that had been saved to the "preschool" database bucket prior to shutdown.
+func (u *utxoNursery) reloadPreschool(heightHint uint32) error {
+	return u.db.View(func(tx *bolt.Tx) error {
+		psclBucket := tx.Bucket(preschoolBucket)
+		if psclBucket == nil {
+			return nil
+		}
+
+		return psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
+			psclOutput, err := deserializeKidOutput(bytes.NewBuffer(kidBytes))
+			if err != nil {
+				return err
+			}
+
+			outpoint := psclOutput.outPoint
+			sourceTxid := outpoint.Hash
+
+			confChan, err := u.notifier.RegisterConfirmationsNtfn(
+				&sourceTxid, 1, heightHint,
+			)
+			if err != nil {
+				return err
+			}
+
+			utxnLog.Infof("Preschool outpoint %v re-registered for confirmation "+
+				"notification.", psclOutput.outPoint)
+			go psclOutput.waitForPromotion(u.db, confChan)
+			return nil
+		})
+	})
+}
+
+// catchUpKindergarten handles the graduation of kindergarten outputs from
+// blocks that were missed while the UTXO Nursery was down or offline.
+// graduateMissedBlocks is called during the startup of the UTXO Nursery.
+func (u *utxoNursery) catchUpKindergarten(lastGraduatedHeight uint32) error {
 	// Get the most recently mined block
 	_, bestHeight, err := u.wallet.ChainIO.GetBestBlock()
 	if err != nil {
@@ -293,8 +297,6 @@ type kidOutput struct {
 
 	witnessFunc witnessGenerator
 
-	// TODO(roasbeef): using block timeouts everywhere currently, will need
-	// to modify logic later to account for MTP based timeouts.
 	blocksToMaturity uint32
 	confHeight       uint32
 
@@ -347,9 +349,12 @@ func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 // reached, the output has "matured" and the waitForGraduation function will
 // generate a sweep transaction to move funds from the commitment transaction
 // into the user's wallet.
-func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
+func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent,
+	startingHeight uint32) {
+
 	defer u.wg.Done()
 
+	currentHeight := startingHeight
 out:
 	for {
 		select {
@@ -378,7 +383,9 @@ out:
 				// trigger graduation from preschool to
 				// kindergarten when the channel close
 				// transaction has been confirmed.
-				confChan, err := u.notifier.RegisterConfirmationsNtfn(&sourceTxid, 1)
+				confChan, err := u.notifier.RegisterConfirmationsNtfn(
+					&sourceTxid, 1, currentHeight,
+				)
 				if err != nil {
 					utxnLog.Errorf("unable to register output for confirmation: %v",
 						sourceTxid)
@@ -410,6 +417,7 @@ out:
 			// outputs out of the kindergarten bucket. Graduation
 			// entails successfully sweeping a time-locked output.
 			height := uint32(epoch.Height)
+			currentHeight = height
 			if err := u.graduateKindergarten(height); err != nil {
 				utxnLog.Errorf("error while graduating "+
 					"kindergarten outputs: %v", err)

@@ -18,7 +18,7 @@ service Lightning {
 
     rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
         option (google.api.http) = {
-            get: "/v1/transactions" 
+            get: "/v1/transactions"
         };
     }
     rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse) {
@@ -165,6 +165,8 @@ service Lightning {
             get: "/v1/graph/info"
         };
     }
+
+    rpc StopDaemon(StopRequest) returns (StopResponse);
 
     rpc SubscribeChannelGraph(GraphTopologySubscription) returns (stream GraphTopologyUpdate);
 
@@ -542,9 +544,12 @@ message NetworkInfo {
     //  * also additional RPC for tracking fee info once in
 }
 
+message StopRequest{}
+message StopResponse{}
+
 message GraphTopologySubscription {}
 message GraphTopologyUpdate {
-    repeated NodeUpdate node_updates = 1; 
+    repeated NodeUpdate node_updates = 1;
     repeated ChannelEdgeUpdate channel_updates = 2;
     repeated ClosedChannelUpdate closed_chans = 3;
 }

@@ -10,16 +10,22 @@ import (
 // interruptChannel is used to receive SIGINT (Ctrl+C) signals.
 var interruptChannel chan os.Signal
 
+// shutdownRequestChannel is used to request the daemon to shutdown gracefully,
+// similar to when receiveing SIGINT.
+var shutdownRequestChannel = make(chan struct{})
+
 // addHandlerChannel is used to add an interrupt handler to the list of handlers
-// to be invoked on SIGINT (Ctrl+C) signals.
+// to be invoked on SIGINT (Ctrl+C) signals and shutdown.
 var addHandlerChannel = make(chan func())
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
-// interruptChannel and invokes the registered interruptCallbacks accordingly.
-// It also listens for callback registration.  It must be run as a goroutine.
+// interruptChannel and shutdown requests on the shutdownRequestChannel, and
+// invokes the registered interruptCallbacks accordingly. It also listens for
+// callback registration.
+// It must be run as a goroutine.
 func mainInterruptHandler() {
 	// interruptCallbacks is a list of callbacks to invoke when a
-	// SIGINT (Ctrl+C) is received.
+	// SIGINT (Ctrl+C) or a shutdown request is received.
 	var interruptCallbacks []func()
 
 	// isShutdown is a flag which is used to indicate whether or not
@@ -28,34 +34,43 @@ func mainInterruptHandler() {
 	// immediately.
 	var isShutdown bool
 
+	// shutdown invokes the registered interrupt handlers, then signals the
+	// shutdownChannel.
+	shutdown := func() {
+		// Ignore more than one shutdown signal.
+		if isShutdown {
+			ltndLog.Infof("Already shutting down...")
+			return
+		}
+		isShutdown = true
+		ltndLog.Infof("Shutting down...")
+
+		// Run handlers in LIFO order.
+		for i := range interruptCallbacks {
+			idx := len(interruptCallbacks) - 1 - i
+			callback := interruptCallbacks[idx]
+			callback()
+		}
+
+		// Signal the main goroutine to shutdown.
+		go func() {
+			shutdownChannel <- struct{}{}
+		}()
+	}
+
 	for {
 		select {
 		case <-interruptChannel:
-			// Ignore more than one shutdown signal.
-			if isShutdown {
-				ltndLog.Infof("Received SIGINT (Ctrl+C).  " +
-					"Already shutting down...")
-				continue
-			}
+			ltndLog.Infof("Received SIGINT (Ctrl+C).")
+			shutdown()
 
-			isShutdown = true
-			ltndLog.Infof("Received SIGINT (Ctrl+C).  Shutting down...")
-
-			// Run handlers in LIFO order.
-			for i := range interruptCallbacks {
-				idx := len(interruptCallbacks) - 1 - i
-				callback := interruptCallbacks[idx]
-				callback()
-			}
-
-			// Signal the main goroutine to shutdown.
-			go func() {
-				shutdownChannel <- struct{}{}
-			}()
+		case <-shutdownRequestChannel:
+			ltndLog.Infof("Received shutdown request.")
+			shutdown()
 
 		case handler := <-addHandlerChannel:
 			// The shutdown signal has already been received, so
-			// just invoke and new handlers immediately.
+			// just invoke any new handlers immediately.
 			if isShutdown {
 				handler()
 			}
@@ -65,8 +80,8 @@ func mainInterruptHandler() {
 	}
 }
 
-// addInterruptHandler adds a handler to call when a SIGINT (Ctrl+C) is
-// received.
+// addInterruptHandler adds a handler to call when a SIGINT (Ctrl+C) or a
+// shutdown request is received.
 func addInterruptHandler(handler func()) {
 	// Create the channel and start the main interrupt handler which invokes
 	// all other callbacks and exits if not already done.

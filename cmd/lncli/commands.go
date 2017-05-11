@@ -1550,3 +1550,23 @@ func listChainTxns(ctx *cli.Context) error {
 	printRespJSON(resp)
 	return nil
 }
+
+var stopCommand = cli.Command{
+	Name:        "stop",
+	Usage:       "Stop and shutdown the daemon.",
+	Description: "Gracefully stop all daemon subsystems before stopping the daemon itself. This is equivalent to stopping it using CTRL-C.",
+	Action:      stopDaemon,
+}
+
+func stopDaemon(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	_, err := client.StopDaemon(ctxb, &lnrpc.StopRequest{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

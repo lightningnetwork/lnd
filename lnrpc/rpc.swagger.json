@@ -1706,6 +1706,12 @@
     "lnrpcSetAliasResponse": {
       "type": "object"
     },
+    "lnrpcStopRequest": {
+      "type": "object"
+    },
+    "lnrpcStopResponse": {
+      "type": "object"
+    },
     "lnrpcTransaction": {
       "type": "object",
       "properties": {

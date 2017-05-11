@@ -34,7 +34,7 @@ var (
 	testScript, _ = txscript.PayToAddrScript(testAddr)
 )
 
-func getTestTxId(miner *rpctest.Harness) (*chainhash.Hash, error) {
+func getTestTXID(miner *rpctest.Harness) (*chainhash.Hash, error) {
 	script, err := txscript.PayToAddrScript(testAddr)
 	if err != nil {
 		return nil, err
@@ -118,11 +118,11 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 
 	// To start the test, we'll create to fresh outputs paying to the
 	// private key that we generated above.
-	txid1, err := getTestTxId(node)
+	txid1, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
-	txid2, err := getTestTxId(node)
+	txid2, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
@@ -248,7 +248,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 
 	// To start, we'll create a fresh output paying to the height generated
 	// above.
-	txid, err := getTestTxId(node)
+	txid, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
@@ -335,11 +335,11 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 
 	// First, we'll create a block that includes two outputs that we're
 	// able to spend with the private key generated above.
-	txid1, err := getTestTxId(node)
+	txid1, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}
-	txid2, err := getTestTxId(node)
+	txid2, err := getTestTXID(node)
 	if err != nil {
 		t.Fatalf("unable to get test txid")
 	}

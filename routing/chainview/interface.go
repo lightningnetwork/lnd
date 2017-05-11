@@ -11,7 +11,7 @@ import (
 // The subset of the UTXO to be subscribed is that of all the currently opened
 // channels. Each time a channel is closed (the output is spent), a
 // notification is to be sent allowing the graph to be pruned.
-
+//
 // NOTE: As FilteredBlocks are generated, it is recommended that
 // implementations reclaim the space occupied by newly spent outputs.
 type FilteredChainView interface {

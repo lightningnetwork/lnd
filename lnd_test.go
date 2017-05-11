@@ -700,6 +700,7 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 
 	// Now that the channel has been force closed, it should show up in the
 	// PendingChannels RPC under the force close section.
+	time.Sleep(time.Millisecond * 300)
 	pendingChansRequest := &lnrpc.PendingChannelRequest{}
 	pendingChanResp, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
 	if err != nil {

@@ -141,6 +141,11 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
+	// ChainIO is used by the FundingManager to determine the current
+	// height so it's able to reduce the search space for certain
+	// ChainNotifier implementations when registering for confirmations.
+	ChainIO lnwallet.BlockChainIO
+
 	// SignMessage signs an arbitrary method with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
 	// case that the private key corresponding to the passed public key
@@ -253,7 +258,14 @@ func (f *fundingManager) Start() error {
 	// channels that were  waiting for their funding transactions to be
 	// confirmed on the blockchain at the time when the daemon last went
 	// down.
+	// TODO(roasbeef): store height that funding finished?
+	//  * would then replace call below
 	pendingChannels, err := f.cfg.Wallet.ChannelDB.FetchPendingChannels()
+	if err != nil {
+		return err
+	}
+
+	_, currentHeight, err := f.cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -271,7 +283,7 @@ func (f *fundingManager) Start() error {
 		f.barrierMtx.Unlock()
 
 		doneChan := make(chan struct{})
-		go f.waitForFundingConfirmation(channel, doneChan)
+		go f.waitForFundingConfirmation(channel, uint32(currentHeight), doneChan)
 	}
 
 	f.wg.Add(1) // TODO(roasbeef): tune
@@ -505,7 +517,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	delay := msg.CsvDelay
 
 	// TODO(roasbeef): error if funding flow already ongoing
-	fndgLog.Infof("Recv'd fundingRequest(amt=%v, delay=%v, pendingId=%x) "+
+	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, pendingId=%x) "+
 		"from peer(%x)", amt, msg.PushSatoshis, delay, msg.PendingChannelID,
 		fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
@@ -787,9 +799,15 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 		return
 	}
 
+	_, bestHeight, err := f.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		fndgLog.Errorf("unable to get best height: %v", err)
+	}
+
 	go func() {
 		doneChan := make(chan struct{})
-		go f.waitForFundingConfirmation(completeChan, doneChan)
+		go f.waitForFundingConfirmation(completeChan,
+			uint32(bestHeight), doneChan)
 
 		<-doneChan
 		f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
@@ -851,9 +869,15 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 		},
 	}
 
+	_, bestHeight, err := f.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		fndgLog.Errorf("unable to get best height: %v", err)
+	}
+
 	go func() {
 		doneChan := make(chan struct{})
-		go f.waitForFundingConfirmation(completeChan, doneChan)
+		go f.waitForFundingConfirmation(completeChan, uint32(bestHeight),
+			doneChan)
 
 		select {
 		case <-f.quit:
@@ -885,7 +909,7 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 // confirmation, and then to notify the other systems that must be notified
 // when a channel has become active for lightning transactions.
 func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.OpenChannel,
-	doneChan chan struct{}) {
+	bestHeight uint32, doneChan chan struct{}) {
 
 	defer close(doneChan)
 
@@ -893,7 +917,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// transaction reaches `numConfs` confirmations.
 	txid := completeChan.FundingOutpoint.Hash
 	numConfs := uint32(completeChan.NumConfsRequired)
-	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid, numConfs)
+	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(&txid,
+		numConfs, bestHeight)
 	if err != nil {
 		fndgLog.Errorf("Unable to register for confirmation of "+
 			"ChannelPoint(%v)", completeChan.FundingOutpoint)

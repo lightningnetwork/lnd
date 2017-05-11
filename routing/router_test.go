@@ -24,7 +24,7 @@ type testCtx struct {
 
 	chain *mockChain
 
-	notifier *mockNotifier
+	chainView *mockChainView
 }
 
 func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func(), error) {
@@ -74,11 +74,11 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 	// any p2p functionality, the peer send and switch send messages won't
 	// be populated.
 	chain := newMockChain(startingHeight)
-	notifier := newMockNotifier()
+	chainView := newMockChainView()
 	router, err := New(Config{
-		Graph:    graph,
-		Chain:    chain,
-		Notifier: notifier,
+		Graph:     graph,
+		Chain:     chain,
+		ChainView: chainView,
 		SendToSwitch: func(_ *btcec.PublicKey,
 			_ *lnwire.UpdateAddHTLC) ([32]byte, error) {
 			return [32]byte{}, nil
@@ -97,11 +97,11 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 	}
 
 	return &testCtx{
-		router:   router,
-		graph:    graph,
-		aliases:  aliasMap,
-		chain:    chain,
-		notifier: notifier,
+		router:    router,
+		graph:     graph,
+		aliases:   aliasMap,
+		chain:     chain,
+		chainView: chainView,
 	}, cleanUp, nil
 }
 

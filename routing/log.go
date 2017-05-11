@@ -5,11 +5,12 @@ import (
 	"io"
 
 	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/routing/chainview"
 )
 
-// log is a logger that is initialized with no output filters.  This
-// means the package will not perform any logging by default until the caller
-// requests it.
+// log is a logger that is initialized with no output filters.  This means the
+// package will not perform any logging by default until the caller requests
+// it.
 var log btclog.Logger
 
 // The default amount of logging is none.
@@ -17,17 +18,18 @@ func init() {
 	DisableLog()
 }
 
-// DisableLog disables all library log output.  Logging output is disabled
-// by default until either UseLogger or SetLogWriter are called.
+// DisableLog disables all library log output.  Logging output is disabled by
+// default until either UseLogger or SetLogWriter are called.
 func DisableLog() {
 	log = btclog.Disabled
 }
 
-// UseLogger uses a specified Logger to output package logging info.
-// This should be used in preference to SetLogWriter if the caller is also
-// using btclog.
+// UseLogger uses a specified Logger to output package logging info.  This
+// should be used in preference to SetLogWriter if the caller is also using
+// btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	chainview.UseLogger(logger)
 }
 
 // SetLogWriter uses a specified io.Writer to output package logging info.
@@ -53,8 +55,8 @@ func SetLogWriter(w io.Writer, level string) error {
 	return nil
 }
 
-// logClosure is used to provide a closure over expensive logging operations
-// so don't have to be performed when the logging level doesn't warrant it.
+// logClosure is used to provide a closure over expensive logging operations so
+// don't have to be performed when the logging level doesn't warrant it.
 type logClosure func() string
 
 // String invokes the underlying function and returns the result.

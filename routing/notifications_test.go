@@ -11,10 +11,10 @@ import (
 	prand "math/rand"
 
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -122,6 +122,10 @@ type mockChain struct {
 	sync.RWMutex
 }
 
+// A compile time check to ensure mockChain implements the
+// lnwallet.BlockChainIO interface.
+var _ lnwallet.BlockChainIO = (*mockChain)(nil)
+
 func newMockChain(currentHeight uint32) *mockChain {
 	return &mockChain{
 		bestHeight: int32(currentHeight),
@@ -168,16 +172,11 @@ func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
 	m.utxos[op] = *out
 	m.Unlock()
 }
-func (m *mockChain) GetUtxo(txid *chainhash.Hash, index uint32) (*wire.TxOut, error) {
+func (m *mockChain) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	op := wire.OutPoint{
-		Hash:  *txid,
-		Index: index,
-	}
-
-	utxo, ok := m.utxos[op]
+	utxo, ok := m.utxos[*op]
 	if !ok {
 		return nil, fmt.Errorf("utxo not found")
 	}
@@ -205,61 +204,68 @@ func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 	return block, nil
 }
 
-type mockNotifier struct {
-	clientCounter uint32
-	epochClients  map[uint32]chan *chainntnfs.BlockEpoch
-
+type mockChainView struct {
 	sync.RWMutex
+
+	newBlocks   chan *chainview.FilteredBlock
+	staleBlocks chan *chainview.FilteredBlock
+
+	filter map[wire.OutPoint]struct{}
 }
 
-func newMockNotifier() *mockNotifier {
-	return &mockNotifier{
-		epochClients: make(map[uint32]chan *chainntnfs.BlockEpoch),
+// A compile time check to ensure mockChainView implements the
+// chainview.FilteredChainView.
+var _ chainview.FilteredChainView = (*mockChainView)(nil)
+
+func newMockChainView() *mockChainView {
+	return &mockChainView{
+		newBlocks:   make(chan *chainview.FilteredBlock, 10),
+		staleBlocks: make(chan *chainview.FilteredBlock, 10),
+		filter:      make(map[wire.OutPoint]struct{}),
 	}
 }
 
-func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
+func (m *mockChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
+	m.Lock()
+	defer m.Unlock()
 
-	return nil, nil
-}
-
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
-	return nil, nil
-}
-
-func (m *mockNotifier) notifyBlock(hash chainhash.Hash, height uint32) {
-	m.RLock()
-	defer m.RUnlock()
-
-	for _, client := range m.epochClients {
-		client <- &chainntnfs.BlockEpoch{
-			Height: int32(height),
-			Hash:   &hash,
-		}
+	for _, op := range ops {
+		m.filter[op] = struct{}{}
 	}
-}
 
-func (m *mockNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	epochChan := make(chan *chainntnfs.BlockEpoch)
-	clientID := m.clientCounter
-	m.clientCounter++
-	m.epochClients[clientID] = epochChan
-
-	return &chainntnfs.BlockEpochEvent{
-		Epochs: epochChan,
-		Cancel: func() {},
-	}, nil
-}
-
-func (m *mockNotifier) Start() error {
 	return nil
 }
 
-func (m *mockNotifier) Stop() error {
+func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
+	txns []*wire.MsgTx) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	m.newBlocks <- &chainview.FilteredBlock{
+		Hash:         hash,
+		Height:       height,
+		Transactions: txns,
+	}
+}
+
+func (m *mockChainView) FilteredBlocks() <-chan *chainview.FilteredBlock {
+	return m.newBlocks
+}
+
+func (m *mockChainView) DisconnectedBlocks() <-chan *chainview.FilteredBlock {
+	return m.staleBlocks
+}
+
+func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.FilteredBlock, error) {
+	return nil, nil
+}
+
+func (m *mockChainView) Start() error {
+	return nil
+}
+
+func (m *mockChainView) Stop() error {
 	return nil
 }
 
@@ -643,7 +649,8 @@ func TestChannelCloseNotification(t *testing.T) {
 		},
 	}
 	ctx.chain.addBlock(newBlock, blockHeight)
-	ctx.notifier.notifyBlock(newBlock.Header.BlockHash(), blockHeight)
+	ctx.chainView.notifyBlock(newBlock.Header.BlockHash(), blockHeight,
+		newBlock.Transactions)
 
 	// The notification registered above should be sent, if not we'll time
 	// out and mark the test as failed.

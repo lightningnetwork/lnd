@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/routing/chainview"
 
 	"github.com/roasbeef/btcrpcclient"
 )
@@ -179,10 +180,18 @@ func lndMain() error {
 		wallet:        wallet,
 	})
 
+	// Next, we'll create an instance of the default chain view to be used
+	// within the routing layer.
+	chainView, err := chainview.NewBtcdFilteredChainView(*rpcConfig)
+	if err != nil {
+		srvrLog.Errorf("unable to create chain view: %v", err)
+		return err
+	}
+
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
 	server, err := newServer(defaultListenAddrs, notifier, bio,
-		fundingSigner, wallet, chanDB)
+		fundingSigner, wallet, chanDB, chainView)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

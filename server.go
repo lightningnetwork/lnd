@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -107,7 +108,8 @@ type server struct {
 // passed listener address.
 func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	bio lnwallet.BlockChainIO, fundingSigner lnwallet.MessageSigner,
-	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB) (*server, error) {
+	wallet *lnwallet.LightningWallet, chanDB *channeldb.DB,
+	chainView chainview.FilteredChainView) (*server, error) {
 
 	privKey, err := wallet.GetIdentitykey()
 	if err != nil {
@@ -228,9 +230,9 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		Graph:    chanGraph,
-		Chain:    bio,
-		Notifier: notifier,
+		Graph:     chanGraph,
+		Chain:     bio,
+		ChainView: chainView,
 		SendToSwitch: func(firstHop *btcec.PublicKey,
 			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
 
@@ -261,7 +263,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.rpcServer = newRPCServer(s)
-	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier, s.htlcSwitch)
+	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier,
+		s.htlcSwitch, s.bio)
 
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -271,6 +274,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	s.fundingMgr, err = newFundingManager(fundingConfig{
 		IDKey:    s.identityPriv.PubKey(),
 		Wallet:   wallet,
+		ChainIO:  s.bio,
 		Notifier: s.chainNotifier,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
 			if pubKey.IsEqual(s.identityPriv.PubKey()) {

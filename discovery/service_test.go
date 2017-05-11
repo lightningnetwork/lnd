@@ -203,12 +203,12 @@ func newMockNotifier() *mockNotifier {
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	numConfs uint32) (*chainntnfs.ConfirmationEvent, error) {
+	numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	return nil, nil
 }
 
-func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint) (*chainntnfs.SpendEvent, error) {
+func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ uint32) (*chainntnfs.SpendEvent, error) {
 	return nil, nil
 }
 

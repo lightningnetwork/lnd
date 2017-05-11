@@ -47,10 +47,10 @@ BITCOIN_NETWORK=$(set_default "$BITCOIN_NETWORK" "simnet")
 lnd \
     --datadir="/data" \
     --logdir="/data" \
-    --rpccert="/rpc/rpc.cert" \
     --bitcoin.active \
     "--bitcoin.$BITCOIN_NETWORK" \
     --bitcoin.rpchost="btcd" \
+    --bitcoin.rpccert="/rpc/rpc.cert" \
     --bitcoin.rpcuser="$RPCUSER" \
     --bitcoin.rpcpass="$RPCPASS" \
     --debuglevel="$DEBUG" \

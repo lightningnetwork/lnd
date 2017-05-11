@@ -639,7 +639,7 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	newLink := &link{
 		capacity:           req.linkInfo.Capacity,
-		availableBandwidth: int64(req.linkInfo.LocalBalance),
+		availableBandwidth: int64(req.linkInfo.LocalBalance - req.linkInfo.ChannelReserve),
 		peer:               req.peer,
 		chanID:             chanID,
 	}

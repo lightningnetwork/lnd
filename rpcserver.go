@@ -502,6 +502,11 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			return err
 		}
 
+		_, bestHeight, err := r.server.bio.GetBestBlock()
+		if err != nil {
+			return err
+		}
+
 		// As we're force closing this channel, as a precaution, we'll
 		// ensure that the switch doesn't continue to see this channel
 		// as eligible for forwarding HTLC's. If the peer is online,
@@ -537,18 +542,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.chainNotifier
-		go waitForChanToClose(notifier, errChan, chanPoint, closingTxid, func() {
-			// Respond to the local subsystem which requested the
-			// channel closure.
-			updateChan <- &lnrpc.CloseStatusUpdate{
-				Update: &lnrpc.CloseStatusUpdate_ChanClose{
-					ChanClose: &lnrpc.ChannelCloseUpdate{
-						ClosingTxid: closingTxid[:],
-						Success:     true,
+		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
+			closingTxid, func() {
+				// Respond to the local subsystem which
+				// requested the channel closure.
+				updateChan <- &lnrpc.CloseStatusUpdate{
+					Update: &lnrpc.CloseStatusUpdate_ChanClose{
+						ChanClose: &lnrpc.ChannelCloseUpdate{
+							ClosingTxid: closingTxid[:],
+							Success:     true,
+						},
 					},
-				},
-			}
-		})
+				}
+			})
 
 		// TODO(roasbeef): utxo nursery marks as fully closed
 

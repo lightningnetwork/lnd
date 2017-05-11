@@ -921,30 +921,39 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 		},
 	}
 
+	_, bestHeight, err := p.server.bio.GetBestBlock()
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// Finally, launch a goroutine which will request to be notified by the
 	// ChainNotifier once the closure transaction obtains a single
 	// confirmation.
 	notifier := p.server.chainNotifier
-	go waitForChanToClose(notifier, req.err, req.chanPoint, closingTxid, func() {
-		// First, we'll mark the database as being fully closed so
-		// we'll no longer watch for its ultimate closure upon startup.
-		err := p.server.chanDB.MarkChanFullyClosed(req.chanPoint)
-		if err != nil {
-			req.err <- err
-			return
-		}
+	go waitForChanToClose(uint32(bestHeight), notifier, req.err,
+		req.chanPoint, closingTxid, func() {
 
-		// Respond to the local subsystem which requested the channel
-		// closure.
-		req.updates <- &lnrpc.CloseStatusUpdate{
-			Update: &lnrpc.CloseStatusUpdate_ChanClose{
-				ChanClose: &lnrpc.ChannelCloseUpdate{
-					ClosingTxid: closingTxid[:],
-					Success:     true,
+			// First, we'll mark the database as being fully closed
+			// so we'll no longer watch for its ultimate closure
+			// upon startup.
+			err := p.server.chanDB.MarkChanFullyClosed(req.chanPoint)
+			if err != nil {
+				req.err <- err
+				return
+			}
+
+			// Respond to the local subsystem which requested the
+			// channel closure.
+			req.updates <- &lnrpc.CloseStatusUpdate{
+				Update: &lnrpc.CloseStatusUpdate_ChanClose{
+					ChanClose: &lnrpc.ChannelCloseUpdate{
+						ClosingTxid: closingTxid[:],
+						Success:     true,
+					},
 				},
-			},
-		}
-	})
+			}
+		})
 }
 
 // handleRemoteClose completes a request for cooperative channel closure
@@ -978,6 +987,15 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 		newLogClosure(func() string {
 			return spew.Sdump(closeTx)
 		}))
+	if err != nil {
+		peerLog.Errorf("unable to get current height: %v", err)
+		return
+	}
+
+	_, bestHeight, err := p.server.bio.GetBestBlock()
+	if err != nil {
+		peerLog.Errorf("unable to get best height: %v", err)
+	}
 
 	// Finally, broadcast the closure transaction, to the network.
 	err = p.server.lnwallet.PublishTransaction(closeTx)
@@ -1022,8 +1040,8 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	// confirmation of the closing transaction, and mark the channel as
 	// such within the database (once it's confirmed").
 	notifier := p.server.chainNotifier
-	go waitForChanToClose(notifier, nil, chanPoint, &closeTxid,
-		func() {
+	go waitForChanToClose(uint32(bestHeight), notifier, nil, chanPoint,
+		&closeTxid, func() {
 			// Now that the closing transaction has been confirmed,
 			// we'll mark the database as being fully closed so now
 			// that we no longer watch for its ultimate closure
@@ -1042,12 +1060,13 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 // following actions: the channel point will be sent over the settleChan, and
 // finally the callback will be executed. If any error is encountered within
 // the function, then it will be sent over the errChan.
-func waitForChanToClose(notifier chainntnfs.ChainNotifier,
+func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
 	closingTxID *chainhash.Hash, cb func()) {
 
 	// TODO(roasbeef): add param for num needed confs
-	confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxID, 1)
+	confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxID, 1,
+		bestHeight)
 	if err != nil && errChan != nil {
 		errChan <- err
 		return

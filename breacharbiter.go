@@ -26,6 +26,7 @@ type breachArbiter struct {
 	wallet     *lnwallet.LightningWallet
 	db         *channeldb.DB
 	notifier   chainntnfs.ChainNotifier
+	chainIO    lnwallet.BlockChainIO
 	htlcSwitch *htlcSwitch
 
 	// breachObservers is a map which tracks all the active breach
@@ -62,12 +63,14 @@ type breachArbiter struct {
 // newBreachArbiter creates a new instance of a breachArbiter initialized with
 // its dependent objects.
 func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
-	notifier chainntnfs.ChainNotifier, h *htlcSwitch) *breachArbiter {
+	notifier chainntnfs.ChainNotifier, h *htlcSwitch,
+	chain lnwallet.BlockChainIO) *breachArbiter {
 
 	return &breachArbiter{
 		wallet:     wallet,
 		db:         db,
 		notifier:   notifier,
+		chainIO:    chain,
 		htlcSwitch: h,
 
 		breachObservers:   make(map[wire.OutPoint]chan struct{}),
@@ -120,6 +123,12 @@ func (b *breachArbiter) Start() error {
 	b.wg.Add(1)
 	go b.contractObserver(channelsToWatch)
 
+	// TODO(roasbeef): instead use closure height of channel
+	_, currentHeight, err := b.chainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
 	// Additionally, we'll also want to retrieve any pending close or force
 	// close transactions to we can properly mark them as resolved in the
 	// database.
@@ -142,7 +151,9 @@ func (b *breachArbiter) Start() error {
 
 		chanPoint := &pendingClose.ChanPoint
 		closeTXID := &pendingClose.ClosingTXID
-		confNtfn, err := b.notifier.RegisterConfirmationsNtfn(closeTXID, 1)
+		confNtfn, err := b.notifier.RegisterConfirmationsNtfn(
+			closeTXID, 1, uint32(currentHeight),
+		)
 		if err != nil {
 			return err
 		}
@@ -208,17 +219,27 @@ func (b *breachArbiter) contractObserver(activeChannels []*lnwallet.LightningCha
 		go b.breachObserver(channel, settleSignal)
 	}
 
+	// TODO(roasbeef): need to ensure currentHeight passed in doesn't
+	// result in lost notification
+
 out:
 	for {
 		select {
 		case breachInfo := <-b.breachedContracts:
+			_, currentHeight, err := b.chainIO.GetBestBlock()
+			if err != nil {
+				brarLog.Errorf("unable to get best height: %v", err)
+			}
+
 			// A new channel contract has just been breached! We
 			// first register for a notification to be dispatched
 			// once the breach transaction (the revoked commitment
 			// transaction) has been confirmed in the chain to
 			// ensure we're not dealing with a moving target.
 			breachTXID := &breachInfo.commitHash
-			confChan, err := b.notifier.RegisterConfirmationsNtfn(breachTXID, 1)
+			confChan, err := b.notifier.RegisterConfirmationsNtfn(
+				breachTXID, 1, uint32(currentHeight),
+			)
 			if err != nil {
 				brarLog.Errorf("unable to register for conf for txid: %v",
 					breachTXID)
@@ -336,6 +357,12 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 		return spew.Sdump(justiceTx)
 	}))
 
+	_, currentHeight, err := b.chainIO.GetBestBlock()
+	if err != nil {
+		brarLog.Errorf("unable to get current height: %v", err)
+		return
+	}
+
 	// Finally, broadcast the transaction, finalizing the channels'
 	// retribution against the cheating counterparty.
 	if err := b.wallet.PublishTransaction(justiceTx); err != nil {
@@ -349,7 +376,8 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 	// notify the caller that initiated the retribution workflow that the
 	// deed has been done.
 	justiceTXID := justiceTx.TxHash()
-	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1)
+	confChan, err = b.notifier.RegisterConfirmationsNtfn(&justiceTXID, 1,
+		uint32(currentHeight))
 	if err != nil {
 		brarLog.Errorf("unable to register for conf for txid: %v",
 			justiceTXID)
@@ -427,14 +455,16 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		//
 		// TODO(roasbeef): also notify utxoNursery, might've had
 		// outbound HTLC's in flight
-		go waitForChanToClose(b.notifier, nil, chanPoint, closeInfo.SpenderTxHash, func() {
-			brarLog.Infof("Force closed ChannelPoint(%v) is "+
-				"fully closed, updating DB", chanPoint)
+		go waitForChanToClose(uint32(closeInfo.SpendingHeight), b.notifier,
+			nil, chanPoint, closeInfo.SpenderTxHash, func() {
 
-			if err := b.db.MarkChanFullyClosed(chanPoint); err != nil {
-				brarLog.Errorf("unable to mark chan as closed: %v", err)
-			}
-		})
+				brarLog.Infof("Force closed ChannelPoint(%v) is "+
+					"fully closed, updating DB", chanPoint)
+
+				if err := b.db.MarkChanFullyClosed(chanPoint); err != nil {
+					brarLog.Errorf("unable to mark chan as closed: %v", err)
+				}
+			})
 
 	// A read from this channel indicates that a channel breach has been
 	// detected! So we notify the main coordination goroutine with the

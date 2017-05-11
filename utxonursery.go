@@ -14,7 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -69,44 +69,6 @@ var (
 
 	byteOrder = binary.BigEndian
 )
-
-// witnessType determines how an output's witness will be generated. The
-// default commitmentTimeLock type will generate a witness that will allow
-// spending of a time-locked transaction enforced by CheckSequenceVerify.
-type witnessType uint16
-
-const (
-	commitmentTimeLock witnessType = 0
-)
-
-// witnessGenerator represents a function which is able to generate the final
-// witness for a particular public key script. This function acts as an
-// abstraction layer, hiding the details of the underlying script from the
-// utxoNursery.
-type witnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-	inputIndex int) ([][]byte, error)
-
-// generateFunc will return the witnessGenerator function that a kidOutput uses
-// to generate the witness for a sweep transaction. Currently there is only one
-// witnessType but this will be expanded.
-func (wt witnessType) generateFunc(signer *lnwallet.Signer,
-	descriptor *lnwallet.SignDescriptor) witnessGenerator {
-
-	switch wt {
-	case commitmentTimeLock:
-		return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-			inputIndex int) ([][]byte, error) {
-
-			desc := descriptor
-			desc.SigHashes = hc
-			desc.InputIndex = inputIndex
-
-			return lnwallet.CommitSpendTimeout(*signer, desc, tx)
-		}
-	}
-
-	return nil
-}
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
 // by the broadcast of a commitment transaction either by us, or the remote
@@ -281,7 +243,7 @@ func (u *utxoNursery) Stop() error {
 
 // kidOutput represents an output that's waiting for a required blockheight
 // before its funds will be available to be moved into the user's wallet.  The
-// struct includes a witnessGenerator closure which will be used to generate
+// struct includes a WitnessGenerator closure which will be used to generate
 // the witness required to sweep the output once it's mature.
 //
 // TODO(roasbeef): rename to immatureOutput?
@@ -291,15 +253,14 @@ type kidOutput struct {
 	amt      btcutil.Amount
 	outPoint wire.OutPoint
 
-	witnessFunc witnessGenerator
-
 	// TODO(roasbeef): using block timeouts everywhere currently, will need
 	// to modify logic later to account for MTP based timeouts.
 	blocksToMaturity uint32
 	confHeight       uint32
 
 	signDescriptor *lnwallet.SignDescriptor
-	witnessType    witnessType
+	witnessType    lnwallet.WitnessType
+	witnessFunc    lnwallet.WitnessGenerator
 }
 
 // incubationRequest is a request to the utxoNursery to incubate a set of
@@ -326,7 +287,7 @@ func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 			outPoint:         closeSummary.SelfOutpoint,
 			blocksToMaturity: closeSummary.SelfOutputMaturity,
 			signDescriptor:   closeSummary.SelfOutputSignDesc,
-			witnessType:      commitmentTimeLock,
+			witnessType:      lnwallet.CommitmentTimeLock,
 		}
 
 		incReq.outputs = append(incReq.outputs, selfOutput)
@@ -464,7 +425,7 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 		}
 
 		var b bytes.Buffer
-		if err := writeOutpoint(&b, chanPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
 			return err
 		}
 		chanPointBytes := b.Bytes()
@@ -570,7 +531,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// Once we have the buckets we can insert the raw bytes of the
 		// immature outpoint into the preschool bucket.
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&outpointBytes, &k.outPoint); err != nil {
 			return err
 		}
 		var kidBytes bytes.Buffer
@@ -586,7 +547,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// track all the immature outpoints for a particular channel's
 		// chanPoint.
 		var b bytes.Buffer
-		err = writeOutpoint(&b, &k.originChanPoint)
+		err = lnwire.WriteOutPoint(&b, &k.originChanPoint)
 		if err != nil {
 			return err
 		}
@@ -627,7 +588,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	// array form prior to database insertion.
 	err := db.Update(func(tx *bolt.Tx) error {
 		var originPoint bytes.Buffer
-		if err := writeOutpoint(&originPoint, &k.originChanPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&originPoint, &k.originChanPoint); err != nil {
 			return err
 		}
 
@@ -644,7 +605,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		// along in the maturity pipeline we first delete the entry
 		// from the preschool bucket, as well as the secondary index.
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := lnwire.WriteOutPoint(&outpointBytes, &k.outPoint); err != nil {
 			return err
 		}
 		if err := psclBucket.Delete(outpointBytes.Bytes()); err != nil {
@@ -790,7 +751,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 		return nil, err
 	}
 
-	// If no time-locked outputs can be swept at this point, ten we can
+	// If no time-locked outputs can be swept at this point, then we can
 	// exit early.
 	if len(results) == 0 {
 		return nil, nil
@@ -808,7 +769,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// our commitment transaction or theirs, and also if it's an HTLC
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
-		kgtnOutput.witnessFunc = kgtnOutput.witnessType.generateFunc(
+		kgtnOutput.witnessFunc = kgtnOutput.witnessType.GenWitnessFunc(
 			&wallet.Signer, kgtnOutput.signDescriptor,
 		)
 	}
@@ -939,7 +900,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 		}
 		for _, sweptOutput := range sweptOutputs {
 			var chanPoint bytes.Buffer
-			err := writeOutpoint(&chanPoint, &sweptOutput.originChanPoint)
+			err := lnwire.WriteOutPoint(&chanPoint, &sweptOutput.originChanPoint)
 			if err != nil {
 				return err
 			}
@@ -1013,10 +974,10 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &kid.outPoint); err != nil {
+	if err := lnwire.WriteOutPoint(w, &kid.outPoint); err != nil {
 		return err
 	}
-	if err := writeOutpoint(w, &kid.originChanPoint); err != nil {
+	if err := lnwire.WriteOutPoint(w, &kid.originChanPoint); err != nil {
 		return err
 	}
 
@@ -1035,26 +996,11 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	serializedPubKey := kid.signDescriptor.PubKey.SerializeCompressed()
-	if err := wire.WriteVarBytes(w, 0, serializedPubKey); err != nil {
+	if err := lnwallet.WriteSignDescriptor(w, kid.signDescriptor); err != nil {
 		return err
 	}
 
-	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.PrivateTweak); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.WitnessScript); err != nil {
-		return err
-	}
-
-	if err := writeTxOut(w, kid.signDescriptor.Output); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint32(scratch[:4], uint32(kid.signDescriptor.HashType))
-	_, err := w.Write(scratch[:4])
-	return err
+	return nil
 }
 
 // deserializeKidOutput takes a byte array representation of a kidOutput
@@ -1071,10 +1017,13 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	}
 	kid.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if err := readOutpoint(io.LimitReader(r, 40), &kid.outPoint); err != nil {
+	err := lnwire.ReadOutPoint(io.LimitReader(r, 40), &kid.outPoint)
+	if err != nil {
 		return nil, err
 	}
-	if err := readOutpoint(io.LimitReader(r, 40), &kid.originChanPoint); err != nil {
+
+	err = lnwire.ReadOutPoint(io.LimitReader(r, 40), &kid.originChanPoint)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1091,109 +1040,12 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return nil, err
 	}
-	kid.witnessType = witnessType(byteOrder.Uint16(scratch[:2]))
+	kid.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
 
 	kid.signDescriptor = &lnwallet.SignDescriptor{}
-
-	descKeyBytes, err := wire.ReadVarBytes(r, 0, 34, "descKeyBytes")
-	if err != nil {
+	if err := lnwallet.ReadSignDescriptor(r, kid.signDescriptor); err != nil {
 		return nil, err
 	}
-
-	descKey, err := btcec.ParsePubKey(descKeyBytes, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.PubKey = descKey
-
-	descPrivateTweak, err := wire.ReadVarBytes(r, 0, 32, "privateTweak")
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.PrivateTweak = descPrivateTweak
-
-	descWitnessScript, err := wire.ReadVarBytes(r, 0, 100, "witnessScript")
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.WitnessScript = descWitnessScript
-
-	descTxOut := &wire.TxOut{}
-	if err := readTxOut(r, descTxOut); err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.Output = descTxOut
-
-	if _, err := r.Read(scratch[:4]); err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.HashType = txscript.SigHashType(byteOrder.Uint32(scratch[:4]))
 
 	return kid, nil
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
-	// TODO(roasbeef): make all scratch buffers on the stack
-	scratch := make([]byte, 4)
-
-	// TODO(roasbeef): write raw 32 bytes instead of wasting the extra
-	// byte.
-	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint32(scratch, o.Index)
-	_, err := w.Write(scratch)
-	return err
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
-	scratch := make([]byte, 4)
-
-	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
-	if err != nil {
-		return err
-	}
-	copy(o.Hash[:], txid)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	o.Index = byteOrder.Uint32(scratch)
-
-	return nil
-}
-
-func writeTxOut(w io.Writer, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	byteOrder.PutUint64(scratch, uint64(txo.Value))
-	if _, err := w.Write(scratch); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, txo.PkScript); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func readTxOut(r io.Reader, txo *wire.TxOut) error {
-	scratch := make([]byte, 8)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	txo.Value = int64(byteOrder.Uint64(scratch))
-
-	pkScript, err := wire.ReadVarBytes(r, 0, 80, "pkScript")
-	if err != nil {
-		return err
-	}
-	txo.PkScript = pkScript
-
-	return nil
 }

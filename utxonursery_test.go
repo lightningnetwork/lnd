@@ -169,7 +169,7 @@ var (
 			amt:              btcutil.Amount(13e7),
 			outPoint:         outPoints[0],
 			blocksToMaturity: uint32(100),
-			witnessType:      commitmentTimeLock,
+			witnessType:      lnwallet.CommitmentTimeLock,
 			confHeight:       uint32(1770001),
 		},
 
@@ -178,7 +178,7 @@ var (
 			amt:              btcutil.Amount(24e7),
 			outPoint:         outPoints[1],
 			blocksToMaturity: uint32(50),
-			witnessType:      commitmentTimeLock,
+			witnessType:      lnwallet.CommitmentTimeLock,
 			confHeight:       uint32(22342321),
 		},
 
@@ -187,7 +187,7 @@ var (
 			amt:              btcutil.Amount(2e5),
 			outPoint:         outPoints[2],
 			blocksToMaturity: uint32(12),
-			witnessType:      commitmentTimeLock,
+			witnessType:      lnwallet.CommitmentTimeLock,
 			confHeight:       uint32(34241),
 		},
 	}

@@ -7,7 +7,6 @@ import (
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
@@ -224,47 +223,6 @@ type BlockChainIO interface {
 	// GetBlock returns the block in the main chain identified by the given
 	// hash.
 	GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error)
-}
-
-// SignDescriptor houses the necessary information required to successfully sign
-// a given output. This struct is used by the Signer interface in order to gain
-// access to critical data needed to generate a valid signature.
-type SignDescriptor struct {
-	// Pubkey is the public key to which the signature should be generated
-	// over. The Signer should then generate a signature with the private
-	// key corresponding to this public key.
-	PubKey *btcec.PublicKey
-
-	// PrivateTweak is a scalar value that should be added to the private
-	// key corresponding to the above public key to obtain the private key
-	// to be used to sign this input. This value is typically a leaf node
-	// from the revocation tree.
-	//
-	// NOTE: If this value is nil, then the input can be signed using only
-	// the above public key.
-	PrivateTweak []byte
-
-	// WitnessScript is the full script required to properly redeem the
-	// output. This field will only be populated if a p2wsh or a p2sh
-	// output is being signed.
-	WitnessScript []byte
-
-	// Output is the target output which should be signed. The PkScript and
-	// Value fields within the output should be properly populated,
-	// otherwise an invalid signature may be generated.
-	Output *wire.TxOut
-
-	// HashType is the target sighash type that should be used when
-	// generating the final sighash, and signature.
-	HashType txscript.SigHashType
-
-	// SigHashes is the pre-computed sighash midstate to be used when
-	// generating the final sighash for signing.
-	SigHashes *txscript.TxSigHashes
-
-	// InputIndex is the target input within the transaction that should be
-	// signed.
-	InputIndex int
 }
 
 // Signer represents an abstract object capable of generating raw signatures as

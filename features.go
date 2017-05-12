@@ -13,4 +13,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "new-ping-and-funding",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "node-ann-feature-addr-swap",
+		Flag: lnwire.RequiredFlag,
+	},
 })

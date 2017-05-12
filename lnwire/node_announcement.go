@@ -120,8 +120,8 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&a.NodeID,
 		&a.RGBColor,
 		&a.Alias,
-		&a.Addresses,
 		&a.Features,
+		&a.Addresses,
 	)
 }
 
@@ -135,8 +135,8 @@ func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 		a.NodeID,
 		a.RGBColor,
 		a.Alias,
-		a.Addresses,
 		a.Features,
+		a.Addresses,
 	)
 }
 
@@ -166,8 +166,8 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 		a.NodeID,
 		a.RGBColor,
 		a.Alias,
-		a.Addresses,
 		a.Features,
+		a.Addresses,
 	)
 	if err != nil {
 		return nil, err

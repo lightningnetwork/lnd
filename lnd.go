@@ -73,7 +73,8 @@ func lndMain() error {
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
+	if registeredChains.PrimaryChain() == litecoinChain ||
+		registeredChains.PrimaryChain() == litecointestChain {
 		homeChainConfig = cfg.Litecoin
 	}
 	ltndLog.Infof("Primary chain is set to: %v",

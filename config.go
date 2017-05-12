@@ -165,34 +165,40 @@ func loadConfig() (*config, error) {
 		err := fmt.Errorf(str, funcName)
 		return nil, err
 	}
-
 	if cfg.Litecoin.Active {
 		if cfg.Litecoin.SimNet {
 			str := "%s: simnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
 		}
-
 		// The litecoin chain is the current active chain. However
-		// throuhgout the codebase we required chiancfg.Params. So as a
+		// throuhgout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
-		// bitcoin with the litecoin specific informat.ion
+		// bitcoin with the litecoin specific information
 		paramCopy := bitcoinTestNetParams
-		applyLitecoinParams(&paramCopy)
+		if cfg.Litecoin.TestNet3 {
+			applyLitecoinParams(&paramCopy, &liteTestNetParams)
+		} else {
+			applyLitecoinParams(&paramCopy, &liteMainNetParams)
+		}
 		activeNetParams = paramCopy
+
+		chain := litecoinChain
+		if cfg.Litecoin.TestNet3 {
+			chain = litecointestChain
+		}
 
 		// Attempt to parse out the RPC credentials for the litecoin
 		// chain if the information wasn't specified
-		err := parseRPCParams(cfg.Litecoin, litecoinChain, funcName)
+		err := parseRPCParams(cfg.Litecoin, chain, funcName)
 		if err != nil {
 			err := fmt.Errorf("unable to load RPC credentials for "+
 				"ltcd: %v", err)
 			return nil, err
 		}
-		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, litecoinChain.String())
-
+		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, chain.String())
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
-		registeredChains.RegisterPrimaryChain(litecoinChain)
+		registeredChains.RegisterPrimaryChain(chain)
 	}
 	if cfg.Bitcoin.Active {
 		// Multiple networks can't be selected simultaneously.  Count
@@ -390,23 +396,24 @@ func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error 
 		return nil
 	}
 
+	isLitecoin := net == litecoinChain || net == litecointestChain
+	daemonName := "btcd"
+	if isLitecoin {
+		daemonName = "ltcd"
+	}
 	// If we're in simnet mode, then the running btcd instance won't read
 	// the RPC credentials from the configuration. So if lnd wasn't
 	// specified the paramters, then we won't be able to start.
 	if cConfig.SimNet {
-		str := "%v: rpcuser and rpcpass must be set to your btcd " +
+		str := "%v: rpcuser and rpcpass must be set to your %s " +
 			"node's RPC paramters"
-		return fmt.Errorf(str, funcName)
+		return fmt.Errorf(str, daemonName, funcName)
 	}
 
-	daemonName := "btcd"
-	if net == litecoinChain {
-		daemonName = "ltcd"
-	}
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
 	homeDir := btcdHomeDir
-	if net == litecoinChain {
+	if isLitecoin {
 		homeDir = ltcdHomeDir
 	}
 	confFile := filepath.Join(homeDir, fmt.Sprintf("%v.conf", daemonName))

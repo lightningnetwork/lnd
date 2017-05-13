@@ -42,13 +42,13 @@ set_default() {
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "debug")
-BITCOIN_NETWORK=$(set_default "$BITCOIN_NETWORK" "simnet")
+NETWORK=$(set_default "$NETWORK" "simnet")
 
 lnd \
     --datadir="/data" \
     --logdir="/data" \
     --bitcoin.active \
-    "--bitcoin.$BITCOIN_NETWORK" \
+    "--bitcoin.$NETWORK" \
     --bitcoin.rpchost="btcd" \
     --bitcoin.rpccert="/rpc/rpc.cert" \
     --bitcoin.rpcuser="$RPCUSER" \

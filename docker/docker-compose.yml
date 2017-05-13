@@ -14,7 +14,7 @@ services:
       environment:
         - RPCUSER
         - RPCPASS
-        - BITCOIN_NETWORK
+        - NETWORK
 
     btcd:
         extends: btc
@@ -39,7 +39,7 @@ services:
         environment:
           - RPCUSER
           - RPCPASS
-          - BITCOIN_NETWORK
+          - NETWORK
           - DEBUG
         volumes:
             - shared:/rpc

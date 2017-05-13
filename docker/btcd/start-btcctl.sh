@@ -41,10 +41,10 @@ set_default() {
 # Set default variables if needed.
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
-BITCOIN_NETWORK=$(set_default "$BITCOIN_NETWORK" "simnet")
+NETWORK=$(set_default "$NETWORK" "simnet")
 
 btcctl \
-    "--$BITCOIN_NETWORK" \
+    "--$NETWORK" \
     --rpccert="/rpc/rpc.cert" \
     --rpcuser="$RPCUSER" \
     --rpcpass="$RPCPASS" \

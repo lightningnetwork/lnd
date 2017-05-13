@@ -10,7 +10,7 @@ services:
         context: btcd/
       volumes:
             - shared:/rpc
-            - blockchain:/data
+            - bitcoin:/data
       environment:
         - RPCUSER
         - RPCPASS
@@ -31,6 +31,37 @@ services:
             - "btcd:rpcserver"
         entrypoint: ["./start-btcctl.sh"]
 
+
+    # ltc is an image of litecoin node which used as base image for ltcd and
+    # ltcctl. The environment variables default values determined on stage of
+    # container start within starting script.
+    ltc:
+      image: ltcd
+      build:
+        context: ltcd/
+      volumes:
+            - shared:/rpc
+            - litecoin:/data
+      environment:
+        - RPCUSER
+        - RPCPASS
+        - NETWORK
+
+    ltcd:
+        extends: ltc
+        container_name: ltcd
+        environment:
+          - DEBUG
+          - MINING_ADDRESS
+        entrypoint: ["./start-ltcd.sh"]
+
+    ltcctl:
+        extends: ltc
+        container_name: ltcctl
+        links:
+            - "ltcd:rpcserver"
+        entrypoint: ["./start-ltcctl.sh"]
+
     lnd:
         image: lnd
         build:
@@ -40,6 +71,7 @@ services:
           - RPCUSER
           - RPCPASS
           - NETWORK
+          - CHAIN
           - DEBUG
         volumes:
             - shared:/rpc
@@ -49,13 +81,13 @@ services:
       extends: lnd
       container_name: alice
       links:
-          - "btcd:btcd"
+          - "btcd:blockchain"
 
     bob:
       extends: lnd
       container_name: bob
       links:
-          - "btcd:btcd"
+          - "btcd:blockchain"
 
 volumes:
   # shared volume is need to store the btcd rpc certificates and us it within
@@ -63,7 +95,12 @@ volumes:
   shared:
     driver: local
 
-  # blockhain volume is needed for maintaining blockchain persistance
+  # bitcoin volume is needed for maintaining blockchain persistance
   # during btcd container recreation.
-  blockchain:
+  bitcoin:
+    driver: local
+
+  # litecoin volume is needed for maintaining blockchain persistance
+  # during ltcd container recreation.
+  litecoin:
     driver: local

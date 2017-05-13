@@ -43,15 +43,16 @@ RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "debug")
 NETWORK=$(set_default "$NETWORK" "simnet")
+CHAIN=$(set_default "$CHAIN" "bitcoin")
 
 lnd \
     --datadir="/data" \
     --logdir="/data" \
-    --bitcoin.active \
-    "--bitcoin.$NETWORK" \
-    --bitcoin.rpchost="btcd" \
-    --bitcoin.rpccert="/rpc/rpc.cert" \
-    --bitcoin.rpcuser="$RPCUSER" \
-    --bitcoin.rpcpass="$RPCPASS" \
+    "--$CHAIN.rpccert"="/rpc/rpc.cert" \
+    "--$CHAIN.active" \
+    "--$CHAIN.$NETWORK" \
+    "--$CHAIN.rpchost"="blockchain" \
+    "--$CHAIN.rpcuser"="$RPCUSER" \
+    "--$CHAIN.rpcpass"="$RPCPASS" \
     --debuglevel="$DEBUG" \
     "$@"

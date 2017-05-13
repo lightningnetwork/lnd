@@ -61,7 +61,7 @@ Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
 ```bash
 # Init bitcoin network env variable:
-$ export BITCOIN_NETWORK="simnet" 
+$ export NETWORK="simnet" 
 
 # Run "btcd" node:
 $ docker-compose up -d "btcd"
@@ -286,7 +286,7 @@ First of all you need to run `btcd` node in `testnet` and wait it to be
 synced with test network (`May the Force and Patience be with you` ᕦ(ò_óˇ)ᕤ).
 ```bash 
 # Init bitcoin network env variable:
-$ export BITCOIN_NETWORK="testnet"
+$ export NETWORK="testnet"
 
 # Run "btcd" node:
 $ docker-compose up -d "btcd"

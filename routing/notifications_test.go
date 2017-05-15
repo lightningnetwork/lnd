@@ -602,9 +602,15 @@ func TestChannelCloseNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
 	}
+	if err := ctx.router.AddNode(node1); err != nil {
+		t.Fatal(err)
+	}
 	node2, err := createTestNode()
 	if err != nil {
 		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := ctx.router.AddNode(node2); err != nil {
+		t.Fatal(err)
 	}
 
 	// Finally, to conclude our test set up, we'll create a channel

@@ -560,6 +560,22 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				"chan_id=%v", msg.ChannelID)
 		}
 
+		// If we don't yet know about this edge, then we'll do an
+		// additional check to ensure that we have information about
+		// the two nodes that this edge connects.
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1)
+		if !exists {
+			return errors.Errorf("unable to add channel edge, info "+
+				"for node %x is missing",
+				msg.NodeKey1.SerializeCompressed())
+		}
+		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2)
+		if !exists {
+			return errors.Errorf("unable to add channel edge, info "+
+				"for node %x is missing",
+				msg.NodeKey1.SerializeCompressed())
+		}
+
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
@@ -580,9 +596,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				"chan_id=%v: %v", msg.ChannelID, err)
 		}
 
-		// Recreate witness output to be sure that declared in
-		// channel edge bitcoin keys and channel value corresponds to
-		// the reality.
+		// Recreate witness output to be sure that declared in channel
+		// edge bitcoin keys and channel value corresponds to the
+		// reality.
 		_, witnessOutput, err := lnwallet.GenFundingPkScript(
 			msg.BitcoinKey1.SerializeCompressed(),
 			msg.BitcoinKey2.SerializeCompressed(),

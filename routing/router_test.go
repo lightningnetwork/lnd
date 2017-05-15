@@ -216,15 +216,31 @@ func TestAddProof(t *testing.T) {
 	}
 	defer cleanup()
 
-	// In order to be able to add the edge we should have the valud
-	// funding UTXO within the blockchain.
+	// Before creating out edge, we'll create two new nodes within the
+	// network that the channel will connect.
+	node1, err := createTestNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.router.AddNode(node1); err != nil {
+		t.Fatal(err)
+	}
+	node2, err := createTestNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.router.AddNode(node2); err != nil {
+		t.Fatal(err)
+	}
+
+	// In order to be able to add the edge we should have a valid funding
+	// UTXO within the blockchain.
 	fundingTx, _, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		100, 0)
 	if err != nil {
 		t.Fatalf("unable create channel edge: %v", err)
 	}
-
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
@@ -233,8 +249,8 @@ func TestAddProof(t *testing.T) {
 	// After utxo was recreated adding the edge without the proof.
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    priv1.PubKey(),
-		NodeKey2:    priv1.PubKey(),
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
 		BitcoinKey1: bitcoinKey1,
 		BitcoinKey2: bitcoinKey2,
 		AuthProof:   nil,
@@ -244,7 +260,8 @@ func TestAddProof(t *testing.T) {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	// No trying to update the proof and checking that it have been updated.
+	// Now we'll attempt to update the proof and check that it has been
+	// properly updated.
 	if err := ctx.router.AddProof(*chanID, &testAuthProof); err != nil {
 		t.Fatalf("unable to add proof: %v", err)
 	}
@@ -252,5 +269,35 @@ func TestAddProof(t *testing.T) {
 	info, _, _, err := ctx.router.GetChannelByID(*chanID)
 	if info.AuthProof == nil {
 		t.Fatal("proof have been updated")
+	}
+}
+
+// TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
+// vertex which we don't know of, then the edge is rejected.
+func TestAddEdgeUnknownVertexes(t *testing.T) {
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	_, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
+		10000, 500)
+	if err != nil {
+		t.Fatal("unable to create channel edge: %v", err)
+	}
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID.ToUint64(),
+		NodeKey1:    priv1.PubKey(),
+		NodeKey2:    priv1.PubKey(),
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof:   nil,
+	}
+	if err := ctx.router.AddEdge(edge); err == nil {
+		t.Fatal("edge should have been rejected due to unknown " +
+			"vertexes, but wasn't")
 	}
 }

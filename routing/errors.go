@@ -2,7 +2,8 @@ package routing
 
 import "github.com/go-errors/errors"
 
-// errorCode represent the error code and is used for compile time check.
+// errorCode is used to represent the various errors that can occur within this
+// package.
 type errorCode uint8
 
 const (

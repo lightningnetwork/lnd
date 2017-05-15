@@ -63,9 +63,6 @@ bitcoin into.
 # Init bitcoin network env variable:
 $ export NETWORK="simnet"
 
-# Run "btcd" node:
-$ docker-compose up -d "btcd"
-
 # Run the "Alice" container and log into it:
 $ docker-compose up -d "alice"
 $ docker exec -i -t "alice" bash

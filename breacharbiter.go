@@ -139,10 +139,11 @@ func (b *breachArbiter) Start() error {
 	}
 	for _, pendingClose := range pendingCloseChans {
 		// If this channel was force closed, and we have a non-zero
-		// balance, then the utxoNursery is currently watching over it.
-		// As a result we don't need to watch over it.
+		// time-locked balance, then the utxoNursery is currently
+		// watching over it.  As a result we don't need to watch over
+		// it.
 		if pendingClose.CloseType == channeldb.ForceClose &&
-			pendingClose.OurBalance != 0 {
+			pendingClose.TimeLockedBalance != 0 {
 			continue
 		}
 
@@ -482,13 +483,13 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		b.htlcSwitch.CloseLink(chanPoint, CloseBreach)
 		chanInfo := contract.StateSnapshot()
 		closeInfo := &channeldb.ChannelCloseSummary{
-			ChanPoint:   *chanPoint,
-			ClosingTXID: breachInfo.BreachTransaction.TxHash(),
-			RemotePub:   &chanInfo.RemoteIdentity,
-			Capacity:    chanInfo.Capacity,
-			OurBalance:  chanInfo.LocalBalance,
-			CloseType:   channeldb.BreachClose,
-			IsPending:   true,
+			ChanPoint:      *chanPoint,
+			ClosingTXID:    breachInfo.BreachTransaction.TxHash(),
+			RemotePub:      &chanInfo.RemoteIdentity,
+			Capacity:       chanInfo.Capacity,
+			SettledBalance: chanInfo.LocalBalance,
+			CloseType:      channeldb.BreachClose,
+			IsPending:      true,
 		}
 		if err := contract.DeleteState(closeInfo); err != nil {
 			brarLog.Errorf("unable to delete channel state: %v", err)

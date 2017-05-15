@@ -951,6 +951,8 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				},
 			)
 
+			resp.TotalLimboBalance += channel.LocalBalance
+
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.
 		case channeldb.ForceClose:

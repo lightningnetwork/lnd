@@ -900,13 +900,13 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	// closed within the database.
 	chanInfo := channel.StateSnapshot()
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *req.chanPoint,
-		ClosingTXID: *closingTxid,
-		RemotePub:   &chanInfo.RemoteIdentity,
-		Capacity:    chanInfo.Capacity,
-		OurBalance:  chanInfo.LocalBalance,
-		CloseType:   channeldb.CooperativeClose,
-		IsPending:   true,
+		ChanPoint:      *req.chanPoint,
+		ClosingTXID:    *closingTxid,
+		RemotePub:      &chanInfo.RemoteIdentity,
+		Capacity:       chanInfo.Capacity,
+		SettledBalance: chanInfo.LocalBalance,
+		CloseType:      channeldb.CooperativeClose,
+		IsPending:      true,
 	}
 	if err := channel.DeleteState(closeSummary); err != nil {
 		req.err <- err
@@ -1025,13 +1025,13 @@ func (p *peer) handleRemoteClose(req *lnwire.CloseRequest) {
 	closeTxid := closeTx.TxHash()
 	chanInfo := channel.StateSnapshot()
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *chanPoint,
-		ClosingTXID: closeTxid,
-		RemotePub:   &chanInfo.RemoteIdentity,
-		Capacity:    chanInfo.Capacity,
-		OurBalance:  chanInfo.LocalBalance,
-		CloseType:   channeldb.CooperativeClose,
-		IsPending:   true,
+		ChanPoint:      *chanPoint,
+		ClosingTXID:    closeTxid,
+		RemotePub:      &chanInfo.RemoteIdentity,
+		Capacity:       chanInfo.Capacity,
+		SettledBalance: chanInfo.LocalBalance,
+		CloseType:      channeldb.CooperativeClose,
+		IsPending:      true,
 	}
 	if err := channel.DeleteState(closeSummary); err != nil {
 		peerLog.Errorf("unable to delete channel state: %v", err)

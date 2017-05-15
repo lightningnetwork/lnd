@@ -1011,14 +1011,15 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// immediately delete the state from disk, creating a close
 		// summary for future usage by related sub-systems.
 		// TODO(roasbeef): include HTLC's
+		//  * and time-locked balance
 		closeSummary := &channeldb.ChannelCloseSummary{
-			ChanPoint:   *lc.channelState.ChanID,
-			ClosingTXID: *commitSpend.SpenderTxHash,
-			RemotePub:   lc.channelState.IdentityPub,
-			Capacity:    lc.Capacity,
-			OurBalance:  lc.channelState.OurBalance,
-			CloseType:   channeldb.ForceClose,
-			IsPending:   true,
+			ChanPoint:      *lc.channelState.ChanID,
+			ClosingTXID:    *commitSpend.SpenderTxHash,
+			RemotePub:      lc.channelState.IdentityPub,
+			Capacity:       lc.Capacity,
+			SettledBalance: lc.channelState.OurBalance,
+			CloseType:      channeldb.ForceClose,
+			IsPending:      true,
 		}
 		if err := lc.DeleteState(closeSummary); err != nil {
 			walletLog.Errorf("unable to delete channel state: %v",

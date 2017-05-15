@@ -699,9 +699,18 @@ type ChannelCloseSummary struct {
 	// Capacity was the total capacity of the channel.
 	Capacity btcutil.Amount
 
-	// OurBalance is our total balance settled balance at the time of
-	// channel closure.
-	OurBalance btcutil.Amount
+	// SettledBalance is our total balance settled balance at the time of
+	// channel closure. This _does not_ include the sum of any outputs that
+	// have been time-locked as a result of the unilateral channel closure.
+	SettledBalance btcutil.Amount
+
+	// TimeLockedBalance is the sum of all the time-locked outputs at the
+	// time of channel closure. If we triggered the force closure of this
+	// channel, then this value will be non-zero if our settled output is
+	// above the dust limit. If we were on the receiving side of a channel
+	// force closure, then this value will be non-zero if we had any
+	// outstanding outgoing HTLC's at the time of channel closure.
+	TimeLockedBalance btcutil.Amount
 
 	// CloseType details exactly _how_ the channel was closed. Three
 	// closure types are possible: cooperative, force, and breach.
@@ -865,7 +874,10 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 		return err
 	}
 
-	if err := binary.Write(w, byteOrder, cs.OurBalance); err != nil {
+	if err := binary.Write(w, byteOrder, cs.SettledBalance); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, cs.TimeLockedBalance); err != nil {
 		return err
 	}
 	if err := binary.Write(w, byteOrder, cs.Capacity); err != nil {
@@ -917,7 +929,10 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		return nil, err
 	}
 
-	if err := binary.Read(r, byteOrder, &c.OurBalance); err != nil {
+	if err := binary.Read(r, byteOrder, &c.SettledBalance); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &c.TimeLockedBalance); err != nil {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &c.Capacity); err != nil {

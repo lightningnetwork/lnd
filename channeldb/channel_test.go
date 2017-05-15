@@ -373,11 +373,12 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// written state, and creates a small "summary" elsewhere within the
 	// database.
 	closeSummary := &ChannelCloseSummary{
-		ChanPoint:  *state.ChanID,
-		RemotePub:  state.IdentityPub,
-		OurBalance: btcutil.Amount(500),
-		IsPending:  false,
-		CloseType:  CooperativeClose,
+		ChanPoint:         *state.ChanID,
+		RemotePub:         state.IdentityPub,
+		SettledBalance:    btcutil.Amount(500),
+		TimeLockedBalance: btcutil.Amount(10000),
+		IsPending:         false,
+		CloseType:         CooperativeClose,
 	}
 	if err := state.CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)
@@ -605,11 +606,12 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Now attempt to delete the channel from the database.
 	closeSummary := &ChannelCloseSummary{
-		ChanPoint:  *channel.ChanID,
-		RemotePub:  channel.IdentityPub,
-		OurBalance: btcutil.Amount(500),
-		IsPending:  false,
-		CloseType:  ForceClose,
+		ChanPoint:         *channel.ChanID,
+		RemotePub:         channel.IdentityPub,
+		SettledBalance:    btcutil.Amount(500),
+		TimeLockedBalance: btcutil.Amount(10000),
+		IsPending:         false,
+		CloseType:         ForceClose,
 	}
 	if err := updatedChannel[0].CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
@@ -728,13 +730,14 @@ func TestFetchClosedChannels(t *testing.T) {
 	// Next, close the channel by including a close channel summary in the
 	// database.
 	summary := &ChannelCloseSummary{
-		ChanPoint:   *state.ChanID,
-		ClosingTXID: rev,
-		RemotePub:   state.IdentityPub,
-		Capacity:    state.Capacity,
-		OurBalance:  state.OurBalance,
-		CloseType:   ForceClose,
-		IsPending:   true,
+		ChanPoint:         *state.ChanID,
+		ClosingTXID:       rev,
+		RemotePub:         state.IdentityPub,
+		Capacity:          state.Capacity,
+		SettledBalance:    state.OurBalance,
+		TimeLockedBalance: state.OurBalance + 10000,
+		CloseType:         ForceClose,
+		IsPending:         true,
 	}
 	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)

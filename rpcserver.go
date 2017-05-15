@@ -721,13 +721,14 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	chanPoint := channel.ChannelPoint()
 	chanInfo := channel.StateSnapshot()
 	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:   *chanPoint,
-		ClosingTXID: closeTx.TxHash(),
-		RemotePub:   &chanInfo.RemoteIdentity,
-		Capacity:    chanInfo.Capacity,
-		OurBalance:  chanInfo.LocalBalance,
-		CloseType:   channeldb.ForceClose,
-		IsPending:   true,
+		ChanPoint:         *chanPoint,
+		ClosingTXID:       closeTx.TxHash(),
+		RemotePub:         &chanInfo.RemoteIdentity,
+		Capacity:          chanInfo.Capacity,
+		SettledBalance:    chanInfo.LocalBalance,
+		TimeLockedBalance: chanInfo.LocalBalance,
+		CloseType:         channeldb.ForceClose,
+		IsPending:         true,
 	}
 	if err := channel.DeleteState(closeInfo); err != nil {
 		return nil, err
@@ -767,7 +768,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	isSynced, err := r.server.lnwallet.IsSynced()
 	if err != nil {
-		return nil, fmt.Errorf("unable to sync PoV of the wallet with current best block in the main chain: %v", err)
+		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
+			"with current best block in the main chain: %v", err)
 	}
 
 	activeChains := make([]string, registeredChains.NumActiveChains())
@@ -933,7 +935,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			RemoteNodePub: hex.EncodeToString(pub),
 			ChannelPoint:  chanPoint.String(),
 			Capacity:      int64(pendingClose.Capacity),
-			LocalBalance:  int64(pendingClose.OurBalance),
+			LocalBalance:  int64(pendingClose.SettledBalance),
 		}
 
 		closeTXID := pendingClose.ClosingTXID.String()
@@ -961,9 +963,14 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				ClosingTxid: closeTXID,
 			}
 
+			// Query for the maturity state for this force closed
+			// channel. If we didn't have any time-locked outputs,
+			// then the nursery may not know of the contract.
 			nurseryInfo, err := r.server.utxoNursery.NurseryReport(&chanPoint)
-			if err != nil {
-				return nil, err
+			if err != nil && err != ErrContractNotFound {
+				return nil, fmt.Errorf("unable to obtain "+
+					"nursery report for ChannelPoint(%v): %v",
+					chanPoint, err)
 			}
 
 			// If the nursery knows of this channel, then we can
@@ -996,7 +1003,6 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 // ListChannels returns a description of all direct active, open channels the
 // node knows of.
-// TODO(roasbeef): add 'online' bit to response
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 

@@ -70,6 +70,12 @@ var (
 	byteOrder = binary.BigEndian
 )
 
+var (
+	// ErrContractNotFound is returned when the nursery is unable to
+	// retreive information about a queried contract.
+	ErrContractNotFound = fmt.Errorf("unable to locate contract")
+)
+
 // witnessType determines how an output's witness will be generated. The
 // default commitmentTimeLock type will generate a witness that will allow
 // spending of a time-locked transaction enforced by CheckSequenceVerify.
@@ -317,9 +323,9 @@ type incubationRequest struct {
 func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) {
 	var incReq incubationRequest
 
-	// It could be that our to-self output was below the dust limit. In that
-	// case the SignDescriptor would be nil and we would not have that output
-	// to incubate.
+	// It could be that our to-self output was below the dust limit. In
+	// that case the SignDescriptor would be nil and we would not have that
+	// output to incubate.
 	if closeSummary.SelfOutputSignDesc != nil {
 		outputAmt := btcutil.Amount(closeSummary.SelfOutputSignDesc.Output.Value)
 		selfOutput := &kidOutput{
@@ -510,7 +516,7 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 			// entry for this particular contract.
 			indexInfo := indexBucket.Get(chanPointBytes)
 			if indexInfo == nil {
-				return fmt.Errorf("contract not found in index")
+				return ErrContractNotFound
 			}
 
 			// If an entry is found, then using the height store in
@@ -519,7 +525,7 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 			height := indexInfo[:4]
 			heightRow := kgtnBucket.Get(height)
 			if heightRow == nil {
-				return fmt.Errorf("contract not found")
+				return ErrContractNotFound
 			}
 
 			// Once we have the entry itself, we'll slice of the

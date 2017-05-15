@@ -1094,6 +1094,8 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 // wipeChannel removes the passed channel from all indexes associated with the
 // peer, and deletes the channel from the database.
 func wipeChannel(p *peer, channel *lnwallet.LightningChannel) error {
+	channel.Stop()
+
 	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 
 	p.activeChanMtx.Lock()

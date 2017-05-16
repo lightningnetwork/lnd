@@ -285,7 +285,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
 		10000, 500)
 	if err != nil {
-		t.Fatal("unable to create channel edge: %v", err)
+		t.Fatalf("unable to create channel edge: %v", err)
 	}
 
 	edge := &channeldb.ChannelEdgeInfo{

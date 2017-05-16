@@ -431,24 +431,18 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 			"historical dispatch: %v", tx.BlockHash, err)
 		return false
 	}
-	block, err := b.chainConn.GetBlock(blockHash)
+	block, err := b.chainConn.GetBlockVerbose(blockHash)
 	if err != nil {
 		chainntnfs.Log.Errorf("unable to get block hash: %v", err)
-		return false
-	}
-
-	txHash, err := chainhash.NewHashFromStr(tx.Hash)
-	if err != nil {
-		chainntnfs.Log.Errorf("unable to convert to hash: %v", err)
 		return false
 	}
 
 	// If the block obtained, locate the transaction's index within the
 	// block so we can give the subscriber full confirmation details.
 	var txIndex uint32
-	for i, t := range block.Transactions {
-		h := t.TxHash()
-		if txHash.IsEqual(&h) {
+	targetTxidStr := msg.txid.String()
+	for i, txHash := range block.Tx {
+		if txHash == targetTxidStr {
 			txIndex = uint32(i)
 			break
 		}
@@ -456,7 +450,7 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 
 	confDetails := &chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
-		BlockHeight: uint32(currentHeight) - uint32(tx.Confirmations) + 1,
+		BlockHeight: uint32(block.Height),
 		TxIndex:     txIndex,
 	}
 

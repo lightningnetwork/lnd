@@ -593,7 +593,8 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			channelID.BlockHeight)
 		if err != nil {
 			return errors.Errorf("unable to fetch utxo for "+
-				"chan_id=%v: %v", msg.ChannelID, err)
+				"chan_id=%v, chan_point=%v: %v", msg.ChannelID,
+				fundingPoint, err)
 		}
 
 		// Recreate witness output to be sure that declared in channel
@@ -615,8 +616,8 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// channel edge and also that the announced channel value is
 		// right.
 		if !bytes.Equal(witnessOutput.PkScript, chanUtxo.PkScript) {
-			return errors.Errorf("pkScript mismatch: expected %v, "+
-				"got %v", witnessOutput.PkScript, chanUtxo.PkScript)
+			return errors.Errorf("pkScript mismatch: expected %x, "+
+				"got %x", witnessOutput.PkScript, chanUtxo.PkScript)
 		}
 
 		// TODO(roasbeef): this is a hack, needs to be removed

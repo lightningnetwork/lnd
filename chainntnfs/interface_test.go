@@ -82,7 +82,8 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 
 	// Now generate a single block, the transaction should be included which
 	// should trigger a notification event.
-	if _, err := miner.Node.Generate(1); err != nil {
+	blockHash, err := miner.Node.Generate(1)
+	if err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
@@ -92,8 +93,24 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 	}()
 
 	select {
-	case <-confSent:
-		break
+	case confInfo := <-confSent:
+		// Finally, we'll verify that the tx index returned is the exact same
+		// as the tx index of the transaction within the block itself.
+		msgBlock, err := miner.Node.GetBlock(blockHash[0])
+		if err != nil {
+			t.Fatalf("unable to fetch block: %v", err)
+		}
+
+		block := btcutil.NewBlock(msgBlock)
+		specifiedTxHash, err := block.TxHash(int(confInfo.TxIndex))
+		if err != nil {
+			t.Fatalf("unable to index into block: %v", err)
+		}
+
+		if !specifiedTxHash.IsEqual(txid) {
+			t.Fatalf("mismatched tx indexes: expected %v, got %v",
+				txid, specifiedTxHash)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
@@ -493,7 +510,8 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	// the confirmation event is registered below to ensure that the TXID
 	// hasn't already been included in the chain, otherwise the
 	// notification will never be sent.
-	if _, err := miner.Node.Generate(1); err != nil {
+	blockHash, err := miner.Node.Generate(1)
+	if err != nil {
 		t.Fatalf("unable to generate two blocks: %v", err)
 	}
 
@@ -517,7 +535,29 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	}()
 
 	select {
-	case <-confSent:
+	case confInfo := <-confSent:
+		// Finally, we'll verify that the tx index returned is the exact same
+		// as the tx index of the transaction within the block itself.
+		msgBlock, err := miner.Node.GetBlock(blockHash[0])
+		if err != nil {
+			t.Fatalf("unable to fetch block: %v", err)
+		}
+		block := btcutil.NewBlock(msgBlock)
+		specifiedTxHash, err := block.TxHash(int(confInfo.TxIndex))
+		if err != nil {
+			t.Fatalf("unable to index into block: %v", err)
+		}
+		if !specifiedTxHash.IsEqual(txid) {
+			t.Fatalf("mismatched tx indexes: expected %v, got %v",
+				txid, specifiedTxHash)
+		}
+
+		// We'll also ensure that the block height has been set
+		// properly.
+		if confInfo.BlockHeight != uint32(currentHeight) {
+			t.Fatalf("incorrect block height: expected %v, got %v",
+				confInfo.BlockHeight, currentHeight)
+		}
 		break
 	case <-time.After(2 * time.Second):
 		t.Fatalf("confirmation notification never received")

@@ -1069,8 +1069,10 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	// TODO(roasbeef): add param for num needed confs
 	confNtfn, err := notifier.RegisterConfirmationsNtfn(closingTxID, 1,
 		bestHeight)
-	if err != nil && errChan != nil {
-		errChan <- err
+	if err != nil {
+		if errChan != nil {
+			errChan <- err
+		}
 		return
 	}
 

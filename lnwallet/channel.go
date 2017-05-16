@@ -983,6 +983,15 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// state...!!!
 	commitTxBroadcast := commitSpend.SpendingTx
 
+	// If this is our commitment transaction, then we can exit here as we
+	// don't have any further processing we need to do (we can't cheat
+	// ourselves :p).
+	commitmentHash := lc.channelState.OurCommitTx.TxHash()
+	isOurCommitment := commitSpend.SpenderTxHash.IsEqual(&commitmentHash)
+	if isOurCommitment {
+		return
+	}
+
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
 	obsfucator := lc.channelState.StateHintObsfucator

@@ -573,6 +573,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// then we'll also purge all of its indexes.
 		remotePub := &channel.StateSnapshot().RemoteIdentity
 		if peer, err := r.server.findPeer(remotePub); err == nil {
+			// TODO(roasbeef): actually get the active channel
+			// instead too?
+			//  * so only need to grab from database
 			wipeChannel(peer, channel)
 		} else {
 			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())

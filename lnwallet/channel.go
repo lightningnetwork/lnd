@@ -646,7 +646,7 @@ type LightningChannel struct {
 
 	// UnilateralClose is a channel that will be sent upon by the close
 	// observer once the unilateral close of a channel is detected.
-	UnilateralClose chan *chainntnfs.SpendDetail
+	UnilateralClose chan *UnilateralCloseSummary
 
 	// ContractBreach is a channel that is used to communicate the data
 	// necessary to fully resolve the channel in the case that a contract
@@ -691,7 +691,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		RemoteDeliveryScript:  state.TheirDeliveryScript,
 		FundingWitnessScript:  state.FundingWitnessScript,
 		ForceCloseSignal:      make(chan struct{}),
-		UnilateralClose:       make(chan *chainntnfs.SpendDetail, 1),
+		UnilateralClose:       make(chan *UnilateralCloseSummary, 1),
 		UnilateralCloseSignal: make(chan struct{}),
 		ContractBreach:        make(chan *BreachRetribution, 1),
 		LocalFundingKey:       state.OurMultiSigKey,
@@ -1029,7 +1029,10 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// Notify any subscribers that we've detected a unilateral
 		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
-		lc.UnilateralClose <- commitSpend
+		lc.UnilateralClose <- &UnilateralCloseSummary{
+			SpendDetail:         commitSpend,
+			ChannelCloseSummary: closeSummary,
+		}
 
 	// If the state number broadcast is lower than the remote node's
 	// current un-revoked height, then THEY'RE ATTEMPTING TO VIOLATE THE
@@ -2285,6 +2288,35 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	return nil
 }
 
+// getSignedCommitTx function take the latest commitment transaction and populate
+// it with witness data.
+func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
+	// Fetch the current commitment transaction, along with their signature
+	// for the transaction.
+	commitTx := lc.channelState.OurCommitTx
+	theirSig := append(lc.channelState.OurCommitSig, byte(txscript.SigHashAll))
+
+	// With this, we then generate the full witness so the caller can
+	// broadcast a fully signed transaction.
+	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
+	ourSigRaw, err := lc.signer.SignOutputRaw(commitTx, lc.signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	ourSig := append(ourSigRaw, byte(txscript.SigHashAll))
+
+	// With the final signature generated, create the witness stack
+	// required to spend from the multi-sig output.
+	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
+	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
+
+	commitTx.TxIn[0].Witness = SpendMultiSig(lc.FundingWitnessScript, ourKey,
+		ourSig, theirKey, theirSig)
+
+	return commitTx, nil
+}
+
 // ForceCloseSummary describes the final commitment state before the channel is
 // locked-down to initiate a force closure by broadcasting the latest state
 // on-chain. The summary includes all the information required to claim all
@@ -2314,33 +2346,14 @@ type ForceCloseSummary struct {
 	SelfOutputMaturity uint32
 }
 
-// getSignedCommitTx function take the latest commitment transaction and populate
-// it with witness data.
-func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
-	// Fetch the current commitment transaction, along with their signature
-	// for the transaction.
-	commitTx := lc.channelState.OurCommitTx
-	theirSig := append(lc.channelState.OurCommitSig, byte(txscript.SigHashAll))
-
-	// With this, we then generate the full witness so the caller can
-	// broadcast a fully signed transaction.
-	lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitTx)
-	ourSigRaw, err := lc.signer.SignOutputRaw(commitTx, lc.signDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	ourSig := append(ourSigRaw, byte(txscript.SigHashAll))
-
-	// With the final signature generated, create the witness stack
-	// required to spend from the multi-sig output.
-	ourKey := lc.channelState.OurMultiSigKey.SerializeCompressed()
-	theirKey := lc.channelState.TheirMultiSigKey.SerializeCompressed()
-
-	commitTx.TxIn[0].Witness = SpendMultiSig(lc.FundingWitnessScript, ourKey,
-		ourSig, theirKey, theirSig)
-
-	return commitTx, nil
+// UnilateralCloseSummary describes the details of a detected unilateral
+// channel closure. This includes the information about with which
+// transactions, and block the channel was unilaterally closed, as well as
+// summarization details concerning the _state_ of the channel at the point of
+// channel closure.
+type UnilateralCloseSummary struct {
+	*chainntnfs.SpendDetail
+	*channeldb.ChannelCloseSummary
 }
 
 // ForceClose executes a unilateral closure of the transaction at the current

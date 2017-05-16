@@ -489,8 +489,8 @@ func (r *ChannelRouter) networkHandler() {
 			if ntfnUpdate.cancel {
 				if client, ok := r.topologyClients[ntfnUpdate.clientID]; ok {
 					delete(r.topologyClients, clientID)
-					close(client.ntfnChan)
 					close(client.exit)
+					close(client.ntfnChan)
 				}
 
 				continue

@@ -1193,6 +1193,13 @@ type commitmentState struct {
 	// along with the HTLC to forward the packet to the next hop.
 	pendingCircuits map[uint64]*sphinx.ProcessedPacket
 
+	// logCommitTimer is a timer which is sent upon if we go an interval
+	// without receiving/sending a commitment update. It's role is to
+	// ensure both chains converge to identical state in a timely manner.
+	// TODO(roasbeef): timer should be >> then RTT
+	logCommitTimer *time.Timer
+	logCommitTick  <-chan time.Time
+
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
 	chanID    lnwire.ChannelID
@@ -1239,6 +1246,7 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 		cancelReasons:   make(map[uint64]lnwire.FailCode),
 		pendingCircuits: make(map[uint64]*sphinx.ProcessedPacket),
 		sphinx:          p.server.sphinx,
+		logCommitTimer:  time.NewTimer(300 * time.Millisecond),
 		switchChan:      htlcPlex,
 	}
 
@@ -1250,8 +1258,6 @@ func (p *peer) htlcManager(channel *lnwallet.LightningChannel,
 	batchTimer := time.NewTicker(50 * time.Millisecond)
 	defer batchTimer.Stop()
 
-	logCommitTimer := time.NewTicker(100 * time.Millisecond)
-	defer logCommitTimer.Stop()
 out:
 	for {
 		select {
@@ -1275,7 +1281,7 @@ out:
 				state.chanPoint, p.id)
 			break out
 
-		case <-logCommitTimer.C:
+		case <-state.logCommitTick:
 			// If we haven't sent or received a new commitment
 			// update in some time, check to see if we have any
 			// pending updates we need to commit due to our
@@ -1607,6 +1613,16 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		}
 		p.queueMsg(nextRevocation, nil)
 
+		if !state.logCommitTimer.Stop() {
+			select {
+			case <-state.logCommitTimer.C:
+			default:
+			}
+		}
+
+		state.logCommitTimer.Reset(300 * time.Millisecond)
+		state.logCommitTick = state.logCommitTimer.C
+
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
 		// already have a commitment with the latest accepted state.
@@ -1820,6 +1836,17 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 	for _, update := range state.pendingBatch {
 		state.clearedHTCLs[update.index] = update
 	}
+
+	// We've just initiated a state transition, attempt to stop the
+	// logCommitTimer. If the timer already ticked, then we'll consume the
+	// value, dropping
+	if state.logCommitTimer != nil && !state.logCommitTimer.Stop() {
+		select {
+		case <-state.logCommitTimer.C:
+		default:
+		}
+	}
+	state.logCommitTick = nil
 
 	// Finally, clear our the current batch, and flip the pendingUpdate
 	// bool to indicate were waiting for a commitment signature.

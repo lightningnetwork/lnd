@@ -1283,6 +1283,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// Determine how many current HTLCs are over the dust limit, and should
 	// be counted for the purpose of fee calculation.
+	// TODO(roasbeef): dust outputs need to be counted towards fees paid
+	//  * tally in separate accumulator, subtract from fee amount
+	//  * when dumping fees back into initiator output, only dumb explicit
+	//    fee
 	var dustLimit btcutil.Amount
 	if remoteChain {
 		dustLimit = lc.channelState.TheirDustLimit

@@ -74,31 +74,31 @@ func (e *ErrInsufficientFunds) Error() string {
 //
 // TODO(roasbeef): zombie reservation sweeper goroutine.
 type initFundingReserveMsg struct {
-	// The ID of the remote node we would like to open a channel with.
+	// nodeId is the ID of the remote node we would like to open a channel
+	// with.
 	nodeID *btcec.PublicKey
 
-	// The IP address plus port that we used to either establish or accept
-	// the connection which led to the negotiation of this funding
-	// workflow.
+	// nodeAddr is the IP address plus port that we used to either
+	// establish or accept the connection which led to the negotiation of
+	// this funding workflow.
 	nodeAddr *net.TCPAddr
 
-	// The number of confirmations required before the channel is considered
-	// open.
+	// numConfs is the number of confirmations required before the channel
+	// is considered open.
 	numConfs uint16
 
-	// The amount of funds requested for this channel.
+	// fundingAmount is the amount of funds requested for this channel.
 	fundingAmount btcutil.Amount
 
-	// The total capacity of the channel which includes the amount of funds
-	// the remote party contributes (if any).
+	// capacity is the total capacity of the channel which includes the
+	// amount of funds the remote party contributes (if any).
 	capacity btcutil.Amount
 
-	// The minimum accepted satoshis/KB fee for the funding transaction. In
-	// order to ensure timely confirmation, it is recomened that this fee
-	// should be generous, paying some multiple of the accepted base fee
-	// rate of the network.
-	// TODO(roasbeef): integrate fee estimation project...
-	minFeeRate btcutil.Amount
+	// feePerKw is the accepted satoshis/Kw fee for the funding
+	// transaction. In order to ensure timely confirmation, it is
+	// recommended that this fee should be generous, paying some multiple
+	// of the accepted base fee rate of the network.
+	feePerKw btcutil.Amount
 
 	// ourDustLimit is the threshold below which no HTLC output should be
 	// generated for our commitment transaction; ie. HTLCs below
@@ -109,17 +109,21 @@ type initFundingReserveMsg struct {
 	// responder as part of the initial channel creation.
 	pushSat btcutil.Amount
 
-	// The delay on the "pay-to-self" output(s) of the commitment transaction.
+	// csvDelay is the delay on the "pay-to-self" output(s) of the
+	// commitment transaction.
 	csvDelay uint32
 
-	// A channel in which all errors will be sent accross. Will be nil if
-	// this initial set is succesful.
+	// err is a channel in which all errors will be sent across. Will be
+	// nil if this initial set is successful.
+	//
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
 
-	// A ChannelReservation with our contributions filled in will be sent
-	// accross this channel in the case of a succesfully reservation
-	// initiation. In the case of an error, this will read a nil pointer.
+	// resp is channel in which a ChannelReservation with our contributions
+	// filled in will be sent across this channel in the case of a
+	// successfully reservation initiation. In the case of an error, this
+	// will read a nil pointer.
+	//
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	resp chan *ChannelReservation
 }
@@ -487,16 +491,15 @@ out:
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(capacity,
 	ourFundAmt btcutil.Amount, theirID *btcec.PublicKey,
-	theirAddr *net.TCPAddr, numConfs uint16,
-	csvDelay uint32, ourDustLimit btcutil.Amount,
-	pushSat btcutil.Amount) (*ChannelReservation, error) {
+	theirAddr *net.TCPAddr, numConfs uint16, csvDelay uint32,
+	ourDustLimit btcutil.Amount, pushSat btcutil.Amount,
+	feePerKw btcutil.Amount) (*ChannelReservation, error) {
 
 	// TODO(roasbeef): make the above into an initial config as part of the
 	// refactor to implement spec compliant funding flow
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
-	minFeeRate := btcutil.Amount(l.FeeEstimator.EstimateFeePerWeight(1))
 
 	l.msgChan <- &initFundingReserveMsg{
 		capacity:      capacity,
@@ -504,7 +507,7 @@ func (l *LightningWallet) InitChannelReservation(capacity,
 		fundingAmount: ourFundAmt,
 		csvDelay:      csvDelay,
 		ourDustLimit:  ourDustLimit,
-		minFeeRate:    minFeeRate,
+		feePerKw:      feePerKw,
 		pushSat:       pushSat,
 		nodeID:        theirID,
 		nodeAddr:      theirAddr,
@@ -528,7 +531,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.minFeeRate, l, id, req.numConfs, req.pushSat)
+		req.feePerKw, l, id, req.numConfs, req.pushSat)
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -549,10 +552,14 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		// TODO(roasbeef): consult model for proper fee rate on funding
-		// tx
-		err := l.selectCoinsAndChange(uint64(req.minFeeRate),
-			req.fundingAmount, ourContribution)
+		// Coin selection is done on the basis of sat-per-byte, so
+		// we'll query the fee estimator for a fee to use to ensure the
+		// funding transaction gets into the _next_  block.
+		//
+		// TODO(roasbeef): shouldn't be targeting next block
+		satPerByte := l.FeeEstimator.EstimateFeePerByte(1)
+		err := l.selectCoinsAndChange(satPerByte, req.fundingAmount,
+			ourContribution)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
@@ -1212,7 +1219,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	if err := pendingReservation.partialState.SyncPending(pendingReservation.nodeAddr); err != nil {
+	err = pendingReservation.partialState.SyncPending(pendingReservation.nodeAddr)
+	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
 		return
@@ -1241,9 +1249,12 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
+	walletLog.Infof("Performing coin selection using %v sat/byte as fee "+
+		"rate", feeRate)
+
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
-	// TODO(roasbeef): make num confs a configuration paramter
+	// TODO(roasbeef): make num confs a configuration parameter
 	coins, err := l.ListUnspentWitness(1)
 	if err != nil {
 		return err
@@ -1442,7 +1453,7 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 }
 
 // StaticFeeEstimator will return a static value for all fee calculation
-// requests. It is designed to be replaced by a proper fee calcuation
+// requests. It is designed to be replaced by a proper fee calculation
 // implementation.
 type StaticFeeEstimator struct {
 	FeeRate      uint64

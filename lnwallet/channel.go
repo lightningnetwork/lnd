@@ -1256,10 +1256,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		commitChain = lc.localCommitChain
 	}
 
-	// TODO(roasbeef): don't assume view is always fetched from tip?
-	var ourBalance, theirBalance btcutil.Amount
-	ourBalance = commitChain.tip().ourBalance
-	theirBalance = commitChain.tip().theirBalance
+	ourBalance := commitChain.tip().ourBalance
+	theirBalance := commitChain.tip().theirBalance
 
 	// Add the fee from the previous commitment state back to the
 	// initiator's balance, so that the fee can be recalculated and
@@ -1307,20 +1305,28 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		numHTLCs++
 	}
 
-	// Calculate the fee for the commitment transaction based on its size.
-	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
-		(commitWeight + btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+	// Next, we'll calculate the fee for the commitment transaction based
+	// on its total weight. Once we have the total weight, we'll multiply
+	// by the current fee-per-kw, then divide by 1000 to get the proper
+	// fee.
+	totalCommitWeight := commitWeight + btcutil.Amount(htlcWeight*numHTLCs)
+	commitFee := (lc.channelState.FeePerKw * totalCommitWeight) / 1000
 
+	// Currently, within the protocol, the initiator always pays the fees.
+	// So we'll subtract the fee amount from the balance of the current
+	// initiator.
 	if lc.channelState.IsInitiator {
 		ourBalance = ourBalance - commitFee
 	} else if !lc.channelState.IsInitiator {
 		theirBalance = theirBalance - commitFee
 	}
 
-	var selfKey *btcec.PublicKey
-	var remoteKey *btcec.PublicKey
-	var delay uint32
-	var delayBalance, p2wkhBalance btcutil.Amount
+	var (
+		selfKey                    *btcec.PublicKey
+		remoteKey                  *btcec.PublicKey
+		delay                      uint32
+		delayBalance, p2wkhBalance btcutil.Amount
+	)
 	if remoteChain {
 		selfKey = lc.channelState.TheirCommitKey
 		remoteKey = lc.channelState.OurCommitKey
@@ -2542,8 +2548,7 @@ func (lc *LightningChannel) InitCooperativeClose() ([]byte, *chainhash.Hash, err
 
 	// Calculate the fee for the commitment transaction based on its size.
 	// For a cooperative close, there should be no HTLCs.
-	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
-		commitWeight / 1000
+	commitFee := (lc.channelState.FeePerKw * commitWeight) / 1000
 
 	if lc.channelState.IsInitiator {
 		lc.channelState.OurBalance = lc.channelState.OurBalance - commitFee
@@ -2603,8 +2608,8 @@ func (lc *LightningChannel) CompleteCooperativeClose(remoteSig []byte) (*wire.Ms
 
 	// Calculate the fee for the commitment transaction based on its size.
 	// For a cooperative close, there should be no HTLCs.
-	commitFee := btcutil.Amount(lc.feeEstimator.EstimateFeePerWeight(1)) *
-		commitWeight / 1000
+	// TODO(roasbeef): should be using fee passed in
+	commitFee := (lc.channelState.FeePerKw * commitWeight) / 1000
 
 	if lc.channelState.IsInitiator {
 		lc.channelState.OurBalance = lc.channelState.OurBalance - commitFee

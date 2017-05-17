@@ -186,7 +186,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	channelCapacity := btcutil.Amount(10 * 1e8)
 	channelBal := channelCapacity / 2
 	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(800)
+	bobDustLimit := btcutil.Amount(1300)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
 
@@ -244,10 +244,12 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	var obsfucator [StateHintSize]byte
 	copy(obsfucator[:], aliceFirstRevoke[:])
 
+	feePerKw := btcutil.Amount(6000)
 	aliceChannelState := &channeldb.OpenChannel{
 		IdentityPub:            aliceKeyPub,
 		ChanID:                 prevOut,
 		ChanType:               channeldb.SingleFunder,
+		FeePerKw:               feePerKw,
 		IsInitiator:            true,
 		StateHintObsfucator:    obsfucator,
 		OurCommitKey:           aliceKeyPub,
@@ -272,6 +274,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		IdentityPub:            bobKeyPub,
+		FeePerKw:               feePerKw,
 		ChanID:                 prevOut,
 		ChanType:               channeldb.SingleFunder,
 		IsInitiator:            false,
@@ -306,7 +309,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	bobSigner := &mockSigner{bobKeyPriv}
 
 	notifier := &mockNotfier{}
-	estimator := &StaticFeeEstimator{50, 6}
+	estimator := &StaticFeeEstimator{24, 6}
 
 	channelAlice, err := NewLightningChannel(aliceSigner, notifier,
 		estimator, aliceChannelState)
@@ -614,7 +617,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 		}
 
 		actualCost := blockchain.GetTransactionWeight(btcutil.NewTx(commitTx))
-		estimatedCost := estimateCommitTxCost(count, false)
+		estimatedCost := estimateCommitTxWeight(count, false)
 
 		diff := int(estimatedCost - actualCost)
 		if 0 > diff || BaseCommitmentTxSizeEstimationError < diff {
@@ -1143,9 +1146,10 @@ func TestCheckDustLimit(t *testing.T) {
 	// transaction is below the dust limit.  We create an HTLC that will
 	// only leave a small enough amount to Alice such that Bob will
 	// consider it a dust output.
-
+	// TODO(roasbeef): test needs to be fixed after reserves and proper
+	// rolling over of dust into fees is done
 	aliceAmount := btcutil.Amount(5e8)
-	htlcAmount2 := aliceAmount - btcutil.Amount(1000)
+	htlcAmount2 := aliceAmount - btcutil.Amount(6100)
 	htlc, preimage = createHTLC(0, htlcAmount2)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
@@ -1622,7 +1626,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	if closeTx.TxOut[0].Value != int64(aliceBal-calcStaticFee(0)) {
 		t.Fatalf("alice's balance is incorrect: expected %v, got %v",
-			aliceBal-calcStaticFee(0), closeTx.TxOut[0].Value)
+			int64(aliceBal-calcStaticFee(0)), closeTx.TxOut[0].Value)
 	}
 
 	// Finally, we'll modify the current balances and dust limits such that

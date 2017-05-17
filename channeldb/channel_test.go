@@ -144,7 +144,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		ChanType:                   SingleFunder,
 		IdentityPub:                pubKey,
 		ChanID:                     id,
-		MinFeePerKb:                btcutil.Amount(5000),
+		FeePerKw:                   btcutil.Amount(5000),
 		TheirDustLimit:             btcutil.Amount(200),
 		OurDustLimit:               btcutil.Amount(200),
 		OurCommitKey:               privKey.PubKey(),
@@ -217,7 +217,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if !reflect.DeepEqual(state.ChanID, newState.ChanID) {
 		t.Fatal("chan id's don't match")
 	}
-	if state.MinFeePerKb != newState.MinFeePerKb {
+	if state.FeePerKw != newState.FeePerKw {
 		t.Fatal("fee/kb doesn't match")
 	}
 	if state.TheirDustLimit != newState.TheirDustLimit {

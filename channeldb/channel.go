@@ -142,11 +142,11 @@ type OpenChannel struct {
 	// globally within the blockchain.
 	ChanID *wire.OutPoint
 
-	// MinFeePerKb is the min BTC/KB that should be paid within the
-	// commitment transaction for the entire duration of the channel's
+	// FeePerKw is the min satoshis/kilo-weight that should be paid within
+	// the commitment transaction for the entire duration of the channel's
 	// lifetime. This field may be updated during normal operation of the
 	// channel as on-chain conditions change.
-	MinFeePerKb btcutil.Amount
+	FeePerKw btcutil.Amount
 
 	// TheirDustLimit is the threshold below which no HTLC output should be
 	// generated for their commitment transaction; ie. HTLCs below
@@ -182,10 +182,10 @@ type OpenChannel struct {
 	TheirBalance btcutil.Amount
 
 	// CommitFee is the amount calculated to be paid in fees for the
-	// current set of commitment transactions. The fee amount is
-	// persisted with the channel in order to allow the fee amount to be
-	// removed and recalculated with each channel state update, including
-	// updates that happen after a system restart.
+	// current set of commitment transactions. The fee amount is persisted
+	// with the channel in order to allow the fee amount to be removed and
+	// recalculated with each channel state update, including updates that
+	// happen after a system restart.
 	CommitFee btcutil.Amount
 
 	// OurCommitKey is the latest version of the commitment state,
@@ -740,6 +740,8 @@ type ChannelCloseSummary struct {
 	// closed, they'll stay marked as "pending" until _all_ the pending
 	// funds have been swept.
 	IsPending bool
+
+	// TODO(roasbeef): also store short_chan_id?
 }
 
 // CloseChannel closes a previously active lightning channel. Closing a channel
@@ -984,7 +986,7 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanCapacity(openChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanMinFeePerKb(openChanBucket, channel); err != nil {
+	if err := putChanFeePerKw(openChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanTheirDustLimit(openChanBucket, channel); err != nil {
@@ -1239,9 +1241,9 @@ func fetchChanCapacity(openChanBucket *bolt.Bucket, channel *OpenChannel) error 
 	return nil
 }
 
-func putChanMinFeePerKb(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func putChanFeePerKw(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	scratch := make([]byte, 8)
-	byteOrder.PutUint64(scratch, uint64(channel.MinFeePerKb))
+	byteOrder.PutUint64(scratch, uint64(channel.FeePerKw))
 
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
@@ -1305,7 +1307,7 @@ func fetchChanMinFeePerKb(openChanBucket *bolt.Bucket, channel *OpenChannel) err
 	copy(keyPrefix[3:], b.Bytes())
 
 	feeBytes := openChanBucket.Get(keyPrefix)
-	channel.MinFeePerKb = btcutil.Amount(byteOrder.Uint64(feeBytes))
+	channel.FeePerKw = btcutil.Amount(byteOrder.Uint64(feeBytes))
 
 	return nil
 }

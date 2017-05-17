@@ -385,9 +385,11 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness, wallet *lnwallet
 
 	// Bob initiates a channel funded with 5 BTC for each side, so 10
 	// BTC total. He also generates 2 BTC in change.
+	feePerWeight := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
+	feePerKw := feePerWeight * 1000
 	chanReservation, err := wallet.InitChannelReservation(fundingAmount*2,
 		fundingAmount, bobNode.id, bobAddr, numReqConfs, 4,
-		lnwallet.DefaultDustLimit(), 0)
+		lnwallet.DefaultDustLimit(), 0, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -505,8 +507,11 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 
 	// Create a single channel asking for 16 BTC total.
 	fundingAmount := btcutil.Amount(8 * 1e8)
+	feePerWeight := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
+	feePerKw := feePerWeight * 1000
 	_, err := wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(),
+		0, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation 1: %v", err)
 	}
@@ -516,7 +521,8 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	// that aren't locked, so this should fail.
 	amt := btcutil.Amount(900 * 1e8)
 	failedReservation, err := wallet.InitChannelReservation(amt, amt,
-		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(),
+		0, feePerKw)
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
@@ -533,11 +539,14 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	t.Log("Running funding insufficient funds tests")
 
+	feePerWeight := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
+	feePerKw := feePerWeight * 1000
+
 	// Create a reservation for 44 BTC.
 	fundingAmount := btcutil.Amount(44 * 1e8)
 	chanReservation, err := wallet.InitChannelReservation(fundingAmount,
 		fundingAmount, testPub, bobAddr, numReqConfs, 4,
-		lnwallet.DefaultDustLimit(), 0)
+		lnwallet.DefaultDustLimit(), 0, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -545,7 +554,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = wallet.InitChannelReservation(fundingAmount,
 		fundingAmount, testPub, bobAddr, numReqConfs, 4,
-		lnwallet.DefaultDustLimit(), 0)
+		lnwallet.DefaultDustLimit(), 0, feePerKw)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
 		t.Fatalf("coin selection succeded should have insufficient funds: %v",
 			err)
@@ -575,7 +584,8 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Request to fund a new channel should now succeed.
 	_, err = wallet.InitChannelReservation(fundingAmount, fundingAmount,
-		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(), 0)
+		testPub, bobAddr, numReqConfs, 4, lnwallet.DefaultDustLimit(),
+		0, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
@@ -618,9 +628,11 @@ func testSingleFunderReservationWorkflowInitiator(miner *rpctest.Harness,
 	// side.
 	fundingAmt := btcutil.Amount(4 * 1e8)
 	pushAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin)
+	feePerWeight := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
+	feePerKw := feePerWeight * 1000
 	chanReservation, err := wallet.InitChannelReservation(fundingAmt,
 		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4,
-		lnwallet.DefaultDustLimit(), pushAmt)
+		lnwallet.DefaultDustLimit(), pushAmt, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}
@@ -760,9 +772,11 @@ func testSingleFunderReservationWorkflowResponder(miner *rpctest.Harness,
 	// Bob sends over a single funding request, so we allocate our
 	// contribution and the necessary resources.
 	fundingAmt := btcutil.Amount(0)
+	feePerWeight := btcutil.Amount(wallet.FeeEstimator.EstimateFeePerWeight(1))
+	feePerKw := feePerWeight * 1000
 	chanReservation, err := wallet.InitChannelReservation(capacity,
 		fundingAmt, bobNode.id, bobAddr, numReqConfs, 4,
-		lnwallet.DefaultDustLimit(), 0)
+		lnwallet.DefaultDustLimit(), 0, feePerKw)
 	if err != nil {
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}

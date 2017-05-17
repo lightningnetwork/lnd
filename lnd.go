@@ -149,7 +149,7 @@ func lndMain() error {
 	signer := wc
 	bio := wc
 	fundingSigner := wc
-	estimator := lnwallet.StaticFeeEstimator{FeeRate: 250}
+	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.

@@ -39,10 +39,6 @@ const (
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
 	outgoingQueueLen = 50
-
-	// proposedFee is a hard-coded fee value, intended to be replaced by a
-	// more robust fee estimation implemention.
-	proposedFee = 5000
 )
 
 // outgoinMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -938,18 +934,26 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 	channel := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
 
-	initiatorSig, err := channel.CreateCloseProposal(proposedFee)
+	// Calculate a fee rate that we believe to be fair.
+	// TODO(bvu): with a dynamic fee implementation, we will compare this to
+	// the fee proposed by the responder in their ClosingSigned message.
+	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+
+	// We agree with the proposed channel close transaction and fee rate,
+	// so generate our signature.
+	initiatorSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
 	if err != nil {
 		req.err <- err
 		return
 	}
 	initSig := append(initiatorSig, byte(txscript.SigHashAll))
 
-	// Complete coop close transaction.
+	// Complete coop close transaction with the signatures of the close
+	// initiator and responder.
 	responderSig := msg.Signature
 	respSig := append(responderSig.Serialize(), byte(txscript.SigHashAll))
 	closeTx, err := channel.CompleteCooperativeClose(initSig, respSig,
-		proposedFee)
+		feeRate)
 	if err != nil {
 		req.err <- err
 		// TODO(roasbeef): send ErrorGeneric to other side
@@ -1063,8 +1067,10 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	initSig := append(initiatorSig.Serialize(), byte(txscript.SigHashAll))
 	chanPoint := channel.ChannelPoint()
 
+	// Calculate our expected fee rate.
+	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
 	closeTx, err := channel.CompleteCooperativeClose(respSig, initSig,
-		proposedFee)
+		feeRate)
 	if err != nil {
 		peerLog.Errorf("unable to complete cooperative "+
 			"close for ChannelPoint(%v): %v",
@@ -1195,9 +1201,12 @@ func (p *peer) sendShutdown(channel *lnwallet.LightningChannel) error {
 // sendClosingSigned handles the creation and sending of  proposed channel
 // close transactions.
 func (p *peer) sendClosingSigned(channel *lnwallet.LightningChannel) ([]byte, error) {
-	// We agree with the proposed fee, so we send back our signature
-	// for the proposed transaction.
-	closeSig, err := channel.CreateCloseProposal(proposedFee)
+
+	// Calculate an initial proposed fee rate for the close transaction.
+	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+
+	// Create a proposed channel close transaction with our fee proposal.
+	closeSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
 	if err != nil {
 		return nil, err
 	}

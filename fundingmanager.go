@@ -525,6 +525,8 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		"from peer(%x)", amt, msg.PushSatoshis, delay, msg.PendingChannelID,
 		fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
+	// TODO(roasbeef): dust limit should be made parameter into funding mgr
+	//  * will change on a per-chain basis
 	ourDustLimit := lnwallet.DefaultDustLimit()
 	theirDustlimit := msg.DustLimit
 

@@ -540,7 +540,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		uint16(fmsg.msg.ConfirmationDepth), delay, ourDustLimit,
-		msg.PushSatoshis)
+		msg.PushSatoshis, msg.FeePerKw)
 	if err != nil {
 		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -1250,12 +1250,23 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		msg.pushAmt, capacity, numConfs, msg.peerAddress.Address,
 		ourDustLimit)
 
+	// First, we'll query the fee estimator for a fee that should get the
+	// commitment transaction into the next block (conf target of 1). We
+	// target the next block here to ensure that we'll be able to execute a
+	// timely unilateral channel closure if needed.
+	// TODO(roasbeef): shouldn't be targeting next block
+	feePerWeight := btcutil.Amount(f.cfg.FeeEstimator.EstimateFeePerWeight(1))
+
+	// The protocol currently operates on the basis of fee-per-kw, so we'll
+	// multiply the computed sat/weight by 1000 to arrive at fee-per-kw.
+	feePerKw := feePerWeight * 1000
+
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then
 	// the request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
 		localAmt, peerKey, msg.peerAddress.Address, uint16(numConfs), 4,
-		ourDustLimit, msg.pushAmt)
+		ourDustLimit, msg.pushAmt, feePerKw)
 	if err != nil {
 		msg.err <- err
 		return
@@ -1264,6 +1275,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Obtain a new pending channel ID which is used to track this
 	// reservation throughout its lifetime.
 	chanID := f.nextPendingChanID()
+
+	fndgLog.Infof("Target sat/kw for pendingID(%x): %v", chanID,
+		int64(feePerKw))
 
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
@@ -1296,12 +1310,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		msg.peerAddress.Address, chanID)
 
 	// TODO(roasbeef): add FundingRequestFromContribution func
-	// TODO(roasbeef): need to set fee/kb
 	fundingReq := lnwire.NewSingleFundingRequest(
 		chanID,
 		msg.channelType,
 		msg.coinType,
-		0, // TODO(roasbeef): grab from fee estimation model
+		feePerKw,
 		capacity,
 		contribution.CsvDelay,
 		contribution.CommitKey,

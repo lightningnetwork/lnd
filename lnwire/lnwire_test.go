@@ -144,7 +144,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := SingleFundingRequest{
 				ChannelType:       uint8(r.Int63()),
 				CoinType:          uint64(r.Int63()),
-				FeePerKb:          btcutil.Amount(r.Int63()),
+				FeePerKw:          btcutil.Amount(r.Int63()),
 				FundingAmount:     btcutil.Amount(r.Int63()),
 				PushSatoshis:      btcutil.Amount(r.Int63()),
 				CsvDelay:          uint32(r.Int31()),

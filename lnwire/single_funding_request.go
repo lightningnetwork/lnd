@@ -34,11 +34,11 @@ type SingleFundingRequest struct {
 	// of the Bitcoin blockchain.
 	CoinType uint64
 
-	// FeePerKb is the required number of satoshis per KB that the
+	// FeePerKw is the required number of satoshis per kilo-weight that the
 	// requester will pay at all timers, for both the funding transaction
 	// and commitment transaction. This value can later be updated once the
 	// channel is open.
-	FeePerKb btcutil.Amount
+	FeePerKw btcutil.Amount
 
 	// FundingAmount is the number of satoshis the initiator would like
 	// to commit to the channel.
@@ -84,7 +84,7 @@ type SingleFundingRequest struct {
 
 // NewSingleFundingRequest creates, and returns a new empty SingleFundingRequest.
 func NewSingleFundingRequest(chanID [32]byte, chanType uint8, coinType uint64,
-	fee btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
+	feePerKw btcutil.Amount, amt btcutil.Amount, delay uint32, ck,
 	cdp *btcec.PublicKey, deliveryScript PkScript,
 	dustLimit btcutil.Amount, pushSat btcutil.Amount,
 	confDepth uint32) *SingleFundingRequest {
@@ -93,7 +93,7 @@ func NewSingleFundingRequest(chanID [32]byte, chanType uint8, coinType uint64,
 		PendingChannelID:       chanID,
 		ChannelType:            chanType,
 		CoinType:               coinType,
-		FeePerKb:               fee,
+		FeePerKw:               feePerKw,
 		FundingAmount:          amt,
 		CsvDelay:               delay,
 		CommitmentKey:          ck,
@@ -115,7 +115,7 @@ func (c *SingleFundingRequest) Decode(r io.Reader, pver uint32) error {
 		c.PendingChannelID[:],
 		&c.ChannelType,
 		&c.CoinType,
-		&c.FeePerKb,
+		&c.FeePerKw,
 		&c.FundingAmount,
 		&c.PushSatoshis,
 		&c.CsvDelay,
@@ -136,7 +136,7 @@ func (c *SingleFundingRequest) Encode(w io.Writer, pver uint32) error {
 		c.PendingChannelID[:],
 		c.ChannelType,
 		c.CoinType,
-		c.FeePerKb,
+		c.FeePerKw,
 		c.FundingAmount,
 		c.PushSatoshis,
 		c.CsvDelay,
@@ -173,7 +173,7 @@ func (c *SingleFundingRequest) MaxPayloadLength(uint32) uint32 {
 	// CoinType - 8 bytes
 	length += 8
 
-	// FeePerKb - 8 bytes
+	// FeePerKw - 8 bytes
 	length += 8
 
 	// FundingAmount - 8 bytes

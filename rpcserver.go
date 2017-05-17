@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -906,6 +907,18 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		len(pendingOpenChannels))
 	for i, pendingChan := range pendingOpenChannels {
 		pub := pendingChan.IdentityPub.SerializeCompressed()
+
+		// As this is required for display purposes, we'll calculate
+		// the weight of the commitment transaction. We also add on the
+		// estimated weight of the witness to calculate the weight of
+		// the transaction if it were to be immediately unilaterally
+		// broadcast.
+		// TODO(roasbeef): query for funding tx from wallet, display
+		// that also?
+		utx := btcutil.NewTx(pendingChan.OurCommitTx)
+		commitBaseWeight := blockchain.GetTransactionWeight(utx)
+		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
+
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelResponse_PendingChannel{
 				RemoteNodePub: hex.EncodeToString(pub),
@@ -914,6 +927,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				LocalBalance:  int64(pendingChan.OurBalance),
 				RemoteBalance: int64(pendingChan.TheirBalance),
 			},
+			CommitWeight: commitWeight,
+			CommitFee:    int64(pendingChan.CommitFee),
+			FeePerKw:     int64(pendingChan.FeePerKw),
 			// TODO(roasbeef): need to track confirmation height
 		}
 	}
@@ -1040,6 +1056,15 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			peerOnline = true
 		}
 
+		// As this is required for display purposes, we'll calculate
+		// the weight of the commitment transaction. We also add on the
+		// estimated weight of the witness to calculate the weight of
+		// the transaction if it were to be immediately unilaterally
+		// broadcast.
+		utx := btcutil.NewTx(dbChannel.OurCommitTx)
+		commitBaseWeight := blockchain.GetTransactionWeight(utx)
+		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
+
 		channel := &lnrpc.ActiveChannel{
 			Active:                peerOnline,
 			RemotePubkey:          nodeID,
@@ -1048,6 +1073,9 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			Capacity:              int64(dbChannel.Capacity),
 			LocalBalance:          int64(dbChannel.OurBalance),
 			RemoteBalance:         int64(dbChannel.TheirBalance),
+			CommitFee:             int64(dbChannel.CommitFee),
+			CommitWeight:          commitWeight,
+			FeePerKw:              int64(dbChannel.FeePerKw),
 			TotalSatoshisSent:     int64(dbChannel.TotalSatoshisSent),
 			TotalSatoshisReceived: int64(dbChannel.TotalSatoshisReceived),
 			NumUpdates:            dbChannel.NumUpdates,

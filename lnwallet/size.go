@@ -5,12 +5,12 @@ import (
 )
 
 const (
-	// The weight(cost), which is different from the !size! (see BIP-141),
+	// The weight(weight), which is different from the !size! (see BIP-141),
 	// is calculated as:
 	// Weight = 4 * BaseSize + WitnessSize (weight).
 	// BaseSize - size of the transaction without witness data (bytes).
 	// WitnessSize - witness size (bytes).
-	// Weight - the metric for determining the cost of the transaction.
+	// Weight - the metric for determining the weight of the transaction.
 
 	// P2WSHSize 34 bytes
 	//	- OP_0: 1 byte
@@ -53,7 +53,7 @@ const (
 	//	- ScriptSig: 0 bytes
 	//	- Witness <----	we use "Witness" instead of "ScriptSig" for
 	// 			transaction validation, but "Witness" is stored
-	// 			separately and cost for it size is smaller. So
+	// 			separately and weight for it size is smaller. So
 	// 			we separate the calculation of ordinary data
 	// 			from witness data.
 	//	- Sequence: 4 bytes
@@ -97,14 +97,14 @@ const (
 	BaseCommitmentTxSize = 4 + 1 + FundingInputSize + 1 +
 		CommitmentDelayOutput + CommitmentKeyHashOutput + 4
 
-	// BaseCommitmentTxCost 500 weight
-	BaseCommitmentTxCost = blockchain.WitnessScaleFactor * BaseCommitmentTxSize
+	// BaseCommitmentTxWeight 500 weight
+	BaseCommitmentTxWeight = blockchain.WitnessScaleFactor * BaseCommitmentTxSize
 
-	// WitnessCommitmentTxCost 224 weight
-	WitnessCommitmentTxCost = WitnessHeaderSize + WitnessSize
+	// WitnessCommitmentTxWeight 224 weight
+	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
 
-	// HTLCCost 172 weight
-	HTLCCost = blockchain.WitnessScaleFactor * HTLCSize
+	// HTLCWeight 172 weight
+	HTLCWeight = blockchain.WitnessScaleFactor * HTLCSize
 
 	// MaxHTLCNumber shows as the maximum number HTLCs which can be
 	// included in commitment transaction. This numbers was calculated by
@@ -114,19 +114,19 @@ const (
 	MaxHTLCNumber = 1253
 )
 
-// estimateCommitTxCost estimate commitment transaction cost depending on the
-// precalculated cost of base transaction, witness data, which is needed for
-// paying for funding tx, and htlc cost multiplied by their count.
-func estimateCommitTxCost(count int, prediction bool) int64 {
+// estimateCommitTxWeight estimate commitment transaction weight depending on
+// the precalculated weight of base transaction, witness data, which is needed
+// for paying for funding tx, and htlc weight multiplied by their count.
+func estimateCommitTxWeight(count int, prediction bool) int64 {
 	// Make prediction about the size of commitment transaction with
 	// additional HTLC.
 	if prediction {
 		count++
 	}
 
-	htlcCost := int64(count * HTLCCost)
-	baseCost := int64(BaseCommitmentTxCost)
-	witnessCost := int64(WitnessCommitmentTxCost)
+	htlcWeight := int64(count * HTLCWeight)
+	baseWeight := int64(BaseCommitmentTxWeight)
+	witnessWeight := int64(WitnessCommitmentTxWeight)
 
-	return htlcCost + baseCost + witnessCost
+	return htlcWeight + baseWeight + witnessWeight
 }

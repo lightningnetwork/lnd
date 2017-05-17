@@ -298,12 +298,16 @@ message ActiveChannel {
     int64 local_balance = 6 [json_name = "local_balance"];
     int64 remote_balance = 7 [json_name = "remote_balance"];
 
-    int64 unsettled_balance = 8 [json_name = "unsettled_balance"];
-    int64 total_satoshis_sent = 9 [json_name = "total_satoshis_sent"];
-    int64 total_satoshis_received = 10 [json_name = "total_satoshis_received"];
-    uint64 num_updates = 11 [json_name = "num_updates"];
+    int64 commit_fee = 8 [json_name = "commit_fee"];
+    int64 commit_weight = 9 [ json_name = "commit_weight" ];
+    int64 fee_per_kw = 10 [json_name = "fee_per_kw"];
 
-    repeated HTLC pending_htlcs = 12 [json_name = "pending_htlcs"];
+    int64 unsettled_balance = 11 [json_name = "unsettled_balance"];
+    int64 total_satoshis_sent = 12 [json_name = "total_satoshis_sent"];
+    int64 total_satoshis_received = 13 [json_name = "total_satoshis_received"];
+    uint64 num_updates = 14 [json_name = "num_updates"];
+
+    repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
 }
 
 message ListChannelsRequest {
@@ -351,7 +355,7 @@ message GetInfoResponse {
     bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
     bool testnet = 10 [ json_name = "testnet" ];
 
-    repeated string chains = 11[ json_name = "chains" ] ;
+    repeated string chains = 11 [ json_name = "chains" ];
 }
 
 message ConfirmationUpdate {
@@ -424,6 +428,10 @@ message PendingChannelResponse {
 
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
         uint32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
+
+        int64 commit_fee = 4 [json_name = "commit_fee" ];
+        int64 commit_weight = 5 [ json_name = "commit_weight" ];
+        int64 fee_per_kw = 6 [ json_name = "fee_per_kw" ];
     }
 
     message ClosedChannel {

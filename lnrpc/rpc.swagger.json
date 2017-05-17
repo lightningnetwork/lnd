@@ -659,6 +659,18 @@
         "blocks_till_open": {
           "type": "integer",
           "format": "int64"
+        },
+        "commit_fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "commit_weight": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },
@@ -688,6 +700,18 @@
           "format": "int64"
         },
         "remote_balance": {
+          "type": "string",
+          "format": "int64"
+        },
+        "commit_fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "commit_weight": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_per_kw": {
           "type": "string",
           "format": "int64"
         },

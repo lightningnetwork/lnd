@@ -416,7 +416,7 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 	tx, err := b.chainConn.GetRawTransactionVerbose(msg.txid)
 	if err != nil || tx == nil || tx.BlockHash == "" {
 		if err != nil {
-			chainntnfs.Log.Errorf("unable to query for txid(%v): %v",
+			chainntnfs.Log.Warnf("unable to query for txid(%v): %v",
 				msg.txid, err)
 		}
 		return false

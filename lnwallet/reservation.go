@@ -174,7 +174,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount, minFeeRate btcut
 			// transaction. We also deduct our balance by the
 			// amount pushed as part of the initial state.
 			ourBalance = capacity - commitFee - pushSat
-			theirBalance = capacity - fundingAmt + pushSat
+			theirBalance = pushSat
 		} else {
 			// Otherwise, this is a dual funder workflow where both
 			// slides split the amount funded and the commitment

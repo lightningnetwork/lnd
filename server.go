@@ -305,7 +305,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 				if chanID.IsChanPoint(channel.ChanID) {
 					return lnwallet.NewLightningChannel(
 						wallet.Signer, notifier,
-						lnwallet.StaticFeeEstimator{FeeRate: 250},
+						s.feeEstimator,
 						channel)
 				}
 			}

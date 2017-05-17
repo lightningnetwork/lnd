@@ -2532,39 +2532,42 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 //
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any inflight.
-func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, error) {
+func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, uint64,
+	error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
 	// If we're already closing the channel, then ignore this request.
 	if lc.status == channelClosing || lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
-		return nil, ErrChanClosing
+		return nil, 0, ErrChanClosing
 	}
 
-	// Calculate the fee for the commitment transaction based on its size.
-	// For a cooperative close, there should be no HTLCs.
-	commitFee := (lc.channelState.FeePerKw * commitWeight) / 1000
+	// Subtract the proposed fee from the appropriate balance, taking care
+	// not to persist the adjusted balance, as the feeRate may change
+	// during the channel closing process.
+	proposedFee := uint64(btcutil.Amount(feeRate) * commitWeight / 1000)
+	ourBalance := lc.channelState.OurBalance
+	theirBalance := lc.channelState.TheirBalance
 
 	if lc.channelState.IsInitiator {
-		lc.channelState.OurBalance = lc.channelState.OurBalance - commitFee
+		ourBalance = ourBalance - btcutil.Amount(proposedFee)
 	} else {
-		lc.channelState.TheirBalance = lc.channelState.TheirBalance - commitFee
+		theirBalance = theirBalance - btcutil.Amount(proposedFee)
 	}
 
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurDustLimit, lc.channelState.TheirDustLimit,
-		lc.channelState.OurBalance, lc.channelState.TheirBalance,
-		lc.channelState.OurDeliveryScript,
-		lc.channelState.TheirDeliveryScript,
-		lc.channelState.IsInitiator)
+		ourBalance, theirBalance, lc.channelState.OurDeliveryScript,
+		lc.channelState.TheirDeliveryScript, lc.channelState.IsInitiator)
 
 	// Ensure that the transaction doesn't explicitly violate any
 	// consensus rules such as being too big, or having any value with a
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Finally, sign the completed cooperative closure transaction. As the
@@ -2574,14 +2577,14 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, error) 
 	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
 	sig, err := lc.signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// As everything checks out, indicate in the channel status that a
 	// channel closure has been initiated.
 	lc.status = channelClosing
 
-	return sig, nil
+	return sig, proposedFee, nil
 }
 
 // CompleteCooperativeClose completes the cooperative closure of the target
@@ -2590,8 +2593,8 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, error) 
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig,
-	remoteSig []byte, proposedFee uint64) (*wire.MsgTx, error) {
+func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
+	feeRate uint64) (*wire.MsgTx, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -2601,15 +2604,26 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig,
 		return nil, ErrChanClosing
 	}
 
+	// Subtract the proposed fee from the appropriate balance, taking care
+	// not to persist the adjusted balance, as the feeRate may change
+	// during the channel closing process.
+	proposedFee := uint64(btcutil.Amount(feeRate) * commitWeight / 1000)
+	ourBalance := lc.channelState.OurBalance
+	theirBalance := lc.channelState.TheirBalance
+
+	if lc.channelState.IsInitiator {
+		ourBalance = ourBalance - btcutil.Amount(proposedFee)
+	} else {
+		theirBalance = theirBalance - btcutil.Amount(proposedFee)
+	}
+
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
 		lc.channelState.OurDustLimit, lc.channelState.TheirDustLimit,
-		lc.channelState.OurBalance, lc.channelState.TheirBalance,
-		lc.channelState.OurDeliveryScript,
-		lc.channelState.TheirDeliveryScript,
-		lc.channelState.IsInitiator)
+		ourBalance, theirBalance, lc.channelState.OurDeliveryScript,
+		lc.channelState.TheirDeliveryScript, lc.channelState.IsInitiator)
 
 	// Ensure that the transaction doesn't explicitly validate any
 	// consensus rules such as being too big, or having any value with a

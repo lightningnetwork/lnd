@@ -17,4 +17,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "node-ann-feature-addr-swap",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "dynamic-fees",
+		Flag: lnwire.RequiredFlag,
+	},
 })

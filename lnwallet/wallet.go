@@ -1467,7 +1467,7 @@ func (e StaticFeeEstimator) EstimateFeePerByte(numBlocks uint32) uint64 {
 
 // EstimateFeePerWeight will return a static value for fee calculations.
 func (e StaticFeeEstimator) EstimateFeePerWeight(numBlocks uint32) uint64 {
-	return e.FeeRate * 4
+	return e.FeeRate / 4
 }
 
 // EstimateConfirmation will return a static value representing the estimated

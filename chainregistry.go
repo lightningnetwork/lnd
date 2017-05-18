@@ -105,7 +105,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		}
 
 		config := neutrino.Config{
-			DataDir:      homeChainConfig.ChainDir,
+			DataDir:      cfg.DataDir,
 			Database:     nodeDatabase,
 			ChainParams:  *activeNetParams.Params,
 			AddPeers:     cfg.SpvMode.AddPeers,

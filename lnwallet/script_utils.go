@@ -298,7 +298,7 @@ func senderHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = sweepSig
 	witnessStack[1] = paymentPreimage
-	witnessStack[2] = []byte{0}
+	witnessStack[2] = []byte{}
 	witnessStack[3] = []byte{1}
 	witnessStack[4] = commitScript
 
@@ -340,7 +340,7 @@ func senderHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 	// order to force Script execution to the HTLC timeout clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = sweepSig
-	witnessStack[1] = []byte{0}
+	witnessStack[1] = []byte{}
 	witnessStack[2] = commitScript
 
 	return witnessStack, nil
@@ -504,7 +504,7 @@ func receiverHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 	witnessStack[0] = sweepSig
 	witnessStack[1] = revokePreimage
 	witnessStack[2] = []byte{1}
-	witnessStack[3] = []byte{0}
+	witnessStack[3] = []byte{}
 	witnessStack[4] = commitScript
 
 	return witnessStack, nil
@@ -533,8 +533,8 @@ func receiverHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
 
 	witnessStack := wire.TxWitness(make([][]byte, 4))
 	witnessStack[0] = sweepSig
-	witnessStack[1] = []byte{0}
-	witnessStack[2] = []byte{0}
+	witnessStack[1] = []byte{}
+	witnessStack[2] = []byte{}
 	witnessStack[3] = commitScript
 
 	return witnessStack, nil

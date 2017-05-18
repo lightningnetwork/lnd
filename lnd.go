@@ -1,16 +1,13 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"strconv"
-	"strings"
 
 	"golang.org/x/net/context"
 
@@ -18,14 +15,8 @@ import (
 
 	flags "github.com/btcsuite/go-flags"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/lightningnetwork/lnd/routing/chainview"
-
-	"github.com/roasbeef/btcrpcclient"
 )
 
 var (
@@ -70,100 +61,20 @@ func lndMain() error {
 	}
 	defer chanDB.Close()
 
-	// Set the RPC config from the "home" chain. Multi-chain isn't yet
-	// active, so we'll restrict usage to a particular chain for now.
-	homeChainConfig := cfg.Bitcoin
-	if registeredChains.PrimaryChain() == litecoinChain {
-		homeChainConfig = cfg.Litecoin
-	}
-	ltndLog.Infof("Primary chain is set to: %v",
-		registeredChains.PrimaryChain())
-
-	// Next load btcd's TLS cert for the RPC connection. If a raw cert was
-	// specified in the config, then we'll set that directly. Otherwise, we
-	// attempt to read the cert from the path specified in the config.
-	var rpcCert []byte
-	if homeChainConfig.RawRPCCert != "" {
-		rpcCert, err = hex.DecodeString(homeChainConfig.RawRPCCert)
-		if err != nil {
-			return err
-		}
-	} else {
-		certFile, err := os.Open(homeChainConfig.RPCCert)
-		if err != nil {
-			return err
-		}
-		rpcCert, err = ioutil.ReadAll(certFile)
-		if err != nil {
-			return err
-		}
-		if err := certFile.Close(); err != nil {
-			return err
-		}
-	}
-
-	// If the specified host for the btcd RPC server already has a port
-	// specified, then we use that directly. Otherwise, we assume the
-	// default port according to the selected chain parameters.
-	var btcdHost string
-	if strings.Contains(homeChainConfig.RPCHost, ":") {
-		btcdHost = homeChainConfig.RPCHost
-	} else {
-		btcdHost = fmt.Sprintf("%v:%v", homeChainConfig.RPCHost, activeNetParams.rpcPort)
-	}
-
-	btcdUser := homeChainConfig.RPCUser
-	btcdPass := homeChainConfig.RPCPass
-
-	// TODO(roasbeef): parse config here and select chosen notifier instead
-	rpcConfig := &btcrpcclient.ConnConfig{
-		Host:                 btcdHost,
-		Endpoint:             "ws",
-		User:                 btcdUser,
-		Pass:                 btcdPass,
-		Certificates:         rpcCert,
-		DisableTLS:           false,
-		DisableConnectOnNew:  true,
-		DisableAutoReconnect: false,
-	}
-	notifier, err := btcdnotify.New(rpcConfig)
+	// With the information parsed from the configuration, create valid
+	// instances of the paertinent interfaces required to operate the
+	// Lightning Network Daemon.
+	activeChainControl, err := newChainControlFromConfig(cfg, chanDB)
 	if err != nil {
+		fmt.Printf("unable to create chain control: %v\n", err)
 		return err
 	}
 
-	// TODO(roasbeef): parse config here select chosen WalletController
-	walletConfig := &btcwallet.Config{
-		PrivatePass: []byte("hello"),
-		DataDir:     homeChainConfig.ChainDir,
-		RPCHost:     btcdHost,
-		RPCUser:     homeChainConfig.RPCUser,
-		RPCPass:     homeChainConfig.RPCPass,
-		CACert:      rpcCert,
-		NetParams:   activeNetParams.Params,
-	}
-	wc, err := btcwallet.New(*walletConfig)
-	if err != nil {
-		fmt.Printf("unable to create wallet controller: %v\n", err)
-		return err
-	}
-	signer := wc
-	bio := wc
-	fundingSigner := wc
-	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
-
-	// Create, and start the lnwallet, which handles the core payment
-	// channel logic, and exposes control via proxy state machines.
-	wallet, err := lnwallet.NewLightningWallet(chanDB, notifier, wc, signer,
-		bio, estimator, activeNetParams.Params)
-	if err != nil {
-		fmt.Printf("unable to create wallet: %v\n", err)
-		return err
-	}
-	if err := wallet.Startup(); err != nil {
-		fmt.Printf("unable to start wallet: %v\n", err)
-		return err
-	}
-	ltndLog.Info("LightningWallet opened")
+	// Finally before we start the server, we'll register the "holy
+	// trinity" of interface for our current "home chain" with the active
+	// chainRegistry interface.
+	primaryChain := registeredChains.PrimaryChain()
+	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
@@ -171,28 +82,9 @@ func lndMain() error {
 		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
 
-	// Finally before we start the server, we'll register the "holy
-	// trinity" of interface for our current "home chain" with the active
-	// chainRegistry interface.
-	primaryChain := registeredChains.PrimaryChain()
-	registeredChains.RegisterChain(primaryChain, &chainControl{
-		chainIO:       bio,
-		chainNotifier: notifier,
-		wallet:        wallet,
-	})
-
-	// Next, we'll create an instance of the default chain view to be used
-	// within the routing layer.
-	chainView, err := chainview.NewBtcdFilteredChainView(*rpcConfig)
-	if err != nil {
-		srvrLog.Errorf("unable to create chain view: %v", err)
-		return err
-	}
-
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
-	server, err := newServer(defaultListenAddrs, notifier, bio,
-		fundingSigner, wallet, estimator, chanDB, chainView)
+	server, err := newServer(defaultListenAddrs, chanDB, activeChainControl)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err

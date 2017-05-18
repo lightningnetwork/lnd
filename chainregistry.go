@@ -1,11 +1,25 @@
 package main
 
 import (
+	"encoding/hex"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 // chainCode is an enum-like structure for keeping track of the chains currently
@@ -36,10 +50,189 @@ func (c chainCode) String() string {
 // particular chain together. A single chainControl instance will exist for all
 // the chains lnd is currently active on.
 type chainControl struct {
-	chainIO       lnwallet.BlockChainIO
+	chainIO lnwallet.BlockChainIO
+
+	feeEstimator lnwallet.FeeEstimator
+
+	signer lnwallet.Signer
+
+	msgSigner lnwallet.MessageSigner
+
 	chainNotifier chainntnfs.ChainNotifier
 
+	chainView chainview.FilteredChainView
+
 	wallet *lnwallet.LightningWallet
+}
+
+// newChainControlFromConfig....
+func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl, error) {
+	// Set the RPC config from the "home" chain. Multi-chain isn't yet
+	// active, so we'll restrict usage to a particular chain for now.
+	homeChainConfig := cfg.Bitcoin
+	if registeredChains.PrimaryChain() == litecoinChain {
+		homeChainConfig = cfg.Litecoin
+	}
+	ltndLog.Infof("Primary chain is set to: %v",
+		registeredChains.PrimaryChain())
+
+	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
+	walletConfig := &btcwallet.Config{
+		PrivatePass: []byte("hello"),
+		DataDir:     homeChainConfig.ChainDir,
+		NetParams:   activeNetParams.Params,
+	}
+
+	cc := &chainControl{
+		feeEstimator: estimator,
+	}
+
+	var (
+		err error
+	)
+
+	// If spv mode is active, then we'll be using a distimnct set of
+	// chainControl interfaces that interface directly with the p2p network
+	// of the selected chain.
+	if cfg.SpvMode.Active {
+		// TODO(roasbeef): create dest for database of chain
+		//  * where to place???
+
+		dbName := filepath.Join(homeChainConfig.ChainDir, "neutrino.db")
+		nodeDatabase, err := walletdb.Create("bdb", dbName)
+		if err != nil {
+			return nil, err
+		}
+
+		config := neutrino.Config{
+			DataDir:      homeChainConfig.ChainDir,
+			Database:     nodeDatabase,
+			ChainParams:  *activeNetParams.Params,
+			AddPeers:     cfg.SpvMode.AddPeers,
+			ConnectPeers: cfg.SpvMode.ConnectPeers,
+		}
+
+		neutrino.WaitForMoreCFHeaders = time.Second * 1
+		neutrino.MaxPeers = 8
+		neutrino.BanDuration = 5 * time.Second
+		svc, err := neutrino.NewChainService(config)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create neutrino: %v", err)
+		}
+		svc.Start()
+
+		ltndLog.Infof("WAITING!!!!!")
+		m := make(chan struct{})
+		<-m
+
+		// TODO(roasbeef): return clean up func in closure to stop spvc
+		// and rest?
+		// defer db.Close()
+		// svc.Stop
+
+		// TODO(roasbeef): need to modify to base things off of
+		// ChainService
+		//walletConfig.ChainService = svc
+	} else {
+		// Otherwise, we'll be speaking directly via RPC to a node.
+		//
+		// So first we'll load btcd/ltcd's TLS cert for the RPC
+		// connection. If a raw cert was specified in the config, then
+		// we'll set that directly. Otherwise, we attempt to read the
+		// cert from the path specified in the config.
+		var rpcCert []byte
+		if homeChainConfig.RawRPCCert != "" {
+			rpcCert, err = hex.DecodeString(homeChainConfig.RawRPCCert)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			certFile, err := os.Open(homeChainConfig.RPCCert)
+			if err != nil {
+				return nil, err
+			}
+			rpcCert, err = ioutil.ReadAll(certFile)
+			if err != nil {
+				return nil, err
+			}
+			if err := certFile.Close(); err != nil {
+				return nil, err
+			}
+		}
+
+		// If the specified host for the btcd/ltcd RPC server already
+		// has a port specified, then we use that directly. Otherwise,
+		// we assume the default port according to the selected chain
+		// parameters.
+		var btcdHost string
+		if strings.Contains(homeChainConfig.RPCHost, ":") {
+			btcdHost = homeChainConfig.RPCHost
+		} else {
+			btcdHost = fmt.Sprintf("%v:%v", homeChainConfig.RPCHost,
+				activeNetParams.rpcPort)
+		}
+
+		btcdUser := homeChainConfig.RPCUser
+		btcdPass := homeChainConfig.RPCPass
+
+		// TODO(roasbeef): set chain service for wallet?
+		walletConfig.RPCHost = btcdHost
+		walletConfig.RPCUser = homeChainConfig.RPCUser
+		walletConfig.RPCPass = homeChainConfig.RPCPass
+		walletConfig.CACert = rpcCert
+
+		rpcConfig := &btcrpcclient.ConnConfig{
+			Host:                 btcdHost,
+			Endpoint:             "ws",
+			User:                 btcdUser,
+			Pass:                 btcdPass,
+			Certificates:         rpcCert,
+			DisableTLS:           false,
+			DisableConnectOnNew:  true,
+			DisableAutoReconnect: false,
+		}
+		cc.chainNotifier, err = btcdnotify.New(rpcConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		// Finally, we'll create an instance of the default chain view to be
+		// used within the routing layer.
+		cc.chainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
+		if err != nil {
+			srvrLog.Errorf("unable to create chain view: %v", err)
+			return nil, err
+		}
+	}
+
+	wc, err := btcwallet.New(*walletConfig)
+	if err != nil {
+		fmt.Printf("unable to create wallet controller: %v\n", err)
+		return nil, err
+	}
+
+	cc.msgSigner = wc
+	cc.signer = wc
+	cc.chainIO = wc
+
+	// Create, and start the lnwallet, which handles the core payment
+	// channel logic, and exposes control via proxy state machines.
+	wallet, err := lnwallet.NewLightningWallet(chanDB, cc.chainNotifier, wc,
+		cc.signer, cc.chainIO, cc.feeEstimator, activeNetParams.Params)
+	if err != nil {
+		fmt.Printf("unable to create wallet: %v\n", err)
+		return nil, err
+	}
+	if err := wallet.Startup(); err != nil {
+		fmt.Printf("unable to start wallet: %v\n", err)
+		return nil, err
+	}
+
+	ltndLog.Info("LightningWallet opened")
+
+	cc.wallet = wallet
+
+	return cc, nil
 }
 
 var (

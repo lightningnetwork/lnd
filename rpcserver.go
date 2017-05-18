@@ -116,7 +116,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*chainhash.Ha
 		return nil, err
 	}
 
-	return r.server.lnwallet.SendOutputs(outputs)
+	return r.server.cc.wallet.SendOutputs(outputs)
 }
 
 // SendCoins executes a request to send coins to a particular address. Unlike
@@ -168,7 +168,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		addrType = lnwallet.PubKeyHash
 	}
 
-	addr, err := r.server.lnwallet.NewAddress(addrType, false)
+	addr, err := r.server.cc.wallet.NewAddress(addrType, false)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 	in *lnrpc.NewWitnessAddressRequest) (*lnrpc.NewAddressResponse, error) {
 
-	addr, err := r.server.lnwallet.NewAddress(lnwallet.WitnessPubKey, false)
+	addr, err := r.server.cc.wallet.NewAddress(lnwallet.WitnessPubKey, false)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +465,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, err := r.server.lnwallet.IsSynced()
+	isSynced, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, err
 	}
@@ -564,7 +564,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			return err
 		}
 
-		_, bestHeight, err := r.server.bio.GetBestBlock()
+		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return err
 		}
@@ -606,7 +606,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		errChan = make(chan error, 1)
-		notifier := r.server.chainNotifier
+		notifier := r.server.cc.chainNotifier
 		go waitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
 			closingTxid, func() {
 				// Respond to the local subsystem which
@@ -689,8 +689,8 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(r.server.lnwallet.Signer, nil,
-		r.server.feeEstimator, dbChan)
+	return lnwallet.NewLightningChannel(r.server.cc.wallet.Signer, nil,
+		r.server.cc.feeEstimator, dbChan)
 }
 
 // forceCloseChan executes a unilateral close of the target channel by
@@ -715,7 +715,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 		channel.ChannelPoint(), newLogClosure(func() string {
 			return spew.Sdump(closeTx)
 		}))
-	if err := r.server.lnwallet.PublishTransaction(closeTx); err != nil {
+	if err := r.server.cc.wallet.PublishTransaction(closeTx); err != nil {
 		return nil, err
 	}
 
@@ -766,12 +766,12 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
-	bestHash, bestHeight, err := r.server.bio.GetBestBlock()
+	bestHash, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, err := r.server.lnwallet.IsSynced()
+	isSynced, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -817,7 +817,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// In order to display the total number of satoshis of outbound
 		// (sent) and inbound (recv'd) satoshis that have been
 		// transported through this peer, we'll sum up the sent/recv'd
-		// values for each of the active channels we ahve with the
+		// values for each of the active channels we have with the
 		// peer.
 		chans := serverPeer.ChannelSnapshots()
 		for _, c := range chans {
@@ -854,7 +854,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
 
-	balance, err := r.server.lnwallet.ConfirmedBalance(1, in.WitnessOnly)
+	balance, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -935,7 +935,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 
-	_, currentHeight, err := r.server.bio.GetBestBlock()
+	_, currentHeight, err := r.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
@@ -1568,7 +1568,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
 
-	txClient, err := r.server.lnwallet.SubscribeTransactions()
+	txClient, err := r.server.cc.wallet.SubscribeTransactions()
 	if err != nil {
 		return err
 	}
@@ -1609,8 +1609,8 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 func (r *rpcServer) GetTransactions(context.Context,
 	*lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
 
-	// TODO(roasbeef): add pagination support
-	transactions, err := r.server.lnwallet.ListTransactionDetails()
+	// TODO(btcsuite): add pagination support
+	transactions, err := r.server.cc.wallet.ListTransactionDetails()
 	if err != nil {
 		return nil, err
 	}

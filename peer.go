@@ -289,8 +289,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		lnChan, err := lnwallet.NewLightningChannel(p.server.lnwallet.Signer,
-			p.server.chainNotifier, p.server.feeEstimator, dbChan)
+		lnChan, err := lnwallet.NewLightningChannel(p.server.cc.signer,
+			p.server.cc.chainNotifier, p.server.cc.feeEstimator, dbChan)
 		if err != nil {
 			return err
 		}
@@ -1098,7 +1098,7 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 		},
 	}
 
-	_, bestHeight, err := p.server.bio.GetBestBlock()
+	_, bestHeight, err := p.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		req.Err <- err
 		return
@@ -1107,9 +1107,9 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 	// Finally, launch a goroutine which will request to be notified by the
 	// ChainNotifier once the closure transaction obtains a single
 	// confirmation.
-	notifier := p.server.chainNotifier
-	go waitForChanToClose(uint32(bestHeight), notifier, req.Err,
-		req.ChanPoint, &closingTxid, func() {
+	notifier := p.server.cc.chainNotifier
+	go waitForChanToClose(uint32(bestHeight), notifier, req.err,
+		req.ChanPoint, closingTxid, func() {
 
 			// First, we'll mark the database as being fully closed
 			// so we'll no longer watch for its ultimate closure
@@ -1168,7 +1168,7 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	}
 	closeTxid := closeTx.TxHash()
 
-	_, bestHeight, err := p.server.bio.GetBestBlock()
+	_, bestHeight, err := p.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		peerLog.Errorf("unable to get best height: %v", err)
 	}
@@ -1206,7 +1206,7 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	// Finally, we'll launch a goroutine to watch the network for the
 	// confirmation of the closing transaction, and mark the channel as
 	// such within the database (once it's confirmed").
-	notifier := p.server.chainNotifier
+	notifier := p.server.cc.chainNotifier
 	go waitForChanToClose(uint32(bestHeight), notifier, nil, chanPoint,
 		&closeTxid, func() {
 			// Now that the closing transaction has been confirmed,

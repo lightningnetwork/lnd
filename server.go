@@ -15,14 +15,12 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
@@ -44,7 +42,7 @@ type server struct {
 	identityPriv *btcec.PrivateKey
 
 	// nodeSigner is an implementation of the MessageSigner implementation
-	// that's backed by the identituy private key of the running lnd node.
+	// that's backed by the identity private key of the running lnd node.
 	nodeSigner *nodeSigner
 
 	// lightningID is the sha256 of the public key corresponding to our
@@ -61,14 +59,11 @@ type server struct {
 
 	rpcServer *rpcServer
 
-	chainNotifier chainntnfs.ChainNotifier
-
-	bio          lnwallet.BlockChainIO
-	lnwallet     *lnwallet.LightningWallet
-	feeEstimator lnwallet.FeeEstimator
+	cc *chainControl
 
 	fundingMgr *fundingManager
-	chanDB     *channeldb.DB
+
+	chanDB *channeldb.DB
 
 	htlcSwitch    *htlcswitch.Switch
 	invoices      *invoiceRegistry
@@ -108,12 +103,8 @@ type server struct {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
-	bio lnwallet.BlockChainIO, fundingSigner lnwallet.MessageSigner,
-	wallet *lnwallet.LightningWallet, estimator lnwallet.FeeEstimator,
-	chanDB *channeldb.DB, chainView chainview.FilteredChainView) (*server, error) {
-
-	privKey, err := wallet.GetIdentitykey()
+func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl) (*server, error) {
+	privKey, err := cc.wallet.GetIdentitykey()
 	if err != nil {
 		return nil, err
 	}
@@ -129,14 +120,12 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
-		lnwallet:      wallet,
-		bio:           bio,
-		chainNotifier: notifier,
-		chanDB:        chanDB,
-		feeEstimator:  estimator,
+		chanDB: chanDB,
+		cc:     cc,
 
-		invoices:    newInvoiceRegistry(chanDB),
-		utxoNursery: newUtxoNursery(chanDB, notifier, wallet),
+		invoices: newInvoiceRegistry(chanDB),
+
+		utxoNursery: newUtxoNursery(chanDB, cc.chainNotifier, cc.wallet),
 
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
@@ -250,8 +239,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
-		Chain:     bio,
-		ChainView: chainView,
+		Chain:     cc.chainIO,
+		ChainView: cc.chainView,
 		SendToSwitch: func(firstHop *btcec.PublicKey,
 			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
 			firstHopPub := firstHop.SerializeCompressed()
@@ -264,7 +253,7 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.discoverSrv, err = discovery.New(discovery.Config{
 		Broadcast:        s.broadcastMessage,
-		Notifier:         s.chainNotifier,
+		Notifier:         s.cc.chainNotifier,
 		Router:           s.chanRouter,
 		SendToPeer:       s.sendToPeer,
 		TrickleDelay:     time.Millisecond * 300,
@@ -276,8 +265,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 	}
 
 	s.rpcServer = newRPCServer(s)
-	s.breachArbiter = newBreachArbiter(wallet, chanDB, notifier,
-		s.htlcSwitch, s.bio, s.feeEstimator)
+	s.breachArbiter = newBreachArbiter(cc.wallet, chanDB, cc.chainNotifier,
+		s.htlcSwitch, s.cc.chainIO, s.cc.feeEstimator)
 
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -286,16 +275,16 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 
 	s.fundingMgr, err = newFundingManager(fundingConfig{
 		IDKey:        s.identityPriv.PubKey(),
-		Wallet:       wallet,
-		ChainIO:      s.bio,
-		Notifier:     s.chainNotifier,
-		FeeEstimator: s.feeEstimator,
+		Wallet:       cc.wallet,
+		ChainIO:      s.cc.chainIO,
+		Notifier:     s.cc.chainNotifier,
+		FeeEstimator: s.cc.feeEstimator,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
 			if pubKey.IsEqual(s.identityPriv.PubKey()) {
 				return s.nodeSigner.SignMessage(pubKey, msg)
 			}
 
-			return fundingSigner.SignMessage(pubKey, msg)
+			return cc.msgSigner.SignMessage(pubKey, msg)
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			s.discoverSrv.ProcessLocalAnnouncement(msg,
@@ -315,8 +304,8 @@ func newServer(listenAddrs []string, notifier chainntnfs.ChainNotifier,
 			for _, channel := range dbChannels {
 				if chanID.IsChanPoint(channel.ChanID) {
 					return lnwallet.NewLightningChannel(
-						wallet.Signer, notifier,
-						s.feeEstimator,
+						cc.signer, cc.chainNotifier,
+						cc.feeEstimator,
 						channel)
 				}
 			}
@@ -364,7 +353,7 @@ func (s *server) Start() error {
 	// sufficient number of confirmations, or when the input for the
 	// funding transaction is spent in an attempt at an uncooperative close
 	// by the counterparty.
-	if err := s.chainNotifier.Start(); err != nil {
+	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
 
@@ -413,7 +402,7 @@ func (s *server) Stop() error {
 	}
 
 	// Shutdown the wallet, funding manager, and the rpc server.
-	s.chainNotifier.Stop()
+	s.cc.chainNotifier.Stop()
 	s.rpcServer.Stop()
 	s.fundingMgr.Stop()
 	s.chanRouter.Stop()
@@ -421,7 +410,8 @@ func (s *server) Stop() error {
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
 	s.discoverSrv.Stop()
-	s.lnwallet.Shutdown()
+	s.cc.wallet.Shutdown()
+	s.cc.chainView.Stop()
 
 	// Signal all the lingering goroutines to quit.
 	close(s.quit)

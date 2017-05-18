@@ -64,7 +64,7 @@ bitcoin into.
 $ export NETWORK="simnet"
 
 # Run the "Alice" container and log into it:
-$ docker-compose up -d "alice"
+$ docker-compose run -d --name alice "lnd_btc"
 $ docker exec -i -t "alice" bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
@@ -90,7 +90,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose up --no-recreate -d "bob"
+$ docker-compose up --no-recreate -d --name "bob" "ltc_btc"
 $ docker exec -i -t "bob" bash
 
 # Get the identity pubkey of "Bob" node:
@@ -157,7 +157,7 @@ bob$ lncli listpeers
 Create the `Alice<->Bob` channel.
 ```bash
 # Open the channel with "Bob":
-alice$ lncli openchannel --node_key=<bob_identity_pubkey> --num_confs=1 --local_amt=1000000
+alice$ lncli openchannel --peer_id=1 --local_amt=1000000
 
 # Include funding transaction in block thereby open the channel:
 $ docker-compose run btcctl generate 1
@@ -195,12 +195,11 @@ bob$ lncli addinvoice --value=10000
 # Send payment from "Alice" to "Bob":
 alice$ lncli sendpayment --pay_req=<encoded_invoice>
 
-# Check "Alice"'s channel balance was decremented accordingly by the payment
-# amount
-alice$ lncli listchannels
+# Check "Alice"'s channel balance
+alice$ lncli channelbalance
 
-# Check "Bob"'s channel balance was credited with the payment amount
-bob$ lncli listchannels
+# Check "Bob"'s channel balance
+bob$ lncli channelbalance
 ```
 
 Now we have open channel in which we sent only one payment, let's imagine

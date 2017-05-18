@@ -77,15 +77,15 @@ services:
             - shared:/rpc
         entrypoint: ["./start-lnd.sh"]
 
-    alice:
+    lnd_ltc:
       extends: lnd
-      container_name: alice
+      container_name: lnd_ltc
       links:
-          - "btcd:blockchain"
+          - "ltcd:blockchain"
 
-    bob:
+    lnd_btc:
       extends: lnd
-      container_name: bob
+      container_name: lnd_btc
       links:
           - "btcd:blockchain"
 

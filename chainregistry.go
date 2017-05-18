@@ -98,7 +98,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		// TODO(roasbeef): create dest for database of chain
 		//  * where to place???
 
-		dbName := filepath.Join(homeChainConfig.ChainDir, "neutrino.db")
+		dbName := filepath.Join(cfg.DataDir, "neutrino.db")
 		nodeDatabase, err := walletdb.Create("bdb", dbName)
 		if err != nil {
 			return nil, err

@@ -2638,6 +2638,239 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// testBidirectionalAsyncPayments tests that nodes are able to send the
+// payments to each other in async manner without blocking.
+func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// As we'll be querying the channels  state frequently we'll
+	// create a closure helper function for the purpose.
+	getChanInfo := func(node *lightningNode) (*lnrpc.ActiveChannel, error) {
+		req := &lnrpc.ListChannelsRequest{}
+		channelInfo, err := node.ListChannels(ctxb, req)
+		if err != nil {
+			return nil, err
+		}
+		if len(channelInfo.Channels) != 1 {
+			t.Fatalf("node should only have a single channel, "+
+				"instead he has %v",
+				len(channelInfo.Channels))
+		}
+
+		return channelInfo.Channels[0], nil
+	}
+
+	const (
+		timeout    = time.Duration(time.Second * 5)
+		paymentAmt = 100
+	)
+
+	// First establish a channel with a capacity equals to the overall
+	// amount of payments, between Alice and Bob, at the end of the test
+	// Alice should send all money from her side to Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		paymentAmt*2000, paymentAmt*1000)
+
+	info, err := getChanInfo(net.Alice)
+	if err != nil {
+		t.Fatalf("unable to get alice channel info: %v", err)
+	}
+
+	// Calculate the number of invoices.
+	numInvoices := int(info.LocalBalance / paymentAmt)
+
+	// Nodes should exchange the same amount of money and because of this
+	// at the end balances should remain the same.
+	aliceAmt := info.LocalBalance
+	bobAmt := info.RemoteBalance
+
+	// Initialize seed random in order to generate invoices.
+	rand.Seed(time.Now().UnixNano())
+
+	// With the channel open, we'll create a invoices for Bob that
+	// Alice will pay to in order to advance the state of the channel.
+	bobPaymentHashes := make([][]byte, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
+		}
+		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		bobPaymentHashes[i] = resp.RHash
+	}
+
+	// With the channel open, we'll create a invoices for Alice that
+	// Bob will pay to in order to advance the state of the channel.
+	alicePaymentHashes := make([][]byte, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
+		}
+		resp, err := net.Alice.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		alicePaymentHashes[i] = resp.RHash
+	}
+
+	// Wait for Alice to receive the channel edge from the funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->bob channel before "+
+			"timeout: %v", err)
+	}
+
+	// Open up a payment streams to Alice and to Bob, that we'll use to
+	// send payment between nodes.
+	alicePayStream, err := net.Alice.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+
+	bobPayStream, err := net.Bob.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for bob: %v", err)
+	}
+
+	// Send payments from Alice to Bob and from Bob to Alice in async
+	// manner.
+	for i := 0; i < numInvoices; i++ {
+		aliceSendReq := &lnrpc.SendRequest{
+			PaymentHash: bobPaymentHashes[i],
+			Dest:        net.Bob.PubKey[:],
+			Amt:         paymentAmt,
+		}
+
+		bobSendReq := &lnrpc.SendRequest{
+			PaymentHash: alicePaymentHashes[i],
+			Dest:        net.Alice.PubKey[:],
+			Amt:         paymentAmt,
+		}
+
+		if err := alicePayStream.Send(aliceSendReq); err != nil {
+			t.Fatalf("unable to send payment: "+
+				"%v", err)
+		}
+
+		if err := bobPayStream.Send(bobSendReq); err != nil {
+			t.Fatalf("unable to send payment: "+
+				"%v", err)
+		}
+	}
+
+	errChan := make(chan error)
+	go func() {
+		for i := 0; i < numInvoices; i++ {
+			if resp, err := alicePayStream.Recv(); err != nil {
+				errChan <- errors.Errorf("payment stream has"+
+					" been closed: %v", err)
+			} else if resp.PaymentError != "" {
+				errChan <- errors.Errorf("unable to send "+
+					"payment from alice to bob: %v",
+					resp.PaymentError)
+			}
+		}
+		errChan <- nil
+	}()
+
+	go func() {
+		for i := 0; i < numInvoices; i++ {
+			if resp, err := bobPayStream.Recv(); err != nil {
+				errChan <- errors.Errorf("payment stream has"+
+					" been closed: %v", err)
+			} else if resp.PaymentError != "" {
+				errChan <- errors.Errorf("unable to send "+
+					"payment from bob to alice: %v",
+					resp.PaymentError)
+			}
+		}
+		errChan <- nil
+	}()
+
+	// Wait for Alice and Bob receive their payments, and throw and error
+	// if something goes wrong.
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				t.Fatalf(err.Error())
+			}
+		case <-time.After(time.Second * 7):
+			t.Fatalf("waiting for payments to finish too long " +
+				"(7s)")
+		}
+	}
+
+	// Wait for Alice and Bob to receive revocations messages, and update
+	// states, i.e. balance info.
+	time.Sleep(1 * time.Second)
+
+	aliceInfo, err := getChanInfo(net.Alice)
+	if err != nil {
+		t.Fatalf("unable to get bob's channel info: %v", err)
+	}
+	if aliceInfo.RemoteBalance != bobAmt {
+		t.Fatalf("alice's remote balance is incorrect, got %v, "+
+			"expected %v", aliceInfo.RemoteBalance, bobAmt)
+	}
+	if aliceInfo.LocalBalance != aliceAmt {
+		t.Fatalf("alice's local balance is incorrect, got %v, "+
+			"expected %v", aliceInfo.LocalBalance, aliceAmt)
+	}
+	if len(aliceInfo.PendingHtlcs) != 0 {
+		t.Fatalf("alice's pending htlcs is incorrect, got %v, "+
+			"expected %v", len(aliceInfo.PendingHtlcs), 0)
+	}
+
+	// Next query for Bob's and Alice's channel states, in order to confirm
+	// that all payment have been successful transmitted.
+	bobInfo, err := getChanInfo(net.Bob)
+	if err != nil {
+		t.Fatalf("unable to get bob's channel info: %v", err)
+	}
+
+	if bobInfo.LocalBalance != bobAmt {
+		t.Fatalf("bob's local balance is incorrect, got %v, expected"+
+			" %v", bobInfo.LocalBalance, bobAmt)
+	}
+	if bobInfo.RemoteBalance != aliceAmt {
+		t.Fatalf("bob's remote balance is incorrect, got %v, "+
+			"expected %v", bobInfo.RemoteBalance, aliceAmt)
+	}
+	if len(bobInfo.PendingHtlcs) != 0 {
+		t.Fatalf("bob's pending htlcs is incorrect, got %v, "+
+			"expected %v", len(bobInfo.PendingHtlcs), 0)
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -2708,6 +2941,10 @@ var testsCases = []*testCase{
 	{
 		name: "async payments benchmark",
 		test: testAsyncPayments,
+	},
+	{
+		name: "async bidirectional payments",
+		test: testBidirectionalAsyncPayments,
 	},
 	{
 		// TODO(roasbeef): test always needs to be last as Bob's state

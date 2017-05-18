@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -35,6 +36,7 @@ var (
 	brarLog    = btclog.Disabled
 	cmgrLog    = btclog.Disabled
 	crtrLog    = btclog.Disabled
+	btcnLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -53,6 +55,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"BRAR": brarLog,
 	"CMGR": cmgrLog,
 	"CRTR": crtrLog,
+	"BTCN": btcnLog,
 }
 
 // useLogger updates the logger references for subsystemID to logger.  Invalid
@@ -112,6 +115,10 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 	case "CRTR":
 		crtrLog = logger
 		routing.UseLogger(crtrLog)
+
+	case "BTCN":
+		btcnLog = logger
+		neutrino.UseLogger(logger)
 	}
 }
 

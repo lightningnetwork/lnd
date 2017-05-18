@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	flags "github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -57,6 +58,15 @@ type chainConfig struct {
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 }
 
+type spvConfig struct {
+	Active       bool          `long:"active" destination:"If SPV mode should be active or not."`
+	AddPeers     []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
+	ConnectPeers []string      `long:"connect" description:"Connect only to the specified peers at startup"`
+	MaxPeers     int           `long:"maxpeers" description:"Max number of inbound and outbound peers"`
+	BanDuration  time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`
+	BanThreshold uint32        `long:"banthreshold" description:"Maximum allowed ban score before disconnecting and banning misbehaving peers."`
+}
+
 // config defines the configuration options for lnd.
 //
 // See loadConfig for further details regarding the configuration
@@ -82,6 +92,8 @@ type config struct {
 
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
+
+	SpvMode *spvConfig `group:"SPV" namespace:"spv"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -166,6 +178,15 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
+	// The SPV mode implemented currently doesn't support Litecoin, so the
+	// two modes are incompatible.
+	if cfg.SpvMode.Active && cfg.Litecoin.Active {
+		str := "%s: The light client mode currently supported does " +
+			"not yet support execution on the Litecoin network"
+		err := fmt.Errorf(str, funcName)
+		return nil, err
+	}
+
 	if cfg.Litecoin.Active {
 		if cfg.Litecoin.SimNet {
 			str := "%s: simnet mode for litecoin not currently supported"
@@ -180,14 +201,17 @@ func loadConfig() (*config, error) {
 		applyLitecoinParams(&paramCopy)
 		activeNetParams = paramCopy
 
-		// Attempt to parse out the RPC credentials for the litecoin
-		// chain if the information wasn't specified
-		err := parseRPCParams(cfg.Litecoin, litecoinChain, funcName)
-		if err != nil {
-			err := fmt.Errorf("unable to load RPC credentials for "+
-				"ltcd: %v", err)
-			return nil, err
+		if !cfg.SpvMode.Active {
+			// Attempt to parse out the RPC credentials for the
+			// litecoin chain if the information wasn't specified
+			err := parseRPCParams(cfg.Litecoin, litecoinChain, funcName)
+			if err != nil {
+				err := fmt.Errorf("unable to load RPC credentials for "+
+					"ltcd: %v", err)
+				return nil, err
+			}
 		}
+
 		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, litecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
@@ -213,14 +237,17 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		// If needed, we'll attempt to automatically configure the RPC
-		// control plan for the target btcd node.
-		err := parseRPCParams(cfg.Bitcoin, bitcoinChain, funcName)
-		if err != nil {
-			err := fmt.Errorf("unable to load RPC credentials for "+
-				"btcd: %v", err)
-			return nil, err
+		if !cfg.SpvMode.Active {
+			// If needed, we'll attempt to automatically configure
+			// the RPC control plan for the target btcd node.
+			err := parseRPCParams(cfg.Bitcoin, bitcoinChain, funcName)
+			if err != nil {
+				err := fmt.Errorf("unable to load RPC credentials for "+
+					"btcd: %v", err)
+				return nil, err
+			}
 		}
+
 		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir, bitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current

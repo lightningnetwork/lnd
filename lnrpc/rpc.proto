@@ -205,8 +205,9 @@ message SendRequest {
     string payment_request = 6;
 }
 message SendResponse {
-    bytes payment_preimage = 1 [json_name = "payment_preimage"];
-    Route payment_route = 2 [json_name = "payment_route"];
+    string payment_error = 1 [json_name = "payment_error"];
+    bytes payment_preimage = 2 [json_name = "payment_preimage"];
+    Route payment_route = 3 [json_name = "payment_route"];
 }
 
 message ChannelPoint {

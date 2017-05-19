@@ -46,6 +46,10 @@ var (
 	// maximum number of allowed HTLC's if committed in a state transition
 	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
 		"htlc number")
+
+	// ErrInsufficientBalance is returned when a proposed HTLC would
+	// exceed the available balance.
+	ErrInsufficientBalance = fmt.Errorf("insufficient local balance")
 )
 
 const (
@@ -675,6 +679,11 @@ type LightningChannel struct {
 	// channel.
 	RemoteFundingKey *btcec.PublicKey
 
+	// availableLocalBalance represent the amount of available money
+	// which might be procced by this channel at the specific point of
+	// time.
+	availableLocalBalance btcutil.Amount
+
 	shutdown int32
 	quit     chan struct{}
 }
@@ -801,6 +810,10 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// transactions, taking action accordingly.
 		go lc.closeObserver(channelCloseNtfn)
 	}
+
+	// Initialize the available local balance
+	s := lc.StateSnapshot()
+	lc.availableLocalBalance = s.LocalBalance
 
 	return lc, nil
 }
@@ -1922,6 +1935,15 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	return revocationMsg, nil
 }
 
+// LocalAvailableBalance returns the amount of available money which might be
+// procced by this channel at the specific point of time.
+func (lc *LightningChannel) LocalAvailableBalance() btcutil.Amount {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.availableLocalBalance
+}
+
 // ReceiveRevocation processes a revocation sent by the remote party for the
 // lowest unrevoked commitment within their commitment chain. We receive a
 // revocation either during the initial session negotiation wherein revocation
@@ -2121,6 +2143,11 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 		return 0, err
 	}
 
+	if lc.availableLocalBalance < htlc.Amount {
+		return 0, ErrInsufficientBalance
+	}
+	lc.availableLocalBalance -= htlc.Amount
+
 	pd := &PaymentDescriptor{
 		EntryType:    Add,
 		RHash:        PaymentHash(htlc.PaymentHash),
@@ -2197,6 +2224,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
 		delete(lc.rHashMap, paymentHash)
 	}
 
+	lc.availableLocalBalance += pd.Amount
 	return targetHTLC.Index, nil
 }
 
@@ -2286,7 +2314,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
-
+	lc.availableLocalBalance += pd.Amount
 	return nil
 }
 

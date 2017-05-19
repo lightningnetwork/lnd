@@ -468,7 +468,7 @@ out:
 						circuit.refCount,
 						circuit.refCount+1)
 
-					circuit.refCount += 1
+					circuit.refCount++
 				} else {
 					hswcLog.Debugf("Creating onion "+
 						"circuit for %x: %v<->%v",

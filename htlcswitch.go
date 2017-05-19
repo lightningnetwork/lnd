@@ -157,10 +157,6 @@ type circuitKey [32]byte
 // re-used (not torndown) in the case that multiple HTLCs with the send RHash
 // are sent.
 type paymentCircuit struct {
-	// TODO(roasbeef): add reference count so know when to delete?
-	//  * atomic int re
-	//  * due to same r-value being re-used?
-
 	refCount uint32
 
 	// clear is the link the htlcSwitch will forward the HTLC add message
@@ -372,6 +368,9 @@ out:
 			deltaNumUpdates++
 
 			hswcLog.Tracef("plex packet: %v", newLogClosure(func() string {
+				if pkt.onion != nil {
+					pkt.onion.Packet.Header.EphemeralKey.Curve = nil
+				}
 				return spew.Sdump(pkt)
 			}))
 
@@ -453,17 +452,37 @@ out:
 					continue
 				}
 
-				circuit := &paymentCircuit{
-					clear:  clearLink[0],
-					settle: settleLink,
-				}
-
+				// Examine the circuit map to see if this
+				// circuit is already in use or not. If so,
+				// then we'll simply increment the reference
+				// count. Otherwise, we'll create a new circuit
+				// from scratch.
+				//
+				// TODO(roasbeef): include dest+src+amt in key
 				cKey := circuitKey(wireMsg.PaymentHash)
-				h.paymentCircuits[cKey] = circuit
+				circuit, ok := h.paymentCircuits[cKey]
+				if ok {
+					hswcLog.Debugf("Increasing ref_count "+
+						"of circuit: %x, from %v to %v",
+						wireMsg.PaymentHash,
+						circuit.refCount,
+						circuit.refCount+1)
 
-				hswcLog.Debugf("Creating onion circuit for %x: %v<->%v",
-					cKey[:], clearLink[0].chanID,
-					settleLink.chanID)
+					circuit.refCount += 1
+				} else {
+					hswcLog.Debugf("Creating onion "+
+						"circuit for %x: %v<->%v",
+						cKey[:], clearLink[0].chanID,
+						settleLink.chanID)
+
+					circuit = &paymentCircuit{
+						clear:    clearLink[0],
+						settle:   settleLink,
+						refCount: 1,
+					}
+
+					h.paymentCircuits[cKey] = circuit
+				}
 
 				// With the circuit initiated, send the htlcPkt
 				// to the clearing link within the circuit to
@@ -508,11 +527,6 @@ out:
 
 				circuit.clear.restoreSlot()
 
-				hswcLog.Debugf("Closing completed onion "+
-					"circuit for %x: %v<->%v", rHash[:],
-					circuit.clear.chanID,
-					circuit.settle.chanID)
-
 				circuit.settle.sendAndRestore(&htlcPacket{
 					msg: wireMsg,
 					err: make(chan error, 1),
@@ -529,7 +543,13 @@ out:
 
 				deltaSatSent += pkt.amt
 
-				delete(h.paymentCircuits, cKey)
+				if circuit.refCount--; circuit.refCount == 0 {
+					hswcLog.Debugf("Closing completed onion "+
+						"circuit for %x: %v<->%v", rHash[:],
+						circuit.clear.chanID,
+						circuit.settle.chanID)
+					delete(h.paymentCircuits, cKey)
+				}
 
 			// We've just received an HTLC cancellation triggered
 			// by an upstream peer somewhere within the ultimate
@@ -568,7 +588,13 @@ out:
 					err:     make(chan error, 1),
 				})
 
-				delete(h.paymentCircuits, pkt.payHash)
+				if circuit.refCount--; circuit.refCount == 0 {
+					hswcLog.Debugf("Closing cancelled onion "+
+						"circuit for %x: %v<->%v", pkt.payHash,
+						circuit.clear.chanID,
+						circuit.settle.chanID)
+					delete(h.paymentCircuits, pkt.payHash)
+				}
 			}
 		case <-logTicker.C:
 			if deltaNumUpdates == 0 {

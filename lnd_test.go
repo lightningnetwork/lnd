@@ -979,13 +979,14 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	}
 
 	// Ensure we obtain the proper preimage in the response.
-	resp, err := sendStream.Recv()
-	if err != nil {
+
+	if resp, err := sendStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been close: %v", err)
+	} else if resp.GetPaymentError() != "" {
 		t.Fatalf("error when attempting recv: %v", err)
-	}
-	if !bytes.Equal(preimage, resp.PaymentPreimage) {
+	} else if !bytes.Equal(preimage, resp.GetPaymentPreimage()) {
 		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
-			resp.PaymentPreimage)
+			resp.GetPaymentPreimage())
 	}
 
 	// Bob's invoice should now be found and marked as settled.
@@ -1025,8 +1026,11 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	if _, err := sendStream.Recv(); err != nil {
-		t.Fatalf("error when attempting recv: %v", err)
+	if resp, err := sendStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() != "" {
+		t.Fatalf("error when attempting recv: %v",
+			resp.GetPaymentError())
 	}
 
 	// The second payment should also have succeeded, with the balances
@@ -1106,8 +1110,11 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	if _, err := sendStream.Recv(); err != nil {
-		t.Fatalf("error when attempting recv: %v", err)
+	if resp, err := sendStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() != "" {
+		t.Fatalf("error when attempting recv: %v",
+			resp.GetPaymentError())
 	}
 
 	// Grab Alice's list of payments, she should show the existence of
@@ -1274,8 +1281,12 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		if err := carolPayStream.Send(sendReq); err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
-		if _, err := carolPayStream.Recv(); err != nil {
-			t.Fatalf("unable to recv pay resp: %v", err)
+
+		if resp, err := carolPayStream.Recv(); err != nil {
+			t.Fatalf("payment stream has been closed: %v", err)
+		} else if resp.GetPaymentError() != "" {
+			t.Fatalf("unable to recv pay resp: %v",
+				resp.GetPaymentError())
 		}
 	}
 
@@ -1461,8 +1472,11 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	if _, err := sendStream.Recv(); err != nil {
-		t.Fatalf("error when attempting recv: %v", err)
+	if resp, err := sendStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() != "" {
+		t.Fatalf("error when attempting recv: %v",
+			resp.GetPaymentError())
 	}
 
 	select {
@@ -1711,8 +1725,11 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
 			}
-			if _, err := alicePayStream.Recv(); err != nil {
-				return err
+			if resp, err := alicePayStream.Recv(); err != nil {
+				t.Fatalf("payment stream has been closed: %v", err)
+			} else if resp.GetPaymentError() != "" {
+				t.Fatalf("error when attempting recv: %v",
+					resp.GetPaymentError())
 			}
 		}
 		return nil
@@ -1990,11 +2007,13 @@ out:
 
 	// The payment should've resulted in an error since we went it with the
 	// wrong payment hash.
-	_, err = alicePayStream.Recv()
-	if err == nil {
+
+	if resp, err := alicePayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() == "" {
 		t.Fatalf("payment should have been rejected due to invalid " +
 			"payment hash")
-	} else if !strings.Contains(err.Error(), "preimage") {
+	} else if !strings.Contains(resp.GetPaymentError(), "preimage") {
 		// TODO(roasbeef): make into proper gRPC error code
 		t.Fatalf("payment should have failed due to unknown preimage, "+
 			"instead failed due to : %v", err)
@@ -2024,11 +2043,13 @@ out:
 
 	// The payment should fail with an error since we sent 1k satoshis
 	// isn't of 10k as was requested.
-	_, err = alicePayStream.Recv()
-	if err == nil {
+
+	if resp, err := alicePayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() == "" {
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
-	} else if !strings.Contains(err.Error(), "htlc value") {
+	} else if !strings.Contains(resp.GetPaymentError(), "htlc value") {
 		t.Fatalf("payment should have failed due to wrong amount, "+
 			"instead failed due to: %v", err)
 	}
@@ -2059,7 +2080,10 @@ out:
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	if _, err := bobPayStream.Recv(); err != nil {
+
+	if resp, err := bobPayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() != "" {
 		t.Fatalf("bob's payment failed: %v", err)
 	}
 
@@ -2082,11 +2106,13 @@ out:
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	_, err = alicePayStream.Recv()
-	if err == nil {
+
+	if resp, err := alicePayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() == "" {
 		t.Fatalf("payment should fail due to insufficient "+
 			"capacity: %v", err)
-	} else if !strings.Contains(err.Error(), "capacity") {
+	} else if !strings.Contains(resp.GetPaymentError(), "capacity") {
 		t.Fatalf("payment should fail due to insufficient capacity, "+
 			"instead: %v", err)
 	}
@@ -2110,10 +2136,12 @@ out:
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
-	_, err = alicePayStream.Recv()
-	if err == nil {
+
+	if resp, err := alicePayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.GetPaymentError() == "" {
 		t.Fatalf("payment should have failed")
-	} else if !strings.Contains(err.Error(), "hop unknown") {
+	} else if !strings.Contains(resp.GetPaymentError(), "hop unknown") {
 		t.Fatalf("payment should fail due to unknown hop, instead: %v",
 			err)
 	}
@@ -2848,82 +2876,82 @@ type testCase struct {
 }
 
 var testsCases = []*testCase{
-	//{
-	//	name: "basic funding flow",
-	//	test: testBasicChannelFunding,
-	//},
-	//{
-	//	name: "disconnecting target peer",
-	//	test: testDisconnectingTargetPeer,
-	//},
-	//{
-	//	name: "graph topology notifications",
-	//	test: testGraphTopologyNotifications,
-	//},
-	//{
-	//	name: "funding flow persistence",
-	//	test: testChannelFundingPersistence,
-	//},
-	//{
-	//	name: "channel force closure",
-	//	test: testChannelForceClosure,
-	//},
-	//{
-	//	name: "channel balance",
-	//	test: testChannelBalance,
-	//},
-	//{
-	//	name: "single hop invoice",
-	//	test: testSingleHopInvoice,
-	//},
-	//{
-	//	name: "list outgoing payments",
-	//	test: testListPayments,
-	//},
-	//{
-	//	name: "max pending channel",
-	//	test: testMaxPendingChannels,
-	//},
-	//{
-	//	name: "multi-hop payments",
-	//	test: testMultiHopPayments,
-	//},
-	//{
-	//	name: "multiple channel creation",
-	//	test: testBasicChannelCreation,
-	//},
-	//{
-	//	name: "invoice update subscription",
-	//	test: testInvoiceSubscriptions,
-	//},
-	//{
-	//	name: "multi-hop htlc error propagation",
-	//	test: testHtlcErrorPropagation,
-	//},
-	//// TODO(roasbeef): multi-path integration test
-	//{
-	//	name: "node announcement",
-	//	test: testNodeAnnouncement,
-	//},
-	//{
-	//	name: "node sign verify",
-	//	test: testNodeSignVerify,
-	//},
-	//{
-	//	name: "async payments benchmark",
-	//	test: testAsyncPayments,
-	//},
+	{
+		name: "basic funding flow",
+		test: testBasicChannelFunding,
+	},
+	{
+		name: "disconnecting target peer",
+		test: testDisconnectingTargetPeer,
+	},
+	{
+		name: "graph topology notifications",
+		test: testGraphTopologyNotifications,
+	},
+	{
+		name: "funding flow persistence",
+		test: testChannelFundingPersistence,
+	},
+	{
+		name: "channel force closure",
+		test: testChannelForceClosure,
+	},
+	{
+		name: "channel balance",
+		test: testChannelBalance,
+	},
+	{
+		name: "single hop invoice",
+		test: testSingleHopInvoice,
+	},
+	{
+		name: "list outgoing payments",
+		test: testListPayments,
+	},
+	{
+		name: "max pending channel",
+		test: testMaxPendingChannels,
+	},
+	{
+		name: "multi-hop payments",
+		test: testMultiHopPayments,
+	},
+	{
+		name: "multiple channel creation",
+		test: testBasicChannelCreation,
+	},
+	{
+		name: "invoice update subscription",
+		test: testInvoiceSubscriptions,
+	},
+	{
+		name: "multi-hop htlc error propagation",
+		test: testHtlcErrorPropagation,
+	},
+	// TODO(roasbeef): multi-path integration test
+	{
+		name: "node announcement",
+		test: testNodeAnnouncement,
+	},
+	{
+		name: "node sign verify",
+		test: testNodeSignVerify,
+	},
+	{
+		name: "async payments benchmark",
+		test: testAsyncPayments,
+	},
 
 	{
-		name: "async byderictional payments",
+		name: "async biderictional payments",
 		test: testBidirectionalAsyncPayments,
 	},
-	//{
-	//	// TODO(roasbeef): test always needs to be last as Bob's state
-	//	// is borked since we trick him into attempting to cheat Alice?
-	//	name: "revoked uncooperative close retribution",
-	//	test: testRevokedCloseRetribution,
-	//},
+	{
+		// TODO(roasbeef): test always needs to be last as Bob's state
+		// is borked since we trick him into attempting to cheat Alice?
+		name: "revoked uncooperative close retribution",
+		test: testRevokedCloseRetribution,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

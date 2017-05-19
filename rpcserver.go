@@ -1239,7 +1239,18 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment)
 				if err != nil {
-					errChan <- err
+					// If we receive payment error than,
+					// instead of terminating the stream,
+					// send error response to the user.
+					err := paymentStream.Send(&lnrpc.SendResponse{
+						PaymentError:    err.Error(),
+						PaymentPreimage: nil,
+						PaymentRoute:    nil,
+					})
+					if err != nil {
+						errChan <- err
+						return
+					}
 					return
 				}
 

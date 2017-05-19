@@ -1203,6 +1203,8 @@ type commitmentState struct {
 	channel   *lnwallet.LightningChannel
 	chanPoint *wire.OutPoint
 	chanID    lnwire.ChannelID
+
+	sync.RWMutex
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment
@@ -1564,7 +1566,9 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 		// switch, we'll attach the routing information so the switch
 		// can finalize the circuit.
 		case sphinx.MoreHops:
+			state.Lock()
 			state.pendingCircuits[index] = sphinxPacket
+			state.Unlock()
 		default:
 			peerLog.Errorf("mal formed onion packet")
 			state.htlcsToCancel[index] = lnwire.SphinxParseError
@@ -1590,7 +1594,9 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 			return
 		}
 
+		state.Lock()
 		state.cancelReasons[idx] = lnwire.FailCode(htlcPkt.Reason[0])
+		state.Unlock()
 
 	case *lnwire.CommitSig:
 		// We just received a new update to our local commitment chain,
@@ -1671,7 +1677,10 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 				// Otherwise, the HTLC failed, so we propagate
 				// the error back to the potential caller.
 				case lnwallet.Fail:
+					state.Lock()
 					errMsg := state.cancelReasons[parentIndex]
+					state.Unlock()
+
 					p.preImage <- [32]byte{}
 					p.err <- errors.New(errMsg.String())
 				}
@@ -1746,18 +1755,24 @@ func (p *peer) handleUpstreamMsg(state *commitmentState, msg lnwire.Message) {
 				// We don't need to forward any HTLCs that we
 				// just settled or cancelled above.
 				// TODO(roasbeef): key by index instead?
+				state.RLock()
 				if _, ok := settledPayments[htlc.RHash]; ok {
+					state.RUnlock()
 					continue
 				}
 				if _, ok := cancelledHtlcs[htlc.Index]; ok {
+					state.RUnlock()
 					continue
 				}
+				state.RUnlock()
 
+				state.Lock()
 				onionPkt := state.pendingCircuits[htlc.Index]
 				delete(state.pendingCircuits, htlc.Index)
 
 				reason := state.cancelReasons[htlc.ParentIndex]
 				delete(state.cancelReasons, htlc.ParentIndex)
+				state.Unlock()
 
 				// Send this fully activated HTLC to the htlc
 				// switch to continue the chained clear/settle.

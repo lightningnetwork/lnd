@@ -1172,6 +1172,10 @@ type commitmentState struct {
 	// channel update log, but not yet committed to latest commitment.
 	pendingBatch []*pendingPayment
 
+	// pendingSettle is counter which tracks the current number of settles
+	// that have been sent, but not yet committed to the commitment.
+	pendingSettle uint32
+
 	// clearedHTCLs is a map of outgoing HTLCs we've committed to in our
 	// chain which have not yet been settled by the upstream peer.
 	clearedHTCLs map[uint64]*pendingPayment
@@ -1301,9 +1305,12 @@ out:
 			}
 
 		case <-batchTimer.C:
-			// If the current batch is empty, then we have no work
+			// If the either batch is empty, then we have no work
 			// here.
-			if len(state.pendingBatch) == 0 {
+			//
+			// TODO(roasbeef): should be combined, will be fixed by
+			// andrew's PR
+			if len(state.pendingBatch) == 0 && state.pendingSettle == 0 {
 				continue
 			}
 
@@ -1445,6 +1452,8 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		p.queueMsg(htlc, nil)
 		isSettle = true
 
+		state.pendingSettle++
+
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
@@ -1465,6 +1474,8 @@ func (p *peer) handleDownStreamPkt(state *commitmentState, pkt *htlcPacket) {
 		// initially created the HTLC.
 		p.queueMsg(htlc, nil)
 		isSettle = true
+
+		state.pendingSettle++
 	}
 
 	// If this newly added update exceeds the min batch size for adds, or
@@ -1867,6 +1878,7 @@ func (p *peer) updateCommitTx(state *commitmentState) error {
 	// bool to indicate were waiting for a commitment signature.
 	// TODO(roasbeef): re-slice instead to avoid GC?
 	state.pendingBatch = nil
+	state.pendingSettle = 0
 
 	return nil
 }

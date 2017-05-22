@@ -84,17 +84,19 @@ func craftSpendTransaction(outpoint wire.OutPoint, payScript []byte) (*wire.MsgT
 func assertFilteredBlock(t *testing.T, fb *FilteredBlock, expectedHeight int32,
 	expectedHash *chainhash.Hash, txns []*chainhash.Hash) {
 
+	_, _, line, _ := runtime.Caller(1)
+
 	if fb.Height != uint32(expectedHeight) {
-		t.Fatalf("block height mismatch: expected %v, got %v",
-			expectedHeight, fb.Height)
+		t.Fatalf("line %v: block height mismatch: expected %v, got %v",
+			line, expectedHeight, fb.Height)
 	}
 	if !bytes.Equal(fb.Hash[:], expectedHash[:]) {
-		t.Fatalf("block hash mismatch: expected %v, got %v",
-			expectedHash, fb.Hash)
+		t.Fatalf("line %v: block hash mismatch: expected %v, got %v",
+			line, expectedHash, fb.Hash)
 	}
 	if len(fb.Transactions) != len(txns) {
-		t.Fatalf("expected %v transaction in filtered block, instead "+
-			"have %v", len(txns), len(fb.Transactions))
+		t.Fatalf("line %v: expected %v transaction in filtered block, instead "+
+			"have %v", line, len(txns), len(fb.Transactions))
 	}
 
 	expectedTxids := make(map[chainhash.Hash]struct{})
@@ -108,7 +110,7 @@ func assertFilteredBlock(t *testing.T, fb *FilteredBlock, expectedHeight int32,
 	}
 
 	if len(expectedTxids) != 0 {
-		t.Fatalf("missing txids: %v", expectedTxids)
+		t.Fatalf("line %v: missing txids: %v", line, expectedTxids)
 	}
 
 }
@@ -146,7 +148,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -272,7 +274,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			initBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -304,7 +306,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -322,7 +324,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			newBlockHashes[0], []*chainhash.Hash{spendTxid})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 }
@@ -358,12 +360,12 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	}
 
 	// We should get an update, however it shouldn't yet contain any
-	// filtered transaction as the filter hasn't been update.
+	// filtered transaction as the filter hasn't been updated.
 	select {
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -404,7 +406,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			block.Hash(), []*chainhash.Hash{})
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 10):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 

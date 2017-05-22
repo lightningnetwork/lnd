@@ -3,9 +3,14 @@ package chainview
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/neutrino"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -14,6 +19,9 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcwallet/walletdb"
+
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 
 var (
@@ -451,12 +459,66 @@ var chainViewTests = []func(*rpctest.Harness, FilteredChainView, *testing.T){
 
 var interfaceImpls = []struct {
 	name          string
-	chainViewInit func(btcrpcclient.ConnConfig) (FilteredChainView, error)
+	chainViewInit func(rpcInfo btcrpcclient.ConnConfig,
+		p2pAddr string) (func(), FilteredChainView, error)
 }{
 	{
+		name: "p2p_neutrino",
+		chainViewInit: func(_ btcrpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+			spvDir, err := ioutil.TempDir("", "neutrino")
+			if err != nil {
+				return nil, nil, err
+			}
+
+			dbName := filepath.Join(spvDir, "neutrino.db")
+			spvDatabase, err := walletdb.Create("bdb", dbName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			spvConfig := neutrino.Config{
+				DataDir:      spvDir,
+				Database:     spvDatabase,
+				ChainParams:  *netParams,
+				ConnectPeers: []string{p2pAddr},
+			}
+
+			neutrino.WaitForMoreCFHeaders = time.Second * 1
+			spvNode, err := neutrino.NewChainService(spvConfig)
+			if err != nil {
+				return nil, nil, err
+			}
+			spvNode.Start()
+
+			// Wait until the node has fully synced up to the local
+			// btcd node.
+			for !spvNode.IsCurrent() {
+				time.Sleep(time.Millisecond * 100)
+			}
+
+			cleanUp := func() {
+				spvDatabase.Close()
+				spvNode.Stop()
+				os.RemoveAll(spvDir)
+			}
+
+			chainView, err := NewCfFilteredChainView(spvNode)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return cleanUp, chainView, nil
+		},
+	},
+	{
 		name: "btcd_websockets",
-		chainViewInit: func(config btcrpcclient.ConnConfig) (FilteredChainView, error) {
-			return NewBtcdFilteredChainView(config)
+		chainViewInit: func(config btcrpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
+			chainView, err := NewBtcdFilteredChainView(config)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			return nil, chainView, err
 		},
 	},
 }
@@ -475,15 +537,14 @@ func TestFilteredChainView(t *testing.T) {
 		t.Fatalf("unable to set up mining node: %v", err)
 	}
 
-	// TODO(roasbeef): some impls will instead need the p2p port
-	// information
 	rpcConfig := miner.RPCConfig()
+	p2pAddr := miner.P2PAddress()
 
 	for _, chainViewImpl := range interfaceImpls {
 		t.Logf("Testing '%v' implementation of FilteredChainView",
 			chainViewImpl.name)
 
-		chainView, err := chainViewImpl.chainViewInit(rpcConfig)
+		cleanUpFunc, chainView, err := chainViewImpl.chainViewInit(rpcConfig, p2pAddr)
 		if err != nil {
 			t.Fatalf("unable to make chain view: %v", err)
 		}
@@ -497,6 +558,10 @@ func TestFilteredChainView(t *testing.T) {
 
 		if err := chainView.Stop(); err != nil {
 			t.Fatalf("unable to stop chain view: %v", err)
+		}
+
+		if cleanUpFunc != nil {
+			cleanUpFunc()
 		}
 	}
 }

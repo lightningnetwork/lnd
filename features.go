@@ -21,4 +21,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "dynamic-fees",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "shutdown-close-flow",
+		Flag: lnwire.RequiredFlag,
+	},
 })

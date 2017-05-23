@@ -673,8 +673,8 @@ func (h *htlcSwitch) handleRegisterLink(req *registerLinkMsg) {
 	// To ensure we never accidentally cause an HTLC overflow, we'll limit,
 	// we'll use this buffered channel as as semaphore in order to limit
 	// the number of outstanding HTLC's we extend to the target link.
-	//const numSlots = (lnwallet.MaxHTLCNumber / 2) - 1
-	const numSlots = lnwallet.MaxHTLCNumber - 5
+	const numSlots = (lnwallet.MaxHTLCNumber / 2) - 1
+	//const numSlots = lnwallet.MaxHTLCNumber - 5
 	newLink.boundedLinkChan = newBoundedLinkChan(numSlots, req.linkChan)
 
 	// First update the channel index with this new channel point. The

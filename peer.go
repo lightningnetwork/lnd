@@ -857,8 +857,15 @@ func (p *peer) handleLocalClose(req *closeLinkReq) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
 
 	p.activeChanMtx.RLock()
-	channel := p.activeChannels[chanID]
+	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
+	if !ok {
+		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
+			"unknown", chanID)
+		peerLog.Errorf(err.Error())
+		req.err <- err
+		return
+	}
 
 	switch req.CloseType {
 	// A type of CloseRegular indicates that the user has opted to close
@@ -929,10 +936,16 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 // closure.
 func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSigned) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.chanPoint)
-
 	p.activeChanMtx.RLock()
-	channel := p.activeChannels[chanID]
+	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
+	if !ok {
+		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
+			"unknown", chanID)
+		peerLog.Errorf(err.Error())
+		req.err <- err
+		return
+	}
 
 	// Calculate a fee rate that we believe to be fair.
 	// TODO(bvu): with a dynamic fee implementation, we will compare this to
@@ -1057,8 +1070,13 @@ func (p *peer) handleInitClosingSigned(req *closeLinkReq, msg *lnwire.ClosingSig
 func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	respSig []byte) {
 	p.activeChanMtx.RLock()
-	channel := p.activeChannels[msg.ChannelID]
+	channel, ok := p.activeChannels[msg.ChannelID]
 	p.activeChanMtx.RUnlock()
+	if !ok {
+		peerLog.Errorf("unable to close channel, ChannelID(%v) is "+
+			"unknown", msg.ChannelID)
+		return
+	}
 
 	// Now that we have the initiator's signature for the closure
 	// transaction, we can assemble the final closure transaction, complete

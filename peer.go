@@ -907,17 +907,40 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 		return nil
 	}
 
+	// As we just received a shutdown message, we'll also send a shutdown
+	// message with our desired fee so we can start the negotiation.
 	if err := p.sendShutdown(channel); err != nil {
 		peerLog.Errorf("error while sending shutdown message: %v", err)
 		return nil
 	}
 
-	// TODO(bvu): add logic to wait for HTLCs to close here.
-	closeSig, err := p.sendClosingSigned(channel)
+	// Calculate an initial proposed fee rate for the close transaction.
+	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+
+	// TODO(roasbeef): actually perform fee negotiation here, only send sig
+	// if we agree to fee
+
+	// Once both sides agree on a fee, we'll create a signature that closes
+	// the channel using the agree upon fee rate.
+	// TODO(roasbeef): remove encoding redundancy
+	closeSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
 	if err != nil {
-		peerLog.Errorf("error generating/sending ClosingSigned: %v", err)
+		peerLog.Errorf("unable to create close proposal: %v", err)
 		return nil
 	}
+	parsedSig, err := btcec.ParseSignature(closeSig, btcec.S256())
+	if err != nil {
+		peerLog.Errorf("unable to parse signature: %v", err)
+		return nil
+	}
+
+	// With the closing signature assembled, we'll send the matching close
+	// signed message to the other party so they can broadcast the closing
+	// transaction.
+	closingSigned := lnwire.NewClosingSigned(msg.ChannelID, proposedFee,
+		parsedSig)
+	p.queueMsg(closingSigned, nil)
+
 	return closeSig
 }
 
@@ -1214,32 +1237,6 @@ func (p *peer) sendShutdown(channel *lnwallet.LightningChannel) error {
 	p.server.htlcSwitch.UnregisterLink(p.addr.IdentityKey, &chanID)
 
 	return nil
-}
-
-// sendClosingSigned handles the creation and sending of  proposed channel
-// close transactions.
-func (p *peer) sendClosingSigned(channel *lnwallet.LightningChannel) ([]byte, error) {
-
-	// Calculate an initial proposed fee rate for the close transaction.
-	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
-
-	// Create a proposed channel close transaction with our fee proposal.
-	closeSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO(roasbeef): remove encoding redundancy
-	parsedSig, err := btcec.ParseSignature(closeSig, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
-	closingSigned := lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	p.queueMsg(closingSigned, nil)
-
-	return closeSig, nil
 }
 
 // wipeChannel removes the passed channel from all indexes associated with the

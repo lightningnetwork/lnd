@@ -381,7 +381,7 @@ out:
 					if newSpend.details != nil {
 						spendDetails.SpendingHeight = newSpend.details.Height
 					} else {
-						spendDetails.SpendingHeight = currentHeight
+						spendDetails.SpendingHeight = currentHeight + 1
 					}
 
 					for _, ntfn := range clients {

@@ -76,7 +76,7 @@ func NewCfFilteredChainView(node *neutrino.ChainService) (*CfFilteredChainView, 
 
 // Start kicks off the FilteredChainView implementation. This function must be
 // called before any calls to UpdateFilter can be processed.
-// j
+//
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) Start() error {
 	// Already started?
@@ -214,7 +214,7 @@ func (c *CfFilteredChainView) chainFilterer() {
 
 			// With our internal chain view update, we'll craft a
 			// new update to the chainView which includes our new
-			// UTOX's, and current update height.
+			// UTXO's, and current update height.
 			rescanUpdate := []neutrino.UpdateOption{
 				neutrino.AddOutPoints(update.newUtxos...),
 				neutrino.Rewind(update.updateHeight),
@@ -232,7 +232,7 @@ func (c *CfFilteredChainView) chainFilterer() {
 
 // FilterBlock takes a block hash, and returns a FilteredBlocks which is the
 // result of applying the current registered UTXO sub-set on the block
-// corresponding to that block hash. If any watched UTOX's are spent by the
+// corresponding to that block hash. If any watched UTXO's are spent by the
 // selected lock, then the internal chainFilter will also be updated.
 //
 // NOTE: This is part of the FilteredChainView interface.

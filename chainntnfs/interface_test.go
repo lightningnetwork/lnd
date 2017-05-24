@@ -2,21 +2,28 @@ package chainntnfs_test
 
 import (
 	"bytes"
+	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcwallet/walletdb"
 
+	_ "github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/rpctest"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 
 var (
@@ -111,7 +118,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 			t.Fatalf("mismatched tx indexes: expected %v, got %v",
 				txid, specifiedTxHash)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
 }
@@ -124,7 +131,8 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 	// We'd like to test the case of being notified once a txid reaches
 	// N confirmations, where N > 1.
 	//
-	// Again, we'll begin by creating a fresh transaction, so we can obtain a fresh txid.
+	// Again, we'll begin by creating a fresh transaction, so we can obtain
+	// a fresh txid.
 	txid, err := getTestTxId(miner)
 	if err != nil {
 		t.Fatalf("unable to create test addr: %v", err)
@@ -153,10 +161,13 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 		confSent <- <-confIntent.Confirmed
 	}()
 
+	// TODO(roasbeef): reduce all timeouts after neutrino sync tightended
+	// up
+
 	select {
 	case <-confSent:
 		break
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
 }
@@ -222,7 +233,7 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 		select {
 		case <-confSent:
 			continue
-		case <-time.After(2 * time.Second):
+		case <-time.After(20 * time.Second):
 			t.Fatalf("confirmation notification never received: %v", numConfs)
 		}
 	}
@@ -328,15 +339,15 @@ func testSpendNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to brodacst tx: %v", err)
 	}
 
-	_, currentHeight, err = miner.Node.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
-
 	// Now we mine a single block, which should include our spend. The
 	// notification should also be sent off.
 	if _, err := miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	_, currentHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
 	}
 
 	// For each event we registered for above, we create a goroutine which
@@ -374,7 +385,7 @@ func testSpendNotification(miner *rpctest.Harness,
 					"expected %v, got %v", currentHeight,
 					ntfn.SpendingHeight)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatalf("spend ntfn never received")
 		}
 	}
@@ -425,7 +436,7 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 
 	select {
 	case <-epochsSent:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("all notifications not sent")
 	}
 }
@@ -484,7 +495,7 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 
 	select {
 	case <-confsSent:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("all confirmation notifications not sent")
 	}
 }
@@ -559,7 +570,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 				confInfo.BlockHeight, currentHeight)
 		}
 		break
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
 
@@ -607,7 +618,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	select {
 	case <-confSent:
 		break
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
 }
@@ -722,7 +733,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 			t.Fatalf("ntfn includes wrong spending input index, reports %v, should be %v",
 				ntfn.SpenderInputIndex, 0)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("spend ntfn never received")
 	}
 }
@@ -797,7 +808,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 				"index, reports %v, should be %v",
 				ntfn.SpenderInputIndex, 0)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("spend ntfn never received")
 	}
 
@@ -808,7 +819,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 		if ok {
 			t.Fatalf("spend ntfn should have been cancelled")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("spend ntfn never cancelled")
 	}
 }
@@ -858,7 +869,7 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 		if !ok {
 			t.Fatalf("epoch was cancelled")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("epoch notification not sent")
 	}
 }
@@ -902,20 +913,73 @@ func TestInterfaces(t *testing.T) {
 	}
 
 	rpcConfig := miner.RPCConfig()
+	p2pAddr := miner.P2PAddress()
 
 	log.Printf("Running %v ChainNotifier interface tests\n", len(ntfnTests))
-	var notifier chainntnfs.ChainNotifier
+	var (
+		notifier chainntnfs.ChainNotifier
+		cleanUp  func()
+	)
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType
 
 		switch notifierType {
+
 		case "btcd":
 			notifier, err = notifierDriver.New(&rpcConfig)
 			if err != nil {
 				t.Fatalf("unable to create %v notifier: %v",
 					notifierType, err)
 			}
+
+		case "neutrino":
+			continue
+			spvDir, err := ioutil.TempDir("", "neutrino")
+			if err != nil {
+				t.Fatalf("unable to create temp dir: %v", err)
+			}
+
+			dbName := filepath.Join(spvDir, "neutrino.db")
+			spvDatabase, err := walletdb.Create("bdb", dbName)
+			if err != nil {
+				t.Fatalf("unable to create walletdb: %v", err)
+			}
+
+			// Create an instance of neutrino connected to the
+			// running btcd instance.
+			spvConfig := neutrino.Config{
+				DataDir:      spvDir,
+				Database:     spvDatabase,
+				ChainParams:  *netParams,
+				ConnectPeers: []string{p2pAddr},
+			}
+			neutrino.WaitForMoreCFHeaders = time.Second * 1
+			spvNode, err := neutrino.NewChainService(spvConfig)
+			if err != nil {
+				t.Fatalf("unable to create neutrino: %v", err)
+			}
+			spvNode.Start()
+
+			cleanUp = func() {
+				spvDatabase.Close()
+				spvNode.Stop()
+				os.RemoveAll(spvDir)
+			}
+
+			// We'll also wait for the instance to sync up fully to
+			// the chain generated by the btcd instance.
+			for !spvNode.IsCurrent() {
+				time.Sleep(time.Millisecond * 100)
+			}
+
+			notifier, err = notifierDriver.New(spvNode)
+			if err != nil {
+				t.Fatalf("unable to create %v notifier: %v",
+					notifierType, err)
+			}
 		}
+
+		t.Logf("Running ChainNotifier interface tests for: %v", notifierType)
 
 		if err := notifier.Start(); err != nil {
 			t.Fatalf("unable to start notifier %v: %v",
@@ -927,5 +991,9 @@ func TestInterfaces(t *testing.T) {
 		}
 
 		notifier.Stop()
+		if cleanUp != nil {
+			cleanUp()
+		}
+		cleanUp = nil
 	}
 }

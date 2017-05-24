@@ -126,6 +126,82 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 }
 
+// TestChannelLinkBidirectionalOneHopPayments tests the ability of channel
+// link to cope with bigger number of payment updates that commitment
+// transaction may consist.
+func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.record(createLogFunc("alice",
+			n.aliceChannelLink.ChanID()))
+
+		// Log message that bob receives.
+		n.bobServer.record(createLogFunc("bob",
+			n.firstBobChannelLink.ChanID()))
+	}
+
+	// Send max available payment number in both sides, thereby testing
+	// the property of channel link to cope with overflowing.
+	errChan := make(chan error)
+	count := 2 * lnwallet.MaxHTLCNumber
+	for i := 0; i < count/2; i++ {
+		go func() {
+			_, err := n.makePayment([]Peer{
+				n.aliceServer,
+				n.bobServer,
+			}, 10)
+			errChan <- err
+		}()
+	}
+
+	for i := 0; i < count/2; i++ {
+		go func() {
+			_, err := n.makePayment([]Peer{
+				n.bobServer,
+				n.aliceServer,
+			}, 10)
+			errChan <- err
+		}()
+	}
+
+	// Check that alice invoice was settled and bandwidth of HTLC
+	// links was changed.
+	for i := 0; i < count; i++ {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				t.Fatalf("unable to make the payment: %v", err)
+			}
+		case <-time.After(4 * time.Second):
+			t.Fatalf("timeout: (%v/%v)", i+1, count)
+		}
+
+	}
+
+	// At the end Bob and Alice balances should be the same as previous,
+	// because they sent the equal amount of money to each other.
+	if aliceBandwidthBefore != n.aliceChannelLink.Bandwidth() {
+		t.Fatal("alice bandwidth shouldn't have changed")
+	}
+
+	if bobBandwidthBefore != n.firstBobChannelLink.Bandwidth() {
+		t.Fatal("bob bandwidth shouldn't have changed")
+	}
+}
+
 // TestChannelLinkMultiHopPayment checks the ability to send payment over two
 // hopes. In this test we send the payment from Carol to Alice over Bob peer.
 // (Carol -> Bob -> Alice) and checking that HTLC was settled properly and

@@ -9,6 +9,8 @@ import (
 
 	"io"
 
+	"encoding/hex"
+
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -82,6 +84,10 @@ type channelLink struct {
 	// which may affect behaviour of the service.
 	cfg *ChannelLinkConfig
 
+	// queue is used to store the htlc add updates which haven't been
+	// processed because of the commitment trancation overflow.
+	queue *packetQueue
+
 	// upstream is a channel which responsible for propagating the
 	// received from remote peer messages, with which we have an opened
 	// channel, to handler function.
@@ -115,6 +121,7 @@ func NewChannelLink(cfg *ChannelLinkConfig,
 		downstream:    make(chan *htlcPacket),
 		control:       make(chan interface{}),
 		cancelReasons: make(map[uint64]lnwire.OpaqueReason),
+		queue:         newWaitingQueue(),
 		quit:          make(chan struct{}),
 	}
 }
@@ -248,7 +255,31 @@ out:
 				break out
 			}
 
+		// Previously add update have been added to the reprocessing
+		// queue because of the overflooding threat, and now we are
+		// trying to process it again.
+		case packet := <-l.queue.pending:
+			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
+			log.Infof("Reprocess downstream add update "+
+				"with payment hash(%v)",
+				hex.EncodeToString(msg.PaymentHash[:]))
+			l.handleDownStreamPkt(packet)
+
 		case pkt := <-l.downstream:
+			// If we have non empty processing queue than in
+			// order to preserve the order of add updates
+			// consume it, and process it later.
+			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
+			if ok && l.queue.length() != 0 {
+				log.Infof("Downstream htlc add update with "+
+					"payment hash(%v) have been added to "+
+					"reprocessing queue, batch: %v",
+					hex.EncodeToString(htlc.PaymentHash[:]),
+					l.batchCounter)
+
+				l.queue.consume(pkt)
+				continue
+			}
 			l.handleDownStreamPkt(pkt)
 
 		case msg := <-l.upstream:
@@ -282,7 +313,15 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		// chains.
 		htlc.ChanID = l.ChanID()
 		index, err := l.channel.AddHTLC(htlc)
-		if err != nil {
+		if err == lnwallet.ErrMaxHTLCNumber {
+			log.Infof("Downstream htlc add update with "+
+				"payment hash(%v) have been added to "+
+				"reprocessing queue, batch: %v",
+				hex.EncodeToString(htlc.PaymentHash[:]),
+				l.batchCounter)
+			l.queue.consume(pkt)
+			return
+		} else if err != nil {
 			// TODO: possibly perform fallback/retry logic
 			// depending on type of error
 
@@ -298,6 +337,10 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 				err)
 			return
 		}
+		log.Tracef("Receive downstream htlc with payment hash"+
+			"(%v), assign the index: %v, batch: %v",
+			hex.EncodeToString(htlc.PaymentHash[:]),
+			index, l.batchCounter+1)
 		htlc.ID = index
 
 		l.cfg.Peer.SendMessage(htlc)
@@ -381,6 +424,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			l.cfg.Peer.Disconnect()
 			return
 		}
+		log.Tracef("Receive upstream htlc with payment hash(%v), "+
+			"assign the index: %v",
+			hex.EncodeToString(msg.PaymentHash[:]), index)
 
 		// TODO(roasbeef): perform sanity checks on per-hop payload
 		//  * time-lock is sane, fee, chain, etc
@@ -611,6 +657,7 @@ func (l *channelLink) processLockedInHtlcs(
 					&lnwire.UpdateFufillHTLC{
 						PaymentPreimage: pd.RPreimage,
 					}, pd.RHash, pd.Amount))
+			l.queue.release()
 
 		case lnwallet.Fail:
 			opaqueReason := l.cancelReasons[pd.ParentIndex]
@@ -625,6 +672,7 @@ func (l *channelLink) processLockedInHtlcs(
 						Reason: opaqueReason,
 						ChanID: l.ChanID(),
 					}, pd.RHash, pd.Amount))
+			l.queue.release()
 
 		case lnwallet.Add:
 			blob := l.blobs[pd.Index]

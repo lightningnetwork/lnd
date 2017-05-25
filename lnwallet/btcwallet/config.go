@@ -11,6 +11,7 @@ import (
 	// init function of the package, it registers itself. The import is used
 	// to activate the side effects w/o actually binding the package name to
 	// a file-level variable.
+	"github.com/roasbeef/btcwallet/chain"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 )
 
@@ -47,37 +48,25 @@ type Config struct {
 	// generated log files.
 	LogDir string
 
-	// DebugLevel is a string representing the level of verbosity the
-	// logger should use.
-	DebugLevel string
-
-	// RPCHost is the host and port to use to reach the rpc sever.
-	RPCHost string // localhost:18334
-
-	// RPCUser is the username which should be used to authentiate with the
-	// rpc server.
-	RPCUser string
-
-	// RPCPass is the password which should be used to authenticate the
-	// connection with the RPC server.
-	RPCPass string
-
-	// RPCNoTLS denotes if a TLS connection should be attempted when
-	// connecting to the RPC server.
-	RPCNoTLS bool
-
-	// RPCCert directory where the TLS certificate of the RPC sever is
-	// stored. If the RPCNoTLS is false, then this value will be unused.
-	RPCCert string
-	RPCKey  string
-
-	// CACert is the raw RPC cert for btcd.
-	CACert []byte
-
+	// PrivatePass is the private password to the underlying btcwallet
+	// instance. Without this, the wallet cannot be decrypted and operated.
 	PrivatePass []byte
-	PublicPass  []byte
-	HdSeed      []byte
 
+	// PublicPass is the optional public password to btcwallet. This is
+	// optionally used to encrypt public material such as public keys and
+	// scripts.
+	PublicPass []byte
+
+	// HdSeed is an optional seed to feed into the wallet. If this is
+	// unspecified, a new seed will be generated.
+	HdSeed []byte
+
+	// ChainSource is the primary chain interface. This is used to operate
+	// the wallet and do things such as rescanning, sending transactions,
+	// notifications for received funds, etc.
+	ChainSource chain.Interface
+
+	// NetParams is the net parameters for the target chain.
 	NetParams *chaincfg.Params
 }
 

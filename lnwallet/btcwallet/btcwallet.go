@@ -39,8 +39,7 @@ type BtcWallet struct {
 	// wallet is an active instance of btcwallet.
 	wallet *base.Wallet
 
-	// rpc is an an active RPC connection to btcd full-node.
-	rpc *chain.RPCClient
+	chain chain.Interface
 
 	db walletdb.DB
 
@@ -94,14 +93,6 @@ func New(cfg Config) (*BtcWallet, error) {
 		}
 	}
 
-	// Create a special websockets rpc client for btcd which will be used
-	// by the wallet for notifications, calls, etc.
-	rpcc, err := chain.NewRPCClient(cfg.NetParams, cfg.RPCHost,
-		cfg.RPCUser, cfg.RPCPass, cfg.CACert, false, 20)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create a bucket within the wallet's database dedicated to storing
 	// our LN specific data.
 	db := wallet.Database()
@@ -121,7 +112,7 @@ func New(cfg Config) (*BtcWallet, error) {
 		cfg:       &cfg,
 		wallet:    wallet,
 		db:        db,
-		rpc:       rpcc,
+		chain:     cfg.ChainSource,
 		netParams: cfg.NetParams,
 		utxoCache: make(map[wire.OutPoint]*wire.TxOut),
 	}, nil
@@ -134,7 +125,7 @@ func New(cfg Config) (*BtcWallet, error) {
 func (b *BtcWallet) Start() error {
 	// Establish an RPC connection in additino to starting the goroutines
 	// in the underlying wallet.
-	if err := b.rpc.Start(); err != nil {
+	if err := b.chain.Start(); err != nil {
 		return err
 	}
 
@@ -143,7 +134,7 @@ func (b *BtcWallet) Start() error {
 
 	// Pass the rpc client into the wallet so it can sync up to the
 	// current main chain.
-	b.wallet.SynchronizeRPC(b.rpc)
+	b.wallet.SynchronizeRPC(b.chain)
 
 	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
 		return err
@@ -161,7 +152,7 @@ func (b *BtcWallet) Stop() error {
 
 	b.wallet.WaitForShutdown()
 
-	b.rpc.Shutdown()
+	b.chain.Stop()
 
 	return nil
 }

@@ -264,8 +264,9 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 
 			case *confirmationsNotification:
 				chainntnfs.Log.Infof("New confirmations "+
-					"subscription: txid=%v, numconfs=%v",
-					*msg.txid, msg.numConfirmations)
+					"subscription: txid=%v, numconfs=%v, "+
+					"height_hint=%v", *msg.txid,
+					msg.numConfirmations, msg.heightHint)
 
 				// If the notification can be partially or
 				// fully dispatched, then we can skip the first
@@ -396,6 +397,9 @@ func (n *NeutrinoNotifier) attemptHistoricalDispatch(msg *confirmationsNotificat
 		scanHeight  uint32
 	)
 
+	chainntnfs.Log.Infof("Attempting to trigger dispatch for %v from "+
+		"historical chain", msg.txid)
+
 	// Starting from the height hint, we'll walk forwards in the chain to
 	// see if this transaction has already been confirmed.
 chainScan:
@@ -405,7 +409,7 @@ chainScan:
 		header, err := n.p2pNode.GetBlockByHeight(scanHeight)
 		if err != nil {
 			chainntnfs.Log.Errorf("unable to get header for "+
-				"height: %v", err)
+				"height=%v: %v", scanHeight, err)
 			return false
 		}
 		blockHash := header.BlockHash()
@@ -415,7 +419,7 @@ chainScan:
 		extFilter, err := n.p2pNode.GetExtFilter(blockHash)
 		if err != nil {
 			chainntnfs.Log.Errorf("unable to retrieve extended "+
-				"filter for height: %v", scanHeight)
+				"filter for height=%v: %v", scanHeight, err)
 			return false
 		}
 
@@ -634,6 +638,9 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	currentHeight := n.bestHeight
 	n.heightMtx.RUnlock()
 
+	chainntnfs.Log.Infof("New spend notification for outpoint=%v, "+
+		"height_hint=%v", outpoint, heightHint)
+
 	ntfn := &spendNotification{
 		targetOutpoint: outpoint,
 		spendChan:      make(chan *chainntnfs.SpendDetail, 1),
@@ -659,9 +666,6 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		neutrino.WatchOutPoints(*outpoint),
 		neutrino.StartBlock(&waddrmgr.BlockStamp{
 			Height: int32(heightHint),
-		}),
-		neutrino.EndBlock(&waddrmgr.BlockStamp{
-			Height: int32(currentHeight),
 		}),
 	)
 	if err != nil {

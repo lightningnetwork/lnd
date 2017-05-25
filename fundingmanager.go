@@ -950,7 +950,7 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
 
 	fndgLog.Infof("ChannelPoint(%v) is now active: ChannelID(%x)",
-		fundingPoint, chanID)
+		fundingPoint, chanID[:])
 
 	// Now that the channel has been fully confirmed, we'll mark it as open
 	// within the database.

@@ -13,12 +13,14 @@ import (
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
 
@@ -65,8 +67,11 @@ type chainControl struct {
 	wallet *lnwallet.LightningWallet
 }
 
-// newChainControlFromConfig....
-func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl, error) {
+// newChainControlFromConfig attempts to create a chainControl instance
+// according to the parameters in the passed lnd configuration. Currently two
+// branches of chainControl instances exist: one backed by a running btcd
+// full-node, and the other backed by a running neutrino light client instance.
+func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl, func(), error) {
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
@@ -88,22 +93,25 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 	}
 
 	var (
-		err error
+		err     error
+		cleanUp func()
 	)
 
 	// If spv mode is active, then we'll be using a distimnct set of
 	// chainControl interfaces that interface directly with the p2p network
 	// of the selected chain.
 	if cfg.SpvMode.Active {
-		// TODO(roasbeef): create dest for database of chain
-		//  * where to place???
-
+		// First we'll open the database file for neutrino, creating
+		// the database if needed.
 		dbName := filepath.Join(cfg.DataDir, "neutrino.db")
 		nodeDatabase, err := walletdb.Create("bdb", dbName)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
+		// With the database open, we can now create an instance of the
+		// neutrino light client. We pass in relevant configuration
+		// parameters required.
 		config := neutrino.Config{
 			DataDir:      cfg.DataDir,
 			Database:     nodeDatabase,
@@ -111,28 +119,34 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 			AddPeers:     cfg.SpvMode.AddPeers,
 			ConnectPeers: cfg.SpvMode.ConnectPeers,
 		}
-
 		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8
 		neutrino.BanDuration = 5 * time.Second
 		svc, err := neutrino.NewChainService(config)
 		if err != nil {
-			return nil, fmt.Errorf("unable to create neutrino: %v", err)
+			return nil, nil, fmt.Errorf("unable to create neutrino: %v", err)
 		}
 		svc.Start()
 
-		ltndLog.Infof("WAITING!!!!!")
-		m := make(chan struct{})
-		<-m
+		// Next we'll create the instances of the ChainNotifier and
+		// FilteredChainView interface which is backed by the neutrino
+		// light client.
+		cc.chainNotifier, err = neutrinonotify.New(svc)
+		if err != nil {
+			return nil, nil, err
+		}
+		cc.chainView, err = chainview.NewCfFilteredChainView(svc)
+		if err != nil {
+			return nil, nil, err
+		}
 
-		// TODO(roasbeef): return clean up func in closure to stop spvc
-		// and rest?
-		// defer db.Close()
-		// svc.Stop
-
-		// TODO(roasbeef): need to modify to base things off of
-		// ChainService
-		//walletConfig.ChainService = svc
+		// Finally, we'll set the chain source for btcwallet, and
+		// create our clean up function which simply closes the
+		// database.
+		walletConfig.ChainSource = chain.NewSPVChain(svc)
+		cleanUp = func() {
+			defer nodeDatabase.Close()
+		}
 	} else {
 		// Otherwise, we'll be speaking directly via RPC to a node.
 		//
@@ -144,19 +158,19 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		if homeChainConfig.RawRPCCert != "" {
 			rpcCert, err = hex.DecodeString(homeChainConfig.RawRPCCert)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else {
 			certFile, err := os.Open(homeChainConfig.RPCCert)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			rpcCert, err = ioutil.ReadAll(certFile)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if err := certFile.Close(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
@@ -174,13 +188,6 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 		btcdUser := homeChainConfig.RPCUser
 		btcdPass := homeChainConfig.RPCPass
-
-		// TODO(roasbeef): set chain service for wallet?
-		walletConfig.RPCHost = btcdHost
-		walletConfig.RPCUser = homeChainConfig.RPCUser
-		walletConfig.RPCPass = homeChainConfig.RPCPass
-		walletConfig.CACert = rpcCert
-
 		rpcConfig := &btcrpcclient.ConnConfig{
 			Host:                 btcdHost,
 			Endpoint:             "ws",
@@ -193,7 +200,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		}
 		cc.chainNotifier, err = btcdnotify.New(rpcConfig)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Finally, we'll create an instance of the default chain view to be
@@ -201,14 +208,24 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		cc.chainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
 		if err != nil {
 			srvrLog.Errorf("unable to create chain view: %v", err)
-			return nil, err
+			return nil, nil, err
 		}
+
+		// Create a special websockets rpc client for btcd which will be used
+		// by the wallet for notifications, calls, etc.
+		chainRpc, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
+			btcdUser, btcdPass, rpcCert, false, 20)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		walletConfig.ChainSource = chainRpc
 	}
 
 	wc, err := btcwallet.New(*walletConfig)
 	if err != nil {
 		fmt.Printf("unable to create wallet controller: %v\n", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	cc.msgSigner = wc
@@ -221,18 +238,18 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		cc.signer, cc.chainIO, cc.feeEstimator, activeNetParams.Params)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
-		return nil, err
+		return nil, nil, err
 	}
 	if err := wallet.Startup(); err != nil {
 		fmt.Printf("unable to start wallet: %v\n", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	ltndLog.Info("LightningWallet opened")
 
 	cc.wallet = wallet
 
-	return cc, nil
+	return cc, cleanUp, nil
 }
 
 var (

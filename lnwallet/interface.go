@@ -216,10 +216,6 @@ type BlockChainIO interface {
 	// returned.  Otherwise, a non-nil error will be returned.
 	GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error)
 
-	// GetTransaction returns the full transaction identified by the passed
-	// transaction ID.
-	GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error)
-
 	// GetBlockHash returns the hash of the block in the best blockchain
 	// at the given height.
 	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)

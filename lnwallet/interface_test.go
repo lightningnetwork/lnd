@@ -1170,7 +1170,7 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Query for the transaction generated above so we can located the
 	// index of our output.
-	tx, err := w.ChainIO.GetTransaction(txid)
+	tx, err := r.Node.Miner.GetRawtransaction(txid)
 	if err != nil {
 		t.Fatalf("unable to query for tx: %v", err)
 	}

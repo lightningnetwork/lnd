@@ -614,11 +614,30 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// Grab the best chain state the wallet is currently aware of.
 	syncState := b.wallet.Manager.SyncedTo()
 
-	// Next, query the btcd node to grab the info about the tip of the main
-	// chain.
-	bestHash, bestHeight, err := b.rpc.GetBestBlock()
-	if err != nil {
-		return false, err
+	var (
+		bestHash   *chainhash.Hash
+		bestHeight int32
+		err        error
+	)
+
+	// Next, query the chain backend to grab the info about the tip of the
+	// main chain.
+	switch backend := b.cfg.ChainSource.(type) {
+	case *chain.SPVChain:
+		header, height, err := backend.CS.LatestBlock()
+		if err != nil {
+			return false, err
+		}
+
+		bh := header.BlockHash()
+		bestHash = &bh
+		bestHeight = int32(height)
+
+	case *chain.RPCClient:
+		bestHash, bestHeight, err = backend.GetBestBlock()
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
@@ -628,12 +647,24 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	}
 
 	// If the wallet is on par with the current best chain tip, then we
-	// still may not yet be synced as the btcd node may still be catching
-	// up to the main chain. So we'll grab the block header in order to
-	// make a guess based on the current time stamp.
-	blockHeader, err := b.rpc.GetBlockHeader(bestHash)
-	if err != nil {
-		return false, err
+	// still may not yet be synced as the chain backend may still be
+	// catching up to the main chain. So we'll grab the block header in
+	// order to make a guess based on the current time stamp.
+	var blockHeader *wire.BlockHeader
+	switch backend := b.cfg.ChainSource.(type) {
+
+	case *chain.SPVChain:
+		bh, _, err := backend.CS.GetBlockByHash(*bestHash)
+		if err != nil {
+			return false, err
+		}
+		blockHeader = &bh
+
+	case *chain.RPCClient:
+		blockHeader, err = backend.GetBlockHeader(bestHash)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	// If the timestamp no the best header is more than 2 hours in the

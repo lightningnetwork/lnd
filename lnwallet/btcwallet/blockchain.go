@@ -3,10 +3,17 @@ package btcwallet
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
+
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
 var (
@@ -20,56 +27,98 @@ var (
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
-	return b.rpc.GetBestBlock()
+	switch backend := b.chain.(type) {
+
+	case *chain.SPVChain:
+		header, height, err := backend.CS.LatestBlock()
+		if err != nil {
+			return nil, -1, err
+		}
+
+		blockHash := header.BlockHash()
+		return &blockHash, int32(height), nil
+
+	case *chain.RPCClient:
+		return backend.GetBestBlock()
+
+	default:
+		return nil, -1, fmt.Errorf("unknown backend")
+	}
 }
 
 // GetUtxo returns the original output referenced by the passed outpoint.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
-	txout, err := b.rpc.GetTxOut(&op.Hash, op.Index, false)
-	if err != nil {
-		return nil, err
-	} else if txout == nil {
-		return nil, ErrOutputSpent
+func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error) {
+	switch backend := b.chain.(type) {
+
+	case *chain.SPVChain:
+		spendReport, err := backend.CS.GetUtxo(
+			neutrino.WatchOutPoints(*op),
+			neutrino.StartBlock(&waddrmgr.BlockStamp{
+				Height: int32(heightHint),
+			}),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if spendReport != nil && spendReport.SpendingTx != nil {
+			return nil, ErrOutputSpent
+		}
+
+		return spendReport.Output, nil
+
+	case *chain.RPCClient:
+		txout, err := backend.GetTxOut(&op.Hash, op.Index, false)
+		if err != nil {
+			return nil, err
+		} else if txout == nil {
+			return nil, ErrOutputSpent
+		}
+
+		pkScript, err := hex.DecodeString(txout.ScriptPubKey.Hex)
+		if err != nil {
+			return nil, err
+		}
+
+		return &wire.TxOut{
+			// Sadly, gettxout returns the output value in BTC
+			// instead of satoshis.
+			Value:    int64(txout.Value * 1e8),
+			PkScript: pkScript,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown backend")
 	}
-
-	pkScript, err := hex.DecodeString(txout.ScriptPubKey.Hex)
-	if err != nil {
-		return nil, err
-	}
-
-	return &wire.TxOut{
-		// Sadly, gettxout returns the output value in BTC
-		// instead of satoshis.
-		Value:    int64(txout.Value * 1e8),
-		PkScript: pkScript,
-	}, nil
-}
-
-// GetTransaction returns the full transaction identified by the passed
-// transaction ID.
-//
-// This method is a part of the lnwallet.BlockChainIO interface.
-func (b *BtcWallet) GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error) {
-	tx, err := b.rpc.GetRawTransaction(txid)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx.MsgTx(), nil
 }
 
 // GetBlock returns a raw block from the server given its hash.
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
-	block, err := b.rpc.GetBlock(blockHash)
-	if err != nil {
-		return nil, err
-	}
+	switch backend := b.chain.(type) {
 
-	return block, nil
+	case *chain.SPVChain:
+		block, err := backend.CS.GetBlockFromNetwork(*blockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		return block.MsgBlock(), nil
+
+	case *chain.RPCClient:
+		block, err := backend.GetBlock(blockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		return block, nil
+
+	default:
+		return nil, fmt.Errorf("unknown backend")
+	}
 }
 
 // GetBlockHash returns the hash of the block in the best blockchain at the
@@ -77,12 +126,28 @@ func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
-	blockHash, err := b.rpc.GetBlockHash(blockHeight)
-	if err != nil {
-		return nil, err
-	}
+	switch backend := b.chain.(type) {
 
-	return blockHash, nil
+	case *chain.SPVChain:
+		blockHeader, err := backend.CS.GetBlockByHeight(uint32(blockHeight))
+		if err != nil {
+			return nil, err
+		}
+
+		blockHash := blockHeader.BlockHash()
+		return &blockHash, nil
+
+	case *chain.RPCClient:
+		blockHash, err := backend.GetBlockHash(blockHeight)
+		if err != nil {
+			return nil, err
+		}
+
+		return blockHash, nil
+
+	default:
+		return nil, fmt.Errorf("unknown backend")
+	}
 }
 
 // A compile time check to ensure that BtcWallet implements the BlockChainIO

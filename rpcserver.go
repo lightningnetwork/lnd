@@ -1963,20 +1963,36 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 		return nil, err
 	}
 
+	// If we don't have any channels, then reset the minChannelSize to zero
+	// to avoid outputting NaN in encoded JSOn.
+	if numChannels == 0 {
+		minChannelSize = 0
+	}
+
 	// TODO(roasbeef): graph diameter
 
 	// TODO(roasbeef): also add oldest channel?
 	//  * also add median channel size
-	return &lnrpc.NetworkInfo{
+	netInfo := &lnrpc.NetworkInfo{
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),
 		NumNodes:             numNodes,
 		NumChannels:          numChannels,
 		TotalNetworkCapacity: int64(totalNetworkCapacity),
 		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
-		MinChannelSize:       int64(minChannelSize),
-		MaxChannelSize:       int64(maxChannelSize),
-	}, nil
+
+		MinChannelSize: int64(minChannelSize),
+		MaxChannelSize: int64(maxChannelSize),
+	}
+
+	// Similarly, if we don't have any channels, then we'll also set the
+	// average channel size to zero in order to avoid weird JSON encoding
+	// outputs.
+	if numChannels == 0 {
+		netInfo.AvgChannelSize = 0
+	}
+
+	return netInfo, nil
 }
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering

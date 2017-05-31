@@ -71,10 +71,12 @@ type channelLink struct {
 	blobs map[uint64][lnwire.OnionPacketSize]byte
 
 	// batchCounter is the number of updates which we received from
-	// remote side, but not include in commitment transaciton yet.
+	// remote side, but not include in commitment transaciton yet and plus
+	// the current number of settles that have been sent, but not yet
+	// committed to the commitment.
 	// TODO(andrew.shvv) remove after we add additional
 	// BatchNumber() method in state machine.
-	batchCounter uint64
+	batchCounter uint32
 
 	// channel is a lightning network channel to which we apply htlc
 	// updates.
@@ -369,6 +371,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
 		l.cfg.Peer.SendMessage(htlc)
+		l.batchCounter++
 		isSettle = true
 
 	case *lnwire.UpdateFailHTLC:
@@ -390,6 +393,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
 		l.cfg.Peer.SendMessage(htlc)
+		l.batchCounter++
 		isSettle = true
 	}
 
@@ -551,6 +555,7 @@ func (l *channelLink) updateCommitTx() error {
 	l.cfg.Peer.SendMessage(commitSig)
 
 	l.batchCounter = 0
+
 	return nil
 }
 

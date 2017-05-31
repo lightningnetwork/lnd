@@ -83,11 +83,14 @@ type Config struct {
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
 }
 
-// Switch is a central messaging bus for all incoming/outgoing htlc's.
-// The goal of the switch is forward the incoming/outgoing htlc messages from
-// one channel to another, and also propagate the settle/fail htlc messages
-// back to original requester by using payment circuits. Also switch is
-// responsible for notifying the user about result of payment request.
+// htlcSwitch is a central messaging bus for all incoming/outgoing HTLCs.
+// Connected peers with active channels are treated as named interfaces which
+// refer to active channels as links. A link is the switch's message
+// communication point with the goroutine that manages an active channel. New
+// links are registered each time a channel is created, and unregistered once
+// the channel is closed. The switch manages the hand-off process for multi-hop
+// HTLCs, forwarding HTLCs initiated from within the daemon, and finally
+// notifies users local-systems concerning their outstanding payment requests.
 type Switch struct {
 	started  int32
 	shutdown int32
@@ -491,13 +494,20 @@ func (s *Switch) handleChanelClose(req *ChanClose) {
 	return
 }
 
-// startHandling start handling inner command requests and print the
-// htlc switch statistics.
-// NOTE: Should be run as goroutine.
-func (s *Switch) startHandling() {
+// htlcForwarder is responsible for optimally forwarding (and possibly
+// fragmenting) incoming/outgoing HTLCs amongst all active interfaces and their
+// links. The duties of the forwarder are similar to that of a network switch,
+// in that it facilitates multi-hop payments by acting as a central messaging
+// bus. The switch communicates will active links to create, manage, and tear
+// down active onion routed payments. Each active channel is modeled as
+// networked device with metadata such as the available payment bandwidth, and
+// total link capacity.
+//
+// NOTE: This MUST be run as a goroutine.
+func (s *Switch) htlcForwarder() {
 	defer s.wg.Done()
 
-	// Remove all links on stop.
+	// Remove all links once we've been signalled for shutdown.
 	defer func() {
 		for _, link := range s.links {
 			if err := s.removeLink(link.ChanID()); err != nil {
@@ -508,9 +518,13 @@ func (s *Switch) startHandling() {
 	}()
 
 	// TODO(roasbeef): cleared vs settled distinction
-	var prevNumUpdates uint64
-	var prevSatSent btcutil.Amount
-	var prevSatRecv btcutil.Amount
+	var (
+		totalNumUpdates uint64
+		totalSatSent    btcutil.Amount
+		totalSatRecv    btcutil.Amount
+	)
+	logTicker := time.NewTicker(10 * time.Second)
+	defer logTicker.Stop()
 
 	for {
 		select {
@@ -540,33 +554,68 @@ func (s *Switch) startHandling() {
 				cmd.err <- s.handleLocalDispatch(payment, cmd.pkt)
 			}
 
-		case <-time.Tick(10 * time.Second):
-			var overallNumUpdates uint64
-			var overallSatSent btcutil.Amount
-			var overallSatRecv btcutil.Amount
+		// The log ticker has fired, so we'll calculate some forwarding
+		// stats for the last 10 seconds to display within the logs to
+		// users.
+		case <-logTicker.C:
+			// First, we'll collate the current running tally of
+			// our forwarding stats.
+			prevSatSent := totalSatSent
+			prevSatRecv := totalSatRecv
+			prevNumUpdates := totalNumUpdates
 
+			var (
+				newNumUpdates uint64
+				newSatSent    btcutil.Amount
+				newSatRecv    btcutil.Amount
+			)
+
+			// Next, we'll run through all the registered links and
+			// compute their up-to-date forwarding stats.
 			for _, link := range s.links {
+				// TODO(roasbeef): when links first registered
+				// stats printed.
 				updates, sent, recv := link.Stats()
-				overallNumUpdates += updates
-				overallSatSent += sent
-				overallSatRecv += recv
+				newNumUpdates += updates
+				newSatSent += sent
+				newSatRecv += recv
 			}
 
-			diffNumUpdates := overallNumUpdates - prevNumUpdates
-			diffSatSent := overallSatSent - prevSatSent
-			diffSatRecv := overallSatRecv - prevSatRecv
+			var (
+				diffNumUpdates uint64
+				diffSatSent    btcutil.Amount
+				diffSatRecv    btcutil.Amount
+			)
 
+			// If this is the first time we're computing these
+			// stats, then the diff is just the new value. We do
+			// this in order to avoid integer underflow issues.
+			if prevNumUpdates == 0 {
+				diffNumUpdates = newNumUpdates
+				diffSatSent = newSatSent
+				diffSatRecv = newSatRecv
+			} else {
+				diffNumUpdates = newNumUpdates - prevNumUpdates
+				diffSatSent = newSatSent - prevSatSent
+				diffSatRecv = newSatRecv - prevSatRecv
+			}
+
+			// If the diff of num updates is zero, then we haven't
+			// forwarded anything in the last 10 seconds, so we can
+			// skip this update.
 			if diffNumUpdates == 0 {
 				continue
 			}
 
-			log.Infof("sent %v satoshis received %v satoshi "+
+			// Otherwise, we'll log this diff, then accumulate the
+			// new stats into the running total.
+			log.Infof("Sent %v satoshis received %v satoshi "+
 				" in the last 10 seconds (%v tx/sec)",
 				diffSatSent, diffSatRecv, float64(diffNumUpdates)/10)
 
-			prevNumUpdates = overallNumUpdates
-			prevSatSent = overallSatSent
-			prevSatRecv = overallSatRecv
+			totalNumUpdates += diffNumUpdates
+			totalSatSent += diffSatSent
+			totalSatRecv += diffSatRecv
 
 		case cmd := <-s.linkControl:
 			switch cmd := cmd.(type) {
@@ -597,10 +646,10 @@ func (s *Switch) Start() error {
 		return nil
 	}
 
-	log.Infof("Htlc Switch starting")
+	log.Infof("Starting HTLC Switch")
 
 	s.wg.Add(1)
-	go s.startHandling()
+	go s.htlcForwarder()
 
 	return nil
 }
@@ -613,7 +662,7 @@ func (s *Switch) Stop() error {
 		return nil
 	}
 
-	log.Infof("Htlc Switch shutting down")
+	log.Infof("HLTC Switch shutting down")
 
 	close(s.quit)
 	s.wg.Wait()

@@ -83,7 +83,7 @@ type Config struct {
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
 }
 
-// htlcSwitch is a central messaging bus for all incoming/outgoing HTLCs.
+// Switch is the central messaging bus for all incoming/outgoing HTLCs.
 // Connected peers with active channels are treated as named interfaces which
 // refer to active channels as links. A link is the switch's message
 // communication point with the goroutine that manages an active channel. New

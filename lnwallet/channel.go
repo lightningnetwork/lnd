@@ -1307,7 +1307,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	//  * tally in separate accumulator, subtract from fee amount
 	//  * when dumping fees back into initiator output, only dumb explicit
 	//    fee
-	var dustLimit btcutil.Amount
+	var dustLimit, dustFees btcutil.Amount
 	if remoteChain {
 		dustLimit = lc.channelState.TheirDustLimit
 	} else {
@@ -1316,12 +1316,14 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	numHTLCs := 0
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if htlc.Amount < dustLimit {
+			dustFees += htlc.Amount
 			continue
 		}
 		numHTLCs++
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if htlc.Amount < dustLimit {
+			dustFees += htlc.Amount
 			continue
 		}
 		numHTLCs++
@@ -1332,7 +1334,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
 	totalCommitWeight := commitWeight + btcutil.Amount(htlcWeight*numHTLCs)
-	commitFee := (lc.channelState.FeePerKw * totalCommitWeight) / 1000
+	commitFee := lc.channelState.FeePerKw * totalCommitWeight / 1000
+	commitFee -= dustFees
 
 	// Currently, within the protocol, the initiator always pays the fees.
 	// So we'll subtract the fee amount from the balance of the current

@@ -345,6 +345,22 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
 
+// createHTLC is a utility function for generating an HTLC with a given preimage
+// and a given amount.
+func createHTLC(data int, amount btcutil.Amount) (*lnwire.UpdateAddHTLC, [32]byte) {
+	preimage := bytes.Repeat([]byte{byte(data)}, 32)
+	paymentHash := sha256.Sum256(preimage)
+
+	var returnPreimage [32]byte
+	copy(returnPreimage[:], preimage)
+
+	return &lnwire.UpdateAddHTLC{
+		PaymentHash: paymentHash,
+		Amount:      amount,
+		Expiry:      uint32(5),
+	}, returnPreimage
+}
+
 // TestSimpleAddSettleWorkflow tests a simple channel scenario wherein the
 // local node (Alice in this case) creates a new outgoing HTLC to bob, commits
 // this change, then bob immediately commits a settlement of the HTLC after the
@@ -629,20 +645,6 @@ func TestCheckCommitTxSize(t *testing.T) {
 
 	}
 
-	createHTLC := func(i int) (*lnwire.UpdateAddHTLC, [32]byte) {
-		preimage := bytes.Repeat([]byte{byte(i)}, 32)
-		paymentHash := sha256.Sum256(preimage)
-
-		var returnPreimage [32]byte
-		copy(returnPreimage[:], preimage)
-
-		return &lnwire.UpdateAddHTLC{
-			PaymentHash: paymentHash,
-			Amount:      btcutil.Amount(1e7),
-			Expiry:      uint32(5),
-		}, returnPreimage
-	}
-
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -660,7 +662,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// Adding HTLCs and check that size stays in allowable estimation
 	// error window.
 	for i := 1; i <= 10; i++ {
-		htlc, _ := createHTLC(i)
+		htlc, _ := createHTLC(i, btcutil.Amount(1e7))
 
 		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 			t.Fatalf("alice unable to add htlc: %v", err)
@@ -679,7 +681,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// Settle HTLCs and check that estimation is counting cost of settle
 	// HTLCs properly.
 	for i := 10; i >= 1; i-- {
-		_, preimage := createHTLC(i)
+		_, preimage := createHTLC(i, btcutil.Amount(1e7))
 
 		settleIndex, err := bobChannel.SettleHTLC(preimage)
 		if err != nil {
@@ -751,21 +753,6 @@ func TestCooperativeChannelClosure(t *testing.T) {
 // the dust limit.
 func TestForceClose(t *testing.T) {
 	t.Parallel()
-
-	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
-		[32]byte) {
-		preimage := bytes.Repeat([]byte{byte(data)}, 32)
-		paymentHash := sha256.Sum256(preimage)
-
-		var returnPreimage [32]byte
-		copy(returnPreimage[:], preimage)
-
-		return &lnwire.UpdateAddHTLC{
-			PaymentHash: paymentHash,
-			Amount:      amount,
-			Expiry:      uint32(5),
-		}, returnPreimage
-	}
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -936,21 +923,6 @@ func TestForceClose(t *testing.T) {
 // below the nodes' dust limit. In these cases, the amount of the dust HTLCs
 // should be applied to the commitment transaction fee.
 func TestDustHTLCFees(t *testing.T) {
-	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
-		[32]byte) {
-		preimage := bytes.Repeat([]byte{byte(data)}, 32)
-		paymentHash := sha256.Sum256(preimage)
-
-		var returnPreimage [32]byte
-		copy(returnPreimage[:], preimage)
-
-		return &lnwire.UpdateAddHTLC{
-			PaymentHash: paymentHash,
-			Amount:      amount,
-			Expiry:      uint32(5),
-		}, returnPreimage
-	}
-
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -991,21 +963,6 @@ func TestDustHTLCFees(t *testing.T) {
 // unsettled dust HTLCs will go to miners fee).
 func TestCheckDustLimit(t *testing.T) {
 	t.Parallel()
-
-	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
-		[32]byte) {
-		preimage := bytes.Repeat([]byte{byte(data)}, 32)
-		paymentHash := sha256.Sum256(preimage)
-
-		var returnPreimage [32]byte
-		copy(returnPreimage[:], preimage)
-
-		return &lnwire.UpdateAddHTLC{
-			PaymentHash: paymentHash,
-			Amount:      amount,
-			Expiry:      uint32(5),
-		}, returnPreimage
-	}
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,

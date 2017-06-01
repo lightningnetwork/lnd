@@ -932,6 +932,60 @@ func TestForceClose(t *testing.T) {
 	}
 }
 
+// TestDustHTLCFees checks that fees are calculated correctly when HTLCs fall
+// below the nodes' dust limit. In these cases, the amount of the dust HTLCs
+// should be applied to the commitment transaction fee.
+func TestDustHTLCFees(t *testing.T) {
+	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
+		[32]byte) {
+		preimage := bytes.Repeat([]byte{byte(data)}, 32)
+		paymentHash := sha256.Sum256(preimage)
+
+		var returnPreimage [32]byte
+		copy(returnPreimage[:], preimage)
+
+		return &lnwire.UpdateAddHTLC{
+			PaymentHash: paymentHash,
+			Amount:      amount,
+			Expiry:      uint32(5),
+		}, returnPreimage
+	}
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// This HTLC amount should be lower than the dust limits of both nodes.
+	htlcAmount := btcutil.Amount(100)
+	htlc, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to receive htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	defaultFee := calcStaticFee(0)
+	if aliceChannel.channelState.CommitFee != defaultFee-htlcAmount {
+		t.Fatalf("dust htlc amounts not subtracted from commitment fee "+
+			"expected %v, got %v", defaultFee-htlcAmount,
+			aliceChannel.channelState.CommitFee)
+	}
+	if bobChannel.channelState.CommitFee != defaultFee-htlcAmount {
+		t.Fatalf("dust htlc amounts not subtracted from commitment fee "+
+			"expected %v, got %v", defaultFee-htlcAmount,
+			bobChannel.channelState.CommitFee)
+	}
+}
+
 // TestCheckDustLimit checks that unsettled HTLC with dust limit not included in
 // commitment transaction as output, but sender balance is decreased (thereby all
 // unsettled dust HTLCs will go to miners fee).

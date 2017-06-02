@@ -16,8 +16,11 @@ const (
 	// bitcoinChain is Bitcoin's testnet chain.
 	bitcoinChain chainCode = iota
 
-	// litecoinChain is Litecoin's testnet chain.
+	// litecoinChain is Litecoin's mainnet chain.
 	litecoinChain
+
+	// litecointestChain is Litecoin's testnet chain.
+	litecointestChain
 )
 
 // String returns a string representation of the target chainCode.
@@ -27,8 +30,10 @@ func (c chainCode) String() string {
 		return "bitcoin"
 	case litecoinChain:
 		return "litecoin"
+	case litecointestChain:
+		return "litecointest"
 	default:
-		return "kekcoin"
+		panic("unknown chainCode")
 	}
 }
 
@@ -51,8 +56,16 @@ var (
 		0x68, 0xd6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
 	})
 
-	// litecoinGenesis is the genesis hash of Litecoin's testnet4 chain.
+	// litecoinGenesis is the genesis hash of Litecoin's main chain.
 	litecoinGenesis = chainhash.Hash([chainhash.HashSize]byte{
+		0xe2, 0xbf, 0x04, 0x7e, 0x7e, 0x5a, 0x19, 0x1a,
+		0xa4, 0xef, 0x34, 0xd3, 0x14, 0x97, 0x9d, 0xc9,
+		0x98, 0x6e, 0x0f, 0x19, 0x25, 0x1e, 0xda, 0xba,
+		0x59, 0x40, 0xfd, 0x1f, 0xe3, 0x65, 0xa7, 0x12,
+	})
+
+	// litecointestGenesis is the genesis hash of Litecoin's testnet4 chain.
+	litecointestGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0xa0, 0x29, 0x3e, 0x4e, 0xeb, 0x3d, 0xa6, 0xe6,
 		0xf5, 0x6f, 0x81, 0xed, 0x59, 0x5f, 0x57, 0x88,
 		0x0d, 0x1a, 0x21, 0x56, 0x9e, 0x13, 0xee, 0xfd,
@@ -62,15 +75,17 @@ var (
 	// chainMap is a simple index that maps a chain's genesis hash to the
 	// chainCode enum for that chain.
 	chainMap = map[chainhash.Hash]chainCode{
-		bitcoinGenesis:  bitcoinChain,
-		litecoinGenesis: litecoinChain,
+		bitcoinGenesis:      bitcoinChain,
+		litecoinGenesis:     litecoinChain,
+		litecointestGenesis: litecointestChain,
 	}
 
 	// reverseChainMap is the inverse of the chainMap above: it maps the
 	// chain enum for a chain to its genesis hash.
 	reverseChainMap = map[chainCode]chainhash.Hash{
-		bitcoinChain:  bitcoinGenesis,
-		litecoinChain: litecoinGenesis,
+		bitcoinChain:      bitcoinGenesis,
+		litecoinChain:     litecoinGenesis,
+		litecointestChain: litecointestGenesis,
 	}
 )
 

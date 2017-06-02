@@ -48,7 +48,7 @@ $ btcctl --testnet getinfo
 {
   "version": 120000,
   "protocolversion": 70002,
-  "blocks": 1114996, 
+  "blocks": 1114996,
   "timeoffset": 0,
   "connections": 7,
   "proxy": "",
@@ -60,7 +60,7 @@ $ btcctl --testnet getinfo
 ```
 
 Additionally, you can monitor btcd's logs to track its syncing progress in real
-time. 
+time.
 
 You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 ```
@@ -100,7 +100,7 @@ $ lnd --bitcoin.active --bitcoin.simnet --debughtlc
 
 Optionally, if you'd like to have a persistent configuration between `lnd`
 launches, allowing you to simply type `lnd --bitcoin.testnet --bitcoin.active`
-at the command line. You can create an `lnd.conf`. 
+at the command line. You can create an `lnd.conf`.
 
 **On MacOS, located at:**
 `/Users/[username]/Library/Application Support/Lnd/lnd.conf`
@@ -126,7 +126,8 @@ bitcoin.rpchost=localhost:18334
 Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. Also `lnd` also supports Litecoin, one is able to also specified
 (but not concurrently with Bitcoin!) the proper parameters, so `lnd` knows to
-be active on Litecoin's testnet4.
+be active on Litecoin's mainnet (or configure `litecoin.testnet=1` to use the
+testnet4).
 
 #### Accurate as of:
 roasbeef/btcd commit: 54362e17a5b80643ef1e12edc08895a2e2a1202b

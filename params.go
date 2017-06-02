@@ -45,29 +45,35 @@ var liteTestNetParams = litecoinNetParams{
 	rpcPort: "19334",
 }
 
+// liteMainNetParams contains parameters specific to the litecoin main net
+var liteMainNetParams = litecoinNetParams{
+	Params:  &litecoinCfg.MainNetParams,
+	rpcPort: "8334",
+}
+
 // applyLitecoinParams applies the relevant chain configuration parameters that
 // differ for litecoin to the chain parameters typed for btcsuite derivation.
 // This function is used in place of using something like interface{} to
 // abstract over _which_ chain (or fork) the parameters are for.
-func applyLitecoinParams(params *bitcoinNetParams) {
-	params.Name = liteTestNetParams.Name
-	params.Net = wire.BitcoinNet(liteTestNetParams.Net)
-	params.DefaultPort = liteTestNetParams.DefaultPort
-	params.CoinbaseMaturity = liteTestNetParams.CoinbaseMaturity
+func applyLitecoinParams(params *bitcoinNetParams, ltcParams *litecoinNetParams) {
+	params.Name = ltcParams.Name
+	params.Net = wire.BitcoinNet(ltcParams.Net)
+	params.DefaultPort = ltcParams.DefaultPort
+	params.CoinbaseMaturity = ltcParams.CoinbaseMaturity
 
-	copy(params.GenesisHash[:], liteTestNetParams.GenesisHash[:])
+	copy(params.GenesisHash[:], ltcParams.GenesisHash[:])
 
 	// Address encoding magics
-	params.PubKeyHashAddrID = liteTestNetParams.PubKeyHashAddrID
-	params.ScriptHashAddrID = liteTestNetParams.ScriptHashAddrID
-	params.PrivateKeyID = liteTestNetParams.PrivateKeyID
-	params.WitnessPubKeyHashAddrID = liteTestNetParams.WitnessPubKeyHashAddrID
-	params.WitnessScriptHashAddrID = liteTestNetParams.WitnessScriptHashAddrID
+	params.PubKeyHashAddrID = ltcParams.PubKeyHashAddrID
+	params.ScriptHashAddrID = ltcParams.ScriptHashAddrID
+	params.PrivateKeyID = ltcParams.PrivateKeyID
+	params.WitnessPubKeyHashAddrID = ltcParams.WitnessPubKeyHashAddrID
+	params.WitnessScriptHashAddrID = ltcParams.WitnessScriptHashAddrID
 
-	copy(params.HDPrivateKeyID[:], liteTestNetParams.HDPrivateKeyID[:])
-	copy(params.HDPublicKeyID[:], liteTestNetParams.HDPublicKeyID[:])
+	copy(params.HDPrivateKeyID[:], ltcParams.HDPrivateKeyID[:])
+	copy(params.HDPublicKeyID[:], ltcParams.HDPublicKeyID[:])
 
-	params.HDCoinType = liteTestNetParams.HDCoinType
+	params.HDCoinType = ltcParams.HDCoinType
 
-	params.rpcPort = liteTestNetParams.rpcPort
+	params.rpcPort = ltcParams.rpcPort
 }

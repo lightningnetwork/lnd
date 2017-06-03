@@ -958,12 +958,13 @@ func TestDustHTLCFees(t *testing.T) {
 	}
 }
 
-// TestCheckDustLimit checks that unsettled HTLC with dust limit not included in
-// commitment transaction as output, but sender balance is decreased (thereby all
-// unsettled dust HTLCs will go to miners fee).
-func TestCheckDustLimit(t *testing.T) {
+// TestHTLCDustLimit checks the situation in which an HTLC is larger than one
+// channel participant's dust limit, but smaller than the other participant's
+// dust limit. In this case, the participants' commitment chains will diverge.
+// In one commitment chain, the HTLC will be added as normal, in the other
+// chain, the amount of the HTLC will contribute to the fees to be paid.
+func TestHTLCDustLimit(t *testing.T) {
 	t.Parallel()
-
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -973,51 +974,9 @@ func TestCheckDustLimit(t *testing.T) {
 	}
 	defer cleanUp()
 
-	assertChannelState := func(chanA, chanB *LightningChannel, numOutsA,
-		numOutsB int, amountSentA, amountSentB uint64) {
-
-		commitment := chanA.localCommitChain.tip()
-		if len(commitment.txn.TxOut) != numOutsA {
-			t.Fatalf("incorrect # of outputs: expected %v, got %v",
-				numOutsA, len(commitment.txn.TxOut))
-		}
-		commitment = chanB.localCommitChain.tip()
-		if len(commitment.txn.TxOut) != numOutsB {
-			t.Fatalf("Incorrect # of outputs: expected %v, got %v",
-				numOutsB, len(commitment.txn.TxOut))
-		}
-
-		if chanA.channelState.TotalSatoshisSent != amountSentA {
-			t.Fatalf("alice satoshis sent incorrect: expected %v, "+
-				"got %v", amountSentA,
-				chanA.channelState.TotalSatoshisSent)
-		}
-		if chanA.channelState.TotalSatoshisReceived != amountSentB {
-			t.Fatalf("alice satoshis received incorrect: expected"+
-				"%v, got %v", amountSentB,
-				chanA.channelState.TotalSatoshisReceived)
-		}
-		if chanB.channelState.TotalSatoshisSent != amountSentB {
-			t.Fatalf("bob satoshis sent incorrect: expected %v, "+
-				" got %v", amountSentB,
-				chanB.channelState.TotalSatoshisSent)
-		}
-		if chanB.channelState.TotalSatoshisReceived != amountSentA {
-			t.Fatalf("bob satoshis received incorrect: expected "+
-				"%v, got %v", amountSentA,
-				chanB.channelState.TotalSatoshisReceived)
-		}
-	}
-
-	aliceDustLimit := aliceChannel.channelState.OurDustLimit
-	bobDustLimit := bobChannel.channelState.OurDustLimit
+	// The amount of the HTLC should be above Alice's dust limit and below
+	// Bob's dust limit.
 	htlcAmount := btcutil.Amount(500)
-
-	if !((htlcAmount > aliceDustLimit) && (bobDustLimit > htlcAmount)) {
-		t.Fatalf("htlc amount (%v) should be above Alice's dust limit (%v),"+
-			"and below Bob's dust limit (%v).", htlcAmount, aliceDustLimit,
-			bobDustLimit)
-	}
 
 	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
@@ -1030,16 +989,23 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	// First two outputs are payment to them and to us. If we encounter
-	// third output it means that dust HTLC was included. Their channel
-	// balance shouldn't change because, it will be changed only after HTLC
-	// will be settled.
+	// At this point, Alice's commitment transaction should have an HTLC,
+	// while Bob's should not, because the value falls beneath his dust
+	// limit. The amount of the HTLC should be applied to fees in Bob's
+	// commitment transaction.
+	commitment := aliceChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 3 {
+		t.Fatalf("incorrect # of outputs: expected %v, got %v",
+			3, len(commitment.txn.TxOut))
+	}
+	defaultFee := calcStaticFee(0)
+	if bobChannel.channelState.CommitFee != defaultFee-htlcAmount {
+		t.Fatalf("dust htlc amount not subtracted from commitment fee "+
+			"expected %v, got %v", defaultFee-htlcAmount,
+			bobChannel.channelState.CommitFee)
+	}
 
-	// From Alice point of view HTLC's amount is bigger than dust limit.
-	// From Bob point of view HTLC's amount is lower then dust limit.
-	assertChannelState(aliceChannel, bobChannel, 3, 2, 0, 0)
-
-	// Settle HTLC and sign new commitment.
+	// Settle HTLCs and sign new commitment.
 	settleIndex, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
@@ -1052,17 +1018,43 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("state transition error: %v", err)
 	}
 
-	assertChannelState(aliceChannel, bobChannel, 2, 2, uint64(htlcAmount), 0)
+	//At this point, for Alice's commitment chains, the value of the HTLC
+	//should have been added to Alice's balance and TotalSatoshisSent.
+	commitment = aliceChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 2 {
+		t.Fatalf("incorrect # of outputs: expected %v, got %v",
+			2, len(commitment.txn.TxOut))
+	}
+	if aliceChannel.channelState.TotalSatoshisSent != uint64(htlcAmount) {
+		t.Fatalf("alice satoshis sent incorrect: expected %v, got %v",
+			htlcAmount, aliceChannel.channelState.TotalSatoshisSent)
+	}
+}
 
-	// Next we will test when a non-HTLC output in the commitment
-	// transaction is below the dust limit.  We create an HTLC that will
-	// only leave a small enough amount to Alice such that Bob will
-	// consider it a dust output.
-	// TODO(roasbeef): test needs to be fixed after reserves and proper
-	// rolling over of dust into fees is done
-	aliceAmount := btcutil.Amount(5e8)
-	htlcAmount2 := aliceAmount - btcutil.Amount(6100)
-	htlc, preimage = createHTLC(0, htlcAmount2)
+// TestChannelBalanceDustLimit tests the condition when the remaining balance
+// for one of the channel participants is so small as to be considered dust. In
+// this case, the output for that participant is removed and all funds (minus
+// fees) in the commitment transaction are allocated to the remaining channel
+// participant.
+//
+// TODO(roasbeef): test needs to be fixed after reserve limits are done
+func TestChannelBalanceDustLimit(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// This amount should leave an amount larger than Alice's dust limit
+	// once fees have been subtracted, but smaller than Bob's dust limit.
+	defaultFee := calcStaticFee(0)
+	htlcAmount := aliceChannel.channelState.OurBalance - (defaultFee +
+		aliceChannel.channelState.OurDustLimit + 100)
+
+	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
 	}
@@ -1072,13 +1064,7 @@ func TestCheckDustLimit(t *testing.T) {
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("state transition error: %v", err)
 	}
-
-	// From Alice's point of view, her output is bigger than the dust limit
-	// From Bob's point of view, Alice's output is lower than the dust limit
-	assertChannelState(aliceChannel, bobChannel, 3, 2, uint64(htlcAmount), 0)
-
-	// Settle HTLC and sign new commitment.
-	settleIndex, err = bobChannel.SettleHTLC(preimage)
+	settleIndex, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
@@ -1090,8 +1076,19 @@ func TestCheckDustLimit(t *testing.T) {
 		t.Fatalf("state transition error: %v", err)
 	}
 
-	assertChannelState(aliceChannel, bobChannel, 2, 1,
-		uint64(htlcAmount+htlcAmount2), 0)
+	// At the conclusion of this test, in Bob's commitment chains, the
+	// output for Alice's balance should have been removed as dust, leaving
+	// only a single output that will send the remaining funds in the
+	// channel to Bob.
+	commitment := bobChannel.localCommitChain.tip()
+	if len(commitment.txn.TxOut) != 1 {
+		t.Fatalf("incorrect # of outputs: expected %v, got %v",
+			1, len(commitment.txn.TxOut))
+	}
+	if aliceChannel.channelState.TotalSatoshisSent != uint64(htlcAmount) {
+		t.Fatalf("alice satoshis sent incorrect: expected %v, got %v",
+			htlcAmount, aliceChannel.channelState.TotalSatoshisSent)
+	}
 }
 
 func TestStateUpdatePersistence(t *testing.T) {

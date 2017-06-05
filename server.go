@@ -989,12 +989,6 @@ type disconnectPeerMsg struct {
 	err chan error
 }
 
-// listPeersMsg is a message sent to the server in order to obtain a listing
-// of all currently active channels.
-type listPeersMsg struct {
-	resp chan []*peer
-}
-
 // openChanReq is a message sent to the server in order to request the
 // initiation of a channel funding workflow to the peer with either the specified
 // relative peer ID, or a global lightning  ID.
@@ -1103,8 +1097,6 @@ out:
 				s.handleDisconnectPeer(msg)
 			case *connectPeerMsg:
 				s.handleConnectPeer(msg)
-			case *listPeersMsg:
-				s.handleListPeers(msg)
 			case *openChanReq:
 				s.handleOpenChanReq(msg)
 			}
@@ -1116,21 +1108,6 @@ out:
 	s.connMgr.Stop()
 
 	s.wg.Done()
-}
-
-// handleListPeers sends a lice of all currently active peers to the original
-// caller.
-func (s *server) handleListPeers(msg *listPeersMsg) {
-	s.peersMtx.RLock()
-
-	peers := make([]*peer, 0, len(s.peersByID))
-	for _, peer := range s.peersByID {
-		peers = append(peers, peer)
-	}
-
-	s.peersMtx.RUnlock()
-
-	msg.resp <- peers
 }
 
 // handleConnectPeer attempts to establish a connection to the address enclosed
@@ -1333,9 +1310,14 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 
 // Peers returns a slice of all active peers.
 func (s *server) Peers() []*peer {
-	resp := make(chan []*peer, 1)
+	s.peersMtx.RLock()
 
-	s.queries <- &listPeersMsg{resp}
+	peers := make([]*peer, 0, len(s.peersByID))
+	for _, peer := range s.peersByID {
+		peers = append(peers, peer)
+	}
 
-	return <-resp
+	s.peersMtx.RUnlock()
+
+	return peers
 }

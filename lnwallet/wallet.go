@@ -1069,6 +1069,18 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	delete(l.fundingLimbo, res.reservationID)
 	l.limboMtx.Unlock()
 
+	// As we're about to broadcast the funding transaction, we'll take note
+	// of the current height for record keeping purposes.
+	//
+	// TODO(roasbeef): this info can also be piped into light client's
+	// basic fee estimation?
+	_, bestHeight, err := l.ChainIO.GetBestBlock()
+	if err != nil {
+		msg.err <- err
+		msg.completeChan <- nil
+		return
+	}
+
 	walletLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
 		res.partialState.FundingOutpoint, spew.Sdump(fundingTx))
 
@@ -1083,7 +1095,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// which will be used for the lifetime of this channel.
 	// TODO(roasbeef): revisit faul-tolerance of this flow
 	nodeAddr := res.nodeAddr
-	if err := res.partialState.SyncPending(nodeAddr); err != nil {
+	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
+	if err != nil {
 		msg.err <- err
 		msg.completeChan <- nil
 		return
@@ -1217,9 +1230,19 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	}
 	pendingReservation.ourCommitmentSig = sigTheirCommit
 
+	_, bestHeight, err := l.ChainIO.GetBestBlock()
+	if err != nil {
+		req.err <- err
+		req.completeChan <- nil
+		return
+	}
+
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	err = pendingReservation.partialState.SyncPending(pendingReservation.nodeAddr)
+	err = pendingReservation.partialState.SyncPending(
+		pendingReservation.nodeAddr,
+		uint32(bestHeight),
+	)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil

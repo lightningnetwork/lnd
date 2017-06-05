@@ -799,8 +799,18 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// the remote party has broadcasted a commitment transaction
 		// on-chain.
 		fundingOut := &lc.fundingTxIn.PreviousOutPoint
-		openHeight := lc.channelState.OpeningHeight
-		channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(fundingOut, openHeight)
+
+		// As a height hint, we'll try to use the opening height, but
+		// if the channel isn't yet open, then we'll use the height it
+		// was broadcast at.
+		heightHint := lc.channelState.OpeningHeight
+		if heightHint == 0 {
+			heightHint = lc.channelState.FundingBroadcastHeight
+		}
+
+		channelCloseNtfn, err := lc.channelEvents.RegisterSpendNtfn(
+			fundingOut, heightHint,
+		)
 		if err != nil {
 			return nil, err
 		}

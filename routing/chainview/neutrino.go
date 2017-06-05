@@ -90,7 +90,7 @@ func (c *CfFilteredChainView) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := c.p2pNode.LatestBlock()
+	bestHeader, bestHeight, err := c.p2pNode.BlockHeaders.ChainTip()
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 
 	// Along with the block, we'll also need the height of the block in
 	// order to complete the notification.
-	_, blockHeight, err := c.p2pNode.GetBlockByHash(*blockHash)
+	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
 	if err != nil {
 		return nil, err
 	}

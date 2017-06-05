@@ -29,8 +29,8 @@ var (
 func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 	switch backend := b.chain.(type) {
 
-	case *chain.SPVChain:
-		header, height, err := backend.CS.LatestBlock()
+	case *chain.NeutrinoClient:
+		header, height, err := backend.CS.BlockHeaders.ChainTip()
 		if err != nil {
 			return nil, -1, err
 		}
@@ -52,7 +52,7 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, error) {
 	switch backend := b.chain.(type) {
 
-	case *chain.SPVChain:
+	case *chain.NeutrinoClient:
 		spendReport, err := backend.CS.GetUtxo(
 			neutrino.WatchOutPoints(*op),
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
@@ -100,7 +100,7 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, 
 func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	switch backend := b.chain.(type) {
 
-	case *chain.SPVChain:
+	case *chain.NeutrinoClient:
 		block, err := backend.CS.GetBlockFromNetwork(*blockHash)
 		if err != nil {
 			return nil, err
@@ -128,8 +128,9 @@ func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 func (b *BtcWallet) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	switch backend := b.chain.(type) {
 
-	case *chain.SPVChain:
-		blockHeader, err := backend.CS.GetBlockByHeight(uint32(blockHeight))
+	case *chain.NeutrinoClient:
+		height := uint32(blockHeight)
+		blockHeader, err := backend.CS.BlockHeaders.FetchHeaderByHeight(height)
 		if err != nil {
 			return nil, err
 		}

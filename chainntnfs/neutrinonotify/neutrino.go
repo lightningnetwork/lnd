@@ -116,7 +116,7 @@ func (n *NeutrinoNotifier) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := n.p2pNode.LatestBlock()
+	bestHeader, bestHeight, err := n.p2pNode.BlockHeaders.ChainTip()
 	if err != nil {
 		return err
 	}
@@ -406,7 +406,7 @@ chainScan:
 	for scanHeight := heightHint; scanHeight <= currentHeight; scanHeight++ {
 		// First, we'll fetch the block header for this height so we
 		// can compute the current block hash.
-		header, err := n.p2pNode.GetBlockByHeight(scanHeight)
+		header, err := n.p2pNode.BlockHeaders.FetchHeaderByHeight(scanHeight)
 		if err != nil {
 			chainntnfs.Log.Errorf("unable to get header for "+
 				"height=%v: %v", scanHeight, err)
@@ -416,7 +416,7 @@ chainScan:
 
 		// With the hash computed, we can now fetch the extended filter
 		// for this height.
-		extFilter, err := n.p2pNode.GetExtFilter(blockHash)
+		extFilter, err := n.p2pNode.GetCFilter(blockHash, true)
 		if err != nil {
 			chainntnfs.Log.Errorf("unable to retrieve extended "+
 				"filter for height=%v: %v", scanHeight, err)

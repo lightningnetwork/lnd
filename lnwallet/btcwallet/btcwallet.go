@@ -623,8 +623,8 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// Next, query the chain backend to grab the info about the tip of the
 	// main chain.
 	switch backend := b.cfg.ChainSource.(type) {
-	case *chain.SPVChain:
-		header, height, err := backend.CS.LatestBlock()
+	case *chain.NeutrinoClient:
+		header, height, err := backend.CS.BlockHeaders.ChainTip()
 		if err != nil {
 			return false, err
 		}
@@ -653,12 +653,12 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	var blockHeader *wire.BlockHeader
 	switch backend := b.cfg.ChainSource.(type) {
 
-	case *chain.SPVChain:
-		bh, _, err := backend.CS.GetBlockByHash(*bestHash)
+	case *chain.NeutrinoClient:
+		bh, _, err := backend.CS.BlockHeaders.FetchHeader(bestHash)
 		if err != nil {
 			return false, err
 		}
-		blockHeader = &bh
+		blockHeader = bh
 
 	case *chain.RPCClient:
 		blockHeader, err = backend.GetBlockHeader(bestHash)

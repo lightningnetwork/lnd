@@ -143,7 +143,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		// Finally, we'll set the chain source for btcwallet, and
 		// create our clean up function which simply closes the
 		// database.
-		walletConfig.ChainSource = chain.NewSPVChain(svc)
+		walletConfig.ChainSource = chain.NewNeutrinoClient(svc)
 		cleanUp = func() {
 			defer nodeDatabase.Close()
 		}

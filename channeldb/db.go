@@ -391,10 +391,17 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint, openHeight uint32) error
 
 		// Finally, we'll also store the opening height for this
 		// channel as well.
-		byteOrder.PutUint32(scratch, openHeight)
-		copy(keyPrefix[:3], openHeightPrefix)
+		confInfoKey := make([]byte, len(confInfoPrefix)+len(b.Bytes()))
+		copy(confInfoKey[:len(confInfoPrefix)], confInfoPrefix)
+		copy(confInfoKey[len(confInfoPrefix):], b.Bytes())
 
-		return openChanBucket.Put(keyPrefix, scratch[:])
+		confInfoBytes := openChanBucket.Get(confInfoKey)
+		infoCopy := make([]byte, len(confInfoBytes))
+		copy(infoCopy[:], confInfoBytes)
+
+		byteOrder.PutUint32(infoCopy[4:], openHeight)
+
+		return openChanBucket.Put(confInfoKey, infoCopy)
 	})
 }
 

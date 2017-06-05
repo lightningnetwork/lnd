@@ -70,7 +70,7 @@ var (
 	satReceivedPrefix    = []byte("srp")
 	commitFeePrefix      = []byte("cfp")
 	isPendingPrefix      = []byte("pdg")
-	openHeightPrefix     = []byte("open-height-prefix")
+	confInfoPrefix       = []byte("conf-info")
 
 	// chanIDKey stores the node, and channelID for an active channel.
 	chanIDKey = []byte("cik")
@@ -133,6 +133,12 @@ type OpenChannel struct {
 	// OpeningHeight is the height in which this channel was officially
 	// marked open.
 	OpeningHeight uint32
+
+	// FundingBroadcastHeight is the height in which the funding
+	// transaction was broadcast. This value can be used by higher level
+	// sub-systems to determine if a channel is stale and/or should have
+	// been confirmed before a certain height.
+	FundingBroadcastHeight uint32
 
 	// IdentityPub is the identity public key of the remote node this
 	// channel has been established with.
@@ -353,9 +359,11 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 //
 // TODO(roasbeef): addr param should eventually be a lnwire.NetAddress type
 // that includes service bits.
-func (c *OpenChannel) SyncPending(addr *net.TCPAddr) error {
+func (c *OpenChannel) SyncPending(addr *net.TCPAddr, pendingHeight uint32) error {
 	c.Lock()
 	defer c.Unlock()
+
+	c.FundingBroadcastHeight = pendingHeight
 
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First, sync all the persistent channel state to disk.
@@ -1004,7 +1012,7 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanIsPending(openChanBucket, channel); err != nil {
 		return err
 	}
-	if err := putChanOpenHeight(openChanBucket, channel); err != nil {
+	if err := putChanConfInfo(openChanBucket, channel); err != nil {
 		return err
 	}
 	if err := putChanCommitFee(openChanBucket, channel); err != nil {
@@ -1097,7 +1105,7 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanIsPending(openChanBucket, channel); err != nil {
 		return nil, err
 	}
-	if err := fetchChanOpenHeight(openChanBucket, channel); err != nil {
+	if err := fetchChanConfInfo(openChanBucket, channel); err != nil {
 		return nil, err
 	}
 	if err = fetchChanCommitFee(openChanBucket, channel); err != nil {
@@ -1133,7 +1141,7 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := deleteChanIsPending(openChanBucket, channelID); err != nil {
 		return err
 	}
-	if err := deleteChanOpenHeight(openChanBucket, channelID); err != nil {
+	if err := deleteChanConfInfo(openChanBucket, channelID); err != nil {
 		return err
 	}
 	if err := deleteChanCommitFee(openChanBucket, channelID); err != nil {
@@ -1503,41 +1511,45 @@ func fetchChanIsPending(openChanBucket *bolt.Bucket, channel *OpenChannel) error
 	return nil
 }
 
-func putChanOpenHeight(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func putChanConfInfo(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
 	}
 
-	keyPrefix := make([]byte, 3+b.Len())
-	copy(keyPrefix[3:], b.Bytes())
-	copy(keyPrefix[:3], openHeightPrefix)
+	keyPrefix := make([]byte, len(confInfoPrefix)+b.Len())
+	copy(keyPrefix[:len(confInfoPrefix)], confInfoPrefix)
+	copy(keyPrefix[len(confInfoPrefix):], b.Bytes())
 
-	var scratch [4]byte
-	byteOrder.PutUint32(scratch[:], channel.OpeningHeight)
+	// We store the conf info in the following format: broadcast || open.
+	var scratch [8]byte
+	byteOrder.PutUint32(scratch[:], channel.FundingBroadcastHeight)
+	byteOrder.PutUint32(scratch[4:], channel.OpeningHeight)
+
 	return openChanBucket.Put(keyPrefix, scratch[:])
 }
 
-func fetchChanOpenHeight(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+func fetchChanConfInfo(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, channel.ChanID); err != nil {
 		return err
 	}
 
-	keyPrefix := make([]byte, 3+b.Len())
-	copy(keyPrefix[3:], b.Bytes())
-	copy(keyPrefix[:3], openHeightPrefix)
+	keyPrefix := make([]byte, len(confInfoPrefix)+b.Len())
+	copy(keyPrefix[:len(confInfoPrefix)], confInfoPrefix)
+	copy(keyPrefix[len(confInfoPrefix):], b.Bytes())
 
-	openHeightBytes := openChanBucket.Get(keyPrefix)
-	channel.OpeningHeight = byteOrder.Uint32(openHeightBytes)
+	confInfoBytes := openChanBucket.Get(keyPrefix)
+	channel.FundingBroadcastHeight = byteOrder.Uint32(confInfoBytes[:4])
+	channel.OpeningHeight = byteOrder.Uint32(confInfoBytes[4:])
 
 	return nil
 }
 
-func deleteChanOpenHeight(openChanBucket *bolt.Bucket, chanID []byte) error {
-	keyPrefix := make([]byte, 3+len(chanID))
-	copy(keyPrefix[3:], chanID)
-	copy(keyPrefix[:3], openHeightPrefix)
+func deleteChanConfInfo(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, len(confInfoPrefix)+len(chanID))
+	copy(keyPrefix[:len(confInfoPrefix)], confInfoPrefix)
+	copy(keyPrefix[len(confInfoPrefix):], chanID)
 	return openChanBucket.Delete(keyPrefix)
 }
 

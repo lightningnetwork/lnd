@@ -654,7 +654,8 @@ func TestFetchPendingChannels(t *testing.T) {
 		Port: 18555,
 	}
 
-	if err := state.SyncPending(addr); err != nil {
+	const broadcastHeight = 99
+	if err := state.SyncPending(addr, broadcastHeight); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
@@ -666,6 +667,14 @@ func TestFetchPendingChannels(t *testing.T) {
 	if len(pendingChannels) != 1 {
 		t.Fatalf("incorrect number of pending channels: expecting %v,"+
 			"got %v", 1, len(pendingChannels))
+	}
+
+	// The broadcast height of the pending channel should've been set
+	// properly.
+	if pendingChannels[0].FundingBroadcastHeight != broadcastHeight {
+		t.Fatalf("broadcast height mismatch: expected %v, got %v",
+			pendingChannels[0].FundingBroadcastHeight,
+			broadcastHeight)
 	}
 
 	const openHeight = 100
@@ -683,6 +692,11 @@ func TestFetchPendingChannels(t *testing.T) {
 	if openChans[0].OpeningHeight != openHeight {
 		t.Fatalf("channel opening heights don't match: expected %v, "+
 			"got %v", openChans[0].OpeningHeight, openHeight)
+	}
+	if openChans[0].FundingBroadcastHeight != broadcastHeight {
+		t.Fatalf("broadcast height mismatch: expected %v, got %v",
+			openChans[0].FundingBroadcastHeight,
+			broadcastHeight)
 	}
 
 	pendingChannels, err = cdb.FetchPendingChannels()
@@ -716,7 +730,8 @@ func TestFetchClosedChannels(t *testing.T) {
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	if err := state.SyncPending(addr); err != nil {
+	const broadcastHeight = 99
+	if err := state.SyncPending(addr, broadcastHeight); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 

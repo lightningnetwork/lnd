@@ -100,7 +100,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 	// If spv mode is active, then we'll be using a distimnct set of
 	// chainControl interfaces that interface directly with the p2p network
 	// of the selected chain.
-	if cfg.SpvMode.Active {
+	if cfg.NeutrinoMode.Active {
 		// First we'll open the database file for neutrino, creating
 		// the database if needed.
 		dbName := filepath.Join(cfg.DataDir, "neutrino.db")
@@ -116,8 +116,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 			DataDir:      cfg.DataDir,
 			Database:     nodeDatabase,
 			ChainParams:  *activeNetParams.Params,
-			AddPeers:     cfg.SpvMode.AddPeers,
-			ConnectPeers: cfg.SpvMode.ConnectPeers,
+			AddPeers:     cfg.NeutrinoMode.AddPeers,
+			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
 		}
 		neutrino.WaitForMoreCFHeaders = time.Second * 1
 		neutrino.MaxPeers = 8

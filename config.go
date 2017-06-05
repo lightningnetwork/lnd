@@ -58,7 +58,7 @@ type chainConfig struct {
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 }
 
-type spvConfig struct {
+type neutrinoConfig struct {
 	Active       bool          `long:"active" destination:"If SPV mode should be active or not."`
 	AddPeers     []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
 	ConnectPeers []string      `long:"connect" description:"Connect only to the specified peers at startup"`
@@ -93,7 +93,7 @@ type config struct {
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
 
-	SpvMode *spvConfig `group:"SPV" namespace:"spv"`
+	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -180,7 +180,7 @@ func loadConfig() (*config, error) {
 
 	// The SPV mode implemented currently doesn't support Litecoin, so the
 	// two modes are incompatible.
-	if cfg.SpvMode.Active && cfg.Litecoin.Active {
+	if cfg.NeutrinoMode.Active && cfg.Litecoin.Active {
 		str := "%s: The light client mode currently supported does " +
 			"not yet support execution on the Litecoin network"
 		err := fmt.Errorf(str, funcName)
@@ -201,7 +201,7 @@ func loadConfig() (*config, error) {
 		applyLitecoinParams(&paramCopy)
 		activeNetParams = paramCopy
 
-		if !cfg.SpvMode.Active {
+		if !cfg.NeutrinoMode.Active {
 			// Attempt to parse out the RPC credentials for the
 			// litecoin chain if the information wasn't specified
 			err := parseRPCParams(cfg.Litecoin, litecoinChain, funcName)
@@ -237,7 +237,7 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		if !cfg.SpvMode.Active {
+		if !cfg.NeutrinoMode.Active {
 			// If needed, we'll attempt to automatically configure
 			// the RPC control plan for the target btcd node.
 			err := parseRPCParams(cfg.Bitcoin, bitcoinChain, funcName)

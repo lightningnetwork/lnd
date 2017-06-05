@@ -102,6 +102,8 @@ func lndMain() error {
 		return err
 	}
 
+	// Next, we'll initialize the funding manager itself so it can answer
+	// queries while the wallet+chain are still syncing.
 	nodeSigner := newNodeSigner(idPrivKey)
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -159,16 +161,17 @@ func lndMain() error {
 	}
 	server.fundingMgr = fundingMgr
 
-	// Initialize, and register our implementation of the gRPC server.
-	var opts []grpc.ServerOption
+	// Initialize, and register our implementation of the gRPC interface
+	// exported by the rpcServer.
 	rpcServer := newRPCServer(server)
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
+	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
 
-	// Next, Start the grpc server listening for HTTP/2 connections.
+	// Next, Start the gRPC server listening for HTTP/2 connections.
 	grpcEndpoint := fmt.Sprintf("localhost:%d", loadedConfig.RPCPort)
 	lis, err := net.Listen("tcp", grpcEndpoint)
 	if err != nil {

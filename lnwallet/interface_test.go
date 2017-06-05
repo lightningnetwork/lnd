@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+
+	"github.com/roasbeef/btcwallet/chain"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1170,12 +1173,12 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Query for the transaction generated above so we can located the
 	// index of our output.
-	tx, err := r.Node.Miner.GetRawtransaction(txid)
+	tx, err := r.Node.GetRawTransaction(txid)
 	if err != nil {
 		t.Fatalf("unable to query for tx: %v", err)
 	}
 	var outputIndex uint32
-	if bytes.Equal(tx.TxOut[0].PkScript, revokeScript) {
+	if bytes.Equal(tx.MsgTx().TxOut[0].PkScript, revokeScript) {
 		outputIndex = 0
 	} else {
 		outputIndex = 1
@@ -1186,7 +1189,7 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
-			Hash:  tx.TxHash(),
+			Hash:  tx.MsgTx().TxHash(),
 			Index: outputIndex,
 		},
 	})
@@ -1313,15 +1316,19 @@ func TestLightningWallet(t *testing.T) {
 		walletType := walletDriver.WalletType
 		switch walletType {
 		case "btcwallet":
+			chainRpc, err := chain.NewRPCClient(netParams,
+				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
+				rpcConfig.Certificates, false, 20)
+			if err != nil {
+				t.Fatalf("unable to make chain rpc: %v", err)
+			}
+
 			btcwalletConfig := &btcwallet.Config{
 				PrivatePass: privPass,
 				HdSeed:      testHdSeed[:],
 				DataDir:     tempTestDir,
 				NetParams:   netParams,
-				RPCHost:     rpcConfig.Host,
-				RPCUser:     rpcConfig.User,
-				RPCPass:     rpcConfig.Pass,
-				CACert:      rpcConfig.Certificates,
+				ChainSource: chainRpc,
 			}
 			wc, err = walletDriver.New(btcwalletConfig)
 			if err != nil {
@@ -1330,6 +1337,7 @@ func TestLightningWallet(t *testing.T) {
 			signer = wc.(*btcwallet.BtcWallet)
 			bio = wc.(*btcwallet.BtcWallet)
 		default:
+			// TODO(roasbeef): add neutrino case
 			t.Fatalf("unknown wallet driver: %v", walletType)
 		}
 

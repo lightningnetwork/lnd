@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
@@ -56,8 +54,6 @@ type server struct {
 	persistentPeers map[string]struct{}
 	inboundPeers    map[string]*peer
 	outboundPeers   map[string]*peer
-
-	rpcServer *rpcServer
 
 	cc *chainControl
 
@@ -103,12 +99,10 @@ type server struct {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl) (*server, error) {
-	privKey, err := cc.wallet.GetIdentitykey()
-	if err != nil {
-		return nil, err
-	}
-	privKey.Curve = btcec.S256()
+func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
+	privKey *btcec.PrivateKey) (*server, error) {
+
+	var err error
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, addr := range listenAddrs {
@@ -264,58 +258,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl) (*s
 		return nil, err
 	}
 
-	s.rpcServer = newRPCServer(s)
 	s.breachArbiter = newBreachArbiter(cc.wallet, chanDB, cc.chainNotifier,
 		s.htlcSwitch, s.cc.chainIO, s.cc.feeEstimator)
-
-	var chanIDSeed [32]byte
-	if _, err := rand.Read(chanIDSeed[:]); err != nil {
-		return nil, err
-	}
-
-	s.fundingMgr, err = newFundingManager(fundingConfig{
-		IDKey:        s.identityPriv.PubKey(),
-		Wallet:       cc.wallet,
-		ChainIO:      s.cc.chainIO,
-		Notifier:     s.cc.chainNotifier,
-		FeeEstimator: s.cc.feeEstimator,
-		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
-			if pubKey.IsEqual(s.identityPriv.PubKey()) {
-				return s.nodeSigner.SignMessage(pubKey, msg)
-			}
-
-			return cc.msgSigner.SignMessage(pubKey, msg)
-		},
-		SendAnnouncement: func(msg lnwire.Message) error {
-			s.discoverSrv.ProcessLocalAnnouncement(msg,
-				s.identityPriv.PubKey())
-			return nil
-		},
-		ArbiterChan:    s.breachArbiter.newContracts,
-		SendToPeer:     s.sendToPeer,
-		FindPeer:       s.findPeer,
-		TempChanIDSeed: chanIDSeed,
-		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
-			dbChannels, err := chanDB.FetchAllChannels()
-			if err != nil {
-				return nil, err
-			}
-
-			for _, channel := range dbChannels {
-				if chanID.IsChanPoint(channel.ChanID) {
-					return lnwallet.NewLightningChannel(
-						cc.signer, cc.chainNotifier,
-						cc.feeEstimator,
-						channel)
-				}
-			}
-
-			return nil, fmt.Errorf("unable to find channel")
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
 
 	// TODO(roasbeef): introduce closure and config system to decouple the
 	// initialization above ^
@@ -357,12 +301,6 @@ func (s *server) Start() error {
 		return err
 	}
 
-	if err := s.rpcServer.Start(); err != nil {
-		return err
-	}
-	if err := s.fundingMgr.Start(); err != nil {
-		return err
-	}
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
@@ -403,8 +341,6 @@ func (s *server) Stop() error {
 
 	// Shutdown the wallet, funding manager, and the rpc server.
 	s.cc.chainNotifier.Stop()
-	s.rpcServer.Stop()
-	s.fundingMgr.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
 	s.utxoNursery.Stop()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,15 +9,19 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"time"
 
 	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
 
+	"github.com/btcsuite/btcd/btcec"
 	flags "github.com/btcsuite/go-flags"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -79,34 +84,89 @@ func lndMain() error {
 	primaryChain := registeredChains.PrimaryChain()
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
+	idPrivKey, err := activeChainControl.wallet.GetIdentitykey()
+	if err != nil {
+		return err
+	}
+	idPrivKey.Curve = btcec.S256()
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	defaultListenAddrs := []string{
 		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
 	}
-
-	// With all the relevant chains initialized, we can finally start the
-	// server itself.
-	server, err := newServer(defaultListenAddrs, chanDB, activeChainControl)
+	server, err := newServer(defaultListenAddrs, chanDB, activeChainControl,
+		idPrivKey)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err
 	}
-	if err := server.Start(); err != nil {
-		srvrLog.Errorf("unable to create to start server: %v\n", err)
+
+	nodeSigner := newNodeSigner(idPrivKey)
+	var chanIDSeed [32]byte
+	if _, err := rand.Read(chanIDSeed[:]); err != nil {
 		return err
 	}
+	fundingMgr, err := newFundingManager(fundingConfig{
+		IDKey:        idPrivKey.PubKey(),
+		Wallet:       activeChainControl.wallet,
+		Notifier:     activeChainControl.chainNotifier,
+		FeeEstimator: activeChainControl.feeEstimator,
+		SignMessage: func(pubKey *btcec.PublicKey,
+			msg []byte) (*btcec.Signature, error) {
 
-	addInterruptHandler(func() {
-		ltndLog.Infof("Gracefully shutting down the server...")
-		server.Stop()
-		server.WaitForShutdown()
+			if pubKey.IsEqual(idPrivKey.PubKey()) {
+				return nodeSigner.SignMessage(pubKey, msg)
+			}
+
+			return activeChainControl.msgSigner.SignMessage(
+				pubKey, msg,
+			)
+		},
+		SendAnnouncement: func(msg lnwire.Message) error {
+			server.discoverSrv.ProcessLocalAnnouncement(msg,
+				idPrivKey.PubKey())
+			return nil
+		},
+		ArbiterChan:    server.breachArbiter.newContracts,
+		SendToPeer:     server.sendToPeer,
+		FindPeer:       server.findPeer,
+		TempChanIDSeed: chanIDSeed,
+		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
+			dbChannels, err := chanDB.FetchAllChannels()
+			if err != nil {
+				return nil, err
+			}
+
+			for _, channel := range dbChannels {
+				if chanID.IsChanPoint(channel.ChanID) {
+					return lnwallet.NewLightningChannel(
+						activeChainControl.signer,
+						activeChainControl.chainNotifier,
+						activeChainControl.feeEstimator,
+						channel)
+				}
+			}
+
+			return nil, fmt.Errorf("unable to find channel")
+		},
 	})
+	if err != nil {
+		return err
+	}
+	if err := fundingMgr.Start(); err != nil {
+		return err
+	}
+	server.fundingMgr = fundingMgr
 
 	// Initialize, and register our implementation of the gRPC server.
 	var opts []grpc.ServerOption
+	rpcServer := newRPCServer(server)
+	if err := rpcServer.Start(); err != nil {
+		return err
+	}
 	grpcServer := grpc.NewServer(opts...)
-	lnrpc.RegisterLightningServer(grpcServer, server.rpcServer)
+	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
 
 	// Next, Start the grpc server listening for HTTP/2 connections.
 	grpcEndpoint := fmt.Sprintf("localhost:%d", loadedConfig.RPCPort)
@@ -136,6 +196,56 @@ func lndMain() error {
 		rpcsLog.Infof("gRPC proxy started")
 		http.ListenAndServe(":8080", mux)
 	}()
+
+	// If we're not in simnet mode, We'll wait until we're fully synced to
+	// continue the start up of the remainder of the daemon. This ensures
+	// that we don't accept any possibly invalid state transitions, or
+	// accept channels with spent funds.
+	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
+		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
+		if err != nil {
+			return err
+		}
+
+		ltndLog.Infof("Waiting for chain backend to finish sync, "+
+			"start_height=%v", bestHeight)
+
+		for {
+			synced, err := activeChainControl.wallet.IsSynced()
+			if err != nil {
+				return err
+			}
+
+			if synced {
+				break
+			}
+
+			time.Sleep(time.Second * 1)
+		}
+
+		_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+		if err != nil {
+			return err
+		}
+
+		ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
+			bestHeight)
+	}
+
+	// With all the relevant chains initialized, we can finally start the
+	// server itself.
+	if err := server.Start(); err != nil {
+		srvrLog.Errorf("unable to create to start server: %v\n", err)
+		return err
+	}
+
+	addInterruptHandler(func() {
+		ltndLog.Infof("Gracefully shutting down the server...")
+		rpcServer.Stop()
+		fundingMgr.Stop()
+		server.Stop()
+		server.WaitForShutdown()
+	})
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.

@@ -781,6 +781,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	for i, chain := range registeredChains.ActiveChains() {
 		activeChains[i] = chain.String()
 	}
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:     hex.EncodeToString(idPub),

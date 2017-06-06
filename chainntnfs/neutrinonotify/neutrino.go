@@ -6,14 +6,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lightninglabs/neutrino"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcutil/gcs/builder"
 	"github.com/roasbeef/btcwallet/waddrmgr"
-	"github.com/lightninglabs/neutrino"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
 const (

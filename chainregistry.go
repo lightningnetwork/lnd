@@ -213,13 +213,13 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 		// Create a special websockets rpc client for btcd which will be used
 		// by the wallet for notifications, calls, etc.
-		chainRpc, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
+		chainRPC, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
 			btcdUser, btcdPass, rpcCert, false, 20)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		walletConfig.ChainSource = chainRpc
+		walletConfig.ChainSource = chainRPC
 	}
 
 	wc, err := btcwallet.New(*walletConfig)

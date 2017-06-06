@@ -933,7 +933,6 @@ func TestInterfaces(t *testing.T) {
 			}
 
 		case "neutrino":
-			continue
 			spvDir, err := ioutil.TempDir("", "neutrino")
 			if err != nil {
 				t.Fatalf("unable to create temp dir: %v", err)

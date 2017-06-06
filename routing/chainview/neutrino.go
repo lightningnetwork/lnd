@@ -5,19 +5,19 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/lightninglabs/neutrino"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/waddrmgr"
-	"github.com/lightninglabs/neutrino"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
 // which is supported by an underlying Bitcoin light client which supports
 // client side filtering of Golomb Coded Sets. Rather than fetching all the
 // blocks, the light client is able to query fitlers locally, to test if an
-// item in  ablock modifies any of our watched set of UTXOs/
+// item in a block modifies any of our watched set of UTXOs.
 type CfFilteredChainView struct {
 	started int32
 	stopped int32

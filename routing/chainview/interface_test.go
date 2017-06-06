@@ -156,7 +156,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -229,7 +229,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			newBlockHashes[0], []*chainhash.Hash{spendTxid1})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -248,7 +248,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+2,
 			newBlockHashes[0], []*chainhash.Hash{spendTxid2})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 }
@@ -282,7 +282,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			initBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -314,7 +314,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -332,7 +332,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			newBlockHashes[0], []*chainhash.Hash{spendTxid})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 }
@@ -373,7 +373,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight,
 			newBlockHashes[0], []*chainhash.Hash{})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 
@@ -414,7 +414,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 	case filteredBlock := <-blockChan:
 		assertFilteredBlock(t, filteredBlock, currentHeight+1,
 			block.Hash(), []*chainhash.Hash{})
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
 

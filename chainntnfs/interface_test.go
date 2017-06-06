@@ -22,7 +22,14 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	// Required to auto-register the btcd backed ChainNotifier
+	// implementation.
 	_ "github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+
+	// Required to auto-register the neutrino backed ChainNotifier
+	// implementation.
+	_ "github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
+
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 

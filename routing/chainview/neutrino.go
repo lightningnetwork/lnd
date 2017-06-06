@@ -258,7 +258,12 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	for _, tx := range block.Transactions() {
 		for _, txIn := range tx.MsgTx().TxIn {
 			prevOp := txIn.PreviousOutPoint
-			if _, ok := c.chainFilter[prevOp]; ok {
+
+			c.filterMtx.RLock()
+			_, ok := c.chainFilter[prevOp]
+			c.filterMtx.RUnlock()
+
+			if ok {
 				filteredTxns = append(filteredTxns, tx.MsgTx())
 
 				c.filterMtx.Lock()

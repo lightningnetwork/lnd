@@ -955,7 +955,7 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 	}
 
 	// Calculate an initial proposed fee rate for the close transaction.
-	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
 
 	// TODO(roasbeef): actually perform fee negotiation here, only send sig
 	// if we agree to fee
@@ -1015,7 +1015,7 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 	//
 	// TODO(bvu): with a dynamic fee implementation, we will compare this
 	// to the fee proposed by the responder in their ClosingSigned message.
-	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
 
 	// We agree with the proposed channel close transaction and fee rate,
 	// so generate our signature.
@@ -1053,7 +1053,7 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 		newLogClosure(func() string {
 			return spew.Sdump(closeTx)
 		}))
-	if err := p.server.lnwallet.PublishTransaction(closeTx); err != nil {
+	if err := p.server.cc.wallet.PublishTransaction(closeTx); err != nil {
 		peerLog.Errorf("channel close tx from "+
 			"ChannelPoint(%v) rejected: %v",
 			req.ChanPoint, err)
@@ -1108,8 +1108,8 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 	// ChainNotifier once the closure transaction obtains a single
 	// confirmation.
 	notifier := p.server.cc.chainNotifier
-	go waitForChanToClose(uint32(bestHeight), notifier, req.err,
-		req.ChanPoint, closingTxid, func() {
+	go waitForChanToClose(uint32(bestHeight), notifier, req.Err,
+		req.ChanPoint, &closingTxid, func() {
 
 			// First, we'll mark the database as being fully closed
 			// so we'll no longer watch for its ultimate closure
@@ -1156,7 +1156,7 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 
 	// Calculate our expected fee rate.
 	// TODO(roasbeef): should instead use the fee within the message
-	feeRate := p.server.feeEstimator.EstimateFeePerWeight(1) * 1000
+	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
 	closeTx, err := channel.CompleteCooperativeClose(respSig, initSig,
 		feeRate)
 	if err != nil {

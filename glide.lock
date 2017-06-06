@@ -1,10 +1,12 @@
-hash: 156bf0f6b928eafaeb649df5d20eb898158e498086e2bb08ef782f1525bf7d18
-updated: 2017-05-02T19:55:05.287705732-07:00
+hash: 00fc797da62e46f5ba0e1a64c2674164410df40c50954c6fb56120b7938e1e32
+updated: 2017-06-05T19:30:14.520459679-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
   subpackages:
   - chacha
+- name: github.com/aead/siphash
+  version: e404fcfc888570cadd1610538e2dbc89f66af814
 - name: github.com/awalterschulze/gographviz
   version: 9d8c9780eb4766351ae8489f78cb940cb6e0503d
   subpackages:
@@ -46,11 +48,12 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: 2bba0603135d7d7f5cb73b2125beeda19c09f4ef
+  version: fec3b39b059c0f88fa6b20f5ed012b1aa203a8b4
   subpackages:
   - jsonpb
   - proto
   - protoc-gen-go/descriptor
+  - ptypes/struct
 - name: github.com/grpc-ecosystem/grpc-gateway
   version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
   subpackages:
@@ -59,6 +62,13 @@ imports:
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
+- name: github.com/kkdai/bstream
+  version: f391b8402d23024e7c0f624b31267a89998fca95
+- name: github.com/lightninglabs/neutrino
+  version: 2f6910cce3055c11361bffc02e0c653dd9be087e
+  subpackages:
+  - filterdb
+  - headerfs
 - name: github.com/lightningnetwork/lightning-onion
   version: 0dd00eb9c6ffcefea7d3c6d6e502df218f49e228
 - name: github.com/ltcsuite/ltcd
@@ -68,8 +78,9 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcd
-  version: 54362e17a5b80643ef1e12edc08895a2e2a1202b
+  version: 4d38357cee3ed3843cd81a347e1573f037e0301e
   subpackages:
+  - addrmgr
   - blockchain
   - btcec
   - btcjson
@@ -77,21 +88,24 @@ imports:
   - chaincfg/chainhash
   - connmgr
   - database
+  - peer
   - rpctest
   - txscript
   - wire
 - name: github.com/roasbeef/btcrpcclient
-  version: dee1f888e35688b4f7514bbc6a054efde48abf65
+  version: 9a7826550df8071460e2f5dd6ed9139dcbf260b8
 - name: github.com/roasbeef/btcutil
-  version: d347e49b656d2a7f6d06cc9e2daebc5acded5728
+  version: a259eaf2ec1b54653cdd67848a41867f280797ee
   subpackages:
   - base58
   - bloom
   - coinset
+  - gcs
+  - gcs/builder
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 689fccd15fdf3c01cd35734ffe12409bc35a343b
+  version: 619ff8707c1d656061ab68db882205c4f63e19df
   subpackages:
   - chain
   - internal/helpers
@@ -113,7 +127,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: c7af5bf2638a1164f2eb5467c39c6cffbd13a02e
+  version: 0fe963104e9d1877082f8fb38f816fcd97eb1d10
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -126,7 +140,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: da118f7b8e5954f39d0d2130ab35d4bf0e3cb344
+  version: 513929065c19401a1c7b76ecd942f9f86a0c061b
   subpackages:
   - context
   - http2
@@ -136,18 +150,18 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 9ccfe848b9db8435a24c424abbc07a921adf1df5
+  version: e62c3de784db939836898e5c19ffd41bece347da
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: a9a820217f98f7c8a207ec1e45a874e1fe12c478
+  version: 19e51611da83d6be54ddafce4a4af510cb3e9ea4
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: 411e09b969b1170a9f0c467558eb4c4c110d9c77
+  version: bb3573be0c484136831138976d444b8754777aff
   subpackages:
   - googleapis/api/annotations
 - name: google.golang.org/grpc

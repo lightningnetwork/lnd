@@ -14,7 +14,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 54362e17a5b80643ef1e12edc08895a2e2a1202b
+  version: 4d38357cee3ed3843cd81a347e1573f037e0301e
   subpackages:
   - blockchain
   - btcec
@@ -24,16 +24,16 @@ import:
   - wire
   - connmgr
 - package: github.com/roasbeef/btcrpcclient
-  version: master
+  version: 9a7826550df8071460e2f5dd6ed9139dcbf260b8
 - package: github.com/roasbeef/btcutil
-  version: master
+  version: a259eaf2ec1b54653cdd67848a41867f280797ee
   subpackages:
   - bloom
   - coinset
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 689fccd15fdf3c01cd35734ffe12409bc35a343b
+  version: 619ff8707c1d656061ab68db882205c4f63e19df
   subpackages:
   - chain
   - waddrmgr
@@ -68,3 +68,5 @@ import:
 - package: github.com/ltcsuite/ltcd
   subpackages:
   - chaincfg
+- package: github.com/lightninglabs/neutrino
+  version: 2f6910cce3055c11361bffc02e0c653dd9be087e

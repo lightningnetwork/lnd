@@ -1,0 +1,8 @@
+#!/bin/sh
+# Basic setup to run lnd with bitcoin backend on simnet
+
+export COMPOSE_PROJECT_NAME=btc
+export CHAIN=bitcoin
+export COIN_DAEMON=${COMPOSE_PROJECT_NAME}d
+export CTL=${COMPOSE_PROJECT_NAME}ctl
+export NETWORK="${NETWORK:-simnet}"

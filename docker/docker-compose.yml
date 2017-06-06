@@ -4,63 +4,33 @@ services:
     # btc is an image of bitcoin node which used as base image for btcd and
     # btccli. The environment variables default values determined on stage of
     # container start within starting script.
-    btc:
-      image: btcd
+    coind_base:
+      image: ${COIN_DAEMON}
       build:
-        context: btcd/
+        context: ${COIN_DAEMON}/
       volumes:
             - shared:/rpc
-            - bitcoin:/data
+            - blockchain:/data
       environment:
         - RPCUSER
         - RPCPASS
         - NETWORK
 
-    btcd:
-        extends: btc
-        container_name: btcd
+    daemon:
+        extends: coind_base
+        container_name: ${COIN_DAEMON}
         environment:
           - DEBUG
           - MINING_ADDRESS
-        entrypoint: ["./start-btcd.sh"]
+        entrypoint: ["./start-${COIN_DAEMON}.sh"]
 
-    btcctl:
-        extends: btc
-        container_name: btcctl
+    ctl:
+        extends: coind_base
+        container_name: ${CTL}
         links:
-            - "btcd:rpcserver"
-        entrypoint: ["./start-btcctl.sh"]
+            - "daemon:rpcserver"
+        entrypoint: ["./start-${CTL}.sh"]
 
-
-    # ltc is an image of litecoin node which used as base image for ltcd and
-    # ltcctl. The environment variables default values determined on stage of
-    # container start within starting script.
-    ltc:
-      image: ltcd
-      build:
-        context: ltcd/
-      volumes:
-            - shared:/rpc
-            - litecoin:/data
-      environment:
-        - RPCUSER
-        - RPCPASS
-        - NETWORK
-
-    ltcd:
-        extends: ltc
-        container_name: ltcd
-        environment:
-          - DEBUG
-          - MINING_ADDRESS
-        entrypoint: ["./start-ltcd.sh"]
-
-    ltcctl:
-        extends: ltc
-        container_name: ltcctl
-        links:
-            - "ltcd:rpcserver"
-        entrypoint: ["./start-ltcctl.sh"]
 
     lnd:
         image: lnd
@@ -77,17 +47,17 @@ services:
             - shared:/rpc
         entrypoint: ["./start-lnd.sh"]
 
-    lnd_ltc:
+    alice:
       extends: lnd
-      container_name: lnd_ltc
+      container_name: ${COMPOSE_PROJECT_NAME}_alice
       links:
-          - "ltcd:blockchain"
+          - "daemon:blockchain"
 
-    lnd_btc:
+    bob:
       extends: lnd
-      container_name: lnd_btc
+      container_name: ${COMPOSE_PROJECT_NAME}_bob
       links:
-          - "btcd:blockchain"
+          - "daemon:blockchain"
 
 volumes:
   # shared volume is need to store the btcd rpc certificates and us it within
@@ -97,10 +67,5 @@ volumes:
 
   # bitcoin volume is needed for maintaining blockchain persistance
   # during btcd container recreation.
-  bitcoin:
-    driver: local
-
-  # litecoin volume is needed for maintaining blockchain persistance
-  # during ltcd container recreation.
-  litecoin:
+  blockchain:
     driver: local

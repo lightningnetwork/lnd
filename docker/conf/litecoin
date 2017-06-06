@@ -1,0 +1,9 @@
+#!/bin/sh
+# Basic setup to run lnd with litecoin backend on testnet (simnet
+# currently not supported)
+
+export COMPOSE_PROJECT_NAME=ltc
+export CHAIN=litecoin
+export COIN_DAEMON=${COMPOSE_PROJECT_NAME}d
+export CTL=${COMPOSE_PROJECT_NAME}ctl
+export NETWORK="${NETWORK:-testnet}"

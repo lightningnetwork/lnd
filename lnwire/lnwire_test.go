@@ -51,7 +51,7 @@ func randPubKey() (*btcec.PublicKey, error) {
 }
 
 func randFeatureVector(r *rand.Rand) *FeatureVector {
-	numFeatures := r.Int31n(131123)
+	numFeatures := r.Int31n(10000)
 	features := make([]Feature, numFeatures)
 	for i := int32(0); i < numFeatures; i++ {
 		features[i] = Feature{

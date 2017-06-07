@@ -348,7 +348,7 @@ The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity
 of all protos checked, in we require that all contributors pin against the
 _exact same_ version of `protoc`. As of the writing of this article, the `lnd`
-project uses [v3.0.2](https://github.com/google/protobuf/releases/tag/v3.2.0)
+project uses [v3.2.0](https://github.com/google/protobuf/releases/tag/v3.2.0)
 of `protoc`.
 
 Additionally, in order to maintain a uniform display of the RPC responses

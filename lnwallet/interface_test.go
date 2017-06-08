@@ -1324,11 +1324,12 @@ func TestLightningWallet(t *testing.T) {
 			}
 
 			btcwalletConfig := &btcwallet.Config{
-				PrivatePass: privPass,
-				HdSeed:      testHdSeed[:],
-				DataDir:     tempTestDir,
-				NetParams:   netParams,
-				ChainSource: chainRpc,
+				PrivatePass:  privPass,
+				HdSeed:       testHdSeed[:],
+				DataDir:      tempTestDir,
+				NetParams:    netParams,
+				ChainSource:  chainRpc,
+				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
 			}
 			wc, err = walletDriver.New(btcwalletConfig)
 			if err != nil {

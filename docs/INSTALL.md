@@ -16,7 +16,7 @@ $ glide install
 $ go install . ./cmd/...
 ```
 
-### Install btcutil: (must be from roasbeef fork, not from btcsuite)
+### Install btcutil: (must be from roasbeef fork, not from btcsuite. More details: [btcutil PR 75](https://github.com/btcsuite/btcutil/pull/75))
 
 ```
 $ go get -u github.com/roasbeef/btcutil

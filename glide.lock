@@ -65,7 +65,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 2f6910cce3055c11361bffc02e0c653dd9be087e
+  version: 9f706ffa960837b23e466facfb34770288d3d8e9
   subpackages:
   - filterdb
   - headerfs

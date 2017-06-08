@@ -108,6 +108,14 @@ func New(cfg Config) (*BtcWallet, error) {
 		return nil, err
 	}
 
+	// Using the passed fee estimator, we'll compute the relay fee for all
+	// transactions made which will be scaled up according to the size of a
+	// particular transaction.
+	//
+	// TODO(roasbeef): hook in dynamic relay fees
+	relayFee := cfg.FeeEstimator.EstimateFeePerByte(3) * 1000
+	wallet.SetRelayFee(btcutil.Amount(relayFee))
+
 	return &BtcWallet{
 		cfg:       &cfg,
 		wallet:    wallet,
@@ -123,7 +131,7 @@ func New(cfg Config) (*BtcWallet, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
-	// Establish an RPC connection in additino to starting the goroutines
+	// Establish an RPC connection in addition to starting the goroutines
 	// in the underlying wallet.
 	if err := b.chain.Start(); err != nil {
 		return err
@@ -465,7 +473,7 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	txDetails := make([]*lnwallet.TransactionDetail, 0,
 		len(txns.MinedTransactions)+len(txns.UnminedTransactions))
 
-	// For both confirmed and unconfirme dtransactions, create a
+	// For both confirmed and unconfirmed transactions, create a
 	// TransactionDetail which re-packages the data returned by the base
 	// wallet.
 	for _, blockPackage := range txns.MinedTransactions {

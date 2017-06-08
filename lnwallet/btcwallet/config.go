@@ -3,6 +3,7 @@ package btcwallet
 import (
 	"path/filepath"
 
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -67,6 +68,11 @@ type Config struct {
 	// notifications for received funds, etc.
 	ChainSource chain.Interface
 
+	// FeeEstimator is an instance of the fee estimator interface which
+	// will be used by the wallet to dynamically set transaction fees when
+	// crafting transactions.
+	FeeEstimator lnwallet.FeeEstimator
+
 	// NetParams is the net parameters for the target chain.
 	NetParams *chaincfg.Params
 }
@@ -78,7 +84,7 @@ func networkDir(dataDir string, chainParams *chaincfg.Params) string {
 
 	// For now, we must always name the testnet data directory as "testnet"
 	// and not "testnet3" or any other version, as the chaincfg testnet3
-	// paramaters will likely be switched to being named "testnet3" in the
+	// parameters will likely be switched to being named "testnet3" in the
 	// future.  This is done to future proof that change, and an upgrade
 	// plan to move the testnet3 data directory can be worked out later.
 	if chainParams.Net == wire.TestNet3 {

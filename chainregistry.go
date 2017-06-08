@@ -83,9 +83,10 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
 	walletConfig := &btcwallet.Config{
-		PrivatePass: []byte("hello"),
-		DataDir:     homeChainConfig.ChainDir,
-		NetParams:   activeNetParams.Params,
+		PrivatePass:  []byte("hello"),
+		DataDir:      homeChainConfig.ChainDir,
+		NetParams:    activeNetParams.Params,
+		FeeEstimator: estimator,
 	}
 
 	cc := &chainControl{

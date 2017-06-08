@@ -15,12 +15,12 @@ import (
 func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
-	// Create numMaxHops random sphinx nodes.
+	// Create numHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
 		privKey, err := btcec.NewPrivateKey(btcec.S256())
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Unable to "+
-				"generate random key for sphinx node: %v", err)
+			return nil, nil, nil, fmt.Errorf("Unable to generate"+
+				" random key for sphinx node: %v", err)
 		}
 
 		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams)

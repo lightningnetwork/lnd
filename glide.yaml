@@ -10,6 +10,7 @@ import:
 - package: golang.org/x/crypto
   subpackages:
   - ripemd160
+- package: github.com/go-errors/errors
 testImport:
 - package: github.com/davecgh/go-spew
   version: ^1.1.0

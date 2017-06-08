@@ -1,5 +1,5 @@
-hash: 4b6f4687efa0ee78ad2c2e04d0699535f357beb6e2b4b747c04b3de43fc8c685
-updated: 2017-03-27T15:44:34.437225029-07:00
+hash: edf51fbb3ee6f3e3f9e39d5ffc33739e8a2817f6c990042840594e867a8bc94a
+updated: 2017-06-24T21:22:50.234773431+03:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -11,6 +11,8 @@ imports:
   version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
   subpackages:
   - ripemd160
+- name: github.com/go-errors/errors
+  version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/roasbeef/btcd
   version: 707a14a79daeb2440fe92feaeceb0fae68ab3e9b
   subpackages:

@@ -199,12 +199,8 @@ func (hd *HopData) Decode(r io.Reader) error {
 	return nil
 }
 
-// NewOnionPacket creates a new onion packet which is capable of
-// obliviously routing a message through the mix-net path outline by
-// 'paymentPath'.
-func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
-	hopsData []HopData, assocData []byte) (*OnionPacket, error) {
-
+func generateSharedSecrets(paymentPath []*btcec.PublicKey,
+	sessionKey *btcec.PrivateKey) [][sha256.Size]byte {
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
 	// shared secret. Additionally, each hop randomizes the group element
 	// for the next hop by multiplying it by the blinding factor. This way
@@ -243,8 +239,19 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		// b_{n} = sha256(a_{n} || s_{n})
 		hopBlindingFactors[i] = computeBlindingFactor(hopEphemeralPubKeys[i],
 			hopSharedSecrets[i][:])
-
 	}
+
+	return hopSharedSecrets
+}
+
+// NewOnionPacket creates a new onion packet which is capable of
+// obliviously routing a message through the mix-net path outline by
+// 'paymentPath'.
+func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey,
+	hopsData []HopData, assocData []byte) (*OnionPacket, error) {
+
+	numHops := len(paymentPath)
+	hopSharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding("rho", numHops, hopDataSize,
@@ -313,7 +320,7 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 
 	return &OnionPacket{
 		Version:      0x01,
-		EphemeralKey: hopEphemeralPubKeys[0],
+		EphemeralKey: sessionKey.PubKey(),
 		RoutingInfo:  mixHeader,
 		HeaderMAC:    nextHmac,
 	}, nil
@@ -634,13 +641,10 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	routeInfo := onionPkt.RoutingInfo
 	headerMac := onionPkt.HeaderMAC
 
-	// Ensure that the public key is on our curve.
-	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
-		return nil, fmt.Errorf("pubkey isn't on secp256k1 curve")
+	sharedSecret, err := r.generateSharedSecret(onionPkt.EphemeralKey)
+	if err != nil {
+		return nil, err
 	}
-
-	// Compute our shared secret.
-	sharedSecret := generateSharedSecret(dhKey, r.onionKey)
 
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
@@ -719,4 +723,19 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 		ForwardingInstructions: hopData,
 		NextPacket:             nextFwdMsg,
 	}, nil
+}
+
+// generateSharedSecret generates the shared secret by given ephemeral key.
+func (r *Router) generateSharedSecret(dhKey *btcec.PublicKey) ([sha256.Size]byte,
+	error) {
+	var sharedSecret [sha256.Size]byte
+
+	// Ensure that the public key is on our curve.
+	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
+		return sharedSecret, fmt.Errorf("pubkey isn't on secp256k1 curve")
+	}
+
+	// Compute our shared secret.
+	sharedSecret = generateSharedSecret(dhKey, r.onionKey)
+	return sharedSecret, nil
 }

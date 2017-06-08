@@ -108,12 +108,21 @@ func (u *UnknownMessage) Error() string {
 		u.messageType)
 }
 
+// Serializable is an interface which defines a lightning wire serializable
+// object.
+type Serializable interface {
+	// Decode reads the bytes stream and converts it to the object.
+	Decode(io.Reader, uint32) error
+
+	// Encode converts object to the bytes stream and write it in th writer.
+	Encode(io.Writer, uint32) error
+}
+
 // Message is an interface that defines a lightning wire protocol message. The
 // interface is general in order to allow implementing types full control over
 // the representation of its data.
 type Message interface {
-	Decode(io.Reader, uint32) error
-	Encode(io.Writer, uint32) error
+	Serializable
 	MsgType() MessageType
 	MaxPayloadLength(uint32) uint32
 }

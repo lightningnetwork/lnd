@@ -497,7 +497,7 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 		b.wg.Add(1)
 		epochClient.wg.Add(1)
 		go func(ntfnChan chan *chainntnfs.BlockEpoch, cancelChan chan struct{},
-			clientWg sync.WaitGroup) {
+			clientWg *sync.WaitGroup) {
 
 			defer clientWg.Done()
 			defer b.wg.Done()
@@ -512,7 +512,7 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 				return
 			}
 
-		}(epochClient.epochChan, epochClient.cancelChan, epochClient.wg)
+		}(epochClient.epochChan, epochClient.cancelChan, &epochClient.wg)
 	}
 }
 

@@ -748,6 +748,8 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 func testCancelSpendNtfn(node *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
+	t.Logf("testing cancel spend notification")
+
 	// We'd like to test that once a spend notification is registered, it
 	// can be cancelled before the notification is dispatched.
 
@@ -833,6 +835,8 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 
 func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	t *testing.T) {
+
+	t.Logf("testing cancel epoch ntfn")
 
 	// We'd like to ensure that once a client cancels their block epoch
 	// notifications, no further notifications are sent over the channel

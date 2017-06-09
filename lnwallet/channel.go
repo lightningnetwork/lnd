@@ -622,8 +622,6 @@ type LightningChannel struct {
 	// able to broadcast safely.
 	localCommitChain *commitmentChain
 
-	// stateMtx protects concurrent access to the state struct.
-	stateMtx     sync.RWMutex
 	channelState *channeldb.OpenChannel
 
 	// [local|remote]Log is a (mostly) append-only log storing all the HTLC
@@ -2738,8 +2736,8 @@ func (lc *LightningChannel) DeleteState(c *channeldb.ChannelCloseSummary) error 
 // StateSnapshot returns a snapshot of the current fully committed state within
 // the channel.
 func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
-	lc.stateMtx.RLock()
-	defer lc.stateMtx.RUnlock()
+	lc.RLock()
+	defer lc.RUnlock()
 
 	return lc.channelState.Snapshot()
 }

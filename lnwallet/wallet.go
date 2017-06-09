@@ -1453,7 +1453,7 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 		estimatedSize = ((len(selectedUtxos) * p2wkhSpendSize) +
 			p2wshOutputSize + txOverhead)
 
-		// The difference bteween the selected amount and the amount
+		// The difference between the selected amount and the amount
 		// requested will be used to pay fees, and generate a change
 		// output with the remaining.
 		overShootAmt := totalSat - amtNeeded
@@ -1468,7 +1468,8 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 			continue
 		}
 
-		// If the fee is sufficient, then calculate the size of the change output.
+		// If the fee is sufficient, then calculate the size of the
+		// change output.
 		changeAmt := overShootAmt - requiredFee
 
 		return selectedUtxos, changeAmt, nil

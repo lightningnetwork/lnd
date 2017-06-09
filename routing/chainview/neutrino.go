@@ -225,6 +225,10 @@ func (c *CfFilteredChainView) chainFilterer() {
 				log.Errorf("unable to update rescan: %v", err)
 			}
 
+			if update.done != nil {
+				close(update.done)
+			}
+
 		case <-c.quit:
 			return
 		}
@@ -253,11 +257,11 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// If we don't have any items within our current chain filter, then we
 	// can exit early as we don't need to fetch the filter.
 	c.filterMtx.RLock()
-	numPoints := len(c.chainFilter)
-	c.filterMtx.RUnlock()
-	if numPoints == 0 {
+	if len(c.chainFilter) == 0 {
+		c.filterMtx.RUnlock()
 		return filteredBlock, nil
 	}
+	c.filterMtx.RUnlock()
 
 	// Next, using the block, hash, we'll fetch the compact filter for this
 	// block. We only require the regular filter as we're just looking for
@@ -338,17 +342,26 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 //
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
-	select {
-
-	case c.filterUpdates <- filterUpdate{
+	doneChan := make(chan struct{})
+	update := filterUpdate{
 		newUtxos:     ops,
 		updateHeight: updateHeight,
-	}:
-		return nil
+		done:         doneChan,
+	}
 
+	select {
+	case c.filterUpdates <- update:
 	case <-c.quit:
 		return fmt.Errorf("chain filter shutting down")
 	}
+
+	select {
+	case <-doneChan:
+		return nil
+	case <-c.quit:
+		return fmt.Errorf("chain filter shutting down")
+	}
+
 }
 
 // FilteredBlocks returns the channel that filtered blocks are to be sent over.

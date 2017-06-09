@@ -250,12 +250,21 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 		Height: blockHeight,
 	}
 
+	// If we don't have any items within our current chain filter, then we
+	// can exit early as we don't need to fetch the filter.
+	c.filterMtx.RLock()
+	numPoints := len(c.chainFilter)
+	c.filterMtx.RUnlock()
+	if numPoints == 0 {
+		return filteredBlock, nil
+	}
+
 	// Next, using the block, hash, we'll fetch the compact filter for this
 	// block. We only require the regular filter as we're just looking for
 	// outpoint that have been spent.
 	filter, err := c.p2pNode.GetCFilter(*blockHash, false)
 	if err != nil {
-		return filteredBlock, err
+		return nil, err
 	}
 
 	// Before we can match the filter, we'll need to map each item in our

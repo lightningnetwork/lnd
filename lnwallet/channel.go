@@ -1712,7 +1712,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	htlcCount := 0
 
 	// If we adding or receiving the htlc we increase the number of htlcs
-	// by one in order to not overflow the commitment transasction by
+	// by one in order to not overflow the commitment transaction by
 	// insertion.
 	if prediction {
 		htlcCount++
@@ -1748,10 +1748,11 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		}
 	}
 
-	// In case of addition of htlc add update we should use the half
-	// of the capacity of the commitment transaction, if we use the full
-	// capacity it will lead to situioaton when we might reject the
-	// remote htlc update which will lead desynchronization of state.
+	// If we're validating the commitment sanity for HTLC _log_ update by a
+	// particular side, then we'll only consider half of the available HTLC
+	// bandwidth. However, if we're validating the _creation_ of a new
+	// commitment state, then we'll use the full value as the sum of the
+	// contribution of both sides shouldn't exceed the max number.
 	var maxHTLCNumber int
 	if local && remote {
 		maxHTLCNumber = MaxHTLCNumber
@@ -1762,6 +1763,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	if htlcCount > maxHTLCNumber {
 		return ErrMaxHTLCNumber
 	}
+
 	return nil
 }
 

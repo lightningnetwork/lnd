@@ -10,6 +10,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/gcs/builder"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 )
 
@@ -237,16 +238,55 @@ func (c *CfFilteredChainView) chainFilterer() {
 //
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredBlock, error) {
-	// As we need to manually filter a block, we'll first fetch the block
-	// form the network.
-	block, err := c.p2pNode.GetBlockFromNetwork(*blockHash)
+	// First, we'll fetch the block header itself so we can obtain the
+	// height which is part of our return value.
+	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
 	if err != nil {
 		return nil, err
 	}
 
-	// Along with the block, we'll also need the height of the block in
-	// order to complete the notification.
-	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	filteredBlock := &FilteredBlock{
+		Hash:   *blockHash,
+		Height: blockHeight,
+	}
+
+	// Next, using the block, hash, we'll fetch the compact filter for this
+	// block. We only require the regular filter as we're just looking for
+	// outpoint that have been spent.
+	filter, err := c.p2pNode.GetCFilter(*blockHash, false)
+	if err != nil {
+		return filteredBlock, err
+	}
+
+	// Before we can match the filter, we'll need to map each item in our
+	// chain filter to the representation that included in the compact
+	// filters.
+	c.filterMtx.RLock()
+	relevantPoints := make([][]byte, 0, len(c.chainFilter))
+	for op := range c.chainFilter {
+		opBytes := builder.OutPointToFilterEntry(op)
+		relevantPoints = append(relevantPoints, opBytes)
+	}
+	c.filterMtx.RUnlock()
+
+	// With our relevant points constructed, we can finally match against
+	// the retrieved filter.
+	matched, err := filter.MatchAny(builder.DeriveKey(blockHash),
+		relevantPoints)
+	if err != nil {
+		return nil, err
+	}
+
+	// If there wasn't a match, then we'll return the filtered block as is
+	// (void of any transactions).
+	if !matched {
+		return filteredBlock, nil
+	}
+
+	// If we reach this point, then there was a match, so we'll need to
+	// fetch the block itself so we can scan it for any actual matches (as
+	// there's a fp rate).
+	block, err := c.p2pNode.GetBlockFromNetwork(*blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +294,6 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// Finally, we'll step through the block, input by input, to see if any
 	// transactions spend any outputs from our watched sub-set of the UTXO
 	// set.
-	var filteredTxns []*wire.MsgTx
 	for _, tx := range block.Transactions() {
 		for _, txIn := range tx.MsgTx().TxIn {
 			prevOp := txIn.PreviousOutPoint
@@ -264,7 +303,10 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 			c.filterMtx.RUnlock()
 
 			if ok {
-				filteredTxns = append(filteredTxns, tx.MsgTx())
+				filteredBlock.Transactions = append(
+					filteredBlock.Transactions,
+					tx.MsgTx(),
+				)
 
 				c.filterMtx.Lock()
 				delete(c.chainFilter, prevOp)
@@ -275,11 +317,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 		}
 	}
 
-	return &FilteredBlock{
-		Hash:         *blockHash,
-		Height:       blockHeight,
-		Transactions: filteredTxns,
-	}, nil
+	return filteredBlock, nil
 }
 
 // UpdateFilter updates the UTXO filter which is to be consulted when creating

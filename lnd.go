@@ -201,8 +201,9 @@ func lndMain() error {
 		return err
 	}
 	go func() {
-		rpcsLog.Infof("gRPC proxy started")
-		http.ListenAndServe(":8080", mux)
+		restEndpoint := fmt.Sprintf(":%d", loadedConfig.RESTPort)
+		rpcsLog.Infof("gRPC proxy started at localhost%s", restEndpoint)
+		http.ListenAndServe(restEndpoint, mux)
 	}()
 
 	// If we're not in simnet mode, We'll wait until we're fully synced to

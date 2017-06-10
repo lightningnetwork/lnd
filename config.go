@@ -26,6 +26,7 @@ const (
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
+	defaultRESTPort           = 8080
 	defaultPeerPort           = 5656
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
@@ -87,6 +88,7 @@ type config struct {
 
 	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
 	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
+	RESTPort           int  `long:"restport" description:"The port for the REST server"`
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
@@ -112,6 +114,7 @@ func loadConfig() (*config, error) {
 		LogDir:             defaultLogDir,
 		PeerPort:           defaultPeerPort,
 		RPCPort:            defaultRPCPort,
+		RESTPort:           defaultRESTPort,
 		MaxPendingChannels: defaultMaxPendingChannels,
 		Bitcoin: &chainConfig{
 			RPCHost: defaultRPCHost,

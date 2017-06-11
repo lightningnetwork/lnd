@@ -233,8 +233,12 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 		// s_{n} = sha256( y_{n} x c_{n-1} ) ->
 		// (Y_their_pub_key x x_our_priv) x all prev blinding factors
 		yToX := blindGroupElement(paymentPath[i], sessionKey.D.Bytes())
-		hopSharedSecrets[i] = sha256.Sum256(multiScalarMult(yToX, hopBlindingFactors[:i]).SerializeCompressed())
+		hopSharedSecrets[i] = sha256.Sum256(
+			multiScalarMult(
+				yToX,
 				hopBlindingFactors[:i],
+			).SerializeCompressed(),
+		)
 
 		// TODO(roasbeef): prob don't need to store all blinding factors, only the prev...
 		// b_{n} = sha256(a_{n} || s_{n})
@@ -559,20 +563,21 @@ type ProcessedPacket struct {
 	// the packet.
 	Action ProcessCode
 
-	// NextHop is the next hop in the route the caller should forward the
-	// onion packet to.
+	// ForwardingInstructions is the per-hop payload recovered from the
+	// initial encrypted onion packet. It details how the packet should be
+	// forwarded and also includes information that allows the processor of
+	// the packet to authenticate the information passed within the HTLC.
 	//
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
-	NextHop [addressSize]byte
+	ForwardingInstructions HopData
 
-	// Packet is the resulting packet uncovered after processing the
-	// original onion packet by stripping off a layer from mix-header and
-	// message.
+	// NextPacket is the onion packet that should be forwarded to the next
+	// hop as denoted by the ForwardingInstructions field.
 	//
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
-	Packet *OnionPacket
+	NextPacket *OnionPacket
 }
 
 // Router is an onion router within the Sphinx network. The router is capable
@@ -711,8 +716,8 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	}
 
 	return &ProcessedPacket{
-		Action:  action,
-		NextHop: hopData.NextAddress,
-		Packet:  nextFwdMsg,
+		Action:                 action,
+		ForwardingInstructions: hopData,
+		NextPacket:             nextFwdMsg,
 	}, nil
 }

@@ -36,7 +36,7 @@ func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 	for i := 0; i < numHops; i++ {
 		hopsData = append(hopsData, HopData{
 			Realm:         0x00,
-			ForwardAmount: uint32(i),
+			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		})
 		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))

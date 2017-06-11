@@ -35,14 +35,13 @@ const (
 	// padSize is the number of padding bytes in the hopData. These bytes
 	// are currently unused within the protocol, and are reserved for
 	// future use.
-	padSize = 16
+	padSize = 12
 
 	// hopDataSize is the fixed size of hop_data. BOLT 04 currently
-	// specifies this to be 1 byte realm, 8 byte channel_id, 4 byte amount
-	// to
-	// forward, 4 byte outgoing CLTV value, 16 bytes padding and
-	// 32 bytes HMAC for a total of 65 bytes per hop.
-	hopDataSize = (1 + addressSize + 8 + padSize + hmacSize)
+	// specifies this to be 1 byte realm, 8 byte channel_id, 8 byte amount
+	// to forward, 4 byte outgoing CLTV value, 16 bytes padding and 32
+	// bytes HMAC for a total of 65 bytes per hop.
+	hopDataSize = (1 + addressSize + 8 + 4 + padSize + hmacSize)
 
 	// sharedSecretSize is the size in bytes of the shared secrets.
 	sharedSecretSize = 32
@@ -129,7 +128,7 @@ type HopData struct {
 	// ForwardAmount is the HTLC amount that the next hop should forward.
 	// This value should take into account the fee require by this
 	// particular hop, and the cumulative fee for the entire route.
-	ForwardAmount uint32
+	ForwardAmount uint64
 
 	// OutgoingCltv is the value of the outgoing absolute time-lock that
 	// should be included in the HTLC forwarded.

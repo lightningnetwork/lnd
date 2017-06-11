@@ -33,7 +33,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	for i := 0; i < len(route); i++ {
 		hopsData = append(hopsData, HopData{
 			Realm:         0x00,
-			ForwardAmount: uint32(i),
+			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		})
 		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))

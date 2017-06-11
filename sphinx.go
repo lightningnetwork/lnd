@@ -189,7 +189,9 @@ func (hd *HopData) Decode(r io.Reader) error {
 		return err
 	}
 
-	io.CopyN(ioutil.Discard, r, padSize)
+	if _, err := io.CopyN(ioutil.Discard, r, padSize); err != nil {
+		return err
+	}
 
 	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
 		return err

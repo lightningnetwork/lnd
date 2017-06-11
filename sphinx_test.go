@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"reflect"
 	"testing"
 
@@ -13,15 +12,15 @@ import (
 	"github.com/roasbeef/btcd/chaincfg"
 )
 
-func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
+func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numMaxHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
 		privKey, err := btcec.NewPrivateKey(btcec.S256())
 		if err != nil {
-			return nil, nil, fmt.Errorf("Unable to generate random "+
-				"key for sphinx node: %v", err)
+			return nil, nil, nil, fmt.Errorf("Unable to "+
+				"generate random key for sphinx node: %v", err)
 		}
 
 		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams)
@@ -49,15 +48,15 @@ func newTestRoute(numHops int) ([]*Router, *OnionPacket, error) {
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
 	fwdMsg, err := NewOnionPacket(route, sessionKey, hopsData, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Unable to create forwarding "+
+		return nil, nil, nil, fmt.Errorf("Unable to create forwarding "+
 			"message: %#v", err)
 	}
 
-	return nodes, fwdMsg, nil
+	return nodes, &hopsData, fwdMsg, nil
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	nodes, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -67,40 +66,50 @@ func TestSphinxCorrectness(t *testing.T) {
 	for i := 0; i < len(nodes); i++ {
 		hop := nodes[i]
 
-		log.Printf("Processing at hop: %v \n", i)
-		processAction, err := hop.ProcessOnionPacket(fwdMsg, nil)
+		t.Logf("Processing at hop: %v \n", i)
+		onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil)
 		if err != nil {
 			t.Fatalf("Node %v was unable to process the "+
 				"forwarding message: %v", i, err)
 		}
 
+		// The hop data for this hop should *exactly* match what was
+		// initially used to construct the packet.
+		expectedHopData := (*hopDatas)[i]
+		if !reflect.DeepEqual(onionPacket.ForwardingInstructions, expectedHopData) {
+			t.Fatalf("hop data doesn't match: expected %v, got %v",
+				spew.Sdump(expectedHopData),
+				spew.Sdump(onionPacket.ForwardingInstructions))
+		}
+
 		// If this is the last hop on the path, the node should
 		// recognize that it's the exit node.
 		if i == len(nodes)-1 {
-			if processAction.Action != ExitNode {
+			if onionPacket.Action != ExitNode {
 				t.Fatalf("Processing error, node %v is the last hop in "+
 					"the path, yet it doesn't recognize so", i)
 			}
 
 		} else {
-			// If this isn't the last node in the path, then the returned
-			// action should indicate that there are more hops to go.
-			if processAction.Action != MoreHops {
+			// If this isn't the last node in the path, then the
+			// returned action should indicate that there are more
+			// hops to go.
+			if onionPacket.Action != MoreHops {
 				t.Fatalf("Processing error, node %v is not the final"+
 					" hop, yet thinks it is.", i)
 			}
 
 			// The next hop should have been parsed as node[i+1].
-			parsedNextHop := processAction.NextHop[:]
+			parsedNextHop := onionPacket.ForwardingInstructions.NextAddress[:]
 			expected := bytes.Repeat([]byte{byte(i)}, addressSize)
 			if !bytes.Equal(parsedNextHop, expected) {
 				t.Fatalf("Processing error, next hop parsed incorrectly."+
-					" next hop shoud be %v, was instead parsed as %v",
+					" next hop should be %v, was instead parsed as %v",
 					hex.EncodeToString(nodes[i+1].nodeID[:]),
 					hex.EncodeToString(parsedNextHop))
 			}
 
-			fwdMsg = processAction.Packet
+			fwdMsg = onionPacket.NextPacket
 		}
 	}
 }
@@ -110,7 +119,7 @@ func TestSphinxSingleHop(t *testing.T) {
 	// packet processing for "single-hop" payments which bare a full onion
 	// packet.
 
-	nodes, fwdMsg, err := newTestRoute(1)
+	nodes, _, fwdMsg, err := newTestRoute(1)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -133,7 +142,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -154,7 +163,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxAssocData(t *testing.T) {
 	// We want to make sure that the associated data is considered in the
 	// HMAC creation
-	nodes, fwdMsg, err := newTestRoute(5)
+	nodes, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -168,7 +177,7 @@ func TestSphinxAssocData(t *testing.T) {
 func TestSphinxEncodeDecode(t *testing.T) {
 	// Create some test data with a randomly populated, yet valid onion
 	// forwarding message.
-	_, fwdMsg, err := newTestRoute(5)
+	_, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}

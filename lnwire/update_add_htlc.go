@@ -7,8 +7,10 @@ import (
 )
 
 // OnionPacketSize is the size of the serialized Sphinx onion packet included
-// in each UpdateAddHTLC message.
-const OnionPacketSize = 1254
+// in each UpdateAddHTLC message. The breakdown of the onion packet is as
+// follows: 1-byte version, 33-byte ephemeral public key (for ECDH), 1300-bytes
+// of per-hop data, and a 32-byte HMAC over the entire packet.
+const OnionPacketSize = 1366
 
 // UpdateAddHTLC is the message sent by Alice to Bob when she wishes to add an
 // HTLC to his remote commitment transaction. In addition to information
@@ -18,8 +20,8 @@ const OnionPacketSize = 1254
 // CommitSig message will move the pending HTLC to the newly created commitment
 // transaction, marking them as "staged".
 type UpdateAddHTLC struct {
-	// ChanID is the particular active channel that this
-	// UpdateAddHTLC is binded to.
+	// ChanID is the particular active channel that this UpdateAddHTLC is
+	// bound to.
 	ChanID ChannelID
 
 	// ID is the identification server for this HTLC. This value is
@@ -106,6 +108,6 @@ func (c *UpdateAddHTLC) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) MaxPayloadLength(uint32) uint32 {
-	// 1338
-	return 32 + 8 + 4 + 8 + 32 + 1254
+	// 1450
+	return 32 + 8 + 4 + 8 + 32 + 1366
 }

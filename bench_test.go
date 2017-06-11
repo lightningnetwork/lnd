@@ -13,6 +13,7 @@ var (
 )
 
 func BenchmarkPathPacketConstruction(b *testing.B) {
+	b.StopTimer()
 	route := make([]*btcec.PublicKey, NumMaxHops)
 	for i := 0; i < NumMaxHops; i++ {
 		privKey, err := btcec.NewPrivateKey(btcec.S256())
@@ -39,6 +40,8 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	}
 
 	d, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
+	b.StartTimer()
+
 	for i := 0; i < b.N; i++ {
 		sphinxPacket, err = NewOnionPacket(route, d, hopsData, nil)
 		if err != nil {
@@ -50,10 +53,12 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 }
 
 func BenchmarkProcessPacket(b *testing.B) {
-	path, sphinxPacket, err := newTestRoute(1)
+	b.StopTimer()
+	path, _, sphinxPacket, err := newTestRoute(1)
 	if err != nil {
 		b.Fatalf("unable to create test route: %v", err)
 	}
+	b.StartTimer()
 
 	var (
 		pkt *ProcessedPacket

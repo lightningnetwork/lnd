@@ -159,7 +159,7 @@ func (hd *HopData) Encode(w io.Writer) error {
 		return err
 	}
 
-	if _, err := w.Write(bytes.Repeat([]byte{0x00}, padSize)); err != nil {
+	if _, err := w.Write(paddingBytes[:]); err != nil {
 		return err
 	}
 

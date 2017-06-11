@@ -181,11 +181,11 @@ func (hd *HopData) Decode(r io.Reader) error {
 		return err
 	}
 
-	if err := binary.Read(r, binary.BigEndian, hd.ForwardAmount); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
 		return err
 	}
 
-	if err := binary.Read(r, binary.BigEndian, hd.OutgoingCltv); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
 		return err
 	}
 

@@ -198,23 +198,6 @@ func (hd *HopData) Decode(r io.Reader) error {
 	return nil
 }
 
-// GenerateSharedSecret generates a shared secret based on a private key and a
-// public key using Diffie-Hellman key exchange (ECDH) (RFC 4753).
-// This was modified from the btcec library to match the secret generation in
-// libsecp256k1, i.e., it returns the compressed serialization of the pubkey, not
-// just the x-coordinate.
-func GenerateSharedSecret(privkey *btcec.PrivateKey, pubkey *btcec.PublicKey) []byte {
-	x, y := pubkey.Curve.ScalarMult(pubkey.X, pubkey.Y, privkey.D.Bytes())
-
-	var temp [65]byte
-	temp[0] = 0x04
-	copy(temp[1:], x.Bytes())
-	copy(temp[33:], y.Bytes())
-
-	res, _ := btcec.ParsePubKey(temp[:], btcec.S256())
-	return res.SerializeCompressed()
-}
-
 // NewOnionPacket creates a new onion packet which is capable of
 // obliviously routing a message through the mix-net path outline by
 // 'paymentPath'.

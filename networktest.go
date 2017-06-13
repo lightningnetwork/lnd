@@ -574,6 +574,41 @@ func (l *lightningNode) WaitForNetworkChannelClose(ctx context.Context,
 	}
 }
 
+// WaitForBlockchainSync will block until node synchronizes its blockchain
+func (l *lightningNode) WaitForBlockchainSync(ctx context.Context) error {
+	errChan := make(chan error, 1)
+	retryDelay := time.Millisecond * 100
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				break
+			default:
+			}
+			getInfoReq := &lnrpc.GetInfoRequest{}
+			getInfoResp, err := l.GetInfo(ctx, getInfoReq)
+			if err != nil {
+				errChan <- err
+				break
+			}
+			if getInfoResp.SyncedToChain {
+				errChan <- nil
+			}
+			select {
+			case <-ctx.Done():
+				break
+			case <-time.After(retryDelay):
+			}
+		}
+	}()
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("Timeout while waiting for blockchain sync")
+	}
+}
+
 // networkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
@@ -972,6 +1007,14 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	pushAmt btcutil.Amount, numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
+	// Wait until srcNode and destNode have blockchain synced
+	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
+		return nil, fmt.Errorf("Unable to sync srcNode chain: %v", err)
+	}
+	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
+		return nil, fmt.Errorf("Unable to sync destNode chain: %v", err)
+	}
+
 	openReq := &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
@@ -1023,6 +1066,14 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 func (n *networkHarness) OpenPendingChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	pushAmt btcutil.Amount, numConfs uint32) (*lnrpc.PendingUpdate, error) {
+
+	// Wait until srcNode and destNode have blockchain synced
+	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
+		return nil, fmt.Errorf("Unable to sync srcNode chain: %v", err)
+	}
+	if err := destNode.WaitForBlockchainSync(ctx); err != nil {
+		return nil, fmt.Errorf("Unable to sync destNode chain: %v", err)
+	}
 
 	openReq := &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],

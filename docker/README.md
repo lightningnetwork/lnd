@@ -59,13 +59,27 @@ topology, and send a payment from `Alice` to `Bob`.
 
 Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
+
+
+
 ```bash
-# Init bitcoin network env variable:
+# IMPORTANT: Choose and source the desired blockchain environment (btc vs. ltc):
+$ source conf/bitcoin
+
+This results in having all container names and other resources prefixed with 'btc_'. Similarly, you can use ```source conf/litecoin```
+
+Also the services are referred to without the *btc_* or *ltc_* prefix resp. However, the actual container have the chain prefix in their names.
+
+The rest of the example assumes we are working with btc
+
+
+# Init bitcoin network env variable (defaults to simnet on btc/testnet on ltc):
 $ export NETWORK="simnet"
+Note, that "simnet" is currently not supported on litecoin
 
 # Run the "Alice" container and log into it:
-$ docker-compose run -d --name alice "lnd_btc"
-$ docker exec -i -t "alice" bash
+$ docker-compose run -d "alice"
+$ docker exec -i -t "btc_alice" bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
 alice$ lncli newaddress np2wkh 
@@ -75,10 +89,10 @@ $ MINING_ADDRESS=<alice_address> docker-compose up -d "btcd"
 
 # Generate 400 block (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):
-$ docker-compose run btcctl generate 400
+$ docker-compose run ctl generate 400
 
 # Check that segwit is active:
-$ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
+$ docker-compose run ctl getblockchaininfo | grep -A 1 segwit
 ```
 
 Check `Alice` balance:
@@ -90,8 +104,8 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose up --no-recreate -d --name "bob" "ltc_btc"
-$ docker exec -i -t "bob" bash
+$ docker-compose up --no-recreate -d "bob"
+$ docker exec -i -t "btc_bob" bash
 
 # Get the identity pubkey of "Bob" node:
 bob$ lncli getinfo
@@ -112,7 +126,7 @@ bob$ lncli getinfo
 }
 
 # Get the IP address of "Bob" node:
-$ docker inspect "bob" | grep IPAddress
+$ docker inspect "btc_bob" | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
 alice$ lncli connect <bob_pubkey>@<bob_host>
@@ -160,7 +174,7 @@ Create the `Alice<->Bob` channel.
 alice$ lncli openchannel --peer_id=1 --local_amt=1000000
 
 # Include funding transaction in block thereby open the channel:
-$ docker-compose run btcctl generate 1
+$ docker-compose run ctl generate 1
 
 # Check that channel with "Bob" was created:
 alice$ lncli listchannels
@@ -232,7 +246,7 @@ alice$ lncli listchannels
 alice$ lncli closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
 # Include close transaction in block thereby close the channel:
-$ docker-compose run btcctl generate 1
+$ docker-compose run ctl generate 1
 
 # Check "Alice" on-chain balance was credited by her settled amount in the channel:
 alice$ lncli walletbalance
@@ -266,7 +280,7 @@ bitcoins. The schema will be following:
                        + --------------- +        
         
         
- (1) You may connect an additinal node "Bob" and make the multihope 
+ (1) You may connect an additional node "Bob" and make the multihope
  payment Alice->Faucet->Bob
   
  (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 
@@ -280,7 +294,7 @@ bitcoins. The schema will be following:
 
 First of all you need to run `btcd` node in `testnet` and wait it to be 
 synced with test network (`May the Force and Patience be with you` ᕦ(ò_óˇ)ᕤ).
-```bash 
+```bash
 # Init bitcoin network env variable:
 $ export NETWORK="testnet"
 
@@ -291,7 +305,7 @@ $ docker-compose up -d "btcd"
 After `btcd` synced, connect `Alice` to the `Faucet` node.
 ```bash 
 # Run "Alice" container and log into it:
-$ docker-compose up -d "alice"; docker exec -i -t "alice" bash
+$ docker-compose up -d "alice"; docker exec -i -t "btc_alice" bash
 
 # Connect "Alice" to the "Faucet" node:
 alice$ lncli connect <faucet_identity_address>@<faucet_host>
@@ -311,5 +325,5 @@ and send some amount of bitcoins to `Alice`.
 
 * How to see `alice` | `bob` | `btcd` logs?
 ```bash
-docker-compose logs <alice|bob|btcd>
+docker-compose logs <btc_alice|btc_bob|btcd>
 ```

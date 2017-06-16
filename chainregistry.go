@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -23,6 +24,24 @@ import (
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
+
+// defaultBitcoinForwardingPolicy is the default forwarding policy used for
+// Bitcoin channels.
+var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
+	MinHTLC:       0,
+	BaseFee:       1,
+	FeeRate:       1,
+	TimeLockDelta: 1,
+}
+
+// defaultLitecoinForwardingPolicy is the default forwarding policy used for
+// Litecoin channels.
+var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
+	MinHTLC:       0,
+	BaseFee:       1,
+	FeeRate:       1,
+	TimeLockDelta: 1,
+}
 
 // chainCode is an enum-like structure for keeping track of the chains currently
 // supported within lnd.
@@ -65,6 +84,8 @@ type chainControl struct {
 	chainView chainview.FilteredChainView
 
 	wallet *lnwallet.LightningWallet
+
+	routingPolicy htlcswitch.ForwardingPolicy
 }
 
 // newChainControlFromConfig attempts to create a chainControl instance
@@ -91,6 +112,16 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 	cc := &chainControl{
 		feeEstimator: estimator,
+	}
+
+	switch registeredChains.PrimaryChain() {
+	case bitcoinChain:
+		cc.routingPolicy = defaultBitcoinForwardingPolicy
+	case litecoinChain:
+		cc.routingPolicy = defaultLitecoinForwardingPolicy
+	default:
+		return nil, nil, fmt.Errorf("Default routing policy for "+
+			"chain %v is unknown", registeredChains.PrimaryChain())
 	}
 
 	var (

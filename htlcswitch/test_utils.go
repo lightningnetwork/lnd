@@ -324,9 +324,9 @@ func generateHops(payAmt btcutil.Amount,
 	lastHop := path[len(path)-1]
 
 	var (
-		runningAmt    btcutil.Amount = payAmt
 		totalTimelock uint32
 	)
+	runningAmt := payAmt
 
 	hops := make([]ForwardingInfo, len(path))
 	for i := len(path) - 1; i >= 0; i-- {

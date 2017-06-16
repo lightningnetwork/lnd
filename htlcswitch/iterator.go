@@ -114,59 +114,6 @@ type sphinxHopIterator struct {
 // interface.
 var _ HopIterator = (*sphinxHopIterator)(nil)
 
-// NewSphinxBlob creates new instance of sphinx hop iterator.
-func NewSphinxBlob(route *routing.Route, paymentHash []byte) ([]byte, error) {
-
-	// First obtain all the public keys along the route which are contained
-	// in each hop.
-	nodes := make([]*btcec.PublicKey, len(route.Hops))
-	for i, hop := range route.Hops {
-		// We create a new instance of the public key to avoid possibly
-		// mutating the curve parameters, which are unset in a higher
-		// level in order to avoid spamming the logs.
-		pub := btcec.PublicKey{
-			Curve: btcec.S256(),
-			X:     hop.Channel.Node.PubKey.X,
-			Y:     hop.Channel.Node.PubKey.Y,
-		}
-		nodes[i] = &pub
-	}
-
-	// Next we generate the per-hop payload which gives each node within
-	// the route the necessary information (fees, CLTV value, etc) to
-	// properly forward the payment.
-	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
-	// within hop payloads.
-	var hopPayloads [][]byte
-	for i := 0; i < len(route.Hops); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)},
-			sphinx.HopPayloadSize)
-		hopPayloads = append(hopPayloads, payload)
-	}
-
-	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	// Next generate the onion routing packet which allows us to perform
-	// privacy preserving source routing across the network.
-	onionPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
-		hopPayloads, paymentHash)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, encode Sphinx packet using it's wire representation to be
-	// included within the HTLC add packet.
-	var onionBlob bytes.Buffer
-	if err := onionPacket.Encode(&onionBlob); err != nil {
-		return nil, err
-	}
-
-	return onionBlob.Bytes(), nil
-}
-
 // Encode encodes iterator and writes it to the writer.
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) Encode(w io.Writer) error {

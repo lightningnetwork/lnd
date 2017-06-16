@@ -17,6 +17,11 @@ import (
 // identify lightning network node.
 // TODO(andrew.shvv) remove after switching to the using channel id.
 type HopID [ripemd160.Size]byte
+// NetworkHop indicates the blockchain network that is intended to be the next
+// hop for a forwarded HTLC. The existnce of this field within the
+// ForwardingInfo struct enables the ability for HTLC to cross chain-boundaries
+// at will.
+type NetworkHop uint8
 
 // NewHopID creates new instance of hop form node public key.
 func NewHopID(pubKey []byte) HopID {
@@ -24,15 +29,65 @@ func NewHopID(pubKey []byte) HopID {
 	copy(routeID[:], btcutil.Hash160(pubKey))
 	return routeID
 }
+const (
+	// BitcoinHop denotes that an HTLC is to be forwarded along the Bitcoin
+	// link with the specified short channel ID.
+	BitcoinHop NetworkHop = iota
+
+	// LitecoinHop denotes that an HTLC is to be forwarded along the
+	// Litecoin link with the specified short channel ID.
+	LitecoinHop
+)
 
 // String returns string representation of hop id.
 func (h HopID) String() string {
 	return hex.EncodeToString(h[:])
+// String returns the string representation of the target NetworkHop.
+func (c NetworkHop) String() string {
+	switch c {
+	case BitcoinHop:
+		return "Bitcoin"
+	case LitecoinHop:
+		return "Litecoin"
+	default:
+		return "Kekcoin"
+	}
 }
 
 // IsEqual checks does the two hop ids are equal.
 func (h HopID) IsEqual(h2 HopID) bool {
 	return bytes.Equal(h[:], h2[:])
+var (
+	// exitHop is a special "hop" which denotes that an incoming HTLC is
+	// meant to pay finally to the receiving node.
+	exitHop lnwire.ShortChannelID
+)
+
+// ForwardingInfo contains all the information that is necessary to forward and
+// incoming HTLC to the next hop encoded within a valid HopIterator instance.
+// Forwarding links are to use this information to authenticate the information
+// received within the incoming HTLC, to ensure that the prior hop didn't
+// tamper with the end-to-end routing information at all.
+type ForwardingInfo struct {
+	// Network is the target blockchain network that the HTLC will travel
+	// over next.
+	Network NetworkHop
+
+	// NextHop is the channel ID of the next hop. The received HTLC should
+	// be forwarded to this particular channel in order to continue the
+	// end-to-end route.
+	NextHop lnwire.ShortChannelID
+
+	// AmountToForward is the amount that the receiving node should forward
+	// to the next hop.
+	AmountToForward btcutil.Amount
+
+	// OutgoingCTLV is the specified value of the CTLV timelock to be used
+	// in the outgoing HTLC.
+	OutgoingCTLV uint32
+
+	// TODO(roasbeef): modify sphinx logic to not just discard the
+	// remaining bytes, instead should include the rest as excess
 }
 
 // HopIterator interface represent the entity which is able to give route

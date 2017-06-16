@@ -13,6 +13,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -172,6 +173,10 @@ type fundingConfig struct {
 	// TempChanIDSeed is a cryptographically random string of bytes that's
 	// used as a seed to generate pending channel ID's.
 	TempChanIDSeed [32]byte
+
+	// DefaultRoutingPolicy is the default routing policy used when
+	// initially announcing channels.
+	DefaultRoutingPolicy htlcswitch.ForwardingPolicy
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1158,15 +1163,14 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		chanFlags = 1
 	}
 
-	// TODO(roasbeef): populate proper FeeSchema
 	chanUpdateAnn := &lnwire.ChannelUpdate{
-		ShortChannelID:            shortChanID,
-		Timestamp:                 uint32(time.Now().Unix()),
-		Flags:                     chanFlags,
-		TimeLockDelta:             1,
-		HtlcMinimumMsat:           0,
-		FeeBaseMsat:               0,
-		FeeProportionalMillionths: 0,
+		ShortChannelID:  shortChanID,
+		Timestamp:       uint32(time.Now().Unix()),
+		Flags:           chanFlags,
+		TimeLockDelta:   uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
+		HtlcMinimumMsat: uint64(f.cfg.DefaultRoutingPolicy.MinHTLC),
+		BaseFee:         uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
+		FeeRate:         uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
 	}
 
 	// With the channel update announcement constructed, we'll generate a

@@ -152,6 +152,7 @@ func lndMain() error {
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
+		DefaultRoutingPolicy: activeChainControl.routingPolicy,
 	})
 	if err != nil {
 		return err

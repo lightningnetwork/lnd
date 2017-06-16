@@ -25,4 +25,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "shutdown-close-flow",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "sphinx-payload",
+		Flag: lnwire.RequiredFlag,
+	},
 })

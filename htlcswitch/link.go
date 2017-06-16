@@ -740,6 +740,36 @@ func (l *channelLink) getBandwidth() btcutil.Amount {
 	return l.channel.LocalAvailableBalance() - l.overflowQueue.pendingAmount()
 }
 
+// policyUpdate is a message sent to a channel link when an outside sub-system
+// wishes to update the current forwarding policy.
+type policyUpdate struct {
+	policy ForwardingPolicy
+
+	done chan struct{}
+}
+
+// UpdateForwardingPolicy updates the forwarding policy for the target
+// ChannelLink. Once updated, the link will use the new forwarding policy to
+// govern if it an incoming HTLC should be forwarded or not.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
+	cmd := &policyUpdate{
+		policy: newPolicy,
+		done:   make(chan struct{}),
+	}
+
+	select {
+	case l.linkControl <- cmd:
+	case <-l.quit:
+	}
+
+	select {
+	case <-cmd.done:
+	case <-l.quit:
+	}
+}
+
 // Stats returns the statistics of channel link.
 //
 // NOTE: Part of the ChannelLink interface.

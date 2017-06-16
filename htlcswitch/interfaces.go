@@ -57,8 +57,17 @@ type ChannelLink interface {
 	// short channel ID encodes the exact location in the main chain that
 	// the original funding output can be found.
 	ShortChanID() lnwire.ShortChannelID
+
+	// UpdateForwardingPolicy updates the forwarding policy for the target
+	// ChannelLink. Once updated, the link will use the new forwarding
+	// policy to govern if it an incoming HTLC should be forwarded or not.
+	UpdateForwardingPolicy(ForwardingPolicy)
+
 	// Bandwidth returns the amount of satoshis which current link might
-	// pass through channel link.
+	// pass through channel link. The value returned from this method
+	// represents the up to date available flow through the channel. This
+	// takes into account any forwarded but un-cleared HTLC's, and any
+	// HTLC's which have been set to the over flow queue.
 	Bandwidth() btcutil.Amount
 
 	// Stats return the statistics of channel link. Number of updates,

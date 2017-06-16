@@ -37,13 +37,16 @@ type ChannelUpdate struct {
 	TimeLockDelta uint16
 
 	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
-	HtlcMinimumMsat uint32
+	HtlcMinimumMsat uint64
 
-	// FeeBaseMstat...
-	FeeBaseMsat uint32
+	// BaseFee is the base fee that must be used for incoming HTLC's to
+	// this particular channel. This value will be tacked onto the required
+	// for a payment independent of the size of the payment.
+	BaseFee uint32
 
-	// FeeProportionalMillionths...
-	FeeProportionalMillionths uint32
+	// FeeRate is the fee rate that will be charged per millionth of a
+	// satoshi.
+	FeeRate uint32
 }
 
 // A compile time check to ensure ChannelUpdate implements the lnwire.Message
@@ -62,8 +65,8 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		&a.Flags,
 		&a.TimeLockDelta,
 		&a.HtlcMinimumMsat,
-		&a.FeeBaseMsat,
-		&a.FeeProportionalMillionths,
+		&a.BaseFee,
+		&a.FeeRate,
 	)
 }
 
@@ -79,8 +82,8 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 		a.Flags,
 		a.TimeLockDelta,
 		a.HtlcMinimumMsat,
-		a.FeeBaseMsat,
-		a.FeeProportionalMillionths,
+		a.BaseFee,
+		a.FeeRate,
 	)
 }
 
@@ -114,8 +117,8 @@ func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
 	// Expiry - 2 bytes
 	length += 2
 
-	// HtlcMinimumMstat - 4 bytes
-	length += 4
+	// HtlcMinimumMstat - 8 bytes
+	length += 8
 
 	// FeeBaseMstat - 4 bytes
 	length += 4
@@ -138,8 +141,8 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 		a.Flags,
 		a.TimeLockDelta,
 		a.HtlcMinimumMsat,
-		a.FeeBaseMsat,
-		a.FeeProportionalMillionths,
+		a.BaseFee,
+		a.FeeRate,
 	)
 	if err != nil {
 		return nil, err

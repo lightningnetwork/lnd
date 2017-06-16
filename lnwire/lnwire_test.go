@@ -385,14 +385,14 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgChannelUpdate: func(v []reflect.Value, r *rand.Rand) {
 			req := ChannelUpdate{
-				Signature:                 testSig,
-				ShortChannelID:            NewShortChanIDFromInt(uint64(r.Int63())),
-				Timestamp:                 uint32(r.Int31()),
-				Flags:                     uint16(r.Int31()),
-				TimeLockDelta:             uint16(r.Int31()),
-				HtlcMinimumMsat:           uint32(r.Int31()),
-				FeeBaseMsat:               uint32(r.Int31()),
-				FeeProportionalMillionths: uint32(r.Int31()),
+				Signature:       testSig,
+				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
+				Timestamp:       uint32(r.Int31()),
+				Flags:           uint16(r.Int31()),
+				TimeLockDelta:   uint16(r.Int31()),
+				HtlcMinimumMsat: uint64(r.Int63()),
+				BaseFee:         uint32(r.Int31()),
+				FeeRate:         uint32(r.Int31()),
 			}
 
 			v[0] = reflect.ValueOf(req)

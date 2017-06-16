@@ -17,13 +17,13 @@ type InvoiceDatabase interface {
 	// byte payment hash.
 	LookupInvoice(chainhash.Hash) (*channeldb.Invoice, error)
 
-	// SettleInvoice attempts to mark an invoice corresponding to the passed
-	// payment hash as fully settled.
+	// SettleInvoice attempts to mark an invoice corresponding to the
+	// passed payment hash as fully settled.
 	SettleInvoice(chainhash.Hash) error
 }
 
-// ChannelLink is an interface which represents the subsystem for managing
-// the incoming htlc requests, applying the changes to the channel, and also
+// ChannelLink is an interface which represents the subsystem for managing the
+// incoming htlc requests, applying the changes to the channel, and also
 // propagating/forwarding it to htlc switch.
 //
 //  abstraction level
@@ -51,9 +51,14 @@ type ChannelLink interface {
 	// which sent to us from remote peer we have a channel with.
 	HandleChannelUpdate(lnwire.Message)
 
-	// ChanID returns the unique identifier of the channel link.
+	// ChanID returns the channel ID for the channel link. The channel ID
+	// is a more compact representation of a channel's full outpoint.
 	ChanID() lnwire.ChannelID
 
+	// ShortChanID returns the short channel ID for the channel link. The
+	// short channel ID encodes the exact location in the main chain that
+	// the original funding output can be found.
+	ShortChanID() lnwire.ShortChannelID
 	// Bandwidth returns the amount of satoshis which current link might
 	// pass through channel link.
 	Bandwidth() btcutil.Amount
@@ -62,12 +67,12 @@ type ChannelLink interface {
 	// total sent/received satoshis.
 	Stats() (uint64, btcutil.Amount, btcutil.Amount)
 
-	// Peer returns the representation of remote peer with which we
-	// have the channel link opened.
+	// Peer returns the representation of remote peer with which we have
+	// the channel link opened.
 	Peer() Peer
 
-	// Start/Stop are used to initiate the start/stop of the the channel
-	// link functioning.
+	// Start/Stop are used to initiate the start/stop of the channel link
+	// functioning.
 	Start() error
 	Stop()
 }

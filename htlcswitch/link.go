@@ -666,7 +666,17 @@ func (l *channelLink) Peer() Peer {
 	return l.cfg.Peer
 }
 
-// ChannelPoint returns the unique identificator of the channel link.
+// ShortChanID returns the short channel ID for the channel link. The short
+// channel ID encodes the exact location in the main chain that the original
+// funding output can be found.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) ShortChanID() lnwire.ShortChannelID {
+	return l.channel.ShortChanID()
+}
+
+// ChanID returns the channel ID for the channel link. The channel ID is a more
+// compact representation of a channel's full outpoint.
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) ChanID() lnwire.ChannelID {

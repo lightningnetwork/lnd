@@ -51,9 +51,9 @@ type Hop struct {
 	// along.
 	Channel *ChannelHop
 
-	// TimeLockDelta is the delta that this hop will subtract from the HTLC
-	// before extending it to the next hop in the route.
-	TimeLockDelta uint16
+	// OutgoingTimeLock is the timelock value that should be used when
+	// crafting the _outgoing_ HTLC from this hop.
+	OutgoingTimeLock uint32
 
 	// AmtToForward is the amount that this hop will forward to the next
 	// hop. This value is less than the value that the incoming HTLC
@@ -184,10 +184,9 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 		// The amount to forward is the running amount, and we compute
 		// the required fee based on this amount.
 		nextHop := &Hop{
-			Channel:       edge,
-			AmtToForward:  runningAmt,
-			Fee:           computeFee(runningAmt, edge),
-			TimeLockDelta: edge.TimeLockDelta,
+			Channel:      edge,
+			AmtToForward: runningAmt,
+			Fee:          computeFee(runningAmt, edge),
 		}
 		edge.Node.PubKey.Curve = nil
 
@@ -220,7 +219,23 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 			nextHop.Fee = 0
 		}
 
-		route.TotalTimeLock += uint32(nextHop.TimeLockDelta)
+		// Next, increment the total timelock of the entire route such
+		// that each hops time lock increases as we walk backwards in
+		// the route, using the delta of the previous hop.
+		route.TotalTimeLock += uint32(edge.TimeLockDelta)
+
+		// If this is the last hop, then for verification purposes, the
+		// value of the outgoing time-lock should be _exactly_ the time
+		// lock delta specified within the routing information.
+		if i == len(pathEdges)-1 {
+			nextHop.OutgoingTimeLock = uint32(edge.TimeLockDelta)
+		} else {
+			// Otherwise, the value of the outgoing time-lock will
+			// be the value of the time-lock for the _outgoing_
+			// HTLC.
+			nextHop.OutgoingTimeLock = route.TotalTimeLock -
+				uint32(edge.TimeLockDelta)
+		}
 
 		route.Hops[i] = nextHop
 	}
@@ -356,6 +371,9 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 			// capacity of an edge to our relaxation condition.
 			if tempDist < distance[v].dist &&
 				edgeInfo.Capacity >= amt {
+
+				// TODO(roasbeef): need to also account
+				// for min HTLC
 
 				distance[v] = nodeWithDist{
 					dist: tempDist,

@@ -301,7 +301,268 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	}
 }
 
+// TestExitNodeTimelockPayloadMismatch tests that when an exit node receives an
+// incoming HTLC, if the time lock encoded in the payload of the forwarded HTLC
+// doesn't match the expected payment value, then the HTLC will be rejected
+// with the appropriate error.
+func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
 	}
+	defer n.stop()
+
+	const amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, htlcExpiry, hops := generateHops(amount,
+		n.firstBobChannelLink)
+
+	// In order to exercise this case, we'll now _manually_ modify the
+	// per-hop payload for outgoing time lock to be the incorrect value.
+	// The proper value of the outgoing CLTV should be the policy set by
+	// the receiving node, instead we set it to be a random value.
+	hops[0].OutgoingCTLV = 500
+
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	} else if err.Error() != lnwire.UpstreamTimeout.String() {
+		// TODO(roasbeef): use proper error after error propagation is
+		// in
+		t.Fatalf("incorrect error, expected insufficient value, "+
+			"instead have: %v", err)
+	}
+}
+
+// TestExitNodeAmountPayloadMismatch tests that when an exit node receives an
+// incoming HTLC, if the amount encoded in the onion payload of the forwarded
+// HTLC doesn't match the expected payment value, then the HTLC will be
+// rejected.
+func TestExitNodeAmountPayloadMismatch(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	const amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, htlcExpiry, hops := generateHops(amount, n.firstBobChannelLink)
+
+	// In order to exercise this case, we'll now _manually_ modify the
+	// per-hop payload for amount to be the incorrect value.  The proper
+	// value of the amount to forward should be the amount that the
+	// receiving node expects to receive.
+	hops[0].AmountToForward = 1
+
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	} else if err.Error() != lnwire.IncorrectValue.String() {
+		// TODO(roasbeef): use proper error after error propagation is
+		// in
+		t.Fatalf("incorrect error, expected insufficient value, "+
+			"instead have: %v", err)
+	}
+}
+
+// TestLinkForwardMinHTLCPolicyMismatch tests that if a node is an intermediate
+// node in a multi-hop payment, and receives an HTLC which violates its
+// specified multi-hop policy, then the HTLC is rejected.
+func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	// We'll be sending 1 BTC over a 2-hop (3 vertex) route.
+	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+
+	// Generate the route over two hops, ignoring the total time lock that
+	// we'll need to use for the first HTLC in order to have a sufficient
+	// time-lock value to account for the decrements over the entire route.
+	htlcAmt, htlcExpiry, hops := generateHops(amount, n.firstBobChannelLink,
+		n.carolChannelLink)
+	htlcExpiry += 10
+
+	// Next, we'll make the payment which'll send an HTLC with our
+	// specified parameters to the first hop in the route.
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
+
+	// We should get an error, and that error should indicate that the HTLC
+	// should be rejected due to a policy violation.
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	} else if err.Error() != lnwire.UpstreamTimeout.String() {
+		// TODO(roasbeef): use proper error after error propagation is
+		// in
+		t.Fatalf("incorrect error, expected insufficient value, "+
+			"instead have: %v", err)
+	}
+}
+
+// TestLinkForwardTimelockPolicyMismatch tests that if a node is an
+// intermediate node in a multi-hop payment and receives an HTLC that violates
+// its current fee policy, then the HTLC is rejected with the proper error.
+func TestLinkForwardFeePolicyMismatch(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	// We'll be sending 1 BTC over a 2-hop (3 vertex) route. Given the
+	// current default fee of 1 SAT, if we just send a single BTC over in
+	// an HTLC, it should be rejected.
+	var amountNoFee btcutil.Amount = btcutil.SatoshiPerBitcoin
+
+	// Generate the route over two hops, ignoring the amount we _should_
+	// actually send in order to be able to cover fees.
+	_, htlcExpiry, hops := generateHops(amountNoFee, n.firstBobChannelLink,
+		n.carolChannelLink)
+
+	// Next, we'll make the payment which'll send an HTLC with our
+	// specified parameters to the first hop in the route.
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amountNoFee, amountNoFee,
+		htlcExpiry)
+
+	// We should get an error, and that error should indicate that the HTLC
+	// should be rejected due to a policy violation.
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	} else if err.Error() != lnwire.IncorrectValue.String() {
+		// TODO(roasbeef): use proper error after error propagation is
+		// in
+		t.Fatalf("incorrect error, expected insufficient value, "+
+			"instead have: %v", err)
+	}
+}
+
+// TestLinkForwardFeePolicyMismatch tests that if a node is an intermediate
+// node and receives an HTLC which is _below_ its min HTLC policy, then the
+// HTLC will be rejected.
+func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	// The current default global min HTLC policy set in the default config
+	// for the three-hop-network is 5 SAT. So in order to trigger this
+	// failure mode, we'll create an HTLC with 1 satoshi.
+	amountNoFee := btcutil.Amount(1)
+
+	// With the amount set, we'll generate a route over 2 hops within the
+	// network that attempts to pay out our specified amount.
+	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
+		n.firstBobChannelLink, n.carolChannelLink)
+
+	// Next, we'll make the payment which'll send an HTLC with our
+	// specified parameters to the first hop in the route.
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
+		htlcExpiry)
+
+	// We should get an error, and that error should indicate that the HTLC
+	// should be rejected due to a policy violation (below min HTLC).
+	if err == nil {
+		t.Fatalf("payment should have failed but didn't")
+	} else if err.Error() != lnwire.IncorrectValue.String() {
+		// TODO(roasbeef): use proper error after error propagation is
+		// in
+		t.Fatalf("incorrect error, expected insufficient value, "+
+			"instead have: %v", err)
+	}
+}
+
+// TestUpdateForwardingPolicy tests that the forwarding policy for a link is
+// able to be updated properly. We'll first create an HTLC that meets the
+// specified policy, assert that it succeeds, update the policy (to invalidate
+// the prior HTLC), and then ensure that the HTLC is rejected.
+func TestUpdateForwardingPolicy(t *testing.T) {
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
+	firstBobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+
+	amountNoFee := btcutil.Amount(10)
+	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
+		n.firstBobChannelLink, n.carolChannelLink)
+
+	// First, send this 1 BTC payment over the three hops, the payment
+	// should succeed, and all balances should be updated
+	// accordingly.
+	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
+		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
+		htlcExpiry)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Carol's invoice should now be shown as settled as the payment
+	// succeeded.
+	if !invoice.Terms.Settled {
+		t.Fatal("carol's invoice wasn't settled")
+	}
+	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
+	if expectedAliceBandwidth != n.aliceChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedAliceBandwidth, n.aliceChannelLink.Bandwidth())
+	}
+	expectedBobBandwidth1 := firstBobBandwidthBefore + htlcAmt
+	if expectedBobBandwidth1 != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth())
+	}
+	expectedBobBandwidth2 := secondBobBandwidthBefore - amountNoFee
+	if expectedBobBandwidth2 != n.secondBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth())
+	}
+	expectedCarolBandwidth := carolBandwidthBefore + amountNoFee
+	if expectedCarolBandwidth != n.carolChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
+	}
+
+	// Now we'll update Bob's policy to jack up his free rate to an extent
+	// that'll cause him to reject the same HTLC that we just sent.
+	//
+	// TODO(roasbeef): should implement grace period within link policy
+	// update logic
+	newPolicy := n.globalPolicy
+	newPolicy.BaseFee = btcutil.Amount(1000)
+	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
 }
 
 // TestChannelLinkMultiHopInsufficientPayment checks that we receive error if
@@ -341,6 +602,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	}
 
 	// Wait for Alice to receive the revocation.
+	//
+	// TODO(roasbeef): add in ntfn hook for state transition completion
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc

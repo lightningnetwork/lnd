@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 )
@@ -364,7 +365,9 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 // MarkChannelAsOpen records the finalization of the funding process and marks
 // a channel as available for use. Additionally the height in which this
 // channel as opened will also be recorded within the database.
-func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint, openHeight uint32) error {
+func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint,
+	openLoc lnwire.ShortChannelID) error {
+
 	return d.Update(func(tx *bolt.Tx) error {
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {
@@ -399,7 +402,7 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint, openHeight uint32) error
 		infoCopy := make([]byte, len(confInfoBytes))
 		copy(infoCopy[:], confInfoBytes)
 
-		byteOrder.PutUint32(infoCopy[4:], openHeight)
+		byteOrder.PutUint64(infoCopy[4:], openLoc.ToUint64())
 
 		return openChanBucket.Put(confInfoKey, infoCopy)
 	})

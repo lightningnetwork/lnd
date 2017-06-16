@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -130,9 +131,10 @@ const (
 // to an on-disk log, which can then subsequently be queried in order to
 // "time-travel" to a prior state.
 type OpenChannel struct {
-	// OpeningHeight is the height in which this channel was officially
-	// marked open.
-	OpeningHeight uint32
+	// ShortChannelID encodes the exact location in the chain in which the
+	// channel was initially confirmed. This includes: the block height,
+	// transaction index, and the output within the target transaction.
+	ShortChanID lnwire.ShortChannelID
 
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
@@ -1522,9 +1524,9 @@ func putChanConfInfo(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
 	copy(keyPrefix[len(confInfoPrefix):], b.Bytes())
 
 	// We store the conf info in the following format: broadcast || open.
-	var scratch [8]byte
+	var scratch [12]byte
 	byteOrder.PutUint32(scratch[:], channel.FundingBroadcastHeight)
-	byteOrder.PutUint32(scratch[4:], channel.OpeningHeight)
+	byteOrder.PutUint64(scratch[4:], channel.ShortChanID.ToUint64())
 
 	return openChanBucket.Put(keyPrefix, scratch[:])
 }
@@ -1541,7 +1543,9 @@ func fetchChanConfInfo(openChanBucket *bolt.Bucket, channel *OpenChannel) error 
 
 	confInfoBytes := openChanBucket.Get(keyPrefix)
 	channel.FundingBroadcastHeight = byteOrder.Uint32(confInfoBytes[:4])
-	channel.OpeningHeight = byteOrder.Uint32(confInfoBytes[4:])
+	channel.ShortChanID = lnwire.NewShortChanIDFromInt(
+		byteOrder.Uint64(confInfoBytes[4:]),
+	)
 
 	return nil
 }

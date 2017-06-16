@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
@@ -677,8 +678,12 @@ func TestFetchPendingChannels(t *testing.T) {
 			broadcastHeight)
 	}
 
-	const openHeight = 100
-	err = cdb.MarkChannelAsOpen(pendingChannels[0].ChanID, openHeight)
+	chanOpenLoc := lnwire.ShortChannelID{
+		BlockHeight: 5,
+		TxIndex:     10,
+		TxPosition:  15,
+	}
+	err = cdb.MarkChannelAsOpen(pendingChannels[0].ChanID, chanOpenLoc)
 	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
@@ -689,9 +694,10 @@ func TestFetchPendingChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channels: %v", err)
 	}
-	if openChans[0].OpeningHeight != openHeight {
+	if openChans[0].ShortChanID != chanOpenLoc {
 		t.Fatalf("channel opening heights don't match: expected %v, "+
-			"got %v", openChans[0].OpeningHeight, openHeight)
+			"got %v", spew.Sdump(openChans[0].ShortChanID),
+			chanOpenLoc)
 	}
 	if openChans[0].FundingBroadcastHeight != broadcastHeight {
 		t.Fatalf("broadcast height mismatch: expected %v, got %v",
@@ -737,8 +743,12 @@ func TestFetchClosedChannels(t *testing.T) {
 
 	// Next, simulate the confirmation of the channel by marking it as
 	// pending within the database.
-	const openHeight = 100
-	if err := cdb.MarkChannelAsOpen(state.ChanID, openHeight); err != nil {
+	chanOpenLoc := lnwire.ShortChannelID{
+		BlockHeight: 5,
+		TxIndex:     10,
+		TxPosition:  15,
+	}
+	if err := cdb.MarkChannelAsOpen(state.ChanID, chanOpenLoc); err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
 

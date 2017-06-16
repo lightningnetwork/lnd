@@ -90,66 +90,83 @@ type ForwardingInfo struct {
 	// remaining bytes, instead should include the rest as excess
 }
 
-// HopIterator interface represent the entity which is able to give route
-// hops one by one. This interface is used to have an abstraction over the
-// algorithm which we use to determine the next hope in htlc route.
+// HopIterator is an interface that abstracts away the routing information
+// included in HTLC's which includes the entirety of the payment path of an
+// HTLC. This interface provides two basic method which carry out: how to
+// interpret the forwarding information encoded within the HTLC packet, and hop
+// to encode the forwarding information for the _next_ hop.
 type HopIterator interface {
-	// Next returns next hop if exist and nil if route is ended.
-	Next() *HopID
+	// ForwardingInstructions returns the set of fields that detail exactly
+	// _how_ this hop should forward the HTLC to the next hop.
+	// Additionally, the information encoded within the returned
+	// ForwardingInfo is to be used by each hop to authenticate the
+	// information given to it by the prior hop.
+	ForwardingInstructions() ForwardingInfo
 
-	// Encode encodes iterator and writes it to the writer.
-	Encode(w io.Writer) error
+	// EncodeNextHop encodes the onion packet destined for the next hop
+	// into the passed io.Writer.
+	EncodeNextHop(w io.Writer) error
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
-// onion routing to encode route in such a way so that node might see only the
-// next hop in the route, after retrieving hop iterator will behave as if
-// there is no hop in path.
+// onion routing to encode the payment route  in such a way so that node might
+// see only the next hop in the route..
 type sphinxHopIterator struct {
-	onionPacket  *sphinx.OnionPacket
-	sphinxPacket *sphinx.ProcessedPacket
+	// nextPacket is the decoded onion packet for the _next_ hop.
+	nextPacket *sphinx.OnionPacket
+
+	// processedPacket is the outcome of processing an onion packet. It
+	// includes the information required to properly forward the packet to
+	// the next hop.
+	processedPacket *sphinx.ProcessedPacket
 }
 
-// // A compile time check to ensure sphinxHopIterator implements the HopIterator
+// A compile time check to ensure sphinxHopIterator implements the HopIterator
 // interface.
 var _ HopIterator = (*sphinxHopIterator)(nil)
 
 // Encode encodes iterator and writes it to the writer.
+//
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) Encode(w io.Writer) error {
-	return r.onionPacket.Encode(w)
+func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
+	return r.nextPacket.Encode(w)
 }
 
-// Next returns next hop if exist and nil if route is ended.
+// ForwardingInstructions returns the set of fields that detail exactly _how_
+// this hop should forward the HTLC to the next hop.  Additionally, the
+// information encoded within the returned ForwardingInfo is to be used by each
+// hop to authenticate the information given to it by the prior hop.
+//
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) Next() *HopID {
-	// If next node was already given than behave as if no hops in route.
-	if r.sphinxPacket == nil {
-		return nil
-	}
+func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
+	fwdInst := r.processedPacket.ForwardingInstructions
 
-	switch r.sphinxPacket.Action {
+	var nextHop lnwire.ShortChannelID
+	switch r.processedPacket.Action {
 	case sphinx.ExitNode:
-		return nil
-
+		nextHop = exitHop
 	case sphinx.MoreHops:
-		id := (*HopID)(&r.sphinxPacket.NextHop)
-		r.sphinxPacket = nil
-		return id
+		s := binary.BigEndian.Uint64(fwdInst.NextAddress[:])
+		nextHop = lnwire.NewShortChanIDFromInt(s)
 	}
 
-	return nil
+	return ForwardingInfo{
+		Network:         BitcoinHop,
+		NextHop:         nextHop,
+		AmountToForward: btcutil.Amount(fwdInst.ForwardAmount),
+		OutgoingCTLV:    fwdInst.OutgoingCltv,
+	}
 }
 
 // SphinxDecoder is responsible for keeping all sphinx dependent parts inside
 // and expose only decoding function. With such approach we give freedom for
-// subsystems which wants to decode sphinx path to not be dependable from sphinx
-// at all.
+// subsystems which wants to decode sphinx path to not be dependable from
+// sphinx at all.
 //
 // NOTE: The reason for keeping decoder separated from hop iterator is too
 // maintain the hop iterator abstraction. Without it the structures which using
-// the hop iterator should contain sphinx router which makes their
-// creations in tests dependent from the sphinx internal parts.
+// the hop iterator should contain sphinx router which makes their creations in
+// tests dependent from the sphinx internal parts.
 type SphinxDecoder struct {
 	router *sphinx.Router
 }
@@ -159,31 +176,31 @@ func NewSphinxDecoder(router *sphinx.Router) *SphinxDecoder {
 	return &SphinxDecoder{router}
 }
 
-// Decode takes byte stream as input and decodes the route/ hop iterator.
+// Decode attempts to decode a valid sphinx packet from the passed io.Reader
+// instance using the rHash as the associated data when checking the relevant
+// MACs during the decoding process.
 func (p *SphinxDecoder) Decode(r io.Reader, rHash []byte) (HopIterator, error) {
-	// Before adding the new HTLC to the state machine, parse the
-	// onion object in order to obtain the routing information.
+	// Before adding the new HTLC to the state machine, parse the onion
+	// object in order to obtain the routing information.
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
 		return nil, errors.Errorf("unable to decode onion pkt: %v",
 			err)
-
 	}
 
-	// Attempt to process the Sphinx packet. We include the payment
-	// hash of the HTLC as it's authenticated within the Sphinx
-	// packet itself as associated data in order to thwart attempts
-	// a replay attacks. In the case of a replay, an attacker is
-	// *forced* to use the same payment hash twice, thereby losing
-	// their money entirely.
+	// Attempt to process the Sphinx packet. We include the payment hash of
+	// the HTLC as it's authenticated within the Sphinx packet itself as
+	// associated data in order to thwart attempts a replay attacks. In the
+	// case of a replay, an attacker is *forced* to use the same payment
+	// hash twice, thereby losing their money entirely.
 	sphinxPacket, err := p.router.ProcessOnionPacket(onionPkt, rHash)
 	if err != nil {
 		return nil, errors.Errorf("unable to process onion pkt: "+
 			"%v", err)
 	}
 
-	return HopIterator(&sphinxHopIterator{
-		onionPacket:  sphinxPacket.Packet,
-		sphinxPacket: sphinxPacket,
-	}), nil
+	return &sphinxHopIterator{
+		nextPacket:      sphinxPacket.NextPacket,
+		processedPacket: sphinxPacket,
+	}, nil
 }

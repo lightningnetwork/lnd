@@ -225,6 +225,9 @@ type fundingManager struct {
 	barrierMtx      sync.RWMutex
 	newChanBarriers map[lnwire.ChannelID]chan struct{}
 
+	localDiscoveryMtx     sync.Mutex
+	localDiscoverySignals map[lnwire.ChannelID]chan struct{}
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -233,14 +236,15 @@ type fundingManager struct {
 // fundingManager.
 func newFundingManager(cfg fundingConfig) (*fundingManager, error) {
 	return &fundingManager{
-		cfg:                &cfg,
-		chanIDKey:          cfg.TempChanIDSeed,
-		activeReservations: make(map[serializedPubKey]pendingChannels),
-		newChanBarriers:    make(map[lnwire.ChannelID]chan struct{}),
-		fundingMsgs:        make(chan interface{}, msgBufferSize),
-		fundingRequests:    make(chan *initFundingMsg, msgBufferSize),
-		queries:            make(chan interface{}, 1),
-		quit:               make(chan struct{}),
+		cfg:                   &cfg,
+		chanIDKey:             cfg.TempChanIDSeed,
+		activeReservations:    make(map[serializedPubKey]pendingChannels),
+		newChanBarriers:       make(map[lnwire.ChannelID]chan struct{}),
+		fundingMsgs:           make(chan interface{}, msgBufferSize),
+		fundingRequests:       make(chan *initFundingMsg, msgBufferSize),
+		localDiscoverySignals: make(map[lnwire.ChannelID]chan struct{}),
+		queries:               make(chan interface{}, 1),
+		quit:                  make(chan struct{}),
 	}, nil
 }
 
@@ -275,6 +279,8 @@ func (f *fundingManager) Start() error {
 		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		f.newChanBarriers[chanID] = make(chan struct{})
 		f.barrierMtx.Unlock()
+
+		f.localDiscoverySignals[chanID] = make(chan struct{})
 
 		doneChan := make(chan struct{})
 		go f.waitForFundingConfirmation(channel, doneChan)
@@ -391,7 +397,7 @@ func (f *fundingManager) reservationCoordinator() {
 			case *fundingSignCompleteMsg:
 				f.handleFundingSignComplete(fmsg)
 			case *fundingLockedMsg:
-				f.handleFundingLocked(fmsg)
+				go f.handleFundingLocked(fmsg)
 			case *fundingErrorMsg:
 				f.handleErrorMsg(fmsg)
 			}
@@ -797,6 +803,13 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 		return
 	}
 
+	// Create an entry in the local discovery map so we can ensure that we
+	// process the channel confirmation fully before we receive a funding
+	// locked message.
+	f.localDiscoveryMtx.Lock()
+	f.localDiscoverySignals[channelID] = make(chan struct{})
+	f.localDiscoveryMtx.Unlock()
+
 	go func() {
 		doneChan := make(chan struct{})
 		go f.waitForFundingConfirmation(completeChan, doneChan)
@@ -828,6 +841,15 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 			peerKey, chanID)
 		return
 	}
+
+	// Create an entry in the local discovery map so we can ensure that we
+	// process the channel confirmation fully before we receive a funding
+	// locked message.
+	fundingPoint := resCtx.reservation.FundingOutpoint()
+	permChanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
+	f.localDiscoveryMtx.Lock()
+	f.localDiscoverySignals[permChanID] = make(chan struct{})
+	f.localDiscoveryMtx.Unlock()
 
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit
@@ -978,6 +1000,14 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	go f.announceChannel(f.cfg.IDKey, completeChan.IdentityPub,
 		channel.LocalFundingKey, channel.RemoteFundingKey,
 		shortChanID, chanID)
+
+	// Finally, as the local channel discovery has been fully processed,
+	// we'll trigger the signal indicating that it's safe foe any funding
+	// locked messages related to this channel to be processed.
+	f.localDiscoveryMtx.Lock()
+	close(f.localDiscoverySignals[chanID])
+	f.localDiscoveryMtx.Unlock()
+
 	return
 }
 
@@ -992,6 +1022,22 @@ func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 // handleFundingLocked finalizes the channel funding process and enables the channel
 // to enter normal operating mode.
 func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
+	f.localDiscoveryMtx.Lock()
+	localDiscoverySignal := f.localDiscoverySignals[fmsg.msg.ChanID]
+	f.localDiscoveryMtx.Unlock()
+
+	// Before we proceed with processing the funding locked message, we'll
+	// wait for the lcoal waitForFundingConfirmation goroutine to signal
+	// that it has the necessary state in place. Otherwise, we may be
+	// missing critical information required to handle forwarded HTLC's.
+	<-localDiscoverySignal
+
+	// With the signal received, we can now safely delete the entry from
+	// the map.
+	f.localDiscoveryMtx.Lock()
+	delete(f.localDiscoverySignals, fmsg.msg.ChanID)
+	f.localDiscoveryMtx.Unlock()
+
 	// First, we'll attempt to locate the channel who's funding workflow is
 	// being finalized by this message. We got to the database rather than
 	// our reservation map as we may have restarted, mid funding flow.

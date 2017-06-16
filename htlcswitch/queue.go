@@ -10,8 +10,9 @@ import (
 
 // packetQueue represent the wrapper around the original queue plus the
 // functionality for releasing the queue objects in object channel. Such
-// structures allows storing of all pending object in queue before the moment of
-// actual releasing.
+// structures allows storing of all pending object in queue before the moment
+// of actual releasing.
+//
 // TODO(andrew.shvv) structure not preserve the order if object failed second
 // time.
 type packetQueue struct {
@@ -22,8 +23,8 @@ type packetQueue struct {
 	// be re-proceed.
 	pending chan *htlcPacket
 
-	// grab channel represents the channel-lock which is needed in order
-	// to make "release" goroutines block during other release goroutine
+	// grab channel represents the channel-lock which is needed in order to
+	// make "release" goroutines block during other release goroutine
 	// processing.
 	grab chan struct{}
 }
@@ -61,14 +62,14 @@ func (q *packetQueue) release() {
 	}
 
 	go func() {
-		// Grab the pending mutex so that other goroutines waits
-		// before grabbing the object, otherwise the objects will be
-		// send in the pending channel in random sequence.
+		// Grab the pending mutex so that other goroutines waits before
+		// grabbing the object, otherwise the objects will be send in
+		// the pending channel in random sequence.
 		<-q.grab
 
 		defer func() {
-			// Release the channel-lock and give other goroutines the
-			// ability to
+			// Release the channel-lock and give other goroutines
+			// the ability to
 			q.grab <- struct{}{}
 		}()
 
@@ -79,8 +80,8 @@ func (q *packetQueue) release() {
 		q.Unlock()
 
 		if e != nil {
-			// Send the object in object queue and wait it to
-			// be processed by other side.
+			// Send the object in object queue and wait it to be
+			// processed by other side.
 			q.pending <- e.Value.(*htlcPacket)
 
 			// After object have been preprocessed remove it from

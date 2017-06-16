@@ -35,9 +35,9 @@ type pendingPayment struct {
 	err      chan error
 }
 
-// forwardPacketCmd encapsulates switch packet and adds error channel to
-// receive error from request handler.
-type forwardPacketCmd struct {
+// plexPacket encapsulates switch packet and adds error channel to receive
+// error from request handler.
+type plexPacket struct {
 	pkt *htlcPacket
 	err chan error
 }
@@ -113,15 +113,26 @@ type Switch struct {
 
 	// links is a map of channel id and channel link which manages
 	// this channel.
-	links map[lnwire.ChannelID]ChannelLink
+	linkIndex map[lnwire.ChannelID]ChannelLink
 
-	// linksIndex is a map which is needed for quick lookup of channels
-	// which are belongs to specific peer.
-	linksIndex map[HopID][]ChannelLink
+	// forwardingIndex is an index which is consulted by the switch when it
+	// needs to locate the next hop to forward an incoming/outgoing HTLC
+	// update to/from.
+	//
+	// TODO(roasbeef): eventually add a NetworkHop mapping before the
+	// ChannelLink
+	forwardingIndex map[lnwire.ShortChannelID]ChannelLink
 
-	// forwardCommands is used for propogating the htlc packet forward
-	// requests.
-	forwardCommands chan *forwardPacketCmd
+	// interfaceIndex maps the compressed public key of a peer to all the
+	// channels that the switch maintains iwht that peer.
+	interfaceIndex map[[33]byte]map[ChannelLink]struct{}
+
+	// htlcPlex is the channel which all connected links use to coordinate
+	// the setup/teardown of Sphinx (onion routing) payment circuits.
+	// Active links forward any add/settle messages over this channel each
+	// state transition, sending new adds/settles which are fully locked
+	// in.
+	htlcPlex chan *plexPacket
 
 	// chanCloseRequests is used to transfer the channel close request to
 	// the channel close handler.
@@ -137,10 +148,11 @@ func New(cfg Config) *Switch {
 	return &Switch{
 		cfg:               &cfg,
 		circuits:          newCircuitMap(),
-		links:             make(map[lnwire.ChannelID]ChannelLink),
-		linksIndex:        make(map[HopID][]ChannelLink),
+		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
+		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
+		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),
 		pendingPayments:   make(map[lnwallet.PaymentHash][]*pendingPayment),
-		forwardCommands:   make(chan *forwardPacketCmd),
+		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		linkControl:       make(chan interface{}),
 		quit:              make(chan struct{}),
@@ -149,7 +161,7 @@ func New(cfg Config) *Switch {
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update.
-func (s *Switch) SendHTLC(nextNode []byte, update lnwire.Message) (
+func (s *Switch) SendHTLC(nextNode [33]byte, update lnwire.Message) (
 	[sha256.Size]byte, error) {
 
 	htlc := update.(*lnwire.UpdateAddHTLC)
@@ -163,18 +175,15 @@ func (s *Switch) SendHTLC(nextNode []byte, update lnwire.Message) (
 		amount:      htlc.Amount,
 	}
 
-	// Check that we do not have the payment with the same id in order to
-	// prevent map override.
 	s.pendingMutex.Lock()
 	s.pendingPayments[htlc.PaymentHash] = append(
 		s.pendingPayments[htlc.PaymentHash], payment)
 	s.pendingMutex.Unlock()
 
-	// Generate and send new update packet, if error will be received
-	// on this stage it means that packet haven't left boundaries of our
+	// Generate and send new update packet, if error will be received on
+	// this stage it means that packet haven't left boundaries of our
 	// system and something wrong happened.
-	hop := NewHopID(nextNode)
-	packet := newInitPacket(hop, htlc)
+	packet := newInitPacket(nextNode, htlc)
 	if err := s.forward(packet); err != nil {
 		s.removePendingPayment(payment.amount, payment.paymentHash)
 		return zeroPreimage, err
@@ -206,14 +215,20 @@ func (s *Switch) SendHTLC(nextNode []byte, update lnwire.Message) (
 // update. Also this function is used by channel links itself in order to
 // forward the update after it has been included in the channel.
 func (s *Switch) forward(packet *htlcPacket) error {
-	command := &forwardPacketCmd{
+	command := &plexPacket{
 		pkt: packet,
 		err: make(chan error, 1),
 	}
 
 	select {
-	case s.forwardCommands <- command:
-		return <-command.err
+	case s.htlcPlex <- command:
+	case <-s.quit:
+		return errors.New("Htlc Switch was stopped")
+	}
+
+	select {
+	case err := <-command.err:
+		return err
 	case <-s.quit:
 		return errors.New("Htlc Switch was stopped")
 	}
@@ -239,7 +254,7 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 	// appropriate channel link and send the payment over this link.
 	case *lnwire.UpdateAddHTLC:
 		// Try to find links by node destination.
-		links, err := s.getLinks(packet.dest)
+		links, err := s.getLinks(packet.destNode)
 		if err != nil {
 			log.Errorf("unable to find links by "+
 				"destination %v", err)
@@ -303,10 +318,9 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 	return nil
 }
 
-// handlePacketForward is used in cases when we need forward the htlc
-// update from one channel link to another and be able to propagate the
-// settle/fail updates back. This behaviour is achieved by creation of payment
-// circuits.
+// handlePacketForward is used in cases when we need forward the htlc update
+// from one channel link to another and be able to propagate the settle/fail
+// updates back. This behaviour is achieved by creation of payment circuits.
 func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	switch htlc := packet.htlc.(type) {
 
@@ -314,7 +328,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit within our internal state so we can properly forward
 	// the ultimate settle message back latter.
 	case *lnwire.UpdateAddHTLC:
-		source, err := s.getLink(packet.src)
+		source, err := s.getLinkByShortID(packet.src)
 		if err != nil {
 			err := errors.Errorf("unable to find channel link "+
 				"by channel point (%v): %v", packet.src, err)
@@ -322,12 +336,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			return err
 		}
 
-		// Try to find links by node destination.
-		links, err := s.getLinks(packet.dest)
+		targetLink, err := s.getLinkByShortID(packet.dest)
 		if err != nil {
-			// If packet was forwarded from another
-			// channel link than we should notify this
-			// link that some error occurred.
+			// If packet was forwarded from another channel link
+			// than we should notify this link that some error
+			// occurred.
 			reason := []byte{byte(lnwire.UnknownDestination)}
 			go source.HandleSwitchPacket(newFailPacket(
 				packet.src,
@@ -336,16 +349,17 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				},
 				htlc.PaymentHash, 0,
 			))
-			err := errors.Errorf("unable to find links with "+
-				"destination %v", err)
+			err := errors.Errorf("unable to find link with "+
+				"destination %v", packet.dest)
 			log.Error(err)
 			return err
 		}
+		interfaceLinks, _ := s.getLinks(targetLink.Peer().PubKey())
 
 		// Try to find destination channel link with appropriate
 		// bandwidth.
 		var destination ChannelLink
-		for _, link := range links {
+		for _, link := range interfaceLinks {
 			if link.Bandwidth() >= htlc.Amount {
 				destination = link
 				break
@@ -356,9 +370,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// over has insufficient capacity, then we'll cancel the htlc
 		// as the payment cannot succeed.
 		if destination == nil {
-			// If packet was forwarded from another
-			// channel link than we should notify this
-			// link that some error occurred.
+			// If packet was forwarded from another channel link
+			// than we should notify this link that some error
+			// occurred.
 			reason := []byte{byte(lnwire.InsufficientCapacity)}
 			go source.HandleSwitchPacket(newFailPacket(
 				packet.src,
@@ -380,8 +394,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// should create circuit (remember the path) in order to
 		// forward settle/fail packet back.
 		if err := s.circuits.add(newPaymentCircuit(
-			source.ChanID(),
-			destination.ChanID(),
+			source.ShortChanID(),
+			destination.ShortChanID(),
 			htlc.PaymentHash,
 		)); err != nil {
 			reason := []byte{byte(lnwire.UnknownError)}
@@ -419,7 +433,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		}
 
 		// Propagating settle/fail htlc back to src of add htlc packet.
-		source, err := s.getLink(circuit.Src)
+		source, err := s.getLinkByShortID(circuit.Src)
 		if err != nil {
 			err := errors.Errorf("unable to get source "+
 				"channel link to forward settle/fail htlc: %v",
@@ -440,7 +454,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	}
 }
 
-// CloseLink creates and sends the the close channel command.
+// CloseLink creates and sends the close channel command.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 	closeType ChannelCloseType) (chan *lnrpc.CloseStatusUpdate, chan error) {
 
@@ -470,27 +484,28 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 // handleCloseLink sends a message to the peer responsible for the target
 // channel point, instructing it to initiate a cooperative channel closure.
 func (s *Switch) handleChanelClose(req *ChanClose) {
-	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+	targetChanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
 	var link ChannelLink
-	for _, l := range s.links {
-		if l.ChanID() == chanID {
+	for chanID, l := range s.linkIndex {
+		if chanID == targetChanID {
 			link = l
 		}
 	}
 
 	if link == nil {
 		req.Err <- errors.Errorf("channel with ChannelID(%v) not "+
-			"found", chanID)
+			"found", targetChanID)
 		return
 	}
 
 	log.Debugf("requesting local channel close, peer(%v) channel(%v)",
-		link.Peer(), chanID)
+		link.Peer(), targetChanID)
 
 	// TODO(roasbeef): if type was CloseBreach initiate force closure with
 	// all other channels (if any) we have with the remote peer.
-	s.cfg.LocalChannelClose(link.Peer().PubKey(), req)
+	peerPub := link.Peer().PubKey()
+	s.cfg.LocalChannelClose(peerPub[:], req)
 	return
 }
 
@@ -509,7 +524,7 @@ func (s *Switch) htlcForwarder() {
 
 	// Remove all links once we've been signalled for shutdown.
 	defer func() {
-		for _, link := range s.links {
+		for _, link := range s.linkIndex {
 			if err := s.removeLink(link.ChanID()); err != nil {
 				log.Errorf("unable to remove "+
 					"channel link on stop: %v", err)
@@ -531,9 +546,11 @@ func (s *Switch) htlcForwarder() {
 		case req := <-s.chanCloseRequests:
 			s.handleChanelClose(req)
 
-		case cmd := <-s.forwardCommands:
-			var paymentHash lnwallet.PaymentHash
-			var amount btcutil.Amount
+		case cmd := <-s.htlcPlex:
+			var (
+				paymentHash lnwallet.PaymentHash
+				amount      btcutil.Amount
+			)
 
 			switch m := cmd.pkt.htlc.(type) {
 			case *lnwire.UpdateAddHTLC:
@@ -572,7 +589,7 @@ func (s *Switch) htlcForwarder() {
 
 			// Next, we'll run through all the registered links and
 			// compute their up-to-date forwarding stats.
-			for _, link := range s.links {
+			for _, link := range s.linkIndex {
 				// TODO(roasbeef): when links first registered
 				// stats printed.
 				updates, sent, recv := link.Stats()
@@ -617,8 +634,8 @@ func (s *Switch) htlcForwarder() {
 			totalSatSent += diffSatSent
 			totalSatRecv += diffSatRecv
 
-		case cmd := <-s.linkControl:
-			switch cmd := cmd.(type) {
+		case req := <-s.linkControl:
+			switch cmd := req.(type) {
 			case *addLinkCmd:
 				cmd.err <- s.addLink(cmd.link)
 			case *removeLinkCmd:
@@ -696,22 +713,28 @@ func (s *Switch) AddLink(link ChannelLink) error {
 // addLink is used to add the newly created channel link and start
 // use it to handle the channel updates.
 func (s *Switch) addLink(link ChannelLink) error {
+	// First we'll add the link to the linkIndex which lets us quickly look
+	// up a channel when we need to close or register it, and the
+	// forwarding index which'll be used when forwarding HTLC's in the
+	// multi-hop setting.
+	s.linkIndex[link.ChanID()] = link
+	s.forwardingIndex[link.ShortChanID()] = link
+
+	// Next we'll add the link to the interface index so we can quickly
+	// look up all the channels for a particular node.
+	peerPub := link.Peer().PubKey()
+	if _, ok := s.interfaceIndex[peerPub]; !ok {
+		s.interfaceIndex[peerPub] = make(map[ChannelLink]struct{})
+	}
+	s.interfaceIndex[peerPub][link] = struct{}{}
+
 	if err := link.Start(); err != nil {
 		return err
-
 	}
 
-	// Add channel link to the channel map, in order to quickly lookup
-	// channel by channel id.
-	s.links[link.ChanID()] = link
+	log.Infof("Added channel link with short_chan_id=(%v), bandwidth=%v",
+		link.ShortChanID(), link.Bandwidth())
 
-	// Add channel link to the index map, in order to quickly lookup
-	// channels by peer pub key.
-	hop := NewHopID(link.Peer().PubKey())
-	s.linksIndex[hop] = append(s.linksIndex[hop], link)
-
-	log.Infof("Added channel link with ChannelID(%v), bandwidth=%v",
-		link.ChanID(), link.Bandwidth())
 	return nil
 }
 
@@ -740,9 +763,20 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	}
 }
 
-// getLink returns the channel link by its channel point.
+// getLink attempts to return the link that has the specified channel ID.
 func (s *Switch) getLink(chanID lnwire.ChannelID) (ChannelLink, error) {
-	link, ok := s.links[chanID]
+	link, ok := s.linkIndex[chanID]
+	if !ok {
+		return nil, ErrChannelLinkNotFound
+	}
+
+	return link, nil
+}
+
+// getLinkByShortID attempts to return the link which possesses the target
+// short channel ID.
+func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, error) {
+	link, ok := s.forwardingIndex[chanID]
 	if !ok {
 		return nil, ErrChannelLinkNotFound
 	}
@@ -775,34 +809,22 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 
 // removeLink is used to remove and stop the channel link.
 func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
-	link, ok := s.links[chanID]
+	log.Infof("Removing channel link with ChannelID(%v)", chanID)
+
+	link, ok := s.linkIndex[chanID]
 	if !ok {
 		return ErrChannelLinkNotFound
 	}
 
 	// Remove the channel from channel map.
-	delete(s.links, link.ChanID())
+	delete(s.linkIndex, chanID)
+	delete(s.forwardingIndex, link.ShortChanID())
 
 	// Remove the channel from channel index.
-	hop := NewHopID(link.Peer().PubKey())
-	links := s.linksIndex[hop]
-	for i, l := range links {
-		if l.ChanID() == link.ChanID() {
-			// Delete without preserving order
-			// Google: Golang slice tricks
-			links[i] = links[len(links)-1]
-			links[len(links)-1] = nil
-			s.linksIndex[hop] = links[:len(links)-1]
-
-			if len(s.linksIndex[hop]) == 0 {
-				delete(s.linksIndex, hop)
-			}
-			break
-		}
-	}
+	peerPub := link.Peer().PubKey()
+	delete(s.interfaceIndex, peerPub)
 
 	go link.Stop()
-	log.Infof("Remove channel link with ChannelID(%v)", link.ChanID())
 
 	return nil
 }
@@ -810,14 +832,14 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 // getLinksCmd is a get links command wrapper, it is used to propagate handler
 // parameters and return handler error.
 type getLinksCmd struct {
-	peer HopID
+	peer [33]byte
 	err  chan error
 	done chan []ChannelLink
 }
 
-// GetLinks is used to initiate the handling of the get links command. The
-// request will be propagated/handled to/in the main goroutine.
-func (s *Switch) GetLinks(hop HopID) ([]ChannelLink, error) {
+// GetLinks fetches all the links connected to a particular node identified by
+// the serialized compressed form of its public key.
+func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 	command := &getLinksCmd{
 		peer: hop,
 		err:  make(chan error, 1),
@@ -834,19 +856,19 @@ func (s *Switch) GetLinks(hop HopID) ([]ChannelLink, error) {
 
 // getLinks is function which returns the channel links of the peer by hop
 // destination id.
-func (s *Switch) getLinks(destination HopID) ([]ChannelLink, error) {
-	links, ok := s.linksIndex[destination]
+func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
+	links, ok := s.interfaceIndex[destination]
 	if !ok {
 		return nil, errors.Errorf("unable to locate channel link by"+
 			"destination hop id %v", destination)
 	}
 
-	result := make([]ChannelLink, len(links))
-	for i, link := range links {
-		result[i] = ChannelLink(link)
+	channelLinks := make([]ChannelLink, 0, len(links))
+	for link := range links {
+		channelLinks = append(channelLinks, link)
 	}
 
-	return result, nil
+	return channelLinks, nil
 }
 
 // removePendingPayment is the helper function which removes the pending user

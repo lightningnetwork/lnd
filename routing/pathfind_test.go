@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -343,6 +345,62 @@ func TestBasicGraphPathFinding(t *testing.T) {
 			route.Hops[0].Channel.Node.Alias)
 	}
 
+	// Next, we'll assert that the "next hop" field in each route payload
+	// properly points to the channel ID that the HTLC should be forwarded
+	// along.
+	hopPayloads := route.ToHopPayloads()
+	if len(hopPayloads) != 2 {
+		t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
+			2, len(hopPayloads))
+	}
+
+	// The first hop should point to the second hop.
+	var expectedHop [8]byte
+	binary.BigEndian.PutUint64(expectedHop[:], route.Hops[1].Channel.ChannelID)
+	if !bytes.Equal(hopPayloads[0].NextAddress[:], expectedHop[:]) {
+		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
+			expectedHop[:], hopPayloads[0].NextAddress)
+	}
+
+	// The second hop should have a next hop value of all zeroes in order
+	// to indicate it's the exit hop.
+	var exitHop [8]byte
+	if !bytes.Equal(hopPayloads[1].NextAddress[:], exitHop[:]) {
+		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
+			exitHop[:], hopPayloads[0].NextAddress)
+	}
+
+	// We'll also assert that the outgoing CLTV value for each hop was set
+	// accordingly.
+	if route.Hops[0].OutgoingTimeLock != 1 {
+		t.Fatalf("expected outgoing time-lock of %v, instead have %v",
+			1, route.Hops[0].OutgoingTimeLock)
+	}
+	if route.Hops[1].OutgoingTimeLock != 1 {
+		t.Fatalf("outgoing time-lock for final hop is incorrect: "+
+			"expected %v, got %v", 1, route.Hops[1].OutgoingTimeLock)
+	}
+
+	// Additionally, we'll ensure that the amount to forward, and fees
+	// computed for each hop are correct.
+	firstHopFee := route.Hops[0].Channel.FeeBaseMSat
+	if route.TotalAmount != paymentAmt+firstHopFee {
+		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
+			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
+	}
+	if route.Hops[0].Fee != firstHopFee {
+		t.Fatalf("first hop fee incorrect: expected %v, got %v",
+			firstHopFee, route.Hops[0].Fee)
+	}
+	if route.Hops[1].AmtToForward != paymentAmt {
+		t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
+			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
+	}
+	if route.Hops[1].Fee != 0 {
+		t.Fatalf("second hop fee incorrect: expected %v, got %v",
+			0, route.Hops[1].Fee)
+	}
+
 	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
@@ -554,3 +612,5 @@ func TestPathInsufficientCapacityWithFee(t *testing.T) {
 	// to ensure that has going forward, but when fees are applied doesn't
 	// work
 }
+
+// TODO(roasbeef): more time-lock calvulation tests

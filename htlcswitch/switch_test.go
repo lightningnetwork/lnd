@@ -30,6 +30,8 @@ var (
 // TestSwitchForward checks the ability of htlc switch to forward add/settle
 // requests.
 func TestSwitchForward(t *testing.T) {
+	t.Parallel()
+
 	var packet *htlcPacket
 
 	alicePeer := newMockServer(t, "alice")
@@ -106,6 +108,8 @@ func TestSwitchForward(t *testing.T) {
 // TestSwitchCancel checks that if htlc was rejected we remove unused
 // circuits.
 func TestSwitchCancel(t *testing.T) {
+	t.Parallel()
+
 	var request *htlcPacket
 
 	alicePeer := newMockServer(t, "alice")
@@ -180,6 +184,8 @@ func TestSwitchCancel(t *testing.T) {
 // TestSwitchAddSamePayment tests that we send the payment with the same
 // payment hash.
 func TestSwitchAddSamePayment(t *testing.T) {
+	t.Parallel()
+
 	var request *htlcPacket
 
 	alicePeer := newMockServer(t, "alice")
@@ -279,6 +285,8 @@ func TestSwitchAddSamePayment(t *testing.T) {
 // TestSwitchSendPayment tests ability of htlc switch to respond to the
 // users when response is came back from channel link.
 func TestSwitchSendPayment(t *testing.T) {
+	t.Parallel()
+
 	alicePeer := newMockServer(t, "alice")
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 

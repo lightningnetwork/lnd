@@ -315,7 +315,9 @@ type threeHopNetwork struct {
 	globalPolicy ForwardingPolicy
 }
 
-// generateHops...
+// generateHops creates the per hop payload, the total amount to be sent, and
+// also the time lock value needed to route a HTLC with the target amount over
+// the specified path.
 func generateHops(payAmt btcutil.Amount,
 	path ...*channelLink) (btcutil.Amount, uint32, []ForwardingInfo) {
 
@@ -328,19 +330,27 @@ func generateHops(payAmt btcutil.Amount,
 
 	hops := make([]ForwardingInfo, len(path))
 	for i := len(path) - 1; i >= 0; i-- {
+		// If this is the last hop, then the next hop is the special
+		// "exit node". Otherwise, we look to the "prior" hop.
 		nextHop := exitHop
 		if i != len(path)-1 {
 			nextHop = path[i+1].channel.ShortChanID()
 		}
 
+		// If this is the last, hop, then the time lock will be their
+		// specified delta policy.
 		timeLock := lastHop.cfg.FwrdingPolicy.TimeLockDelta
 		totalTimelock += timeLock
 
+		// Otherwise, the outgoing time lock should be the incoming
+		// timelock minus their specified delta.
 		if i != len(path)-1 {
 			delta := path[i].cfg.FwrdingPolicy.TimeLockDelta
 			timeLock = totalTimelock - delta
 		}
 
+		// Finally, we'll need to calculate the amount to forward. For
+		// the last hop, it's just the payment amount.
 		amount := payAmt
 		if i != len(path)-1 {
 			prevHop := hops[i+1]
@@ -349,6 +359,9 @@ func generateHops(payAmt btcutil.Amount,
 			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
 			runningAmt += fee
 
+			// If the this the first hop, then we don't need to
+			// apply any fee, otherwise, the amount to forward
+			// needs to take into account the fees.
 			if i == 0 {
 				amount = prevAmount
 			} else {

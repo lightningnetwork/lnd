@@ -13,6 +13,8 @@ import (
 // waiting queue, by executing methods in seprate goroutines which operates
 // with the same data.
 func TestWaitingQueueThreadSafety(t *testing.T) {
+	t.Parallel()
+
 	q := newWaitingQueue()
 
 	a := make([]btcutil.Amount, 1000)

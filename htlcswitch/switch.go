@@ -837,8 +837,8 @@ type getLinksCmd struct {
 	done chan []ChannelLink
 }
 
-// GetLinks fetches all the links connected to a particular node identified by
-// the serialized compressed form of its public key.
+// GetLinksByInterface fetches all the links connected to a particular node
+// identified by the serialized compressed form of its public key.
 func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 	command := &getLinksCmd{
 		peer: hop,

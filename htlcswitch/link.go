@@ -944,7 +944,7 @@ func (l *channelLink) processLockedInHtlcs(
 					log.Errorf("Onion payload of incoming "+
 						"htlc(%x) has incorrect time-lock: "+
 						"expected %v, got %v",
-						l.cfg.FwrdingPolicy.TimeLockDelta,
+						pd.RHash[:], l.cfg.FwrdingPolicy.TimeLockDelta,
 						fwdInfo.OutgoingCTLV)
 
 					reason := []byte{byte(lnwire.UpstreamTimeout)}
@@ -1061,7 +1061,8 @@ func (l *channelLink) processLockedInHtlcs(
 					log.Errorf("Incoming htlc(%x) has "+
 						"incorrect time-lock value: expected "+
 						"%v blocks, got %v blocks",
-						pd.Timeout-timeDelta, fwdInfo.OutgoingCTLV)
+						pd.RHash[:], pd.Timeout-timeDelta,
+						fwdInfo.OutgoingCTLV)
 
 					// TODO(andrew.shvv): send proper back error
 					reason := []byte{byte(lnwire.UpstreamTimeout)}

@@ -848,8 +848,6 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-//
-// TODO(roasbeef): add params for the per-hop payloads
 func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 	// First obtain all the public keys along the route which are contained
 	// in each hop.
@@ -869,14 +867,10 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 	// Next we generate the per-hop payload which gives each node within
 	// the route the necessary information (fees, CLTV value, etc) to
 	// properly forward the payment.
-	// TODO(roasbeef): properly set CLTV value, payment amount, and chain
-	// within hop payloads.
-	var hopPayloads [][]byte
-	for i := 0; i < len(route.Hops); i++ {
-		payload := bytes.Repeat([]byte{byte('A' + i)},
-			sphinx.HopPayloadSize)
-		hopPayloads = append(hopPayloads, payload)
-	}
+	hopPayloads := route.ToHopPayloads()
+
+	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
+		paymentHash[:], spew.Sdump(hopPayloads))
 
 	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
@@ -902,7 +896,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 		newLogClosure(func() string {
 			// We unset the internal curve here in order to keep
 			// the logs from getting noisy.
-			sphinxPacket.Header.EphemeralKey.Curve = nil
+			sphinxPacket.EphemeralKey.Curve = nil
 			return spew.Sdump(sphinxPacket)
 		}),
 	)

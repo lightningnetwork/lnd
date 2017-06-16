@@ -743,7 +743,7 @@ func (f *fundingManager) handleFundingComplete(fmsg *fundingCompleteMsg) {
 	// The channel initiator has responded with the funding outpoint of the
 	// final funding transaction, as well as a signature for our version of
 	// the commitment transaction. So at this point, we can validate the
-	// inititator's commitment transaction, then send our own if it's valid.
+	// initiator's commitment transaction, then send our own if it's valid.
 	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := fmsg.msg.FundingOutPoint
 	fndgLog.Infof("completing pendingID(%x) with ChannelPoint(%v)",
@@ -844,7 +844,6 @@ func (f *fundingManager) handleFundingSignComplete(fmsg *fundingSignCompleteMsg)
 		return
 	}
 
-	fundingPoint := resCtx.reservation.FundingOutpoint()
 	fndgLog.Infof("Finalizing pendingID(%x) over ChannelPoint(%v), "+
 		"waiting for channel open on-chain", chanID, fundingPoint)
 
@@ -930,11 +929,20 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	fndgLog.Infof("ChannelPoint(%v) is now active: ChannelID(%x)",
 		fundingPoint, chanID[:])
 
+	// With the block height and the transaction index known, we can
+	// construct the compact chanID which is used on the network to unique
+	// identify channels.
+	shortChanID := lnwire.ShortChannelID{
+		BlockHeight: confDetails.BlockHeight,
+		TxIndex:     confDetails.TxIndex,
+		TxPosition:  uint16(fundingPoint.Index),
+	}
+
 	// Now that the channel has been fully confirmed, we'll mark it as open
 	// within the database.
 	completeChan.IsPending = false
 	err = f.cfg.Wallet.ChannelDB.MarkChannelAsOpen(&fundingPoint,
-		confDetails.BlockHeight)
+		shortChanID)
 	if err != nil {
 		fndgLog.Errorf("error setting channel pending flag to false: "+
 			"%v", err)
@@ -961,15 +969,6 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	}
 	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
 	f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
-
-	// With the block height and the transaction index known, we can
-	// construct the compact chanID which is used on the network to unique
-	// identify channels.
-	shortChanID := lnwire.ShortChannelID{
-		BlockHeight: confDetails.BlockHeight,
-		TxIndex:     confDetails.TxIndex,
-		TxPosition:  uint16(fundingPoint.Index),
-	}
 
 	fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v", fundingPoint,
 		spew.Sdump(shortChanID))

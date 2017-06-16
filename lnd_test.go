@@ -1191,6 +1191,11 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
 		net.Bob, chanAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	if err != nil {
+		t.Fatalf("alice didn't advertise her channel: %v", err)
+	}
 
 	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
 	if err != nil {
@@ -1302,6 +1307,11 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	case <-finClear:
 	}
 
+	// When asserting the amount of satoshis moved, we'll factor in the
+	// default base fee, as we didn't modify the fee structure when
+	// creating the seed nodes in the network.
+	const baseFee = 1
+
 	assertAmountPaid := func(node *lightningNode,
 		chanPoint wire.OutPoint, amountSent,
 		amountReceived int64) {
@@ -1334,7 +1344,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 				}
 				if channel.TotalSatoshisReceived !=
 					amountReceived {
-					return fmt.Errorf("%v: inccrrect amount"+
+					return fmt.Errorf("%v: incorrect amount"+
 						" received: %v != %v",
 						channelName,
 						channel.TotalSatoshisReceived,
@@ -1378,8 +1388,10 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	const amountPaid = int64(5000)
 	assertAmountPaid(net.Bob, aliceFundPoint, int64(0), amountPaid)
 	assertAmountPaid(net.Alice, aliceFundPoint, amountPaid, int64(0))
-	assertAmountPaid(net.Alice, carolFundPoint, int64(0), amountPaid)
-	assertAmountPaid(carol, carolFundPoint, amountPaid, int64(0))
+	assertAmountPaid(net.Alice, carolFundPoint, int64(0),
+		amountPaid+(baseFee*numPayments))
+	assertAmountPaid(carol, carolFundPoint, amountPaid+(baseFee*numPayments),
+		int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)

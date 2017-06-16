@@ -2,7 +2,6 @@ package main
 
 import (
 	"container/list"
-	"crypto/sha256"
 	"fmt"
 	"net"
 	"sync"
@@ -11,8 +10,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
-
-	"github.com/btcsuite/fastsha256"
 
 	"bytes"
 
@@ -94,7 +91,7 @@ type peer struct {
 	conn    net.Conn
 
 	addr        *lnwire.NetAddress
-	lightningID chainhash.Hash
+	pubKeyBytes [33]byte
 
 	inbound bool
 	id      int32
@@ -165,9 +162,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	nodePub := addr.IdentityKey
 
 	p := &peer{
-		conn:        conn,
-		lightningID: chainhash.Hash(sha256.Sum256(nodePub.SerializeCompressed())),
-		addr:        addr,
+		conn: conn,
+		addr: addr,
 
 		id:      atomic.AddInt32(&numNodes, 1),
 		inbound: inbound,
@@ -193,6 +189,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
 	}
+	copy(p.pubKeyBytes[:], nodePub.SerializeCompressed())
 
 	return p, nil
 }
@@ -311,14 +308,17 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// new payments triggered by RPC clients.
 		sphinxDecoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
 		link := htlcswitch.NewChannelLink(
-			&htlcswitch.ChannelLinkConfig{
+			htlcswitch.ChannelLinkConfig{
 				Peer:             p,
 				DecodeOnion:      sphinxDecoder.Decode,
 				SettledContracts: p.server.breachArbiter.settledContracts,
 				DebugHTLC:        cfg.DebugHTLC,
 				Registry:         p.server.invoices,
 				Switch:           p.server.htlcSwitch,
-			}, lnChan)
+				FwrdingPolicy:    p.server.cc.routingPolicy,
+			},
+			lnChan,
+		)
 
 		if err := p.server.htlcSwitch.AddLink(link); err != nil {
 			return err
@@ -333,7 +333,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 // irrecoverable protocol error has been encountered.
 func (p *peer) WaitForDisconnect() {
 	<-p.quit
-
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
@@ -350,7 +349,6 @@ func (p *peer) Disconnect() {
 	p.conn.Close()
 
 	close(p.quit)
-
 }
 
 // String returns the string representation of this peer.
@@ -788,14 +786,17 @@ out:
 
 			decoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
 			link := htlcswitch.NewChannelLink(
-				&htlcswitch.ChannelLinkConfig{
+				htlcswitch.ChannelLinkConfig{
 					Peer:             p,
 					DecodeOnion:      decoder.Decode,
 					SettledContracts: p.server.breachArbiter.settledContracts,
 					DebugHTLC:        cfg.DebugHTLC,
 					Registry:         p.server.invoices,
 					Switch:           p.server.htlcSwitch,
-				}, newChanReq.channel)
+					FwrdingPolicy:    p.server.cc.routingPolicy,
+				},
+				newChanReq.channel,
+			)
 
 			err := p.server.htlcSwitch.AddLink(link)
 			if err != nil {
@@ -1069,6 +1070,8 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 		req.Err <- err
 		return
 	}
+
+	// TODO(roasbeef): also add closure height to summary
 
 	// Clear out the current channel state, marking the channel as being
 	// closed within the database.
@@ -1348,21 +1351,15 @@ func (p *peer) sendInitMsg() error {
 	return p.writeMessage(msg)
 }
 
-// SendMessage sends message to the remote peer which represented by
-// this peer.
+// SendMessage queues a message for sending to the target peer.
 func (p *peer) SendMessage(msg lnwire.Message) error {
 	p.queueMsg(msg, nil)
 	return nil
 }
 
-// ID returns the lightning network peer id.
-func (p *peer) ID() [sha256.Size]byte {
-	return fastsha256.Sum256(p.PubKey())
-}
-
-// PubKey returns the peer public key.
-func (p *peer) PubKey() []byte {
-	return p.addr.IdentityKey.SerializeCompressed()
+// PubKey returns the pubkey of the peer in compressed serialized format.
+func (p *peer) PubKey() [33]byte {
+	return p.pubKeyBytes
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

@@ -761,7 +761,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	pendingChannels, err := r.server.fundingMgr.NumPendingChannels()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get number of pending channels: %v", err)
+		return nil, fmt.Errorf("unable to get number of pending "+
+			"channels: %v", err)
 	}
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
@@ -1134,6 +1135,8 @@ func (r *rpcServer) savePayment(route *routing.Route, amount btcutil.Amount,
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
 	errChan := make(chan error, 1)
 	payChan := make(chan *lnrpc.SendRequest)
+
+	// TODO(roasbeef): check payment filter to see if already used?
 
 	// In order to limit the level of concurrency and prevent a client from
 	// attempting to OOM the server, we'll set up a semaphore to create an

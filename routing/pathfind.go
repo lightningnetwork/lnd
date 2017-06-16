@@ -1,11 +1,13 @@
 package routing
 
 import (
+	"encoding/binary"
 	"math"
 
 	"container/heap"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -119,6 +121,40 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
+}
+
+// ToHopPayloads converts a complete route into the series of per-hop payloads
+// that is to be encoded within each HTLC using an opaque Sphinx packet.
+func (r *Route) ToHopPayloads() []sphinx.HopData {
+	hopPayloads := make([]sphinx.HopData, len(r.Hops))
+
+	// For each hop encoded within the route, we'll convert the hop struct
+	// to the matching per-hop payload struct as used by the sphinx
+	// package.
+	for i, hop := range r.Hops {
+		hopPayloads[i] = sphinx.HopData{
+			// TODO(roasbeef): properly set realm, make sphinx type
+			// an enum actually?
+			Realm:         0,
+			ForwardAmount: uint64(hop.AmtToForward),
+			OutgoingCltv:  hop.OutgoingTimeLock,
+		}
+
+		// As a base case, the next hop is set to all zeroes in order
+		// to indicate that the "last hop" as no further hops after it.
+		nextHop := uint64(0)
+
+		// If we aren't on the last hop, then we set the "next address"
+		// field to be the channel that directly follows it.
+		if i != len(r.Hops)-1 {
+			nextHop = r.Hops[i+1].Channel.ChannelID
+		}
+
+		binary.BigEndian.PutUint64(hopPayloads[i].NextAddress[:],
+			nextHop)
+	}
+
+	return hopPayloads
 }
 
 // sortableRoutes is a slice of routes that can be sorted. Routes are typically

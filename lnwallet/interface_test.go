@@ -1355,10 +1355,11 @@ func TestLightningWallet(t *testing.T) {
 		// Execute every test, clearing possibly mutated wallet state after
 		// each step.
 		for _, walletTest := range walletTests {
+			// TODO(roasbeef): run as parallel sub-tests?
 			walletTest(miningNode, lnw, t)
 
-			// TODO(roasbeef): possible reset mining node's chainstate to
-			// initial level, cleanly wipe buckets
+			// TODO(roasbeef): possible reset mining node's
+			// chainstate to initial level, cleanly wipe buckets
 			if err := clearWalletState(lnw); err != nil &&
 				err != bolt.ErrBucketNotFound {
 				t.Fatalf("unable to wipe wallet state: %v", err)

@@ -677,9 +677,8 @@ type LightningChannel struct {
 	// channel.
 	RemoteFundingKey *btcec.PublicKey
 
-	// availableLocalBalance represent the amount of available money
-	// which might be procced by this channel at the specific point of
-	// time.
+	// availableLocalBalance represent the amount of available money which
+	// might be processed by this channel at the specific point of time.
 	availableLocalBalance btcutil.Amount
 
 	shutdown int32
@@ -801,7 +800,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// As a height hint, we'll try to use the opening height, but
 		// if the channel isn't yet open, then we'll use the height it
 		// was broadcast at.
-		heightHint := lc.channelState.OpeningHeight
+		heightHint := lc.channelState.ShortChanID.BlockHeight
 		if heightHint == 0 {
 			heightHint = lc.channelState.FundingBroadcastHeight
 		}
@@ -2333,7 +2332,20 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 // created this active channel. This outpoint is used throughout various
 // subsystems to uniquely identify an open channel.
 func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
+	lc.RLock()
+	defer lc.RUnlock()
+
 	return lc.channelState.ChanID
+}
+
+// ShortChanID returns the short channel ID for the channel. The short channel
+// ID encodes the exact location in the main chain that the original
+// funding output can be found.
+func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.ShortChanID
 }
 
 // genHtlcScript generates the proper P2WSH public key scripts for the

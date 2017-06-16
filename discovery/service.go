@@ -263,6 +263,12 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 func (d *AuthenticatedGossiper) networkHandler() {
 	defer d.wg.Done()
 
+	// TODO(roasbeef): changes for spec compliance
+	//  * make into de-duplicated struct
+	//  * always send chan ann -> node ann -> chan update
+	//  * buffer recv'd node ann until after chan ann that includes is
+	//    created
+	//    * can use mostly empty struct in db as place holder
 	var announcementBatch []lnwire.Message
 
 	// TODO(roasbeef): parametrize the above
@@ -366,14 +372,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// announcements array.
 			err := d.cfg.Router.ForAllOutgoingChannels(func(p *channeldb.ChannelEdgePolicy) error {
 				c := &lnwire.ChannelUpdate{
-					Signature:                 p.Signature,
-					ShortChannelID:            lnwire.NewShortChanIDFromInt(p.ChannelID),
-					Timestamp:                 uint32(p.LastUpdate.Unix()),
-					Flags:                     p.Flags,
-					TimeLockDelta:             p.TimeLockDelta,
-					HtlcMinimumMsat:           uint32(p.MinHTLC),
-					FeeBaseMsat:               uint32(p.FeeBaseMSat),
-					FeeProportionalMillionths: uint32(p.FeeProportionalMillionths),
+					Signature:       p.Signature,
+					ShortChannelID:  lnwire.NewShortChanIDFromInt(p.ChannelID),
+					Timestamp:       uint32(p.LastUpdate.Unix()),
+					Flags:           p.Flags,
+					TimeLockDelta:   p.TimeLockDelta,
+					HtlcMinimumMsat: uint64(p.MinHTLC),
+					BaseFee:         uint32(p.FeeBaseMSat),
+					FeeRate:         uint32(p.FeeProportionalMillionths),
 				}
 				selfChans = append(selfChans, c)
 				return nil
@@ -621,8 +627,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			Flags:                     msg.Flags,
 			TimeLockDelta:             msg.TimeLockDelta,
 			MinHTLC:                   btcutil.Amount(msg.HtlcMinimumMsat),
-			FeeBaseMSat:               btcutil.Amount(msg.FeeBaseMsat),
-			FeeProportionalMillionths: btcutil.Amount(msg.FeeProportionalMillionths),
+			FeeBaseMSat:               btcutil.Amount(msg.BaseFee),
+			FeeProportionalMillionths: btcutil.Amount(msg.FeeRate),
 		}
 
 		if err := d.cfg.Router.UpdateEdge(update); err != nil {

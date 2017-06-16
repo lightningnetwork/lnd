@@ -337,11 +337,11 @@ func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdate, error)
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
-		Timestamp:                 uint32(prand.Int31()),
-		TimeLockDelta:             uint16(prand.Int63()),
-		HtlcMinimumMsat:           uint32(prand.Int31()),
-		FeeBaseMsat:               uint32(prand.Int31()),
-		FeeProportionalMillionths: uint32(prand.Int31()),
+		Timestamp:       uint32(prand.Int31()),
+		TimeLockDelta:   uint16(prand.Int63()),
+		HtlcMinimumMsat: uint64(prand.Int63()),
+		FeeRate:         uint32(prand.Int31()),
+		BaseFee:         uint32(prand.Int31()),
 	}
 
 	pub := nodeKeyPriv1.PubKey()

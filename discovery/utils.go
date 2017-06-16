@@ -44,26 +44,26 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
 	if e1 != nil {
 		edge1Ann = &lnwire.ChannelUpdate{
-			Signature:                 e1.Signature,
-			ShortChannelID:            chanID,
-			Timestamp:                 uint32(e1.LastUpdate.Unix()),
-			Flags:                     0,
-			TimeLockDelta:             e1.TimeLockDelta,
-			HtlcMinimumMsat:           uint32(e1.MinHTLC),
-			FeeBaseMsat:               uint32(e1.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(e1.FeeProportionalMillionths),
+			Signature:       e1.Signature,
+			ShortChannelID:  chanID,
+			Timestamp:       uint32(e1.LastUpdate.Unix()),
+			Flags:           0,
+			TimeLockDelta:   e1.TimeLockDelta,
+			HtlcMinimumMsat: uint64(e1.MinHTLC),
+			BaseFee:         uint32(e1.FeeBaseMSat),
+			FeeRate:         uint32(e1.FeeProportionalMillionths),
 		}
 	}
 	if e2 != nil {
 		edge2Ann = &lnwire.ChannelUpdate{
-			Signature:                 e2.Signature,
-			ShortChannelID:            chanID,
-			Timestamp:                 uint32(e2.LastUpdate.Unix()),
-			Flags:                     1,
-			TimeLockDelta:             e2.TimeLockDelta,
-			HtlcMinimumMsat:           uint32(e2.MinHTLC),
-			FeeBaseMsat:               uint32(e2.FeeBaseMSat),
-			FeeProportionalMillionths: uint32(e2.FeeProportionalMillionths),
+			Signature:       e2.Signature,
+			ShortChannelID:  chanID,
+			Timestamp:       uint32(e2.LastUpdate.Unix()),
+			Flags:           1,
+			TimeLockDelta:   e2.TimeLockDelta,
+			HtlcMinimumMsat: uint64(e2.MinHTLC),
+			BaseFee:         uint32(e2.FeeBaseMSat),
+			FeeRate:         uint32(e2.FeeProportionalMillionths),
 		}
 	}
 

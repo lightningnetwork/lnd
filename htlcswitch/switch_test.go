@@ -22,6 +22,9 @@ var (
 
 	chanID1 = lnwire.NewChanIDFromOutPoint(chanPoint1)
 	chanID2 = lnwire.NewChanIDFromOutPoint(chanPoint2)
+
+	aliceChanID = lnwire.NewShortChanIDFromInt(1)
+	bobChanID   = lnwire.NewShortChanIDFromInt(2)
 )
 
 // TestSwitchForward checks the ability of htlc switch to forward add/settle
@@ -32,8 +35,8 @@ func TestSwitchForward(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(chanID1, alicePeer)
-	bobChannelLink := newMockChannelLink(chanID2, bobPeer)
+	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
+	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
 	s := New(Config{})
 	s.Start()
@@ -44,13 +47,13 @@ func TestSwitchForward(t *testing.T) {
 		t.Fatalf("unable to add bob link: %v", err)
 	}
 
-	// Create request which should be forwarder from alice channel
-	// link to bob channel link.
+	// Create request which should be forwarded from Alice channel link to
+	// bob channel link.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
 	packet = newAddPacket(
-		aliceChannelLink.ChanID(),
-		NewHopID(bobChannelLink.Peer().PubKey()),
+		aliceChannelLink.ShortChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
@@ -73,11 +76,11 @@ func TestSwitchForward(t *testing.T) {
 		t.Fatal("wrong amount of circuits")
 	}
 
-	// Create settle request pretending that bob link handled
-	// the add htlc request and sent the htlc settle request back. This
-	// request should be forwarder back to alice link.
+	// Create settle request pretending that bob link handled the add htlc
+	// request and sent the htlc settle request back. This request should
+	// be forwarder back to Alice link.
 	packet = newSettlePacket(
-		bobChannelLink.ChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateFufillHTLC{
 			PaymentPreimage: preimage,
 		},
@@ -92,7 +95,7 @@ func TestSwitchForward(t *testing.T) {
 	case <-aliceChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to channelPoint")
+		t.Fatal("request was not propagated to channelPoint")
 	}
 
 	if s.circuits.pending() != 0 {
@@ -108,8 +111,8 @@ func TestSwitchCancel(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(chanID1, alicePeer)
-	bobChannelLink := newMockChannelLink(chanID2, bobPeer)
+	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
+	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
 	s := New(Config{})
 	s.Start()
@@ -125,8 +128,8 @@ func TestSwitchCancel(t *testing.T) {
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
 	request = newAddPacket(
-		aliceChannelLink.ChanID(),
-		NewHopID(bobChannelLink.Peer().PubKey()),
+		aliceChannelLink.ShortChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
@@ -153,7 +156,7 @@ func TestSwitchCancel(t *testing.T) {
 	// the add htlc request and sent the htlc settle request back. This
 	// request should be forwarder back to alice channel link.
 	request = newFailPacket(
-		bobChannelLink.ChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{},
 		rhash, 1)
 
@@ -182,8 +185,8 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(chanID1, alicePeer)
-	bobChannelLink := newMockChannelLink(chanID2, bobPeer)
+	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
+	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
 	s := New(Config{})
 	s.Start()
@@ -199,8 +202,8 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
 	request = newAddPacket(
-		aliceChannelLink.ChanID(),
-		NewHopID(bobChannelLink.Peer().PubKey()),
+		aliceChannelLink.ShortChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
@@ -236,7 +239,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	// the add htlc request and sent the htlc settle request back. This
 	// request should be forwarder back to alice channel link.
 	request = newFailPacket(
-		bobChannelLink.ChanID(),
+		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{},
 		rhash, 1)
 
@@ -277,7 +280,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 // users when response is came back from channel link.
 func TestSwitchSendPayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
-	aliceChannelLink := newMockChannelLink(chanID1, alicePeer)
+	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 
 	s := New(Config{})
 	s.Start()
@@ -334,15 +337,18 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatal("wrong amount of circuits")
 	}
 
-	// Create fail request pretending that bob channel link handled
-	// the add htlc request with error  and sent the htlc fail request
-	// back. This request should be forwarder back to alice channel link.
-	packet := newFailPacket(aliceChannelLink.ChanID(),
+	// Create fail request pretending that bob channel link handled the add
+	// htlc request with error  and sent the htlc fail request back. This
+	// request should be forwarder back to alice channel link.
+	packet := newFailPacket(
+		aliceChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{
 			Reason: []byte{byte(lnwire.IncorrectValue)},
 			ID:     1,
 		},
-		rhash, 1)
+		rhash,
+		1,
+	)
 
 	if err := s.forward(packet); err != nil {
 		t.Fatalf("can't forward htlc packet: %v", err)

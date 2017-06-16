@@ -105,6 +105,7 @@ func (m *circuitMap) remove(key circuitKey) (*paymentCircuit, error) {
 		if circuit.RefCount--; circuit.RefCount == 0 {
 			delete(m.circuits, key)
 		}
+
 		return circuit, nil
 	}
 

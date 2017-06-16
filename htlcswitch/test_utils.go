@@ -47,7 +47,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 // createTestChannel creates the channel and returns our and remote channels
 // representations.
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount btcutil.Amount) (
+	aliceAmount, bobAmount btcutil.Amount, chanID lnwire.ShortChannelID) (
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
@@ -167,6 +167,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RevocationStore:        shachain.NewRevocationStore(),
 		TheirDustLimit:         bobDustLimit,
 		OurDustLimit:           aliceDustLimit,
+		ShortChanID:            chanID,
 		Db:                     dbAlice,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -193,6 +194,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RevocationStore:        shachain.NewRevocationStore(),
 		TheirDustLimit:         aliceDustLimit,
 		OurDustLimit:           bobDustLimit,
+		ShortChanID:            chanID,
 		Db:                     dbBob,
 	}
 
@@ -243,8 +245,8 @@ func getChanID(msg lnwire.Message) lnwire.ChannelID {
 
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(amount btcutil.Amount, blob [lnwire.OnionPacketSize]byte) (
-	*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+func generatePayment(invoiceAmt, htlcAmt btcutil.Amount, timelock uint32,
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
 
 	// Initialize random seed with unix time in order to generate random
 	// preimage every time.
@@ -256,46 +258,42 @@ func generatePayment(amount btcutil.Amount, blob [lnwire.OnionPacketSize]byte) (
 		return nil, nil, err
 	}
 	copy(preimage[:], r)
+
 	rhash := fastsha256.Sum256(preimage[:])
 
-	// Generate and add the invoice in carol invoice registry as far as
-	// htlc request should go to the
-	return &channeldb.Invoice{
-			CreationDate: time.Now(),
-			Terms: channeldb.ContractTerm{
-				Value:           amount,
-				PaymentPreimage: preimage,
-			},
+	invoice := &channeldb.Invoice{
+		CreationDate: time.Now(),
+		Terms: channeldb.ContractTerm{
+			Value:           invoiceAmt,
+			PaymentPreimage: preimage,
 		},
-		&lnwire.UpdateAddHTLC{
-			PaymentHash: rhash,
-			Amount:      amount,
-			OnionBlob:   blob,
-		}, nil
+	}
+
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      htlcAmt,
+		Expiry:      timelock,
+		OnionBlob:   blob,
+	}
+
+	return invoice, htlc, nil
 }
 
 // generateRoute generates the path blob by given array of peers.
-func generateRoute(peers []Peer) ([]byte, [lnwire.OnionPacketSize]byte, error) {
+func generateRoute(hops ...ForwardingInfo) ([lnwire.OnionPacketSize]byte, error) {
 	var blob [lnwire.OnionPacketSize]byte
-	if len(peers) == 0 {
-		return nil, blob, errors.New("empty path")
+	if len(hops) == 0 {
+		return blob, errors.New("empty path")
 	}
 
-	// Create array of hops in order to create onion blob.
-	hops := make([]HopID, len(peers)-1)
-	for i, peer := range peers[1:] {
-		hops[i] = NewHopID(peer.PubKey())
-	}
-
-	// Initialize iterator and encode it.
-	var b bytes.Buffer
 	iterator := newMockHopIterator(hops...)
-	if err := iterator.Encode(&b); err != nil {
-		return nil, blob, err
-	}
-	copy(blob[:], b.Bytes())
 
-	return peers[0].PubKey(), blob, nil
+	w := bytes.NewBuffer(blob[0:0])
+	if err := iterator.EncodeNextHop(w); err != nil {
+		return blob, err
+	}
+
+	return blob, nil
 
 }
 
@@ -313,6 +311,60 @@ type threeHopNetwork struct {
 
 	firstChannelCleanup  func()
 	secondChannelCleanup func()
+
+	globalPolicy ForwardingPolicy
+}
+
+// generateHops...
+func generateHops(payAmt btcutil.Amount,
+	path ...*channelLink) (btcutil.Amount, uint32, []ForwardingInfo) {
+
+	lastHop := path[len(path)-1]
+
+	var (
+		runningAmt    btcutil.Amount = payAmt
+		totalTimelock uint32
+	)
+
+	hops := make([]ForwardingInfo, len(path))
+	for i := len(path) - 1; i >= 0; i-- {
+		nextHop := exitHop
+		if i != len(path)-1 {
+			nextHop = path[i+1].channel.ShortChanID()
+		}
+
+		timeLock := lastHop.cfg.FwrdingPolicy.TimeLockDelta
+		totalTimelock += timeLock
+
+		if i != len(path)-1 {
+			delta := path[i].cfg.FwrdingPolicy.TimeLockDelta
+			timeLock = totalTimelock - delta
+		}
+
+		amount := payAmt
+		if i != len(path)-1 {
+			prevHop := hops[i+1]
+			prevAmount := prevHop.AmountToForward
+
+			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
+			runningAmt += fee
+
+			if i == 0 {
+				amount = prevAmount
+			} else {
+				amount = prevAmount + fee
+			}
+		}
+
+		hops[i] = ForwardingInfo{
+			Network:         BitcoinHop,
+			NextHop:         nextHop,
+			AmountToForward: amount,
+			OutgoingCTLV:    timeLock,
+		}
+	}
+
+	return runningAmt, totalTimelock, hops
 }
 
 // makePayment takes the destination node and amount as input, sends the
@@ -323,36 +375,37 @@ type threeHopNetwork struct {
 // * from Alice to Bob
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
-func (n *threeHopNetwork) makePayment(peers []Peer,
-	amount btcutil.Amount) (*channeldb.Invoice, error) {
+func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
+	firstHopPub [33]byte, hops []ForwardingInfo,
+	invoiceAmt, htlcAmt btcutil.Amount,
+	timelock uint32) (*channeldb.Invoice, error) {
 
-	// Extract sender peer.
-	senderPeer := peers[0].(*mockServer)
-	peers = peers[1:]
+	sender := sendingPeer.(*mockServer)
+	receiver := receivingPeer.(*mockServer)
 
 	// Generate route convert it to blob, and return next destination for
 	// htlc add request.
-	firstNode, blob, err := generateRoute(peers)
+	blob, err := generateRoute(hops...)
 	if err != nil {
 		return nil, err
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(amount, blob)
+	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock,
+		blob)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	receiverPeer := peers[len(peers)-1].(*mockServer)
-	if err := receiverPeer.registry.AddInvoice(invoice); err != nil {
+	if err := receiver.registry.AddInvoice(invoice); err != nil {
 		return nil, err
 	}
 
 	// Send payment and expose err channel.
 	errChan := make(chan error)
 	go func() {
-		_, err := senderPeer.htlcSwitch.SendHTLC(firstNode, htlc)
+		_, err := sender.htlcSwitch.SendHTLC(firstHopPub, htlc)
 		errChan <- err
 	}()
 
@@ -360,7 +413,7 @@ func (n *threeHopNetwork) makePayment(peers []Peer,
 	case err := <-errChan:
 		return invoice, err
 	case <-time.After(12 * time.Second):
-		return invoice, errors.New("htlc was no settled in time")
+		return invoice, errors.New("htlc was not settled in time")
 	}
 }
 
@@ -431,63 +484,80 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 	// route which htlc should follow.
 	decoder := &mockIteratorDecoder{}
 
+	firstChanID := lnwire.NewShortChanIDFromInt(4)
+	secondChanID := lnwire.NewShortChanIDFromInt(5)
+
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob)
+		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
 	if err != nil {
 		t.Fatalf("unable to create alice<->bob channel: %v", err)
 	}
 
 	secondBobChannel, carolChannel, sCleanUp, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol)
+		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
 	if err != nil {
 		t.Fatalf("unable to create bob<->carol channel: %v", err)
 	}
 
+	globalPolicy := ForwardingPolicy{
+		MinHTLC:       5,
+		BaseFee:       btcutil.Amount(1),
+		TimeLockDelta: 1,
+	}
+
 	aliceChannelLink := NewChannelLink(
-		&ChannelLinkConfig{
-			// htlc responses will be sent to this node
-			Peer: bobServer,
-			// htlc will be propagated to this switch
-			Switch: aliceServer.htlcSwitch,
-			// route will be generated by this decoder
-			DecodeOnion: decoder.Decode,
-			Registry:    aliceServer.registry,
-		}, aliceChannel)
+		ChannelLinkConfig{
+			FwrdingPolicy: globalPolicy,
+			Peer:          bobServer,
+			Switch:        aliceServer.htlcSwitch,
+			DecodeOnion:   decoder.Decode,
+			Registry:      aliceServer.registry,
+		},
+		aliceChannel,
+	)
 	if err := aliceServer.htlcSwitch.addLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice channel link: %v", err)
 	}
 
 	firstBobChannelLink := NewChannelLink(
-		&ChannelLinkConfig{
-			Peer:        aliceServer,
-			Switch:      bobServer.htlcSwitch,
-			DecodeOnion: decoder.Decode,
-			Registry:    bobServer.registry,
-		}, firstBobChannel)
+		ChannelLinkConfig{
+			FwrdingPolicy: globalPolicy,
+			Peer:          aliceServer,
+			Switch:        bobServer.htlcSwitch,
+			DecodeOnion:   decoder.Decode,
+			Registry:      bobServer.registry,
+		},
+		firstBobChannel,
+	)
 	if err := bobServer.htlcSwitch.addLink(firstBobChannelLink); err != nil {
 		t.Fatalf("unable to add first bob channel link: %v", err)
 	}
 
 	secondBobChannelLink := NewChannelLink(
-		&ChannelLinkConfig{
-			Peer:        carolServer,
-			Switch:      bobServer.htlcSwitch,
-			DecodeOnion: decoder.Decode,
-			Registry:    bobServer.registry,
-		}, secondBobChannel)
-
+		ChannelLinkConfig{
+			FwrdingPolicy: globalPolicy,
+			Peer:          carolServer,
+			Switch:        bobServer.htlcSwitch,
+			DecodeOnion:   decoder.Decode,
+			Registry:      bobServer.registry,
+		},
+		secondBobChannel,
+	)
 	if err := bobServer.htlcSwitch.addLink(secondBobChannelLink); err != nil {
 		t.Fatalf("unable to add second bob channel link: %v", err)
 	}
 
 	carolChannelLink := NewChannelLink(
-		&ChannelLinkConfig{
-			Peer:        bobServer,
-			Switch:      carolServer.htlcSwitch,
-			DecodeOnion: decoder.Decode,
-			Registry:    carolServer.registry,
-		}, carolChannel)
+		ChannelLinkConfig{
+			FwrdingPolicy: globalPolicy,
+			Peer:          bobServer,
+			Switch:        carolServer.htlcSwitch,
+			DecodeOnion:   decoder.Decode,
+			Registry:      carolServer.registry,
+		},
+		carolChannel,
+	)
 	if err := carolServer.htlcSwitch.addLink(carolChannelLink); err != nil {
 		t.Fatalf("unable to add carol channel link: %v", err)
 	}
@@ -503,5 +573,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 		firstChannelCleanup:  fCleanUp,
 		secondChannelCleanup: sCleanUp,
+
+		globalPolicy: globalPolicy,
 	}
 }

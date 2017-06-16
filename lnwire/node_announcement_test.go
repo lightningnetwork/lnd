@@ -3,6 +3,8 @@ package lnwire
 import "testing"
 
 func TestValidateAlias(t *testing.T) {
+	t.Parallel()
+
 	aliasStr := "012345678901234567890"
 	alias := NewAlias(aliasStr)
 	if err := alias.Validate(); err != nil {

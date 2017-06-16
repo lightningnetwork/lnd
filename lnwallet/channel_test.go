@@ -355,6 +355,8 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 //  * DSL language perhaps?
 //  * constructed via input/output files
 func TestSimpleAddSettleWorkflow(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -604,6 +606,8 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 // TestCheckCommitTxSize checks that estimation size of commitment
 // transaction with some degree of error corresponds to the actual size.
 func TestCheckCommitTxSize(t *testing.T) {
+	t.Parallel()
+
 	checkSize := func(channel *LightningChannel, count int) {
 		// Due to variable size of the signatures (70-73) in
 		// witness script actual size of commitment transaction might
@@ -695,6 +699,8 @@ func TestCheckCommitTxSize(t *testing.T) {
 }
 
 func TestCooperativeChannelClosure(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -743,8 +749,9 @@ func TestCooperativeChannelClosure(t *testing.T) {
 // TestForceClose checks that the resulting ForceCloseSummary is correct when
 // a peer is ForceClosing the channel. Will check outputs both above and below
 // the dust limit.
-// TODO(cjamthagen): Check HTLCs when implemented.
 func TestForceClose(t *testing.T) {
+	t.Parallel()
+
 	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
 		[32]byte) {
 		preimage := bytes.Repeat([]byte{byte(data)}, 32)
@@ -929,6 +936,8 @@ func TestForceClose(t *testing.T) {
 // commitment transaction as output, but sender balance is decreased (thereby all
 // unsettled dust HTLCs will go to miners fee).
 func TestCheckDustLimit(t *testing.T) {
+	t.Parallel()
+
 	createHTLC := func(data, amount btcutil.Amount) (*lnwire.UpdateAddHTLC,
 		[32]byte) {
 		preimage := bytes.Repeat([]byte{byte(data)}, 32)
@@ -1075,6 +1084,8 @@ func TestCheckDustLimit(t *testing.T) {
 }
 
 func TestStateUpdatePersistence(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1339,6 +1350,8 @@ func TestStateUpdatePersistence(t *testing.T) {
 }
 
 func TestCancelHTLC(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1437,6 +1450,8 @@ func TestCancelHTLC(t *testing.T) {
 }
 
 func TestCooperativeCloseDustAdherence(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.

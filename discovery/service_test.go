@@ -458,6 +458,8 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 // TestProcessAnnouncement checks that mature announcements are propagated to
 // the router subsystem.
 func TestProcessAnnouncement(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
@@ -539,6 +541,8 @@ func TestProcessAnnouncement(t *testing.T) {
 // not propagated to the router subsystem until block with according
 // block height received.
 func TestPrematureAnnouncement(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
@@ -617,6 +621,8 @@ func TestPrematureAnnouncement(t *testing.T) {
 // TestSignatureAnnouncementLocalFirst ensures that the AuthenticatedGossiper properly
 // processes partial and fully announcement signatures message.
 func TestSignatureAnnouncementLocalFirst(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
@@ -721,6 +727,8 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 // TestOrphanSignatureAnnouncement ensures that the gossiper properly
 // processes announcement with unknown channel ids.
 func TestOrphanSignatureAnnouncement(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(uint32(proofMatureDelta))
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)

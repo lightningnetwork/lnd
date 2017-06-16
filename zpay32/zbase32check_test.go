@@ -28,6 +28,8 @@ var (
 )
 
 func TestEncodeDecode(t *testing.T) {
+	t.Parallel()
+
 	testPubKey.Curve = nil
 	tests := []struct {
 		version  int
@@ -82,6 +84,8 @@ func TestEncodeDecode(t *testing.T) {
 }
 
 func TestChecksumMismatch(t *testing.T) {
+	t.Parallel()
+
 	// We start with a pre-encoded invoice, which has a valid checksum.
 	payReqString := []byte("ycyr8brdjic6oak3bemztc5nupo56y3itq4z5q4qxwb35orf7fmj5phw8bx148zzipg3rh6t1btadpnxf7z1mnfd76hsw1eaoca3ot4uyyyyyyyyydbibt79jo1o")
 
@@ -96,6 +100,8 @@ func TestChecksumMismatch(t *testing.T) {
 }
 
 func TestDecodeTooShort(t *testing.T) {
+	t.Parallel()
+
 	// We start with a pre-encoded too-short string.
 	payReqString := "ycyr8brdji"
 

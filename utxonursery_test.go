@@ -194,6 +194,8 @@ var (
 )
 
 func TestAddSerializedKidsToList(t *testing.T) {
+	t.Parallel()
+
 	var b bytes.Buffer
 
 	for i := 0; i < 3; i++ {
@@ -224,6 +226,8 @@ func TestAddSerializedKidsToList(t *testing.T) {
 }
 
 func TestSerializeKidOutput(t *testing.T) {
+	t.Parallel()
+
 	kid := &kidOutputs[0]
 	descriptor := &signDescriptors[0]
 	pk, err := btcec.ParsePubKey(keys[0], btcec.S256())

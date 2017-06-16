@@ -69,6 +69,8 @@ func createLogFunc(name string, channelID lnwire.ChannelID) messageInterceptor {
 // TestChannelLinkSingleHopPayment in this test we checks the interaction
 // between Alice and Bob within scope of one channel.
 func TestChannelLinkSingleHopPayment(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -132,6 +134,8 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 // link to cope with bigger number of payment updates that commitment
 // transaction may consist.
 func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -213,6 +217,8 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 // (Carol -> Bob -> Alice) and checking that HTLC was settled properly and
 // balances were changed in two channels.
 func TestChannelLinkMultiHopPayment(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -306,6 +312,8 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 // doesn't match the expected payment value, then the HTLC will be rejected
 // with the appropriate error.
 func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -342,6 +350,8 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 // HTLC doesn't match the expected payment value, then the HTLC will be
 // rejected.
 func TestExitNodeAmountPayloadMismatch(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -376,6 +386,8 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 // node in a multi-hop payment, and receives an HTLC which violates its
 // specified multi-hop policy, then the HTLC is rejected.
 func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -416,6 +428,8 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 // intermediate node in a multi-hop payment and receives an HTLC that violates
 // its current fee policy, then the HTLC is rejected with the proper error.
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -457,6 +471,8 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 // node and receives an HTLC which is _below_ its min HTLC policy, then the
 // HTLC will be rejected.
 func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -499,6 +515,8 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 // specified policy, assert that it succeeds, update the policy (to invalidate
 // the prior HTLC), and then ensure that the HTLC is rejected.
 func TestUpdateForwardingPolicy(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
@@ -569,6 +587,8 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 // bob<->alice channel has insufficient BTC capacity/bandwidth. In this test we
 // send the payment from Carol to Alice over Bob peer. (Carol -> Bob -> Alice)
 func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -636,6 +656,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 // TestChannelLinkMultiHopUnknownPaymentHash checks that we receive remote error
 // from Alice if she received not suitable payment hash for htlc.
 func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -716,6 +738,8 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 // has no idea about next hop (hop might goes down and routing info not updated
 // yet).
 func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -778,6 +802,8 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 // TestChannelLinkMultiHopDecodeError checks that we send HTLC cancel if
 // decoding of onion blob failed.
 func TestChannelLinkMultiHopDecodeError(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
@@ -844,6 +870,8 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 // flying around between Alice and Bob are correct when Bob sends payments to
 // Alice.
 func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
+	t.Parallel()
+
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,

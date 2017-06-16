@@ -8,6 +8,8 @@ import (
 )
 
 func TestOpenWithCreate(t *testing.T) {
+	t.Parallel()
+
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")

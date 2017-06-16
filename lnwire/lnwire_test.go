@@ -63,6 +63,8 @@ func randFeatureVector(r *rand.Rand) *FeatureVector {
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
+	t.Parallel()
+
 	op := wire.OutPoint{
 		Index: math.MaxUint32,
 	}
@@ -74,6 +76,8 @@ func TestMaxOutPointIndex(t *testing.T) {
 }
 
 func TestEmptyMessageUnknownType(t *testing.T) {
+	t.Parallel()
+
 	fakeType := MessageType(math.MaxUint16)
 	if _, err := makeEmptyMessage(fakeType); err == nil {
 		t.Fatalf("should not be able to make an empty message of an " +
@@ -85,6 +89,8 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 // of fuzz tests to attempt to break a primary scenario which is implemented as
 // property based testing scenario.
 func TestLightningWireProtocol(t *testing.T) {
+	t.Parallel()
+
 	// mainScenario is the primary test that will programmatically be
 	// executed for all registered wire messages. The quick-checker within
 	// testing/quick will attempt to find an input to this function, s.t

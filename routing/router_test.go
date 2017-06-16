@@ -109,6 +109,8 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 // within the channel router are properly returned in a sorted order, with the
 // lowest fee route coming first.
 func TestFindRoutesFeeSorting(t *testing.T) {
+	t.Parallel()
+
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
@@ -147,6 +149,8 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 // queue is used instead. This process should continue until either a payment
 // succeeds, or all routes have been exhausted.
 func TestSendPaymentRouteFailureFallback(t *testing.T) {
+	t.Parallel()
+
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
 	defer cleanUp()
@@ -210,6 +214,8 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 // TestAddProof checks that we can update the channel proof after channel
 // info was added to the database.
 func TestAddProof(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatal(err)
@@ -275,6 +281,8 @@ func TestAddProof(t *testing.T) {
 // TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
 // vertex which we don't know of, then the edge is rejected.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatal(err)

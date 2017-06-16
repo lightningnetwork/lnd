@@ -12,6 +12,8 @@ import (
 // TestWaitingProofStore tests add/get/remove functions of the waiting proof
 // storage.
 func TestWaitingProofStore(t *testing.T) {
+	t.Parallel()
+
 	db, cleanup, err := makeTestDB()
 	if err != nil {
 

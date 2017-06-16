@@ -96,6 +96,8 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 }
 
 func TestOutgoingPaymentSerialization(t *testing.T) {
+	t.Parallel()
+
 	fakePayment := makeFakePayment()
 
 	var b bytes.Buffer
@@ -118,6 +120,8 @@ func TestOutgoingPaymentSerialization(t *testing.T) {
 }
 
 func TestOutgoingPaymentWorkflow(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {

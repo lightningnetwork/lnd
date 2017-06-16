@@ -9,6 +9,8 @@ import (
 )
 
 func TestNetAddressDisplay(t *testing.T) {
+	t.Parallel()
+
 	pubKeyStr := "036a0c5ea35df8a528b98edf6f290b28676d51d0fe202b073fe677612a39c0aa09"
 	pubHex, err := hex.DecodeString(pubKeyStr)
 	if err != nil {

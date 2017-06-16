@@ -272,6 +272,8 @@ func (m *mockChainView) Stop() error {
 // TestEdgeUpdateNotification tests that when edges are updated or added,
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanUp, err := createTestCtx(0)
 	defer cleanUp()
 	if err != nil {
@@ -427,6 +429,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 // either join the network for the first time, or update their authenticated
 // attributes with new data.
 func TestNodeUpdateNotification(t *testing.T) {
+	t.Parallel()
+
 	ctx, cleanUp, err := createTestCtx(1)
 	defer cleanUp()
 	if err != nil {
@@ -525,6 +529,8 @@ func TestNodeUpdateNotification(t *testing.T) {
 // TestNotificationCancellation tests that notifications are properly cancelled
 // when the client wishes to exit.
 func TestNotificationCancellation(t *testing.T) {
+	t.Parallel()
+
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
 	defer cleanUp()
@@ -573,6 +579,8 @@ func TestNotificationCancellation(t *testing.T) {
 // TestChannelCloseNotification tests that channel closure notifications are
 // properly dispatched to all registered clients.
 func TestChannelCloseNotification(t *testing.T) {
+	t.Parallel()
+
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
 	defer cleanUp()

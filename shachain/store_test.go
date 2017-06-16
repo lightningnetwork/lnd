@@ -403,6 +403,8 @@ var tests = []struct {
 // TestSpecificationShaChainInsert is used to check the consistency with
 // specification hash insert function.
 func TestSpecificationShaChainInsert(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range tests {
 		receiver := NewRevocationStore()
 
@@ -433,6 +435,8 @@ func TestSpecificationShaChainInsert(t *testing.T) {
 // TestShaChainStore checks the ability of shachain store to hold the produced
 // secrets after recovering from bytes data.
 func TestShaChainStore(t *testing.T) {
+	t.Parallel()
+
 	seed := chainhash.DoubleHashH([]byte("shachaintest"))
 
 	sender := NewRevocationProducer(seed)

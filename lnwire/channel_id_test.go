@@ -5,6 +5,8 @@ import "testing"
 // TestChannelIDOutPointConversion ensures that the IsChanPoint always
 // recognizes its seed OutPoint for all possible values of an output index.
 func TestChannelIDOutPointConversion(t *testing.T) {
+	t.Parallel()
+
 	testChanPoint := *outpoint1
 
 	// For a given OutPoint, we'll run through all the possible output
@@ -30,6 +32,8 @@ func TestChannelIDOutPointConversion(t *testing.T) {
 // root outpoint (the outpoint that generated the ChannelID) is included in the
 // returned set of outpoints.
 func TestGenPossibleOutPoints(t *testing.T) {
+	t.Parallel()
+
 	// We'll first convert out test outpoint into a ChannelID.
 	testChanPoint := *outpoint1
 	chanID := NewChanIDFromOutPoint(&testChanPoint)

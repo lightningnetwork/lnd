@@ -63,6 +63,8 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 }
 
 func TestNodeInsertionAndDeletion(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -124,6 +126,8 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 }
 
 func TestAliasLookup(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -168,6 +172,8 @@ func TestAliasLookup(t *testing.T) {
 }
 
 func TestSourceNode(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -207,6 +213,8 @@ func TestSourceNode(t *testing.T) {
 }
 
 func TestEdgeInsertionDeletion(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -332,6 +340,8 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 }
 
 func TestEdgeInfoUpdates(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -500,6 +510,8 @@ func randEdgePolicy(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdgePolicy 
 }
 
 func TestGraphTraversal(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -709,6 +721,8 @@ func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
 }
 
 func TestGraphPruning(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {

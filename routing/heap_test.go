@@ -12,6 +12,8 @@ import (
 // TestHeapOrdering ensures that the items inserted into the heap are properly
 // retrieved in minimum order of distance.
 func TestHeapOrdering(t *testing.T) {
+	t.Parallel()
+
 	// First, create a blank heap, we'll use this to push on randomly
 	// generated items.
 	var nodeHeap distanceHeap

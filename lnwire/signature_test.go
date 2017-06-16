@@ -9,6 +9,8 @@ import (
 )
 
 func TestSignatureSerializeDeserialize(t *testing.T) {
+	t.Parallel()
+
 	// Local-scoped closure to serialize and deserialize a Signature and
 	// check for errors as well as check if the results are correct.
 	signatureSerializeDeserialize := func(e btcec.Signature) error {

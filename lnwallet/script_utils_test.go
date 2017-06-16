@@ -23,6 +23,8 @@ import (
 //   * Bob's spend from his unencumbered output within Alice's commitment
 //     transaction.
 func TestCommitmentSpendValidation(t *testing.T) {
+	t.Parallel()
+
 	// We generate a fake output, and the corresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
@@ -181,6 +183,8 @@ func TestCommitmentSpendValidation(t *testing.T) {
 // hash, the homomorphic revocation public and private key derivation work
 // properly.
 func TestRevocationKeyDerivation(t *testing.T) {
+	t.Parallel()
+
 	revocationPreimage := testHdSeed[:]
 
 	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
@@ -232,6 +236,8 @@ func makeWitnessTestCase(t *testing.T, f func() (wire.TxWitness, error)) func() 
 //    * invalid sequence for CSV
 //    * valid lock-time+sequence, valid sig
 func TestHTLCSenderSpendValidation(t *testing.T) {
+	t.Parallel()
+
 	// TODO(roasbeef): eliminate duplication with other HTLC tests.
 
 	// We generate a fake output, and the coresponding txin. This output
@@ -406,6 +412,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 //     * refund w/ invalid lock time
 //     * refund w/ valid lock time
 func TestHTLCReceiverSpendValidation(t *testing.T) {
+	t.Parallel()
+
 	// We generate a fake output, and the coresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
@@ -601,6 +609,7 @@ var stateHintTests = []struct {
 }
 
 func TestCommitTxStateHint(t *testing.T) {
+	t.Parallel()
 
 	var obsfucator [StateHintSize]byte
 	copy(obsfucator[:], testHdSeed[:StateHintSize])

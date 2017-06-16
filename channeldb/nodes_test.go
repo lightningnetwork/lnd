@@ -12,6 +12,8 @@ import (
 )
 
 func TestLinkNodeEncodeDecode(t *testing.T) {
+	t.Parallel()
+
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
 		t.Fatalf("uanble to make test database: %v", err)

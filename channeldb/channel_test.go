@@ -178,6 +178,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 }
 
 func TestOpenChannelPutGetDelete(t *testing.T) {
+	t.Parallel()
+
 	cdb, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -407,6 +409,8 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 }
 
 func TestChannelStateTransition(t *testing.T) {
+	t.Parallel()
+
 	cdb, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -638,6 +642,8 @@ func TestChannelStateTransition(t *testing.T) {
 }
 
 func TestFetchPendingChannels(t *testing.T) {
+	t.Parallel()
+
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
 		t.Fatalf("uanble to make test database: %v", err)
@@ -717,6 +723,8 @@ func TestFetchPendingChannels(t *testing.T) {
 }
 
 func TestFetchClosedChannels(t *testing.T) {
+	t.Parallel()
+
 	cdb, cleanUp, err := makeTestDB()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)

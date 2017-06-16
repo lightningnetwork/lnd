@@ -289,6 +289,8 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 }
 
 func TestBasicGraphPathFinding(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -439,6 +441,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 }
 
 func TestKShortestPathFinding(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -498,6 +502,8 @@ func TestKShortestPathFinding(t *testing.T) {
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
+	t.Parallel()
+
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
 	graph, cleanUp, aliases, err := parseTestGraph(excessiveHopsGraphFilePath)
@@ -539,6 +545,8 @@ func TestNewRoutePathTooLong(t *testing.T) {
 }
 
 func TestPathNotAvailable(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, _, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -574,6 +582,8 @@ func TestPathNotAvailable(t *testing.T) {
 }
 
 func TestPathInsufficientCapacity(t *testing.T) {
+	t.Parallel()
+
 	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
 	defer cleanUp()
 	if err != nil {
@@ -606,6 +616,8 @@ func TestPathInsufficientCapacity(t *testing.T) {
 }
 
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
+	t.Parallel()
+
 	// TODO(roasbeef): encode live graph to json
 
 	// TODO(roasbeef): need to add a case, or modify the fee ratio for one

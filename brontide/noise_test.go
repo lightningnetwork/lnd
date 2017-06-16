@@ -65,6 +65,8 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 }
 
 func TestConnectionCorrectness(t *testing.T) {
+	t.Parallel()
+
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
@@ -114,6 +116,8 @@ func TestConnectionCorrectness(t *testing.T) {
 }
 
 func TestMaxPayloadLength(t *testing.T) {
+	t.Parallel()
+
 	b := Machine{}
 	b.split()
 
@@ -152,6 +156,8 @@ func TestMaxPayloadLength(t *testing.T) {
 }
 
 func TestWriteMessageChunking(t *testing.T) {
+	t.Parallel()
+
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.

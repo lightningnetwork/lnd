@@ -32,6 +32,8 @@ func randInvoice(value btcutil.Amount) (*Invoice, error) {
 }
 
 func TestInvoiceWorkflow(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {

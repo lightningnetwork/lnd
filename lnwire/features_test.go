@@ -11,6 +11,8 @@ import (
 // TestFeaturesRemoteRequireError checks that we throw an error if remote peer
 // has required feature which we don't support.
 func TestFeaturesRemoteRequireError(t *testing.T) {
+	t.Parallel()
+
 	const (
 		first  = "first"
 		second = "second"
@@ -33,6 +35,8 @@ func TestFeaturesRemoteRequireError(t *testing.T) {
 // TestFeaturesLocalRequireError checks that we throw an error if local peer has
 // required feature which remote peer don't support.
 func TestFeaturesLocalRequireError(t *testing.T) {
+	t.Parallel()
+
 	const (
 		first  = "first"
 		second = "second"
@@ -55,6 +59,8 @@ func TestFeaturesLocalRequireError(t *testing.T) {
 // TestOptionalFeature checks that if remote peer don't have the feature but
 // on our side this feature is optional than we mark this feature as disabled.
 func TestOptionalFeature(t *testing.T) {
+	t.Parallel()
+
 	const first = "first"
 
 	localFeatures := NewFeatureVector([]Feature{
@@ -82,6 +88,8 @@ func TestOptionalFeature(t *testing.T) {
 // TestSetRequireAfterInit checks that we can change the feature flag after
 // initialization.
 func TestSetRequireAfterInit(t *testing.T) {
+	t.Parallel()
+
 	const first = "first"
 
 	localFeatures := NewFeatureVector([]Feature{
@@ -100,6 +108,8 @@ func TestSetRequireAfterInit(t *testing.T) {
 // TestDecodeEncodeFeaturesVector checks that feature vector might be
 // successfully encoded and decoded.
 func TestDecodeEncodeFeaturesVector(t *testing.T) {
+	t.Parallel()
+
 	const first = "first"
 
 	f := NewFeatureVector([]Feature{
@@ -124,6 +134,8 @@ func TestDecodeEncodeFeaturesVector(t *testing.T) {
 }
 
 func TestFeatureFlagString(t *testing.T) {
+	t.Parallel()
+
 	if OptionalFlag.String() != "optional" {
 		t.Fatalf("incorrect string, expected optional got %v",
 			OptionalFlag.String())

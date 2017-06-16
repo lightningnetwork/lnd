@@ -12,6 +12,8 @@ import (
 // and also initialization of meta data in case if don't have any in
 // database.
 func TestVersionFetchPut(t *testing.T) {
+	t.Parallel()
+
 	db, cleanUp, err := makeTestDB()
 	defer cleanUp()
 	if err != nil {
@@ -46,6 +48,8 @@ func TestVersionFetchPut(t *testing.T) {
 
 // TestOrderOfMigrations checks that migrations are applied in proper order.
 func TestOrderOfMigrations(t *testing.T) {
+	t.Parallel()
+
 	appliedMigration := -1
 	versions := []version{
 		{0, nil},
@@ -88,6 +92,8 @@ func TestOrderOfMigrations(t *testing.T) {
 // TestGlobalVersionList checks that there is no mistake in global version list
 // in terms of version ordering.
 func TestGlobalVersionList(t *testing.T) {
+	t.Parallel()
+
 	if dbVersions == nil {
 		t.Fatal("can't find versions list")
 	}
@@ -165,6 +171,8 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 }
 
 func TestMigrationWithPanic(t *testing.T) {
+	t.Parallel()
+
 	bucketPrefix := []byte("somebucket")
 	keyPrefix := []byte("someprefix")
 	beforeMigration := []byte("beforemigration")
@@ -234,6 +242,8 @@ func TestMigrationWithPanic(t *testing.T) {
 }
 
 func TestMigrationWithFatal(t *testing.T) {
+	t.Parallel()
+
 	bucketPrefix := []byte("somebucket")
 	keyPrefix := []byte("someprefix")
 	beforeMigration := []byte("beforemigration")
@@ -302,6 +312,8 @@ func TestMigrationWithFatal(t *testing.T) {
 }
 
 func TestMigrationWithoutErrors(t *testing.T) {
+	t.Parallel()
+
 	bucketPrefix := []byte("somebucket")
 	keyPrefix := []byte("someprefix")
 	beforeMigration := []byte("beforemigration")

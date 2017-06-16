@@ -8,6 +8,8 @@ import (
 )
 
 func TestShortChannelIDEncoding(t *testing.T) {
+	t.Parallel()
+
 	var testCases = []ShortChannelID{
 		{
 			BlockHeight: (1 << 24) - 1,

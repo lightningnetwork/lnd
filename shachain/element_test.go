@@ -162,6 +162,8 @@ func generateTests(t *testing.T) []deriveTest {
 // TestDeriveIndex check the correctness of index derive function by testing
 // the index corner cases.
 func TestDeriveIndex(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range generateTests(t) {
 		pos, err := test.from.deriveBitTransformations(test.to)
 		if err != nil {
@@ -218,6 +220,8 @@ var deriveElementTests = []struct {
 // TestSpecificationDeriveElement is used to check the consistency with
 // specification hash derivation function.
 func TestSpecificationDeriveElement(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range deriveElementTests {
 		// Generate seed element.
 		element, err := newElementFromStr(test.seed, rootIndex)

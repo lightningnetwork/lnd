@@ -10,6 +10,8 @@ import (
 // TestShaChainProducerRestore checks the ability of shachain producer to be
 // properly recreated from binary representation.
 func TestShaChainProducerRestore(t *testing.T) {
+	t.Parallel()
+
 	var err error
 
 	seed := chainhash.DoubleHashH([]byte("shachaintest"))

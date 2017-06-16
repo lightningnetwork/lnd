@@ -1271,6 +1271,8 @@ func clearWalletState(w *lnwallet.LightningWallet) error {
 //
 // TODO(roasbeef): purge bobNode in favor of dual lnwallet's
 func TestLightningWallet(t *testing.T) {
+	t.Parallel()
+
 	netParams := &chaincfg.SimNetParams
 
 	// Initialize the harness around a btcd node which will serve as our

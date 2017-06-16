@@ -92,22 +92,24 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
+	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, totalTimelock, hops := generateHops(amount, n.firstBobChannelLink)
+
 	// Wait for:
 	// * HTLC add request to be sent to bob.
 	// * alice<->bob commitment state to be updated.
 	// * settle request to be sent back from bob to alice.
 	// * alice<->bob commitment state to be updated.
 	// * user notification to be sent.
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	invoice, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-	}, amount)
+	invoice, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
 
 	// Wait for Bob to receive the revocation.
+	//
+	// TODO(roasbef); replace with select over returned err chan
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that alice invoice was settled and bandwidth of HTLC
@@ -153,26 +155,30 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
+	const amt btcutil.Amount = 10
+
+	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
+		n.firstBobChannelLink)
+	_, _, hopsBackwards := generateHops(amt, n.aliceChannelLink)
+
 	// Send max available payment number in both sides, thereby testing
 	// the property of channel link to cope with overflowing.
 	errChan := make(chan error)
 	count := 2 * lnwallet.MaxHTLCNumber
 	for i := 0; i < count/2; i++ {
 		go func() {
-			_, err := n.makePayment([]Peer{
-				n.aliceServer,
-				n.bobServer,
-			}, 10)
+			_, err := n.makePayment(n.aliceServer, n.bobServer,
+				n.bobServer.PubKey(), hopsForwards, amt, htlcAmt,
+				totalTimelock)
 			errChan <- err
 		}()
 	}
 
 	for i := 0; i < count/2; i++ {
 		go func() {
-			_, err := n.makePayment([]Peer{
-				n.bobServer,
-				n.aliceServer,
-			}, 10)
+			_, err := n.makePayment(n.bobServer, n.aliceServer,
+				n.aliceServer.PubKey(), hopsBackwards, amt, htlcAmt,
+				totalTimelock)
 			errChan <- err
 		}()
 	}
@@ -240,6 +246,10 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 			n.carolChannelLink.ChanID()))
 	}
 
+	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		n.firstBobChannelLink, n.carolChannelLink)
+
 	// Wait for:
 	// * HTLC add request to be sent from Alice to Bob.
 	// * Alice<->Bob commitment states to be updated.
@@ -250,12 +260,9 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	// * settle request to be sent back from Bob to Alice.
 	// * Alice<->Bob commitment states to be updated.
 	// * user notification to be sent.
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	invoice, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-		n.carolServer,
-	}, amount)
+	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		totalTimelock)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -269,24 +276,31 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 		t.Fatal("alice invoice wasn't settled")
 	}
 
-	if aliceBandwidthBefore-amount != n.aliceChannelLink.Bandwidth() {
-		t.Fatal("the bandwidth of alice channel link which handles " +
-			"alice->bob channel wasn't decreased on htlc amount")
+	expectedAliceBandwidth := aliceBandwidthBefore - htlcAmt
+	if expectedAliceBandwidth != n.aliceChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedAliceBandwidth, n.aliceChannelLink.Bandwidth())
 	}
 
-	if firstBobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"alice->bob channel wasn't increased on htlc amount")
+	expectedBobBandwidth1 := firstBobBandwidthBefore + htlcAmt
+	if expectedBobBandwidth1 != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth1, n.firstBobChannelLink.Bandwidth())
 	}
 
-	if secondBobBandwidthBefore-amount != n.secondBobChannelLink.Bandwidth() {
-		t.Fatal("the bandwidth of bob channel link which handles " +
-			"bob->carol channel wasn't decreased on htlc amount")
+	expectedBobBandwidth2 := secondBobBandwidthBefore - amount
+	if expectedBobBandwidth2 != n.secondBobChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedBobBandwidth2, n.secondBobChannelLink.Bandwidth())
 	}
 
-	if carolBandwidthBefore+amount != n.carolChannelLink.Bandwidth() {
-		t.Fatal("the bandwidth of carol channel link which handles " +
-			"carol->bob channel wasn't decreased on htlc amount")
+	expectedCarolBandwidth := carolBandwidthBefore + amount
+	if expectedCarolBandwidth != n.carolChannelLink.Bandwidth() {
+		t.Fatalf("channel bandwidth incorrect: expected %v, got %v",
+			expectedCarolBandwidth, n.carolChannelLink.Bandwidth())
+	}
+}
+
 	}
 }
 
@@ -308,18 +322,18 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
+	var amount btcutil.Amount = 4 * btcutil.SatoshiPerBitcoin
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		n.firstBobChannelLink, n.carolChannelLink)
+
 	// Wait for:
 	// * HTLC add request to be sent to from Alice to Bob.
 	// * Alice<->Bob commitment states to be updated.
 	// * Bob trying to add HTLC add request in Bob<->Carol channel.
 	// * Cancel HTLC request to be sent back from Bob to Alice.
 	// * user notification to be sent.
-	var amount btcutil.Amount = 4 * btcutil.SatoshiPerBitcoin
-	invoice, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-		n.carolServer,
-	}, amount)
+	invoice, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != errors.New(lnwire.InsufficientCapacity).Error() {
@@ -354,7 +368,6 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 		t.Fatal("the bandwidth of carol channel link which handles " +
 			"bob->carol channel should be the same")
 	}
-
 }
 
 // TestChannelLinkMultiHopUnknownPaymentHash checks that we receive remote error
@@ -376,19 +389,16 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
 
-	// Generate route convert it to blob, and return next destination for
-	// htlc add request.
-	peers := []Peer{
-		n.bobServer,
-		n.carolServer,
-	}
-	firstNode, blob, err := generateRoute(peers)
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		n.firstBobChannelLink, n.carolChannelLink)
+	blob, err := generateRoute(hops...)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(amount, blob)
+	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+		blob)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,8 +413,8 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	}
 
 	// Send payment and expose err channel.
-	if _, err := n.aliceServer.htlcSwitch.SendHTLC(firstNode,
-		htlc); err == nil {
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc)
+	if err == nil {
 		t.Fatal("error wasn't received")
 	}
 
@@ -441,7 +451,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 // TestChannelLinkMultiHopUnknownNextHop construct the chain of hops
 // Carol<->Bob<->Alice and checks that we receive remote error from Bob if he
 // has no idea about next hop (hop might goes down and routing info not updated
-// yet)
+// yet).
 func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
@@ -458,13 +468,12 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		n.firstBobChannelLink, n.carolChannelLink)
 
-	dave := newMockServer(t, "save")
-	invoice, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-		dave,
-	}, amount)
+	davePub := newMockServer(t, "save").PubKey()
+	invoice, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
+		amount, htlcAmt, totalTimelock)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != errors.New(lnwire.UnknownDestination).Error() {
@@ -472,6 +481,8 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	}
 
 	// Wait for Alice to receive the revocation.
+	//
+	// TODO(roasbeef): add in ntfn hook for state transition completion
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
@@ -525,11 +536,11 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	invoice, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-		n.carolServer,
-	}, amount)
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		n.firstBobChannelLink, n.carolChannelLink)
+
+	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != errors.New(lnwire.SphinxParseError).Error() {
@@ -624,7 +635,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	n.aliceServer.record(func(m lnwire.Message) {
 		if getChanID(m) == chanPoint {
 			if len(aliceOrder) == 0 {
-				t.Fatal("redudant messages")
+				t.Fatal("redundant messages")
 			}
 
 			if reflect.TypeOf(aliceOrder[0]) != reflect.TypeOf(m) {
@@ -640,7 +651,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	n.bobServer.record(func(m lnwire.Message) {
 		if getChanID(m) == chanPoint {
 			if len(bobOrder) == 0 {
-				t.Fatal("redudant messages")
+				t.Fatal("redundant messages")
 			}
 
 			if reflect.TypeOf(bobOrder[0]) != reflect.TypeOf(m) {
@@ -657,16 +668,17 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	}
 	defer n.stop()
 
+	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	htlcAmt, totalTimelock, hops := generateHops(amount, n.firstBobChannelLink)
+
 	// Wait for:
 	// * htlc add htlc request to be sent to alice
 	// * alice<->bob commitment state to be updated
 	// * settle request to be sent back from alice to bob
 	// * alice<->bob commitment state to be updated
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	if _, err := n.makePayment([]Peer{
-		n.aliceServer,
-		n.bobServer,
-	}, amount); err != nil {
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
 }

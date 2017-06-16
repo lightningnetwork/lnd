@@ -34,7 +34,7 @@ type mockServer struct {
 	name     string
 	messages chan lnwire.Message
 
-	id         []byte
+	id         [33]byte
 	htlcSwitch *Switch
 
 	registry    *mockInvoiceRegistry
@@ -44,9 +44,13 @@ type mockServer struct {
 var _ Peer = (*mockServer)(nil)
 
 func newMockServer(t *testing.T, name string) *mockServer {
+	var id [33]byte
+	h := sha256.Sum256([]byte(name))
+	copy(id[:], h[:])
+
 	return &mockServer{
 		t:           t,
-		id:          []byte(name),
+		id:          id,
 		name:        name,
 		messages:    make(chan lnwire.Message, 3000),
 		quit:        make(chan bool),
@@ -91,24 +95,20 @@ func (s *mockServer) Start() error {
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {
-	hops []HopID
+	hops []ForwardingInfo
 }
 
-func newMockHopIterator(hops ...HopID) HopIterator {
+func newMockHopIterator(hops ...ForwardingInfo) HopIterator {
 	return &mockHopIterator{hops: hops}
 }
 
-func (r *mockHopIterator) Next() *HopID {
-	if len(r.hops) != 0 {
-		next := r.hops[0]
-		r.hops = r.hops[1:]
-		return &next
-	}
-
-	return nil
+func (r *mockHopIterator) ForwardingInstructions() ForwardingInfo {
+	h := r.hops[0]
+	r.hops = r.hops[1:]
+	return h
 }
 
-func (r *mockHopIterator) Encode(w io.Writer) error {
+func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
 	var hopLength [4]byte
 	binary.BigEndian.PutUint32(hopLength[:], uint32(len(r.hops)))
 
@@ -117,9 +117,29 @@ func (r *mockHopIterator) Encode(w io.Writer) error {
 	}
 
 	for _, hop := range r.hops {
-		if _, err := w.Write(hop[:]); err != nil {
+		if err := hop.encode(w); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (f *ForwardingInfo) encode(w io.Writer) error {
+	if _, err := w.Write([]byte{byte(f.Network)}); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, f.NextHop); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, f.AmountToForward); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, f.OutgoingCTLV); err != nil {
+		return err
 	}
 
 	return nil
@@ -131,9 +151,7 @@ var _ HopIterator = (*mockHopIterator)(nil)
 // encoded array of hops.
 type mockIteratorDecoder struct{}
 
-func (p *mockIteratorDecoder) Decode(r io.Reader, meta []byte) (
-	HopIterator, error) {
-
+func (p *mockIteratorDecoder) Decode(r io.Reader, meta []byte) (HopIterator, error) {
 	var b [4]byte
 	_, err := r.Read(b[:])
 	if err != nil {
@@ -141,19 +159,39 @@ func (p *mockIteratorDecoder) Decode(r io.Reader, meta []byte) (
 	}
 	hopLength := binary.BigEndian.Uint32(b[:])
 
-	hops := make([]HopID, hopLength)
+	hops := make([]ForwardingInfo, hopLength)
 	for i := uint32(0); i < hopLength; i++ {
-		var hop HopID
-
-		_, err := r.Read(hop[:])
-		if err != nil {
+		f := &ForwardingInfo{}
+		if err := f.decode(r); err != nil {
 			return nil, err
 		}
 
-		hops[i] = hop
+		hops[i] = *f
 	}
 
 	return newMockHopIterator(hops...), nil
+}
+
+func (f *ForwardingInfo) decode(r io.Reader) error {
+	var net [1]byte
+	if _, err := r.Read(net[:]); err != nil {
+		return err
+	}
+	f.Network = NetworkHop(net[0])
+
+	if err := binary.Read(r, binary.BigEndian, &f.NextHop); err != nil {
+		return err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &f.AmountToForward); err != nil {
+		return err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &f.OutgoingCTLV); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // messageInterceptor is function that handles the incoming peer messages and
@@ -218,11 +256,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	return nil
 }
 
-func (s *mockServer) ID() [sha256.Size]byte {
-	return [sha256.Size]byte{}
-}
-
-func (s *mockServer) PubKey() []byte {
+func (s *mockServer) PubKey() [33]byte {
 	return s.id
 }
 
@@ -247,21 +281,27 @@ func (s *mockServer) Stop() {
 }
 
 func (s *mockServer) String() string {
-	return string(s.id)
+	return s.name
 }
 
 type mockChannelLink struct {
-	chanID  lnwire.ChannelID
-	peer    Peer
+	shortChanID lnwire.ShortChannelID
+
+	chanID lnwire.ChannelID
+
+	peer Peer
+
 	packets chan *htlcPacket
 }
 
-func newMockChannelLink(chanID lnwire.ChannelID,
+func newMockChannelLink(chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID,
 	peer Peer) *mockChannelLink {
+
 	return &mockChannelLink{
-		chanID:  chanID,
-		packets: make(chan *htlcPacket, 1),
-		peer:    peer,
+		chanID:      chanID,
+		shortChanID: shortChanID,
+		packets:     make(chan *htlcPacket, 1),
+		peer:        peer,
 	}
 }
 
@@ -272,15 +312,19 @@ func (f *mockChannelLink) HandleSwitchPacket(packet *htlcPacket) {
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
+func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
+}
+
 func (f *mockChannelLink) Stats() (uint64, btcutil.Amount, btcutil.Amount) {
 	return 0, 0, 0
 }
 
-func (f *mockChannelLink) ChanID() lnwire.ChannelID  { return f.chanID }
-func (f *mockChannelLink) Bandwidth() btcutil.Amount { return 99999999 }
-func (f *mockChannelLink) Peer() Peer                { return f.peer }
-func (f *mockChannelLink) Start() error              { return nil }
-func (f *mockChannelLink) Stop()                     {}
+func (f *mockChannelLink) ChanID() lnwire.ChannelID           { return f.chanID }
+func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID { return f.shortChanID }
+func (f *mockChannelLink) Bandwidth() btcutil.Amount          { return 99999999 }
+func (f *mockChannelLink) Peer() Peer                         { return f.peer }
+func (f *mockChannelLink) Start() error                       { return nil }
+func (f *mockChannelLink) Stop()                              {}
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 

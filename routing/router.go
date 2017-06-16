@@ -1002,6 +1002,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		// payment through the network, starting with the first-hop.
 		htlcAdd := &lnwire.UpdateAddHTLC{
 			Amount:      route.TotalAmount,
+			Expiry:      route.TotalTimeLock,
 			PaymentHash: payment.PaymentHash,
 		}
 		copy(htlcAdd.OnionBlob[:], sphinxPacket)

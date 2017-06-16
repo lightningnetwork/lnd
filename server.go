@@ -237,7 +237,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		ChainView: cc.chainView,
 		SendToSwitch: func(firstHop *btcec.PublicKey,
 			htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error) {
-			firstHopPub := firstHop.SerializeCompressed()
+
+			var firstHopPub [33]byte
+			copy(firstHopPub[:], firstHop.SerializeCompressed())
 			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd)
 		},
 	})
@@ -597,8 +599,7 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.
-	hop := htlcswitch.NewHopID(p.addr.IdentityKey.SerializeCompressed())
-	links, err := p.server.htlcSwitch.GetLinks(hop)
+	links, err := p.server.htlcSwitch.GetLinksByInterface(p.pubKeyBytes)
 	if err != nil {
 		srvrLog.Errorf("unable to get channel links: %v", err)
 	}

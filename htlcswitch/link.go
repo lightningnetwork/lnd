@@ -19,12 +19,67 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+// ForwardingPolicy describes the set of constraints that a given ChannelLink
+// is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
+// constraints will be consulted in order to ensure that adequate fees are
+// paid, and our time-lock parameters are respected. In the event that an
+// incoming HTLC violates any of these constraints, it is to be _rejected_ with
+// the error possibly carrying along a ChannelUpdate message that includes the
+// latest policy.
+type ForwardingPolicy struct {
+	// MinHTLC is the smallest HTLC that is to be forwarded.
+	MinHTLC btcutil.Amount
+
+	// BaseFee is the base fee, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field, combined with FeeRate is
+	// used to compute the required fee for a given HTLC.
+	//
+	// TODO(roasbeef): need to be in mSAT
+	BaseFee btcutil.Amount
+
+	// FeeRate is the fee rate, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field combined with BaseFee is
+	// used to compute the required fee for a given HTLC.
+	FeeRate btcutil.Amount
+
+	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
+	// that will be subtracted from an incoming HTLC's timelock value to
+	// create the time-lock value for the forwarded outgoing HTLC. The
+	// following constraint MUST hold for an HTLC to be forwarded:
+	//
+	//  * incomingHtlc.timeLock - timeLockDelta = fwdInfo.OutgoingCTLV
+	//
+	//    where fwdInfo is the forwarding information extracted from the
+	//    per-hop payload of the incoming HTLC's onion packet.
+	TimeLockDelta uint32
+
+	// TODO(roasbeef): add fee module inside of switch
+}
+
+// ExpectedFee computes the expected fee for a given htlc amount. The value
+// returned from this function is to be used as a sanity check when forwarding
+// HTLC's to ensure that an incoming HTLC properly adheres to our propagated
+// forwarding policy.
+//
+// TODO(roasbeef): also add in current available channel bandwidth, inverse
+// func
+func ExpectedFee(f ForwardingPolicy, htlcAmt btcutil.Amount) btcutil.Amount {
+	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
+}
+
 // ChannelLinkConfig defines the configuration for the channel link. ALL
 // elements within the configuration MUST be non-nil for channel link to carry
 // out its duties.
 type ChannelLinkConfig struct {
+	// FwrdingPolicy is the initial forwarding policy to be used when
+	// deciding whether to forwarding incoming HTLC's or not. This value
+	// can be updated with subsequent calls to UpdateForwardingPolicy
+	// targeted at a given ChannelLink concrete interface implementation.
+	FwrdingPolicy ForwardingPolicy
+
 	// Switch is a subsystem which is used to forward the incoming htlc
-	// packets to other peer which should handle it.
+	// packets according to the encoded hop forwarding information
+	// contained in the forwarding blob within each HTLC.
 	Switch *Switch
 
 	// DecodeOnion function responsible for decoding htlc Sphinx onion
@@ -53,7 +108,7 @@ type ChannelLinkConfig struct {
 
 // channelLink is the service which drives a channel's commitment update
 // state-machine. In the event that an htlc needs to be propagated to another
-// link, then forward handler from config is used which sends htlc to the
+// link, the forward handler from config is used which sends htlc to the
 // switch. Additionally, the link encapsulate logic of commitment protocol
 // message ordering and updates.
 type channelLink struct {

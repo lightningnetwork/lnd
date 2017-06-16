@@ -1,34 +1,21 @@
 package htlcswitch
 
 import (
-	"bytes"
-	"encoding/hex"
+	"encoding/binary"
 	"io"
 
-	"github.com/btcsuite/golangcrypto/ripemd160"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcutil"
 )
 
-// HopID represents the id which is used by propagation subsystem in order to
-// identify lightning network node.
-// TODO(andrew.shvv) remove after switching to the using channel id.
-type HopID [ripemd160.Size]byte
 // NetworkHop indicates the blockchain network that is intended to be the next
 // hop for a forwarded HTLC. The existnce of this field within the
 // ForwardingInfo struct enables the ability for HTLC to cross chain-boundaries
 // at will.
 type NetworkHop uint8
 
-// NewHopID creates new instance of hop form node public key.
-func NewHopID(pubKey []byte) HopID {
-	var routeID HopID
-	copy(routeID[:], btcutil.Hash160(pubKey))
-	return routeID
-}
 const (
 	// BitcoinHop denotes that an HTLC is to be forwarded along the Bitcoin
 	// link with the specified short channel ID.
@@ -39,9 +26,6 @@ const (
 	LitecoinHop
 )
 
-// String returns string representation of hop id.
-func (h HopID) String() string {
-	return hex.EncodeToString(h[:])
 // String returns the string representation of the target NetworkHop.
 func (c NetworkHop) String() string {
 	switch c {
@@ -54,9 +38,6 @@ func (c NetworkHop) String() string {
 	}
 }
 
-// IsEqual checks does the two hop ids are equal.
-func (h HopID) IsEqual(h2 HopID) bool {
-	return bytes.Equal(h[:], h2[:])
 var (
 	// exitHop is a special "hop" which denotes that an incoming HTLC is
 	// meant to pay finally to the receiving node.

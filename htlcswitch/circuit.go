@@ -14,7 +14,7 @@ import (
 // Currently, the payment hash is used to uniquely identify each circuit.
 type circuitKey [sha256.Size]byte
 
-// String represent the circuit key in string format.
+// String returns the string representation of the circuitKey.
 func (k *circuitKey) String() string {
 	return hex.EncodeToString(k[:])
 }

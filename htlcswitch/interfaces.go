@@ -1,8 +1,6 @@
 package htlcswitch
 
 import (
-	"crypto/sha256"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -83,15 +81,12 @@ type Peer interface {
 	// SendMessage sends message to remote peer.
 	SendMessage(lnwire.Message) error
 
-	// ID returns the lightning network peer id.
-	ID() [sha256.Size]byte
-
 	// WipeChannel removes the passed channel from all indexes associated
 	// with the peer.
 	WipeChannel(*lnwallet.LightningChannel) error
 
-	// PubKey returns the peer public key.
-	PubKey() []byte
+	// PubKey returns the serialize public key of the source peer.
+	PubKey() [33]byte
 
 	// Disconnect disconnects with peer if we have error which we can't
 	// properly handle.

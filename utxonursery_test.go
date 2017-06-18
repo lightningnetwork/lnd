@@ -194,8 +194,6 @@ var (
 )
 
 func TestAddSerializedKidsToList(t *testing.T) {
-	t.Parallel()
-
 	var b bytes.Buffer
 
 	for i := 0; i < 3; i++ {
@@ -209,7 +207,8 @@ func TestAddSerializedKidsToList(t *testing.T) {
 		kid.signDescriptor = descriptor
 
 		if err := serializeKidOutput(&b, &kidOutputs[i]); err != nil {
-			t.Fatalf("unable to serialize and add kid output to list: %v", err)
+			t.Fatalf("unable to serialize and add kid output to "+
+				"list: %v", err)
 		}
 	}
 
@@ -220,14 +219,13 @@ func TestAddSerializedKidsToList(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		if !reflect.DeepEqual(&kidOutputs[i], kidList[i]) {
-			t.Fatalf("kidOutputs don't match \n%+v\n%+v", &kidOutputs[i], kidList[i])
+			t.Fatalf("kidOutputs don't match \n%+v\n%+v",
+				&kidOutputs[i], kidList[i])
 		}
 	}
 }
 
 func TestSerializeKidOutput(t *testing.T) {
-	t.Parallel()
-
 	kid := &kidOutputs[0]
 	descriptor := &signDescriptors[0]
 	pk, err := btcec.ParsePubKey(keys[0], btcec.S256())
@@ -249,6 +247,7 @@ func TestSerializeKidOutput(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(kid, deserializedKid) {
-		t.Fatalf("kidOutputs don't match %+v vs %+v", kid, deserializedKid)
+		t.Fatalf("kidOutputs don't match %+v vs %+v", kid,
+			deserializedKid)
 	}
 }

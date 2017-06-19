@@ -504,6 +504,7 @@ func (f *fundingManager) handleFundingRequest(fmsg *fundingRequestMsg) {
 		fndgLog.Errorf("unable to query wallet: %v", err)
 		return
 	}
+
 	if !isSynced {
 		errMsg := &lnwire.Error{
 			ChanID: fmsg.msg.PendingChannelID,

@@ -82,7 +82,7 @@ func (h *harnessTest) RunTestCase(testCase *testCase, net *networkHarness) {
 	}()
 
 	testCase.test(net, h)
-	h.t.Logf("Passed: (%v)", h.testCase.name)
+
 	return
 }
 
@@ -2823,15 +2823,16 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 
 	// Wait for Alice and Bob receive their payments, and throw and error
 	// if something goes wrong.
+	maxTime := 20 * time.Second
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-errChan:
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
-		case <-time.After(time.Second * 7):
-			t.Fatalf("waiting for payments to finish too long " +
-				"(7s)")
+		case <-time.After(time.Second * maxTime):
+			t.Fatalf("waiting for payments to finish too long "+
+				"(%v)", maxTime)
 		}
 	}
 
@@ -3038,7 +3039,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	t.Logf("Running %v integration tests", len(testsCases))
 	for _, testCase := range testsCases {
-		ht.RunTestCase(testCase, lndHarness)
+		success := t.Run(testCase.name, func(t1 *testing.T) {
+			ht := newHarnessTest(t1)
+			ht.RunTestCase(testCase, lndHarness)
+		})
+		// Stop at the first failure. Mimic behavior of original test
+		if !success {
+			break
+		}
 	}
 
 	close(testsFin)

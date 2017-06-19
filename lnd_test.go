@@ -2748,9 +2748,12 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 
 	// Wait for Alice to receive the channel edge from the funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
+	if err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
+			"timeout: %v", err)
+	}
+	if err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+		t.Fatalf("bob didn't see the bob->alice channel before "+
 			"timeout: %v", err)
 	}
 
@@ -3043,7 +3046,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			ht := newHarnessTest(t1)
 			ht.RunTestCase(testCase, lndHarness)
 		})
+
 		// Stop at the first failure. Mimic behavior of original test
+		// framework.
 		if !success {
 			break
 		}

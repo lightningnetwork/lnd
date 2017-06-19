@@ -159,9 +159,10 @@ func loadConfig() (*config, error) {
 	}
 
 	// Next, load any additional configuration options from the file.
+	var configFileError error
 	cfg := defaultCfg
 	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		configFileError = err
 	}
 
 	// Finally, parse the remaining command line options again to ensure
@@ -297,6 +298,13 @@ func loadConfig() (*config, error) {
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
+	}
+
+	// Warn about missing config file only after all other configuration is
+	// done.  This prevents the warning on help messages and invalid
+	// options.  Note this should go directly before the return.
+	if configFileError != nil {
+		ltndLog.Warnf("%v", configFileError)
 	}
 
 	return &cfg, nil

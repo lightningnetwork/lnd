@@ -4,8 +4,7 @@ import:
   version: ^1.2.1
 - package: github.com/btcsuite/btclog
 - package: github.com/btcsuite/go-flags
-- package: github.com/btcsuite/seelog
-  version: ^2.1.0
+- package: github.com/jrick/logrotate
 - package: github.com/davecgh/go-spew
   subpackages:
   - spew
@@ -14,7 +13,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 4d38357cee3ed3843cd81a347e1573f037e0301e
+  version: 34fdda7d41cc47d9456550fd1147a77db89f601a
   subpackages:
   - blockchain
   - btcec
@@ -24,7 +23,7 @@ import:
   - wire
   - connmgr
 - package: github.com/roasbeef/btcrpcclient
-  version: 9a7826550df8071460e2f5dd6ed9139dcbf260b8
+  version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil
   version: a259eaf2ec1b54653cdd67848a41867f280797ee
   subpackages:
@@ -69,4 +68,4 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 38ea335359ce38a83d51caea7a39a3a8658d30a4
+  version: ccfa94a1c213e5df752c08c7edc30cb0a56d4dcf

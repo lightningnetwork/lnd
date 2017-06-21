@@ -1,5 +1,5 @@
-hash: 4c71a2926e3bff9e7075bbbfd51de535f545d8b9b457287c77dea50b3ca494dd
-updated: 2017-06-19T14:30:43.865744449+02:00
+hash: 6c18f5869f221e2cd4a979035580efeffd1b12e975d89190d416e98dc7b74498
+updated: 2017-06-25T12:56:35.351126486+03:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -18,7 +18,7 @@ imports:
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/btclog
-  version: 73889fb79bd687870312b6e40effcecffbd57d30
+  version: 96c2a91a67da03552a5e6554fe3ccbfbc7f860be
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
 - name: github.com/btcsuite/go-flags
@@ -37,8 +37,6 @@ imports:
   - salsa20/salsa
   - scrypt
   - ssh/terminal
-- name: github.com/btcsuite/seelog
-  version: ae8891d029dd3c269dcfd6f261ad23e761acd99f
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
@@ -62,10 +60,14 @@ imports:
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
+- name: github.com/jrick/logrotate
+  version: 4ed05ed86ef17d10ff99cce77481e0fcf6f2c7b0
+  subpackages:
+  - rotator
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 38ea335359ce38a83d51caea7a39a3a8658d30a4
+  version: ccfa94a1c213e5df752c08c7edc30cb0a56d4dcf
   subpackages:
   - filterdb
   - headerfs
@@ -78,7 +80,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcd
-  version: 4d38357cee3ed3843cd81a347e1573f037e0301e
+  version: 34fdda7d41cc47d9456550fd1147a77db89f601a
   subpackages:
   - addrmgr
   - blockchain
@@ -93,7 +95,7 @@ imports:
   - txscript
   - wire
 - name: github.com/roasbeef/btcrpcclient
-  version: 9a7826550df8071460e2f5dd6ed9139dcbf260b8
+  version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - name: github.com/roasbeef/btcutil
   version: a259eaf2ec1b54653cdd67848a41867f280797ee
   subpackages:

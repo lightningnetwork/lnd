@@ -195,7 +195,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to make the payment: %v", err)
 			}
-		case <-time.After(4 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatalf("timeout: (%v/%v)", i+1, count)
 		}
 

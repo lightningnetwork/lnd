@@ -4,7 +4,18 @@ go:
   - 1.8.3
 sudo: false
 install:
-  - go get -v github.com/roasbeef/btcd # Required for the rpc test package.
+  - GLIDE_TAG=v0.12.3
+  - GLIDE_DOWNLOAD="https://github.com/Masterminds/glide/releases/download/$GLIDE_TAG/glide-$GLIDE_TAG-linux-amd64.tar.gz"
+  - curl -L $GLIDE_DOWNLOAD | tar -xvz
+  - export PATH=$PATH:$PWD/linux-amd64/
+  - mkdir -p $GOPATH/src/github.com/roasbeef/
+  - pushd $GOPATH/src/github.com/roasbeef/
+  - git clone https://github.com/roasbeef/btcd
+  - pushd btcd
+  - glide install
+  - go install . ./cmd/...
+  - popd
+  - popd
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - ./gotest.sh -l -r -c

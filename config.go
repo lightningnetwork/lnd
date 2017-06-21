@@ -289,7 +289,7 @@ func loadConfig() (*config, error) {
 		registeredChains.primaryChain.String())
 
 	// Initialize logging at the default logging level.
-	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename))
+	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
 	setLogLevels(defaultLogLevel)
 
 	// Parse, validate, and set debug log level(s).

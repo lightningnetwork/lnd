@@ -41,7 +41,11 @@ func lndMain() error {
 		return err
 	}
 	cfg = loadedConfig
-	defer backendLog.Flush()
+	defer func() {
+		if logRotator != nil {
+			logRotator.Close()
+		}
+	}()
 
 	// Show version at startup.
 	ltndLog.Infof("Version %s", version())

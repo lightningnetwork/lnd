@@ -1,11 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
+	"io"
+
+	"fmt"
+	"path/filepath"
+
 	"github.com/btcsuite/btclog"
-	"github.com/btcsuite/seelog"
+	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -16,28 +20,66 @@ import (
 	"github.com/roasbeef/btcd/connmgr"
 )
 
-// Loggers per subsystem.  Note that backendLog is a seelog logger that all of
-// the subsystem loggers route their messages to.  When adding new subsystems,
-// add a reference here, to the subsystemLoggers map, and the useLogger
-// function.
+// logWriter implements an io.Writer that outputs to both standard output and
+// the write-end pipe of an initialized log rotator.
+type logWriter struct{}
+
+func (logWriter) Write(p []byte) (n int, err error) {
+	os.Stdout.Write(p)
+	logRotatorPipe.Write(p)
+	return len(p), nil
+}
+
+// Loggers per subsystem.  A single backend logger is created and all subsytem
+// loggers created from it will write to the backend.  When adding new
+// subsystems, add the subsystem logger variable here and to the
+// subsystemLoggers map.
+//
+// Loggers can not be used before the log rotator has been initialized with a
+// log file.  This must be performed early during application startup by calling
+// initLogRotator.
 var (
-	backendLog = seelog.Disabled
-	ltndLog    = btclog.Disabled
-	lnwlLog    = btclog.Disabled
-	peerLog    = btclog.Disabled
-	discLog    = btclog.Disabled
-	fndgLog    = btclog.Disabled
-	rpcsLog    = btclog.Disabled
-	srvrLog    = btclog.Disabled
-	ntfnLog    = btclog.Disabled
-	chdbLog    = btclog.Disabled
-	hswcLog    = btclog.Disabled
-	utxnLog    = btclog.Disabled
-	brarLog    = btclog.Disabled
-	cmgrLog    = btclog.Disabled
-	crtrLog    = btclog.Disabled
-	btcnLog    = btclog.Disabled
+	// backendLog is the logging backend used to create all subsystem loggers.
+	// The backend must not be used before the log rotator has been initialized,
+	// or data races and/or nil pointer dereferences will occur.
+	backendLog = btclog.NewBackend(logWriter{})
+
+	// logRotator is one of the logging outputs.  It should be closed on
+	// application shutdown.
+	logRotator *rotator.Rotator
+
+	// logRotatorPipe is the write-end pipe for writing to the log rotator.  It
+	// is written to by the Write method of the logWriter type.
+	logRotatorPipe *io.PipeWriter
+
+	ltndLog = backendLog.Logger("LTND")
+	lnwlLog = backendLog.Logger("LNWL")
+	peerLog = backendLog.Logger("PEER")
+	discLog = backendLog.Logger("DISC")
+	rpcsLog = backendLog.Logger("RPCS")
+	srvrLog = backendLog.Logger("SRVR")
+	ntfnLog = backendLog.Logger("NTFN")
+	chdbLog = backendLog.Logger("CHDB")
+	fndgLog = backendLog.Logger("FNDG")
+	hswcLog = backendLog.Logger("HSWC")
+	utxnLog = backendLog.Logger("UTXN")
+	brarLog = backendLog.Logger("BRAR")
+	cmgrLog = backendLog.Logger("CMGR")
+	crtrLog = backendLog.Logger("CRTR")
+	btcnLog = backendLog.Logger("BTCN")
 )
+
+// Initialize package-global logger variables.
+func init() {
+	lnwallet.UseLogger(lnwlLog)
+	discovery.UseLogger(discLog)
+	chainntnfs.UseLogger(ntfnLog)
+	channeldb.UseLogger(chdbLog)
+	htlcswitch.UseLogger(hswcLog)
+	connmgr.UseLogger(cmgrLog)
+	routing.UseLogger(crtrLog)
+	neutrino.UseLogger(btcnLog)
+}
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
 var subsystemLoggers = map[string]btclog.Logger{
@@ -58,93 +100,27 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"BTCN": btcnLog,
 }
 
-// useLogger updates the logger references for subsystemID to logger.  Invalid
-// subsystems are ignored.
-func useLogger(subsystemID string, logger btclog.Logger) {
-	if _, ok := subsystemLoggers[subsystemID]; !ok {
-		return
-	}
-	subsystemLoggers[subsystemID] = logger
-
-	switch subsystemID {
-	case "LTND":
-		ltndLog = logger
-
-	case "LNWL":
-		lnwlLog = logger
-		lnwallet.UseLogger(logger)
-
-	case "PEER":
-		peerLog = logger
-
-	case "DISC":
-		discLog = logger
-		discovery.UseLogger(logger)
-
-	case "RPCS":
-		rpcsLog = logger
-
-	case "SRVR":
-		srvrLog = logger
-
-	case "NTFN":
-		ntfnLog = logger
-		chainntnfs.UseLogger(logger)
-
-	case "CHDB":
-		chdbLog = logger
-		channeldb.UseLogger(logger)
-
-	case "FNDG":
-		fndgLog = logger
-
-	case "HSWC":
-		hswcLog = logger
-		htlcswitch.UseLogger(logger)
-
-	case "UTXN":
-		utxnLog = logger
-
-	case "BRAR":
-		brarLog = logger
-
-	case "CMGR":
-		cmgrLog = logger
-		connmgr.UseLogger(logger)
-
-	case "CRTR":
-		crtrLog = logger
-		routing.UseLogger(crtrLog)
-
-	case "BTCN":
-		btcnLog = logger
-		neutrino.UseLogger(logger)
-	}
-}
-
-// initSeelogLogger initializes a new seelog logger that is used as the backend
-// for all logging subsystems.
-func initSeelogLogger(logFile string) {
-	config := `
-	<seelog type="adaptive" mininterval="2000000" maxinterval="100000000"
-		critmsgcount="500" minlevel="trace">
-		<outputs formatid="all">
-			<console />
-			<rollingfile type="size" filename="%s" maxsize="10485760" maxrolls="3" />
-		</outputs>
-		<formats>
-			<format id="all" format="%%Time %%Date [%%LEV] %%Msg%%n" />
-		</formats>
-	</seelog>`
-	config = fmt.Sprintf(config, logFile)
-
-	logger, err := seelog.LoggerFromConfigAsString(config)
+// initLogRotator initializes the logging rotater to write logs to logFile and
+// create roll files in the same directory.  It must be called before the
+// package-global log rotater variables are used.
+func initLogRotator(logFile string) {
+	logDir, _ := filepath.Split(logFile)
+	err := os.MkdirAll(logDir, 0700)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create logger: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to create log directory: %v\n", err)
+		os.Exit(1)
+	}
+	pr, pw := io.Pipe()
+	r, err := rotator.New(pr, logFile, 10*1024, false, 3)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create file rotator: %v\n", err)
 		os.Exit(1)
 	}
 
-	backendLog = logger
+	go r.Run()
+
+	logRotator = r
+	logRotatorPipe = pw
 }
 
 // setLogLevel sets the logging level for provided subsystem.  Invalid
@@ -157,17 +133,8 @@ func setLogLevel(subsystemID string, logLevel string) {
 		return
 	}
 
-	// Default to info if the log level is invalid.
-	level, ok := btclog.LogLevelFromString(logLevel)
-	if !ok {
-		level = btclog.InfoLvl
-	}
-
-	// Create new logger for the subsystem if needed.
-	if logger == btclog.Disabled {
-		logger = btclog.NewSubsystemLogger(backendLog, subsystemID+": ")
-		useLogger(subsystemID, logger)
-	}
+	// Defaults to info if the log level is invalid.
+	level, _ := btclog.LevelFromString(logLevel)
 	logger.SetLevel(level)
 }
 
@@ -175,7 +142,7 @@ func setLogLevel(subsystemID string, logLevel string) {
 // level. It also dynamically creates the subsystem loggers as needed, so it
 // can be used to initialize the logging system.
 func setLogLevels(logLevel string) {
-	// Configure all subsystems with the new logging level. Dynamically
+	// Configure all sub-systems with the new logging level.  Dynamically
 	// create loggers as needed.
 	for subsystemID := range subsystemLoggers {
 		setLogLevel(subsystemID, logLevel)

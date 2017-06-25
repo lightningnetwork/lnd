@@ -77,7 +77,7 @@ test_race_conditions() {
     check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
-    env GORACE="history_size=7 halt_on_error=1" go test -v -race $test_targets
+    env GORACE="history_size=7 halt_on_error=1" go test -v -p 1 -race $test_targets
 }
 
 # lint_check runs static checks.

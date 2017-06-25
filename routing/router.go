@@ -181,7 +181,7 @@ type ChannelRouter struct {
 	// topologyClients maps a client's unique notification ID to a
 	// topologyClient client that contains its notification dispatch
 	// channel.
-	topologyClients map[uint64]topologyClient
+	topologyClients map[uint64]*topologyClient
 
 	// ntfnClientUpdates is a channel that's used to send new updates to
 	// topology notification clients to the ChannelRouter. Updates either
@@ -213,7 +213,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		cfg:               &cfg,
 		selfNode:          selfNode,
 		networkUpdates:    make(chan *routingMsg),
-		topologyClients:   make(map[uint64]topologyClient),
+		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		routeCache:        make(map[routeTuple][]*Route),
 		quit:              make(chan struct{}),
@@ -499,7 +499,7 @@ func (r *ChannelRouter) networkHandler() {
 				continue
 			}
 
-			r.topologyClients[ntfnUpdate.clientID] = topologyClient{
+			r.topologyClients[ntfnUpdate.clientID] = &topologyClient{
 				ntfnChan: ntfnUpdate.ntfnChan,
 				exit:     make(chan struct{}),
 			}

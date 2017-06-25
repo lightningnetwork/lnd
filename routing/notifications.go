@@ -121,7 +121,7 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 	for _, client := range r.topologyClients {
 		client.wg.Add(1)
 
-		go func(c topologyClient) {
+		go func(c *topologyClient) {
 			defer c.wg.Done()
 
 			select {

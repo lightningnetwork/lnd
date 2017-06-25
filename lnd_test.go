@@ -19,6 +19,7 @@ import (
 
 	"math/rand"
 
+	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -3015,6 +3016,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		ht.Fatalf("unable to create mining node: %v", err)
 	}
 	defer btcdHarness.TearDown()
+
+	// Turn off the btcd rpc logging, otherwise it will lead to panic.
+	// TODO(andrew.shvv|roasbeef) Remove the hack after re-work the way the log
+	// rotator os work.
+	btcrpcclient.UseLogger(btclog.Disabled)
+
 	if err := btcdHarness.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)
 	}

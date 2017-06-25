@@ -290,7 +290,6 @@ func loadConfig() (*config, error) {
 
 	// Initialize logging at the default logging level.
 	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
-	setLogLevels(defaultLogLevel)
 
 	// Parse, validate, and set debug log level(s).
 	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {

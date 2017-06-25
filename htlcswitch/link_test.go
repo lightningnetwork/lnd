@@ -10,6 +10,8 @@ import (
 
 	"io"
 
+	"math"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -165,40 +167,73 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 		n.firstBobChannelLink)
 	_, _, hopsBackwards := generateHops(amt, n.aliceChannelLink)
 
+	type result struct {
+		err    error
+		start  time.Time
+		number int
+		sender string
+	}
+
 	// Send max available payment number in both sides, thereby testing
 	// the property of channel link to cope with overflowing.
-	errChan := make(chan error)
+	resultChan := make(chan *result)
 	count := 2 * lnwallet.MaxHTLCNumber
 	for i := 0; i < count/2; i++ {
-		go func() {
-			_, err := n.makePayment(n.aliceServer, n.bobServer,
+		go func(i int) {
+			r := &result{
+				start:  time.Now(),
+				number: i,
+				sender: "alice",
+			}
+
+			_, r.err = n.makePayment(n.aliceServer, n.bobServer,
 				n.bobServer.PubKey(), hopsForwards, amt, htlcAmt,
 				totalTimelock)
-			errChan <- err
-		}()
+			resultChan <- r
+		}(i)
 	}
 
 	for i := 0; i < count/2; i++ {
-		go func() {
-			_, err := n.makePayment(n.bobServer, n.aliceServer,
+		go func(i int) {
+			r := &result{
+				start:  time.Now(),
+				number: i,
+				sender: "bob",
+			}
+
+			_, r.err = n.makePayment(n.bobServer, n.aliceServer,
 				n.aliceServer.PubKey(), hopsBackwards, amt, htlcAmt,
 				totalTimelock)
-			errChan <- err
-		}()
+			resultChan <- r
+		}(i)
 	}
+
+	maxDelay := time.Duration(0)
+	minDelay := time.Duration(math.MaxInt64)
+	averageDelay := time.Duration(0)
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
 	for i := 0; i < count; i++ {
 		select {
-		case err := <-errChan:
-			if err != nil {
-				t.Fatalf("unable to make the payment: %v", err)
+		case r := <-resultChan:
+			if r.err != nil {
+				t.Fatalf("unable to make the payment: %v", r.err)
 			}
+
+			delay := time.Since(r.start)
+			if delay > maxDelay {
+				maxDelay = delay
+			}
+
+			if delay < minDelay {
+				minDelay = delay
+			}
+			averageDelay += delay
+
 		case <-time.After(30 * time.Second):
 			t.Fatalf("timeout: (%v/%v)", i+1, count)
 		}
-
 	}
 
 	// At the end Bob and Alice balances should be the same as previous,
@@ -210,6 +245,10 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	if bobBandwidthBefore != n.firstBobChannelLink.Bandwidth() {
 		t.Fatal("bob bandwidth shouldn't have changed")
 	}
+
+	t.Logf("Max waiting: %v", maxDelay)
+	t.Logf("Min waiting: %v", minDelay)
+	t.Logf("Average waiting: %v", time.Duration(int(averageDelay)/count))
 }
 
 // TestChannelLinkMultiHopPayment checks the ability to send payment over two

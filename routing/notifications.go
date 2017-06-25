@@ -3,6 +3,7 @@ package routing
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
@@ -101,6 +102,8 @@ type topologyClient struct {
 	// exit is a channel that is used internally by the channel router to
 	// cancel any active un-consumed goroutine notifications.
 	exit chan struct{}
+
+	wg sync.WaitGroup
 }
 
 // notifyTopologyChange notifies all registered clients of a new change in
@@ -116,7 +119,11 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 	}
 
 	for _, client := range r.topologyClients {
+		client.wg.Add(1)
+
 		go func(c topologyClient) {
+			defer c.wg.Done()
+
 			select {
 
 			// In this case we'll try to send the notification

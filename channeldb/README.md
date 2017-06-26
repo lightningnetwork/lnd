@@ -15,7 +15,7 @@ The package implements an object-oriented storage model with queries and
 mutations flowing through a particular object instance rather than the database
 itself. The storage implemented by the objects includes: open channels, past
 commitment revocation states, the channel graph which includes authenticated
-node and channel announcements, outgoing payments, and invoices
+node and channel announcements, outgoing payments, and invoices.
 
 ## Installation and Updating
 

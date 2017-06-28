@@ -180,7 +180,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}
-
+	case FailCode:
+		if err := writeElement(w, uint16(e)); err != nil {
+			return err
+		}
 	case ShortChannelID:
 		// Check that field fit in 3 bytes and write the blockHeight
 		if e.BlockHeight > ((1 << 24) - 1) {
@@ -439,6 +442,10 @@ func readElement(r io.Reader, element interface{}) error {
 		*e = wire.OutPoint{
 			Hash:  *hash,
 			Index: uint32(index),
+		}
+	case *FailCode:
+		if err := readElement(r, (*uint16)(e)); err != nil {
+			return err
 		}
 
 	case *ChannelID:

@@ -530,6 +530,13 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
+
+			msgType: MsgUpdateFailMalformedHTLC,
+			scenario: func(m UpdateFailMalformedHTLC) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
 			msgType: MsgChannelAnnouncement,
 			scenario: func(m ChannelAnnouncement) bool {
 				return mainScenario(&m)

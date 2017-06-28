@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -53,6 +54,11 @@ var (
 	defaultClientPort = 19556
 
 	harnessNetParams = &chaincfg.SimNetParams
+
+	// logOutput is a flag that can be set to append the output from the
+	// seed nodes to log files.
+	logOutput = flag.Bool("logoutput", false,
+		"log output from node n to file outputn.log")
 )
 
 // generateListeningPorts returns two strings representing ports to listen on
@@ -186,6 +192,26 @@ func (l *lightningNode) Start(lndError chan error) error {
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer
 	l.cmd.Stderr = &errb
+
+	// If the logoutput flag is passed, redirect output from the nodes to
+	// log files.
+	if *logOutput {
+		logFile := fmt.Sprintf("output%d.log", l.nodeID)
+
+		// Create file if not exists, otherwise append.
+		file, err := os.OpenFile(logFile,
+			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+		if err != nil {
+			return err
+		}
+
+		// Pass node's stderr to both errb and the file.
+		w := io.MultiWriter(&errb, file)
+		l.cmd.Stderr = w
+
+		// Pass the node's stdout only to the file.
+		l.cmd.Stdout = file
+	}
 
 	if err := l.cmd.Start(); err != nil {
 		return err

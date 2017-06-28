@@ -50,10 +50,10 @@ func TestOnionFailure(t *testing.T) {
 	}
 
 	// Emulate creation of the deobfuscator on the receiving onion error side.
-	deobfuscator := &OnionDeobfuscator{
-		sessionKey:  sessionKey,
-		paymentPath: paymentPath,
-	}
+	deobfuscator := NewOnionDeobfuscator(&Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: paymentPath,
+	})
 
 	// Emulate that sender node receive the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
@@ -124,7 +124,6 @@ var onionErrorData = []struct {
 			"1a62081df0ed46d4a3df295da0b0fe25c0115019f03f15ec86fa" +
 			"bb4c852f83449e812f141a93",
 	},
-
 	{
 		sharedSecret: "3a6b412548762f0dbccce5c7ae7bb8147d1caf9b5471c3" +
 			"4120b30bc9c04891cc",
@@ -145,7 +144,6 @@ var onionErrorData = []struct {
 			"9b8e6faa83b81fbfa6133c0af5d6b07c017f7158fa94f0d206ba" +
 			"f12dda6b68f785b773b360fd",
 	},
-
 	{
 		sharedSecret: "a6519e98832a0b179f62123b3567c106db99ee37bef036" +
 			"e783263602f3488fae",
@@ -166,7 +164,6 @@ var onionErrorData = []struct {
 			"de7084bb95b3ac2345201d624d31f4d52078aa0fa05a88b4e202" +
 			"02bd2b86ac5b52919ea305a8",
 	},
-
 	{
 		sharedSecret: "53eb63ea8a3fec3b3cd433b85cd62a4b145e1dda09391b" +
 			"348c4e1cd36a03ea66",
@@ -294,10 +291,10 @@ func TestOnionFailureSpecVector(t *testing.T) {
 		}
 	}
 
-	deobfuscator := &OnionDeobfuscator{
-		sessionKey:  sessionKey,
-		paymentPath: paymentPath,
-	}
+	deobfuscator := NewOnionDeobfuscator(&Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: paymentPath,
+	})
 
 	// Emulate that sender node receives the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.

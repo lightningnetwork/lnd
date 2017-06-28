@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"sync"
@@ -63,6 +62,9 @@ const (
 	// encrypt payloads. Since we use SHA256 to generate the keys, the
 	// maximum length currently is 32 bytes.
 	keyLen = 32
+
+	// baseVersion represent the current supported version of onion packet.
+	baseVersion = 0
 )
 
 var (
@@ -199,6 +201,8 @@ func (hd *HopData) Decode(r io.Reader) error {
 	return nil
 }
 
+// generateSharedSecrets by the given nodes pubkeys, generates the shared
+// secrets.
 func generateSharedSecrets(paymentPath []*btcec.PublicKey,
 	sessionKey *btcec.PrivateKey) [][sha256.Size]byte {
 	// Each hop performs ECDH with our ephemeral key pair to arrive at a
@@ -319,7 +323,7 @@ func NewOnionPacket(paymentPath []*btcec.PublicKey, sessionKey *btcec.PrivateKey
 	}
 
 	return &OnionPacket{
-		Version:      0x01,
+		Version:      baseVersion,
 		EphemeralKey: sessionKey.PubKey(),
 		RoutingInfo:  mixHeader,
 		HeaderMAC:    nextHmac,
@@ -400,6 +404,12 @@ func (f *OnionPacket) Decode(r io.Reader) error {
 		return err
 	}
 	f.Version = buf[0]
+
+	// If version of the onion packet protocol unknown for us than in might
+	// lead to improperly decoded data.
+	if f.Version != baseVersion {
+		return ErrInvalidOnionVersion
+	}
 
 	var ephemeral [33]byte
 	if _, err := io.ReadFull(r, ephemeral[:]); err != nil {
@@ -636,7 +646,6 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 // returned which houses the newly parsed packet, along with instructions on
 // what to do next.
 func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*ProcessedPacket, error) {
-
 	dhKey := onionPkt.EphemeralKey
 	routeInfo := onionPkt.RoutingInfo
 	headerMac := onionPkt.HeaderMAC
@@ -662,8 +671,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	message := append(routeInfo[:], assocData...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
-		return nil, fmt.Errorf("MAC mismatch %x != %x, rejecting "+
-			"forwarding message", headerMac, calculatedMac)
+		return nil, ErrInvalidOnionHMAC
 	}
 
 	// The MAC checks out, mark this current shared secret as processed in
@@ -732,7 +740,7 @@ func (r *Router) generateSharedSecret(dhKey *btcec.PublicKey) ([sha256.Size]byte
 
 	// Ensure that the public key is on our curve.
 	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
-		return sharedSecret, fmt.Errorf("pubkey isn't on secp256k1 curve")
+		return sharedSecret, ErrInvalidOnionKey
 	}
 
 	// Compute our shared secret.

@@ -59,7 +59,7 @@ func TestSwitchForward(t *testing.T) {
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		},
+		}, newMockObfuscator(),
 	)
 
 	// Handle the request and checks that bob channel link received it.
@@ -137,7 +137,7 @@ func TestSwitchCancel(t *testing.T) {
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		},
+		}, newMockObfuscator(),
 	)
 
 	// Handle the request and checks that bob channel link received it.
@@ -162,7 +162,7 @@ func TestSwitchCancel(t *testing.T) {
 	request = newFailPacket(
 		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{},
-		rhash, 1)
+		rhash, 1, true)
 
 	// Handle the request and checks that payment circuit works properly.
 	if err := s.forward(request); err != nil {
@@ -213,7 +213,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		&lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		},
+		}, newMockObfuscator(),
 	)
 
 	// Handle the request and checks that bob channel link received it.
@@ -247,7 +247,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	request = newFailPacket(
 		bobChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{},
-		rhash, 1)
+		rhash, 1, true)
 
 	// Handle the request and checks that payment circuit works properly.
 	if err := s.forward(request); err != nil {
@@ -308,14 +308,16 @@ func TestSwitchSendPayment(t *testing.T) {
 	// Handle the request and checks that bob channel link received it.
 	errChan := make(chan error)
 	go func() {
-		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update)
+		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update,
+			newMockDeobfuscator())
 		errChan <- err
 	}()
 
 	go func() {
 		// Send the payment with the same payment hash and same
 		// amount and check that it will be propagated successfully
-		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update)
+		_, err := s.SendHTLC(aliceChannelLink.Peer().PubKey(), update,
+			newMockDeobfuscator())
 		errChan <- err
 	}()
 
@@ -345,18 +347,22 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatal("wrong amount of circuits")
 	}
 
-	// Create fail request pretending that bob channel link handled the add
-	// htlc request with error  and sent the htlc fail request back. This
-	// request should be forwarder back to alice channel link.
-	packet := newFailPacket(
-		aliceChannelLink.ShortChanID(),
+	// Create fail request pretending that bob channel link handled
+	// the add htlc request with error and sent the htlc fail request
+	// back. This request should be forwarded back to alice channel link.
+	obfuscator := newMockObfuscator()
+	failure := lnwire.FailIncorrectPaymentAmount{}
+	reason, err := obfuscator.InitialObfuscate(failure)
+	if err != nil {
+		t.Fatalf("unable obfuscate failure: %v", err)
+	}
+
+	packet := newFailPacket(aliceChannelLink.ShortChanID(),
 		&lnwire.UpdateFailHTLC{
-			Reason: []byte{byte(lnwire.IncorrectValue)},
+			Reason: reason,
 			ID:     1,
 		},
-		rhash,
-		1,
-	)
+		rhash, 1, true)
 
 	if err := s.forward(packet); err != nil {
 		t.Fatalf("can't forward htlc packet: %v", err)
@@ -364,7 +370,7 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.IncorrectValue).Error() {
+		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
 			t.Fatal("err wasn't received")
 		}
 	case <-time.After(time.Second):
@@ -379,7 +385,7 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.IncorrectValue).Error() {
+		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
 			t.Fatal("err wasn't received")
 		}
 	case <-time.After(time.Second):

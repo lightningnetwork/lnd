@@ -10,6 +10,10 @@ import (
 	"io/ioutil"
 	"os"
 
+	"io"
+
+	"math/big"
+
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -26,7 +30,33 @@ var (
 	alicePrivKey = []byte("alice priv key")
 	bobPrivKey   = []byte("bob priv key")
 	carolPrivKey = []byte("carol priv key")
+
+	testPrivKey = []byte{
+		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+		0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+		0xd, 0xe7, 0x95, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+		0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
+	}
+
+	_, testPubKey = btcec.PrivKeyFromBytes(btcec.S256(), testPrivKey)
+	testSig       = &btcec.Signature{
+		R: new(big.Int),
+		S: new(big.Int),
+	}
+
+	_, _ = testSig.R.SetString("6372440660162918006277497454296753625158993"+
+		"5445068131219452686511677818569431", 10)
+	_, _ = testSig.S.SetString("1880105606924982582529128710493133386286603"+
+		"3135609736119018462340006816851118", 10)
 )
+
+// mockGetChanUpdateMessage helper function which returns topology update
+// of the channel
+func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
+	return &lnwire.ChannelUpdate{
+		Signature: testSig,
+	}, nil
+}
 
 // generateRandomBytes returns securely generated random bytes.
 // It will return an error if the system's secure random
@@ -423,7 +453,8 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	// Send payment and expose err channel.
 	errChan := make(chan error)
 	go func() {
-		_, err := sender.htlcSwitch.SendHTLC(firstHopPub, htlc)
+		_, err := sender.htlcSwitch.SendHTLC(firstHopPub, htlc,
+			newMockDeobfuscator())
 		errChan <- err
 	}()
 
@@ -523,14 +554,19 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		BaseFee:       btcutil.Amount(1),
 		TimeLockDelta: 1,
 	}
-
+	obfuscator := newMockObfuscator()
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy: globalPolicy,
-			Peer:          bobServer,
-			Switch:        aliceServer.htlcSwitch,
-			DecodeOnion:   decoder.Decode,
-			Registry:      aliceServer.registry,
+			FwrdingPolicy:     globalPolicy,
+			Peer:              bobServer,
+			Switch:            aliceServer.htlcSwitch,
+			DecodeHopIterator: decoder.DecodeHopIterator,
+			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+				lnwire.FailCode) {
+				return obfuscator, lnwire.CodeNone
+			},
+			GetLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:             aliceServer.registry,
 		},
 		aliceChannel,
 	)
@@ -540,11 +576,16 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy: globalPolicy,
-			Peer:          aliceServer,
-			Switch:        bobServer.htlcSwitch,
-			DecodeOnion:   decoder.Decode,
-			Registry:      bobServer.registry,
+			FwrdingPolicy:     globalPolicy,
+			Peer:              aliceServer,
+			Switch:            bobServer.htlcSwitch,
+			DecodeHopIterator: decoder.DecodeHopIterator,
+			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+				lnwire.FailCode) {
+				return obfuscator, lnwire.CodeNone
+			},
+			GetLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:             bobServer.registry,
 		},
 		firstBobChannel,
 	)
@@ -554,11 +595,16 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy: globalPolicy,
-			Peer:          carolServer,
-			Switch:        bobServer.htlcSwitch,
-			DecodeOnion:   decoder.Decode,
-			Registry:      bobServer.registry,
+			FwrdingPolicy:     globalPolicy,
+			Peer:              carolServer,
+			Switch:            bobServer.htlcSwitch,
+			DecodeHopIterator: decoder.DecodeHopIterator,
+			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+				lnwire.FailCode) {
+				return obfuscator, lnwire.CodeNone
+			},
+			GetLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:             bobServer.registry,
 		},
 		secondBobChannel,
 	)
@@ -568,11 +614,16 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy: globalPolicy,
-			Peer:          bobServer,
-			Switch:        carolServer.htlcSwitch,
-			DecodeOnion:   decoder.Decode,
-			Registry:      carolServer.registry,
+			FwrdingPolicy:     globalPolicy,
+			Peer:              bobServer,
+			Switch:            carolServer.htlcSwitch,
+			DecodeHopIterator: decoder.DecodeHopIterator,
+			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+				lnwire.FailCode) {
+				return obfuscator, lnwire.CodeNone
+			},
+			GetLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:             carolServer.registry,
 		},
 		carolChannel,
 	)

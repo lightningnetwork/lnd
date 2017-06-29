@@ -9,6 +9,8 @@ import (
 	"io"
 	"sync/atomic"
 
+	"bytes"
+
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -147,15 +149,60 @@ func (f *ForwardingInfo) encode(w io.Writer) error {
 
 var _ HopIterator = (*mockHopIterator)(nil)
 
+// mockObfuscator mock implementation of the failure obfuscator which only
+// encodes the failure and do not makes any onion obfuscation.
+type mockObfuscator struct{}
+
+func newMockObfuscator() Obfuscator {
+	return &mockObfuscator{}
+}
+
+func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
+	lnwire.OpaqueReason, error) {
+
+	var b bytes.Buffer
+	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+	return reason
+
+}
+
+// mockDeobfuscator mock implementation of the failure deobfuscator which
+// only decodes the failure do not makes any onion obfuscation.
+type mockDeobfuscator struct{}
+
+func newMockDeobfuscator() Deobfuscator {
+	return &mockDeobfuscator{}
+}
+
+func (o *mockDeobfuscator) Deobfuscate(reason lnwire.OpaqueReason) (lnwire.FailureMessage,
+	error) {
+	r := bytes.NewReader(reason)
+	failure, err := lnwire.DecodeFailure(r, 0)
+	if err != nil {
+		return nil, err
+	}
+	return failure, nil
+}
+
+var _ Deobfuscator = (*mockDeobfuscator)(nil)
+
 // mockIteratorDecoder test version of hop iterator decoder which decodes the
 // encoded array of hops.
 type mockIteratorDecoder struct{}
 
-func (p *mockIteratorDecoder) Decode(r io.Reader, meta []byte) (HopIterator, error) {
+func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, meta []byte) (
+	HopIterator, lnwire.FailCode) {
+
 	var b [4]byte
 	_, err := r.Read(b[:])
 	if err != nil {
-		return nil, err
+		return nil, lnwire.CodeTemporaryChannelFailure
 	}
 	hopLength := binary.BigEndian.Uint32(b[:])
 
@@ -163,13 +210,13 @@ func (p *mockIteratorDecoder) Decode(r io.Reader, meta []byte) (HopIterator, err
 	for i := uint32(0); i < hopLength; i++ {
 		f := &ForwardingInfo{}
 		if err := f.decode(r); err != nil {
-			return nil, err
+			return nil, lnwire.CodeTemporaryChannelFailure
 		}
 
 		hops[i] = *f
 	}
 
-	return newMockHopIterator(hops...), nil
+	return newMockHopIterator(hops...), lnwire.CodeNone
 }
 
 func (f *ForwardingInfo) decode(r io.Reader) error {
@@ -222,6 +269,8 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	case *lnwire.UpdateFufillHTLC:
 		targetChan = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
+		targetChan = msg.ChanID
+	case *lnwire.UpdateFailMalformedHTLC:
 		targetChan = msg.ChanID
 	case *lnwire.RevokeAndAck:
 		targetChan = msg.ChanID

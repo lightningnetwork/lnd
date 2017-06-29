@@ -38,17 +38,23 @@ type paymentCircuit struct {
 	// request back.
 	Dest lnwire.ShortChannelID
 
+	// Obfuscator is used to obfuscate the onion failure before sending it
+	// back to the originator of the payment.
+	Obfuscator Obfuscator
+
 	// RefCount is used to count the circuits with the same circuit key.
 	RefCount int
 }
 
 // newPaymentCircuit creates new payment circuit instance.
-func newPaymentCircuit(src, dest lnwire.ShortChannelID, key circuitKey) *paymentCircuit {
+func newPaymentCircuit(src, dest lnwire.ShortChannelID, key circuitKey,
+	obfuscator Obfuscator) *paymentCircuit {
 	return &paymentCircuit{
 		Src:         src,
 		Dest:        dest,
 		PaymentHash: key,
 		RefCount:    1,
+		Obfuscator:  obfuscator,
 	}
 }
 

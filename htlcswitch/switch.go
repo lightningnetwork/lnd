@@ -88,6 +88,10 @@ type Config struct {
 	// or forced unilateral closure of the channel initiated by a local
 	// subsystem.
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
+
+	// UpdateTopology sends the onion error failure topology update to router
+	// subsystem.
+	UpdateTopology func(msg *lnwire.ChannelUpdate) error
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -313,6 +317,31 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				err)
 			log.Error(userErr)
 		} else {
+			// Process payment failure by updating the lightning network
+			// topology by using router subsystem handler.
+			var update *lnwire.ChannelUpdate
+
+			switch failure := failure.(type) {
+			case *lnwire.FailTemporaryChannelFailure:
+				update = failure.Update
+			case *lnwire.FailAmountBelowMinimum:
+				update = &failure.Update
+			case *lnwire.FailFeeInsufficient:
+				update = &failure.Update
+			case *lnwire.FailIncorrectCltvExpiry:
+				update = &failure.Update
+			case *lnwire.FailExpiryTooSoon:
+				update = &failure.Update
+			case *lnwire.FailChannelDisabled:
+				update = &failure.Update
+			}
+
+			if update != nil {
+				log.Info("Received payment failure(%v), applying lightning "+
+					"network topology update", failure.Code())
+				s.cfg.UpdateTopology(update)
+			}
+
 			userErr = errors.New(failure.Code())
 		}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -306,11 +307,13 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
-		sphinxDecoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
 		link := htlcswitch.NewChannelLink(
 			htlcswitch.ChannelLinkConfig{
-				Peer:             p,
-				DecodeOnion:      sphinxDecoder.Decode,
+				Peer:                  p,
+				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+				DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
+					p.PubKey(), lnChan.ShortChanID()),
 				SettledContracts: p.server.breachArbiter.settledContracts,
 				DebugHTLC:        cfg.DebugHTLC,
 				Registry:         p.server.invoices,
@@ -786,11 +789,13 @@ out:
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
 				"with peerId(%v)", chanPoint, p.id)
 
-			decoder := htlcswitch.NewSphinxDecoder(p.server.sphinx)
 			link := htlcswitch.NewChannelLink(
 				htlcswitch.ChannelLinkConfig{
-					Peer:             p,
-					DecodeOnion:      decoder.Decode,
+					Peer:                  p,
+					DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+					DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+					GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
+						p.PubKey(), newChanReq.channel.ShortChanID()),
 					SettledContracts: p.server.breachArbiter.settledContracts,
 					DebugHTLC:        cfg.DebugHTLC,
 					Registry:         p.server.invoices,
@@ -1365,3 +1370,41 @@ func (p *peer) PubKey() [33]byte {
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS
+
+// createGetLastUpdate returns the handler which serve as a source of the last
+// update of the channel in a form of lnwire update message.
+func createGetLastUpdate(router *routing.ChannelRouter,
+	pubKey [33]byte, chanID lnwire.ShortChannelID) func() (*lnwire.ChannelUpdate,
+	error) {
+
+	return func() (*lnwire.ChannelUpdate, error) {
+		_, edge1, edge2, err := router.GetChannelByID(chanID)
+		if err != nil {
+			return nil, err
+		}
+
+		if edge1 == nil || edge2 == nil {
+			return nil, errors.Errorf("unable to find "+
+				"channel by ShortChannelID(%v)", chanID)
+		}
+
+		var local *channeldb.ChannelEdgePolicy
+		if bytes.Compare(edge1.Node.PubKey.SerializeCompressed(),
+			pubKey[:]) == 0 {
+			local = edge2
+		} else {
+			local = edge1
+		}
+
+		return &lnwire.ChannelUpdate{
+			Signature:       local.Signature,
+			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
+			Timestamp:       uint32(time.Now().Unix()),
+			Flags:           local.Flags,
+			TimeLockDelta:   local.TimeLockDelta,
+			HtlcMinimumMsat: uint64(local.MinHTLC),
+			BaseFee:         uint32(local.FeeBaseMSat),
+			FeeRate:         uint32(local.FeeProportionalMillionths),
+		}, nil
+	}
+}

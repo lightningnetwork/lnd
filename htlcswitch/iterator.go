@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcutil"
@@ -139,7 +138,7 @@ func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
 	}
 }
 
-// SphinxDecoder is responsible for keeping all sphinx dependent parts inside
+// OnionProcessor is responsible for keeping all sphinx dependent parts inside
 // and expose only decoding function. With such approach we give freedom for
 // subsystems which wants to decode sphinx path to not be dependable from
 // sphinx at all.
@@ -148,25 +147,23 @@ func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
 // maintain the hop iterator abstraction. Without it the structures which using
 // the hop iterator should contain sphinx router which makes their creations in
 // tests dependent from the sphinx internal parts.
-type SphinxDecoder struct {
+type OnionProcessor struct {
 	router *sphinx.Router
 }
 
-// NewSphinxDecoder creates new instance of decoder.
-func NewSphinxDecoder(router *sphinx.Router) *SphinxDecoder {
-	return &SphinxDecoder{router}
+// NewOnionProcessor creates new instance of decoder.
+func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
+	return &OnionProcessor{router}
 }
 
-// Decode attempts to decode a valid sphinx packet from the passed io.Reader
+// DecodeHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
 // instance using the rHash as the associated data when checking the relevant
 // MACs during the decoding process.
-func (p *SphinxDecoder) Decode(r io.Reader, rHash []byte) (HopIterator, error) {
-	// Before adding the new HTLC to the state machine, parse the onion
-	// object in order to obtain the routing information.
+func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterator,
+	lnwire.FailCode) {
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
-		return nil, errors.Errorf("unable to decode onion pkt: %v",
-			err)
+		return nil, lnwire.CodeTemporaryChannelFailure
 	}
 
 	// Attempt to process the Sphinx packet. We include the payment hash of
@@ -176,12 +173,49 @@ func (p *SphinxDecoder) Decode(r io.Reader, rHash []byte) (HopIterator, error) {
 	// hash twice, thereby losing their money entirely.
 	sphinxPacket, err := p.router.ProcessOnionPacket(onionPkt, rHash)
 	if err != nil {
-		return nil, errors.Errorf("unable to process onion pkt: "+
-			"%v", err)
+		switch err {
+		case sphinx.ErrInvalidOnionVersion:
+			return nil, lnwire.CodeInvalidOnionVersion
+		case sphinx.ErrInvalidOnionHMAC:
+			return nil, lnwire.CodeInvalidOnionHmac
+		case sphinx.ErrInvalidOnionKey:
+			return nil, lnwire.CodeInvalidOnionKey
+		default:
+			return nil, lnwire.CodeTemporaryChannelFailure
+		}
 	}
 
 	return &sphinxHopIterator{
 		nextPacket:      sphinxPacket.NextPacket,
 		processedPacket: sphinxPacket,
-	}, nil
+	}, lnwire.CodeNone
+}
+
+// DecodeOnionObfuscator takes the onion blob as input extract the shared secret
+// and return the entity which is able to obfuscate failure data.
+func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator,
+	lnwire.FailCode) {
+	onionPkt := &sphinx.OnionPacket{}
+	if err := onionPkt.Decode(r); err != nil {
+		return nil, lnwire.CodeTemporaryChannelFailure
+	}
+
+	onionObfuscator, err := sphinx.NewOnionObfuscator(p.router,
+		onionPkt.EphemeralKey)
+	if err != nil {
+		switch err {
+		case sphinx.ErrInvalidOnionVersion:
+			return nil, lnwire.CodeInvalidOnionVersion
+		case sphinx.ErrInvalidOnionHMAC:
+			return nil, lnwire.CodeInvalidOnionHmac
+		case sphinx.ErrInvalidOnionKey:
+			return nil, lnwire.CodeInvalidOnionKey
+		default:
+			return nil, lnwire.CodeTemporaryChannelFailure
+		}
+	}
+
+	return &FailureObfuscator{
+		OnionObfuscator: onionObfuscator,
+	}, lnwire.CodeNone
 }

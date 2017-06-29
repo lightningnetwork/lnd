@@ -29,12 +29,27 @@ type htlcPacket struct {
 	src lnwire.ShortChannelID
 
 	// amount is the value of the HTLC that is being created or modified.
-	//
 	// TODO(andrew.shvv) should be removed after introducing sphinx payment.
 	amount btcutil.Amount
 
 	// htlc lnwire message type of which depends on switch request type.
 	htlc lnwire.Message
+
+	// obfuscator is entity which is needed to make the obfuscation of the
+	// onion failure, it is carried inside the packet from channel
+	// link to the switch because we have to create onion error inside the
+	// switch to, but we unable to restore obfuscator from the onion, because
+	// on stage of forwarding onion inside payment belongs to the remote node.
+	// TODO(andrew.shvv) revisit after refactoring the way of returning errors
+	// inside the htlcswitch packet.
+	obfuscator Obfuscator
+
+	// isObfuscated is used in case if switch sent the packet to the link,
+	// but error have occurred locally, in this case we shouldn't obfuscate
+	// it again.
+	// TODO(andrew.shvv) revisit after refactoring the way of returning errors
+	// inside the htlcswitch packet.
+	isObfuscated bool
 }
 
 // newInitPacket creates htlc switch add packet which encapsulates the add htlc
@@ -49,12 +64,13 @@ func newInitPacket(destNode [33]byte, htlc *lnwire.UpdateAddHTLC) *htlcPacket {
 // newAddPacket creates htlc switch add packet which encapsulates the add htlc
 // request and additional information for proper forwarding over htlc switch.
 func newAddPacket(src, dest lnwire.ShortChannelID,
-	htlc *lnwire.UpdateAddHTLC) *htlcPacket {
+	htlc *lnwire.UpdateAddHTLC, obfuscator Obfuscator) *htlcPacket {
 
 	return &htlcPacket{
-		dest: dest,
-		src:  src,
-		htlc: htlc,
+		dest:       dest,
+		src:        src,
+		htlc:       htlc,
+		obfuscator: obfuscator,
 	}
 }
 
@@ -77,11 +93,12 @@ func newSettlePacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFufillHTLC,
 // add request if something wrong happened on the path to the final
 // destination.
 func newFailPacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFailHTLC,
-	payHash [sha256.Size]byte, amount btcutil.Amount) *htlcPacket {
+	payHash [sha256.Size]byte, amount btcutil.Amount, isObfuscated bool) *htlcPacket {
 	return &htlcPacket{
-		src:     src,
-		payHash: payHash,
-		htlc:    htlc,
-		amount:  amount,
+		src:          src,
+		payHash:      payHash,
+		htlc:         htlc,
+		amount:       amount,
+		isObfuscated: isObfuscated,
 	}
 }

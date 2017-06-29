@@ -2030,10 +2030,11 @@ out:
 	} else if resp.PaymentError == "" {
 		t.Fatalf("payment should have been rejected due to invalid " +
 			"payment hash")
-	} else if !strings.Contains(resp.PaymentError, "preimage") {
+	} else if !strings.Contains(resp.PaymentError,
+		lnwire.CodeUnknownPaymentHash.String()) {
 		// TODO(roasbeef): make into proper gRPC error code
-		t.Fatalf("payment should have failed due to unknown preimage, "+
-			"instead failed due to : %v", err)
+		t.Fatalf("payment should have failed due to unknown payment hash, "+
+			"instead failed due to: %v", resp.PaymentError)
 	}
 
 	// The balances of all parties should be the same as initially since
@@ -2066,9 +2067,10 @@ out:
 	} else if resp.PaymentError == "" {
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
-	} else if !strings.Contains(resp.PaymentError, "htlc value") {
+	} else if !strings.Contains(resp.PaymentError,
+		lnwire.CodeIncorrectPaymentAmount.String()) {
 		t.Fatalf("payment should have failed due to wrong amount, "+
-			"instead failed due to: %v", err)
+			"instead failed due to: %v", resp.PaymentError)
 	}
 
 	// The balances of all parties should be the same as initially since
@@ -2129,9 +2131,10 @@ out:
 	} else if resp.PaymentError == "" {
 		t.Fatalf("payment should fail due to insufficient "+
 			"capacity: %v", err)
-	} else if !strings.Contains(resp.PaymentError, "capacity") {
+	} else if !strings.Contains(resp.PaymentError,
+		lnwire.CodeTemporaryChannelFailure.String()) {
 		t.Fatalf("payment should fail due to insufficient capacity, "+
-			"instead: %v", err)
+			"instead: %v", resp.PaymentError)
 	}
 
 	// For our final test, we'll ensure that if a target link isn't
@@ -2158,9 +2161,10 @@ out:
 		t.Fatalf("payment stream has been closed: %v", err)
 	} else if resp.PaymentError == "" {
 		t.Fatalf("payment should have failed")
-	} else if !strings.Contains(resp.PaymentError, "hop unknown") {
+	} else if !strings.Contains(resp.PaymentError,
+		lnwire.CodeUnknownNextPeer.String()) {
 		t.Fatalf("payment should fail due to unknown hop, instead: %v",
-			err)
+			resp.PaymentError)
 	}
 
 	// Finally, immediately close the channel. This function will also
@@ -2575,17 +2579,19 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 
 		if err := alicePayStream.Send(sendReq); err != nil {
 			t.Fatalf("unable to send payment: "+
-				"%v", err)
+				"stream has been closed: %v", err)
 		}
 	}
 
+	// We should receive one insufficient capacity error, because we are
+	// sending on one invoice bigger.
 	errorReceived := false
 	for i := 0; i < numInvoices; i++ {
 		if resp, err := alicePayStream.Recv(); err != nil {
 			t.Fatalf("payment stream have been closed: %v", err)
 		} else if resp.PaymentError != "" {
 			if strings.Contains(resp.PaymentError,
-				"Insufficient") {
+				lnwire.CodeTemporaryChannelFailure.String()) {
 				if errorReceived {
 					t.Fatalf("redundant payment "+
 						"error: %v", resp.PaymentError)
@@ -2595,7 +2601,7 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 				continue
 			}
 
-			t.Fatalf("unable to send payment: %v", err)
+			t.Fatalf("unable to send payment: %v", resp.PaymentError)
 		}
 	}
 

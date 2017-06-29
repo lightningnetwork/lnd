@@ -17,6 +17,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"crypto/sha256"
+
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
 )
@@ -111,8 +113,8 @@ type Config struct {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendToSwitch func(firstHop *btcec.PublicKey,
-		htlcAdd *lnwire.UpdateAddHTLC) ([32]byte, error)
+	SendToSwitch func(firstHop *btcec.PublicKey, htlcAdd *lnwire.UpdateAddHTLC,
+		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -851,7 +853,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) 
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
+func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
+	*sphinx.Circuit, error) {
 	// First obtain all the public keys along the route which are contained
 	// in each hop.
 	nodes := make([]*btcec.PublicKey, len(route.Hops))
@@ -877,7 +880,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 
 	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Next generate the onion routing packet which allows us to perform
@@ -885,14 +888,14 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 	sphinxPacket, err := sphinx.NewOnionPacket(nodes, sessionKey,
 		hopPayloads, paymentHash)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Finally, encode Sphinx packet using it's wire representation to be
 	// included within the HTLC add packet.
 	var onionBlob bytes.Buffer
 	if err := sphinxPacket.Encode(&onionBlob); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	log.Tracef("Generated sphinx packet: %v",
@@ -904,7 +907,10 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte, error) {
 		}),
 	)
 
-	return onionBlob.Bytes(), nil
+	return onionBlob.Bytes(), &sphinx.Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: nodes,
+	}, nil
 }
 
 // LightningPayment describes a payment to be sent through the network to the
@@ -989,7 +995,8 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		// Generate the raw encoded sphinx packet to be included along
 		// with the htlcAdd message that we send directly to the
 		// switch.
-		sphinxPacket, err := generateSphinxPacket(route, payment.PaymentHash[:])
+		onionBlob, circuit, err := generateSphinxPacket(route,
+			payment.PaymentHash[:])
 		if err != nil {
 			return preImage, nil, err
 		}
@@ -1002,13 +1009,14 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			Expiry:      route.TotalTimeLock,
 			PaymentHash: payment.PaymentHash,
 		}
-		copy(htlcAdd.OnionBlob[:], sphinxPacket)
+		copy(htlcAdd.OnionBlob[:], onionBlob)
 
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
 		firstHop := route.Hops[0].Channel.Node.PubKey
-		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd)
+		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd,
+			circuit)
 		if sendError != nil {
 			log.Errorf("Attempt to send payment %x failed: %v",
 				payment.PaymentHash, sendError)

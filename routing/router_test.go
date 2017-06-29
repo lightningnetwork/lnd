@@ -10,6 +10,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
@@ -80,7 +81,7 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		Chain:     chain,
 		ChainView: chainView,
 		SendToSwitch: func(_ *btcec.PublicKey,
-			_ *lnwire.UpdateAddHTLC) ([32]byte, error) {
+			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
 	})
@@ -175,7 +176,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// first hop. This should force the router to instead take the
 	// available two hop path (through satoshi).
 	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
-		_ *lnwire.UpdateAddHTLC) ([32]byte, error) {
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if ctx.aliases["luoji"].IsEqual(n) {
 			return [32]byte{}, errors.New("send error")

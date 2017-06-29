@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -144,6 +145,11 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	// Using the mining node, spend from a coinbase output numOutputs to
 	// give us btcPerOutput with each output.
 	satoshiPerOutput := int64(btcPerOutput * 1e8)
+	expectedBalance, err := w.ConfirmedBalance(1, false)
+	if err != nil {
+		return err
+	}
+	expectedBalance += btcutil.Amount(satoshiPerOutput * int64(numOutputs))
 	addrs := make([]btcutil.Address, 0, numOutputs)
 	for i := 0; i < numOutputs; i++ {
 		// Grab a fresh address from the wallet to house this output.
@@ -179,7 +185,6 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Wait until the wallet has finished syncing up to the main chain.
 	ticker := time.NewTicker(100 * time.Millisecond)
-	expectedBalance := btcutil.Amount(satoshiPerOutput * int64(numOutputs))
 
 	for range ticker.C {
 		balance, err := w.ConfirmedBalance(1, false)
@@ -1079,6 +1084,155 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 	}
 }
 
+func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
+	_ *lnwallet.LightningWallet, t *testing.T) {
+	// We first mine a few blocks to ensure any transactions still in the
+	// mempool confirm, and then get the original balance, before a
+	// reorganization that doesn't invalidate any existing transactions or
+	// create any new non-coinbase transactions. We'll then check if it's
+	// the same after the empty reorg.
+	_, err := r.Node.Generate(5)
+	if err != nil {
+		t.Fatalf("unable to generate blocks on passed node: %v", err)
+	}
+
+	// Give wallet time to catch up.
+	err = waitForWalletSync(w)
+	if err != nil {
+		t.Fatalf("unable to sync wallet: %v", err)
+	}
+
+	// Send some money from the miner to the wallet
+	err = loadTestCredits(r, w, 20, 4)
+	if err != nil {
+		t.Fatalf("unable to send money to lnwallet: %v", err)
+	}
+
+	// Send some money from the wallet back to the miner.
+	// Grab a fresh address from the miner to house this output.
+	minerAddr, err := r.NewAddress()
+	if err != nil {
+		t.Fatalf("unable to generate address for miner: %v", err)
+	}
+	script, err := txscript.PayToAddrScript(minerAddr)
+	if err != nil {
+		t.Fatalf("unable to create pay to addr script: %v", err)
+	}
+	output := &wire.TxOut{
+		Value:    1e8,
+		PkScript: script,
+	}
+	if _, err = w.SendOutputs([]*wire.TxOut{output}); err != nil {
+		t.Fatalf("unable to send outputs: %v", err)
+	}
+	_, err = r.Node.Generate(50)
+	if err != nil {
+		t.Fatalf("unable to generate blocks on passed node: %v", err)
+	}
+
+	// Give wallet time to catch up.
+	err = waitForWalletSync(w)
+	if err != nil {
+		t.Fatalf("unable to sync wallet: %v", err)
+	}
+
+	// Get the original balance.
+	origBalance, err := w.ConfirmedBalance(1, false)
+	if err != nil {
+		t.Fatalf("unable to query for balance: %v", err)
+	}
+
+	// Now we cause a reorganization as follows.
+	// Step 1: create a new miner and start it.
+	r2, err := rpctest.New(r.ActiveNet, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	err = r2.SetUp(false, 0)
+	if err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer r2.TearDown()
+	newBalance, err := w.ConfirmedBalance(1, false)
+	if err != nil {
+		t.Fatalf("unable to query for balance: %v", err)
+	}
+	if origBalance != newBalance {
+		t.Fatalf("wallet balance incorrect, should have %v, "+
+			"instead have %v", origBalance, newBalance)
+	}
+
+	// Step 2: connect the miner to the passed miner and wait for
+	// synchronization.
+	err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANAdd)
+	if err != nil {
+		t.Fatalf("unable to connect mining nodes together: %v", err)
+	}
+	err = rpctest.JoinNodes([]*rpctest.Harness{r2, r}, rpctest.Blocks)
+	if err != nil {
+		t.Fatalf("unable to synchronize mining nodes: %v", err)
+	}
+
+	// Step 3: Do a set of reorgs by disconecting the two miners, mining
+	// one block on the passed miner and two on the created miner,
+	// connecting them, and waiting for them to sync.
+	for i := 0; i < 5; i++ {
+		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANRemove)
+		if err != nil {
+			t.Fatalf("unable to disconnect mining nodes: %v", err)
+		}
+		// Wait for disconnection
+		for true {
+			peers, err := r2.Node.GetPeerInfo()
+			if err != nil {
+				t.Fatalf("unable to get peer info: %v", err)
+			}
+			if len(peers) == 0 {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		_, err = r.Node.Generate(2)
+		if err != nil {
+			t.Fatalf("unable to generate blocks on passed node: %v",
+				err)
+		}
+		_, err = r2.Node.Generate(3)
+		if err != nil {
+			t.Fatalf("unable to generate blocks on created node: %v",
+				err)
+		}
+
+		// Step 5: Reconnect the miners and wait for them to synchronize.
+		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANAdd)
+		if err != nil {
+			t.Fatalf("unable to connect mining nodes together: %v",
+				err)
+		}
+		err = rpctest.JoinNodes([]*rpctest.Harness{r2, r},
+			rpctest.Blocks)
+		if err != nil {
+			t.Fatalf("unable to synchronize mining nodes: %v", err)
+		}
+
+		// Give wallet time to catch up.
+		err = waitForWalletSync(w)
+		if err != nil {
+			t.Fatalf("unable to sync wallet: %v", err)
+		}
+	}
+
+	// Now we check that the wallet balance stays the same.
+	newBalance, err = w.ConfirmedBalance(1, false)
+	if err != nil {
+		t.Fatalf("unable to query for balance: %v", err)
+	}
+	if origBalance != newBalance {
+		t.Fatalf("wallet balance incorrect, should have %v, "+
+			"instead have %v", origBalance, newBalance)
+	}
+}
+
 type walletTestCase struct {
 	name string
 	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
@@ -1118,6 +1272,10 @@ var walletTests = []walletTestCase{
 		name: "test cancel non-existent reservation",
 		test: testCancelNonExistantReservation,
 	},
+	{
+		name: "reorg wallet balance",
+		test: testReorgWalletBalance,
+	},
 }
 
 func clearWalletStates(a, b *lnwallet.LightningWallet) error {
@@ -1129,6 +1287,25 @@ func clearWalletStates(a, b *lnwallet.LightningWallet) error {
 	}
 
 	return b.Cfg.Database.Wipe()
+}
+
+func waitForWalletSync(w *lnwallet.LightningWallet) error {
+	var synced bool
+	var err error
+	timeout := time.After(10 * time.Second)
+	for !synced {
+		synced, err = w.IsSynced()
+		if err != nil {
+			return err
+		}
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout after 10s")
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests

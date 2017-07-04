@@ -463,7 +463,7 @@ message WalletBalanceRequest {
     bool witness_only = 1;
 }
 message WalletBalanceResponse {
-    double balance = 1 [json_name = "balance"];
+    int64 balance = 1 [json_name = "balance"];
 }
 
 message ChannelBalanceRequest {

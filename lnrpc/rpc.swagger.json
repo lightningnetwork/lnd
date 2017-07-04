@@ -1835,8 +1835,8 @@
       "type": "object",
       "properties": {
         "balance": {
-          "type": "number",
-          "format": "double"
+          "type": "string",
+          "format": "int64"
         }
       }
     }

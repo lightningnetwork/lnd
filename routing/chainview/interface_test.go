@@ -451,10 +451,24 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		expectedTxns)
 }
 
-var chainViewTests = []func(*rpctest.Harness, FilteredChainView, *testing.T){
-	testFilterBlockNotifications,
-	testUpdateFilterBackTrack,
-	testFilterSingleBlock,
+type testCase struct {
+	name string
+	test func(*rpctest.Harness, FilteredChainView, *testing.T)
+}
+
+var chainViewTests = []testCase{
+	{
+		name: "filtered block ntfns",
+		test: testFilterBlockNotifications,
+	},
+	{
+		name: "update filter back track",
+		test: testUpdateFilterBackTrack,
+	},
+	{
+		name: "fitler single block",
+		test: testFilterSingleBlock,
+	},
 }
 
 var interfaceImpls = []struct {
@@ -553,7 +567,16 @@ func TestFilteredChainView(t *testing.T) {
 			t.Fatalf("unable to start chain view: %v", err)
 		}
 		for _, chainViewTest := range chainViewTests {
-			chainViewTest(miner, chainView, t)
+			testName := fmt.Sprintf("%v: %v", chainViewImpl.name,
+				chainViewTest.name)
+
+			success := t.Run(testName, func(t *testing.T) {
+				chainViewTest.test(miner, chainView, t)
+			})
+
+			if !success {
+				break
+			}
 		}
 
 		if err := chainView.Stop(); err != nil {

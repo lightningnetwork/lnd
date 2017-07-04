@@ -63,18 +63,15 @@ bitcoin into.
 # Init bitcoin network env variable:
 $ export NETWORK="simnet" 
 
-# Run "btcd" node:
-$ docker-compose up -d "btcd"
-
 # Run the "Alice" container and log into it:
-$ docker-compose up -d "alice"
-$ docker exec -i -t "alice" bash
+$ docker-compose run -d --name alice lnd_btc
+$ docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
 alice$ lncli newaddress np2wkh 
 
 # Recreate "btcd" node and set Alice's address as mining address:
-$ MINING_ADDRESS=<alice_address> docker-compose up -d "btcd"
+$ MINING_ADDRESS=<alice_address> docker-compose up -d btcd
 
 # Generate 400 block (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):
@@ -93,8 +90,8 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose up --no-recreate -d "bob"
-$ docker exec -i -t "bob" bash
+$ docker-compose up --no-recreate -d --name bob lnd_btc
+$ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:
 bob$ lncli getinfo
@@ -115,7 +112,7 @@ bob$ lncli getinfo
 }
 
 # Get the IP address of "Bob" node:
-$ docker inspect "bob" | grep IPAddress
+$ docker inspect bob | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
 alice$ lncli connect <bob_pubkey>@<bob_host>
@@ -198,12 +195,11 @@ bob$ lncli addinvoice --value=10000
 # Send payment from "Alice" to "Bob":
 alice$ lncli sendpayment --pay_req=<encoded_invoice>
 
-# Check "Alice"'s channel balance was decremented accordingly by the payment
-# amount
-alice$ lncli listchannels
+# Check "Alice"'s channel balance
+alice$ lncli channelbalance
 
-# Check "Bob"'s channel balance was credited with the payment amount
-bob$ lncli listchannels
+# Check "Bob"'s channel balance
+bob$ lncli channelbalance
 ```
 
 Now we have open channel in which we sent only one payment, let's imagine

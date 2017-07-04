@@ -32,7 +32,7 @@ check_test_ports() {
 # coverage profile. Be aware that we are skipping the integration tests, as the
 # tool won't gather any useful coverage information from them.
 test_with_coverage_profile() {
-    print "* Run tests with creating coverage profile"
+    print "* Running tests with creating coverage profile"
     check_test_ports
 
     echo "mode: count" > profile.cov
@@ -73,7 +73,7 @@ test_with_coverage_profile() {
 # test_race_conditions run standard go test without creating coverage
 # profile but with race condition checks.
 test_race_conditions() {
-    print "* Run tests with race conditions checks"
+    print "* Running tests with the race condition detector"
     check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
@@ -151,18 +151,21 @@ print "* Build source"
 go install -v . ./cmd/...
 
 # Lint check is first because we shouldn't run tests on garbage code.
-if [ "$NEED_LINT" == "true" ]; then
+if [ "$NEED_LINT" == "true" ] || [ "$RACE" == "false" ]; then
     lint_check
 fi
 
 # Race condition second because we shouldn't check coverage on buggy code.
-if [ "$NEED_RACE" == "true" ]; then
+if [ "$NEED_RACE" == "true" ] || [ "$RACE" == "true" ]; then
     test_race_conditions
 fi
 
 # Test coverage is third because in this case code should work properly and
 # we may calmly send coverage profile (if script is run on travis)
-if [ "$NEED_COVERAGE" == "true" ]; then
+if [ "$NEED_COVERAGE" == "true" ] || [ "$RACE" == "false" ]; then
+    print "* Running integration tests"
+    go test -v -tags rpctest
+
     test_with_coverage_profile
 fi
 

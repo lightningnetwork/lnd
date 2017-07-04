@@ -129,8 +129,8 @@ Bitcoin chain. Also `lnd` also supports Litecoin, one is able to also specified
 be active on Litecoin's testnet4.
 
 #### Accurate as of:
-roasbeef/btcd commit: 54362e17a5b80643ef1e12edc08895a2e2a1202b
+roasbeef/btcd commit: f8c02aff4e7a807ba0c1349e2db03695d8e790e8
 
-roasbeef/btcutil commit: d347e49
+roasbeef/btcutil commit: a259eaf2ec1b54653cdd67848a41867f280797ee
 
 lightningnetwork/lnd commit: d7b36c6

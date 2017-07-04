@@ -16,6 +16,9 @@ install:
   - go install . ./cmd/...
   - popd
   - popd
+env:
+  - RACE=false
+  - RACE=true
 script:
   - export PATH=$PATH:$HOME/gopath/bin
-  - ./gotest.sh -l -r -c
+  - ./gotest.sh

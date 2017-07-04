@@ -877,9 +877,11 @@ func sendPayment(ctx *cli.Context) error {
 	paymentStream.CloseSend()
 
 	printJSON(struct {
+		E string       `json:"payment_error"`
 		P string       `json:"payment_preimage"`
 		R *lnrpc.Route `json:"payment_route"`
 	}{
+		E: resp.PaymentError,
 		P: hex.EncodeToString(resp.PaymentPreimage),
 		R: resp.PaymentRoute,
 	})

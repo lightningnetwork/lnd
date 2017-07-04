@@ -109,8 +109,7 @@ func (b *breachArbiter) Start() error {
 
 	// For each of the channels read from disk, we'll create a channel
 	// state machine in order to watch for any potential channel closures.
-	channelsToWatch := make([]*lnwallet.LightningChannel,
-		len(activeChannels))
+	channelsToWatch := make([]*lnwallet.LightningChannel, len(activeChannels))
 	for i, chanState := range activeChannels {
 		channel, err := lnwallet.NewLightningChannel(nil, b.notifier,
 			b.estimator, chanState)

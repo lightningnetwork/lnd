@@ -771,7 +771,7 @@ func (n *networkHarness) SetUp() error {
 	}
 
 	// Now block until both wallets have fully synced up.
-	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10).ToBTC()
+	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 10)
 	balReq := &lnrpc.WalletBalanceRequest{}
 	balanceTicker := time.Tick(time.Millisecond * 50)
 out:
@@ -1347,7 +1347,7 @@ func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 				return err
 			}
 
-			if currentBal.Balance == initialBalance.Balance+amt.ToBTC() {
+			if currentBal.Balance == initialBalance.Balance+int64(amt) {
 				return nil
 			}
 		case <-time.After(time.Second * 30):

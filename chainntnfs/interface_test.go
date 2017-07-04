@@ -2,6 +2,7 @@ package chainntnfs_test
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -65,8 +66,6 @@ func getTestTxId(miner *rpctest.Harness) (*chainhash.Hash, error) {
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
-
-	t.Logf("testing single conf notification")
 
 	// We'd like to test the case of being notified once a txid reaches
 	// a *single* confirmation.
@@ -133,8 +132,6 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 func testMultiConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	t.Logf("testing mulit-conf notification")
-
 	// We'd like to test the case of being notified once a txid reaches
 	// N confirmations, where N > 1.
 	//
@@ -181,8 +178,6 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 
 func testBatchConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
-
-	t.Logf("testing batch mulit-conf notification")
 
 	// We'd like to test a case of serving notifiations to multiple
 	// clients, each requesting to be notified once a txid receives
@@ -308,8 +303,6 @@ func createSpendTx(outpoint *wire.OutPoint, pkScript []byte,
 func testSpendNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	t.Logf("testing multi-client spend notification")
-
 	// We'd like to test the spend notifications for all ChainNotifier
 	// concrete implementations.
 	//
@@ -401,8 +394,6 @@ func testSpendNotification(miner *rpctest.Harness,
 func testBlockEpochNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	t.Logf("testing block epoch notification")
-
 	// We'd like to test the case of multiple registered clients receiving
 	// block epoch notifications.
 
@@ -450,8 +441,6 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 
 func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
-
-	t.Logf("testing multi-client multi-conf notification")
 
 	// We'd like to test the case of a multiple clients registered to
 	// receive a confirmation notification for the same transaction.
@@ -512,8 +501,6 @@ func testMultiClientConfirmationNotification(miner *rpctest.Harness,
 // confirmation notification should be dispatched immediately.
 func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
-
-	t.Logf("testing transaction confirmed before notification registration")
 
 	// First, let's send some coins to "ourself", obtaining a txid.  We're
 	// spending from a coinbase output here, so we use the dedicated
@@ -636,8 +623,6 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	t.Logf("testing spend broadcast before notification registration")
-
 	// We'd like to test the spend notifications for all ChainNotifier
 	// concrete implementations.
 	//
@@ -748,8 +733,6 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 func testCancelSpendNtfn(node *rpctest.Harness,
 	notifier chainntnfs.ChainNotifier, t *testing.T) {
 
-	t.Logf("testing cancel spend notification")
-
 	// We'd like to test that once a spend notification is registered, it
 	// can be cancelled before the notification is dispatched.
 
@@ -836,8 +819,6 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifier,
 	t *testing.T) {
 
-	t.Logf("testing cancel epoch ntfn")
-
 	// We'd like to ensure that once a client cancels their block epoch
 	// notifications, no further notifications are sent over the channel
 	// if/when new blocks come in.
@@ -885,17 +866,53 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 	}
 }
 
-var ntfnTests = []func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T){
-	testSingleConfirmationNotification,
-	testMultiConfirmationNotification,
-	testBatchConfirmationNotification,
-	testMultiClientConfirmationNotification,
-	testSpendNotification,
-	testBlockEpochNotification,
-	testTxConfirmedBeforeNtfnRegistration,
-	testSpendBeforeNtfnRegistration,
-	testCancelSpendNtfn,
-	testCancelEpochNtfn,
+type testCase struct {
+	name string
+
+	test func(node *rpctest.Harness, notifier chainntnfs.ChainNotifier, t *testing.T)
+}
+
+var ntfnTests = []testCase{
+	{
+		name: "single conf ntfn",
+		test: testSingleConfirmationNotification,
+	},
+	{
+		name: "multi conf ntfn",
+		test: testMultiConfirmationNotification,
+	},
+	{
+		name: "batch conf ntfn",
+		test: testBatchConfirmationNotification,
+	},
+	{
+		name: "multi client conf",
+		test: testMultiClientConfirmationNotification,
+	},
+	{
+		name: "spend ntfn",
+		test: testSpendNotification,
+	},
+	{
+		name: "block epoch",
+		test: testBlockEpochNotification,
+	},
+	{
+		name: "historical conf dispatch",
+		test: testTxConfirmedBeforeNtfnRegistration,
+	},
+	{
+		name: "historical spend dispatch",
+		test: testSpendBeforeNtfnRegistration,
+	},
+	{
+		name: "cancel spend ntfn",
+		test: testCancelSpendNtfn,
+	},
+	{
+		name: "cancel epoch ntfn",
+		test: testCancelEpochNtfn,
+	},
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests
@@ -997,7 +1014,16 @@ func TestInterfaces(t *testing.T) {
 		}
 
 		for _, ntfnTest := range ntfnTests {
-			ntfnTest(miner, notifier, t)
+			testName := fmt.Sprintf("%v: %v", notifierType,
+				ntfnTest.name)
+
+			success := t.Run(testName, func(t *testing.T) {
+				ntfnTest.test(miner, notifier, t)
+			})
+
+			if !success {
+				break
+			}
 		}
 
 		notifier.Stop()

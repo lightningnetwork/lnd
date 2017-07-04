@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -716,6 +717,22 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		},
 	}
 
+	// Ensure that neutrino is caught up to the height hint before we
+	// attempt to fetch the utxo fromt the chain. If we're behind, then we
+	// may miss a notification dispatch.
+	for {
+		n.heightMtx.RLock()
+		currentHeight := n.bestHeight
+		n.heightMtx.RUnlock()
+
+		if currentHeight < heightHint {
+			time.Sleep(time.Millisecond * 200)
+			continue
+		}
+
+		break
+	}
+
 	// Before sending off the notification request, we'll attempt to see if
 	// this output is still spent or not at this point in the chain.
 	spendReport, err := n.p2pNode.GetUtxo(
@@ -758,6 +775,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		neutrino.AddOutPoints(*outpoint),
 		neutrino.Rewind(currentHeight),
 	}
+
 	if err := n.chainView.Update(rescanUpdate...); err != nil {
 		return nil, err
 	}

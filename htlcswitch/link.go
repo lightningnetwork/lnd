@@ -928,7 +928,9 @@ func (l *channelLink) processLockedInHtlcs(
 				// extended. Additionally, we'll ensure that
 				// our time-lock value has been computed
 				// correctly.
-				if fwdInfo.AmountToForward != invoice.Terms.Value {
+				if !l.cfg.DebugHTLC &&
+					fwdInfo.AmountToForward != invoice.Terms.Value {
+
 					log.Errorf("Onion payload of incoming "+
 						"htlc(%x) has incorrect value: "+
 						"expected %v, got %v", pd.RHash,
@@ -940,7 +942,9 @@ func (l *channelLink) processLockedInHtlcs(
 					needUpdate = true
 					continue
 				}
-				if fwdInfo.OutgoingCTLV != l.cfg.FwrdingPolicy.TimeLockDelta {
+				if !l.cfg.DebugHTLC &&
+					fwdInfo.OutgoingCTLV != l.cfg.FwrdingPolicy.TimeLockDelta {
+
 					log.Errorf("Onion payload of incoming "+
 						"htlc(%x) has incorrect time-lock: "+
 						"expected %v, got %v",

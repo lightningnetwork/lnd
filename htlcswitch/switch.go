@@ -628,7 +628,7 @@ func (s *Switch) htlcForwarder() {
 			// Otherwise, we'll log this diff, then accumulate the
 			// new stats into the running total.
 			log.Infof("Sent %v satoshis received %v satoshi "+
-				" in the last 10 seconds (%v tx/sec)",
+				"in the last 10 seconds (%v tx/sec)",
 				diffSatSent, diffSatRecv, float64(diffNumUpdates)/10)
 
 			totalNumUpdates += diffNumUpdates

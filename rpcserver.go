@@ -864,7 +864,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
 
 	return &lnrpc.WalletBalanceResponse{
-		Balance: balance.ToBTC(),
+		Balance: int64(balance),
 	}, nil
 }
 

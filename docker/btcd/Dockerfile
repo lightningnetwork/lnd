@@ -16,7 +16,12 @@ EXPOSE 28901 28902
 
 # Grab and install the latest version of roasbeef's fork of btcd and all
 # related dependencies.
-RUN go get -u -v github.com/roasbeef/btcd/...
+RUN go get -u github.com/Masterminds/glide
+
+WORKDIR $GOPATH/src/github.com/roasbeef/btcd
+RUN git clone https://github.com/roasbeef/btcd .
+RUN glide install
+RUN go install . ./cmd/...
 
 RUN mkdir "/rpc" "/root/.btcd" "/root/.btcctl"
 RUN touch "/root/.btcd/btcd.conf"

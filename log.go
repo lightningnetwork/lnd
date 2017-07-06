@@ -110,14 +110,14 @@ func initLogRotator(logFile string) {
 		fmt.Fprintf(os.Stderr, "failed to create log directory: %v\n", err)
 		os.Exit(1)
 	}
-	pr, pw := io.Pipe()
-	r, err := rotator.New(pr, logFile, 10*1024, false, 3)
+	r, err := rotator.New(logFile, 10*1024, false, 3)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create file rotator: %v\n", err)
 		os.Exit(1)
 	}
 
-	go r.Run()
+	pr, pw := io.Pipe()
+	go r.Run(pr)
 
 	logRotator = r
 	logRotatorPipe = pw

@@ -1,5 +1,5 @@
-hash: 6c18f5869f221e2cd4a979035580efeffd1b12e975d89190d416e98dc7b74498
-updated: 2017-06-25T12:56:35.351126486+03:00
+hash: bd996ebffce37fea29b221c3a555d2a76a9604b51235c07ce95d53fad468cb30
+updated: 2017-07-06T14:20:31.838236135-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -18,7 +18,7 @@ imports:
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/btclog
-  version: 96c2a91a67da03552a5e6554fe3ccbfbc7f860be
+  version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
 - name: github.com/btcsuite/go-flags
@@ -61,7 +61,7 @@ imports:
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
 - name: github.com/jrick/logrotate
-  version: 4ed05ed86ef17d10ff99cce77481e0fcf6f2c7b0
+  version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
   - rotator
 - name: github.com/kkdai/bstream
@@ -129,7 +129,7 @@ imports:
 - name: github.com/urfave/cli
   version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
 - name: golang.org/x/crypto
-  version: 0fe963104e9d1877082f8fb38f816fcd97eb1d10
+  version: 122d919ec1efcfb58483215da23f815853e24b81
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20

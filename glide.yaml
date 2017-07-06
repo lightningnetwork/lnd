@@ -3,8 +3,10 @@ import:
 - package: github.com/boltdb/bolt
   version: ^1.2.1
 - package: github.com/btcsuite/btclog
+  version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - package: github.com/btcsuite/go-flags
 - package: github.com/jrick/logrotate
+  version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
 - package: github.com/davecgh/go-spew
   subpackages:
   - spew

@@ -397,6 +397,8 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 			" while one pending channel is existing: err %v", err)
 	}
 
+	time.Sleep(time.Millisecond * 300)
+
 	// Check existing connection.
 	assertNumConnections(ctxb, t, net.Alice, net.Bob, 1)
 

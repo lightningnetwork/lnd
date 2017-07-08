@@ -508,13 +508,14 @@ func (n *threeHopNetwork) stop() {
 // channel link	    	  channel link   channel link		channel link
 //
 func newThreeHopNetwork(t *testing.T, aliceToBob,
-	bobToCarol btcutil.Amount, startingHeight uint32) *threeHopNetwork {
+	bobToCarol btcutil.Amount, serverErr chan error,
+	startingHeight uint32) *threeHopNetwork {
 	var err error
 
 	// Create three peers/servers.
-	aliceServer := newMockServer(t, "alice")
-	bobServer := newMockServer(t, "bob")
-	carolServer := newMockServer(t, "carol")
+	aliceServer := newMockServer("alice", serverErr)
+	bobServer := newMockServer("bob", serverErr)
+	carolServer := newMockServer("carol", serverErr)
 
 	// Create mock decoder instead of sphinx one in order to mock the
 	// route which htlc should follow.

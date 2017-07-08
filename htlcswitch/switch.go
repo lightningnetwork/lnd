@@ -878,9 +878,8 @@ func (s *Switch) addLink(link ChannelLink) error {
 		return err
 	}
 
-	log.Infof("Added channel link with chan_id=%v, short_chan_id=(%v), "+
-		"bandwidth=%v", link.ChanID(), spew.Sdump(link.ShortChanID()),
-		link.Bandwidth())
+	log.Infof("Added channel link with chan_id=%v, short_chan_id=(%v)",
+		link.ChanID(), spew.Sdump(link.ShortChanID()))
 
 	return nil
 }

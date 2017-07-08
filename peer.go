@@ -399,6 +399,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			Switch:           p.server.htlcSwitch,
 			FwrdingPolicy:    *forwardingPolicy,
 			BlockEpochs:      blockEpoch,
+			SyncStates:       true,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
 			uint32(currentHeight))
@@ -743,6 +744,9 @@ out:
 			isChanUpdate = true
 			targetChan = msg.ChanID
 		case *lnwire.UpdateFee:
+			isChanUpdate = true
+			targetChan = msg.ChanID
+		case *lnwire.ChannelReestablish:
 			isChanUpdate = true
 			targetChan = msg.ChanID
 
@@ -1261,6 +1265,7 @@ out:
 				Switch:           p.server.htlcSwitch,
 				FwrdingPolicy:    p.server.cc.routingPolicy,
 				BlockEpochs:      blockEpoch,
+				SyncStates:       false,
 			}
 			link := htlcswitch.NewChannelLink(linkConfig, newChan,
 				uint32(currentHeight))

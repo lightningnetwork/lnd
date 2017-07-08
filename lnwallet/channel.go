@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"container/list"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"runtime"
 	"sort"
@@ -2428,6 +2429,132 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	return sig, htlcSigs, nil
 }
 
+// ReceiveReestablish is used to handle the remote channel reestablish message
+// and generate the set of updates which are have to be sent to remote side
+// to synchronize the states of the channels.
+func (lc *LightningChannel) ReceiveReestablish(msg *lnwire.ChannelReestablish) (
+	[]lnwire.Message, error) {
+
+	lc.Lock()
+	defer lc.Unlock()
+	var updates []lnwire.Message
+
+	// As far we store on last commitment transaction we should rely on the
+	// height of the commitment transaction in order to calculate the length.
+	numberRemoteCommitments := lc.remoteCommitChain.tip().height + 1
+
+	// Number of the revocations might be calculated as the height of the
+	// commitment transactions which will be revoked next minus one. And plus
+	// one because height starts from zero.
+	numberRemoteRevocations := lc.localCommitChain.tail().height - 1 + 1
+
+	revocationsnumberDiff := msg.NextRemoteRevocationNumber - numberRemoteRevocations
+	if revocationsnumberDiff == 0 {
+		// If remote side expects as receive revocation which we already
+		// consider as last, than it means that they aren't received our
+		// last revocation message.
+		revocationMsg, err := lc.generateRevocation(lc.currentHeight - 1)
+		if err != nil {
+			return nil, err
+		}
+		updates = append(updates, revocationMsg)
+	} else if revocationsnumberDiff < 0 {
+		// Remote node claims that it received the revoke_and_ack message
+		// which we did not send.
+		return nil, errors.New("remote side claims that it haven't received " +
+			"acked revoke and ack message")
+	}
+
+	commitmentChainDiff := msg.NextLocalCommitmentNumber - numberRemoteCommitments
+	if commitmentChainDiff == 0 {
+		// If remote side expects as receive commitment which we already
+		// consider as last, than it means that they aren't received our
+		// last commit sig message.
+		commitment := lc.remoteCommitChain.tip()
+		chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
+		for _, htlc := range commitment.outgoingHTLCs {
+			// If htlc is included in the local commitment chain (have been
+			// included by remote side) or htlc is included in remote chain, but
+			// not in the last commimemnt transaction than we should skip it,
+			// because we need resend only updates which haven't been received
+			// by remotes side.
+			if htlc.addCommitHeightLocal != 0 ||
+				(htlc.addCommitHeightLocal != 0 &&
+					htlc.addCommitHeightLocal <= commitment.height) {
+				continue
+			}
+
+			switch htlc.EntryType {
+			case Add:
+				var onionBlob [lnwire.OnionPacketSize]byte
+				copy(onionBlob[:], htlc.Payload)
+				updates = append(updates, &lnwire.UpdateAddHTLC{
+					ChanID:      chanID,
+					ID:          htlc.Index,
+					Expiry:      htlc.Timeout,
+					Amount:      htlc.Amount,
+					PaymentHash: htlc.RHash,
+					OnionBlob:   onionBlob,
+				})
+			case Fail:
+				updates = append(updates, &lnwire.UpdateFailHTLC{
+					ChanID: chanID,
+					ID:     htlc.Index,
+					Reason: lnwire.OpaqueReason([]byte{}),
+				})
+			case Settle:
+				updates = append(updates, &lnwire.UpdateFufillHTLC{
+					ChanID:          chanID,
+					ID:              htlc.Index,
+					PaymentPreimage: htlc.RPreimage,
+				})
+			}
+		}
+
+		// Generate last sent commit sig message by signing the transaction and
+		// creating the signature.
+		lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitment.txn)
+		sig, err := lc.signer.SignOutputRaw(commitment.txn, lc.signDesc)
+		if err != nil {
+			return nil, err
+		}
+
+		commitSig, err := btcec.ParseSignature(sig, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+		updates = append(updates, &lnwire.CommitSig{
+			ChanID:    chanID,
+			CommitSig: commitSig,
+		})
+
+	} else if commitmentChainDiff < 0 {
+		// Remote node claims that it received the commit sig message which we
+		// did not send.
+		return nil, errors.New("remote side claims that it haven't received " +
+			"acked commit sig message")
+	}
+
+	return updates, nil
+}
+
+// LastCounters returns the historical length of the local commimemnt
+// transaction chain and the historical number of the the revocked commiment
+// transactions, whicha are needed in order to generate the channel
+// reestablish message.
+func (lc *LightningChannel) LastCounters() (uint64, uint64) {
+	// As far we store on last commitment transaction we should rely on the
+	// height of the commitment transaction in order to calculate the length.
+	numberLocalCommitments := lc.localCommitChain.tip().height + 1
+
+	// Number of the revocations might be calculated as the height of the
+	// commitment transactions which will be revoked next minus one. And plus
+	// one because height starts from zero.
+	numberRemoteRevocations := lc.remoteCommitChain.tail().height - 1 + 1
+
+	return numberLocalCommitments, numberRemoteRevocations
+}
+
 // validateCommitmentSanity is used to validate that on current state the commitment
 // transaction is valid in terms of propagating it over Bitcoin network, and
 // also that all outputs are meet Bitcoin spec requirements and they are
@@ -2782,43 +2909,13 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	lc.Lock()
 	defer lc.Unlock()
 
-	// Now that we've accept a new state transition, we send the remote
-	// party the revocation for our current commitment state.
-	revocationMsg := &lnwire.RevokeAndAck{}
-	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(
-		lc.currentHeight,
-	)
+	revocationMsg, err := lc.generateRevocation(lc.currentHeight)
 	if err != nil {
 		return nil, err
 	}
-	copy(revocationMsg.Revocation[:], commitSecret[:])
 
-	// Along with this revocation, we'll also send the _next_ commitment
-	// point that the remote party should use to create our next commitment
-	// transaction. We use a +2 here as we already gave them a look ahead
-	// of size one after the FundingLocked message was sent:
-	//
-	// 0: current revocation, 1: their "next" revocation, 2: this revocation
-	//
-	// We're revoking the current revocation. Once they receive this
-	// message they'll set the "current" revocation for us to their stored
-	// "next" revocation, and this revocation will become their new "next"
-	// revocation.
-	//
-	// Put simply in the window slides to the left by one.
-	nextCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
-		lc.currentHeight + 2,
-	)
-	if err != nil {
-		return nil, err
-	}
-	revocationMsg.NextRevocationKey = ComputeCommitmentPoint(
-		nextCommitSecret[:],
-	)
-
-	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v",
-		lc.channelState.FundingOutpoint, lc.localCommitChain.tail().height,
-		lc.currentHeight+1)
+	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v", lc.channelState.FundingOutpoint,
+		lc.localCommitChain.tail().height, lc.currentHeight+1)
 
 	// Advance our tail, as we've revoked our previous state.
 	lc.localCommitChain.advanceTail()
@@ -3858,6 +3955,47 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
 	lc.pendingFeeUpdate = &feePerKw
 
 	return nil
+}
+
+// generateRevocation generate lnwire revocation message by the given height
+// and revocation edge.
+func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAndAck,
+	error) {
+
+	// Now that we've accept a new state transition, we send the remote
+	// party the revocation for our current commitment state.
+	revocationMsg := &lnwire.RevokeAndAck{}
+	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(height)
+	if err != nil {
+		return nil, err
+	}
+	copy(revocationMsg.Revocation[:], commitSecret[:])
+
+	// Along with this revocation, we'll also send the _next_ commitment
+	// point that the remote party should use to create our next commitment
+	// transaction. We use a +2 here as we already gave them a look ahead
+	// of size one after the FundingLocked message was sent:
+	//
+	// 0: current revocation, 1: their "next" revocation, 2: this revocation
+	//
+	// We're revoking the current revocation. Once they receive this
+	// message they'll set the "current" revocation for us to their stored
+	// "next" revocation, and this revocation will become their new "next"
+	// revocation.
+	//
+	// Put simply in the window slides to the left by one.
+	nextCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+		height + 2,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	revocationMsg.NextRevocationKey = ComputeCommitmentPoint(nextCommitSecret[:])
+	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
+		&lc.channelState.FundingOutpoint)
+
+	return revocationMsg, nil
 }
 
 // CreateCommitTx creates a commitment transaction, spending from specified

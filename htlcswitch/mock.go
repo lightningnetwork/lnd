@@ -62,14 +62,20 @@ func newMockServer(name string, errChan chan error) *mockServer {
 
 func (s *mockServer) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
-		return nil
+		return errors.New("mock server already started")
 	}
 
-	s.htlcSwitch.Start()
+	if err := s.htlcSwitch.Start(); err != nil {
+		return err
+	}
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+
+		defer func() {
+			s.htlcSwitch.Stop()
+		}()
 
 		for {
 			select {
@@ -79,8 +85,8 @@ func (s *mockServer) Start() error {
 				for _, interceptor := range s.interceptorFuncs {
 					skip, err := interceptor(msg)
 					if err != nil {
-						s.errChan <- errors.Errorf("%v: error in the "+
-							"interceptor: %v", s.name, err)
+						s.fail(errors.Errorf("%v: error in the "+
+							"interceptor: %v", s.name, err))
 						return
 					}
 					shouldSkip = shouldSkip || skip
@@ -91,7 +97,8 @@ func (s *mockServer) Start() error {
 				}
 
 				if err := s.readHandler(msg); err != nil {
-					s.errChan <- errors.Errorf("%v server error: %v", s.name, err)
+					s.fail(err)
+					return
 				}
 			case <-s.quit:
 				return
@@ -100,6 +107,16 @@ func (s *mockServer) Start() error {
 	}()
 
 	return nil
+}
+
+func (s *mockServer) fail(err error) {
+	go func() {
+		s.Stop()
+	}()
+
+	go func() {
+		s.errChan <- errors.Errorf("%v server error: %v", s.name, err)
+	}()
 }
 
 // mockHopIterator represents the test version of hop iterator which instead
@@ -266,6 +283,7 @@ func (s *mockServer) SendMessage(message lnwire.Message) error {
 	select {
 	case s.messages <- message:
 	case <-s.quit:
+		return errors.New("server is stopped")
 	}
 
 	return nil
@@ -290,6 +308,8 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	case *lnwire.FundingLocked:
 		// Ignore
 		return nil
+	case *lnwire.ChannelReestablish:
+		targetChan = msg.ChanID
 	default:
 		return errors.New("unknown message type")
 	}
@@ -323,24 +343,22 @@ func (s *mockServer) PubKey() [33]byte {
 func (s *mockServer) Disconnect(reason error) {
 	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
 
-	s.Stop()
-	s.errChan <- errors.Errorf("server %v was disconnected: %v", s.name,
-		reason)
+	s.fail(errors.Errorf("server %v was disconnected: %v", s.name, reason))
 }
 
 func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {
 	return nil
 }
 
-func (s *mockServer) Stop() {
+func (s *mockServer) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
-		return
+		return nil
 	}
-
-	s.htlcSwitch.Stop()
 
 	close(s.quit)
 	s.wg.Wait()
+
+	return nil
 }
 
 func (s *mockServer) String() string {

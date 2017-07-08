@@ -3923,6 +3923,170 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// testChannelReestablishment...
+func testChannelReestablishment(net *networkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// As we'll be querying the channels  state frequently we'll
+	// create a closure helper function for the purpose.
+	getChanInfo := func(node *lightningNode) (*lnrpc.ActiveChannel, error) {
+		req := &lnrpc.ListChannelsRequest{}
+		channelInfo, err := node.ListChannels(ctxb, req)
+		if err != nil {
+			return nil, err
+		}
+		if len(channelInfo.Channels) != 1 {
+			t.Fatalf("node should only have a single channel, "+
+				"instead he has %v",
+				len(channelInfo.Channels))
+		}
+
+		return channelInfo.Channels[0], nil
+	}
+
+	const (
+		timeout    = time.Duration(time.Second * 5)
+		paymentAmt = 100
+	)
+
+	// First establish a channel with a capacity equals to the overall
+	// amount of payments, between Alice and Bob, at the end of the test
+	// Alice should send all money from her side to Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		paymentAmt*500, 0)
+
+	info, err := getChanInfo(net.Alice)
+	if err != nil {
+		t.Fatalf("unable to get alice channel info: %v", err)
+	}
+
+	// Calculate the number of invoices.
+	numInvoices := int(info.LocalBalance / paymentAmt)
+
+	// Initialize seed random in order to generate invoices.
+	rand.Seed(time.Now().UnixNano())
+
+	// With the channel open, we'll create a invoices for Bob that
+	// Alice will pay to in order to advance the state of the channel.
+	bobPaymentHashes := make([][]byte, numInvoices)
+	for i := 0; i < numInvoices; i++ {
+		preimage := make([]byte, 32)
+		_, err := rand.Read(preimage)
+		if err != nil {
+			t.Fatalf("unable to generate preimage: %v", err)
+		}
+
+		invoice := &lnrpc.Invoice{
+			Memo:      "testing",
+			RPreimage: preimage,
+			Value:     paymentAmt,
+		}
+		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		bobPaymentHashes[i] = resp.RHash
+	}
+
+	// Wait for Alice to receive the channel edge from the funding manager.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't see the alice->bob channel before "+
+			"timeout: %v", err)
+	}
+
+	// Open up a payment stream to Alice that we'll use to send payment to
+	// Bob. We also create a small helper function to send payments to Bob,
+	// consuming the payment hashes we generated above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	alicePayStream, err := net.Alice.SendPayment(ctxt)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+
+	// Send payments from Alice to Bob using of Bob's payment hashes
+	// generated above.
+	for i := 0; i < numInvoices-1; i++ {
+		sendReq := &lnrpc.SendRequest{
+			PaymentHash: bobPaymentHashes[i],
+			Dest:        net.Bob.PubKey[:],
+			Amt:         paymentAmt,
+		}
+
+		if err := alicePayStream.Send(sendReq); err != nil {
+			t.Fatalf("unable to send payment: "+
+				"stream has been closed: %v", err)
+		}
+	}
+
+	// We should receive one insufficient capacity error, because we are
+	// sending on one invoice bigger.
+
+	for i := 0; i < numInvoices/2; i++ {
+		if resp, err := alicePayStream.Recv(); err != nil {
+			t.Fatalf("payment stream has been closed: %v", err)
+		} else if resp.PaymentError != "" {
+			t.Fatalf("unable to finish the payment: %v", err)
+		}
+	}
+
+	errChan := make(chan error)
+	go func() {
+		errChan <- net.Bob.Restart(net.lndErrorChan, nil)
+	}()
+	go func() {
+		errChan <- net.Alice.Restart(net.lndErrorChan, nil)
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				t.Fatalf("unable to restart node: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("unable to restart node: timeout")
+		}
+	}
+
+	// Open up a payment stream to Alice that we'll use to send payment to
+	// Bob. We also create a small helper function to send payments to Bob,
+	// consuming the payment hashes we generated above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	alicePayStream, err = net.Alice.SendPayment(ctxt)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+
+	sendReq := &lnrpc.SendRequest{
+		PaymentHash: bobPaymentHashes[numInvoices-1],
+		Dest:        net.Bob.PubKey[:],
+		Amt:         paymentAmt,
+	}
+
+	if err := alicePayStream.Send(sendReq); err != nil {
+		t.Fatalf("unable to send payment: "+
+			"stream has been closed: %v", err)
+	}
+
+	if resp, err := alicePayStream.Recv(); err != nil {
+		t.Fatalf("payment stream has been closed: %v", err)
+	} else if resp.PaymentError != "" {
+		t.Fatalf("unable to send the payment: %v", resp.PaymentError)
+	}
+
+	time.Sleep(time.Second)
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -4003,6 +4167,12 @@ var testsCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
+		name: "channel reestablishment",
+		test: testChannelReestablishment,
+	},
+	{
+		// TODO(roasbeef): test always needs to be last as Bob's state
+		// is borked since we trick him into attempting to cheat Alice?
 		name: "revoked uncooperative close retribution",
 		test: testRevokedCloseRetribution,
 	},

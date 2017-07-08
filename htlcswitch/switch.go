@@ -211,14 +211,16 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	case e := <-payment.err:
 		err = e
 	case <-s.quit:
-		return zeroPreimage, errors.New("switch is shutting down")
+		return zeroPreimage, errors.New("htlc switch have been stopped " +
+			"while waiting for payment result")
 	}
 
 	select {
 	case p := <-payment.preimage:
 		preimage = p
 	case <-s.quit:
-		return zeroPreimage, errors.New("switch is shutting down")
+		return zeroPreimage, errors.New("htlc switch have been stopped " +
+			"while waiting for payment result")
 	}
 
 	return preimage, err
@@ -316,7 +318,8 @@ func (s *Switch) forward(packet *htlcPacket) error {
 	case err := <-command.err:
 		return err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to forward htlc packet htlc switch was " +
+			"stopped")
 	}
 }
 
@@ -803,7 +806,7 @@ func (s *Switch) htlcForwarder() {
 func (s *Switch) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		log.Warn("Htlc Switch already started")
-		return nil
+		return errors.New("htlc switch already started")
 	}
 
 	log.Infof("Starting HTLC Switch")
@@ -819,10 +822,10 @@ func (s *Switch) Start() error {
 func (s *Switch) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		log.Warn("Htlc Switch already stopped")
-		return nil
+		return errors.New("htlc switch already shutdown")
 	}
 
-	log.Infof("HLTC Switch shutting down")
+	log.Infof("HTLC Switch shutting down")
 
 	close(s.quit)
 	s.wg.Wait()
@@ -849,7 +852,7 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	case s.linkControl <- command:
 		return <-command.err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to add link htlc switch was stopped")
 	}
 }
 
@@ -903,7 +906,7 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	case s.linkControl <- command:
 		return <-command.done, <-command.err
 	case <-s.quit:
-		return nil, errors.New("Htlc Switch was stopped")
+		return nil, errors.New("unable to get link htlc switch was stopped")
 	}
 }
 
@@ -947,7 +950,7 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 	case s.linkControl <- command:
 		return <-command.err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to remove link htlc switch was stopped")
 	}
 }
 
@@ -994,7 +997,7 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 	case s.linkControl <- command:
 		return <-command.done, <-command.err
 	case <-s.quit:
-		return nil, errors.New("Htlc Switch was stopped")
+		return nil, errors.New("unable to get links htlc switch was stopped")
 	}
 }
 

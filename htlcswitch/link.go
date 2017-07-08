@@ -166,16 +166,6 @@ type channelLink struct {
 	// htlc cancel reasons.
 	cancelReasons map[uint64]lnwire.OpaqueReason
 
-	// clearedOnionBlobs tracks the remote log index of the incoming
-	// htlc's, mapped to the htlc onion blob which encapsulates the next
-	// hop. HTLC's are added to this map once the HTLC has been cleared,
-	// meaning the commitment state reflects the update encoded within this
-	// HTLC.
-	//
-	// TODO(andrew.shvv) remove after payment descriptor start store
-	// htlc onion blobs.
-	clearedOnionBlobs map[uint64][lnwire.OnionPacketSize]byte
-
 	// batchCounter is the number of updates which we received from remote
 	// side, but not include in commitment transaction yet and plus the
 	// current number of settles that have been sent, but not yet committed
@@ -239,12 +229,11 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 	currentHeight uint32) ChannelLink {
 
 	return &channelLink{
-		cfg:               cfg,
-		channel:           channel,
-		clearedOnionBlobs: make(map[uint64][lnwire.OnionPacketSize]byte),
-		upstream:          make(chan lnwire.Message),
-		downstream:        make(chan *htlcPacket),
-		linkControl:       make(chan interface{}),
+		cfg:         cfg,
+		channel:     channel,
+		upstream:    make(chan lnwire.Message),
+		downstream:  make(chan *htlcPacket),
+		linkControl: make(chan interface{}),
 		// TODO(roasbeef): just do reserve here?
 		availableBandwidth: uint64(channel.StateSnapshot().LocalBalance),
 		cancelReasons:      make(map[uint64]lnwire.OpaqueReason),
@@ -747,11 +736,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		log.Tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
-		// Store the onion blob which encapsulate the htlc route and
-		// use in on stage of HTLC inclusion to retrieve the next hop
-		// and propagate the HTLC along the remaining route.
-		l.clearedOnionBlobs[index] = msg.OnionBlob
-
 	case *lnwire.UpdateFufillHTLC:
 		pre := msg.PaymentPreimage
 		idx := msg.ID
@@ -1144,8 +1128,8 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Add:
 			// Fetch the onion blob that was included within this
 			// processed payment descriptor.
-			onionBlob := l.clearedOnionBlobs[pd.HtlcIndex]
-			delete(l.clearedOnionBlobs, pd.HtlcIndex)
+			var onionBlob [lnwire.OnionPacketSize]byte
+			copy(onionBlob[:], pd.OnionBlob)
 
 			// Retrieve onion obfuscator from onion blob in order
 			// to produce initial obfuscation of the onion

@@ -208,9 +208,11 @@ type PaymentDescriptor struct {
 	removeCommitHeightRemote uint64
 	removeCommitHeightLocal  uint64
 
-	// Payload is an opaque blob which is used to complete multi-hop
+	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.
-	Payload []byte
+	//
+	// NOTE: Populated only on add payment descriptor entry types.
+	OnionBlob []byte
 
 	// [our|their|]PkScript are the raw public key scripts that encodes the
 	// redemption rules for this particular HTLC. These fields will only be
@@ -534,6 +536,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			RHash:         htlc.RHash,
 			RefundTimeout: htlc.Timeout,
 			OutputIndex:   outputIndex,
+			OnionBlob:     htlc.OnionBlob,
 		}
 
 		if ourCommit && htlc.sig != nil {
@@ -1688,6 +1691,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
+			OnionBlob:             htlc.OnionBlob,
 			ourPkScript:           ourP2WSH,
 			ourWitnessScript:      ourWitnessScript,
 			theirPkScript:         theirP2WSH,
@@ -2487,7 +2491,7 @@ func (lc *LightningChannel) ReceiveReestablish(msg *lnwire.ChannelReestablish) (
 			switch htlc.EntryType {
 			case Add:
 				var onionBlob [lnwire.OnionPacketSize]byte
-				copy(onionBlob[:], htlc.Payload)
+				copy(onionBlob[:], htlc.OnionBlob)
 				updates = append(updates, &lnwire.UpdateAddHTLC{
 					ChanID:      chanID,
 					ID:          htlc.Index,
@@ -3102,6 +3106,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 		Amount:    htlc.Amount,
 		LogIndex:  lc.localUpdateLog.logIndex,
 		HtlcIndex: lc.localUpdateLog.htlcCounter,
+		OnionBlob: htlc.OnionBlob[:],
 	}
 
 	lc.localUpdateLog.appendHtlc(pd)
@@ -3128,6 +3133,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		Amount:    htlc.Amount,
 		LogIndex:  lc.remoteUpdateLog.logIndex,
 		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
+		OnionBlob: htlc.OnionBlob[:],
 	}
 
 	lc.remoteUpdateLog.appendHtlc(pd)

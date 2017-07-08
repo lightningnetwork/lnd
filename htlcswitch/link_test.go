@@ -149,9 +149,11 @@ func createInterceptorFunc(peer string, messages []expectedMessage,
 func TestChannelLinkSingleHopPayment(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -216,9 +218,11 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -338,9 +342,11 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 func TestChannelLinkMultiHopPayment(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -435,9 +441,11 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -474,9 +482,11 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -512,9 +522,11 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -553,9 +565,11 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -597,9 +611,11 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -642,9 +658,11 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 func TestUpdateForwardingPolicy(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -716,9 +734,11 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -786,9 +806,11 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -870,9 +892,11 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -889,7 +913,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	davePub := newMockServer(t, "save").PubKey()
+	davePub := newMockServer("save", serverErr).PubKey()
 	invoice, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
 		amount, htlcAmt, totalTimelock)
 	if err == nil {
@@ -935,9 +959,11 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
@@ -1087,9 +1113,11 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	t.Parallel()
 
+	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		serverErr,
 		testStartingHeight,
 	)
 

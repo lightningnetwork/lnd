@@ -11,8 +11,6 @@ import (
 
 	"bytes"
 
-	"testing"
-
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -27,16 +25,15 @@ import (
 )
 
 type mockServer struct {
-	sync.Mutex
-
 	started  int32
 	shutdown int32
 	wg       sync.WaitGroup
-	quit     chan bool
+	quit     chan struct{}
 
-	t        *testing.T
 	name     string
 	messages chan lnwire.Message
+
+	errChan chan error
 
 	id         [33]byte
 	htlcSwitch *Switch
@@ -47,18 +44,18 @@ type mockServer struct {
 
 var _ Peer = (*mockServer)(nil)
 
-func newMockServer(t *testing.T, name string) *mockServer {
+func newMockServer(name string, errChan chan error) *mockServer {
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
 	return &mockServer{
-		t:        t,
-		id:       id,
-		name:     name,
-		messages: make(chan lnwire.Message, 3000),
-		quit:     make(chan bool),
-		registry: newMockRegistry(),
+		errChan:          errChan,
+		id:               id,
+		name:             name,
+		messages:         make(chan lnwire.Message, 3000),
+		quit:             make(chan struct{}),
+		registry:         newMockRegistry(),
 		htlcSwitch: New(Config{
 			UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 				return nil
@@ -99,9 +96,7 @@ func (s *mockServer) Start() error {
 				}
 
 				if err := s.readHandler(msg); err != nil {
-					s.Lock()
-					defer s.Unlock()
-					s.t.Fatalf("%v server error: %v", s.name, err)
+					s.errChan <- errors.Errorf("%v server error: %v", s.name, err)
 				}
 			case <-s.quit:
 				return
@@ -328,7 +323,8 @@ func (s *mockServer) Disconnect(reason error) {
 	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
 
 	s.Stop()
-	s.t.Fatalf("server %v was disconnected", s.name)
+	s.errChan <- errors.Errorf("server %v was disconnected: %v", s.name,
+		reason)
 }
 
 func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {

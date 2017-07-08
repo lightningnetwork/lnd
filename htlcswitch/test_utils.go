@@ -253,22 +253,26 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 }
 
 // getChanID retrieves the channel point from nwire message.
-func getChanID(msg lnwire.Message) lnwire.ChannelID {
-	var point lnwire.ChannelID
+func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
+	var chanID lnwire.ChannelID
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.UpdateFufillHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.RevokeAndAck:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.CommitSig:
-		point = msg.ChanID
+		chanID = msg.ChanID
+	case *lnwire.ChannelReestablish:
+		chanID = msg.ChanID
+	default:
+		return chanID, errors.New("unknown type")
 	}
 
-	return point
+	return chanID, nil
 }
 
 // generatePayment generates the htlc add request by given path blob and

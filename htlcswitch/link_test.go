@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"reflect"
-
 	"io"
 
 	"math"
@@ -60,23 +58,92 @@ func messageToString(msg lnwire.Message) string {
 	return spew.Sdump(msg)
 }
 
+// expectedMessage struct hols the message which travels from one peer to
+// another, and additional information like, should this message we skipped
+// for handling.
+type expectedMessage struct {
+	from    string
+	to      string
+	message lnwire.Message
+	skip    bool
+}
+
 // createLogFunc is a helper function which returns the function which will be
 // used for logging message are received from another peer.
 func createLogFunc(name string, channelID lnwire.ChannelID) messageInterceptor {
-	return func(m lnwire.Message) {
-		if getChanID(m) == channelID {
+	return func(m lnwire.Message) (bool, error) {
+		chanID, err := getChanID(m)
+		if err != nil {
+			return false, err
+		}
+
+		if chanID == channelID {
 			// Skip logging of extend revocation window messages.
 			switch m := m.(type) {
 			case *lnwire.RevokeAndAck:
 				var zeroHash chainhash.Hash
 				if bytes.Equal(zeroHash[:], m.Revocation[:]) {
-					return
+					return false, nil
 				}
 			}
 
 			fmt.Printf("---------------------- \n %v received: "+
 				"%v", name, messageToString(m))
 		}
+		return false, nil
+	}
+}
+
+// createInterceptorFunc creates the function by the given set of messages
+// which, checks the order of the messages and skip the ones which were
+// indicated to be intercepted.
+func createInterceptorFunc(peer string, messages []expectedMessage,
+	chanID lnwire.ChannelID, debug bool) messageInterceptor {
+
+	// Filter message which should be received with given peer name.
+	var expectToReceive []expectedMessage
+	for _, message := range messages {
+		if message.to == peer {
+			expectToReceive = append(expectToReceive, message)
+		}
+	}
+
+	// Return function which checks the message order and skip the
+	// messages.
+	return func(m lnwire.Message) (bool, error) {
+		messageChanID, err := getChanID(m)
+		if err != nil {
+			return false, err
+		}
+
+		if messageChanID == chanID {
+			if len(expectToReceive) == 0 {
+				return false, errors.Errorf("received unexpected message out "+
+					"of range: %v", m.MsgType())
+			}
+
+			expectedMessage := expectToReceive[0]
+			expectToReceive = expectToReceive[1:]
+
+			if expectedMessage.message.MsgType() != m.MsgType() {
+				return false, errors.Errorf("%v received wrong message: \n"+
+					"real: %v\nexpected: %v", peer, m.MsgType(),
+					expectedMessage.message.MsgType())
+			}
+
+			if debug {
+				if expectedMessage.skip {
+					fmt.Printf("'%v' skiped the received message: %v \n",
+						peer, m.MsgType())
+				} else {
+					fmt.Printf("'%v' received message: %v \n", peer,
+						m.MsgType())
+				}
+			}
+
+			return expectedMessage.skip, nil
+		}
+		return false, nil
 	}
 }
 
@@ -101,11 +168,11 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	debug := false
 	if debug {
 		// Log message that alice receives.
-		n.aliceServer.record(createLogFunc("alice",
+		n.aliceServer.intersect(createLogFunc("alice",
 			n.aliceChannelLink.ChanID()))
 
 		// Log message that bob receives.
-		n.bobServer.record(createLogFunc("bob",
+		n.bobServer.intersect(createLogFunc("bob",
 			n.firstBobChannelLink.ChanID()))
 	}
 
@@ -168,11 +235,11 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	debug := false
 	if debug {
 		// Log message that alice receives.
-		n.aliceServer.record(createLogFunc("alice",
+		n.aliceServer.intersect(createLogFunc("alice",
 			n.aliceChannelLink.ChanID()))
 
 		// Log message that bob receives.
-		n.bobServer.record(createLogFunc("bob",
+		n.bobServer.intersect(createLogFunc("bob",
 			n.firstBobChannelLink.ChanID()))
 	}
 
@@ -292,19 +359,19 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	debug := false
 	if debug {
 		// Log messages that alice receives from bob.
-		n.aliceServer.record(createLogFunc("[alice]<-bob<-carol: ",
+		n.aliceServer.intersect(createLogFunc("[alice]<-bob<-carol: ",
 			n.aliceChannelLink.ChanID()))
 
 		// Log messages that bob receives from alice.
-		n.bobServer.record(createLogFunc("alice->[bob]->carol: ",
+		n.bobServer.intersect(createLogFunc("alice->[bob]->carol: ",
 			n.firstBobChannelLink.ChanID()))
 
 		// Log messages that bob receives from carol.
-		n.bobServer.record(createLogFunc("alice<-[bob]<-carol: ",
+		n.bobServer.intersect(createLogFunc("alice<-[bob]<-carol: ",
 			n.secondBobChannelLink.ChanID()))
 
 		// Log messages that carol receives from bob.
-		n.carolServer.record(createLogFunc("alice->bob->[carol]",
+		n.carolServer.intersect(createLogFunc("alice->bob->[carol]",
 			n.carolChannelLink.ChanID()))
 	}
 
@@ -1105,70 +1172,40 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		testStartingHeight,
 	)
 
-	chanPoint := n.aliceChannelLink.ChanID()
+	chanID := n.aliceChannelLink.ChanID()
 
-	// The order in which Alice receives wire messages.
-	var aliceOrder []lnwire.Message
-	aliceOrder = append(aliceOrder, []lnwire.Message{
-		&lnwire.RevokeAndAck{},
-		&lnwire.CommitSig{},
-		&lnwire.UpdateFufillHTLC{},
-		&lnwire.CommitSig{},
-		&lnwire.RevokeAndAck{},
-	}...)
+	messages := []expectedMessage{
+		{"alice", "bob", &lnwire.UpdateAddHTLC{}, false},
+		{"alice", "bob", &lnwire.CommitSig{}, false},
+		{"bob", "alice", &lnwire.RevokeAndAck{}, false},
+		{"bob", "alice", &lnwire.CommitSig{}, false},
+		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
-	// The order in which Bob receives wire messages.
-	var bobOrder []lnwire.Message
-	bobOrder = append(bobOrder, []lnwire.Message{
-		&lnwire.UpdateAddHTLC{},
-		&lnwire.CommitSig{},
-		&lnwire.RevokeAndAck{},
-		&lnwire.RevokeAndAck{},
-		&lnwire.CommitSig{},
-	}...)
+		{"bob", "alice", &lnwire.UpdateFufillHTLC{}, false},
+		{"bob", "alice", &lnwire.CommitSig{}, false},
+		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
+		{"alice", "bob", &lnwire.CommitSig{}, false},
+		{"bob", "alice", &lnwire.RevokeAndAck{}, false},
+	}
 
 	debug := false
 	if debug {
 		// Log message that alice receives.
-		n.aliceServer.record(createLogFunc("alice",
+		n.aliceServer.intersect(createLogFunc("alice",
 			n.aliceChannelLink.ChanID()))
 
 		// Log message that bob receives.
-		n.bobServer.record(createLogFunc("bob",
+		n.bobServer.intersect(createLogFunc("bob",
 			n.firstBobChannelLink.ChanID()))
 	}
 
 	// Check that alice receives messages in right order.
-	n.aliceServer.record(func(m lnwire.Message) {
-		if getChanID(m) == chanPoint {
-			if len(aliceOrder) == 0 {
-				t.Fatal("redundant messages")
-			}
-
-			if reflect.TypeOf(aliceOrder[0]) != reflect.TypeOf(m) {
-				t.Fatalf("alice received wrong message: \n"+
-					"real: %v\n expected: %v", m.MsgType(),
-					aliceOrder[0].MsgType())
-			}
-			aliceOrder = aliceOrder[1:]
-		}
-	})
+	n.aliceServer.intersect(createInterceptorFunc("alice", messages, chanID,
+		false))
 
 	// Check that bob receives messages in right order.
-	n.bobServer.record(func(m lnwire.Message) {
-		if getChanID(m) == chanPoint {
-			if len(bobOrder) == 0 {
-				t.Fatal("redundant messages")
-			}
-
-			if reflect.TypeOf(bobOrder[0]) != reflect.TypeOf(m) {
-				t.Fatalf("bob received wrong message: \n"+
-					"real: %v\n expected: %v", m.MsgType(),
-					bobOrder[0].MsgType())
-			}
-			bobOrder = bobOrder[1:]
-		}
-	})
+	n.bobServer.intersect(createInterceptorFunc("bob", messages, chanID,
+		false))
 
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)

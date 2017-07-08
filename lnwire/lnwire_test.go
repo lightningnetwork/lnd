@@ -564,6 +564,12 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
+			msgType: MsgChannelReestablish,
+			scenario: func(m ChannelReestablish) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
 			msgType: MsgChannelAnnouncement,
 			scenario: func(m ChannelAnnouncement) bool {
 				return mainScenario(&m)

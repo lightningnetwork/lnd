@@ -407,6 +407,21 @@ func generateHops(payAmt btcutil.Amount, startingHeight uint32,
 	return runningAmt, totalTimelock, hops
 }
 
+type paymentResponse struct {
+	invoice *channeldb.Invoice
+	err     chan error
+}
+
+func (r *paymentResponse) Wait(d time.Duration) (*channeldb.Invoice, error) {
+	select {
+	case err := <-r.err:
+		close(r.err)
+		return r.invoice, err
+	case <-time.After(d):
+		return r.invoice, errors.New("htlc was no settled in time")
+	}
+}
+
 // makePayment takes the destination node and amount as input, sends the
 // payment and returns the error channel to wait for error to be received and
 // invoice in order to check its status after the payment finished.
@@ -416,9 +431,9 @@ func generateHops(payAmt btcutil.Amount, startingHeight uint32,
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
 func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
-	firstHopPub [33]byte, hops []ForwardingInfo,
-	invoiceAmt, htlcAmt btcutil.Amount,
-	timelock uint32) (*channeldb.Invoice, error) {
+	firstHopPub [33]byte, hops []ForwardingInfo, invoiceAmt,
+	htlcAmt btcutil.Amount, timelock uint32) *paymentResponse {
+	paymentErr := make(chan error, 1)
 
 	sender := sendingPeer.(*mockServer)
 	receiver := receivingPeer.(*mockServer)
@@ -427,19 +442,31 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	// htlc add request.
 	blob, err := generateRoute(hops...)
 	if err != nil {
-		return nil, err
+		paymentErr <- err
+		return &paymentResponse{
+			invoice: nil,
+			err:     paymentErr,
+		}
 	}
 
 	// Generate payment: invoice and htlc.
 	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock,
 		blob)
 	if err != nil {
-		return nil, err
+		paymentErr <- err
+		return &paymentResponse{
+			invoice: nil,
+			err:     paymentErr,
+		}
 	}
 
 	// Check who is last in the route and add invoice to server registry.
 	if err := receiver.registry.AddInvoice(invoice); err != nil {
-		return nil, err
+		paymentErr <- err
+		return &paymentResponse{
+			invoice: invoice,
+			err:     paymentErr,
+		}
 	}
 
 	// Send payment and expose err channel.
@@ -450,11 +477,9 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 		errChan <- err
 	}()
 
-	select {
-	case err := <-errChan:
-		return invoice, err
-	case <-time.After(5 * time.Minute):
-		return invoice, errors.New("htlc was not settled in time")
+	return &paymentResponse{
+		invoice: invoice,
+		err:     errChan,
 	}
 }
 

@@ -186,7 +186,8 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	// * alice<->bob commitment state to be updated.
 	// * user notification to be sent.
 	invoice, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		totalTimelock).Wait(10 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
@@ -272,7 +273,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 
 			_, r.err = n.makePayment(n.aliceServer, n.bobServer,
 				n.bobServer.PubKey(), hopsForwards, amt, htlcAmt,
-				totalTimelock)
+				totalTimelock).Wait(30 * time.Second)
 			resultChan <- r
 		}(i)
 	}
@@ -287,7 +288,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 
 			_, r.err = n.makePayment(n.bobServer, n.aliceServer,
 				n.aliceServer.PubKey(), hopsBackwards, amt, htlcAmt,
-				totalTimelock)
+				totalTimelock).Wait(30 * time.Second)
 			resultChan <- r
 		}(i)
 	}
@@ -395,7 +396,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	// * user notification to be sent.
 	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock)
+		totalTimelock).Wait(10 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -464,7 +465,8 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 	hops[0].OutgoingCTLV = 500
 
 	_, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		htlcExpiry).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	} else if err.Error() != lnwire.CodeFinalIncorrectCltvExpiry.String() {
@@ -505,7 +507,8 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	hops[0].AmountToForward = 1
 
 	_, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		htlcExpiry).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	} else if err.Error() != lnwire.CodeIncorrectPaymentAmount.String() {
@@ -547,8 +550,8 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// Next, we'll make the payment which'll send an HTLC with our
 	// specified parameters to the first hop in the route.
 	_, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
-
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		htlcExpiry).Wait(10 * time.Second)
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
 	if err == nil {
@@ -591,7 +594,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	// specified parameters to the first hop in the route.
 	_, err := n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amountNoFee, amountNoFee,
-		htlcExpiry)
+		htlcExpiry).Wait(10 * time.Second)
 
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
@@ -637,7 +640,7 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	// specified parameters to the first hop in the route.
 	_, err := n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry)
+		htlcExpiry).Wait(10 * time.Second)
 
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation (below min HTLC).
@@ -685,7 +688,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// accordingly.
 	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry)
+		htlcExpiry).Wait(10 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -761,8 +764,9 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// * Bob trying to add HTLC add request in Bob<->Carol channel.
 	// * Cancel HTLC request to be sent back from Bob to Alice.
 	// * user notification to be sent.
-	invoice, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		totalTimelock).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != errors.New(lnwire.CodeTemporaryChannelFailure).Error() {
@@ -914,8 +918,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	davePub := newMockServer("save", serverErr).PubKey()
+
 	invoice, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
-		amount, htlcAmt, totalTimelock)
+		amount, htlcAmt, totalTimelock).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != lnwire.CodeUnknownNextPeer.String() {
@@ -987,7 +992,8 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		totalTimelock).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != lnwire.CodeInvalidOnionVersion.String() {
@@ -1166,12 +1172,14 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		n.firstBobChannelLink)
 
 	// Wait for:
-	// * htlc add htlc request to be sent to alice
-	// * alice<->bob commitment state to be updated
-	// * settle request to be sent back from alice to bob
-	// * alice<->bob commitment state to be updated
-	_, err := n.makePayment(n.aliceServer, n.bobServer,
-		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+	// * HTLC add request to be sent to bob.
+	// * alice<->bob commitment state to be updated.
+	// * settle request to be sent back from bob to alice.
+	// * alice<->bob commitment state to be updated.
+	// * user notification to be sent.
+	_, err = n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt,
+		totalTimelock).Wait(10 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}

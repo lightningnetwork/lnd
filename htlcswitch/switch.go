@@ -968,7 +968,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	peerPub := link.Peer().PubKey()
 	delete(s.interfaceIndex, peerPub)
 
-	go link.Stop()
+	link.Stop()
 
 	return nil
 }

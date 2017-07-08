@@ -369,14 +369,17 @@ out:
 		case <-l.channel.UnilateralCloseSignal:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
-			if err := l.cfg.Peer.WipeChannel(l.channel); err != nil {
-				log.Errorf("unable to wipe channel %v", err)
-			}
 
-			// TODO(roasbeef): need to send HTLC outputs to nursery
+			go func() {
+				if err := l.cfg.Peer.WipeChannel(l.channel); err != nil {
+					log.Errorf("unable to wipe channel %v", err)
+				}
 
-			// TODO(roasbeef): or let the arb sweep?
-			l.cfg.SettledContracts <- l.channel.ChannelPoint()
+				// TODO(roasbeef): need to send HTLC outputs to nursery
+				// TODO(roasbeef): or let the arb sweep?
+				l.cfg.SettledContracts <- l.channel.ChannelPoint()
+			}()
+
 			break out
 
 		// A local sub-system has initiated a force close of the active

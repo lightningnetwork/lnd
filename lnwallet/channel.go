@@ -204,6 +204,11 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only on add payment descriptor entry types.
 	OnionBlob []byte
 
+	// FailReason stores the reason why a particular payment was cancelled.
+	//
+	// NOTE: Populate only in fail payment descriptor entry types.
+	FailReason []byte
+
 	// [our|their|]PkScript are the raw public key scripts that encodes the
 	// redemption rules for this particular HTLC. These fields will only be
 	// populated iff the EntryType of this PaymentDescriptor is Add.
@@ -483,7 +488,6 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 			RHash:         htlc.RHash,
 			RefundTimeout: htlc.Timeout,
 			OutputIndex:   outputIndex,
-			OnionBlob:       htlc.OnionBlob,
 		}
 
 		if ourCommit && htlc.sig != nil {
@@ -1632,7 +1636,6 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
-			OnionBlob:             htlc.OnionBlob,
 			ourPkScript:           ourP2WSH,
 			ourWitnessScript:      ourWitnessScript,
 			theirPkScript:         theirP2WSH,
@@ -3108,7 +3111,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 		Timeout:   htlc.Expiry,
 		Amount:    htlc.Amount,
 		Index:     lc.localUpdateLog.logIndex,
-		OnionBlob:    htlc.OnionBlob[:],
+		OnionBlob: htlc.OnionBlob[:],
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -3134,7 +3137,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		Timeout:   htlc.Expiry,
 		Amount:    htlc.Amount,
 		Index:     lc.remoteUpdateLog.logIndex,
-		OnionBlob:    htlc.OnionBlob[:],
+		OnionBlob: htlc.OnionBlob[:],
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)
@@ -3216,7 +3219,8 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 // entry which will remove the target log entry within the next commitment
 // update. This method is intended to be called in order to cancel in
 // _incoming_ HTLC.
-func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
+func (lc *LightningChannel) FailHTLC(rHash [32]byte, reason []byte) (uint64,
+	error) {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3232,6 +3236,7 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 		ParentIndex: addEntry.Index,
 		Index:       lc.localUpdateLog.logIndex,
 		EntryType:   Fail,
+		FailReason:  reason,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -3249,7 +3254,7 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC.
-func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
+func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64, reason []byte) error {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3264,6 +3269,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 		ParentIndex: htlc.Index,
 		Index:       lc.remoteUpdateLog.logIndex,
 		EntryType:   Fail,
+		FailReason:  reason,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)

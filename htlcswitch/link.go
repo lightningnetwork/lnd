@@ -157,15 +157,6 @@ type channelLink struct {
 	started  int32
 	shutdown int32
 
-	// cancelReasons stores the reason why a particular HTLC was cancelled.
-	// The index of the HTLC within the log is mapped to the cancellation
-	// reason. This value is used to thread the proper error through to the
-	// htlcSwitch, or subsystem that initiated the HTLC.
-	//
-	// TODO(andrew.shvv) remove after payment descriptor start store
-	// htlc cancel reasons.
-	cancelReasons map[uint64]lnwire.OpaqueReason
-
 	// batchCounter is the number of updates which we received from remote
 	// side, but not include in commitment transaction yet and plus the
 	// current number of settles that have been sent, but not yet committed
@@ -236,7 +227,6 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		linkControl: make(chan interface{}),
 		// TODO(roasbeef): just do reserve here?
 		availableBandwidth: uint64(channel.StateSnapshot().LocalBalance),
-		cancelReasons:      make(map[uint64]lnwire.OpaqueReason),
 		logCommitTimer:     time.NewTimer(300 * time.Millisecond),
 		overflowQueue:      newPacketQueue(lnwallet.MaxHTLCNumber / 2),
 		bestHeight:         currentHeight,
@@ -664,7 +654,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		logIndex, err := l.channel.FailHTLC(pkt.payHash)
+		logIndex, err := l.channel.FailHTLC(pkt.payHash, htlc.Reason)
 		if err != nil {
 			log.Errorf("unable to cancel HTLC: %v", err)
 			return
@@ -749,20 +739,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// repeated r-values
 
 	case *lnwire.UpdateFailMalformedHTLC:
-		// If remote side have been unable to parse the onion blob we
-		// have sent to it, than we should transform the malformed HTLC
-		// message to the usual HTLC fail message.
-		idx := msg.ID
-		amt, err := l.channel.ReceiveFailHTLC(idx)
-		if err != nil {
-			l.fail("unable to handle upstream fail HTLC: %v", err)
-			return
-		}
-
-		// Increment the available bandwidth as they've removed our
-		// HTLC.
-		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
-
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -795,11 +771,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		l.cancelReasons[idx] = lnwire.OpaqueReason(b.Bytes())
-
-	case *lnwire.UpdateFailHTLC:
-		idx := msg.ID
-		amt, err := l.channel.ReceiveFailHTLC(idx)
+		// If remote side have been unable to parse the onion blob we
+		// have sent to it, than we should transform the malformed HTLC
+		// message to the usual HTLC fail message.
+		amt, err := l.channel.ReceiveFailHTLC(idx, b.Bytes())
 		if err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
@@ -809,7 +784,17 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// HTLC.
 		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
 
-		l.cancelReasons[idx] = msg.Reason
+	case *lnwire.UpdateFailHTLC:
+		idx := msg.ID
+		amt, err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
+		if err != nil {
+			l.fail("unable to handle upstream fail HTLC: %v", err)
+			return
+		}
+
+		// Increment the available bandwidth as they've removed our
+		// HTLC.
+		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
 
 	case *lnwire.CommitSig:
 		// We just received a new updates to our local commitment chain,
@@ -1105,10 +1090,8 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Fail:
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
-			opaqueReason := l.cancelReasons[pd.ParentIndex]
-
 			failUpdate := &lnwire.UpdateFailHTLC{
-				Reason: opaqueReason,
+				Reason: lnwire.OpaqueReason(pd.FailReason),
 				ChanID: l.ChanID(),
 			}
 			failPacket := newFailPacket(l.ShortChanID(), failUpdate,
@@ -1513,7 +1496,7 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 		return
 	}
 
-	index, err := l.channel.FailHTLC(rHash)
+	index, err := l.channel.FailHTLC(rHash, reason)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return

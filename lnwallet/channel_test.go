@@ -1648,11 +1648,11 @@ func TestCancelHTLC(t *testing.T) {
 
 	// Now, with the HTLC committed on both sides, trigger a cancellation
 	// from Bob to Alice, removing the HTLC.
-	htlcCancelIndex, err := bobChannel.FailHTLC(paymentHash)
+	htlcCancelIndex, err := bobChannel.FailHTLC(paymentHash, []byte("failreason"))
 	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
 	}
-	if _, err := aliceChannel.ReceiveFailHTLC(htlcCancelIndex); err != nil {
+	if _, err := aliceChannel.ReceiveFailHTLC(htlcCancelIndex, []byte("bad")); err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 

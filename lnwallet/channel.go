@@ -214,6 +214,11 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only on add payment descriptor entry types.
 	OnionBlob []byte
 
+	// FailReason stores the reason why a particular payment was cancelled.
+	//
+	// NOTE: Populate only in fail payment descriptor entry types.
+	FailReason []byte
+
 	// [our|their|]PkScript are the raw public key scripts that encodes the
 	// redemption rules for this particular HTLC. These fields will only be
 	// populated iff the EntryType of this PaymentDescriptor is Add.
@@ -1691,7 +1696,6 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
-			OnionBlob:             htlc.OnionBlob,
 			ourPkScript:           ourP2WSH,
 			ourWitnessScript:      ourWitnessScript,
 			theirPkScript:         theirP2WSH,
@@ -3219,7 +3223,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // _incoming_ HTLC.
 //
 // TODO(roasbeef): add value as well?
-func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
+func (lc *LightningChannel) FailHTLC(rHash [32]byte, reason []byte) (uint64, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3235,6 +3239,7 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 		ParentIndex: addEntry.HtlcIndex,
 		LogIndex:    lc.localUpdateLog.logIndex,
 		EntryType:   Fail,
+		FailReason:  reason,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -3253,7 +3258,9 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC. The value of the failed HTLC is returned
 // along with an error indicating success.
-func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64) (lnwire.MilliSatoshi, error) {
+func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64,
+	reason []byte) (lnwire.MilliSatoshi, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3268,6 +3275,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64) (lnwire.MilliSatos
 		ParentIndex: htlc.HtlcIndex,
 		LogIndex:    lc.remoteUpdateLog.logIndex,
 		EntryType:   Fail,
+		FailReason:  reason,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)

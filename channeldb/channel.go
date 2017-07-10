@@ -532,6 +532,10 @@ type HTLC struct {
 	// Incoming denotes whether we're the receiver or the sender of this
 	// HTLC.
 	Incoming bool
+
+	// OnionBlob is an opaque blob which is used to complete multi-hop
+	// routing.
+	OnionBlob []byte
 }
 
 // Copy returns a full copy of the target HTLC.
@@ -2084,17 +2088,27 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 		return err
 	}
 
+	var onionLength [2]byte
+	byteOrder.PutUint16(onionLength[:], uint16(len(h.OnionBlob)))
+	if _, err := w.Write(onionLength[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(h.OnionBlob); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func deserializeHTLC(r io.Reader) (*HTLC, error) {
 	h := &HTLC{}
+	var err error
 
-	sigBytes, err := wire.ReadVarBytes(r, 0, 80, "")
+	h.Signature, err = wire.ReadVarBytes(r, 0, 80, "")
 	if err != nil {
 		return nil, err
 	}
-	h.Signature = sigBytes
 
 	if _, err := io.ReadFull(r, h.RHash[:]); err != nil {
 		return nil, err
@@ -2115,10 +2129,23 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 		return nil, err
 	}
 
-	if scratch[0] == 1 {
+	if boolByte[0] == 1 {
 		h.Incoming = true
 	} else {
 		h.Incoming = false
+	}
+
+	var onionLength [2]byte
+	if _, err := r.Read(onionLength[:]); err != nil {
+		return nil, err
+	}
+
+	l := byteOrder.Uint16(onionLength[:])
+	if l != 0 {
+		h.OnionBlob = make([]byte, l)
+		if _, err := io.ReadFull(r, h.OnionBlob); err != nil {
+			return nil, err
+		}
 	}
 
 	return h, nil

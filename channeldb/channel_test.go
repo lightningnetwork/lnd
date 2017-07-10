@@ -207,6 +207,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 			Amt:           10,
 			RHash:         key,
 			RefundTimeout: 1,
+			OnionBlob:       []byte("onionblob"),
 		},
 	}
 	if err := state.FullSync(); err != nil {

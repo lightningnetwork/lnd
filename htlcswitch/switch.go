@@ -875,6 +875,7 @@ func (s *Switch) addLink(link ChannelLink) error {
 	s.interfaceIndex[peerPub][link] = struct{}{}
 
 	if err := link.Start(); err != nil {
+		s.removeLink(link.ChanID())
 		return err
 	}
 

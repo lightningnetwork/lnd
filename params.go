@@ -45,6 +45,12 @@ var liteTestNetParams = litecoinNetParams{
 	rpcPort: "19334",
 }
 
+// regTestNetParams contains parameters specific to a local regtest network.
+var regTestNetParams = bitcoinNetParams{
+	Params:  &bitcoinCfg.RegressionNetParams,
+	rpcPort: "18334",
+}
+
 // applyLitecoinParams applies the relevant chain configuration parameters that
 // differ for litecoin to the chain parameters typed for btcsuite derivation.
 // This function is used in place of using something like interface{} to

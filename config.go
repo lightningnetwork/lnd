@@ -57,6 +57,7 @@ type chainConfig struct {
 
 	TestNet3 bool `long:"testnet" description:"Use the test network"`
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
+	RegTest  bool `long:"regtest" description:"Use the regression test network"`
 }
 
 type neutrinoConfig struct {
@@ -230,6 +231,10 @@ func loadConfig() (*config, error) {
 		if cfg.Bitcoin.TestNet3 {
 			numNets++
 			activeNetParams = bitcoinTestNetParams
+		}
+		if cfg.Bitcoin.RegTest {
+			numNets++
+			activeNetParams = regTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
 			activeNetParams = bitcoinSimNetParams

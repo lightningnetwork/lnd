@@ -416,7 +416,7 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 
 	// At this point, the channel should be fully opened and there should
 	// be no pending channels remaining for either node.
-	time.Sleep(time.Millisecond * 3000)
+	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 
 	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)

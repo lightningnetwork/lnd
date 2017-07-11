@@ -600,34 +600,46 @@ func (l *lightningNode) WaitForNetworkChannelClose(ctx context.Context,
 	}
 }
 
-// WaitForBlockchainSync will block until node synchronizes its blockchain
+// WaitForBlockchainSync will block until the target nodes has fully
+// synchronized with the blockchain. If the passed context object has a set
+// timeout, then the goroutine will continually poll until the timeout has
+// elapsed. In the case that the chain isn't synced before the timeout is up,
+// then this function will return an error.
 func (l *lightningNode) WaitForBlockchainSync(ctx context.Context) error {
 	errChan := make(chan error, 1)
 	retryDelay := time.Millisecond * 100
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
-				break
+			case <-l.quit:
+				return
 			default:
 			}
+
 			getInfoReq := &lnrpc.GetInfoRequest{}
 			getInfoResp, err := l.GetInfo(ctx, getInfoReq)
 			if err != nil {
 				errChan <- err
-				break
+				return
 			}
 			if getInfoResp.SyncedToChain {
 				errChan <- nil
+				return
 			}
+
 			select {
 			case <-ctx.Done():
-				break
+				return
 			case <-time.After(retryDelay):
 			}
 		}
 	}()
+
 	select {
+	case <-l.quit:
+		return nil
 	case err := <-errChan:
 		return err
 	case <-ctx.Done():
@@ -1033,7 +1045,10 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
 	pushAmt btcutil.Amount, numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
 
-	// Wait until srcNode and destNode have blockchain synced
+	// Wait until srcNode and destNode have the latest chain synced.
+	// Otherwise, we may run into a check within the funding manager that
+	// prevents any funding workflows from being kicked off if the chain
+	// isn't yet synced.
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
 		return nil, fmt.Errorf("Unable to sync srcNode chain: %v", err)
 	}

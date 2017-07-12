@@ -207,6 +207,8 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 		confIntents[i] = confIntent
 	}
 
+	initialConfHeight := uint32(currentHeight + 1)
+
 	// Now, for each confirmation intent, generate the delta number of blocks
 	// needed to trigger the confirmation notification. A goroutine is
 	// spawned in order to verify the proper notification is triggered.
@@ -233,7 +235,17 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 		}()
 
 		select {
-		case <-confSent:
+		case conf := <-confSent:
+			// All of the notifications above were originally
+			// confirmed in the same block. The returned
+			// notification should list the initial confirmation
+			// height rather than the height they were _fully_
+			// confirmed.
+			if conf.BlockHeight != initialConfHeight {
+				t.Fatalf("notification has incorrect initial "+
+					"conf height: expected %v, got %v",
+					initialConfHeight, conf.BlockHeight)
+			}
 			continue
 		case <-time.After(20 * time.Second):
 			t.Fatalf("confirmation notification never received: %v", numConfs)

@@ -2,7 +2,7 @@ package btcdnotify
 
 import "github.com/lightningnetwork/lnd/chainntnfs"
 
-// confEntry represents an entry in the min-confirmation heap. .
+// confEntry represents an entry in the min-confirmation heap.
 type confEntry struct {
 	*confirmationsNotification
 
@@ -13,7 +13,7 @@ type confEntry struct {
 
 // confirmationHeap is a list of confEntries sorted according to nearest
 // "confirmation" height.Each entry within the min-confirmation heap is sorted
-// according to the smallest dleta from the current blockheight to the
+// according to the smallest delta from the current blockheight to the
 // triggerHeight of the next entry confirmationHeap
 type confirmationHeap struct {
 	items []*confEntry

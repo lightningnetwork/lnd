@@ -682,8 +682,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq, inbound 
 	// Attempt to start the peer, if we're unable to do so, then disconnect
 	// this peer.
 	if err := p.Start(); err != nil {
-		srvrLog.Errorf("unable to start peer: %v", err)
-		p.Disconnect()
+		p.Disconnect(errors.Errorf("unable to start peer: %v", err))
 		return
 	}
 
@@ -746,7 +745,7 @@ func (s *server) inboundPeerConnected(conn net.Conn) {
 		// peer to the peer garbage collection goroutine.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
-		connectedPeer.Disconnect()
+		connectedPeer.Disconnect(errors.New("remove stale connection"))
 		s.donePeers <- connectedPeer
 	}
 
@@ -825,7 +824,7 @@ func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// server for garbage collection.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
-		connectedPeer.Disconnect()
+		connectedPeer.Disconnect(errors.New("remove stale connection"))
 		s.donePeers <- connectedPeer
 	}
 
@@ -841,7 +840,7 @@ func (s *server) addPeer(p *peer) {
 
 	// Ignore new peers if we're shutting down.
 	if atomic.LoadInt32(&s.shutdown) != 0 {
-		p.Disconnect()
+		p.Disconnect(errors.New("server is shutting down"))
 		return
 	}
 
@@ -889,7 +888,7 @@ func (s *server) removePeer(p *peer) {
 
 	// As the peer is now finished, ensure that the TCP connection is
 	// closed and all of its related goroutines have exited.
-	p.Disconnect()
+	p.Disconnect(errors.New("remove peer"))
 
 	// Ignore deleting peers if we're shutting down.
 	if atomic.LoadInt32(&s.shutdown) != 0 {
@@ -1144,7 +1143,7 @@ func (s *server) handleDisconnectPeer(msg *disconnectPeerMsg) {
 	// Now that we know the peer is actually connected, we'll disconnect
 	// from the peer.
 	srvrLog.Infof("Disconnecting from %v", peer)
-	peer.Disconnect()
+	peer.Disconnect(errors.New("received user command to disconnect the peer"))
 
 	msg.err <- nil
 }

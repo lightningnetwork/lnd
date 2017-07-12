@@ -314,9 +314,7 @@ out:
 			}
 
 			if err := l.updateCommitTx(); err != nil {
-				log.Errorf("unable to update commitment: %v",
-					err)
-				l.cfg.Peer.Disconnect()
+				l.fail("unable to update commitment: %v", err)
 				break out
 			}
 
@@ -333,9 +331,7 @@ out:
 			// update, waiting for the revocation window to open
 			// up.
 			if err := l.updateCommitTx(); err != nil {
-				log.Errorf("unable to update "+
-					"commitment: %v", err)
-				l.cfg.Peer.Disconnect()
+				l.fail("unable to update commitment: %v", err)
 				break out
 			}
 
@@ -454,9 +450,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		logIndex, err := l.channel.SettleHTLC(pre)
 		if err != nil {
 			// TODO(roasbeef): broadcast on-chain
-			log.Errorf("settle for incoming HTLC "+
-				"rejected: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to settle incoming HTLC: %v", err)
 			return
 		}
 
@@ -499,9 +493,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 	// this is a settle request, then initiate an update.
 	if l.batchCounter >= 10 || isSettle {
 		if err := l.updateCommitTx(); err != nil {
-			log.Errorf("unable to update "+
-				"commitment: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to update commitment: %v", err)
 			return
 		}
 	}
@@ -518,10 +510,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// "settle" list in the event that we know the preimage.
 		index, err := l.channel.ReceiveHTLC(msg)
 		if err != nil {
-			// TODO(roasbeef): fail channel
-			log.Errorf("unable to handle upstream add HTLC: %v",
-				err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to handle upstream add HTLC: %v", err)
 			return
 		}
 		log.Tracef("Receive upstream htlc with payment hash(%x), "+
@@ -540,9 +529,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		idx := msg.ID
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
 			// TODO(roasbeef): broadcast on-chain
-			log.Errorf("unable to handle upstream settle "+
-				"HTLC: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to handle upstream settle HTLC: %v", err)
 			return
 		}
 
@@ -551,9 +538,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFailHTLC:
 		idx := msg.ID
 		if err := l.channel.ReceiveFailHTLC(idx); err != nil {
-			log.Errorf("unable to handle upstream fail HTLC: "+
-				"%v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
 		}
 
@@ -566,8 +551,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// TODO(roasbeef): redundant re-serialization
 		sig := msg.CommitSig.Serialize()
 		if err := l.channel.ReceiveNewCommitment(sig); err != nil {
-			log.Errorf("unable to accept new commitment: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to accept new commitment: %v", err)
 			return
 		}
 
@@ -607,8 +591,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// so we'll reply with a signature to provide them with their
 		// version of the latest commitment l.
 		if err := l.updateCommitTx(); err != nil {
-			log.Errorf("unable to update commitment: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to update commitment: %v", err)
 			return
 		}
 
@@ -618,8 +601,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// revocation window.
 		htlcs, err := l.channel.ReceiveRevocation(msg)
 		if err != nil {
-			log.Errorf("unable to accept revocation: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to accept revocation: %v", err)
 			return
 		}
 
@@ -643,8 +625,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// channel, if not we will apply the update.
 		fee := msg.FeePerKw
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
-			log.Errorf("error receiving fee update: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("error receiving fee update: %v", err)
 			return
 		}
 	}
@@ -999,8 +980,7 @@ func (l *channelLink) processLockedInHtlcs(
 				preimage := invoice.Terms.PaymentPreimage
 				logIndex, err := l.channel.SettleHTLC(preimage)
 				if err != nil {
-					log.Errorf("unable to settle htlc: %v", err)
-					l.cfg.Peer.Disconnect()
+					l.fail("unable to settle htlc: %v", err)
 					return nil
 				}
 
@@ -1009,8 +989,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// update.
 				err = l.cfg.Registry.SettleInvoice(invoiceHash)
 				if err != nil {
-					log.Errorf("unable to settle invoice: %v", err)
-					l.cfg.Peer.Disconnect()
+					l.fail("unable to settle invoice: %v", err)
 					return nil
 				}
 
@@ -1133,8 +1112,7 @@ func (l *channelLink) processLockedInHtlcs(
 		// remote htlc logs, initiate a state transition by updating
 		// the remote commitment chain.
 		if err := l.updateCommitTx(); err != nil {
-			log.Errorf("unable to update commitment: %v", err)
-			l.cfg.Peer.Disconnect()
+			l.fail("unable to update commitment: %v", err)
 			return nil
 		}
 	}
@@ -1158,4 +1136,12 @@ func (l *channelLink) sendHTLCError(rHash [32]byte,
 		ID:     index,
 		Reason: reason,
 	})
+}
+
+// fail helper function which is used to encapsulate the action neccessary
+// for proper disconnect.
+func (l *channelLink) fail(format string, a ...interface{}) {
+	reason := errors.Errorf(format, a...)
+	log.Error(reason)
+	l.cfg.Peer.Disconnect(reason)
 }

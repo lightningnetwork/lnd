@@ -99,5 +99,5 @@ type Peer interface {
 
 	// Disconnect disconnects with peer if we have error which we can't
 	// properly handle.
-	Disconnect()
+	Disconnect(reason error)
 }

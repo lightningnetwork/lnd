@@ -260,7 +260,7 @@ func (s *mockServer) PubKey() [33]byte {
 	return s.id
 }
 
-func (s *mockServer) Disconnect() {
+func (s *mockServer) Disconnect(reason error) {
 	s.Stop()
 	s.t.Fatalf("server %v was disconnected", s.name)
 }

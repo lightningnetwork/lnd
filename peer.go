@@ -338,12 +338,12 @@ func (p *peer) WaitForDisconnect() {
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
-func (p *peer) Disconnect() {
+func (p *peer) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
 		return
 	}
 
-	peerLog.Tracef("Disconnecting %s", p)
+	peerLog.Tracef("Disconnecting %s, reason: %v", p, reason)
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.conn.Close()
@@ -534,7 +534,7 @@ out:
 		}
 	}
 
-	p.Disconnect()
+	p.Disconnect(errors.New("read handler closed"))
 
 	p.wg.Done()
 	peerLog.Tracef("readHandler for peer %v done", p)
@@ -641,9 +641,8 @@ func (p *peer) writeHandler() {
 			}
 
 			if err != nil {
-				peerLog.Errorf("unable to write message: %v",
-					err)
-				p.Disconnect()
+				p.Disconnect(errors.Errorf("unable to write message: %v",
+					err))
 				return
 			}
 

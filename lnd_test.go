@@ -2241,41 +2241,50 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 		}
 	}()
 
-	// The channel opening above should've triggered a new notification
-	// sent to the notification client.
-	const numExpectedUpdates = 2
+	// The channel opening above should've triggered a few notifications
+	// sent to the notification client. We'll expect two channel updates,
+	// and two node announcements.
+	const numExpectedUpdates = 4
 	for i := 0; i < numExpectedUpdates; i++ {
 		select {
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphUpdates:
-			if len(graphUpdate.ChannelUpdates) != 1 {
-				t.Fatalf("expected a single update, instead "+
-					"have %v", len(graphUpdate.ChannelUpdates))
+			if len(graphUpdate.ChannelUpdates) > 0 {
+				chanUpdate := graphUpdate.ChannelUpdates[0]
+				if chanUpdate.Capacity != int64(chanAmt) {
+					t.Fatalf("channel capacities mismatch:"+
+						" expected %v, got %v", chanAmt,
+						btcutil.Amount(chanUpdate.Capacity))
+				}
+				switch chanUpdate.AdvertisingNode {
+				case net.Alice.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown advertising node: %v",
+						chanUpdate.AdvertisingNode)
+				}
+				switch chanUpdate.ConnectingNode {
+				case net.Alice.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown connecting node: %v",
+						chanUpdate.ConnectingNode)
+				}
 			}
 
-			chanUpdate := graphUpdate.ChannelUpdates[0]
-			if chanUpdate.Capacity != int64(chanAmt) {
-				t.Fatalf("channel capacities mismatch: expected %v, "+
-					"got %v", chanAmt,
-					btcutil.Amount(chanUpdate.Capacity))
-			}
-			switch chanUpdate.AdvertisingNode {
-			case net.Alice.PubKeyStr:
-			case net.Bob.PubKeyStr:
-			default:
-				t.Fatalf("unknown advertising node: %v",
-					chanUpdate.AdvertisingNode)
-			}
-			switch chanUpdate.ConnectingNode {
-			case net.Alice.PubKeyStr:
-			case net.Bob.PubKeyStr:
-			default:
-				t.Fatalf("unknown connecting node: %v",
-					chanUpdate.ConnectingNode)
+			if len(graphUpdate.NodeUpdates) > 0 {
+				nodeUpdate := graphUpdate.NodeUpdates[0]
+				switch nodeUpdate.IdentityKey {
+				case net.Alice.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown node: %v",
+						nodeUpdate.IdentityKey)
+				}
 			}
 		case <-time.After(time.Second * 10):
-			t.Fatalf("notification for new channel not sent")
+			t.Fatalf("timeout waiting for graph notification %v", i)
 		}
 	}
 
@@ -2319,35 +2328,85 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	}
 
 	// For the final portion of the test, we'll ensure that once a new node
-	// appears in the network, the proper notification is dispatched.
+	// appears in the network, the proper notification is dispatched. Note
+	// that a node that does not have any channels open is ignored, so first
+	// we disconnect Alice and Bob, open a channel between Bob and Carol,
+	// and finally connect Alice to Bob again.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.DisconnectNodes(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to disconnect alice and bob: %v", err)
+	}
 	carol, err := net.NewNode(nil)
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
 
-	// Connect the new node above to Alice. This should result in the nodes
-	// syncing up their respective graph state, with the new addition being
-	// the existence of Carol in the graph.
-	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
-		t.Fatalf("unable to connect alice to carol: %v", err)
+	if err := net.ConnectNodes(ctxb, net.Bob, carol); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPoint = openChannelAndAssert(ctxt, t, net, net.Bob, carol,
+		chanAmt, 0)
+
+	time.Sleep(time.Millisecond * 300)
+
+	// Reconnect Alice and Bob. This should result in the nodes syncing up
+	// their respective graph state, with the new addition being the
+	// existence of Carol in the graph, and also the channel between Bob
+	// and Carol. Note that we will also receive a node announcement from
+	// Bob, since a node will update its node announcement after a new
+	// channel is opened.
+	if err := net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
 	}
 
-	// We should receive an update advertising the newly connected node.
-	select {
-	case graphUpdate := <-graphUpdates:
-		if len(graphUpdate.NodeUpdates) != 1 {
-			t.Fatalf("expected a single update, instead "+
-				"have %v", len(graphUpdate.NodeUpdates))
-		}
+	// We should receive an update advertising the newly connected node,
+	// Bob's new node announcement, and the channel between Bob and Carol.
+	for i := 0; i < 4; i++ {
+		select {
+		case graphUpdate := <-graphUpdates:
 
-		nodeUpdate := graphUpdate.NodeUpdates[0]
-		if nodeUpdate.IdentityKey != carol.PubKeyStr {
-			t.Fatalf("node update pubkey mismatch: expected %v, got %v",
-				carol.PubKeyStr, nodeUpdate.IdentityKey)
+			if len(graphUpdate.NodeUpdates) > 0 {
+				nodeUpdate := graphUpdate.NodeUpdates[0]
+				switch nodeUpdate.IdentityKey {
+				case carol.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown node update pubey: %v",
+						nodeUpdate.IdentityKey)
+				}
+			}
+
+			if len(graphUpdate.ChannelUpdates) > 0 {
+				chanUpdate := graphUpdate.ChannelUpdates[0]
+				if chanUpdate.Capacity != int64(chanAmt) {
+					t.Fatalf("channel capacities mismatch:"+
+						" expected %v, got %v", chanAmt,
+						btcutil.Amount(chanUpdate.Capacity))
+				}
+				switch chanUpdate.AdvertisingNode {
+				case carol.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown advertising node: %v",
+						chanUpdate.AdvertisingNode)
+				}
+				switch chanUpdate.ConnectingNode {
+				case carol.PubKeyStr:
+				case net.Bob.PubKeyStr:
+				default:
+					t.Fatalf("unknown connecting node: %v",
+						chanUpdate.ConnectingNode)
+				}
+			}
+		case <-time.After(time.Second * 10):
+			t.Fatalf("timeout waiting for graph notification %v", i)
 		}
-	case <-time.After(time.Second * 10):
-		t.Fatalf("node update ntfn not sent")
 	}
+
+	// Close the channel between Bob and Carol.
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
 
 	close(quit)
 
@@ -2378,6 +2437,20 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
 
+	// We must let Dave have an open channel before he can send a node
+	// announcement, so we open a channel with Bob,
+	if err := net.ConnectNodes(ctxb, net.Bob, dave); err != nil {
+		t.Fatalf("unable to connect bob to carol: %v", err)
+	}
+
+	timeout := time.Duration(time.Second * 5)
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Bob, dave,
+		1000000, 0)
+
+	time.Sleep(time.Millisecond * 300)
+
+	// When Alice now connects with Dave, Alice will get his node announcement.
 	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
@@ -2413,6 +2486,9 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("expected IP addresses not in channel "+
 			"graph: %v", ipAddresses)
 	}
+
+	// Close the channel between Bob and Dave.
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
 
 	if err := dave.Shutdown(); err != nil {
 		t.Fatalf("unable to shutdown dave: %v", err)

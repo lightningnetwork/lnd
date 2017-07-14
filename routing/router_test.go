@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image/color"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/roasbeef/btcd/wire"
@@ -229,14 +231,8 @@ func TestAddProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ctx.router.AddNode(node1); err != nil {
-		t.Fatal(err)
-	}
 	node2, err := createTestNode()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ctx.router.AddNode(node2); err != nil {
 		t.Fatal(err)
 	}
 
@@ -279,34 +275,290 @@ func TestAddProof(t *testing.T) {
 	}
 }
 
+// TestIgnoreNodeAnnouncement tests that adding a node to the router that is
+// not known from any channel annoucement, leads to the annoucement being
+// ignored.
+func TestIgnoreNodeAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+		basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	node := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(123, 0),
+		Addresses:            testAddrs,
+		PubKey:               priv1.PubKey(),
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node11",
+		AuthSig:              testSig,
+		Features:             testFeatures,
+	}
+
+	err = ctx.router.AddNode(node)
+	if !IsError(err, ErrIgnored) {
+		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
+	}
+}
+
 // TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
-// vertex which we don't know of, then the edge is rejected.
+// vertexes which we don't know of, the edge should be available for use
+// regardless. This is due to the fact that we don't actually need node
+// announcements for the channel vertexes to be able to use the channel.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+		basicGraphFilePath)
+	defer cleanUp()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("unable to create router: %v", err)
 	}
-	defer cleanup()
 
-	_, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
-		10000, 500)
+	// The two nodes we are about to add should not exist yet.
+	_, exists1, err := ctx.graph.HasLightningNode(priv1.PubKey())
+	if err != nil {
+		t.Fatalf("unable to query graph: %v", err)
+	}
+	if exists1 {
+		t.Fatalf("node already existed")
+	}
+	_, exists2, err := ctx.graph.HasLightningNode(priv2.PubKey())
+	if err != nil {
+		t.Fatalf("unable to query graph: %v", err)
+	}
+	if exists2 {
+		t.Fatalf("node already existed")
+	}
+
+	// Add the edge between the two unknown nodes to the graph, and check
+	// that the nodes are found after the fact.
+	fundingTx, _, chanID, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(), 10000, 500)
 	if err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
 
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
 		NodeKey1:    priv1.PubKey(),
-		NodeKey2:    priv1.PubKey(),
+		NodeKey2:    priv2.PubKey(),
 		BitcoinKey1: bitcoinKey1,
 		BitcoinKey2: bitcoinKey2,
 		AuthProof:   nil,
 	}
-	if err := ctx.router.AddEdge(edge); err == nil {
-		t.Fatal("edge should have been rejected due to unknown " +
-			"vertexes, but wasn't")
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("expected to be able to add edge to the channel graph,"+
+			" even though the vertexes were unknown: %v.", err)
+	}
+
+	// We must add the edge policy to be able to use the edge for route
+	// finding.
+	edgePolicy := &channeldb.ChannelEdgePolicy{
+		Signature:                 testSig,
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                time.Now(),
+		TimeLockDelta:             10,
+		MinHTLC:                   btcutil.Amount(1),
+		FeeBaseMSat:               btcutil.Amount(10),
+		FeeProportionalMillionths: btcutil.Amount(10000),
+	}
+	edgePolicy.Flags = 0
+
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	// Create edge in the other direction as well.
+	edgePolicy = &channeldb.ChannelEdgePolicy{
+		Signature:                 testSig,
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                time.Now(),
+		TimeLockDelta:             10,
+		MinHTLC:                   btcutil.Amount(1),
+		FeeBaseMSat:               btcutil.Amount(10),
+		FeeProportionalMillionths: btcutil.Amount(10000),
+	}
+	edgePolicy.Flags = 1
+
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	// After adding the edge between the two previously unknown nodes, they
+	// should have been added to the graph.
+	_, exists1, err = ctx.graph.HasLightningNode(priv1.PubKey())
+	if err != nil {
+		t.Fatalf("unable to query graph: %v", err)
+	}
+	if !exists1 {
+		t.Fatalf("node1 was not added to the graph")
+	}
+	_, exists2, err = ctx.graph.HasLightningNode(priv2.PubKey())
+	if err != nil {
+		t.Fatalf("unable to query graph: %v", err)
+	}
+	if !exists2 {
+		t.Fatalf("node2 was not added to the graph")
+	}
+
+	// We will connect node1 to the rest of the test graph, and make sure
+	// we can find a route to node2, which will use the just added channel
+	// edge.
+
+	// We will connect node 1 to "sophon"
+	connectNode := ctx.aliases["sophon"]
+	if connectNode == nil {
+		t.Fatalf("could not find node to connect to")
+	}
+
+	var (
+		pubKey1 *btcec.PublicKey
+		pubKey2 *btcec.PublicKey
+	)
+	node1Bytes := priv1.PubKey().SerializeCompressed()
+	node2Bytes := connectNode.SerializeCompressed()
+	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
+		pubKey1 = priv1.PubKey()
+		pubKey2 = connectNode
+	} else {
+		pubKey1 = connectNode
+		pubKey2 = priv1.PubKey()
+	}
+
+	fundingTx, _, chanID, err = createChannelEdge(ctx,
+		pubKey1.SerializeCompressed(), pubKey2.SerializeCompressed(),
+		10000, 510)
+	if err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	fundingBlock = &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+
+	edge = &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID.ToUint64(),
+		NodeKey1:    pubKey1,
+		NodeKey2:    pubKey2,
+		BitcoinKey1: pubKey1,
+		BitcoinKey2: pubKey2,
+		AuthProof:   nil,
+	}
+
+	if err := ctx.router.AddEdge(edge); err != nil {
+		t.Fatalf("unable to add edge to the channel graph: %v.", err)
+	}
+
+	edgePolicy = &channeldb.ChannelEdgePolicy{
+		Signature:                 testSig,
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                time.Now(),
+		TimeLockDelta:             10,
+		MinHTLC:                   btcutil.Amount(1),
+		FeeBaseMSat:               btcutil.Amount(10),
+		FeeProportionalMillionths: btcutil.Amount(10000),
+	}
+	edgePolicy.Flags = 0
+
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	edgePolicy = &channeldb.ChannelEdgePolicy{
+		Signature:                 testSig,
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                time.Now(),
+		TimeLockDelta:             10,
+		MinHTLC:                   btcutil.Amount(1),
+		FeeBaseMSat:               btcutil.Amount(10),
+		FeeProportionalMillionths: btcutil.Amount(10000),
+	}
+	edgePolicy.Flags = 1
+
+	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
+		t.Fatalf("unable to update edge policy: %v", err)
+	}
+
+	// We should now be able to find one route to node 2.
+	const paymentAmt = btcutil.Amount(100)
+	targetNode := priv2.PubKey()
+	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find any routes: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("expected to find 1 route, found: %v", len(routes))
+	}
+
+	// Now check that we can update the node info for the partial node
+	// without messing up the channel graph.
+	n1 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(123, 0),
+		Addresses:            testAddrs,
+		PubKey:               priv1.PubKey(),
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node11",
+		AuthSig:              testSig,
+		Features:             testFeatures,
+	}
+
+	if err := ctx.router.AddNode(n1); err != nil {
+		t.Fatalf("could not add node: %v", err)
+	}
+
+	n2 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(123, 0),
+		Addresses:            testAddrs,
+		PubKey:               priv2.PubKey(),
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node22",
+		AuthSig:              testSig,
+		Features:             testFeatures,
+	}
+
+	if err := ctx.router.AddNode(n2); err != nil {
+		t.Fatalf("could not add node: %v", err)
+	}
+
+	// Should still be able to find the route, and the info should be
+	// updated.
+	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find any routes: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("expected to find 1 route, found: %v", len(routes))
+	}
+
+	copy1, err := ctx.graph.FetchLightningNode(priv1.PubKey())
+	if err != nil {
+		t.Fatalf("unable to fetch node: %v", err)
+	}
+
+	if copy1.Alias != n1.Alias {
+		t.Fatalf("fetched node not equal to original")
+	}
+
+	copy2, err := ctx.graph.FetchLightningNode(priv2.PubKey())
+	if err != nil {
+		t.Fatalf("unable to fetch node: %v", err)
+	}
+
+	if copy2.Alias != n2.Alias {
+		t.Fatalf("fetched node not equal to original")
 	}
 }

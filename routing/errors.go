@@ -35,7 +35,8 @@ const (
 	ErrOutdated
 
 	// ErrIgnored is returned when the update have been ignored because
-	// this update can't bring us something new.
+	// this update can't bring us something new, or because a node
+	// announcement was given for node not found in any channel.
 	ErrIgnored
 )
 

@@ -165,12 +165,13 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 
 		dbNode := &channeldb.LightningNode{
-			AuthSig:    testSig,
-			LastUpdate: time.Now(),
-			Addresses:  testAddrs,
-			PubKey:     pub,
-			Alias:      node.Alias,
-			Features:   testFeatures,
+			HaveNodeAnnouncement: true,
+			AuthSig:              testSig,
+			LastUpdate:           time.Now(),
+			Addresses:            testAddrs,
+			PubKey:               pub,
+			Alias:                node.Alias,
+			Features:             testFeatures,
 		}
 
 		// We require all aliases within the graph to be unique for our

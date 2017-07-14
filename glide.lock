@@ -1,5 +1,5 @@
-hash: 0196bc6ca082c099c1acb7703625b5e5fb83df9d87c097a64e15633ed415f898
-updated: 2017-07-11T16:16:34.112327207-07:00
+hash: e7c539586d4761f73cc32b1062919f085edffd0f568f37486fc15e40c4c519a2
+updated: 2017-07-13T23:45:13.501547671-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -72,7 +72,7 @@ imports:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: 9a8748f89637a86586af383a5c3f9a19cff85b4f
+  version: a90e2d9284413c6c53585a608e47febf2d300ab9
 - name: github.com/ltcsuite/ltcd
   version: 38f2b6f507e2523ae972f2ee6ae4c9f04f6c1c4a
   subpackages:

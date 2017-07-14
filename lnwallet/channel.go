@@ -243,6 +243,10 @@ type commitment struct {
 	// back and recalculated for each new update to the channel state.
 	fee btcutil.Amount
 
+	// feePerKw is the fee per kw used to calculate this commitment
+	// transaction's fee.
+	feePerKw btcutil.Amount
+
 	// htlcs is the set of HTLCs which remain unsettled within this
 	// commitment.
 	outgoingHTLCs []PaymentDescriptor
@@ -263,6 +267,7 @@ func (c *commitment) toChannelDelta(ourCommit bool) (*channeldb.ChannelDelta, er
 		RemoteBalance: c.theirBalance,
 		UpdateNum:     c.height,
 		CommitFee:     c.fee,
+		FeePerKw:      c.feePerKw,
 		Htlcs:         make([]*channeldb.HTLC, 0, numHtlcs),
 	}
 
@@ -631,6 +636,16 @@ type LightningChannel struct {
 	localUpdateLog  *updateLog
 	remoteUpdateLog *updateLog
 
+	// pendingFeeUpdate is set to the fee-per-kw we last sent (if we are
+	// channel initiator) or received (if non-initiator) in an update fee
+	// message, which haven't yet been included in a commitment.
+	// It will be nil if no fee update is un-committed.
+	pendingFeeUpdate *btcutil.Amount
+
+	// pendingAckFeeUpdate is set to the last committed fee update which is
+	// not yet ACKed. Set to nil if no such update.
+	pendingAckFeeUpdate *btcutil.Amount
+
 	// rHashMap is a map with PaymentHashes pointing to their respective
 	// PaymentDescriptors. We insert *PaymentDescriptors whenever we
 	// receive HTLCs. When a state transition happens (settling or
@@ -727,6 +742,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		theirBalance:      state.TheirBalance,
 		theirMessageIndex: 0,
 		fee:               state.CommitFee,
+		feePerKw:          state.FeePerKw,
 	})
 	walletLog.Debugf("ChannelPoint(%v), starting local commitment: %v",
 		state.ChanID, newLogClosure(func() string {
@@ -748,6 +764,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		theirBalance:      state.TheirBalance,
 		theirMessageIndex: 0,
 		fee:               state.CommitFee,
+		feePerKw:          state.FeePerKw,
 	}
 	if logTail == nil {
 		remoteCommitment.height = 0
@@ -1329,12 +1346,45 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		numHTLCs++
 	}
 
+	// Initiate feePerKw to the last committed fee for this chain.
+	feePerKw := commitChain.tail().feePerKw
+
+	// Check if any fee updates have taken place since that last commitment.
+	if lc.channelState.IsInitiator {
+
+		// The case where we sent an update_fee message since our last
+		// commitment, and now we are signing that one.
+		if remoteChain && lc.pendingFeeUpdate != nil {
+			feePerKw = *lc.pendingFeeUpdate
+		}
+
+		// The case where we committed to a sent fee update, and now we
+		// got a commitment that ACKed that update.
+		if !remoteChain && lc.pendingAckFeeUpdate != nil {
+			feePerKw = *lc.pendingAckFeeUpdate
+		}
+	} else {
+
+		// We received a fee update since last received commitment, so
+		// this received commitment will sign that update.
+		if !remoteChain && lc.pendingFeeUpdate != nil {
+			feePerKw = *lc.pendingFeeUpdate
+		}
+
+		// Earlier we received a commitment that signed an earlier fee
+		// update, and now we must ACK that update.
+		if remoteChain && lc.pendingAckFeeUpdate != nil {
+			feePerKw = *lc.pendingAckFeeUpdate
+		}
+	}
+
 	// Next, we'll calculate the fee for the commitment transaction based
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
 	totalCommitWeight := commitWeight + btcutil.Amount(htlcWeight*numHTLCs)
-	commitFee := lc.channelState.FeePerKw * totalCommitWeight / 1000
+
+	commitFee := (feePerKw * totalCommitWeight) / 1000
 	commitFee -= dustFees
 
 	// Currently, within the protocol, the initiator always pays the fees.
@@ -1421,6 +1471,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
 		fee:               commitFee,
+		feePerKw:          feePerKw,
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new
@@ -1685,6 +1736,16 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
+	// If we are the channel initiator then we would have signed any sent
+	// fee update at this point, so mark this update as pending ACK, and set
+	// pendingFeeUpdate to nil. We can do this since we know we won't sign
+	// any new commitment before receiving a revoke_and_ack, because of the
+	// revocation window of 1.
+	if lc.channelState.IsInitiator {
+		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
+		lc.pendingFeeUpdate = nil
+	}
+
 	// Move the now used revocation hash from the unused set to the used set.
 	// We only do this at the end, as we know at this point the procedure will
 	// succeed without any errors.
@@ -1857,6 +1918,16 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 	// our local commitment chain.
 	localCommitmentView.sig = rawSig
 	lc.localCommitChain.addCommitment(localCommitmentView)
+
+	// If we are not channel initiator, then the commitment just received
+	// would've signed any received fee update since last commitment. Mark
+	// any such fee update as pending ACK (so we remember to ACK it on our
+	// next commitment), and set pendingFeeUpdate to nil. We can do this
+	// since we won't receive any new commitment before ACKing.
+	if !lc.channelState.IsInitiator {
+		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
+		lc.pendingFeeUpdate = nil
+	}
 
 	// Finally we'll keep track of the current pending index for the remote
 	// party so we can ACK up to this value once we revoke our current
@@ -2761,6 +2832,43 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	defer lc.RUnlock()
 
 	return lc.channelState.Snapshot()
+}
+
+// UpdateFee initiates a fee update for this channel. Must only be called by
+// the channel initiator, and must be called before sending update_fee to
+// the remote.
+func (lc *LightningChannel) UpdateFee(feePerKw btcutil.Amount) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Only initiator can send fee update, so trying to send one as
+	// non-initiatior will fail.
+	if !lc.channelState.IsInitiator {
+		return fmt.Errorf("local fee update as non-initiatior")
+	}
+
+	lc.pendingFeeUpdate = &feePerKw
+
+	return nil
+}
+
+// ReceiveUpdateFee handles an updated fee sent from remote. This method will
+// return an error if called as channel initiator.
+func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Only initiator can send fee update, and we must fail if we receive
+	// fee update as initiatior
+	if lc.channelState.IsInitiator {
+		return fmt.Errorf("received fee update as initiatior")
+	}
+
+	// TODO(halseth): should fail if fee update is unreasonable,
+	// as specified in BOLT#2.
+	lc.pendingFeeUpdate = &feePerKw
+
+	return nil
 }
 
 // CreateCommitTx creates a commitment transaction, spending from specified

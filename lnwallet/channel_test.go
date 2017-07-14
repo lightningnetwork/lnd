@@ -402,8 +402,8 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// First Alice adds the outgoing HTLC to her local channel's state
-	// update log. Then Alice sends this wire message over to Bob who also
-	// adds this htlc to his local state update log.
+	// update log. Then Alice sends this wire message over to Bob who
+	// adds this htlc to his remote state update log.
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("unable to add htlc: %v", err)
 	}
@@ -411,22 +411,31 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("unable to recv htlc: %v", err)
 	}
 
-	// Next alice commits this change by sending a signature message.
+	// Next alice commits this change by sending a signature message. Since
+	// we expect the messages to be ordered, Bob will receive the HTLC we
+	// just sent before he receives this signature, so the signature will
+	// cover the HTLC.
 	aliceSig, err := aliceChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatalf("alice unable to sign commitment: %v", err)
 	}
 
-	// Bob receives this signature message, revokes his prior commitment
-	// given to him by Alice,a nd then finally send a signature for Alice's
-	// commitment transaction.
+	// Bob receives this signature message, and checks that this covers the
+	// state he has in his remote log. This includes the HTLC just sent
+	// from Alice.
 	if err := bobChannel.ReceiveNewCommitment(aliceSig); err != nil {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
 	}
+	// Bob revokes his prior commitment given to him by Alice, since he now
+	// has a valid signature for a newer commitment.
 	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
+	// Bob finally send a signature for Alice's commitment transaction.
+	// This signature will cover the HTLC, since Bob will first send the
+	// revocation just created. The revocation also acks every received
+	// HTLC up to the point where Alice sent here signature.
 	bobSig, err := bobChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatalf("bob unable to sign alice's commitment: %v", err)
@@ -441,12 +450,14 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice forwards %v htlcs, should forward none: ", len(htlcs))
 	}
 
-	// Alice then processes bob's signature, and generates a revocation for
-	// bob.
+	// Alice then processes bob's signature, and since she just received
+	// the revocation, she expect this signature to cover everything up to
+	// the point where she sent her signature, including the HTLC.
 	if err := aliceChannel.ReceiveNewCommitment(bobSig); err != nil {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
+	// Alice then generates a revocation for bob.
 	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke alice channel: %v", err)
@@ -1597,5 +1608,411 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	if closeTx.TxOut[0].Value != int64(aliceBal) {
 		t.Fatalf("bob's balance is incorrect: expected %v, got %v",
 			aliceBal, closeTx.TxOut[0].Value)
+	}
+}
+
+// TestUpdateFeeFail tests that the signature verification will fail if they
+// fee updates are out of sync.
+func TestUpdateFeeFail(t *testing.T) {
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Bob receives the update, that will apply to his commitment
+	// transaction.
+	bobChannel.ReceiveUpdateFee(111)
+
+	// Alice sends signature for commitment that does not cover any fee
+	// update.
+	aliceSig, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// Bob verifies this commit, meaning that he checks that it is
+	// consistent everything he has received. This should fail, since he got
+	// the fee update, but Alice never sent it.
+	err = bobChannel.ReceiveNewCommitment(aliceSig)
+	if err == nil {
+		t.Fatalf("expected bob to fail receiving alice's signature")
+	}
+
+}
+
+// TestUpdateFeeSenderCommits veriefies that the state machine progresses as
+// expected if we send a fee update, and then the sender of the fee update
+// sends a commitment signature.
+func TestUpdateFeeSenderCommits(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	paymentPreimage := bytes.Repeat([]byte{1}, 32)
+	paymentHash := sha256.Sum256(paymentPreimage)
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: paymentHash,
+		Amount:      btcutil.SatoshiPerBitcoin,
+		Expiry:      uint32(5),
+	}
+
+	// First Alice adds the outgoing HTLC to her local channel's state
+	// update log. Then Alice sends this wire message over to Bob who
+	// adds this htlc to his remote state update log.
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Simulate Alice sending update fee message to bob.
+	fee := btcutil.Amount(111)
+	aliceChannel.UpdateFee(fee)
+	bobChannel.ReceiveUpdateFee(fee)
+
+	// Alice signs a commitment, which will cover everything sent to Bob
+	// (the HTLC and the fee update), and everything acked by Bob (nothing
+	// so far).
+	aliceSig, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// Bob receives this signature message, and verifies that it is
+	// consistent with the state he had for Alice, including the received
+	// HTLC and fee update.
+	if err := bobChannel.ReceiveNewCommitment(aliceSig); err != nil {
+		t.Fatalf("bob unable to process alice's new commitment: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw == fee {
+		t.Fatalf("bob's feePerKw was unexpectedly locked in")
+	}
+
+	// Bob can revoke the prior commitment he had. This should lock in the
+	// fee update for him.
+	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to generate bob revocation: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw != fee {
+		t.Fatalf("bob's feePerKw was not locked in")
+	}
+
+	// Bob commits to all updates he has received from Alice. This includes
+	// the HTLC he received, and the fee update.
+	bobSig, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob unable to sign alice's commitment: %v", err)
+	}
+
+	// Alice receives the revocation of the old one, and can now assume that
+	// Bob's received everything up to the signature she sent, including the
+	// HTLC and fee update.
+	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
+		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+	}
+
+	// Alice receives new signature from Bob, and assumes this covers the
+	// changes.
+	if err := aliceChannel.ReceiveNewCommitment(bobSig); err != nil {
+		t.Fatalf("alice unable to process bob's new commitment: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw == fee {
+		t.Fatalf("alice's feePerKw was unexpectedly locked in")
+	}
+
+	// Alice can revoke the old commitment, which will lock in the fee
+	// update.
+	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke alice channel: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw != fee {
+		t.Fatalf("alice's feePerKw was not locked in")
+	}
+
+	// Bob receives revocation from Alice.
+	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("bob unable to process alive's revocation: %v", err)
+	}
+
+}
+
+// TestUpdateFeeReceiverCommits tests that the state machine progresses as
+// expected if we send a fee update, and then the receiver of the fee update
+// sends a commitment signature.
+func TestUpdateFeeReceiverCommits(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	paymentPreimage := bytes.Repeat([]byte{1}, 32)
+	paymentHash := sha256.Sum256(paymentPreimage)
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: paymentHash,
+		Amount:      btcutil.SatoshiPerBitcoin,
+		Expiry:      uint32(5),
+	}
+
+	// First Alice adds the outgoing HTLC to her local channel's state
+	// update log. Then Alice sends this wire message over to Bob who
+	// adds this htlc to his remote state update log.
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Simulate Alice sending update fee message to bob
+	fee := btcutil.Amount(111)
+	aliceChannel.UpdateFee(fee)
+	bobChannel.ReceiveUpdateFee(fee)
+
+	// Bob commits to every change he has sent since last time (none). He
+	// does not commit to the received HTLC and fee update, since Alice
+	// cannot know if he has received them.
+	bobSig, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// Alice receives this signature message, and verifies that it is
+	// consistent with the remote state, not including any of the updates.
+	if err := aliceChannel.ReceiveNewCommitment(bobSig); err != nil {
+		t.Fatalf("bob unable to process alice's new commitment: %v", err)
+	}
+
+	// Alice can revoke the prior commitment she had, this will ack
+	// everything received before last commitment signature, but in this
+	// case that is nothing.
+	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to generate bob revocation: %v", err)
+	}
+
+	// Bob receives the revocation of the old commitment
+	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+	}
+
+	// Alice will sign next commitment. Since she sent the revocation, she
+	// also ack'ed everything received, but in this case this is nothing.
+	// Since she sent the two updates, this signature will cover those two.
+	aliceSig, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob unable to sign alice's commitment: %v", err)
+	}
+
+	// Bob gets the signature for the new commitment from Alice. He assumes
+	// this covers everything received from alice, including the two updates.
+	if err := bobChannel.ReceiveNewCommitment(aliceSig); err != nil {
+		t.Fatalf("alice unable to process bob's new commitment: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw == fee {
+		t.Fatalf("bob's feePerKw was unexpectedly locked in")
+	}
+	// Bob can revoke the old commitment. This will ack what he has
+	// received, including the HTLC and fee update. This will lock in the
+	// fee update for bob.
+	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke alice channel: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw != fee {
+		t.Fatalf("bob's feePerKw was not locked in")
+	}
+
+	// Bob will send a new signature, which will cover what he just acked:
+	// the HTLC and fee update.
+	bobSig, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// Alice receives revokation from Bob, and can now be sure that Bob
+	// received the two updates, and they are considered locked in.
+	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
+		t.Fatalf("bob unable to process alive's revocation: %v", err)
+	}
+
+	// Alice will receive the signature from Bob, which will cover what was
+	// just acked by his revocation.
+	if err := aliceChannel.ReceiveNewCommitment(bobSig); err != nil {
+		t.Fatalf("alice unable to process bob's new commitment: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw == fee {
+		t.Fatalf("alice's feePerKw was unexpectedly locked in")
+	}
+
+	// After Alice now revokes her old commitment, the fee update should
+	// lock in.
+	aliceRevocation, err = aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to generate bob revocation: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw != fee {
+		t.Fatalf("Alice's feePerKw was not locked in")
+	}
+
+	// Bob receives revokation from Alice.
+	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("bob unable to process alive's revocation: %v", err)
+	}
+
+}
+
+// TestUpdateFeeReceiverSendsUpdate tests that receiving a fee update as channel
+// initiator fails, and that trying to initiate fee update as non-initiatior
+// fails.
+func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Since Alice is the channel initiator, she should fail when receiving
+	// fee update
+	fee := btcutil.Amount(111)
+	err = aliceChannel.ReceiveUpdateFee(fee)
+	if err == nil {
+		t.Fatalf("expected alice to fail receiving fee update")
+	}
+
+	// Similarly, initiating fee update should fail for Bob.
+	err = bobChannel.UpdateFee(fee)
+	if err == nil {
+		t.Fatalf("expected bob to fail initiating fee update")
+	}
+}
+
+// Test that if multiple update fee messages are sent consecutively, then the
+// last one is the one that is being committed to.
+func TestUpdateFeeMultipleUpdates(t *testing.T) {
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Simulate Alice sending update fee message to bob.
+	fee1 := btcutil.Amount(111)
+	fee2 := btcutil.Amount(222)
+	fee := btcutil.Amount(333)
+	aliceChannel.UpdateFee(fee1)
+	aliceChannel.UpdateFee(fee2)
+	aliceChannel.UpdateFee(fee)
+
+	// Alice signs a commitment, which will cover everything sent to Bob
+	// (the HTLC and the fee update), and everything acked by Bob (nothing
+	// so far).
+	aliceSig, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	bobChannel.ReceiveUpdateFee(fee1)
+	bobChannel.ReceiveUpdateFee(fee2)
+	bobChannel.ReceiveUpdateFee(fee)
+
+	// Bob receives this signature message, and verifies that it is
+	// consistent with the state he had for Alice, including the received
+	// HTLC and fee update.
+	if err := bobChannel.ReceiveNewCommitment(aliceSig); err != nil {
+		t.Fatalf("bob unable to process alice's new commitment: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw == fee {
+		t.Fatalf("bob's feePerKw was unexpectedly locked in")
+	}
+
+	// Alice sending more fee updates now should not mess up the old fee
+	// they both committed to.
+	fee3 := btcutil.Amount(444)
+	fee4 := btcutil.Amount(555)
+	fee5 := btcutil.Amount(666)
+	aliceChannel.UpdateFee(fee3)
+	aliceChannel.UpdateFee(fee4)
+	aliceChannel.UpdateFee(fee5)
+	bobChannel.ReceiveUpdateFee(fee3)
+	bobChannel.ReceiveUpdateFee(fee4)
+	bobChannel.ReceiveUpdateFee(fee5)
+
+	// Bob can revoke the prior commitment he had. This should lock in the
+	// fee update for him.
+	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to generate bob revocation: %v", err)
+	}
+
+	if bobChannel.channelState.FeePerKw != fee {
+		t.Fatalf("bob's feePerKw was not locked in")
+	}
+
+	// Bob commits to all updates he has received from Alice. This includes
+	// the HTLC he received, and the fee update.
+	bobSig, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob unable to sign alice's commitment: %v", err)
+	}
+
+	// Alice receives the revocation of the old one, and can now assume that
+	// Bob's received everything up to the signature she sent, including the
+	// HTLC and fee update.
+	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
+		t.Fatalf("alice unable to rocess bob's revocation: %v", err)
+	}
+
+	// Alice receives new signature from Bob, and assumes this covers the
+	// changes.
+	if err := aliceChannel.ReceiveNewCommitment(bobSig); err != nil {
+		t.Fatalf("alice unable to process bob's new commitment: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw == fee {
+		t.Fatalf("alice's feePerKw was unexpectedly locked in")
+	}
+
+	// Alice can revoke the old commitment, which will lock in the fee
+	// update.
+	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke alice channel: %v", err)
+	}
+
+	if aliceChannel.channelState.FeePerKw != fee {
+		t.Fatalf("alice's feePerKw was not locked in")
+	}
+
+	// Bob receives revocation from Alice.
+	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
+		t.Fatalf("bob unable to process alive's revocation: %v", err)
 	}
 }

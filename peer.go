@@ -473,6 +473,9 @@ out:
 		case *lnwire.CommitSig:
 			isChanUpdate = true
 			targetChan = msg.ChanID
+		case *lnwire.UpdateFee:
+			isChanUpdate = true
+			targetChan = msg.ChanID
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,

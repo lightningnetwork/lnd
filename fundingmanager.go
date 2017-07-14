@@ -161,6 +161,10 @@ type fundingConfig struct {
 	// distinct sub-system?
 	SignMessage func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
 
+	// SignNodeAnnouncement is used by the fundingManager to sign the
+	// updated self node announcements sent after each channel announcement.
+	SignNodeAnnouncement func(nodeAnn *lnwire.NodeAnnouncement) (*btcec.Signature, error)
+
 	// SendAnnouncement is used by the FundingManager to announce newly
 	// created channels to the rest of the Lightning Network.
 	SendAnnouncement func(msg lnwire.Message) error
@@ -1355,7 +1359,6 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID) {
-
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey, localFundingKey,
 		remoteFundingKey, shortChanID, chanID)
 	if err != nil {
@@ -1369,6 +1372,46 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	f.cfg.SendAnnouncement(ann.chanAnn)
 	f.cfg.SendAnnouncement(ann.chanUpdateAnn)
 	f.cfg.SendAnnouncement(ann.chanProof)
+
+	// Now that the channel is announced to the network, we will also create
+	// and send a node announcement. This is done since a node announcement
+	// is only accepted after a channel is known for that particular node,
+	// and this might be our first channel.
+	graph := f.cfg.Wallet.Cfg.Database.ChannelGraph()
+	self, err := graph.FetchLightningNode(f.cfg.IDKey)
+	if err != nil {
+		fndgLog.Errorf("unable to fetch own lightning node from "+
+			"channel graph: %v", err)
+		return
+	}
+
+	// Create node announcement with updated timestamp to make sure it gets
+	// propagated in the network, in particular by our local announcement
+	// process logic. In case we just sent one, add one second to the time,
+	// to make sure it gets propagated.
+	timestamp := time.Now().Unix()
+	if timestamp <= self.LastUpdate.Unix() {
+		timestamp = self.LastUpdate.Unix() + 1
+	}
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Timestamp: uint32(timestamp),
+		Addresses: self.Addresses,
+		NodeID:    self.PubKey,
+		Alias:     lnwire.NewAlias(self.Alias),
+		Features:  self.Features,
+	}
+
+	// Since the timestamp is changed, we cannot reuse the old signature
+	// and must re-sign the announcement.
+	sign, err := f.cfg.SignNodeAnnouncement(nodeAnn)
+	if err != nil {
+		fndgLog.Errorf("unable to generate signature for self node "+
+			"announcement: %v", err)
+		return
+	}
+
+	nodeAnn.Signature = sign
+	f.cfg.SendAnnouncement(nodeAnn)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it

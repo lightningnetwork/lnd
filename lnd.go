@@ -18,6 +18,7 @@ import (
 	flags "github.com/btcsuite/go-flags"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -129,6 +130,16 @@ func lndMain() error {
 			return activeChainControl.msgSigner.SignMessage(
 				pubKey, msg,
 			)
+		},
+		SignNodeAnnouncement: func(nodeAnn *lnwire.NodeAnnouncement) (*btcec.Signature, error) {
+			sig, err := discovery.SignAnnouncement(nodeSigner,
+				server.identityPriv.PubKey(),
+				nodeAnn,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return sig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			server.discoverSrv.ProcessLocalAnnouncement(msg,

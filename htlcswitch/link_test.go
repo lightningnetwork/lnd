@@ -252,7 +252,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 }
 
 // TestChannelLinkMultiHopPayment checks the ability to send payment over two
-// hopes. In this test we send the payment from Carol to Alice over Bob peer.
+// hops. In this test we send the payment from Carol to Alice over Bob peer.
 // (Carol -> Bob -> Alice) and checking that HTLC was settled properly and
 // balances were changed in two channels.
 func TestChannelLinkMultiHopPayment(t *testing.T) {

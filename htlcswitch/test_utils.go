@@ -46,8 +46,8 @@ func generateRandomBytes(n int) ([]byte, error) {
 
 // createTestChannel creates the channel and returns our and remote channels
 // representations.
-func createTestChannel(alicePrivKey, bobPrivKey []byte,
-	aliceAmount, bobAmount btcutil.Amount, chanID lnwire.ShortChannelID) (
+func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
+	feePerKw btcutil.Amount, chanID lnwire.ShortChannelID) (
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
@@ -58,6 +58,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
 
 	witnessScript, _, err := lnwallet.GenFundingPkScript(
 		aliceKeyPub.SerializeCompressed(),
@@ -107,7 +108,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		bobKeyPub,
 		aliceRevokeKey,
 		csvTimeoutAlice,
-		aliceAmount,
+		aliceAmount-commitFee,
 		bobAmount,
 		lnwallet.DefaultDustLimit(),
 	)
@@ -121,7 +122,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		bobRevokeKey,
 		csvTimeoutBob,
 		bobAmount,
-		aliceAmount,
+		aliceAmount-commitFee,
 		lnwallet.DefaultDustLimit(),
 	)
 	if err != nil {
@@ -146,13 +147,15 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceChannelState := &channeldb.OpenChannel{
 		IdentityPub:            aliceKeyPub,
 		ChanID:                 prevOut,
+		CommitFee:              commitFee,
+		FeePerKw:               feePerKw,
 		ChanType:               channeldb.SingleFunder,
 		IsInitiator:            true,
 		StateHintObsfucator:    obsfucator,
 		OurCommitKey:           aliceKeyPub,
 		TheirCommitKey:         bobKeyPub,
 		Capacity:               channelCapacity,
-		OurBalance:             aliceAmount,
+		OurBalance:             aliceAmount - commitFee,
 		TheirBalance:           bobAmount,
 		OurCommitTx:            aliceCommitTx,
 		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
@@ -173,6 +176,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	bobChannelState := &channeldb.OpenChannel{
 		IdentityPub:            bobKeyPub,
 		ChanID:                 prevOut,
+		CommitFee:              commitFee,
+		FeePerKw:               feePerKw,
 		ChanType:               channeldb.SingleFunder,
 		IsInitiator:            false,
 		StateHintObsfucator:    obsfucator,
@@ -180,7 +185,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		TheirCommitKey:         aliceKeyPub,
 		Capacity:               channelCapacity,
 		OurBalance:             bobAmount,
-		TheirBalance:           aliceAmount,
+		TheirBalance:           aliceAmount - commitFee,
 		OurCommitTx:            bobCommitTx,
 		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
 		FundingOutpoint:        prevOut,
@@ -502,13 +507,13 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, 0, firstChanID)
 	if err != nil {
 		t.Fatalf("unable to create alice<->bob channel: %v", err)
 	}
 
 	secondBobChannel, carolChannel, sCleanUp, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, 0, secondChanID)
 	if err != nil {
 		t.Fatalf("unable to create bob<->carol channel: %v", err)
 	}

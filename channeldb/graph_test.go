@@ -51,14 +51,15 @@ func createTestVertex(db *DB) (*LightningNode, error) {
 
 	pub := priv.PubKey().SerializeCompressed()
 	return &LightningNode{
-		AuthSig:    testSig,
-		LastUpdate: time.Unix(updateTime, 0),
-		PubKey:     priv.PubKey(),
-		Color:      color.RGBA{1, 2, 3, 0},
-		Alias:      "kek" + string(pub[:]),
-		Features:   testFeatures,
-		Addresses:  testAddrs,
-		db:         db,
+		HaveNodeAnnouncement: true,
+		AuthSig:              testSig,
+		LastUpdate:           time.Unix(updateTime, 0),
+		PubKey:               priv.PubKey(),
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "kek" + string(pub[:]),
+		Features:             testFeatures,
+		Addresses:            testAddrs,
+		db:                   db,
 	}, nil
 }
 
@@ -77,14 +78,15 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// graph, so we'll create a test vertex to start with.
 	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 	node := &LightningNode{
-		AuthSig:    testSig,
-		LastUpdate: time.Unix(1232342, 0),
-		PubKey:     testPub,
-		Color:      color.RGBA{1, 2, 3, 0},
-		Alias:      "kek",
-		Features:   testFeatures,
-		Addresses:  testAddrs,
-		db:         db,
+		HaveNodeAnnouncement: true,
+		AuthSig:              testSig,
+		LastUpdate:           time.Unix(1232342, 0),
+		PubKey:               testPub,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "kek",
+		Features:             testFeatures,
+		Addresses:            testAddrs,
+		db:                   db,
 	}
 
 	// First, insert the node into the graph DB. This should succeed
@@ -107,6 +109,71 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	}
 
 	// The two nodes should match exactly!
+	if err := compareNodes(node, dbNode); err != nil {
+		t.Fatalf("nodes don't match: %v", err)
+	}
+
+	// Next, delete the node from the graph, this should purge all data
+	// related to the node.
+	if err := graph.DeleteLightningNode(testPub); err != nil {
+		t.Fatalf("unable to delete node; %v", err)
+	}
+
+	// Finally, attempt to fetch the node again. This should fail as the
+	// node should've been deleted from the database.
+	_, err = graph.FetchLightningNode(testPub)
+	if err != ErrGraphNodeNotFound {
+		t.Fatalf("fetch after delete should fail!")
+	}
+}
+
+// TestPartialNode checks that we can add and retrieve a LightningNode where
+// where only the pubkey is known to the database.
+func TestPartialNode(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We want to be able to insert nodes into the graph that only has the
+	// PubKey set.
+	_, testPub := btcec.PrivKeyFromBytes(btcec.S256(), key[:])
+	node := &LightningNode{
+		PubKey:               testPub,
+		HaveNodeAnnouncement: false,
+	}
+
+	if err := graph.AddLightningNode(node); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// Next, fetch the node from the database to ensure everything was
+	// serialized properly.
+	dbNode, err := graph.FetchLightningNode(testPub)
+	if err != nil {
+		t.Fatalf("unable to locate node: %v", err)
+	}
+
+	if _, exists, err := graph.HasLightningNode(testPub); err != nil {
+		t.Fatalf("unable to query for node: %v", err)
+	} else if !exists {
+		t.Fatalf("node should be found but wasn't")
+	}
+
+	// The two nodes should match exactly! (with default values for
+	// LastUpdate and db set to satisfy compareNodes())
+	node = &LightningNode{
+		PubKey:               testPub,
+		HaveNodeAnnouncement: false,
+		LastUpdate:           time.Unix(0, 0),
+		db:                   db,
+	}
+
 	if err := compareNodes(node, dbNode); err != nil {
 		t.Fatalf("nodes don't match: %v", err)
 	}
@@ -928,6 +995,10 @@ func compareNodes(a, b *LightningNode) error {
 	if !reflect.DeepEqual(a.db, b.db) {
 		return fmt.Errorf("db doesn't match: expected %#v, \n "+
 			"got %#v", a.db, b.db)
+	}
+	if !reflect.DeepEqual(a.HaveNodeAnnouncement, b.HaveNodeAnnouncement) {
+		return fmt.Errorf("HaveNodeAnnouncement doesn't match: expected %#v, \n "+
+			"got %#v", a.HaveNodeAnnouncement, b.HaveNodeAnnouncement)
 	}
 
 	return nil

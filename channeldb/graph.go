@@ -328,9 +328,13 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 	})
 }
 
-// AddLightningNode adds a new (unconnected) vertex/node to the graph database.
-// When adding an edge, each node must be added before the edge can be
-// inserted. Afterwards the edge information can then be updated.
+// AddLightningNode adds a vertex/node to the graph database. If the node is not
+// in the database from before, this will add a new, unconnected one to the
+// graph. If it is present from before, this will update that node's
+// information. Note that this method is expected to only be called to update
+// an already present node from a node annoucement, or to insert a node found
+// in a channel update.
+//
 // TODO(roasbeef): also need sig of announcement
 func (c *ChannelGraph) AddLightningNode(node *LightningNode) error {
 	return c.db.Update(func(tx *bolt.Tx) error {
@@ -850,16 +854,21 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 // from it. As the graph is directed, a node will also have an incoming edge
 // attached to it for each outgoing edge.
 type LightningNode struct {
+	// PubKey is the node's long-term identity public key. This key will be
+	// used to authenticated any advertisements/updates sent by the node.
+	PubKey *btcec.PublicKey
+
+	// HaveNodeAnnouncement indicates whether we received a node annoucement
+	// for this particular node. If true, the remaining fields will be set,
+	// if false only the PubKey is known for this node.
+	HaveNodeAnnouncement bool
+
 	// LastUpdate is the last time the vertex information for this node has
 	// been updated.
 	LastUpdate time.Time
 
 	// Address is the TCP address this node is reachable over.
 	Addresses []net.Addr
-
-	// PubKey is the node's long-term identity public key. This key will be
-	// used to authenticated any advertisements/updates sent by the node.
-	PubKey *btcec.PublicKey
 
 	// Color is the selected color for the node.
 	Color color.RGBA
@@ -1384,17 +1393,36 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 
 	nodePub := node.PubKey.SerializeCompressed()
 
-	if err := aliasBucket.Put(nodePub, []byte(node.Alias)); err != nil {
-		return err
+	// If the node has the update time set, write it, else write 0.
+	updateUnix := uint64(0)
+	if node.LastUpdate.Unix() > 0 {
+		updateUnix = uint64(node.LastUpdate.Unix())
 	}
 
-	updateUnix := uint64(node.LastUpdate.Unix())
 	byteOrder.PutUint64(scratch[:8], updateUnix)
 	if _, err := b.Write(scratch[:8]); err != nil {
 		return err
 	}
 
 	if _, err := b.Write(nodePub); err != nil {
+		return err
+	}
+
+	// If we got a node announcement for this node, we will have the rest of
+	// the data available. If not we don't have more data to write.
+	if !node.HaveNodeAnnouncement {
+		// Write HaveNodeAnnouncement=0.
+		byteOrder.PutUint16(scratch[:2], 0)
+		if _, err := b.Write(scratch[:2]); err != nil {
+			return err
+		}
+
+		return nodeBucket.Put(nodePub, b.Bytes())
+	}
+
+	// Write HaveNodeAnnouncement=1.
+	byteOrder.PutUint16(scratch[:2], 1)
+	if _, err := b.Write(scratch[:2]); err != nil {
 		return err
 	}
 
@@ -1456,7 +1484,12 @@ func putLightningNode(nodeBucket *bolt.Bucket, aliasBucket *bolt.Bucket, node *L
 		return err
 	}
 
+	if err := aliasBucket.Put(nodePub, []byte(node.Alias)); err != nil {
+		return err
+	}
+
 	return nodeBucket.Put(nodePub, b.Bytes())
+
 }
 
 func fetchLightningNode(nodeBucket *bolt.Bucket,
@@ -1492,6 +1525,25 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 		return nil, err
 	}
 
+	if _, err := r.Read(scratch[:2]); err != nil {
+		return nil, err
+	}
+
+	hasNodeAnn := byteOrder.Uint16(scratch[:2])
+	if hasNodeAnn == 1 {
+		node.HaveNodeAnnouncement = true
+	} else {
+		node.HaveNodeAnnouncement = false
+	}
+
+	// The rest of the data is optional, and will only be there if we got a node
+	// announcement for this node.
+	if !node.HaveNodeAnnouncement {
+		return node, nil
+	}
+
+	// We did get a node announcement for this node, so we'll have the rest
+	// of the data available.
 	if err := binary.Read(r, byteOrder, &node.Color.R); err != nil {
 		return nil, err
 	}

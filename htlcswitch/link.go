@@ -638,6 +638,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				}
 			}
 		}()
+	case *lnwire.UpdateFee:
+		// We received fee update from peer. If we are the initator we will fail the
+		// channel, if not we will apply the update.
+		fee := msg.FeePerKw
+		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
+			log.Errorf("error receiving fee update: %v", err)
+			l.cfg.Peer.Disconnect()
+			return
+		}
 	}
 }
 
@@ -808,6 +817,19 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	case l.upstream <- message:
 	case <-l.quit:
 	}
+}
+
+// updateChannelFee updates the commitment fee-per-kw on this channel by
+// committing to an update_fee message.
+func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
+	// Update local fee.
+	if err := l.channel.UpdateFee(feePerKw); err != nil {
+		return err
+	}
+
+	// Send fee update to remote.
+	msg := lnwire.NewUpdateFee(l.ChanID(), feePerKw)
+	return l.cfg.Peer.SendMessage(msg)
 }
 
 // processLockedInHtlcs serially processes each of the log updates which have

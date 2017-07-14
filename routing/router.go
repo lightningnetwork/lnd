@@ -28,8 +28,9 @@ import (
 // and applying edges updates, return the current block with with out
 // topology is synchronized.
 type ChannelGraphSource interface {
-	// AddNode is used to add node to the topology of the router, after
-	// this node might be used in construction of payment path.
+	// AddNode is used to add information about a node to the router
+	// database. If the node with this pubkey is not present in an existing
+	// channel, it will be ignored.
 	AddNode(node *channeldb.LightningNode) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -524,17 +525,23 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	switch msg := msg.(type) {
 	case *channeldb.LightningNode:
-		// Before proceeding ensure that we aren't already away of this
-		// node, and if we are then this is a newer update that we
-		// known of.
+		// If we are not already aware of this node, it means that we
+		// don't know about any channel using this node. To avoid a DoS
+		// attack by node announcements, we will ignore such nodes. If
+		// we do know about this node, check that this update brings
+		// info newer than what we already have.
 		lastUpdate, exists, err := r.cfg.Graph.HasLightningNode(msg.PubKey)
 		if err != nil {
 			return errors.Errorf("unable to query for the "+
 				"existence of node: %v", err)
-
+		}
+		if !exists {
+			return newErrf(ErrIgnored, "Ignoring node announcement"+
+				" for node not found in channel graph (%x)",
+				msg.PubKey.SerializeCompressed())
 		}
 
-		// If we've reached this pint then we're aware of th vertex
+		// If we've reached this point then we're aware of the vertex
 		// being advertised. So we now check if the new message has a
 		// new time stamp, if not then we won't accept the new data as
 		// it would override newer data.
@@ -565,20 +572,34 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				"chan_id=%v", msg.ChannelID)
 		}
 
-		// If we don't yet know about this edge, then we'll do an
-		// additional check to ensure that we have information about
-		// the two nodes that this edge connects.
+		// Query the database for the existence of the two nodes in this
+		// channel. If not found, add a partial node to the database,
+		// containing only the node keys.
 		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey1)
 		if !exists {
-			return errors.Errorf("unable to add channel edge, info "+
-				"for node %x is missing",
-				msg.NodeKey1.SerializeCompressed())
+			node1 := &channeldb.LightningNode{
+				PubKey:               msg.NodeKey1,
+				HaveNodeAnnouncement: false,
+			}
+			err := r.cfg.Graph.AddLightningNode(node1)
+			if err != nil {
+				return errors.Errorf("unable to add node %v to"+
+					" the graph: %v",
+					node1.PubKey.SerializeCompressed(), err)
+			}
 		}
 		_, exists, _ = r.cfg.Graph.HasLightningNode(msg.NodeKey2)
 		if !exists {
-			return errors.Errorf("unable to add channel edge, info "+
-				"for node %x is missing",
-				msg.NodeKey1.SerializeCompressed())
+			node2 := &channeldb.LightningNode{
+				PubKey:               msg.NodeKey2,
+				HaveNodeAnnouncement: false,
+			}
+			err := r.cfg.Graph.AddLightningNode(node2)
+			if err != nil {
+				return errors.Errorf("unable to add node %v to"+
+					" the graph: %v",
+					node2.PubKey.SerializeCompressed(), err)
+			}
 		}
 
 		// Before we can add the channel to the channel graph, we need
@@ -1031,8 +1052,9 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	return [32]byte{}, nil, sendError
 }
 
-// AddNode is used to add node to the topology of the router, after this node
-// might be used in construction of payment path.
+// AddNode is used to add information about a node to the router database. If
+// the node with this pubkey is not present in an existing channel, it will
+// be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {

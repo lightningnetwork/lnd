@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -900,11 +901,19 @@ func (p *peer) channelManager() {
 
 	deliveryAddrs := make(map[lnwire.ChannelID]*closingScripts)
 
-	// shutdownSigs is a map of signatures maintained by the responder in a
-	// cooperative channel close. This map enables us to respond to
-	// subsequent steps in the workflow without having to recalculate our
-	// signature for the channel close transaction.
-	shutdownSigs := make(map[lnwire.ChannelID][]byte)
+	// initiator[ShutdownSigs|FeeProposals] holds the
+	// [signature|feeProposal] for the last ClosingSigned sent to the peer
+	// by the initiator. This enables us to respond to subsequent steps in
+	// the workflow without having to recalculate our signature for the
+	// channel close transaction, and track the sent fee proposals for fee
+	// negotiation purposes.
+	initiatorShutdownSigs := make(map[lnwire.ChannelID][]byte)
+	initiatorFeeProposals := make(map[lnwire.ChannelID]uint64)
+
+	// responder[ShutdownSigs|FeeProposals] is similar to the the maps
+	// above, just for the responder.
+	responderShutdownSigs := make(map[lnwire.ChannelID][]byte)
+	responderFeeProposals := make(map[lnwire.ChannelID]uint64)
 
 	// TODO(roasbeef): move to cfg closure func
 	genDeliveryScript := func() ([]byte, error) {
@@ -1060,6 +1069,16 @@ out:
 			// entry for this channel, then this means that we're
 			// the responder to the workflow.
 			if _, ok := chanShutdowns[req.ChannelID]; !ok {
+				// Check responderShutdownSigs for an already
+				// existing shutdown signature for this channel.
+				// If such a signature exists, it means we
+				// already have sent a response to a shutdown
+				// message for this channel, so ignore this one.
+				_, exists := responderShutdownSigs[req.ChannelID]
+				if exists {
+					continue
+				}
+
 				// As we're the responder, we'll need to
 				// generate a delivery script of our own.
 				deliveryScript, err := genDeliveryScript()
@@ -1072,11 +1091,12 @@ out:
 
 				// In this case, we'll send a shutdown message,
 				// and also prep our closing signature for the
-				// case they fees are immediately agreed upon.
-				closeSig := p.handleShutdownResponse(req,
-					deliveryScript)
+				// case the fees are immediately agreed upon.
+				closeSig, proposedFee := p.handleShutdownResponse(
+					req, deliveryScript)
 				if closeSig != nil {
-					shutdownSigs[chanID] = closeSig
+					responderShutdownSigs[req.ChannelID] = closeSig
+					responderFeeProposals[req.ChannelID] = proposedFee
 				}
 			}
 
@@ -1092,30 +1112,55 @@ out:
 			// If it does, then this means we were the initiator of
 			// the channel shutdown procedure.
 			if ok {
-				// To finalize this shutdown, we'll now send a
+				shutdownSig := initiatorShutdownSigs[req.ChannelID]
+				initiatorSig := append(shutdownSig,
+					byte(txscript.SigHashAll))
+
+				// To finalize this shtudown, we'll now send a
 				// matching close signed message to the other
 				// party, and broadcast the closing transaction
-				// to the network.
-				p.handleInitClosingSigned(localCloseReq, req,
-					deliveryAddrs[chanID])
-
-				delete(chanShutdowns, req.ChannelID)
-				delete(deliveryAddrs, req.ChannelID)
+				// to the network. If the fees are still being
+				// negotiated, handleClosingSigned returns the
+				// signature and proposed fee we sent to the
+				// peer. In the case fee negotiation was
+				// complete, and the closing tx was broadcasted,
+				// closeSig will be nil, and we can delete the
+				// state associated with this channel shutdown.
+				closeSig, proposedFee := p.handleClosingSigned(
+					localCloseReq, req,
+					deliveryAddrs[chanID], initiatorSig,
+					initiatorFeeProposals[req.ChannelID])
+				if closeSig != nil {
+					initiatorShutdownSigs[req.ChannelID] = closeSig
+					initiatorFeeProposals[req.ChannelID] = proposedFee
+				} else {
+					delete(initiatorShutdownSigs, req.ChannelID)
+					delete(initiatorFeeProposals, req.ChannelID)
+					delete(chanShutdowns, req.ChannelID)
+					delete(deliveryAddrs, req.ChannelID)
+				}
 				continue
 			}
 
-			// Otherwise, we're the responder to the channel
-			// shutdown procedure. In this case, we'll mark the
-			// channel as pending close, and watch the network for
-			// the ultimate confirmation of the closing
-			// transaction.
-			responderSig := append(shutdownSigs[chanID],
+			shutdownSig := responderShutdownSigs[req.ChannelID]
+			responderSig := append(shutdownSig,
 				byte(txscript.SigHashAll))
-			p.handleResponseClosingSigned(req, responderSig,
-				deliveryAddrs[chanID])
 
-			delete(shutdownSigs, chanID)
-			delete(deliveryAddrs, chanID)
+			// Otherwise, we're the responder to the channel
+			// shutdown procedure. The procedure will be the same,
+			// but we don't have a local request to to notify about
+			// updates, so just pass in nil instead.
+			closeSig, proposedFee := p.handleClosingSigned(nil, req,
+				deliveryAddrs[chanID], responderSig,
+				responderFeeProposals[req.ChannelID])
+			if closeSig != nil {
+				responderShutdownSigs[req.ChannelID] = closeSig
+				responderFeeProposals[req.ChannelID] = proposedFee
+			} else {
+				delete(responderShutdownSigs, req.ChannelID)
+				delete(responderFeeProposals, req.ChannelID)
+				delete(deliveryAddrs, chanID)
+			}
 
 		case <-p.quit:
 			break out
@@ -1174,16 +1219,17 @@ func (p *peer) handleLocalClose(req *htlcswitch.ChanClose, deliveryScript []byte
 // close workflow receives a Shutdown message. This is the second step in the
 // cooperative close workflow. This function generates a close transaction with
 // a proposed fee amount and sends the signed transaction to the initiator.
+// Returns the signature used to signed the close proposal, and the proposed
+// fee.
 func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown,
-	localDeliveryScript []byte) []byte {
-
+	localDeliveryScript []byte) ([]byte, uint64) {
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[msg.ChannelID]
 	p.activeChanMtx.RUnlock()
 	if !ok {
 		peerLog.Errorf("unable to close channel, ChannelPoint(%v) is "+
 			"unknown", msg.ChannelID)
-		return nil
+		return nil, 0
 	}
 
 	// As we just received a shutdown message, we'll also send a shutdown
@@ -1191,46 +1237,94 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown,
 	err := p.sendShutdown(channel, localDeliveryScript)
 	if err != nil {
 		peerLog.Errorf("error while sending shutdown message: %v", err)
-		return nil
+		return nil, 0
 	}
 
 	// Calculate an initial proposed fee rate for the close transaction.
 	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
 
-	// TODO(roasbeef): actually perform fee negotiation here, only send sig
-	// if we agree to fee
-
-	// Once both sides agree on a fee, we'll create a signature that closes
-	// the channel using the agree upon fee rate.
+	// We propose a fee and send a close proposal to the peer. This will
+	// start the fee negotiations. Once both sides agree on a fee, we'll
+	// create a signature that closes the channel using the agreed upon fee.
+	fee := channel.CalcFee(feeRate)
 	closeSig, proposedFee, err := channel.CreateCloseProposal(
-		feeRate, localDeliveryScript, msg.Address,
+		fee, localDeliveryScript, msg.Address,
 	)
 	if err != nil {
 		peerLog.Errorf("unable to create close proposal: %v", err)
-		return nil
+		return nil, 0
 	}
 	parsedSig, err := btcec.ParseSignature(closeSig, btcec.S256())
 	if err != nil {
 		peerLog.Errorf("unable to parse signature: %v", err)
-		return nil
+		return nil, 0
 	}
 
 	// With the closing signature assembled, we'll send the matching close
 	// signed message to the other party so they can broadcast the closing
-	// transaction.
+	// transaction if they agree with the fee, or create a new close
+	// proposal if they don't.
 	closingSigned := lnwire.NewClosingSigned(msg.ChannelID, proposedFee,
 		parsedSig)
 	p.queueMsg(closingSigned, nil)
 
-	return closeSig
+	return closeSig, proposedFee
 }
 
-// handleInitClosingSigned is called when the initiator in a cooperative
-// channel close workflow receives a ClosingSigned message from the responder.
-// This method completes the channel close transaction, sends back a
-// corresponding ClosingSigned message, then broadcasts the channel close
-// transaction. It also performs channel cleanup and reports status back to the
-// caller. This is the initiator's final step in the channel close workflow.
+// calculateCompromiseFee performs the current fee negotiation algorithm,
+// taking into consideration our ideal fee based on current fee environment,
+// the fee we last proposed (if any), and the fee proposed by the peer.
+func calculateCompromiseFee(ourIdealFee, lastSentFee, peerFee uint64) uint64 {
+	// We will accept a proposed fee in the interval
+	// [0.5*ourIdealFee, 2*ourIdealFee]. If the peer's fee doesn't fall in
+	// this range, we'll propose the average of the peer's fee and our last
+	// sent fee, as long as it is in this range.
+	// TODO(halseth): Dynamic fee to determine what we consider min/max for
+	// timely confirmation.
+	maxFee := 2 * ourIdealFee
+	minFee := ourIdealFee / 2
+
+	// If we didn't propose a fee before, just use our ideal fee value for
+	// the average calculation.
+	if lastSentFee == 0 {
+		lastSentFee = ourIdealFee
+	}
+	avgFee := (lastSentFee + peerFee) / 2
+
+	switch {
+	case peerFee <= maxFee && peerFee >= minFee:
+		// Peer fee is in the accepted range.
+		return peerFee
+	case avgFee <= maxFee && avgFee >= minFee:
+		// The peer's fee is not in the accepted range, but the average
+		// fee is.
+		return avgFee
+	case avgFee > maxFee:
+		// TODO(halseth): We must ensure fee is not higher than the
+		// current fee on the commitment transaction.
+
+		// We cannot accept the average fee, as it is more than twice
+		// our own estimate. Set our proposed to the maximum we can
+		// accept.
+		return maxFee
+	default:
+		// Cannot accept the average, as we consider it too low.
+		return minFee
+	}
+}
+
+// handleClosingSigned is called when the a ClosingSigned message is received
+// from the peer. If we are the initiator in the shutdown procedure, localReq
+// should be set to the local close request. If we are the responder, it should
+// be set to nil.
+//
+// This method sends the necessary ClosingSigned message to continue fee
+// negotiation, and in case we agreed on a fee completes the channel close
+// transaction, and then broadcasts it. It also performs channel cleanup (and
+// reports status back to the caller if this was a local shutdown request).
+//
+// It returns the signature and the proposed fee included in the ClosingSigned
+// sent to the peer.
 //
 // Following the broadcast, both the initiator and responder in the channel
 // closure workflow should watch the blockchain for a confirmation of the
@@ -1238,10 +1332,10 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown,
 // of an unresponsive remote party, the initiator can either choose to execute
 // a force closure, or backoff for a period of time, and retry the cooperative
 // closure.
-func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose,
-	msg *lnwire.ClosingSigned, deliveryScripts *closingScripts) {
-
-	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
+	msg *lnwire.ClosingSigned, deliveryScripts *closingScripts,
+	lastSig []byte, lastFee uint64) ([]byte, uint64) {
+	chanID := msg.ChannelID
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[chanID]
 	p.activeChanMtx.RUnlock()
@@ -1249,71 +1343,66 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose,
 		err := fmt.Errorf("unable to close channel, ChannelID(%v) is "+
 			"unknown", chanID)
 		peerLog.Errorf(err.Error())
-		req.Err <- err
-		return
+		if localReq != nil {
+			localReq.Err <- err
+		}
+		return nil, 0
 	}
-
-	// Calculate a fee rate that we believe to be fair and will ensure a
-	// timely confirmation.
-	//
-	// TODO(bvu): with a dynamic fee implementation, we will compare this
-	// to the fee proposed by the responder in their ClosingSigned message.
-	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
-
-	// We agree with the proposed channel close transaction and fee rate,
-	// so generate our signature.
-	initiatorSig, proposedFee, err := channel.CreateCloseProposal(
-		feeRate, deliveryScripts.localScript, deliveryScripts.remoteScript,
-	)
+	// We now consider the fee proposed by the peer, together with the fee
+	// we last proposed (if any). This method will in case more fee
+	// negotiation is necessary send a new ClosingSigned message to the peer
+	// with our new proposed fee. In case we can agree on a fee, it will
+	// assemble the close transaction, and we can go on to broadcasting it.
+	closeTx, ourSig, ourFee, err := p.negotiateFeeAndCreateCloseTx(channel,
+		msg, deliveryScripts, lastSig, lastFee)
 	if err != nil {
-		req.Err <- err
-		return
-	}
-	initSig := append(initiatorSig, byte(txscript.SigHashAll))
-
-	// Complete coop close transaction with the signatures of the close
-	// initiator and responder.
-	responderSig := msg.Signature
-	respSig := append(responderSig.Serialize(), byte(txscript.SigHashAll))
-	closeTx, err := channel.CompleteCooperativeClose(initSig, respSig,
-		deliveryScripts.localScript, deliveryScripts.remoteScript,
-		feeRate)
-	if err != nil {
-		req.Err <- err
-		// TODO(roasbeef): send ErrorGeneric to other side
-		return
+		if localReq != nil {
+			localReq.Err <- err
+		}
+		return nil, 0
 	}
 
-	// As we're the initiator of this channel shutdown procedure we'll now
-	// create a mirrored close signed message with our completed signature.
-	parsedSig, err := btcec.ParseSignature(initSig, btcec.S256())
-	if err != nil {
-		req.Err <- err
-		return
+	// If closeTx == nil it means that we did not agree on a fee, but we
+	// proposed a new fee to the peer. Return the signature used for this
+	// new proposal, and the fee we proposed, for use when we get a reponse.
+	if closeTx == nil {
+		return ourSig, ourFee
 	}
-	closingSigned := lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	p.queueMsg(closingSigned, nil)
 
-	// Finally, broadcast the closure transaction to the network.
+	// We agreed on a fee, and we can broadcast the closure transaction to
+	// the network.
 	peerLog.Infof("Broadcasting cooperative close tx: %v",
 		newLogClosure(func() string {
 			return spew.Sdump(closeTx)
 		}))
+
+	chanPoint := channel.ChannelPoint()
 	if err := p.server.cc.wallet.PublishTransaction(closeTx); err != nil {
-		peerLog.Errorf("channel close tx from "+
-			"ChannelPoint(%v) rejected: %v",
-			req.ChanPoint, err)
-		// TODO(roasbeef): send ErrorGeneric to other side
-		return
+		// TODO(halseth): Add relevant error types to the
+		// WalletController interface as this is quite fragile.
+		if strings.Contains(err.Error(), "already exists") ||
+			strings.Contains(err.Error(), "already have") {
+			peerLog.Infof("channel close tx from ChannelPoint(%v) "+
+				" already exist, probably broadcasted by peer: %v",
+				chanPoint, err)
+		} else {
+			peerLog.Errorf("channel close tx from ChannelPoint(%v) "+
+				" rejected: %v", chanPoint, err)
+
+			// TODO(roasbeef): send ErrorGeneric to other side
+			return nil, 0
+		}
 	}
 
 	// Once we've completed the cooperative channel closure, we'll wipe the
 	// channel so we reject any incoming forward or payment requests via
 	// this channel.
-	p.server.breachArbiter.settledContracts <- req.ChanPoint
+	p.server.breachArbiter.settledContracts <- chanPoint
 	if err := p.WipeChannel(channel); err != nil {
-		req.Err <- err
-		return
+		if localReq != nil {
+			localReq.Err <- err
+		}
+		return nil, 0
 	}
 
 	// TODO(roasbeef): also add closure height to summary
@@ -1323,7 +1412,7 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose,
 	closingTxid := closeTx.TxHash()
 	chanInfo := channel.StateSnapshot()
 	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:      *req.ChanPoint,
+		ChanPoint:      *chanPoint,
 		ClosingTXID:    closingTxid,
 		RemotePub:      &chanInfo.RemoteIdentity,
 		Capacity:       chanInfo.Capacity,
@@ -1332,144 +1421,168 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose,
 		IsPending:      true,
 	}
 	if err := channel.DeleteState(closeSummary); err != nil {
-		req.Err <- err
-		return
+		if localReq != nil {
+			localReq.Err <- err
+		}
+		return nil, 0
 	}
 
-	// Update the caller with a new event detailing the current pending
-	// state of this request.
-	req.Updates <- &lnrpc.CloseStatusUpdate{
-		Update: &lnrpc.CloseStatusUpdate_ClosePending{
-			ClosePending: &lnrpc.PendingUpdate{
-				Txid: closingTxid[:],
+	// If this is a locally requested shutdown, update the caller with a new
+	// event detailing the current pending state of this request.
+	if localReq != nil {
+		localReq.Updates <- &lnrpc.CloseStatusUpdate{
+			Update: &lnrpc.CloseStatusUpdate_ClosePending{
+				ClosePending: &lnrpc.PendingUpdate{
+					Txid: closingTxid[:],
+				},
 			},
-		},
+		}
 	}
 
 	_, bestHeight, err := p.server.cc.chainIO.GetBestBlock()
 	if err != nil {
-		req.Err <- err
-		return
+		if localReq != nil {
+			localReq.Err <- err
+		}
+		return nil, 0
 	}
 
 	// Finally, launch a goroutine which will request to be notified by the
 	// ChainNotifier once the closure transaction obtains a single
 	// confirmation.
 	notifier := p.server.cc.chainNotifier
-	go waitForChanToClose(uint32(bestHeight), notifier, req.Err,
-		req.ChanPoint, &closingTxid, func() {
+
+	// If any error happens during waitForChanToClose, forard it to
+	// localReq. If this channel closure is not locally initiated, localReq
+	// will be nil, so just ignore the error.
+	errChan := make(chan error, 1)
+	if localReq != nil {
+		errChan = localReq.Err
+	}
+
+	go waitForChanToClose(uint32(bestHeight), notifier, errChan,
+		chanPoint, &closingTxid, func() {
+
 			// First, we'll mark the database as being fully closed
 			// so we'll no longer watch for its ultimate closure
 			// upon startup.
-			err := p.server.chanDB.MarkChanFullyClosed(req.ChanPoint)
+			err := p.server.chanDB.MarkChanFullyClosed(chanPoint)
 			if err != nil {
-				req.Err <- err
+				if localReq != nil {
+					localReq.Err <- err
+				}
 				return
 			}
 
 			// Respond to the local subsystem which requested the
 			// channel closure.
-			req.Updates <- &lnrpc.CloseStatusUpdate{
-				Update: &lnrpc.CloseStatusUpdate_ChanClose{
-					ChanClose: &lnrpc.ChannelCloseUpdate{
-						ClosingTxid: closingTxid[:],
-						Success:     true,
+			if localReq != nil {
+				localReq.Updates <- &lnrpc.CloseStatusUpdate{
+					Update: &lnrpc.CloseStatusUpdate_ChanClose{
+						ChanClose: &lnrpc.ChannelCloseUpdate{
+							ClosingTxid: closingTxid[:],
+							Success:     true,
+						},
 					},
-				},
+				}
 			}
 		})
+	return nil, 0
 }
 
-// handleResponseClosingSigned is called when the responder in a cooperative
-// close workflow receives a ClosingSigned message. This function handles the
-// finalization of the cooperative close from the perspective of the responder.
-func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
-	respSig []byte, deliveryScripts *closingScripts) {
+// negotiateFeeAndCreateCloseTx takes into consideration the closing transaction
+// fee proposed by the remote peer in the ClosingSigned message and our
+// previously proposed fee (set to 0 if no previous), and continues the fee
+// negotiation it process. In case the peer agreed on the same fee as we
+// previously sent, it will assemble the close transaction and broadcast it. In
+// case the peer propose a fee different from our previous proposal, but that
+// can be accepted, a ClosingSigned message with the accepted fee is sent,
+// before the closing transaction is broadcasted. In the case where we cannot
+// accept the peer's proposed fee, a new fee proposal will be sent.
+//
+// TODO(halseth): In the case where we cannot accept the fee, and we cannot
+// make more proposals, this method should return an error, and we should fail
+// the channel.
+func (p *peer) negotiateFeeAndCreateCloseTx(channel *lnwallet.LightningChannel,
+	msg *lnwire.ClosingSigned, deliveryScripts *closingScripts, ourSig []byte,
+	ourFeeProp uint64) (*wire.MsgTx, []byte, uint64, error) {
 
-	p.activeChanMtx.RLock()
-	channel, ok := p.activeChannels[msg.ChannelID]
-	p.activeChanMtx.RUnlock()
-	if !ok {
-		peerLog.Errorf("unable to close channel, ChannelID(%v) is "+
-			"unknown", msg.ChannelID)
-		return
+	peerFeeProposal := msg.FeeSatoshis
+
+	// If the fee proposed by the peer is different from what we proposed
+	// before (or we did not propose anything yet), we must check if we can
+	// accept the proposal, or if we should negotiate.
+	if peerFeeProposal != ourFeeProp {
+		// The peer has suggested a different fee from what we proposed.
+		// Let's calculate if this one is tolerable.
+		ourIdealFeeRate := p.server.cc.feeEstimator.
+			EstimateFeePerWeight(1) * 1000
+		ourIdealFee := channel.CalcFee(ourIdealFeeRate)
+		fee := calculateCompromiseFee(ourIdealFee, ourFeeProp,
+			peerFeeProposal)
+
+		// Our new proposed fee must be strictly between what we
+		// proposed before and what the peer proposed.
+		isAcceptable := false
+		if fee < peerFeeProposal && fee > ourFeeProp {
+			isAcceptable = true
+		}
+		if fee < ourFeeProp && fee > peerFeeProposal {
+			isAcceptable = true
+		}
+
+		if !isAcceptable {
+			// TODO(halseth): fail channel
+		}
+
+		// Since the compromise fee is different from the fee we last
+		// proposed, we must update our proposal.
+
+		// Create a new close proposal with the compromise fee, and
+		// send this to the peer.
+		closeSig, proposedFee, err := channel.CreateCloseProposal(fee,
+			deliveryScripts.localScript, deliveryScripts.remoteScript)
+		if err != nil {
+			peerLog.Errorf("unable to create close proposal: %v",
+				err)
+			return nil, nil, 0, err
+		}
+		parsedSig, err := btcec.ParseSignature(closeSig, btcec.S256())
+		if err != nil {
+			peerLog.Errorf("unable to parse signature: %v", err)
+			return nil, nil, 0, err
+		}
+		closingSigned := lnwire.NewClosingSigned(msg.ChannelID,
+			proposedFee, parsedSig)
+		p.queueMsg(closingSigned, nil)
+
+		// If the compromise fee was different from what the peer
+		// proposed, then we must return and wait for an answer, if not
+		// we can go on to complete the close transaction.
+		if fee != peerFeeProposal {
+			return nil, closeSig, proposedFee, nil
+		}
+
+		// We accept the fee proposed by the peer, so prepare our
+		// signature to complete the close transaction.
+		ourSig = append(closeSig, byte(txscript.SigHashAll))
 	}
 
-	// Now that we have the initiator's signature for the closure
-	// transaction, we can assemble the final closure transaction, complete
-	// with our signature.
-	initiatorSig := msg.Signature
-	initSig := append(initiatorSig.Serialize(), byte(txscript.SigHashAll))
+	// We agreed on a fee, and we have the peer's signature for this fee,
+	// so we can assemble the close tx.
+	peerSig := append(msg.Signature.Serialize(), byte(txscript.SigHashAll))
 	chanPoint := channel.ChannelPoint()
-
-	// Calculate our expected fee rate.
-	// TODO(roasbeef): should instead use the fee within the message
-	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
-	closeTx, err := channel.CompleteCooperativeClose(respSig, initSig,
+	closeTx, err := channel.CompleteCooperativeClose(ourSig, peerSig,
 		deliveryScripts.localScript, deliveryScripts.remoteScript,
-		feeRate)
+		peerFeeProposal)
 	if err != nil {
 		peerLog.Errorf("unable to complete cooperative "+
 			"close for ChannelPoint(%v): %v",
 			chanPoint, err)
 		// TODO(roasbeef): send ErrorGeneric to other side
-		return
+		return nil, nil, 0, err
 	}
-	closeTxid := closeTx.TxHash()
-
-	_, bestHeight, err := p.server.cc.chainIO.GetBestBlock()
-	if err != nil {
-		peerLog.Errorf("unable to get best height: %v", err)
-	}
-
-	// Once we've completed the cooperative channel closure, we'll wipe the
-	// channel so we reject any incoming forward or payment requests via
-	// this channel.
-	p.server.breachArbiter.settledContracts <- chanPoint
-
-	// We've just broadcast the transaction which closes the channel, so
-	// we'll wipe the channel from all our local indexes and also signal to
-	// the switch that this channel is now closed.
-	peerLog.Infof("ChannelPoint(%v) is now closed", chanPoint)
-	if err := p.WipeChannel(channel); err != nil {
-		peerLog.Errorf("unable to wipe channel: %v", err)
-	}
-
-	// Clear out the current channel state, marking the channel as being
-	// closed within the database.
-	chanInfo := channel.StateSnapshot()
-	closeSummary := &channeldb.ChannelCloseSummary{
-		ChanPoint:      *chanPoint,
-		ClosingTXID:    closeTxid,
-		RemotePub:      &chanInfo.RemoteIdentity,
-		Capacity:       chanInfo.Capacity,
-		SettledBalance: chanInfo.LocalBalance,
-		CloseType:      channeldb.CooperativeClose,
-		IsPending:      true,
-	}
-	if err := channel.DeleteState(closeSummary); err != nil {
-		peerLog.Errorf("unable to delete channel state: %v", err)
-		return
-	}
-
-	// Finally, we'll launch a goroutine to watch the network for the
-	// confirmation of the closing transaction, and mark the channel as
-	// such within the database (once it's confirmed").
-	notifier := p.server.cc.chainNotifier
-	go waitForChanToClose(uint32(bestHeight), notifier, nil, chanPoint,
-		&closeTxid, func() {
-			// Now that the closing transaction has been confirmed,
-			// we'll mark the database as being fully closed so now
-			// that we no longer watch for its ultimate closure
-			// upon startup.
-			err := p.server.chanDB.MarkChanFullyClosed(chanPoint)
-			if err != nil {
-				peerLog.Errorf("unable to mark channel "+
-					"as closed: %v", err)
-				return
-			}
-		},
-	)
+	return closeTx, nil, 0, nil
 }
 
 // waitForChanToClose uses the passed notifier to wait until the channel has

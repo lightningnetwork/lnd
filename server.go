@@ -208,11 +208,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// TODO(roasbeef): make alias configurable
 	alias := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
 	self := &channeldb.LightningNode{
-		LastUpdate: time.Now(),
-		Addresses:  selfAddrs,
-		PubKey:     privKey.PubKey(),
-		Alias:      alias.String(),
-		Features:   globalFeatures,
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Now(),
+		Addresses:            selfAddrs,
+		PubKey:               privKey.PubKey(),
+		Alias:                alias.String(),
+		Features:             globalFeatures,
 	}
 
 	// If our information has changed since our last boot, then we'll

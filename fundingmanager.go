@@ -1008,10 +1008,12 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 		shortChanID, chanID)
 
 	// Finally, as the local channel discovery has been fully processed,
-	// we'll trigger the signal indicating that it's safe foe any funding
+	// we'll trigger the signal indicating that it's safe for any funding
 	// locked messages related to this channel to be processed.
 	f.localDiscoveryMtx.Lock()
-	close(f.localDiscoverySignals[chanID])
+	if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
+		close(discoverySignal)
+	}
 	f.localDiscoveryMtx.Unlock()
 
 	return
@@ -1029,20 +1031,23 @@ func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 // to enter normal operating mode.
 func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	f.localDiscoveryMtx.Lock()
-	localDiscoverySignal := f.localDiscoverySignals[fmsg.msg.ChanID]
+	localDiscoverySignal, ok := f.localDiscoverySignals[fmsg.msg.ChanID]
 	f.localDiscoveryMtx.Unlock()
 
-	// Before we proceed with processing the funding locked message, we'll
-	// wait for the lcoal waitForFundingConfirmation goroutine to signal
-	// that it has the necessary state in place. Otherwise, we may be
-	// missing critical information required to handle forwarded HTLC's.
-	<-localDiscoverySignal
+	if ok {
+		// Before we proceed with processing the funding locked
+		// message, we'll wait for the lcoal waitForFundingConfirmation
+		// goroutine to signal that it has the necessary state in
+		// place. Otherwise, we may be missing critical information
+		// required to handle forwarded HTLC's.
+		<-localDiscoverySignal
 
-	// With the signal received, we can now safely delete the entry from
-	// the map.
-	f.localDiscoveryMtx.Lock()
-	delete(f.localDiscoverySignals, fmsg.msg.ChanID)
-	f.localDiscoveryMtx.Unlock()
+		// With the signal received, we can now safely delete the entry from
+		// the map.
+		f.localDiscoveryMtx.Lock()
+		delete(f.localDiscoverySignals, fmsg.msg.ChanID)
+		f.localDiscoveryMtx.Unlock()
+	}
 
 	// First, we'll attempt to locate the channel who's funding workflow is
 	// being finalized by this message. We got to the database rather than

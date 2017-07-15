@@ -7,22 +7,31 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// Deobfuscator entity which is used to de-obfuscate the onion opaque reason and
-// extract failure.
+// Deobfuscator is an interface that is used to decrypt the onion encrypted
+// failure reason an extra out a well formed error.
 type Deobfuscator interface {
-	// Deobfuscate function decodes the onion error failure.
+	// Deobfuscate peels off each layer of onion encryption from the first
+	// hop, to the source of the error. A fully populated
+	// lnwire.FailureMessage is returned.
 	Deobfuscate(lnwire.OpaqueReason) (lnwire.FailureMessage, error)
 }
 
-// Obfuscator entity which is used to do the initial and backward onion
-// failure obfuscation.
+// Obfuscator is an interface that is used to encrypt HTLC related errors at
+// the source of the error, and also at each intermediate hop all the way back
+// to the source of the payment.
 type Obfuscator interface {
 	// InitialObfuscate is used to convert the failure into opaque
 	// reason.
+
+	// InitialObfuscate transforms a concrete failure message into an
+	// encrypted opaque failure reason. This method will be used at the
+	// source that the error occurs. It differs from BackwardObfuscate
+	// slightly, in that it computes a proper MAC over the error.
 	InitialObfuscate(lnwire.FailureMessage) (lnwire.OpaqueReason, error)
 
-	// BackwardObfuscate is used to make the processing over onion error
-	// when it moves backward to the htlc sender.
+	// BackwardObfuscate wraps an already encrypted opaque reason error in
+	// an additional layer of onion encryption. This process repeats until
+	// the error arrives at the source of the payment.
 	BackwardObfuscate(lnwire.OpaqueReason) lnwire.OpaqueReason
 }
 
@@ -31,35 +40,36 @@ type FailureObfuscator struct {
 	*sphinx.OnionObfuscator
 }
 
-// InitialObfuscate is used by the failure sender to decode the failure and
-// make the initial failure obfuscation with addition of the failure data hmac.
+// InitialObfuscate transforms a concrete failure message into an encrypted
+// opaque failure reason. This method will be used at the source that the error
+// occurs. It differs from BackwardObfuscate slightly, in that it computes a
+// proper MAC over the error.
 //
 // NOTE: Part of the Obfuscator interface.
-func (o *FailureObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
-	lnwire.OpaqueReason, error) {
+func (o *FailureObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (lnwire.OpaqueReason, error) {
 	var b bytes.Buffer
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
 		return nil, err
 	}
 
-	// Make the initial obfuscation with appending hmac.
+	// We pass a true as the first parameter to indicate that a MAC should
+	// be added.
 	return o.OnionObfuscator.Obfuscate(true, b.Bytes()), nil
 }
 
-// BackwardObfuscate is used by the forwarding nodes in order to obfuscate the
-// already obfuscated onion failure blob with the stream which have been
-// generated with our shared secret. The reason we re-encrypt the message on the
-// backwards path is to ensure that the error is computationally
-// indistinguishable from any other error seen.
+// BackwardObfuscate wraps an already encrypted opaque reason error in an
+// additional layer of onion encryption. This process repeats until the error
+// arrives at the source of the payment. We re-encrypt the message on the
+// backwards path to ensure that the error is indistinguishable from any other
+// error seen.
 //
 // NOTE: Part of the Obfuscator interface.
-func (o *FailureObfuscator) BackwardObfuscate(
-	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *FailureObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return o.OnionObfuscator.Obfuscate(false, reason)
 }
 
-// A compile time check to ensure FailureObfuscator implements the
-// Obfuscator interface.
+// A compile time check to ensure FailureObfuscator implements the Obfuscator
+// interface.
 var _ Obfuscator = (*FailureObfuscator)(nil)
 
 // FailureDeobfuscator wraps the sphinx data obfuscator and adds awareness of
@@ -68,11 +78,13 @@ type FailureDeobfuscator struct {
 	*sphinx.OnionDeobfuscator
 }
 
-// Deobfuscate decodes the obfuscated onion failure.
+// Deobfuscate peels off each layer of onion encryption from the first hop, to
+// the source of the error. A fully populated lnwire.FailureMessage is
+// returned.
 //
 // NOTE: Part of the Obfuscator interface.
-func (o *FailureDeobfuscator) Deobfuscate(reason lnwire.OpaqueReason) (lnwire.FailureMessage,
-	error) {
+func (o *FailureDeobfuscator) Deobfuscate(reason lnwire.OpaqueReason) (lnwire.FailureMessage, error) {
+
 	_, failureData, err := o.OnionDeobfuscator.Deobfuscate(reason)
 	if err != nil {
 		return nil, err

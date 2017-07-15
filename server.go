@@ -244,16 +244,17 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			htlcAdd *lnwire.UpdateAddHTLC,
 			circuit *sphinx.Circuit) ([32]byte, error) {
 
-			// Initialize the data obfuscator in order to be able to decode the
-			// onion failure and wrap it so that we could process lnwire onion
-			// failures.
-			failureDeobfuscator := &htlcswitch.FailureDeobfuscator{
+			// Using the created circuit, initialize the error
+			// decryptor so we can parse+decode any failures
+			// incurred by this payment within the switch.
+			errorDecryptor := &htlcswitch.FailureDeobfuscator{
 				OnionDeobfuscator: sphinx.NewOnionDeobfuscator(circuit),
 			}
 
 			var firstHopPub [33]byte
 			copy(firstHopPub[:], firstHop.SerializeCompressed())
-			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd, failureDeobfuscator)
+
+			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd, errorDecryptor)
 		},
 	})
 	if err != nil {

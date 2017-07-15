@@ -35,20 +35,19 @@ type htlcPacket struct {
 	// htlc lnwire message type of which depends on switch request type.
 	htlc lnwire.Message
 
-	// obfuscator is entity which is needed to make the obfuscation of the
-	// onion failure, it is carried inside the packet from channel
-	// link to the switch because we have to create onion error inside the
-	// switch to, but we unable to restore obfuscator from the onion, because
-	// on stage of forwarding onion inside payment belongs to the remote node.
-	// TODO(andrew.shvv) revisit after refactoring the way of returning errors
-	// inside the htlcswitch packet.
+	// obfuscator contains the necessary state to allow the switch to wrap
+	// any forwarded errors in an additional layer of encryption.
+	//
+	// TODO(andrew.shvv) revisit after refactoring the way of returning
+	// errors inside the htlcswitch packet.
 	obfuscator Obfuscator
 
-	// isObfuscated is used in case if switch sent the packet to the link,
-	// but error have occurred locally, in this case we shouldn't obfuscate
-	// it again.
-	// TODO(andrew.shvv) revisit after refactoring the way of returning errors
-	// inside the htlcswitch packet.
+	// isObfuscated is set to true if an error occurs as soon as the switch
+	// forwards a packet to the link. If so, and this is an error packet,
+	// then this allows the switch to avoid doubly encrypting the error.
+	//
+	// TODO(andrew.shvv) revisit after refactoring the way of returning
+	// errors inside the htlcswitch packet.
 	isObfuscated bool
 }
 

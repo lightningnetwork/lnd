@@ -10,34 +10,36 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// FailureMessage represent the onion failure object which is able to identify itself
-// by returning the unique failure code.
+// FailureMessage represents the onion failure object identified by its unique
+// failure code.
 type FailureMessage interface {
 	Code() FailCode
 }
 
-// failureMessageLength is the size of the failure message plus the size
-// of padding. FailureMessage message always should be equals to this size.
+// failureMessageLength is the size of the failure message plus the size of
+// padding. The FailureMessage message should always be EXACLTY this size.
 const failureMessageLength = 128
 
 const (
-	// FlagBadOnion error flag denotes unparsable onion, encrypted by
+	// FlagBadOnion error flag describes an unparseable, encrypted by
 	// previous node.
 	FlagBadOnion FailCode = 0x8000
 
-	// FlagPerm error flag denotes permanent failure.
+	// FlagPerm error flag indicates a permanent failure.
 	FlagPerm FailCode = 0x4000
 
-	// FlagNode error flag denotes node failure.
+	// FlagNode error flag indicates anode failure.
 	FlagNode FailCode = 0x2000
 
-	// FlagUpdate error flag denotes new channel update enclosed.
+	// FlagUpdate error flag indicates a new channel update is enclosed
+	// within the error.
 	FlagUpdate FailCode = 0x1000
 )
 
 // FailCode specifies the precise reason that an upstream HTLC was cancelled.
-// Each UpdateFailHTLC message carries a FailCode which is to be passed back
-// unaltered to the source of the HTLC within the route.
+// Each UpdateFailHTLC message carries a FailCode which is to be passed
+// backwards, encrypted at each step back to the source of the HTLC within the
+// route.
 type FailCode uint16
 
 // The currently defined onion failure types within this current version of the
@@ -67,7 +69,7 @@ const (
 	CodeFinalIncorrectHtlcAmount      FailCode = 19
 )
 
-// String returns string representation of the failure code.
+// String returns the string representation of the failure code.
 func (c FailCode) String() string {
 	switch c {
 	case CodeInvalidRealm:
@@ -140,7 +142,7 @@ func (c FailCode) String() string {
 
 // FailInvalidRealm is returned if the realm byte is unknown.
 //
-// NOTE: might be returned by any node.
+// NOTE: May be returned by any node in the payment route.
 type FailInvalidRealm struct{}
 
 // Code returns the failure unique code.
@@ -153,7 +155,7 @@ func (f FailInvalidRealm) Code() FailCode {
 // FailTemporaryNodeFailure is returned if an otherwise unspecified transient
 // error occurs for the entire node.
 //
-// NOTE: might be returned by any node.
+// NOTE: May be returned by any node in the payment route.
 type FailTemporaryNodeFailure struct{}
 
 // Code returns the failure unique code.
@@ -165,7 +167,7 @@ func (f FailTemporaryNodeFailure) Code() FailCode {
 // FailPermanentNodeFailure is returned if an otherwise unspecified permanent
 // error occurs for the entire node.
 //
-// NOTE: might be returned by any node.
+// NOTE: May be returned by any node in the payment route.
 type FailPermanentNodeFailure struct{}
 
 // Code returns the failure unique code.
@@ -179,7 +181,7 @@ func (f FailPermanentNodeFailure) Code() FailCode {
 // advertised in its node_announcement features which were not present in the
 // onion.
 //
-// NOTE: might be returned by any node.
+// NOTE: May be returned by any node in the payment route.
 type FailRequiredNodeFeatureMissing struct{}
 
 // Code returns the failure unique code.
@@ -189,10 +191,10 @@ func (f FailRequiredNodeFeatureMissing) Code() FailCode {
 	return CodeRequiredNodeFeatureMissing
 }
 
-// FailPermanentChannelFailure is return if an otherwise unspecified
-// permanent error occurs for the outgoing channel (eg. channel (recently).
+// FailPermanentChannelFailure is return if an otherwise unspecified permanent
+// error occurs for the outgoing channel (eg. channel (recently).
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May be returned by any node in the payment route.
 type FailPermanentChannelFailure struct{}
 
 // Code returns the failure unique code.
@@ -202,11 +204,11 @@ func (f FailPermanentChannelFailure) Code() FailCode {
 	return CodePermanentChannelFailure
 }
 
-// FailRequiredChannelFeatureMissing is return if the outgoing channel has
+// FailRequiredChannelFeatureMissing is returned if the outgoing channel has a
 // requirement advertised in its channel announcement features which were not
 // present in the onion.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailRequiredChannelFeatureMissing struct{}
 
 // Code returns the failure unique code.
@@ -219,7 +221,7 @@ func (f FailRequiredChannelFeatureMissing) Code() FailCode {
 // FailUnknownNextPeer is returned if the next peer specified by the onion is
 // not known.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailUnknownNextPeer struct{}
 
 // Code returns the failure unique code.
@@ -229,12 +231,12 @@ func (f FailUnknownNextPeer) Code() FailCode {
 	return CodeUnknownNextPeer
 }
 
-// FailUnknownPaymentHash is returned If the payment hash has already been paid,
-// the final node MAY treat the payment hash as unknown, or may succeed in
-// accepting the HTLC. If the payment hash is unknown, the final node MUST fail
-// the HTLC.
+// FailUnknownPaymentHash is returned If the payment hash has already been
+// paid, the final node MAY treat the payment hash as unknown, or may succeed
+// in accepting the HTLC. If the payment hash is unknown, the final node MUST
+// fail the HTLC.
 //
-// NOTE: might be returned by final node only.
+// NOTE: May only be returned by the final node in the path.
 type FailUnknownPaymentHash struct{}
 
 // Code returns the failure unique code.
@@ -250,7 +252,7 @@ func (f FailUnknownPaymentHash) Code() FailCode {
 // This allows the sender to reduce information leakage by altering the amount,
 // without allowing accidental gross overpayment.
 //
-// NOTE: might be returned by final node only.
+// NOTE: May only be returned by the final node in the path.
 type FailIncorrectPaymentAmount struct{}
 
 // Code returns the failure unique code.
@@ -263,7 +265,7 @@ func (f FailIncorrectPaymentAmount) Code() FailCode {
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final
 // node MUST fail the HTLC.
 //
-// NOTE: might be returned by final node only.
+// NOTE: May only be returned by the final node in the path.
 type FailFinalExpiryTooSoon struct{}
 
 // Code returns the failure unique code.
@@ -275,7 +277,7 @@ func (f FailFinalExpiryTooSoon) Code() FailCode {
 
 // FailInvalidOnionVersion is returned if the onion version byte is unknown.
 //
-// NOTE: should be return by forwarding node only.
+// NOTE: May be returned only by intermediate nodes.
 type FailInvalidOnionVersion struct {
 	// OnionSHA256 hash of the onion blob which haven't been proceeded.
 	OnionSHA256 [sha256.Size]byte
@@ -309,7 +311,7 @@ func (f *FailInvalidOnionVersion) Encode(w io.Writer, pver uint32) error {
 
 // FailInvalidOnionHmac is return if the onion HMAC is incorrect.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailInvalidOnionHmac struct {
 	// OnionSHA256 hash of the onion blob which haven't been proceeded.
 	OnionSHA256 [sha256.Size]byte
@@ -344,7 +346,7 @@ func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
 // FailInvalidOnionKey is return if the ephemeral key in the onion is
 // unparsable.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailInvalidOnionKey struct {
 	// OnionSHA256 hash of the onion blob which haven't been proceeded.
 	OnionSHA256 [sha256.Size]byte
@@ -376,16 +378,16 @@ func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.OnionSHA256[:])
 }
 
-// FailTemporaryChannelFailure is if an otherwise unspecified transient
-// error occurs for the outgoing channel (eg. channel capacity reached,
-// too many in-flight htlc)
+// FailTemporaryChannelFailure is if an otherwise unspecified transient error
+// occurs for the outgoing channel (eg. channel capacity reached, too many
+// in-flight htlcs)
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailTemporaryChannelFailure struct {
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	//
-	// NOTE: Field is optional.
+	// NOTE: This field is optional.
 	Update *ChannelUpdate
 }
 
@@ -439,11 +441,11 @@ func (f *FailTemporaryChannelFailure) Encode(w io.Writer, pver uint32) error {
 	return err
 }
 
-// FailAmountBelowMinimum is returned if the HTLC does not reach the
-// current minimum amount, we tell them the amount of the incoming HTLC
-// and the current channel setting for the outgoing channel.
+// FailAmountBelowMinimum is returned if the HTLC does not reach the current
+// minimum amount, we tell them the amount of the incoming HTLC and the current
+// channel setting for the outgoing channel.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by the intermediate nodes in the path.
 type FailAmountBelowMinimum struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
 	HtlcMsat btcutil.Amount
@@ -456,6 +458,7 @@ type FailAmountBelowMinimum struct {
 // NewAmountBelowMinimum creates new instance of the FailAmountBelowMinimum.
 func NewAmountBelowMinimum(htlcMsat btcutil.Amount,
 	update ChannelUpdate) *FailAmountBelowMinimum {
+
 	return &FailAmountBelowMinimum{
 		HtlcMsat: htlcMsat,
 		Update:   update,
@@ -477,8 +480,6 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// At current moment length is not used but in future we may use it to
-	// differ versions of the update message.
 	var length uint16
 	if err := readElement(r, &length); err != nil {
 		return err
@@ -496,9 +497,6 @@ func (f *FailAmountBelowMinimum) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	// We write the length here as the size of the channel updates may differ in
-	// the future and at times additional information is coupled (appended to or
-	// prepended to the channel update itself) along with the channel update.
 	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
@@ -507,17 +505,17 @@ func (f *FailAmountBelowMinimum) Encode(w io.Writer, pver uint32) error {
 	return f.Update.Encode(w, pver)
 }
 
-// FailFeeInsufficient is returned if the HTLC does not pay sufficient
-// fee, we tell them the amount of the incoming HTLC and the current
-// channel setting for the outgoing channel.
+// FailFeeInsufficient is returned if the HTLC does not pay sufficient fee, we
+// tell them the amount of the incoming HTLC and the current channel setting
+// for the outgoing channel.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailFeeInsufficient struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
 	HtlcMsat btcutil.Amount
 
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	Update ChannelUpdate
 }
 
@@ -545,8 +543,6 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// At current moment length is not used but in future we may use it to
-	// differ versions of the update message.
 	var length uint16
 	if err := readElement(r, &length); err != nil {
 		return err
@@ -564,9 +560,6 @@ func (f *FailFeeInsufficient) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	// We write the length here as the size of the channel updates may differ in
-	// the future and at times additional information is coupled (appended to or
-	// prepended to the channel update itself) along with the channel update.
 	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
@@ -575,24 +568,26 @@ func (f *FailFeeInsufficient) Encode(w io.Writer, pver uint32) error {
 	return f.Update.Encode(w, pver)
 }
 
-// FailIncorrectCltvExpiry is returned if outgoing cltv value does not
-// match the update add htlc's cltv expiry minus cltv expiry delta
-// for the outgoing channel, we tell them the cltv expiry and the
-// current channel setting for the outgoing channel.
+// FailIncorrectCltvExpiry is returned if outgoing cltv value does not match
+// the update add htlc's cltv expiry minus cltv expiry delta for the outgoing
+// channel, we tell them the cltv expiry and the current channel setting for
+// the outgoing channel.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailIncorrectCltvExpiry struct {
-	// CltvExpiry is the wrong absolute timeout in blocks, after which outgoing
-	// HTLC expires.
+	// CltvExpiry is the wrong absolute timeout in blocks, after which
+	// outgoing HTLC expires.
 	CltvExpiry uint32
 
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	Update ChannelUpdate
 }
 
 // NewIncorrectCltvExpiry creates new instance of the FailIncorrectCltvExpiry.
-func NewIncorrectCltvExpiry(cltvExpiry uint32, update ChannelUpdate) *FailIncorrectCltvExpiry {
+func NewIncorrectCltvExpiry(cltvExpiry uint32,
+	update ChannelUpdate) *FailIncorrectCltvExpiry {
+
 	return &FailIncorrectCltvExpiry{
 		CltvExpiry: cltvExpiry,
 		Update:     update,
@@ -614,8 +609,6 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// At current moment length is not used but in future we may use it to
-	// differ versions of the update message.
 	var length uint16
 	if err := readElement(r, &length); err != nil {
 		return err
@@ -633,9 +626,6 @@ func (f *FailIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	// We write the length here as the size of the channel updates may differ in
-	// the future and at times additional information is coupled (appended to or
-	// prepended to the channel update itself) along with the channel update.
 	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
@@ -644,17 +634,17 @@ func (f *FailIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
 	return f.Update.Encode(w, pver)
 }
 
-// FailExpiryTooSoon is returned if the ctlv-expiry is too near, we tell
-// them the the current channel setting for the outgoing channel.
+// FailExpiryTooSoon is returned if the ctlv-expiry is too near, we tell them
+// the current channel setting for the outgoing channel.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailExpiryTooSoon struct {
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	Update ChannelUpdate
 }
 
-// NewExpiryTooSoon creates new instance of the FailExpiryTooSoon
+// NewExpiryTooSoon creates new instance of the FailExpiryTooSoon.
 func NewExpiryTooSoon(update ChannelUpdate) *FailExpiryTooSoon {
 	return &FailExpiryTooSoon{
 		Update: update,
@@ -672,8 +662,6 @@ func (f *FailExpiryTooSoon) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
-	// At current moment length is not used but in future we may use it to
-	// differ versions of the update message.
 	var length uint16
 	if err := readElement(r, &length); err != nil {
 		return err
@@ -687,9 +675,6 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailExpiryTooSoon) Encode(w io.Writer, pver uint32) error {
-	// We write the length here as the size of the channel updates may differ in
-	// the future and at times additional information is coupled (appended to or
-	// prepended to the channel update itself) along with the channel update.
 	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
@@ -698,18 +683,18 @@ func (f *FailExpiryTooSoon) Encode(w io.Writer, pver uint32) error {
 	return f.Update.Encode(w, pver)
 }
 
-// FailChannelDisabled is returned if the channel is disabled, we tell
-// them the the current channel setting for the outgoing channel.
+// FailChannelDisabled is returned if the channel is disabled, we tell them the
+// current channel setting for the outgoing channel.
 //
-// NOTE: might be return by forwarding node only.
+// NOTE: May only be returned by intermediate nodes.
 type FailChannelDisabled struct {
 	// Flags least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise.
 	Flags uint16
 
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	Update ChannelUpdate
 }
 
@@ -736,8 +721,6 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	// At current moment length is not used but in future we may use it to
-	// differ versions of the update message.
 	var length uint16
 	if err := readElement(r, &length); err != nil {
 		return err
@@ -755,9 +738,6 @@ func (f *FailChannelDisabled) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	// We write the length here as the size of the channel updates may differ in
-	// the future and at times additional information is coupled (appended to or
-	// prepended to the channel update itself) along with the channel update.
 	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
@@ -771,8 +751,8 @@ func (f *FailChannelDisabled) Encode(w io.Writer, pver uint32) error {
 //
 // NOTE: might be returned by final node only.
 type FailFinalIncorrectCltvExpiry struct {
-	// CltvExpiry is the wrong absolute timeout in blocks, after which outgoing
-	// HTLC expires.
+	// CltvExpiry is the wrong absolute timeout in blocks, after which
+	// outgoing HTLC expires.
 	CltvExpiry uint32
 }
 
@@ -805,10 +785,10 @@ func (f *FailFinalIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.CltvExpiry)
 }
 
-// FailFinalIncorrectHtlcAmount is returned if the amt_to_forward is
-// higher than incoming_htlc_amt of the HTLC at the final hop.
+// FailFinalIncorrectHtlcAmount is returned if the amt_to_forward is higher
+// than incoming_htlc_amt of the HTLC at the final hop.
 //
-// NOTE: might be returned by final node only.
+// NOTE: May only be returned by the final node.
 type FailFinalIncorrectHtlcAmount struct {
 	// IncomingHTLCAmount is the wrong forwarded htlc amount.
 	IncomingHTLCAmount btcutil.Amount
@@ -843,8 +823,8 @@ func (f *FailFinalIncorrectHtlcAmount) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.IncomingHTLCAmount)
 }
 
-// DecodeFailure decodes, validates, and parses the lnwire onion failure, for the
-// provided protocol version.
+// DecodeFailure decodes, validates, and parses the lnwire onion failure, for
+// the provided protocol version.
 func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// Start processing the failure message by reading the code.
 	var code uint16
@@ -852,14 +832,14 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 		return nil, err
 	}
 
-	// Create the empty failure by given code and populate the failure
-	// with additional data if needed.
+	// Create the empty failure by given code and populate the failure with
+	// additional data if needed.
 	failure, err := makeEmptyOnionError(FailCode(code))
 	if err != nil {
 		return nil, err
 	}
 
-	// Read failure length, check its size and read the failure message
+	// Read the failure length, check its size and read the failure message
 	// in order to check padding afterwards.
 	var failureLength uint16
 	if err := readElement(r, &failureLength); err != nil {
@@ -885,7 +865,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	return failure, nil
 }
 
-// EncodeFailure encodes, including the necessary onion failure header information.
+// EncodeFailure encodes, including the necessary onion failure header
+// information.
 func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 	var failureMessageBuffer bytes.Buffer
 

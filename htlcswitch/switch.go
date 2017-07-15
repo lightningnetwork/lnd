@@ -304,23 +304,27 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		payment.preimage <- htlc.PaymentPreimage
 		s.removePendingPayment(payment.amount, payment.paymentHash)
 
-	// We've just received a fail update which means we can finalize
-	// the user payment and return fail response.
+	// We've just received a fail update which means we can finalize the
+	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		// Retrieving the fail code from byte representation of error.
 		var userErr error
 
+		// We'll attempt to fully decrypt the onion encrypted error. If
+		// we're unable to then we'll bail early.
 		failure, err := payment.deobfuscator.Deobfuscate(htlc.Reason)
 		if err != nil {
 			userErr = errors.Errorf("unable to de-obfuscate "+
-				"onion failure, htlc with hash(%v): %v", payment.paymentHash[:],
-				err)
+				"onion failure, htlc with hash(%v): %v",
+				payment.paymentHash[:], err)
 			log.Error(userErr)
 		} else {
-			// Process payment failure by updating the lightning network
-			// topology by using router subsystem handler.
+			// Process payment failure by updating the lightning
+			// network topology by using router subsystem handler.
 			var update *lnwire.ChannelUpdate
 
+			// Only a few error message actually contain a channel
+			// update message, so we'll filter out for those that
+			// do.
 			switch failure := failure.(type) {
 			case *lnwire.FailTemporaryChannelFailure:
 				update = failure.Update
@@ -336,10 +340,21 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				update = &failure.Update
 			}
 
+			// If we've been sent an error that includes an update,
+			// then we'll apply it to the local graph.
+			//
+			// TODO(roasbeef): instead, make all onion errors the
+			// error interface, and handle this within the router.
+			// Will allow us more flexibility w.r.t how we handle
+			// the error.
 			if update != nil {
-				log.Info("Received payment failure(%v), applying lightning "+
-					"network topology update", failure.Code())
-				s.cfg.UpdateTopology(update)
+				log.Info("Received payment failure(%v), "+
+					"applying lightning network topology update",
+					failure.Code())
+
+				if err := s.cfg.UpdateTopology(update); err != nil {
+					log.Errorf("unable to update topology: %v", err)
+				}
 			}
 
 			userErr = errors.New(failure.Code())
@@ -611,15 +626,23 @@ func (s *Switch) htlcForwarder() {
 
 	for {
 		select {
+		// A local close request has arrived, we'll forward this to the
+		// relevant link (if it exists) so the channel can be
+		// cooperatively closed (if possible).
 		case req := <-s.chanCloseRequests:
 			s.handleChanelClose(req)
 
+		// A new packet has arrived for forwarding, we'll interpret the
+		// packet concretely, then either forward it along, or
+		// interpret a return packet to a locally initialized one.
 		case cmd := <-s.htlcPlex:
 			var (
 				paymentHash lnwallet.PaymentHash
 				amount      btcutil.Amount
 			)
 
+			// Only three types of message should be forwarded:
+			// add, fails, and settles. Anything else is an error.
 			switch m := cmd.pkt.htlc.(type) {
 			case *lnwire.UpdateAddHTLC:
 				paymentHash = m.PaymentHash
@@ -632,6 +655,12 @@ func (s *Switch) htlcForwarder() {
 				return
 			}
 
+			// If we can locate this packet in our local records,
+			// then this means a local sub-system initiated it.
+			// Otherwise, this is just a packet to be forwarded, so
+			// we'll treat it as so.
+			//
+			// TODO(roasbeef): can fast path this
 			payment, err := s.findPayment(amount, paymentHash)
 			if err != nil {
 				cmd.err <- s.handlePacketForward(cmd.pkt)

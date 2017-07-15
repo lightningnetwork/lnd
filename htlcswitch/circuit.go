@@ -20,7 +20,7 @@ func (k *circuitKey) String() string {
 }
 
 // paymentCircuit is used by the htlc switch subsystem to determine the
-// fowrards/backwards path for the settle/fail HTLC messages. A payment circuit
+// forwards/backwards path for the settle/fail HTLC messages. A payment circuit
 // will be created once a channel link forwards the htlc add request and
 // removed when we receive settle/fail htlc message.
 type paymentCircuit struct {
@@ -38,7 +38,7 @@ type paymentCircuit struct {
 	// request back.
 	Dest lnwire.ShortChannelID
 
-	// Obfuscator is used to obfuscate the onion failure before sending it
+	// Obfuscator is used to re-encrypt the onion failure before sending it
 	// back to the originator of the payment.
 	Obfuscator Obfuscator
 

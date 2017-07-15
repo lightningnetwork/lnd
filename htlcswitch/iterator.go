@@ -191,10 +191,11 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterat
 	}, lnwire.CodeNone
 }
 
-// DecodeOnionObfuscator takes the onion blob as input extract the shared secret
-// and return the entity which is able to obfuscate failure data.
-func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator,
-	lnwire.FailCode) {
+// DecodeOnionObfuscator takes an io.Reader which should contain the onion
+// packet as original received by a forwarding node and creates an Obfuscator
+// instance using the derived shared secret. In the case that en error occurs,
+// a lnwire failure code detailing the parsing failure will be returned.
+func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.FailCode) {
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
 		return nil, lnwire.CodeTemporaryChannelFailure

@@ -33,4 +33,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "htlc-dust-accounting",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "encrypted-errors",
+		Flag: lnwire.RequiredFlag,
+	},
 })

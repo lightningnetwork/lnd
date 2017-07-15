@@ -29,8 +29,8 @@ func NewUpdateFee(chanID ChannelID, feePerKw btcutil.Amount) *UpdateFee {
 // interface.
 var _ Message = (*UpdateFee)(nil)
 
-// Decode deserializes a serialized UpdateFee message stored in the
-// passed io.Reader observing the specified protocol version.
+// Decode deserializes a serialized UpdateFee message stored in the passed
+// io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) Decode(r io.Reader, pver uint32) error {
@@ -59,8 +59,8 @@ func (c *UpdateFee) MsgType() MessageType {
 	return MsgUpdateFee
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a
-// UpdateFee complete message observing the specified protocol version.
+// MaxPayloadLength returns the maximum allowed payload size for a UpdateFee
+// complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) MaxPayloadLength(uint32) uint32 {

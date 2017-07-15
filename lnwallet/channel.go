@@ -638,12 +638,13 @@ type LightningChannel struct {
 
 	// pendingFeeUpdate is set to the fee-per-kw we last sent (if we are
 	// channel initiator) or received (if non-initiator) in an update fee
-	// message, which haven't yet been included in a commitment.
-	// It will be nil if no fee update is un-committed.
+	// message, which haven't yet been included in a commitment.  It will
+	// be nil if no fee update is un-committed.
 	pendingFeeUpdate *btcutil.Amount
 
 	// pendingAckFeeUpdate is set to the last committed fee update which is
-	// not yet ACKed. Set to nil if no such update.
+	// not yet ACKed. This value will be nil if a fee update hasn't been
+	// initiated.
 	pendingAckFeeUpdate *btcutil.Amount
 
 	// rHashMap is a map with PaymentHashes pointing to their respective
@@ -1349,31 +1350,32 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// Initiate feePerKw to the last committed fee for this chain.
 	feePerKw := commitChain.tail().feePerKw
 
-	// Check if any fee updates have taken place since that last commitment.
+	// Check if any fee updates have taken place since that last
+	// commitment.
 	if lc.channelState.IsInitiator {
-
-		// The case where we sent an update_fee message since our last
-		// commitment, and now we are signing that one.
-		if remoteChain && lc.pendingFeeUpdate != nil {
+		switch {
+		// We've sent an update_fee message since our last commitment,
+		// and now are now creating a commitment that reflects the new
+		// fee update.
+		case remoteChain && lc.pendingFeeUpdate != nil:
 			feePerKw = *lc.pendingFeeUpdate
-		}
 
-		// The case where we committed to a sent fee update, and now we
-		// got a commitment that ACKed that update.
-		if !remoteChain && lc.pendingAckFeeUpdate != nil {
+		// We've created a new commitment for the remote chain that
+		// includes a fee update, and have not received a commitment
+		// after the fee update has been ACked.
+		case !remoteChain && lc.pendingAckFeeUpdate != nil:
 			feePerKw = *lc.pendingAckFeeUpdate
 		}
 	} else {
-
-		// We received a fee update since last received commitment, so
-		// this received commitment will sign that update.
-		if !remoteChain && lc.pendingFeeUpdate != nil {
+		switch {
+		// We've received a fee update since the last local commitment,
+		// so we'll include the fee update in the current view.
+		case !remoteChain && lc.pendingFeeUpdate != nil:
 			feePerKw = *lc.pendingFeeUpdate
-		}
 
 		// Earlier we received a commitment that signed an earlier fee
 		// update, and now we must ACK that update.
-		if remoteChain && lc.pendingAckFeeUpdate != nil {
+		case remoteChain && lc.pendingAckFeeUpdate != nil:
 			feePerKw = *lc.pendingAckFeeUpdate
 		}
 	}

@@ -34,7 +34,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 9f9f54a1d9e362530b132e5757f657ce804bab1b
+  version: 14f1a03bda72692c17e3f8931710b90ba62bde8b
   subpackages:
   - chain
   - waddrmgr
@@ -70,4 +70,4 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: c7fed0f4f96a576c932589888bb863d90b5a770e
+  version: 9c4ad129283f1aeb148d390fd4182d86c0c53367

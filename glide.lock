@@ -1,5 +1,5 @@
-hash: e7c539586d4761f73cc32b1062919f085edffd0f568f37486fc15e40c4c519a2
-updated: 2017-07-13T23:45:13.501547671-07:00
+hash: 4bb81ddd26fab353e8f9912d3571e5ea64b0d53e7ce6da550feea175ea2971a6
+updated: 2017-07-14T17:46:59.256925351-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -67,7 +67,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: c7fed0f4f96a576c932589888bb863d90b5a770e
+  version: 9c4ad129283f1aeb148d390fd4182d86c0c53367
   subpackages:
   - filterdb
   - headerfs
@@ -107,7 +107,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 9f9f54a1d9e362530b132e5757f657ce804bab1b
+  version: 14f1a03bda72692c17e3f8931710b90ba62bde8b
   subpackages:
   - chain
   - internal/helpers

@@ -50,6 +50,31 @@ var (
 		"3135609736119018462340006816851118", 10)
 )
 
+// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
+// callback which cleans up the created temporary directories is also returned
+// and intended to be executed after the test completes.
+func makeTestDB() (*channeldb.DB, func(), error) {
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Next, create channeldb for the first time.
+	cdb, err := channeldb.Open(tempDirName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		cdb.Close()
+		os.RemoveAll(tempDirName)
+	}
+
+	return cdb, cleanUp, nil
+}
+
 // mockGetChanUpdateMessage helper function which returns topology update
 // of the channel
 func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {

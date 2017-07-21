@@ -41,6 +41,8 @@ type mockServer struct {
 
 	registry    *mockInvoiceRegistry
 	recordFuncs []func(lnwire.Message)
+
+	dbCleanUp func()
 }
 
 var _ Peer = (*mockServer)(nil)
@@ -50,6 +52,11 @@ func newMockServer(t *testing.T, name string) *mockServer {
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
+	cdb, dbCleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
 	return &mockServer{
 		t:        t,
 		id:       id,
@@ -58,11 +65,13 @@ func newMockServer(t *testing.T, name string) *mockServer {
 		quit:     make(chan bool),
 		registry: newMockRegistry(),
 		htlcSwitch: New(Config{
+			DB: cdb,
 			UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 				return nil
 			},
 		}),
 		recordFuncs: make([]func(lnwire.Message), 0),
+		dbCleanUp:   dbCleanUp,
 	}
 }
 
@@ -173,7 +182,14 @@ func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
 
 func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return reason
+}
 
+func (o *mockObfuscator) Decode(io.Reader) error {
+	return nil
+}
+
+func (o *mockObfuscator) Encode(io.Writer) error {
+	return nil
 }
 
 // mockDeobfuscator mock implementation of the failure deobfuscator which
@@ -331,6 +347,7 @@ func (s *mockServer) Stop() {
 
 	close(s.quit)
 	s.wg.Wait()
+	s.dbCleanUp()
 }
 
 func (s *mockServer) String() string {

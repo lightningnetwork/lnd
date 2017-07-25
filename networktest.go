@@ -19,6 +19,7 @@ import (
 	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 
 	"os/exec"
@@ -135,6 +136,8 @@ func newLightningNode(btcrpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (
 	if err != nil {
 		return nil, err
 	}
+	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
+	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
 
 	cfg.PeerPort, cfg.RPCPort = generateListeningPorts()
 
@@ -172,6 +175,8 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--peerport=%v", l.cfg.PeerPort))
 	args = append(args, fmt.Sprintf("--logdir=%v", l.cfg.LogDir))
 	args = append(args, fmt.Sprintf("--datadir=%v", l.cfg.DataDir))
+	args = append(args, fmt.Sprintf("--tlscertpath=%v", l.cfg.TLSCertPath))
+	args = append(args, fmt.Sprintf("--tlskeypath=%v", l.cfg.TLSKeyPath))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)
@@ -242,8 +247,23 @@ func (l *lightningNode) Start(lndError chan error) error {
 		return err
 	}
 
+	// Wait until TLS certificate is created before using it, up to 10 sec.
+	tlsTimeout := time.After(10 * time.Second)
+	for !fileExists(l.cfg.TLSCertPath) {
+		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-tlsTimeout:
+			panic(fmt.Errorf("timeout waiting for TLS cert file " +
+				"to be created after 10 seconds"))
+		default:
+		}
+	}
+	creds, err := credentials.NewClientTLSFromFile(l.cfg.TLSCertPath, "")
+	if err != nil {
+		return err
+	}
 	opts := []grpc.DialOption{
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(creds),
 		grpc.WithBlock(),
 		grpc.WithTimeout(time.Second * 20),
 	}

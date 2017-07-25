@@ -22,6 +22,8 @@ import (
 const (
 	defaultConfigFilename     = "lnd.conf"
 	defaultDataDirname        = "data"
+	defaultTLSCertFilename    = "tls.cert"
+	defaultTLSKeyFilename     = "tls.key"
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -34,10 +36,12 @@ const (
 )
 
 var (
-	lndHomeDir        = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultDataDir    = filepath.Join(lndHomeDir, defaultDataDirname)
-	defaultLogDir     = filepath.Join(lndHomeDir, defaultLogDirname)
+	lndHomeDir         = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile  = filepath.Join(lndHomeDir, defaultConfigFilename)
+	defaultDataDir     = filepath.Join(lndHomeDir, defaultDataDirname)
+	defaultTLSCertPath = filepath.Join(lndHomeDir, defaultTLSCertFilename)
+	defaultTLSKeyPath  = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
+	defaultLogDir      = filepath.Join(lndHomeDir, defaultLogDirname)
 
 	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
@@ -77,9 +81,11 @@ type neutrinoConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	ConfigFile string `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir    string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	LogDir     string `long:"logdir" description:"Directory to log output."`
+	ConfigFile  string `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir     string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath  string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
+	LogDir      string `long:"logdir" description:"Directory to log output."`
 
 	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 5656)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
@@ -115,6 +121,8 @@ func loadConfig() (*config, error) {
 		ConfigFile:          defaultConfigFile,
 		DataDir:             defaultDataDir,
 		DebugLevel:          defaultLogLevel,
+		TLSCertPath:         defaultTLSCertPath,
+		TLSKeyPath:          defaultTLSKeyPath,
 		LogDir:              defaultLogDir,
 		PeerPort:            defaultPeerPort,
 		RPCPort:             defaultRPCPort,
@@ -300,6 +308,11 @@ func loadConfig() (*config, error) {
 	cfg.LogDir = filepath.Join(cfg.LogDir,
 		registeredChains.primaryChain.String())
 
+	// Ensure that the paths to the TLS key and certificate files are
+	// expanded and cleaned.
+	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
+	cfg.TLSKeyPath = cleanAndExpandPath(cfg.TLSKeyPath)
+
 	// Initialize logging at the default logging level.
 	initLogRotator(filepath.Join(cfg.LogDir, defaultLogFilename))
 
@@ -323,6 +336,7 @@ func loadConfig() (*config, error) {
 
 // cleanAndExpandPath expands environment variables and leading ~ in the
 // passed path, cleans the result, and returns it.
+// This function is taken from https://github.com/btcsuite/btcd
 func cleanAndExpandPath(path string) string {
 	// Expand initial ~ to OS specific home directory.
 	if strings.HasPrefix(path, "~") {

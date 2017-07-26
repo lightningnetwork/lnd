@@ -456,7 +456,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
 		// Finally we add it to the channel index which maps channel
 		// points (outpoints) to the shorter channel ID's.
 		var b bytes.Buffer
-		if err := lnwire.WriteOutPoint(&b, &edge.ChannelPoint); err != nil {
+		if err := writeOutpoint(&b, &edge.ChannelPoint); err != nil {
 			return err
 		}
 		return chanIndex.Put(b.Bytes(), chanKey[:])
@@ -600,7 +600,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// if NOT if filter
 
 			var opBytes bytes.Buffer
-			if err := lnwire.WriteOutPoint(&opBytes, chanPoint); err != nil {
+			if err := writeOutpoint(&opBytes, chanPoint); err != nil {
 				return nil
 			}
 
@@ -724,7 +724,7 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	var chanID uint64
 
 	var b bytes.Buffer
-	if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
+	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return 0, nil
 	}
 
@@ -756,7 +756,7 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 	chanIndex *bolt.Bucket, chanPoint *wire.OutPoint) error {
 	var b bytes.Buffer
-	if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
+	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return err
 	}
 
@@ -1271,7 +1271,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 			return err
 		}
 		var b bytes.Buffer
-		if err := lnwire.WriteOutPoint(&b, op); err != nil {
+		if err := writeOutpoint(&b, op); err != nil {
 			return err
 		}
 		chanID := chanIndex.Get(b.Bytes())
@@ -1692,7 +1692,7 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 		return err
 	}
 
-	if err := lnwire.WriteOutPoint(&b, &edgeInfo.ChannelPoint); err != nil {
+	if err := writeOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
 	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity)); err != nil {
@@ -1794,7 +1794,7 @@ func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
 	}
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}
-	if err := lnwire.ReadOutPoint(r, &edgeInfo.ChannelPoint); err != nil {
+	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {

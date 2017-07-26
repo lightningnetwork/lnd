@@ -269,7 +269,7 @@ func (d *DB) fetchNodeChannels(openChanBucket,
 
 		outBytes := bytes.NewReader(k)
 		chanID := &wire.OutPoint{}
-		if err := lnwire.ReadOutPoint(outBytes, chanID); err != nil {
+		if err := readOutpoint(outBytes, chanID); err != nil {
 			return err
 		}
 
@@ -373,7 +373,7 @@ func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint,
 		// Generate the database key, which will consist of the
 		// IsPending prefix followed by the channel's outpoint.
 		var b bytes.Buffer
-		if err := lnwire.WriteOutPoint(&b, outpoint); err != nil {
+		if err := writeOutpoint(&b, outpoint); err != nil {
 			return err
 		}
 		keyPrefix := make([]byte, 3+b.Len())
@@ -455,7 +455,7 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	return d.Update(func(tx *bolt.Tx) error {
 		var b bytes.Buffer
-		if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
+		if err := writeOutpoint(&b, chanPoint); err != nil {
 			return err
 		}
 

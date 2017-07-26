@@ -14,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -441,7 +440,7 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 		}
 
 		var b bytes.Buffer
-		if err := lnwire.WriteOutPoint(&b, chanPoint); err != nil {
+		if err := writeOutpoint(&b, chanPoint); err != nil {
 			return err
 		}
 		chanPointBytes := b.Bytes()
@@ -547,7 +546,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// Once we have the buckets we can insert the raw bytes of the
 		// immature outpoint into the preschool bucket.
 		var outpointBytes bytes.Buffer
-		if err := lnwire.WriteOutPoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
 			return err
 		}
 		var kidBytes bytes.Buffer
@@ -563,7 +562,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// track all the immature outpoints for a particular channel's
 		// chanPoint.
 		var b bytes.Buffer
-		err = lnwire.WriteOutPoint(&b, &k.originChanPoint)
+		err = writeOutpoint(&b, &k.originChanPoint)
 		if err != nil {
 			return err
 		}
@@ -604,7 +603,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	// array form prior to database insertion.
 	err := db.Update(func(tx *bolt.Tx) error {
 		var originPoint bytes.Buffer
-		if err := lnwire.WriteOutPoint(&originPoint, &k.originChanPoint); err != nil {
+		if err := writeOutpoint(&originPoint, &k.originChanPoint); err != nil {
 			return err
 		}
 
@@ -621,7 +620,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		// along in the maturity pipeline we first delete the entry
 		// from the preschool bucket, as well as the secondary index.
 		var outpointBytes bytes.Buffer
-		if err := lnwire.WriteOutPoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
 			return err
 		}
 		if err := psclBucket.Delete(outpointBytes.Bytes()); err != nil {
@@ -916,7 +915,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 		}
 		for _, sweptOutput := range sweptOutputs {
 			var chanPoint bytes.Buffer
-			err := lnwire.WriteOutPoint(&chanPoint, &sweptOutput.originChanPoint)
+			err := writeOutpoint(&chanPoint, &sweptOutput.originChanPoint)
 			if err != nil {
 				return err
 			}
@@ -990,10 +989,10 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	if err := lnwire.WriteOutPoint(w, &kid.outPoint); err != nil {
+	if err := writeOutpoint(w, &kid.outPoint); err != nil {
 		return err
 	}
-	if err := lnwire.WriteOutPoint(w, &kid.originChanPoint); err != nil {
+	if err := writeOutpoint(w, &kid.originChanPoint); err != nil {
 		return err
 	}
 
@@ -1047,12 +1046,12 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	}
 	kid.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	err := lnwire.ReadOutPoint(io.LimitReader(r, 40), &kid.outPoint)
+	err := readOutpoint(io.LimitReader(r, 40), &kid.outPoint)
 	if err != nil {
 		return nil, err
 	}
 
-	err = lnwire.ReadOutPoint(io.LimitReader(r, 40), &kid.originChanPoint)
+	err = readOutpoint(io.LimitReader(r, 40), &kid.originChanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -1108,4 +1107,70 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	}
 
 	return kid, nil
+}
+
+// TODO(bvu): copied from channeldb, remove repetition
+func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
+	// TODO(roasbeef): make all scratch buffers on the stack
+	scratch := make([]byte, 4)
+
+	// TODO(roasbeef): write raw 32 bytes instead of wasting the extra
+	// byte.
+	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch, o.Index)
+	_, err := w.Write(scratch)
+	return err
+}
+
+// TODO(bvu): copied from channeldb, remove repetition
+func readOutpoint(r io.Reader, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
+	if err != nil {
+		return err
+	}
+	copy(o.Hash[:], txid)
+
+	if _, err := r.Read(scratch); err != nil {
+		return err
+	}
+	o.Index = byteOrder.Uint32(scratch)
+
+	return nil
+}
+
+func writeTxOut(w io.Writer, txo *wire.TxOut) error {
+	scratch := make([]byte, 8)
+
+	byteOrder.PutUint64(scratch, uint64(txo.Value))
+	if _, err := w.Write(scratch); err != nil {
+		return err
+	}
+
+	if err := wire.WriteVarBytes(w, 0, txo.PkScript); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func readTxOut(r io.Reader, txo *wire.TxOut) error {
+	scratch := make([]byte, 8)
+
+	if _, err := r.Read(scratch); err != nil {
+		return err
+	}
+	txo.Value = int64(byteOrder.Uint64(scratch))
+
+	pkScript, err := wire.ReadVarBytes(r, 0, 80, "pkScript")
+	if err != nil {
+		return err
+	}
+	txo.PkScript = pkScript
+
+	return nil
 }

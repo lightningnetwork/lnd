@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -676,7 +675,6 @@ type retributionInfo struct {
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
 func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error) {
-
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
 	// TODO(roasbeef): possibly create many outputs to minimize change in
@@ -854,7 +852,7 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 		}
 
 		var outBuf bytes.Buffer
-		if err := lnwire.WriteOutPoint(&outBuf, &ret.chanPoint); err != nil {
+		if err := writeOutpoint(&outBuf, &ret.chanPoint); err != nil {
 			return err
 		}
 
@@ -885,7 +883,7 @@ func (rs *retributionStore) Remove(key *wire.OutPoint) error {
 		}
 
 		var outBuf bytes.Buffer
-		if err := lnwire.WriteOutPoint(&outBuf, key); err != nil {
+		if err := writeOutpoint(&outBuf, key); err != nil {
 			return err
 		}
 
@@ -926,7 +924,7 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := lnwire.WriteOutPoint(w, &ret.chanPoint); err != nil {
+	if err := writeOutpoint(w, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -965,7 +963,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	}
 	ret.commitHash = *hash
 
-	if err := lnwire.ReadOutPoint(r, &ret.chanPoint); err != nil {
+	if err := readOutpoint(r, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -1005,7 +1003,7 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := lnwire.WriteOutPoint(w, &bo.outpoint); err != nil {
+	if err := writeOutpoint(w, &bo.outpoint); err != nil {
 		return err
 	}
 
@@ -1039,7 +1037,7 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	}
 	bo.amt = btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
 
-	if err := lnwire.ReadOutPoint(r, &bo.outpoint); err != nil {
+	if err := readOutpoint(r, &bo.outpoint); err != nil {
 		return err
 	}
 

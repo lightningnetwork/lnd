@@ -40,9 +40,11 @@ var retributionBucket = []byte("ret")
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
 	wallet           *lnwallet.LightningWallet
-	notifier         chainntnfs.ChainNotifier
-	htlcSwitch       *htlcSwitch
 	db               *channeldb.DB
+	notifier         chainntnfs.ChainNotifier
+	htlcSwitch       *htlcswitch.Switch
+	chainIO          lnwallet.BlockChainIO
+	estimator        lnwallet.FeeEstimator
 	retributionStore *retributionStore
 
 	// breachObservers is a map which tracks all the active breach
@@ -106,13 +108,20 @@ func (b *breachArbiter) Start() error {
 
 	brarLog.Tracef("Starting breach arbiter")
 
+	// TODO(roasbeef): instead use closure height of channel
+	_, currentHeight, err := b.chainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
 	// We load any pending retributions from the database. For each retribution
 	// we need to restart the retribution procedure to claim our just reward.
-	err := b.retributionStore.ForAll(func(ret *retribution) error {
+	err = b.retributionStore.ForAll(func(ret *retribution) error {
 		// Register for a notification when the breach transaction is confirmed
 		// on chain.
 		breachTXID := &ret.commitHash
-		confChan, err := b.notifier.RegisterConfirmationsNtfn(breachTXID, 1)
+		confChan, err := b.notifier.RegisterConfirmationsNtfn(breachTXID, 1,
+			uint32(currentHeight))
 		if err != nil {
 			brarLog.Errorf("unable to register for conf updates for txid: "+
 				"%v, err: %v", breachTXID, err)
@@ -161,12 +170,6 @@ func (b *breachArbiter) Start() error {
 
 	b.wg.Add(1)
 	go b.contractObserver(channelsToWatch)
-
-	// TODO(roasbeef): instead use closure height of channel
-	_, currentHeight, err := b.chainIO.GetBestBlock()
-	if err != nil {
-		return err
-	}
 
 	// Additionally, we'll also want to retrieve any pending close or force
 	// close transactions to we can properly mark them as resolved in the
@@ -534,7 +537,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 //
 // NOTE: This MUST be run as a goroutine.
 func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
-	breachInfo *retributionInfo) {
+	breachInfo *retribution) {
 
 	defer b.wg.Done()
 
@@ -612,14 +615,14 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 			revokedFunds, totalFunds)
 
 		// With the channel closed, mark it in the database as such.
-		err := b.db.MarkChanFullyClosed(&ret.chanPoint)
+		err := b.db.MarkChanFullyClosed(&breachInfo.chanPoint)
 		if err != nil {
 			brarLog.Errorf("unable to mark chan as closed: %v", err)
 		}
 
 		// Justice has been carried out; we can safely delete the retribution
 		// info from the database.
-		err = b.retributionStore.Remove(&ret.chanPoint)
+		err = b.retributionStore.Remove(&breachInfo.chanPoint)
 		if err != nil {
 			brarLog.Errorf("unable to remove retribution from the db: %v", err)
 		}
@@ -788,6 +791,8 @@ type retribution struct {
 	selfOutput    *breachedOutput
 	revokedOutput *breachedOutput
 	htlcOutputs   []*breachedOutput
+
+  doneChan chan struct{}
 }
 
 // retributionStore handles persistence of retribution states to disk and is

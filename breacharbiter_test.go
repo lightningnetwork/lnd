@@ -191,7 +191,7 @@ var (
 		},
 	}
 
-	retributions = []retribution{
+	retributions = []retributionInfo{
 		{
 			commitHash: [chainhash.HashSize]byte{
 				0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
@@ -284,7 +284,7 @@ func TestRetributionSerialization(t *testing.T) {
 			t.Fatalf("unable to serialize retribution [%v]: %v", i, err)
 		}
 
-		desRet := &retribution{}
+		desRet := &retributionInfo{}
 		if err := desRet.Decode(&buf); err != nil {
 			t.Fatalf("unable to deserialize retribution [%v]: %v", i, err)
 		}
@@ -330,7 +330,7 @@ func makeTestDB() (*channeldb.DB, func(), error) {
 
 func countRetributions(t *testing.T, rs *retributionStore) int {
 	count := 0
-	err := rs.ForAll(func(_ *retribution) error {
+	err := rs.ForAll(func(_ *retributionInfo) error {
 		count++
 		return nil
 	})
@@ -374,7 +374,7 @@ func TestRetributionStore(t *testing.T) {
 
 	// Retrieving the retribution states from the store should yield the same
 	// values as the originals.
-	rs.ForAll(func(ret *retribution) error {
+	rs.ForAll(func(ret *retributionInfo) error {
 		equal0 := reflect.DeepEqual(ret, &retributions[0])
 		equal1 := reflect.DeepEqual(ret, &retributions[1])
 		if !equal0 || !equal1 {

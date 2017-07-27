@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -308,13 +307,11 @@ func (l *lightningNode) Stop() error {
 	default:
 	}
 
-	if runtime.GOOS == "windows" {
-		if err := l.cmd.Process.Signal(os.Kill); err != nil {
-			return err
-		}
-	} else if err := l.cmd.Process.Signal(os.Interrupt); err != nil {
-		return err
-	}
+	// Don't watch for error because sometimes the RPC connection gets
+	// closed before a response is returned.
+	req := lnrpc.StopRequest{}
+	ctx := context.Background()
+	l.LightningClient.StopDaemon(ctx, &req)
 
 	close(l.quit)
 	l.wg.Wait()

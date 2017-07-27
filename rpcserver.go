@@ -314,7 +314,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 
 // DisconnectPeer attempts to disconnect one peer from another identified by a
 // given pubKey. In the case that we currently ahve a pending or active channel
-// with the target peer, then
+// with the target peer, this action will be disallowed.
 func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
 
@@ -810,10 +810,9 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	return &txid, closeSummary, nil
 }
 
-// GetInfo serves a request to the "getinfo" RPC call. This call returns
-// general information concerning the lightning node including it's LN ID,
-// identity address, and information concerning the number of open+pending
-// channels.
+// GetInfo returns general information concerning the lightning node including
+// it's identity pubkey, alias, the chains it is connected to, and information
+// concerning the number of open+pending channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
 
@@ -1088,8 +1087,8 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	return resp, nil
 }
 
-// ListChannels returns a description of all direct active, open channels the
-// node knows of.
+// ListChannels returns a description of all the open channels that this node
+// is a participant in.
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 

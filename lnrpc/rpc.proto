@@ -3,44 +3,118 @@ syntax = "proto3";
 import "google/api/annotations.proto";
 
 package lnrpc;
+/**
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or /// comment format. 
+ * 
+ * One edge case exists where a // comment followed by a /// comment in the
+ * next line will cause the description not to show up in the documentation. In
+ * that instance, simply separate the two comments with a blank line.
+ * 
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ * 
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ * 
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/MaxFangX/lightning-api
+ */
 
 service Lightning {
+    /** lncli: `walletbalance`
+    WalletBalance returns the sum of all confirmed unspent outputs under control
+    by the wallet. This method can be modified by having the request specify
+    only witness outputs should be factored into the final output sum.
+    */
     rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse) {
         option (google.api.http) = {
             get: "/v1/balance/blockchain"
         };
     }
+
+    /** lncli: `channelbalance`
+    ChannelBalance returns the total funds available across all open channels
+    in satoshis.
+    */
     rpc ChannelBalance (ChannelBalanceRequest) returns (ChannelBalanceResponse) {
         option (google.api.http) = {
             get: "/v1/balance/channels"
         };
     }
 
+    /** lncli: `listchaintxns`
+    GetTransactions returns a list describing all the known transactions
+    relevant to the wallet.
+    */
     rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
         option (google.api.http) = {
             get: "/v1/transactions"
         };
     }
+
+    /** lncli: `sendcoins`
+    SendCoins executes a request to send coins to a particular address. Unlike
+    SendMany, this RPC call only allows creating a single output at a time.
+    */
     rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse) {
         option (google.api.http) = {
             post: "/v1/transactions"
             body: "*"
         };
     }
+
+    /**
+    SubscribeTransactions creates a uni-directional stream from the server to
+    the client in which any newly discovered transactions relevant to the
+    wallet are sent over.
+    */
     rpc SubscribeTransactions (GetTransactionsRequest) returns (stream Transaction);
 
+    /** lncli: `sendmany`
+    SendMany handles a request for a transaction that creates multiple specified
+    outputs in parallel.
+    */
     rpc SendMany (SendManyRequest) returns (SendManyResponse);
 
+    /** lncli: `newaddress`
+    NewAddress creates a new address under control of the local wallet.
+    */
     rpc NewAddress (NewAddressRequest) returns (NewAddressResponse);
+
+    /**
+    NewWitnessAddress creates a new witness address under control of the local wallet.
+    */
     rpc NewWitnessAddress (NewWitnessAddressRequest) returns (NewAddressResponse) {
         option (google.api.http) = {
             get: "/v1/newaddress"
         };
     }
 
+    /** lncli: `signmessage`
+    SignMessage signs a message with this node's private key. The returned
+    signature string is `zbase32` encoded and pubkey recoverable, meaning that
+    only the message digest and signature are needed for verification.
+    */
     rpc SignMessage (SignMessageRequest) returns (SignMessageResponse);
+
+    /** lncli: `verifymessage`
+    VerifyMessage verifies a signature over a msg. The signature must be
+    zbase32 encoded and signed by an active node in the resident node's
+    channel database. In addition to returning the validity of the signature,
+    VerifyMessage also returns the recovered pubkey from the signature.
+    */
     rpc VerifyMessage (VerifyMessageRequest) returns (VerifyMessageResponse);
 
+    /** lncli: `connect`
+    ConnectPeer attempts to establish a connection to a remote peer. This is at
+    the networking level, and is used for communication between nodes. This is
+    distinct from establishing a channel with a peer.
+    */
     rpc ConnectPeer (ConnectPeerRequest) returns (ConnectPeerResponse) {
         option (google.api.http) = {
             post: "/v1/peers"
@@ -48,17 +122,31 @@ service Lightning {
         };
     }
 
+    /** lncli: `disconnect`
+    DisconnectPeer attempts to disconnect one peer from another identified by a
+    given pubKey. In the case that we currently have a pending or active channel
+    with the target peer, then this action will be not be allowed.
+    */
     rpc DisconnectPeer (DisconnectPeerRequest) returns (DisconnectPeerResponse) {
         option (google.api.http) = {
             delete: "/v1/peers/{pub_key}"
         };
     }
 
+    /** lncli: `listpeers`
+    ListPeers returns a verbose listing of all currently active peers.
+    */
     rpc ListPeers (ListPeersRequest) returns (ListPeersResponse) {
         option (google.api.http) = {
             get: "/v1/peers"
         };
     }
+
+    /** lncli: `getinfo`
+    GetInfo returns general information concerning the lightning node including
+    it's identity pubkey, alias, the chains it is connected to, and information
+    concerning the number of open+pending channels.
+    */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse) {
         option (google.api.http) = {
             get: "/v1/getinfo"
@@ -66,16 +154,34 @@ service Lightning {
     }
 
     // TODO(roasbeef): merge with below with bool?
+    /** lncli: `pendingchannels`
+    PendingChannels returns a list of all the channels that are currently
+    considered "pending". A channel is pending if it has finished the funding
+    workflow and is waiting for confirmations for the funding txn, or is in the
+    process of closure, either initiated cooperatively or non-cooperatively.
+    */
     rpc PendingChannels (PendingChannelRequest) returns (PendingChannelResponse) {
         option (google.api.http) = {
            get: "/v1/channels/pending"
         };
     }
+
+    /** lncli: `listchannels`
+    ListChannels returns a description of all the open channels that this node
+    is a participant in.
+    */
     rpc ListChannels (ListChannelsRequest) returns (ListChannelsResponse) {
         option (google.api.http) = {
             get: "/v1/channels"
         };
     }
+
+    /**
+    OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
+    call is meant to be consumed by clients to the REST proxy. As with all
+    other sync calls, all byte slices are intended to be populated as hex
+    encoded strings.
+    */
     rpc OpenChannelSync (OpenChannelRequest) returns (ChannelPoint) {
         option (google.api.http) = {
             post: "/v1/channels"
@@ -83,16 +189,38 @@ service Lightning {
         };
     }
 
+    /** lncli: `openchannel`
+    OpenChannel attempts to open a singly funded channel specified in the
+    request to a remote peer.
+    */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
+    /** lncli: `closechannel`
+    CloseChannel attempts to close an active channel identified by its channel
+    outpoint (ChannelPoint). The actions of this method can additionally be
+    augmented to attempt a force close after a timeout period in the case of an
+    inactive peer.
+    */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
             delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}"
         };
     }
 
+    /** lncli: `sendpayment`
+    SendPayment dispatches a bi-directional streaming RPC for sending payments
+    through the Lightning Network. A single RPC invocation creates a persistent
+    bi-directional stream allowing clients to rapidly send payments through the
+    Lightning Network with a single persistent connection.
+    */
     rpc SendPayment (stream SendRequest) returns (stream SendResponse);
 
+    /**
+    SendPaymentSync is the synchronous non-streaming version of SendPayment.
+    This RPC is intended to be consumed by clients of the REST proxy.
+    Additionally, this RPC expects the destination's public key and the payment
+    hash (if any) to be encoded as hex strings.
+    */
     rpc SendPaymentSync (SendRequest) returns (SendResponse) {
         option (google.api.http) = {
             post: "/v1/channels/transactions"
@@ -100,108 +228,209 @@ service Lightning {
         };
     }
 
+    /** lncli: `addinvoice`
+    AddInvoice attempts to add a new invoice to the invoice database. Any
+    duplicated invoices are rejected, therefore all invoices *must* have a
+    unique payment preimage.
+    */
     rpc AddInvoice (Invoice) returns (AddInvoiceResponse) {
         option (google.api.http) = {
             post: "/v1/invoices"
             body: "*"
         };
     }
+
+    /** lncli: `listinvoices`
+    ListInvoices returns a list of all the invoices currently stored within the
+    database. Any active debug invoices are ignored.
+    */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {
             get: "/v1/invoices/{pending_only}"
         };
     }
+
+    /** lncli: `lookupinvoice`
+    LookupInvoice attemps to look up an invoice according to its payment hash.
+    The passed payment hash *must* be exactly 32 bytes, if not, an error is
+    returned.
+    */
     rpc LookupInvoice (PaymentHash) returns (Invoice) {
         option (google.api.http) = {
             get: "/v1/invoices/{r_hash_str}"
         };
     }
+
+    /**
+    SubscribeInvoices returns a uni-directional stream (sever -> client) for
+    notifying the client of newly added/settled invoices.
+    */
     rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice) {
         option (google.api.http) = {
             get: "/v1/invoices/subscribe"
         };
     }
+
+    /** lncli: `decodepayreq`
+    DecodePayReq takes an encoded payment request string and attempts to decode
+    it, returning a full description of the conditions encoded within the
+    payment request.
+    */
     rpc DecodePayReq (PayReqString) returns (PayReq) {
         option (google.api.http) = {
             get: "/v1/payreq/{pay_req}"
         };
     }
 
+    /** lncli: `listpayments`
+    ListPayments returns a list of all outgoing payments.
+    */
     rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse) {
         option (google.api.http) = {
             get: "/v1/payments"
         };
     };
 
+    /**
+    DeleteAllPayments deletes all outgoing payments from DB.
+    */
     rpc DeleteAllPayments (DeleteAllPaymentsRequest) returns (DeleteAllPaymentsResponse) {
         option (google.api.http) = {
             delete: "/v1/payments"
         };
     };
 
+    /** lncli: `describegraph`
+    DescribeGraph returns a description of the latest graph state from the
+    point of view of the node. The graph information is partitioned into two
+    components: all the nodes/vertexes, and all the edges that connect the
+    vertexes themselves.  As this is a directed graph, the edges also contain
+    the node directional specific routing policy which includes: the time lock
+    delta, fee information, etc.
+    */
     rpc DescribeGraph (ChannelGraphRequest) returns (ChannelGraph) {
         option (google.api.http) = {
             get: "/v1/graph"
         };
     }
 
+    /** lncli: `getchaninfo`
+    GetChanInfo returns the latest authenticated network announcement for the
+    given channel identified by its channel ID: an 8-byte integer which
+    uniquely identifies the location of transaction's funding output within the
+    blockchain.
+    */
     rpc GetChanInfo (ChanInfoRequest) returns (ChannelEdge) {
         option (google.api.http) = {
             get: "/v1/graph/edge/{chan_id}"
         };
     }
 
+    /** lncli: `getnodeinfo`
+    GetNodeInfo returns the latest advertised, aggregated, and authenticated
+    channel information for the specified node identified by its public key.
+    */
     rpc GetNodeInfo (NodeInfoRequest) returns (NodeInfo) {
         option (google.api.http) = {
             get: "/v1/graph/node/{pub_key}"
         };
     }
 
+    /** lncli: `queryroutes`
+    QueryRoutes attempts to query the daemon's Channel Router for a possible
+    route to a target destination capable of carrying a specific amount of
+    satoshis. The retuned route contains the full details required to craft and
+    send an HTLC, also including the necessary information that should be
+    present within the Sphinx packet encapsualted within the HTLC.
+    */
     rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
             get: "/v1/graph/routes/{pub_key}/{amt}"
         };
     }
 
+    /** lncli: `getnetworkinfo`
+    GetNetworkInfo returns some basic stats about the known channel graph from
+    the point of view of the node.
+    */
     rpc GetNetworkInfo (NetworkInfoRequest) returns (NetworkInfo) {
         option (google.api.http) = {
             get: "/v1/graph/info"
         };
     }
 
+    /** lncli: `stop`
+    StopDaemon will send a shutdown request to the interrupt handler, triggering
+    a graceful shutdown of the daemon.
+    */
     rpc StopDaemon(StopRequest) returns (StopResponse);
 
+    /**
+    SubscribeChannelGraph launches a streaming RPC that allows the caller to
+    receive notifications upon any changes to the channel graph topology from
+    the point of view of the responding node. Events notified include: new
+    nodes coming online, nodes updating their authenticated attributes, new
+    channels being advertised, updates in the routing policy for a directional
+    channel edge, and when channels are closed on-chain.
+    */
     rpc SubscribeChannelGraph(GraphTopologySubscription) returns (stream GraphTopologyUpdate);
 
+    /**
+    SetAlias sets the alias for this node; e.g. "alice"
+    */
     rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
 
+    /** lncli: `debuglevel`
+    DebugLevel allows a caller to programmatically set the logging verbosity of
+    lnd. The logging can be targeted according to a coarse daemon-wide logging
+    level, or in a granular fashion to specify the logging for a target
+    sub-system.
+    */
     rpc DebugLevel (DebugLevelRequest) returns (DebugLevelResponse);
 }
 
 message Transaction {
+    /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
+    /// The transaction ammount, denominated in satoshis
     int64 amount = 2 [ json_name = "amount" ];
+    /// The number of confirmations
     int32 num_confirmations = 3 [ json_name = "num_confirmations" ];
+    /// The hash of the block this transaction was included in
     string block_hash = 4 [ json_name = "block_hash" ];
+    /// The height of the block this transaction was included in
     int32 block_height = 5 [ json_name = "block_height" ];
+    /// Timestamp of this transaction 
     int64 time_stamp = 6 [ json_name = "time_stamp" ];
+    /// Fees paid for this transaction
     int64 total_fees = 7 [ json_name = "total_fees" ];
 }
 message GetTransactionsRequest {
 }
 message TransactionDetails {
+    /// The list of transactions relevant to the wallet.
     repeated Transaction transactions = 1 [json_name = "transactions"];
 }
 
 message SendRequest {
+    /// The identity pubkey of the payment recipient
     bytes dest = 1;
+    /// The hex-encoded identity pubkey of the payment recipient
     string dest_string = 2;
 
+    /// Number of satoshis to send
     int64 amt = 3;
 
+    /// The hash to use within the payment's HTLC
     bytes payment_hash = 4;
+    /// The hex-encoded hash to use within the payment's HTLC
     string payment_hash_string = 5;
 
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
     string payment_request = 6;
 }
 message SendResponse {
@@ -212,70 +441,105 @@ message SendResponse {
 
 message ChannelPoint {
     // TODO(roasbeef): make str vs bytes into a oneof
+
+    /// Txid of the funding transaction
     bytes funding_txid = 1 [ json_name = "funding_txid" ];
+    /// Hex-encoded string representing the funding transaction
     string funding_txid_str = 2 [ json_name = "funding_txid_str" ];
+    /// The index of the output of the funding transaction
     uint32 output_index = 3 [ json_name = "output_index" ];
 }
 
 message LightningAddress {
+    /// The identity pubkey of the Lightning node
     string pubkey = 1 [json_name = "pubkey"];
+    /// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
     string host = 2 [json_name = "host"];
 }
 
 message SendManyRequest {
+    /// The map from addresses to amounts
     map<string, int64> AddrToAmount = 1;
 }
 message SendManyResponse {
+    /// The id of the transaction
     string txid = 1 [json_name = "txid"];
 }
 
 message SendCoinsRequest {
+    /// The address to send coins to 
     string addr = 1;
+    /// The amount in satoshis to send
     int64 amount = 2;
 }
 message SendCoinsResponse {
+    /// The transaction ID of the transaction
     string txid = 1 [json_name = "txid"];
 }
 
+/** 
+`AddressType` has to be one of:
+
+- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
+- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
+- `p2pkh`:  Pay to public key hash (`PUBKEY_HASH` = 2)
+*/
 message NewAddressRequest {
     enum AddressType {
         WITNESS_PUBKEY_HASH = 0;
         NESTED_PUBKEY_HASH = 1;
         PUBKEY_HASH = 2;
     }
+
+    /// The address type
     AddressType type = 1;
 }
+
 message NewWitnessAddressRequest {
 }
+
 message NewAddressResponse {
+    /// The newly generated wallet address
     string address = 1 [json_name = "address"];
 }
 
 message SignMessageRequest {
+    /// The message to be signed
     bytes msg = 1 [ json_name = "msg" ];
 }
 message SignMessageResponse {
+    /// The signature for the given message
     string signature = 1 [ json_name = "signature" ];
 }
 
 message VerifyMessageRequest {
+    /// The message over which the signature is to be verified
     bytes msg = 1 [ json_name = "msg" ];
+    /// The signature to be verifed over the given message
     string signature = 2 [ json_name = "signature" ];
 }
 message VerifyMessageResponse {
+    /// Whether the signature was valid over the given message
     bool valid = 1 [ json_name = "valid" ];
+    /// The pubkey recovered from the signature
     string pubkey = 2 [ json_name = "pubkey" ];
 }
 
 message ConnectPeerRequest {
+    /// Lightning address of the peer, in the format `<pubkey>@host`
     LightningAddress addr = 1;
+
+    /** If set, the daemon will attempt to persistently connect to the target
+     * peer.  Otherwise, the call will be synchronous. */
     bool perm = 2;
 }
 message ConnectPeerResponse {
+    /// The id of the newly connected peer
     int32 peer_id = 1 [json_name = "peer_id"];
 }
 
 message DisconnectPeerRequest {
+    /// The pubkey of the node to disconnect from
     string pub_key = 1 [json_name = "pub_key"];
 }
 message DisconnectPeerResponse {
@@ -290,72 +554,141 @@ message HTLC {
 }
 
 message ActiveChannel {
+    /// Whether this channel is active or not
     bool active = 1 [json_name = "active"];
+    /// The identity pubkey of the remote node
     string remote_pubkey = 2 [json_name = "remote_pubkey"];
+
+    /**
+    The outpoint (txid:index) of the funding transaction. With this value, Bob
+    will be able to generate a signature for Alice's version of the commitment
+    transaction.
+    */
     string channel_point = 3 [json_name = "channel_point"];
+
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 chan_id = 4 [json_name = "chan_id"];
 
+    /// The total amount of funds held in this channel
     int64 capacity = 5 [json_name = "capacity"];
+
+    /// This node's current balance in this channel
     int64 local_balance = 6 [json_name = "local_balance"];
+
+    /// The counterparty's current balance in this channel
     int64 remote_balance = 7 [json_name = "remote_balance"];
 
+    /**
+    The amount calculated to be paid in fees for the current set of commitment
+    transactions. The fee amount is persisted with the channel in order to
+    allow the fee amount to be removed and recalculated with each channel state
+    update, including updates that happen after a system restart.
+    */
     int64 commit_fee = 8 [json_name = "commit_fee"];
+    /// The weight of the commitment transaction
     int64 commit_weight = 9 [ json_name = "commit_weight" ];
+    /**
+    The required number of satoshis per kilo-weight that the requester will pay
+    at all times, for both the funding transaction and commitment transaction.
+    This value can later be updated once the channel is open.
+    */
     int64 fee_per_kw = 10 [json_name = "fee_per_kw"];
 
+    /// The unsettled balance in this channel
     int64 unsettled_balance = 11 [json_name = "unsettled_balance"];
+
+    /**
+    The total number of satoshis we've sent within this channel.
+    */
     int64 total_satoshis_sent = 12 [json_name = "total_satoshis_sent"];
+
+    /**
+    The total number of satoshis we've received within this channel.
+    */
     int64 total_satoshis_received = 13 [json_name = "total_satoshis_received"];
+
+    /**
+    The total number of updates conducted within this channel.
+    */
     uint64 num_updates = 14 [json_name = "num_updates"];
 
+    /**
+    The list of active, uncleared HTLCs currently pending within the channel.
+    */
     repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
 }
 
 message ListChannelsRequest {
 }
 message ListChannelsResponse {
+    /// The list of active channels
     repeated ActiveChannel channels = 11 [json_name = "channels"];
 }
 
 message Peer {
+    /// The identity pubkey of the peer
     string pub_key = 1 [json_name = "pub_key"];
+    /// The peer's id from the local point of view
     int32 peer_id = 2 [json_name = "peer_id"];
+    /// Network address of the peer; eg `127.0.0.1:10011`
     string address = 3 [json_name = "address"];
 
+    /// Bytes of data transmitted to this peer
     uint64 bytes_sent = 4 [json_name = "bytes_sent"];
+    /// Bytes of data transmitted from this peer
     uint64 bytes_recv = 5 [json_name = "bytes_recv"];
 
+    /// Satoshis sent to this peer
     int64 sat_sent = 6 [json_name = "sat_sent"];
+    /// Satoshis received from this peer
     int64 sat_recv = 7 [json_name = "sat_recv"];
 
+    /// A channel is inbound if the counterparty initiated the channel
     bool inbound = 8 [json_name = "inbound"];
 
+    /// Ping time to this peer
     int64 ping_time = 9 [json_name = "ping_time"];
 }
 
 message ListPeersRequest {
 }
 message ListPeersResponse {
+    /// The list of currently connected peers
     repeated Peer peers = 1 [json_name = "peers"];
 }
 
 message GetInfoRequest {
 }
 message GetInfoResponse {
+
+    /// The identity pubkey of the current node.
     string identity_pubkey = 1 [json_name = "identity_pubkey"];
+    /// If applicable, the alias of the current node, e.g. "bob"
     string alias = 2 [json_name = "alias"];
 
+    /// Number of pending channels
     uint32 num_pending_channels = 3 [json_name = "num_pending_channels"];
+    /// Number of active channels
     uint32 num_active_channels = 4 [json_name = "num_active_channels"];
 
+    /// Number of peers
     uint32 num_peers = 5 [json_name = "num_peers"];
 
+    /// The node's current view of the height of the best block
     uint32 block_height = 6 [json_name = "block_height"];
+    /// The node's current view of the hash of the best block
     string block_hash = 8 [json_name = "block_hash"];
 
+    /// Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
+    /// Whether the current node is connected to testnet
     bool testnet = 10 [ json_name = "testnet" ];
 
+    /// A list of active chains the node is connected to
     repeated string chains = 11 [ json_name = "chains" ];
 }
 
@@ -377,8 +710,15 @@ message ChannelCloseUpdate {
 }
 
 message CloseChannelRequest {
+    /**
+    The outpoint (txid:index) of the funding transaction. With this value, Bob
+    will be able to generate a signature for Alice's version of the commitment
+    transaction.
+    */
     ChannelPoint channel_point = 1;
+    /// a relative deadline afterwhich the attempt should be abandoned
     int64 time_limit = 2;
+    /// after the time limit has passed, attempt an uncooperative closure
     bool force = 3;
 }
 message CloseStatusUpdate {
@@ -395,11 +735,20 @@ message PendingUpdate {
 }
 
 message OpenChannelRequest {
+
+    /// The peer_id of the node to open a channel with
     int32 target_peer_id = 1 [json_name = "target_peer_id"];
+
+    /// The pubkey of the node to open a channel with
     bytes node_pubkey = 2 [json_name = "node_pubkey"];
+
+    /// The hex encorded pubkey of the node to open a channel with 
     string node_pubkey_string = 3 [json_name = "node_pubkey_string"];
 
+    /// The number of satoshis the wallet should commit to the channel
     int64 local_funding_amount = 4 [json_name = "local_funding_amount"];
+
+    /// The number of satoshis to push to the remote side as part of the initial commitment state
     int64 push_sat = 5 [json_name = "push_sat"];
 }
 message OpenStatusUpdate {
@@ -423,55 +772,89 @@ message PendingChannelResponse {
     }
 
     message PendingOpenChannel {
+        /// The pending channel
         PendingChannel channel = 1 [ json_name = "channel" ];
 
+        /// The height at which this channel will be confirmed
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
+        /// The number of blocks until this channel is open
         uint32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
 
+        /**
+        The amount calculated to be paid in fees for the current set of
+        commitment transactions. The fee amount is persisted with the channel
+        in order to allow the fee amount to be removed and recalculated with
+        each channel state update, including updates that happen after a system
+        restart.
+        */
         int64 commit_fee = 4 [json_name = "commit_fee" ];
+        /// The weight of the commitment transaction
         int64 commit_weight = 5 [ json_name = "commit_weight" ];
+
+        /**
+        The required number of satoshis per kilo-weight that the requester will
+        pay at all times, for both the funding transaction and commitment
+        transaction. This value can later be updated once the channel is open.
+        */
         int64 fee_per_kw = 6 [ json_name = "fee_per_kw" ];
     }
 
     message ClosedChannel {
+        /// The pending channel to be closed
         PendingChannel channel = 1;
 
+        /// The transaction id of the closing transaction
         string closing_txid = 2 [ json_name = "closing_txid" ];
     }
 
     message ForceClosedChannel {
+        /// The pending channel to be force closed
         PendingChannel channel = 1 [ json_name = "channel" ];
 
         // TODO(roasbeef): HTLC's as well?
 
+        /// The transaction id of the closing transaction
         string closing_txid = 2 [ json_name = "closing_txid" ];
 
+        /// The balance in satoshis encumbered in this pending channel
         int64 limbo_balance = 3 [ json_name = "limbo_balance" ];
+        /// The height at which funds can be sweeped into the wallet
         uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+        /// Remaining # of blocks until funds can be sweeped into the wallet
         uint32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
     }
 
+    /// The balance in satoshis encumbered in pending channels
     int64 total_limbo_balance = 1 [ json_name = "total_limbo_balance" ];
+    /// Channels pending opening
     repeated PendingOpenChannel pending_open_channels = 2 [ json_name = "pending_open_channels" ];
+    /// Channels pending closing
     repeated ClosedChannel pending_closing_channels = 3 [ json_name = "pending_closing_channels" ];
+    /// Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels =  4 [ json_name = "pending_force_closing_channels" ];
 }
 
 message WalletBalanceRequest {
+    /// If only witness outputs should be considered when calculating the wallet's balance
     bool witness_only = 1;
 }
 message WalletBalanceResponse {
+    /// The balance of the wallet
     int64 balance = 1 [json_name = "balance"];
 }
 
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
+    /// Sum of channels balances denominated in satoshis
     int64 balance = 1 [json_name = "balance"];
 }
 
 message QueryRoutesRequest {
+    /// The 33-byte hex-encoded public key for the payment destination
     string pub_key = 1;
+
+    /// The amount to send expressed in satoshis
     int64 amt = 2;
 }
 message QueryRoutesResponse {
@@ -479,6 +862,11 @@ message QueryRoutesResponse {
 }
 
 message Hop {
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 chan_id = 1 [json_name = "chan_id"];
     int64 chan_capacity = 2 [json_name = "chan_capacity"];
     int64 amt_to_forward = 3 [json_name = "amt_to_forward"];
@@ -486,25 +874,70 @@ message Hop {
     uint32 expiry = 5 [json_name = "expiry"];
 }
 
+/**
+A path through the channel graph which runs over one or more channels in
+succession. This struct carries all the information required to craft the
+Sphinx onion packet, and send the payment along the first hop in the path. A
+route is only selected as valid if all the channels have sufficient capacity to
+carry the initial payment amount after fees are accounted for.
+*/
 message Route {
+
+    /**
+    The cumulative (final) time lock across the entire route.  This is the CLTV
+    value that should be extended to the first hop in the route. All other hops
+    will decrement the time-lock as advertised, leaving enough time for all
+    hops to wait for or present the payment preimage to complete the payment.
+    */
     uint32 total_time_lock = 1 [json_name = "total_time_lock"];
+
+    /**
+    The sum of the fees paid at each hop within the final route.  In the case
+    of a one-hop payment, this value will be zero as we don't need to pay a fee
+    it ourself.
+    */
     int64 total_fees = 2 [json_name = "total_fees"];
+
+    /**
+    The total amount of funds required to complete a payment over this route.
+    This value includes the cumulative fees at each hop. As a result, the HTLC
+    extended to the first-hop in the route will need to have at least this many
+    satoshis, otherwise the route will fail at an intermediate node due to an
+    insufficient amount of fees.
+    */
     int64 total_amt = 3 [json_name = "total_amt"];
 
+    /**
+    Contains details concerning the specific forwarding details at each hop.
+    */
     repeated Hop hops = 4 [json_name = "hops"];
 }
 
 message NodeInfoRequest {
+    /// The 33-byte hex-encoded compressed public of the target node 
     string pub_key = 1;
 }
 
 message NodeInfo {
+
+    /**
+    An individual vertex/node within the channel graph. A node is
+    connected to other nodes by one or more channel edges emanating from it. As
+    the graph is directed, a node will also have an incoming edge attached to
+    it for each outgoing edge.
+    */
     LightningNode node = 1 [json_name = "node"];
 
     uint32 num_channels = 2 [json_name = "num_channels"];
     int64 total_capacity = 3 [json_name = "total_capacity"];
 }
 
+/**
+An individual vertex/node within the channel graph. A node is
+connected to other nodes by one or more channel edges emanating from it. As the
+graph is directed, a node will also have an incoming edge attached to it for
+each outgoing edge.
+*/
 message LightningNode {
     uint32 last_update = 1 [ json_name = "last_update" ];
     string pub_key = 2 [ json_name = "pub_key" ];
@@ -524,7 +957,20 @@ message RoutingPolicy {
     int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
 }
 
+/**
+A fully authenticated channel along with all its unique attributes.
+Once an authenticated channel announcement has been processed on the network,
+then a instance of ChannelEdgeInfo encapsulating the channels attributes is
+stored. The other portions relevant to routing policy of a channel are stored
+within a ChannelEdgePolicy for each direction of the channel.
+*/
 message ChannelEdge {
+
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 channel_id = 1 [json_name = "channel_id"];
     string chan_point = 2 [json_name = "chan_point"];
 
@@ -542,12 +988,20 @@ message ChannelEdge {
 message ChannelGraphRequest {
 }
 
+/// Returns a new instance of the directed channel graph.
 message ChannelGraph {
+    /// The list of `LightningNode`s in this channel graph
     repeated LightningNode nodes = 1 [json_name = "nodes"];
+    /// The list of `ChannelEdge`s in this channel graph
     repeated ChannelEdge edges = 2 [json_name = "edges"];
 }
 
 message ChanInfoRequest {
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 chan_id = 1;
 }
 
@@ -587,6 +1041,11 @@ message NodeUpdate {
     string alias = 4;
 }
 message ChannelEdgeUpdate {
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 chan_id = 1;
 
     ChannelPoint chan_point = 2;
@@ -599,6 +1058,11 @@ message ChannelEdgeUpdate {
     string connecting_node = 6;
 }
 message ClosedChannelUpdate {
+    /**
+    The unique channel ID for the channel. The first 3 bytes are the block
+    height, the next 3 the index within the block, and the last 2 bytes are the
+    output index for the channel.
+    */
     uint64 chan_id = 1;
     int64 capacity = 2;
     uint32 closed_height = 3;
@@ -612,31 +1076,60 @@ message SetAliasResponse {
 }
 
 message Invoice {
+    /// An optional memo to attach along with the invoice
     string memo = 1 [json_name = "memo"];
+    /// An optional cryptographic receipt of payment
     bytes receipt = 2 [json_name = "receipt"];
 
+    /**
+    The hex-encoded preimage (32 byte) which will allow settling an incoming
+    HTLC payable to this preimage
+    */
     bytes r_preimage = 3 [json_name = "r_preimage"];
+
+    /// The hash of the preimage
     bytes r_hash = 4 [json_name = "r_hash"];
 
+    /// The value of this invoice in satoshis
     int64 value = 5 [json_name = "value"];
 
+    /// Whether this invoice has been fulfilled
     bool settled = 6 [json_name = "settled"];
 
+    /// When this invoice was created
     int64 creation_date = 7 [json_name = "creation_date"];
+
+    /// When this invoice was settled
     int64 settle_date = 8 [json_name = "settle_date"];
 
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
     string payment_request = 9 [json_name = "payment_request"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
 
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
     string payment_request = 2 [json_name = "payment_request"];
 }
 message PaymentHash {
+    /**
+    The hex-encoded payment hash of the invoice to be looked up. The passed
+    payment hash must be exactly 32 bytes, otherwise an error is returned.
+    */
     string r_hash_str = 1 [json_name = "r_hash_str"];
+    /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
 message ListInvoiceRequest {
+    /// Toggles if all invoices should be returned, or only those that are currently unsettled
     bool pending_only = 1;
 }
 message ListInvoiceResponse {
@@ -648,13 +1141,18 @@ message InvoiceSubscription {
 
 
 message Payment {
+    /// The payment hash
     string payment_hash = 1 [json_name = "payment_hash"];
+    /// The value of the payment in satoshis
     int64 value = 2 [json_name = "value"];
 
+    /// The date of this payment
     int64 creation_date = 3 [json_name = "creation_date"];
 
+    /// The path this payment took
     repeated string path = 4 [ json_name = "path" ];
 
+    /// The fee paid for this payment in satoshis
     int64 fee = 5 [json_name = "fee"];
 }
 
@@ -662,6 +1160,7 @@ message ListPaymentsRequest {
 }
 
 message ListPaymentsResponse {
+    /// The list of payments
     repeated Payment payments = 1 [json_name = "payments"];
 }
 
@@ -680,6 +1179,7 @@ message DebugLevelResponse {
 }
 
 message PayReqString {
+    /// The payment request string to be decoded
     string pay_req = 1;
 }
 message PayReq {

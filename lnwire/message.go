@@ -23,28 +23,28 @@ type MessageType uint16
 // The currently defined message types within this current version of the
 // Lightning protocol.
 const (
-	MsgInit                      MessageType = 16
-	MsgError                                 = 17
-	MsgPing                                  = 18
-	MsgPong                                  = 19
-	MsgSingleFundingRequest                  = 32
-	MsgSingleFundingResponse                 = 33
-	MsgSingleFundingComplete                 = 34
-	MsgSingleFundingSignComplete             = 35
-	MsgFundingLocked                         = 36
-	MsgShutdown                              = 39
-	MsgClosingSigned                         = 40
-	MsgUpdateAddHTLC                         = 128
-	MsgUpdateFufillHTLC                      = 130
-	MsgUpdateFailHTLC                        = 131
-	MsgCommitSig                             = 132
-	MsgRevokeAndAck                          = 133
-	MsgUpdateFailMalformedHTLC               = 135
-	MsgUpdateFee                             = 137
-	MsgChannelAnnouncement                   = 256
-	MsgNodeAnnouncement                      = 257
-	MsgChannelUpdate                         = 258
-	MsgAnnounceSignatures                    = 259
+	MsgInit                    MessageType = 16
+	MsgError                               = 17
+	MsgPing                                = 18
+	MsgPong                                = 19
+	MsgOpenChannel                         = 32
+	MsgAcceptChannel                       = 33
+	MsgFundingCreated                      = 34
+	MsgFundingSigned                       = 35
+	MsgFundingLocked                       = 36
+	MsgShutdown                            = 39
+	MsgClosingSigned                       = 40
+	MsgUpdateAddHTLC                       = 128
+	MsgUpdateFufillHTLC                    = 130
+	MsgUpdateFailHTLC                      = 131
+	MsgCommitSig                           = 132
+	MsgRevokeAndAck                        = 133
+	MsgUpdateFailMalformedHTLC             = 135
+	MsgUpdateFee                           = 137
+	MsgChannelAnnouncement                 = 256
+	MsgNodeAnnouncement                    = 257
+	MsgChannelUpdate                       = 258
+	MsgAnnounceSignatures                  = 259
 )
 
 // String return the string representation of message type.
@@ -52,14 +52,14 @@ func (t MessageType) String() string {
 	switch t {
 	case MsgInit:
 		return "Init"
-	case MsgSingleFundingRequest:
-		return "SingleFundingRequest"
-	case MsgSingleFundingResponse:
-		return "SingleFundingResponse"
-	case MsgSingleFundingComplete:
-		return "SingleFundingComplete"
-	case MsgSingleFundingSignComplete:
-		return "SingleFundingSignComplete"
+	case MsgOpenChannel:
+		return "MsgOpenChannel"
+	case MsgAcceptChannel:
+		return "MsgAcceptChannel"
+	case MsgFundingCreated:
+		return "MsgFundingCreated"
+	case MsgFundingSigned:
+		return "MsgFundingSigned"
 	case MsgFundingLocked:
 		return "FundingLocked"
 	case MsgShutdown:
@@ -117,7 +117,8 @@ type Serializable interface {
 	// Decode reads the bytes stream and converts it to the object.
 	Decode(io.Reader, uint32) error
 
-	// Encode converts object to the bytes stream and write it in th writer.
+	// Encode converts object to the bytes stream and write it into the
+	// writer.
 	Encode(io.Writer, uint32) error
 }
 
@@ -138,14 +139,14 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	switch msgType {
 	case MsgInit:
 		msg = &Init{}
-	case MsgSingleFundingRequest:
-		msg = &SingleFundingRequest{}
-	case MsgSingleFundingResponse:
-		msg = &SingleFundingResponse{}
-	case MsgSingleFundingComplete:
-		msg = &SingleFundingComplete{}
-	case MsgSingleFundingSignComplete:
-		msg = &SingleFundingSignComplete{}
+	case MsgOpenChannel:
+		msg = &OpenChannel{}
+	case MsgAcceptChannel:
+		msg = &AcceptChannel{}
+	case MsgFundingCreated:
+		msg = &FundingCreated{}
+	case MsgFundingSigned:
+		msg = &FundingSigned{}
 	case MsgFundingLocked:
 		msg = &FundingLocked{}
 	case MsgShutdown:

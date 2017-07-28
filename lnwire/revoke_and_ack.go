@@ -22,25 +22,14 @@ type RevokeAndAck struct {
 
 	// Revocation is the preimage to the revocation hash of the now prior
 	// commitment transaction.
-	//
-	// If the received revocation is the all zeroes hash ('0' * 32), then
-	// this RevokeAndAck is being sent in order to build up the sender's
-	// initial revocation window (IRW). In this case, the RevokeAndAck
-	// should be added to the receiver's queue of unused revocations to be
-	// used to construct future commitment transactions.
 	Revocation [32]byte
 
-	// NextRevocationKey is the next revocation key which should be added
-	// to the queue of unused revocation keys for the remote peer. This key
-	// will be used within the revocation clause for any new commitment
-	// transactions created for the remote peer.
+	// NextRevocationKey is the next commitment point which should be used
+	// for the next commitment transaction the remote peer creates for us.
+	// This, in conjunction without revocation base point will be used to
+	// create the proper revocation key used within the commitment
+	// transaction.
 	NextRevocationKey *btcec.PublicKey
-
-	// NextRevocationHash is the next revocation hash which should be added
-	// to the queue on unused revocation hashes for the remote peer. This
-	// revocation hash will be used within any HTLCs included within this
-	// next commitment transaction.
-	NextRevocationHash [32]byte
 }
 
 // NewRevokeAndAck creates a new RevokeAndAck message.
@@ -61,7 +50,6 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 		&c.ChanID,
 		c.Revocation[:],
 		&c.NextRevocationKey,
-		c.NextRevocationHash[:],
 	)
 }
 
@@ -74,7 +62,6 @@ func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
 		c.ChanID,
 		c.Revocation[:],
 		c.NextRevocationKey,
-		c.NextRevocationHash[:],
 	)
 }
 
@@ -86,11 +73,11 @@ func (c *RevokeAndAck) MsgType() MessageType {
 	return MsgRevokeAndAck
 }
 
-// MaxPayloadLength returns the maximum allowed payload size for a
-// RevokeAndAck complete message observing the specified protocol version.
+// MaxPayloadLength returns the maximum allowed payload size for a RevokeAndAck
+// complete message observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) MaxPayloadLength(uint32) uint32 {
-	// 32 + 32 + 33 + 32
-	return 129
+	// 32 + 32 + 33
+	return 97
 }

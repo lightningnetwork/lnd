@@ -23,10 +23,19 @@ type CommitSig struct {
 	// additional data due to the piggybacking of Bob's next revocation
 	// hash in his prior RevokeAndAck message, as well as the canonical
 	// ordering used for all inputs/outputs within commitment transactions.
+	// If initiating a new commitment state, this signature shoud ONLY
+	// cover all of the sending party's pending log updates, and the log
+	// updates of the remote party that have been ACK'd.
 	CommitSig *btcec.Signature
 
-	// TODO(roasbeef): add HTLC sigs after state machine is updated to
-	// support that
+	// HtlcSigs is a signature for each relevant HTLC output within the
+	// created commitment. The order of the signatures is expected to be
+	// identical to the placement of the HTLC's within the BIP 69 sorted
+	// commitment transaction. For each outgoing HTLC (from the PoV of the
+	// sender of this message), a signature for a HTLC timeout transaction
+	// should be signed, for each incoming HTLC the HTLC timeout
+	// transaction should be signed.
+	HtlcSigs []*btcec.Signature
 }
 
 // NewCommitSig creates a new empty CommitSig message.
@@ -46,6 +55,7 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&c.ChanID,
 		&c.CommitSig,
+		&c.HtlcSigs,
 	)
 }
 
@@ -57,6 +67,7 @@ func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		c.ChanID,
 		c.CommitSig,
+		c.HtlcSigs,
 	)
 }
 
@@ -73,6 +84,6 @@ func (c *CommitSig) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
-	// 32 + 64
-	return 96
+	// 32 + 64 + 2 + max_allowed_htlcs
+	return MaxMessagePayload
 }

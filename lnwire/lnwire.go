@@ -87,6 +87,19 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case []*btcec.Signature:
+		var b [2]byte
+		numSigs := uint16(len(e))
+		binary.BigEndian.PutUint16(b[:], numSigs)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+
+		for _, sig := range e {
+			if err := writeElement(w, sig); err != nil {
+				return err
+			}
+		}
 	case *btcec.Signature:
 		var b [64]byte
 		err := serializeSigToWire(&b, e)
@@ -358,6 +371,25 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = f
+
+	case *[]*btcec.Signature:
+		var l [2]byte
+		if _, err := io.ReadFull(r, l[:]); err != nil {
+			return err
+		}
+		numSigs := binary.BigEndian.Uint16(l[:])
+
+		var sigs []*btcec.Signature
+		if numSigs > 0 {
+			sigs = make([]*btcec.Signature, numSigs)
+			for i := 0; i < int(numSigs); i++ {
+				if err := readElement(r, &sigs[i]); err != nil {
+					return err
+				}
+			}
+		}
+
+		*e = sigs
 
 	case **btcec.Signature:
 		var b [64]byte

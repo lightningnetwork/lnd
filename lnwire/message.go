@@ -214,7 +214,7 @@ func WriteMessage(w io.Writer, msg Message, pver uint32) (int, error) {
 	if uint32(lenp) > mpl {
 		return totalBytes, fmt.Errorf("message payload is too large - "+
 			"encoded %d bytes, but maximum message payload of "+
-			"type %x is %d bytes", lenp, msg.MsgType(), mpl)
+			"type %v is %d bytes", lenp, msg.MsgType(), mpl)
 	}
 
 	// With the initial sanity checks complete, we'll now write out the

@@ -567,6 +567,9 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 			"valid", actThree[0], HandshakeVersion)
 	}
 
+	// TODO(roasbeef): print out entire version each time, also print out
+	// which act the error occurred at
+
 	copy(s[:], actThree[1:33+16+1])
 	copy(p[:], actThree[33+16+1:])
 

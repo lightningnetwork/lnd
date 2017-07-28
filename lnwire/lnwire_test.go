@@ -146,36 +146,52 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(*req)
 		},
-		MsgSingleFundingRequest: func(v []reflect.Value, r *rand.Rand) {
-			req := SingleFundingRequest{
-				ChannelType:       uint8(r.Int63()),
-				CoinType:          uint64(r.Int63()),
-				FeePerKw:          btcutil.Amount(r.Int63()),
-				FundingAmount:     btcutil.Amount(r.Int63()),
-				PushSatoshis:      btcutil.Amount(r.Int63()),
-				CsvDelay:          uint32(r.Int31()),
-				DustLimit:         btcutil.Amount(r.Int63()),
-				ConfirmationDepth: uint32(r.Int31()),
+		MsgOpenChannel: func(v []reflect.Value, r *rand.Rand) {
+			req := OpenChannel{
+				FundingAmount:    btcutil.Amount(r.Int63()),
+				PushAmount:       btcutil.Amount(r.Int63()),
+				DustLimit:        btcutil.Amount(r.Int63()),
+				MaxValueInFlight: btcutil.Amount(r.Int63()),
+				ChannelReserve:   btcutil.Amount(r.Int63()),
+				HtlcMinimum:      uint32(r.Int31()),
+				FeePerKiloWeight: uint32(r.Int63()),
+				CsvDelay:         uint16(r.Int31()),
+				MaxAcceptedHTLCs: uint16(r.Int31()),
+				ChannelFlags:     byte(r.Int31()),
+			}
+
+			if _, err := r.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to generate chain hash: %v", err)
+				return
 			}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
 				t.Fatalf("unable to generate pending chan id: %v", err)
 				return
 			}
-			var script [34]byte
-			if _, err := r.Read(script[:]); err != nil {
-				t.Fatalf("unable to generate pending chan id: %v", err)
-				return
-			}
-			req.DeliveryPkScript = script[:]
 
 			var err error
-			req.ChannelDerivationPoint, err = randPubKey()
+			req.FundingKey, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.CommitmentKey, err = randPubKey()
+			req.RevocationPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.PaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.DelayedPaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.FirstCommitmentPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -183,36 +199,44 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
-		MsgSingleFundingResponse: func(v []reflect.Value, r *rand.Rand) {
-			req := SingleFundingResponse{
-				CsvDelay:          uint32(r.Int31()),
-				DustLimit:         btcutil.Amount(r.Int63()),
-				ConfirmationDepth: uint32(r.Int31()),
+		MsgAcceptChannel: func(v []reflect.Value, r *rand.Rand) {
+			req := AcceptChannel{
+				DustLimit:        btcutil.Amount(r.Int63()),
+				MaxValueInFlight: btcutil.Amount(r.Int63()),
+				ChannelReserve:   btcutil.Amount(r.Int63()),
+				MinAcceptDepth:   uint32(r.Int31()),
+				HtlcMinimum:      uint32(r.Int31()),
+				CsvDelay:         uint16(r.Int31()),
+				MaxAcceptedHTLCs: uint16(r.Int31()),
 			}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
 				t.Fatalf("unable to generate pending chan id: %v", err)
 				return
 			}
-			var script [34]byte
-			if _, err := r.Read(script[:]); err != nil {
-				t.Fatalf("unable to generate pending chan id: %v", err)
-				return
-			}
-			req.DeliveryPkScript = script[:]
 
 			var err error
-			req.ChannelDerivationPoint, err = randPubKey()
+			req.FundingKey, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.CommitmentKey, err = randPubKey()
+			req.RevocationPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
-			req.RevocationKey, err = randPubKey()
+			req.PaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.DelayedPaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.FirstCommitmentPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -220,46 +244,37 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
-		MsgSingleFundingComplete: func(v []reflect.Value, r *rand.Rand) {
-			req := SingleFundingComplete{}
+		MsgFundingCreated: func(v []reflect.Value, r *rand.Rand) {
+			req := FundingCreated{}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
 				t.Fatalf("unable to generate pending chan id: %v", err)
 				return
 			}
 
-			if _, err := r.Read(req.FundingOutPoint.Hash[:]); err != nil {
+			if _, err := r.Read(req.FundingPoint.Hash[:]); err != nil {
 				t.Fatalf("unable to generate hash: %v", err)
 				return
 			}
-			req.FundingOutPoint.Index = uint32(r.Int31()) % math.MaxUint16
+			req.FundingPoint.Index = uint32(r.Int31()) % math.MaxUint16
 
-			if _, err := r.Read(req.StateHintObsfucator[:]); err != nil {
-				t.Fatalf("unable to read state hint: %v", err)
-				return
-			}
-
-			req.CommitSignature = testSig
-
-			var err error
-			req.RevocationKey, err = randPubKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
+			req.CommitSig = testSig
 
 			v[0] = reflect.ValueOf(req)
 		},
-		MsgSingleFundingSignComplete: func(v []reflect.Value, r *rand.Rand) {
+		MsgFundingSigned: func(v []reflect.Value, r *rand.Rand) {
 			var c [32]byte
 			if _, err := r.Read(c[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
 			}
 
-			req := NewSingleFundingSignComplete(ChannelID(c), testSig)
+			req := FundingSigned{
+				ChanID:    ChannelID(c),
+				CommitSig: testSig,
+			}
 
-			v[0] = reflect.ValueOf(*req)
+			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingLocked: func(v []reflect.Value, r *rand.Rand) {
 
@@ -300,6 +315,12 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 			req.CommitSig = testSig
 
+			numSigs := uint16(r.Int31n(1020))
+			req.HtlcSigs = make([]*btcec.Signature, numSigs)
+			for i := 0; i < int(numSigs); i++ {
+				req.HtlcSigs[i] = testSig
+			}
+
 			v[0] = reflect.ValueOf(*req)
 		},
 		MsgRevokeAndAck: func(v []reflect.Value, r *rand.Rand) {
@@ -312,11 +333,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				t.Fatalf("unable to generate bytes: %v", err)
 				return
 			}
-			if _, err := r.Read(req.NextRevocationHash[:]); err != nil {
-				t.Fatalf("unable to generate bytes: %v", err)
-				return
-			}
-
 			var err error
 			req.NextRevocationKey, err = randPubKey()
 			if err != nil {
@@ -452,26 +468,26 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
-			msgType: MsgSingleFundingRequest,
-			scenario: func(m SingleFundingRequest) bool {
+			msgType: MsgOpenChannel,
+			scenario: func(m OpenChannel) bool {
 				return mainScenario(&m)
 			},
 		},
 		{
-			msgType: MsgSingleFundingResponse,
-			scenario: func(m SingleFundingResponse) bool {
+			msgType: MsgAcceptChannel,
+			scenario: func(m AcceptChannel) bool {
 				return mainScenario(&m)
 			},
 		},
 		{
-			msgType: MsgSingleFundingComplete,
-			scenario: func(m SingleFundingComplete) bool {
+			msgType: MsgFundingCreated,
+			scenario: func(m FundingCreated) bool {
 				return mainScenario(&m)
 			},
 		},
 		{
-			msgType: MsgSingleFundingSignComplete,
-			scenario: func(m SingleFundingSignComplete) bool {
+			msgType: MsgFundingSigned,
+			scenario: func(m FundingSigned) bool {
 				return mainScenario(&m)
 			},
 		},

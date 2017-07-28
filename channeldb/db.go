@@ -40,10 +40,6 @@ var (
 			number:    0,
 			migration: nil,
 		},
-		{
-			number:    1,
-			migration: deliveryScriptBugMigration,
-		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

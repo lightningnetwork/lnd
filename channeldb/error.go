@@ -50,7 +50,7 @@ var (
 	// ErrGraphNeverPruned is returned when graph was never pruned.
 	ErrGraphNeverPruned = fmt.Errorf("graph never pruned")
 
-	// ErrSourceNodeNotSet is returned if the the source node of the graph
+	// ErrSourceNodeNotSet is returned if the source node of the graph
 	// hasn't been added The source node is the center node within a
 	// star-graph.
 	ErrSourceNodeNotSet = fmt.Errorf("source node does not exist")

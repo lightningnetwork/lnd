@@ -395,32 +395,63 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		}
 	}
 
+	// Create lookup map for notifications we are intending to receive. Entries
+	// are removed from the map when the anticipated notification is received.
+	var waitingFor = map[vertex]int{
+		newVertex(node1.PubKey): 1,
+		newVertex(node2.PubKey): 2,
+	}
+
 	const numEdgePolicies = 2
 	for i := 0; i < numEdgePolicies; i++ {
 		select {
 		case ntfn := <-ntfnClient.TopologyChanges:
+			// For each processed announcement we should only receive a
+			// single announcement in a batch.
+			if len(ntfn.ChannelEdgeUpdates) != 1 {
+				t.Fatalf("expected 1 notification, instead have %v",
+					len(ntfn.ChannelEdgeUpdates))
+			}
+
 			edgeUpdate := ntfn.ChannelEdgeUpdates[0]
-			if i == 0 {
-				assertEdgeCorrect(t, edgeUpdate, edge1)
-				if !edgeUpdate.AdvertisingNode.IsEqual(node1.PubKey) {
-					t.Fatal("advertising node mismatch")
-				}
-				if !edgeUpdate.ConnectingNode.IsEqual(node2.PubKey) {
-					t.Fatal("connecting node mismatch")
+			nodeVertex := newVertex(edgeUpdate.AdvertisingNode)
+
+			if idx, ok := waitingFor[nodeVertex]; ok {
+				switch idx {
+				case 1:
+					// Received notification corresponding to edge1.
+					assertEdgeCorrect(t, edgeUpdate, edge1)
+					if !edgeUpdate.AdvertisingNode.IsEqual(node1.PubKey) {
+						t.Fatal("advertising node mismatch")
+					}
+					if !edgeUpdate.ConnectingNode.IsEqual(node2.PubKey) {
+						t.Fatal("connecting node mismatch")
+					}
+
+				case 2:
+					// Received notification corresponding to edge2.
+					assertEdgeCorrect(t, edgeUpdate, edge2)
+					if !edgeUpdate.AdvertisingNode.IsEqual(node2.PubKey) {
+						t.Fatal("advertising node mismatch")
+					}
+					if !edgeUpdate.ConnectingNode.IsEqual(node1.PubKey) {
+						t.Fatal("connecting node mismatch")
+					}
+
+				default:
+					t.Fatal("invalid edge index")
 				}
 
-				continue
+				// Remove entry from waitingFor map to ensure we don't double count a
+				// repeat notification.
+				delete(waitingFor, nodeVertex)
+
+			} else {
+				t.Fatal("unexpected edge update received")
 			}
 
-			assertEdgeCorrect(t, edgeUpdate, edge2)
-			if !edgeUpdate.ConnectingNode.IsEqual(node1.PubKey) {
-				t.Fatal("connecting node mismatch")
-			}
-			if !edgeUpdate.AdvertisingNode.IsEqual(node2.PubKey) {
-				t.Fatal("advertising node mismatch")
-			}
 		case <-time.After(time.Second * 5):
-			t.Fatal("update not received")
+			t.Fatal("edge update not received")
 		}
 	}
 }
@@ -463,31 +494,30 @@ func TestNodeUpdateNotification(t *testing.T) {
 	}
 
 	assertNodeNtfnCorrect := func(t *testing.T, ann *channeldb.LightningNode,
-		ntfns []*NetworkNodeUpdate) {
-
-		// For each processed announcement we should only receive a
-		// single announcement in a batch.
-		if len(ntfns) != 1 {
-			t.Fatalf("expected 1 notification, instead have %v",
-				len(ntfns))
-		}
+		nodeUpdate *NetworkNodeUpdate) {
 
 		// The notification received should directly map the
 		// announcement originally sent.
-		nodeNtfn := ntfns[0]
-		if nodeNtfn.Addresses[0] != ann.Addresses[0] {
+		if nodeUpdate.Addresses[0] != ann.Addresses[0] {
 			t.Fatalf("node address doesn't match: expected %v, got %v",
-				nodeNtfn.Addresses[0], ann.Addresses[0])
+				nodeUpdate.Addresses[0], ann.Addresses[0])
 		}
-		if !nodeNtfn.IdentityKey.IsEqual(ann.PubKey) {
+		if !nodeUpdate.IdentityKey.IsEqual(ann.PubKey) {
 			t.Fatalf("node identity keys don't match: expected %x, "+
 				"got %x", ann.PubKey.SerializeCompressed(),
-				nodeNtfn.IdentityKey.SerializeCompressed())
+				nodeUpdate.IdentityKey.SerializeCompressed())
 		}
-		if nodeNtfn.Alias != ann.Alias {
+		if nodeUpdate.Alias != ann.Alias {
 			t.Fatalf("node alias doesn't match: expected %v, got %v",
-				ann.Alias, nodeNtfn.Alias)
+				ann.Alias, nodeUpdate.Alias)
 		}
+	}
+
+	// Create lookup map for notifications we are intending to receive. Entries
+	// are removed from the map when the anticipated notification is received.
+	var waitingFor = map[vertex]int{
+		newVertex(node1.PubKey): 1,
+		newVertex(node2.PubKey): 2,
 	}
 
 	// Exactly two notifications should be sent, each corresponding to the
@@ -496,13 +526,39 @@ func TestNodeUpdateNotification(t *testing.T) {
 	for i := 0; i < numAnns; i++ {
 		select {
 		case ntfn := <-ntfnClient.TopologyChanges:
-			if i == 0 {
-				assertNodeNtfnCorrect(t, node1, ntfn.NodeUpdates)
-				continue
+			// For each processed announcement we should only receive a
+			// single announcement in a batch.
+			if len(ntfn.NodeUpdates) != 1 {
+				t.Fatalf("expected 1 notification, instead have %v",
+					len(ntfn.NodeUpdates))
 			}
 
-			assertNodeNtfnCorrect(t, node2, ntfn.NodeUpdates)
+			nodeUpdate := ntfn.NodeUpdates[0]
+			nodeVertex := newVertex(nodeUpdate.IdentityKey)
+			if idx, ok := waitingFor[nodeVertex]; ok {
+				switch idx {
+				case 1:
+					// Received notification corresponding to node1.
+					assertNodeNtfnCorrect(t, node1, nodeUpdate)
+
+				case 2:
+					// Received notification corresponding to node2.
+					assertNodeNtfnCorrect(t, node2, nodeUpdate)
+
+				default:
+					t.Fatal("invalid node index")
+				}
+
+				// Remove entry from waitingFor map to ensure we don't double count a
+				// repeat notification.
+				delete(waitingFor, nodeVertex)
+
+			} else {
+				t.Fatal("unexpected node update received")
+			}
+
 		case <-time.After(time.Second * 5):
+			t.Fatal("node update not received")
 		}
 	}
 
@@ -521,8 +577,18 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// date node announcement.
 	select {
 	case ntfn := <-ntfnClient.TopologyChanges:
-		assertNodeNtfnCorrect(t, &nodeUpdateAnn, ntfn.NodeUpdates)
+		// For each processed announcement we should only receive a
+		// single announcement in a batch.
+		if len(ntfn.NodeUpdates) != 1 {
+			t.Fatalf("expected 1 notification, instead have %v",
+				len(ntfn.NodeUpdates))
+		}
+
+		nodeUpdate := ntfn.NodeUpdates[0]
+		assertNodeNtfnCorrect(t, &nodeUpdateAnn, nodeUpdate)
+
 	case <-time.After(time.Second * 5):
+		t.Fatal("update not received")
 	}
 }
 

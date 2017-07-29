@@ -427,8 +427,9 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actOne[0] != HandshakeVersion {
-		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
-			"valid", actOne[0], HandshakeVersion)
+		return fmt.Errorf("Act One: invalid handshake version: %v, "+
+			"only %v is valid, msg=%x", actOne[0], HandshakeVersion,
+			actOne[:])
 	}
 
 	copy(e[:], actOne[1:34])
@@ -498,8 +499,9 @@ func (b *Machine) RecvActTwo(actTwo [ActTwoSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actTwo[0] != HandshakeVersion {
-		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
-			"valid", actTwo[0], HandshakeVersion)
+		return fmt.Errorf("Act Two: invalid handshake version: %v, "+
+			"only %v is valid, msg=%x", actTwo[0], HandshakeVersion,
+			actTwo[:])
 	}
 
 	copy(e[:], actTwo[1:34])
@@ -563,8 +565,9 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 	// If the handshake version is unknown, then the handshake fails
 	// immediately.
 	if actThree[0] != HandshakeVersion {
-		return fmt.Errorf("Invalid handshake version: %v, only %v is "+
-			"valid", actThree[0], HandshakeVersion)
+		return fmt.Errorf("Act Three: invalid handshake version: %v, "+
+			"only %v is valid, msg=%x", actThree[0], HandshakeVersion,
+			actThree[:])
 	}
 
 	// TODO(roasbeef): print out entire version each time, also print out

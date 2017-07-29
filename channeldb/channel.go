@@ -595,6 +595,34 @@ type ChannelDelta struct {
 	Htlcs []*HTLC
 }
 
+// InsertNextRevocation inserts the _next_ commitment point (revocation) into
+// the database, and also modifies the internal RemoteNextRevocation attribute
+// to point to the passed key. This method is to be using during final channel
+// set up, _after_ the channel has been fully confirmed.
+//
+// NOTE: If this method isn't called, then the target channel won't be able to
+// propose new states for the commitment state of the remote party.
+func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		id := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
+		if err != nil {
+			return err
+		}
+
+		c.RemoteNextRevocation = revKey
+		return putChanRevocationState(nodeChanBucket, c)
+	})
+}
+
 // AppendToRevocationLog records the new state transition within an on-disk
 // append-only log which records all state transitions by the remote peer. In
 // the case of an uncooperative broadcast of a prior state by the remote peer,
@@ -1923,9 +1951,16 @@ func putChanRevocationState(nodeChanBucket *bolt.Bucket, channel *OpenChannel) e
 		return err
 	}
 
-	var bc bytes.Buffer
-	if err := writeOutpoint(&bc, channel.ChanID); err != nil {
-		return err
+	// We place the next revocation key at the very end, as under certain
+	// circumstances (when a channel is initially funded), this value will
+	// not yet have been set.
+	//
+	// TODO(roasbeef): segment the storage?
+	if channel.RemoteNextRevocation != nil {
+		nextRevKey := channel.RemoteNextRevocation.SerializeCompressed()
+		if err := wire.WriteVarBytes(&b, 0, nextRevKey); err != nil {
+			return err
+		}
 	}
 
 	revocationKey := make([]byte, len(revocationStateKey)+bc.Len())
@@ -1976,8 +2011,23 @@ func fetchChanRevocationState(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 		return err
 	}
 
-	_, err = io.ReadFull(reader, channel.StateHintObsfucator[:])
-	return err
+	// We'll attempt to see if the remote party's next revocation key is
+	// currently set, if so then we'll read and deserialize it. Otherwise,
+	// we can exit early.
+	if reader.Len() != 0 {
+		nextRevKeyBytes, err := wire.ReadVarBytes(reader, 0, 1000, "")
+		if err != nil {
+			return err
+		}
+		channel.RemoteNextRevocation, err = btcec.ParsePubKey(
+			nextRevKeyBytes, btcec.S256(),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func serializeHTLC(w io.Writer, h *HTLC) error {

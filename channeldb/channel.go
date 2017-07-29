@@ -123,6 +123,98 @@ const (
 	DualFunder = 1
 )
 
+// ChannelConstraints represents a set of constraints meant to allow a node to
+// limit their exposure, enact flow control and ensure that all HTLC's are
+// economically relevant This struct will be mirrored for both sides of the
+// channel, as each side will enforce various constraints that MUST be adhered
+// to for the life time of the channel. The parameters for each of these
+// constraints is static for the duration of the channel, meaning the channel
+// must be teared down for them to change.
+type ChannelConstraints struct {
+	// DustLimit is the min satoshis/kilo-weight that should be paid within
+	// the commitment transaction for the entire duration of the channel's
+	// lifetime. This field may be updated during normal operation of the
+	// channel as on-chain conditions change.
+	DustLimit btcutil.Amount
+
+	// MaxPendingAmount is the maximum pending HTLC value that can be
+	// present within the channel at a particular time. This value is set
+	// by the initiator of the channel and must be upheld at all times.
+	//
+	// TODO(roasbeef): in mSAT
+	MaxPendingAmount btcutil.Amount
+
+	// ChanReserve is an absolute reservation on the channel for this
+	// particular node. This means that the current settled balance for
+	// this node CANNOT dip below the reservation amount. This acts as a
+	// defense against costless attacks when either side no longer has any
+	// skin in the game.
+	//
+	// TODO(roasbeef): need to swap above, i tell them what reserve, then
+	// other way around
+	ChanReserve btcutil.Amount
+
+	// MinHTLC is the minimum HTLC accepted for a direction of the channel.
+	// If any HTLC's below this amount are offered, then the HTLC will be
+	// rejected. This, in tandem with the dust limit allows a node to
+	// regulate the smallest HTLC that it deems economically relevant.
+	//
+	// TODO(roasbeef): in mSAT
+	MinHTLC btcutil.Amount
+
+	// MaxAcceptedHtlcs is the maximum amount of HTLC's that are to be
+	// accepted by the owner of this set of constraints. This allows each
+	// node to limit their over all exposure to HTLC's that may need to be
+	// acted upon in the case of a unilateral channel closure or a contract
+	// breach.
+	MaxAcceptedHtlcs uint16
+}
+
+// ChannelConfig is a struct that houses the various configuration opens for
+// channels. Each side maintains an instance of this configuration file as it
+// governs: how the funding and commitment transaction to be created, the
+// nature of HTLC's allotted, the keys to be used for delivery, and relative
+// time lock parameters.
+type ChannelConfig struct {
+	// ChannelConstraints is the set of constraints that must be upheld for
+	// the duration of the channel for ths owner of this channel
+	// configuration. Constraints govern a number of flow control related
+	// parameters, also including the smallest HTLC that will be accepted
+	// by a participant.
+	ChannelConstraints
+
+	// CsvDelay is the relative time lock delay expressed in blocks. Any
+	// settled outputs that pay to the owner of this channel configuration
+	// MUST ensure that the delay branch uses this value as the relative
+	// time lock. Similarly, any HTLC's offered by this node should use
+	// this value as well.
+	CsvDelay uint16
+
+	// MultiSigKey is the key to be used within the 2-of-2 output script
+	// for the owner of this channel config.
+	MultiSigKey *btcec.PublicKey
+
+	// RevocationBasePoint is the base public key to be used when deriving
+	// revocation keys for the remote node's commitment transaction. This
+	// will be combined along with a per commitment secret to derive a
+	// unique revocation key for each state.
+	RevocationBasePoint *btcec.PublicKey
+
+	// PaymentBasePoint is the based public key to be used when deriving
+	// the key used within the non-delayed pay-to-self output on the
+	// commitment transaction for a node. This will be combined with a
+	// tweak derived from the per-commitment point to ensure unique keys
+	// for each commitment transaction.
+	PaymentBasePoint *btcec.PublicKey
+
+	// DelayBasePoint is the based public key to be used when deriving the
+	// key used within the delayed pay-to-self output on the commitment
+	// transaction for a node. This will be combined with a tweak derived
+	// from the per-commitment point to ensure unique keys for each
+	// commitment transaction.
+	DelayBasePoint *btcec.PublicKey
+}
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)

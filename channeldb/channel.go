@@ -512,15 +512,19 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 // are contained within ChannelDeltas which encode the current state of the
 // commitment between state updates.
 type HTLC struct {
-	// Incoming denotes whether we're the receiver or the sender of this
-	// HTLC.
-	Incoming bool
-
-	// Amt is the amount of satoshis this HTLC escrows.
-	Amt btcutil.Amount
+	// Signature is the signature for the second level covenant transaction
+	// for this HTLC. The second level transaction is a timeout tx in the
+	// case that this is an outgoing HTLC, and a success tx in the case
+	// that this is an incoming HTLC.
+	//
+	// TODO(roasbeef): make [64]byte instead?
+	Signature []byte
 
 	// RHash is the payment hash of the HTLC.
 	RHash [32]byte
+
+	// Amt is the amount of satoshis this HTLC escrows.
+	Amt btcutil.Amount
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
@@ -529,11 +533,17 @@ type HTLC struct {
 	// RevocationDelay is the relative timeout the party who broadcasts the
 	// commitment transaction must wait before being able to fully sweep
 	// the funds on-chain in the case of a unilateral channel closure.
+	//
+	// TODO(roasbeef): no longer needed?
 	RevocationDelay uint32
 
 	// OutputIndex is the output index for this particular HTLC output
 	// within the commitment transaction.
-	OutputIndex uint16
+	OutputIndex int32
+
+	// Incoming denotes whether we're the receiver or the sender of this
+	// HTLC.
+	Incoming bool
 }
 
 // Copy returns a full copy of the target HTLC.
@@ -545,6 +555,7 @@ func (h *HTLC) Copy() HTLC {
 		RevocationDelay: h.RevocationDelay,
 		OutputIndex:     h.OutputIndex,
 	}
+	copy(clone.Signature[:], h.Signature)
 	copy(clone.RHash[:], h.RHash[:])
 
 	return clone
@@ -1969,25 +1980,27 @@ func fetchChanRevocationState(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 	return err
 }
 
-		return err
-	}
-
-		return err
-	}
-		return err
-	}
-		return err
-	}
-		return err
-	}
-
-// htlcDiskSize represents the number of btyes a serialized HTLC takes up on
-// disk. The size of an HTLC on disk is 49 bytes total: incoming (1) + amt (8)
-// + rhash (32) + timeouts (8) + output index (2)
-const htlcDiskSize = 1 + 8 + 32 + 4 + 4 + 2
-
 func serializeHTLC(w io.Writer, h *HTLC) error {
-	var buf [htlcDiskSize]byte
+	if err := wire.WriteVarBytes(w, 0, h.Signature); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(h.RHash[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, h.Amt); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, h.RefundTimeout); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, h.RevocationDelay); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, h.OutputIndex); err != nil {
+		return err
+	}
 
 	var boolByte [1]byte
 	if h.Incoming {
@@ -1996,59 +2009,49 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 		boolByte[0] = 0
 	}
 
-	var n int
-	n += copy(buf[:], boolByte[:])
-	byteOrder.PutUint64(buf[n:], uint64(h.Amt))
-	n += 8
-	n += copy(buf[n:], h.RHash[:])
-	byteOrder.PutUint32(buf[n:], h.RefundTimeout)
-	n += 4
-	byteOrder.PutUint32(buf[n:], h.RevocationDelay)
-	n += 4
-	byteOrder.PutUint16(buf[n:], h.OutputIndex)
-	n += 2
+	if _, err := w.Write(boolByte[:]); err != nil {
+		return err
+	}
 
-	_, err := w.Write(buf[:])
-	return err
+	return nil
 }
 
 func deserializeHTLC(r io.Reader) (*HTLC, error) {
 	h := &HTLC{}
 
-	var scratch [8]byte
-
-	if _, err := r.Read(scratch[:1]); err != nil {
+	sigBytes, err := wire.ReadVarBytes(r, 0, 80, "")
+	if err != nil {
 		return nil, err
 	}
+	h.Signature = sigBytes
+
+	if _, err := io.ReadFull(r, h.RHash[:]); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, byteOrder, &h.Amt); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &h.RefundTimeout); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &h.RevocationDelay); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &h.OutputIndex); err != nil {
+		return nil, err
+	}
+
+	var scratch [1]byte
+	if _, err := r.Read(scratch[:]); err != nil {
+		return nil, err
+	}
+
 	if scratch[0] == 1 {
 		h.Incoming = true
 	} else {
 		h.Incoming = false
 	}
-
-	if _, err := r.Read(scratch[:]); err != nil {
-		return nil, err
-	}
-	h.Amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
-
-	if _, err := r.Read(h.RHash[:]); err != nil {
-		return nil, err
-	}
-
-	if _, err := r.Read(scratch[:4]); err != nil {
-		return nil, err
-	}
-	h.RefundTimeout = byteOrder.Uint32(scratch[:4])
-
-	if _, err := r.Read(scratch[:4]); err != nil {
-		return nil, err
-	}
-	h.RevocationDelay = byteOrder.Uint32(scratch[:])
-
-	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
-		return nil, err
-	}
-	h.OutputIndex = byteOrder.Uint16(scratch[:])
 
 	return h, nil
 }
@@ -2335,3 +2338,6 @@ func readBool(r io.Reader) (bool, error) {
 
 	return true, nil
 }
+
+// TODO(roasbeef): add readElement/writeElement funcs
+//  * after go1.9 can use binary.WriteBool etc?

@@ -512,7 +512,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			desc.SigHashes = hc
 			desc.InputIndex = inputIndex
 
-			return lnwallet.CommitSpendNoDelay(b.wallet.Signer, desc, tx)
+			return lnwallet.CommitSpendNoDelay(b.wallet.Cfg.Signer, &desc, tx)
 		}
 
 		// Next we create the witness generation function that will be
@@ -527,7 +527,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			desc.SigHashes = hc
 			desc.InputIndex = inputIndex
 
-			return lnwallet.CommitSpendRevoke(b.wallet.Signer, desc, tx)
+			return lnwallet.CommitSpendRevoke(b.wallet.Cfg.Signer, &desc, tx)
 		}
 
 		// Finally, with the two witness generation funcs created, we

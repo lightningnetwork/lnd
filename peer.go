@@ -293,8 +293,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			return err
 		}
 
-		chanPoint := *dbChan.ChanID
-		chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+		chanPoint := &dbChan.FundingOutpoint
+		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 		p.activeChanMtx.Lock()
 		p.activeChannels[chanID] = lnChan
@@ -441,14 +441,14 @@ out:
 			pongBytes := make([]byte, msg.NumPongBytes)
 			p.queueMsg(lnwire.NewPong(pongBytes), nil)
 
-		case *lnwire.SingleFundingRequest:
-			p.server.fundingMgr.processFundingRequest(msg, p.addr)
-		case *lnwire.SingleFundingResponse:
+		case *lnwire.OpenChannel:
+			p.server.fundingMgr.processFundingOpen(msg, p.addr)
+		case *lnwire.AcceptChannel:
 			p.server.fundingMgr.processFundingResponse(msg, p.addr)
-		case *lnwire.SingleFundingComplete:
-			p.server.fundingMgr.processFundingComplete(msg, p.addr)
-		case *lnwire.SingleFundingSignComplete:
-			p.server.fundingMgr.processFundingSignComplete(msg, p.addr)
+		case *lnwire.FundingCreated:
+			p.server.fundingMgr.processFundingCreated(msg, p.addr)
+		case *lnwire.FundingSigned:
+			p.server.fundingMgr.processFundingSigned(msg, p.addr)
 		case *lnwire.FundingLocked:
 			p.server.fundingMgr.processFundingLocked(msg, p.addr)
 
@@ -559,15 +559,18 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		m.NodeID2.Curve = nil
 		m.BitcoinKey1.Curve = nil
 		m.BitcoinKey2.Curve = nil
-	case *lnwire.SingleFundingComplete:
-		m.RevocationKey.Curve = nil
-	case *lnwire.SingleFundingRequest:
-		m.CommitmentKey.Curve = nil
-		m.ChannelDerivationPoint.Curve = nil
-	case *lnwire.SingleFundingResponse:
-		m.ChannelDerivationPoint.Curve = nil
-		m.CommitmentKey.Curve = nil
-		m.RevocationKey.Curve = nil
+	case *lnwire.AcceptChannel:
+		m.FundingKey.Curve = nil
+		m.RevocationPoint.Curve = nil
+		m.PaymentPoint.Curve = nil
+		m.DelayedPaymentPoint.Curve = nil
+		m.FirstCommitmentPoint.Curve = nil
+	case *lnwire.OpenChannel:
+		m.FundingKey.Curve = nil
+		m.RevocationPoint.Curve = nil
+		m.PaymentPoint.Curve = nil
+		m.DelayedPaymentPoint.Curve = nil
+		m.FirstCommitmentPoint.Curve = nil
 	case *lnwire.FundingLocked:
 		m.NextPerCommitmentPoint.Curve = nil
 	}

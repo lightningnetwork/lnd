@@ -182,11 +182,6 @@ type PaymentDescriptor struct {
 	// into the log to the HTLC being modified.
 	EntryType updateType
 
-	// isDust[Local|Remote] denotes if this HTLC is below the dust limit in
-	// locally or remotely.
-	isDustLocal  bool
-	isDustRemote bool
-
 	// isForwarded denotes if an incoming HTLC has been forwarded to any
 	// possible upstream peers in the route.
 	isForwarded bool
@@ -1139,9 +1134,59 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 func (lc *LightningChannel) Stop() {
 	if !atomic.CompareAndSwapInt32(&lc.shutdown, 0, 1) {
 		return
+// htlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
+// transaction based on the current fee rate.
+func htlcTimeoutFee(feePerKw btcutil.Amount) btcutil.Amount {
+	return (feePerKw * HtlcTimeoutWeight) / 1000
+}
+
+// htlcSuccessFee returns the fee in satoshis required for an HTLC success
+// transaction based on the current fee rate.
+func htlcSuccessFee(feePerKw btcutil.Amount) btcutil.Amount {
+	return (feePerKw * HtlcSuccessWeight) / 1000
+}
+
+// htlcIsDust determines if an HTLC output is dust or not depending on two
+// bits: if the HTLC is incoming and if the HTLC will be placed on our
+// commitment transaction, or theirs. These two pieces of information are
+// require as we currently used second-level HTLC transactions ass off-chain
+// covenants. Depending on the two bits, we'll either be using a timeout or
+// success transaction which have different weights.
+func htlcIsDust(incoming, ourCommit bool,
+	feePerKw, htlcAmt, dustLimit btcutil.Amount) bool {
+
+	// First we'll determine the fee required for this HTLC based on if this is
+	// an incoming HTLC or not, and also on whose commitment transaction it
+	// will be placed on.
+	var htlcFee btcutil.Amount
+	switch {
+
+	// If this is an incoming HTLC on our commitment transaction, then the
+	// second-level transaction will be a success transaction.
+	case incoming && ourCommit:
+		htlcFee = htlcSuccessFee(feePerKw)
+
+	// If this is an incoming HTLC on their commitment transaction, then
+	// we'll be using a second-level timeout transaction as they've added
+	// this HTLC.
+	case incoming && !ourCommit:
+		htlcFee = htlcTimeoutFee(feePerKw)
+
+	// If this is an outgoing HTLC on our commitment transaction, then
+	// we'll be using a timeout transaction as we're the sender of the
+	// HTLC.
+	case !incoming && ourCommit:
+		htlcFee = htlcTimeoutFee(feePerKw)
+
+	// If this is an outgoing HTLC on their commitment transaction, then
+	// we'll be using an HTLC success transaction as they're the receiver
+	// of this HTLC.
+	case !incoming && !ourCommit:
+		htlcFee = htlcTimeoutFee(feePerKw)
 	}
 
 	close(lc.quit)
+	return (htlcAmt - htlcFee) < dustLimit
 }
 
 // restoreStateLogs runs through the current locked-in HTLCs from the point of
@@ -1192,8 +1237,10 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		// outputs within the commitment transaction. As we'll mark
 		// dust with a special output index in the on-disk state
 		// snapshot.
-		isDustLocal := htlc.Amt < lc.channelState.OurDustLimit
-		isDustRemote := htlc.Amt < lc.channelState.TheirDustLimit
+		isDustLocal := htlcIsDust(htlc.Incoming, true, feeRate,
+			htlc.Amt, localChanCfg.DustLimit)
+		isDustRemote := htlcIsDust(htlc.Incoming, false, feeRate,
+			htlc.Amt, remoteChanCfg.DustLimit)
 		if !isDustLocal {
 			ourP2WSH, err = lc.genHtlcScript(htlc.Incoming, true,
 				htlc.RefundTimeout, ourDelay, remoteKey,
@@ -1218,8 +1265,6 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			EntryType:             Add,
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
-			isDustLocal:           isDustLocal,
-			isDustRemote:          isDustRemote,
 			ourPkScript:           ourP2WSH,
 			theirPkScript:         theirP2WSH,
 		}
@@ -1436,8 +1481,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if (ourCommitTx && htlc.isDustLocal) ||
-			(!ourCommitTx && htlc.isDustRemote) {
+		if htlcIsDust(false, !remoteChain, feePerKw, htlc.Amount,
+			dustLimit) {
 			continue
 		}
 
@@ -1448,8 +1493,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		}
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if (ourCommitTx && htlc.isDustLocal) ||
-			(!ourCommitTx && htlc.isDustRemote) {
+		if htlcIsDust(true, !remoteChain, feePerKw, htlc.Amount,
+			dustLimit) {
 			continue
 		}
 
@@ -2204,13 +2249,11 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	lc.availableLocalBalance -= htlc.Amount
 
 	pd := &PaymentDescriptor{
-		EntryType:    Add,
-		RHash:        PaymentHash(htlc.PaymentHash),
-		Timeout:      htlc.Expiry,
-		Amount:       htlc.Amount,
-		Index:        lc.localUpdateLog.logIndex,
-		isDustLocal:  htlc.Amount < lc.channelState.OurDustLimit,
-		isDustRemote: htlc.Amount < lc.channelState.TheirDustLimit,
+		EntryType: Add,
+		RHash:     PaymentHash(htlc.PaymentHash),
+		Timeout:   htlc.Expiry,
+		Amount:    htlc.Amount,
+		Index:     lc.localUpdateLog.logIndex,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
@@ -2231,13 +2274,11 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	}
 
 	pd := &PaymentDescriptor{
-		EntryType:    Add,
-		RHash:        PaymentHash(htlc.PaymentHash),
-		Timeout:      htlc.Expiry,
-		Amount:       htlc.Amount,
-		Index:        lc.remoteUpdateLog.logIndex,
-		isDustLocal:  htlc.Amount < lc.channelState.OurDustLimit,
-		isDustRemote: htlc.Amount < lc.channelState.TheirDustLimit,
+		EntryType: Add,
+		RHash:     PaymentHash(htlc.PaymentHash),
+		Timeout:   htlc.Expiry,
+		Amount:    htlc.Amount,
+		Index:     lc.remoteUpdateLog.logIndex,
 	}
 
 	lc.remoteUpdateLog.appendUpdate(pd)

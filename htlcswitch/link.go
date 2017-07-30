@@ -265,17 +265,6 @@ func (l *channelLink) htlcManager() {
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.getBandwidth())
 
-	// A new session for this active channel has just started, therefore we
-	// need to send our initial revocation window to the remote peer.
-	for i := 0; i < lnwallet.InitialRevocationWindow; i++ {
-		rev, err := l.channel.ExtendRevocationWindow()
-		if err != nil {
-			log.Errorf("unable to expand revocation window: %v", err)
-			continue
-		}
-		l.cfg.Peer.SendMessage(rev)
-	}
-
 	// TODO(roasbeef): check to see if able to settle any currently pending
 	// HTLCs
 	//   * also need signals when new invoices are added by the

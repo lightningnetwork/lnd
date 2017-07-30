@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
 	"github.com/roasbeef/btcutil"
 
@@ -952,22 +953,20 @@ type disconnectPeerMsg struct {
 }
 
 // openChanReq is a message sent to the server in order to request the
-// initiation of a channel funding workflow to the peer with either the specified
-// relative peer ID, or a global lightning  ID.
+// initiation of a channel funding workflow to the peer with either the
+// specified relative peer ID, or a global lightning  ID.
 type openChanReq struct {
 	targetPeerID int32
 	targetPubkey *btcec.PublicKey
 
-	// TODO(roasbeef): make enums in lnwire
-	channelType uint8
-	coinType    uint64
+	chainHash chainhash.Hash
 
 	localFundingAmt  btcutil.Amount
 	remoteFundingAmt btcutil.Amount
 
 	pushAmt btcutil.Amount
 
-	numConfs uint32
+	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
 	err     chan error
@@ -1247,10 +1246,9 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 }
 
 // OpenChannel sends a request to the server to open a channel to the specified
-// peer identified by ID with the passed channel funding paramters.
+// peer identified by ID with the passed channel funding parameters.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
-	localAmt, pushAmt btcutil.Amount,
-	numConfs uint32) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	localAmt, pushAmt btcutil.Amount) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	errChan := make(chan error, 1)
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
@@ -1258,9 +1256,9 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	req := &openChanReq{
 		targetPeerID:    peerID,
 		targetPubkey:    nodeKey,
+		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: localAmt,
 		pushAmt:         pushAmt,
-		numConfs:        numConfs,
 		updates:         updateChan,
 		err:             errChan,
 	}

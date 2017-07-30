@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -145,7 +146,7 @@ func lndMain() error {
 			}
 
 			for _, channel := range dbChannels {
-				if chanID.IsChanPoint(channel.ChanID) {
+				if chanID.IsChanPoint(&channel.FundingOutpoint) {
 					return lnwallet.NewLightningChannel(
 						activeChainControl.signer,
 						activeChainControl.chainNotifier,

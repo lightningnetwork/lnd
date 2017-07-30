@@ -43,6 +43,15 @@ var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	TimeLockDelta: 1,
 }
 
+// defaultChannelConstraints is the default set of channel constraints that are
+// meant to be used when initially funding a channel.
+//
+// TODO(roasbeef): have one for both chains
+var defaultChannelConstraints = channeldb.ChannelConstraints{
+	DustLimit:        lnwallet.DefaultDustLimit(),
+	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+}
+
 // chainCode is an enum-like structure for keeping track of the chains currently
 // supported within lnd.
 type chainCode uint32
@@ -266,8 +275,17 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
-	wallet, err := lnwallet.NewLightningWallet(chanDB, cc.chainNotifier, wc,
-		cc.signer, cc.chainIO, cc.feeEstimator, activeNetParams.Params)
+	walletCfg := lnwallet.Config{
+		Database:           chanDB,
+		Notifier:           cc.chainNotifier,
+		WalletController:   wc,
+		Signer:             cc.signer,
+		FeeEstimator:       cc.feeEstimator,
+		ChainIO:            cc.chainIO,
+		DefaultConstraints: defaultChannelConstraints,
+		NetParams:          *activeNetParams.Params,
+	}
+	wallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {
 		fmt.Printf("unable to create wallet: %v\n", err)
 		return nil, nil, err

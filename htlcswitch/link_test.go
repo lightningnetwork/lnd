@@ -166,7 +166,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
-	const amt btcutil.Amount = 10
+	const amt btcutil.Amount = 20000
 
 	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
 		n.firstBobChannelLink)

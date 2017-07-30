@@ -1971,6 +1971,7 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, prediction bool, local bool, remote bool) error {
 
+	// TODO(roasbeef): verify remaining sanity requirements
 	htlcCount := 0
 
 	// If we adding or receiving the htlc we increase the number of htlcs
@@ -2029,6 +2030,149 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	return nil
 }
 
+// genHtlcSigValidationJobs generates a series of signatures verification jobs
+// meant to verify all the signatures for HTLC's attached to a newly created
+// commitment state. The jobs generated are fully populated, and can be sent
+// directly into the pool of workers.
+func genHtlcSigValidationJobs(localCommitmentView *commitment,
+	commitPoint *btcec.PublicKey, htlcSigs []*btcec.Signature,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) []verifyJob {
+
+	// If this new commitment state doesn't have any HTLC's that are to be
+	// signed, then we'll return a nil slice.
+	if len(htlcSigs) == 0 {
+		return nil
+	}
+
+	// First, we'll re-derive the keys necessary to reconstruct the HTLC
+	// output and transaction state.
+	remoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
+	revocationKey := DeriveRevocationPubkey(
+		remoteChanCfg.RevocationBasePoint,
+		commitPoint,
+	)
+	localDelayKey := TweakPubKey(localChanCfg.DelayBasePoint,
+		commitPoint)
+
+	txHash := localCommitmentView.txn.TxHash()
+	feePerKw := localCommitmentView.feePerKw
+
+	// With the required state generated, we'll create a slice with large
+	// enough capacity to hold verification jobs for all HTLC's in this
+	// view. In the case that we have some dust outputs, then the actual
+	// length will be smaller than the total capacity.
+	numHtlcs := (len(localCommitmentView.incomingHTLCs) +
+		len(localCommitmentView.outgoingHTLCs))
+	verifyJobs := make([]verifyJob, 0, numHtlcs)
+
+	// We'll iterate through each output in the commitment transaction,
+	// populating the sigHash closure function if it's detected to be an
+	// HLTC output. Given the sighash, and the signing key, we'll be able
+	// to validate each signature within the worker pool.
+	i := 0
+	for index, _ := range localCommitmentView.txn.TxOut {
+		var sigHash func() ([]byte, error)
+
+		outputIndex := int32(index)
+		switch {
+
+		// If this output index is found within the incoming HTLC index,
+		// then this means that we need to generate an HTLC success
+		// transaction in order to validate the signature.
+		case localCommitmentView.incomingHTLCIndex[outputIndex] != nil:
+			htlc := localCommitmentView.incomingHTLCIndex[outputIndex]
+
+			sigHash = func() ([]byte, error) {
+				op := wire.OutPoint{
+					Hash:  txHash,
+					Index: uint32(htlc.localOutputIndex),
+				}
+
+				htlcFee := htlcSuccessFee(feePerKw)
+				outputAmt := htlc.Amount - htlcFee
+
+				successTx, err := createHtlcSuccessTx(op,
+					outputAmt, uint32(localChanCfg.CsvDelay),
+					revocationKey, localDelayKey)
+				if err != nil {
+					return nil, err
+				}
+
+				hashCache := txscript.NewTxSigHashes(successTx)
+				sigHash, err := txscript.CalcWitnessSigHash(
+					htlc.ourWitnessScript, hashCache,
+					txscript.SigHashAll, successTx, 0,
+					int64(htlc.Amount))
+				if err != nil {
+					return nil, err
+				}
+
+				return sigHash, nil
+			}
+
+			// With the sighash generated, we'll also store the
+			// signature so it can be written to disk if this state
+			// is valid.
+			htlc.sig = htlcSigs[i]
+
+		// Otherwise, if this is an outgoing HTLC, then we'll need to
+		// generate a timeout transaction so we can verify the
+		// signature presented.
+		case localCommitmentView.outgoignHTLCIndex[outputIndex] != nil:
+			htlc := localCommitmentView.outgoignHTLCIndex[outputIndex]
+
+			sigHash = func() ([]byte, error) {
+				op := wire.OutPoint{
+					Hash:  txHash,
+					Index: uint32(htlc.localOutputIndex),
+				}
+
+				htlcFee := htlcTimeoutFee(feePerKw)
+				outputAmt := htlc.Amount - htlcFee
+
+				timeoutTx, err := createHtlcTimeoutTx(op,
+					outputAmt, htlc.Timeout,
+					uint32(localChanCfg.CsvDelay),
+					revocationKey, localDelayKey,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				hashCache := txscript.NewTxSigHashes(timeoutTx)
+				sigHash, err := txscript.CalcWitnessSigHash(
+					htlc.ourWitnessScript, hashCache,
+					txscript.SigHashAll, timeoutTx, 0,
+					int64(htlc.Amount),
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				return sigHash, nil
+			}
+
+			// With the sighash generated, we'll also store the
+			// signature so it can be written to disk if this state
+			// is valid.
+			htlc.sig = htlcSigs[i]
+
+		default:
+			continue
+		}
+
+		verifyJobs = append(verifyJobs, verifyJob{
+			pubKey:  remoteKey,
+			sig:     htlcSigs[i],
+			sigHash: sigHash,
+		})
+
+		i++
+	}
+
+	return verifyJobs
+}
+
 // ReceiveNewCommitment process a signature for a new commitment state sent by
 // the remote party. This method will should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
@@ -2037,7 +2181,9 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // to our local commitment chain. Once we send a revocation for our prior
 // state, then this newly added commitment becomes our current accepted channel
 // state.
-func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
+func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
+	htlcSigs []*btcec.Signature) error {
+
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -2050,27 +2196,23 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 		return err
 	}
 
-	theirCommitKey := lc.channelState.TheirCommitKey
-	theirMultiSigKey := lc.channelState.TheirMultiSigKey
-
 	// We're receiving a new commitment which attempts to extend our local
-	// commitment chain height by one, so fetch the proper revocation to
-	// derive the key+hash needed to construct the new commitment view and
-	// state.
+	// commitment chain height by one, so fetch the proper commitment point
+	// as this well be needed to derive the keys required to construct the
+	// commitment.
 	nextHeight := lc.currentHeight + 1
-	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
+	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
 	if err != nil {
 		return err
 	}
-	revocationKey := DeriveRevocationPubkey(theirCommitKey, revocation[:])
-	revocationHash := sha256.Sum256(revocation[:])
+	commitPoint := ComputeCommitmentPoint(commitSecret[:])
 
-	// With the revocation information calculated, construct the new
+	// With the current commitment point re-calculated, construct the new
 	// commitment view which includes all the entries we know of in their
 	// HTLC log, and up to ourLogIndex in our HTLC log.
 	localCommitmentView, err := lc.fetchCommitmentView(false,
 		lc.localUpdateLog.ackedIndex, lc.remoteUpdateLog.logIndex,
-		revocationKey, revocationHash)
+		commitPoint)
 	if err != nil {
 		return err
 	}
@@ -2100,23 +2242,42 @@ func (lc *LightningChannel) ReceiveNewCommitment(rawSig []byte) error {
 		return err
 	}
 
-	// Ensure that the newly constructed commitment state has a valid
+	// As an optimization, we'll generate a series of jobs for the worker
+	// pool to verify each of the HTLc signatures presented. Once
+	// generated, we'll submit these jobs to the worker pool.
+	verifyJobs := genHtlcSigValidationJobs(localCommitmentView,
+		commitPoint,
+		htlcSigs, lc.localChanCfg, lc.remoteChanCfg)
+	cancelChan := make(chan struct{})
+	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)
+
+	// While the HTLC verification jobs are proceeding asynchronously,
+	// we'll ensure that the newly constructed commitment state has a valid
 	// signature.
 	verifyKey := btcec.PublicKey{
-		X:     theirMultiSigKey.X,
-		Y:     theirMultiSigKey.Y,
+		X:     lc.remoteChanCfg.MultiSigKey.X,
+		Y:     lc.remoteChanCfg.MultiSigKey.Y,
 		Curve: btcec.S256(),
 	}
-	sig, err := btcec.ParseSignature(rawSig, btcec.S256())
-	if err != nil {
-		return err
-	} else if !sig.Verify(sigHash, &verifyKey) {
+	if !commitSig.Verify(sigHash, &verifyKey) {
+		close(cancelChan)
 		return fmt.Errorf("invalid commitment signature")
+	}
+
+	// With the primary commitment transaction validated, we'll check each
+	// of the HTLC validation jobs.
+	for i := 0; i < len(verifyJobs); i++ {
+		// In the case that a single signature is invalid, we'll exit
+		// early and cancel all the outstanding verification jobs.
+		if err := <-verifyResps; err != nil {
+			close(cancelChan)
+			return fmt.Errorf("invalid htlc signature: %v", err)
+		}
 	}
 
 	// The signature checks out, so we can now add the new commitment to
 	// our local commitment chain.
-	localCommitmentView.sig = rawSig
+	localCommitmentView.sig = commitSig.Serialize()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
 	// If we are not channel initiator, then the commitment just received

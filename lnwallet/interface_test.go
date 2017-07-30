@@ -1162,10 +1162,15 @@ var walletTests = []walletTestCase{
 	},
 }
 
-func clearWalletState(w *lnwallet.LightningWallet) error {
-	w.ResetReservations()
+func clearWalletStates(a, b *lnwallet.LightningWallet) error {
+	a.ResetReservations()
+	b.ResetReservations()
 
-	return w.ChannelDB.Wipe()
+	if err := a.Cfg.Database.Wipe(); err != nil {
+		return err
+	}
+
+	return b.Cfg.Database.Wipe()
 }
 
 // TestInterfaces tests all registered interfaces with a unified set of tests
@@ -1176,15 +1181,13 @@ func clearWalletState(w *lnwallet.LightningWallet) error {
 // interface have been implemented, in order to ensure the new concrete
 // implementation is automatically tested, two steps must be undertaken. First,
 // one needs add a "non-captured" (_) import from the new sub-package. This
-// import should trigger an init() method within the package which registeres
+// import should trigger an init() method within the package which registers
 // the interface. Second, an additional case in the switch within the main loop
 // below needs to be added which properly initializes the interface.
 //
 // TODO(roasbeef): purge bobNode in favor of dual lnwallet's
 func TestLightningWallet(t *testing.T) {
 	t.Parallel()
-
-	netParams := &chaincfg.SimNetParams
 
 	// Initialize the harness around a btcd node which will serve as our
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
@@ -1216,57 +1219,99 @@ func TestLightningWallet(t *testing.T) {
 		t.Fatalf("unable to start notifier: %v", err)
 	}
 
-	var bio lnwallet.BlockChainIO
-	var signer lnwallet.Signer
-	var wc lnwallet.WalletController
+	var (
+		bio lnwallet.BlockChainIO
+
+		aliceSigner lnwallet.Signer
+		bobSigner   lnwallet.Signer
+
+		aliceWalletController lnwallet.WalletController
+		bobWalletController   lnwallet.WalletController
+	)
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
-		tempTestDir, err := ioutil.TempDir("", "lnwallet")
+		tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
 		if err != nil {
 			t.Fatalf("unable to create temp directory: %v", err)
 		}
-		defer os.RemoveAll(tempTestDir)
+		defer os.RemoveAll(tempTestDirAlice)
+
+		tempTestDirBob, err := ioutil.TempDir("", "lnwallet")
+		if err != nil {
+			t.Fatalf("unable to create temp directory: %v", err)
+		}
+		defer os.RemoveAll(tempTestDirBob)
 
 		walletType := walletDriver.WalletType
 		switch walletType {
 		case "btcwallet":
-			chainRpc, err := chain.NewRPCClient(netParams,
+			aliceChainRpc, err := chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
-
-			btcwalletConfig := &btcwallet.Config{
-				PrivatePass:  privPass,
-				HdSeed:       testHdSeed[:],
-				DataDir:      tempTestDir,
+			aliceWalletConfig := &btcwallet.Config{
+				PrivatePass:  []byte("alice-pass"),
+				HdSeed:       aliceHDSeed[:],
+				DataDir:      tempTestDirAlice,
 				NetParams:    netParams,
-				ChainSource:  chainRpc,
+				ChainSource:  aliceChainRpc,
 				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
 			}
-			wc, err = walletDriver.New(btcwalletConfig)
+			aliceWalletController, err = walletDriver.New(aliceWalletConfig)
 			if err != nil {
 				t.Fatalf("unable to create btcwallet: %v", err)
 			}
-			signer = wc.(*btcwallet.BtcWallet)
-			bio = wc.(*btcwallet.BtcWallet)
+			aliceSigner = aliceWalletController.(*btcwallet.BtcWallet)
+
+			bobChainRpc, err := chain.NewRPCClient(netParams,
+				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
+				rpcConfig.Certificates, false, 20)
+			if err != nil {
+				t.Fatalf("unable to make chain rpc: %v", err)
+			}
+			bobWalletConfig := &btcwallet.Config{
+				PrivatePass:  []byte("bob-pass"),
+				HdSeed:       bobHDSeed[:],
+				DataDir:      tempTestDirBob,
+				NetParams:    netParams,
+				ChainSource:  bobChainRpc,
+				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
+			}
+			bobWalletController, err = walletDriver.New(bobWalletConfig)
+			if err != nil {
+				t.Fatalf("unable to create btcwallet: %v", err)
+			}
+			bobSigner = bobWalletController.(*btcwallet.BtcWallet)
+			bio = bobWalletController.(*btcwallet.BtcWallet)
 		default:
 			// TODO(roasbeef): add neutrino case
 			t.Fatalf("unknown wallet driver: %v", walletType)
 		}
 
 		// Funding via 20 outputs with 4BTC each.
-		lnw, err := createTestWallet(tempTestDir, miningNode, netParams,
-			chainNotifier, wc, signer, bio)
+		alice, err := createTestWallet(tempTestDirAlice, miningNode,
+			netParams, chainNotifier, aliceWalletController,
+			aliceSigner, bio)
 		if err != nil {
 			t.Fatalf("unable to create test ln wallet: %v", err)
 		}
+		defer alice.Shutdown()
 
-		// The wallet should now have 80BTC available for spending.
-		assertProperBalance(t, lnw, 1, 80)
+		bob, err := createTestWallet(tempTestDirBob, miningNode,
+			netParams, chainNotifier, bobWalletController,
+			bobSigner, bio)
+		if err != nil {
+			t.Fatalf("unable to create test ln wallet: %v", err)
+		}
+		defer bob.Shutdown()
 
-		// Execute every test, clearing possibly mutated wallet state after
-		// each step.
+		// Both wallets should now have 80BTC available for spending.
+		assertProperBalance(t, alice, 1, 80)
+		assertProperBalance(t, bob, 1, 80)
+
+		// Execute every test, clearing possibly mutated wallet state
+		// after each step.
 		for _, walletTest := range walletTests {
 			testName := fmt.Sprintf("%v:%v", walletType,
 				walletTest.name)
@@ -1279,12 +1324,10 @@ func TestLightningWallet(t *testing.T) {
 
 			// TODO(roasbeef): possible reset mining node's
 			// chainstate to initial level, cleanly wipe buckets
-			if err := clearWalletState(lnw); err != nil &&
+			if err := clearWalletStates(alice, bob); err != nil &&
 				err != bolt.ErrBucketNotFound {
 				t.Fatalf("unable to wipe wallet state: %v", err)
 			}
 		}
-
-		lnw.Shutdown()
 	}
 }

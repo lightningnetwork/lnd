@@ -303,7 +303,7 @@ var openChannelCommand = cli.Command{
 		"channel is open, a channelPoint (txid:vout) of the funding " +
 		"output is returned. NOTE: peer_id and node_key are " +
 		"mutually exclusive, only one should be used, not both.",
-	ArgsUsage: "node-key local-amt push-amt [num-confs]",
+	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
 		cli.IntFlag{
 			Name:  "peer_id",
@@ -322,12 +322,6 @@ var openChannelCommand = cli.Command{
 			Name: "push_amt",
 			Usage: "the number of satoshis to push to the remote " +
 				"side as part of the initial commitment state",
-		},
-		cli.IntFlag{
-			Name: "num_confs",
-			Usage: "the number of confirmations required before the " +
-				"channel is considered 'open'",
-			Value: 1,
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -357,9 +351,7 @@ func openChannel(ctx *cli.Context) error {
 			"at the same time, only one can be specified")
 	}
 
-	req := &lnrpc.OpenChannelRequest{
-		NumConfs: uint32(ctx.Int("num_confs")),
-	}
+	req := &lnrpc.OpenChannelRequest{}
 
 	switch {
 	case ctx.IsSet("peer_id"):

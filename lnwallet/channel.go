@@ -3054,9 +3054,9 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
 // CreateCommitTx creates a commitment transaction, spending from specified
 // funding output. The commitment transaction contains two outputs: one paying
 // to the "owner" of the commitment transaction which can be spent after a
-// relative block delay or revocation event, and the other paying the the
+// relative block delay or revocation event, and the other paying the
 // counterparty within the channel, which can be spent immediately.
-func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey,
+func CreateCommitTx(fundingOutput *wire.TxIn, delayKey, paymentKey *btcec.PublicKey,
 	revokeKey *btcec.PublicKey, csvTimeout uint32, amountToSelf,
 	amountToThem, dustLimit btcutil.Amount) (*wire.MsgTx, error) {
 
@@ -3065,7 +3065,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	ourRedeemScript, err := commitScriptToSelf(csvTimeout, selfKey,
+	ourRedeemScript, err := commitScriptToSelf(csvTimeout, delayKey,
 		revokeKey)
 	if err != nil {
 		return nil, err
@@ -3077,7 +3077,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, selfKey, theirKey *btcec.PublicKey
 
 	// Next, we create the script paying to them. This is just a regular
 	// P2WPKH output, without any added CSV delay.
-	theirWitnessKeyHash, err := commitScriptUnencumbered(theirKey)
+	theirWitnessKeyHash, err := commitScriptUnencumbered(paymentKey)
 	if err != nil {
 		return nil, err
 	}

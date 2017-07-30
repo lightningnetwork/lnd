@@ -90,11 +90,36 @@ func (b *BtcWallet) fetchPrivKey(pub *btcec.PublicKey) (*btcec.PrivateKey, error
 	return b.wallet.PrivKeyForAddress(addr)
 }
 
+// maybeTweakPrivKey examines the single and double tweak parameters on the
+// passed sign descriptor and may perform a mapping on the passed private key
+// in order to utilize the tweaks, if populated.
+func maybeTweakPrivKey(signDesc *lnwallet.SignDescriptor,
+	privKey *btcec.PrivateKey) (*btcec.PrivateKey, error) {
+
+	var retPriv *btcec.PrivateKey
+	switch {
+
+	case signDesc.SingleTweak != nil:
+		retPriv = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+
+	case signDesc.DoubleTweak != nil:
+		retPriv = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+
+	default:
+		retPriv = privKey
+	}
+
+	return retPriv, nil
+}
+
 // SignOutputRaw generates a signature for the passed transaction according to
 // the data within the passed SignDescriptor.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
 	witnessScript := signDesc.WitnessScript
 
 	// First attempt to fetch the private key which corresponds to the
@@ -104,12 +129,15 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescrip
 		return nil, err
 	}
 
-	// If a tweak is specified, then we'll need to use this tweak to derive
-	// the final private key to be used for signing this output.
-	if signDesc.PrivateTweak != nil {
-		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
-			signDesc.PrivateTweak)
+	// If a tweak (single or double) is specified, then we'll need to use
+	// this tweak to derive the final private key to be used for signing
+	// this output.
+	privKey, err = maybeTweakPrivKey(signDesc, privKey)
+	if err != nil {
+		return nil, err
 	}
+
+	// TODO(roasbeef): generate sighash midstate if not present?
 
 	amt := signDesc.Output.Value
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
@@ -147,9 +175,10 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	var witnessProgram []byte
 	inputScript := &lnwallet.InputScript{}
 
+	switch {
+
 	// If we're spending p2wkh output nested within a p2sh output, then
 	// we'll need to attach a sigScript in addition to witness data.
-	switch {
 	case pka.IsNestedWitness():
 		pubKey := privKey.PubKey()
 		pubKeyHash := btcutil.Hash160(pubKey.SerializeCompressed())
@@ -176,6 +205,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 		}
 
 		inputScript.ScriptSig = sigScript
+
 	// Otherwise, this is a regular p2wkh output, so we include the
 	// witness program itself as the subscript to generate the proper
 	// sighash digest. As part of the new sighash digest algorithm, the
@@ -183,6 +213,14 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	// script.
 	default:
 		witnessProgram = outputScript
+	}
+
+	// If a tweak (single or double) is specified, then we'll need to use
+	// this tweak to derive the final private key to be used for signing
+	// this output.
+	privKey, err = maybeTweakPrivKey(signDesc, privKey)
+	if err != nil {
+		return nil, err
 	}
 
 	// Generate a valid witness stack for the input.

@@ -624,6 +624,68 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.err <- nil
 }
 
+// CreateCommitmentTxns is a helper function that creates the initial
+// commitment transaction for both parties. This function is used during the
+// initial funding workflow as both sides must generate a signature for the
+// remote party's commitment transaction, and verify the signature for their
+// version of the commitment transaction.
+func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
+	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
+	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
+	fundingTxIn *wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
+
+	remoteRevocation := DeriveRevocationPubkey(
+		ourChanCfg.RevocationBasePoint,
+		remoteCommitPoint,
+	)
+	localRevocation := DeriveRevocationPubkey(
+		theirChanCfg.RevocationBasePoint,
+		localCommitPoint,
+	)
+
+	remoteDelayKey := TweakPubKey(theirChanCfg.DelayBasePoint,
+		remoteCommitPoint)
+	localDelayKey := TweakPubKey(ourChanCfg.DelayBasePoint,
+		localCommitPoint)
+
+	// The payment keys go on the opposite commitment transaction, so we'll
+	// swap the commitment points we use. As in the remote payment key will
+	// be used within our commitment transaction, and the local payment key
+	// used within the remote commitment transaction.
+	remotePaymentKey := TweakPubKey(theirChanCfg.PaymentBasePoint,
+		localCommitPoint)
+	localPaymentKey := TweakPubKey(ourChanCfg.PaymentBasePoint,
+		remoteCommitPoint)
+
+	ourCommitTx, err := CreateCommitTx(fundingTxIn,
+		localDelayKey, remotePaymentKey, localRevocation,
+		uint32(ourChanCfg.CsvDelay), localBalance, remoteBalance,
+		ourChanCfg.DustLimit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	otxn := btcutil.NewTx(ourCommitTx)
+	if err := blockchain.CheckTransactionSanity(otxn); err != nil {
+		return nil, nil, err
+	}
+
+	theirCommitTx, err := CreateCommitTx(fundingTxIn,
+		remoteDelayKey, localPaymentKey, remoteRevocation,
+		uint32(theirChanCfg.CsvDelay), remoteBalance, localBalance,
+		theirChanCfg.DustLimit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ttxn := btcutil.NewTx(theirCommitTx)
+	if err := blockchain.CheckTransactionSanity(ttxn); err != nil {
+		return nil, nil, err
+	}
+
+	return ourCommitTx, theirCommitTx, nil
+}
+
 // handleContributionMsg processes the second workflow step for the lifetime of
 // a channel reservation. Upon completion, the reservation will carry a
 // completed funding transaction (minus the counterparty's input signatures),

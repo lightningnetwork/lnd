@@ -243,7 +243,7 @@ func (u *utxoNursery) reloadPreschool(heightHint uint32) error {
 // graduateMissedBlocks is called during the startup of the UTXO Nursery.
 func (u *utxoNursery) catchUpKindergarten(lastGraduatedHeight uint32) error {
 	// Get the most recently mined block
-	_, bestHeight, err := u.wallet.ChainIO.GetBestBlock()
+	_, bestHeight, err := u.wallet.Cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		return err
 	}
@@ -823,7 +823,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
 		kgtnOutput.witnessFunc = kgtnOutput.witnessType.generateFunc(
-			&wallet.Signer, kgtnOutput.signDescriptor,
+			&wallet.Cfg.Signer, kgtnOutput.signDescriptor,
 		)
 	}
 
@@ -1054,7 +1054,7 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.PrivateTweak); err != nil {
+	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.SingleTweak); err != nil {
 		return err
 	}
 
@@ -1124,7 +1124,7 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	if err != nil {
 		return nil, err
 	}
-	kid.signDescriptor.PrivateTweak = descPrivateTweak
+	kid.signDescriptor.SingleTweak = descPrivateTweak
 
 	descWitnessScript, err := wire.ReadVarBytes(r, 0, 100, "witnessScript")
 	if err != nil {

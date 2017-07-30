@@ -194,8 +194,10 @@ type PaymentDescriptor struct {
 	// NOTE: These values may change within the logs themselves, however,
 	// they'll stay consistent within the commitment chain entries
 	// themselves.
-	ourPkScript   []byte
-	theirPkScript []byte
+	ourPkScript        []byte
+	ourWitnessScript   []byte
+	theirPkScript      []byte
+	theirWitnessScript []byte
 
 	// EntryType denotes the exact type of the PaymentDescriptor. In the
 	// case of a Timeout, or Settle type, then the Parent field will point
@@ -256,8 +258,6 @@ type commitment struct {
 	// outgoingHTLCs is a slice of all the outgoing HTLC's (from our PoV)
 	// on this commitment transaction.
 	outgoingHTLCs []PaymentDescriptor
-	incomingHTLCs []PaymentDescriptor
-}
 
 	// incomingHTLCs is a slice of all the incoming HTLC's (from our PoV)
 	// on this commitment transaction.
@@ -1288,11 +1288,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	}
 }
 
-// Stop gracefully shuts down any active goroutines spawned by the
-// LightningChannel during regular duties.
-func (lc *LightningChannel) Stop() {
-	if !atomic.CompareAndSwapInt32(&lc.shutdown, 0, 1) {
-		return
 // htlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
 // transaction based on the current fee rate.
 func htlcTimeoutFee(feePerKw btcutil.Amount) btcutil.Amount {
@@ -1344,7 +1339,6 @@ func htlcIsDust(incoming, ourCommit bool,
 		htlcFee = htlcTimeoutFee(feePerKw)
 	}
 
-	close(lc.quit)
 	return (htlcAmt - htlcFee) < dustLimit
 }
 
@@ -1497,17 +1491,18 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 // both local and remote commitment transactions in order to sign or verify new
 // commitment updates. A fully populated commitment is returned which reflects
 // the proper balances for both sides at this point in the commitment chain.
+//
+// TODO(roasbeef): update commit to to have all keys?
 func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
-	ourLogIndex, theirLogIndex uint64, revocationKey *btcec.PublicKey,
-	revocationHash [32]byte) (*commitment, error) {
+	ourLogIndex, theirLogIndex uint64,
+	commitPoint *btcec.PublicKey) (*commitment, error) {
 
-	var commitChain *commitmentChain
+	commitChain := lc.localCommitChain
 	if remoteChain {
 		commitChain = lc.remoteCommitChain
-	} else {
-		commitChain = lc.localCommitChain
 	}
 
+	ourCommitTx := !remoteChain
 	ourBalance := commitChain.tip().ourBalance
 	theirBalance := commitChain.tip().theirBalance
 
@@ -1528,38 +1523,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// the balances on the commitment transaction accordingly.
 	// TODO(roasbeef): error if log empty?
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	filteredHTLCView := lc.evaluateHTLCView(htlcView, &ourBalance, &theirBalance,
-		nextHeight, remoteChain)
+	filteredHTLCView := lc.evaluateHTLCView(htlcView, &ourBalance,
+		&theirBalance, nextHeight, remoteChain)
 
-	// Determine how many current HTLCs are over the dust limit, and should
-	// be counted for the purpose of fee calculation.
-	// TODO(roasbeef): dust outputs need to be counted towards fees paid
-	//  * tally in separate accumulator, subtract from fee amount
-	//  * when dumping fees back into initiator output, only dumb explicit
-	//    fee
-	var dustLimit, dustFees btcutil.Amount
-	if remoteChain {
-		dustLimit = lc.channelState.TheirDustLimit
-	} else {
-		dustLimit = lc.channelState.OurDustLimit
-	}
-	numHTLCs := 0
-	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlc.Amount < dustLimit {
-			dustFees += htlc.Amount
-			continue
-		}
-		numHTLCs++
-	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlc.Amount < dustLimit {
-			dustFees += htlc.Amount
-			continue
-		}
-		numHTLCs++
-	}
-
-	// Initiate feePerKw to the last committed fee for this chain.
+	// Initiate feePerKw to the last committed fee for this chain as we'll
+	// need this to determine which HTLC's are dust, and also the final fee
+	// rate.
 	feePerKw := commitChain.tail().feePerKw
 
 	// Check if any fee updates have taken place since that last
@@ -1592,12 +1561,44 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		}
 	}
 
+	// Determine how many current HTLCs are over the dust limit, and should
+	// be counted for the purpose of fee calculation.
+	var dustLimit, dustFees btcutil.Amount
+	if remoteChain {
+		dustLimit = lc.remoteChanCfg.DustLimit
+	} else {
+		dustLimit = lc.localChanCfg.DustLimit
+	}
+	numHTLCs := 0
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(false, ourCommitTx, feePerKw, htlc.Amount,
+			dustLimit) {
+
+			dustFees += htlc.Amount
+			continue
+		}
+
+		numHTLCs++
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(true, ourCommitTx, feePerKw, htlc.Amount,
+			dustLimit) {
+
+			dustFees += htlc.Amount
+			continue
+		}
+
+		numHTLCs++
+	}
+
 	// Next, we'll calculate the fee for the commitment transaction based
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
 	totalCommitWeight := commitWeight + btcutil.Amount(htlcWeight*numHTLCs)
 
+	// With the weight known, we can now calculate the commitment fee,
+	// ensuring that we account for any dust outputs trimmed above.
 	commitFee := (feePerKw * totalCommitWeight) / 1000
 	commitFee -= dustFees
 
@@ -1611,42 +1612,70 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	var (
-		selfKey                    *btcec.PublicKey
-		remoteKey                  *btcec.PublicKey
-		delay                      uint32
-		delayBalance, p2wkhBalance btcutil.Amount
+		delayKey, paymentKey, revocationKey *btcec.PublicKey
+		delay                               uint32
+		delayBalance, p2wkhBalance          btcutil.Amount
 	)
+
+	// We'll now compute the delay, payment and revocation key based on the
+	// current commitment point. All keys are tweaked each state in order
+	// to ensure the keys from each state are unlinkable. TO create the
+	// revocation key, we take the opposite party's revocation base point
+	// and combine that with the current commitment point.
 	if remoteChain {
-		selfKey = lc.channelState.TheirCommitKey
-		remoteKey = lc.channelState.OurCommitKey
-		delay = lc.channelState.RemoteCsvDelay
+		delayKey = TweakPubKey(lc.remoteChanCfg.DelayBasePoint,
+			commitPoint)
+		paymentKey = TweakPubKey(lc.localChanCfg.PaymentBasePoint,
+			commitPoint)
+		revocationKey = DeriveRevocationPubkey(
+			lc.localChanCfg.RevocationBasePoint,
+			commitPoint,
+		)
+
+		delay = uint32(lc.remoteChanCfg.CsvDelay)
 		delayBalance = theirBalance
 		p2wkhBalance = ourBalance
 	} else {
-		selfKey = lc.channelState.OurCommitKey
-		remoteKey = lc.channelState.TheirCommitKey
-		delay = lc.channelState.LocalCsvDelay
+		delayKey = TweakPubKey(lc.localChanCfg.DelayBasePoint,
+			commitPoint)
+		paymentKey = TweakPubKey(lc.remoteChanCfg.PaymentBasePoint,
+			commitPoint)
+		revocationKey = DeriveRevocationPubkey(
+			lc.remoteChanCfg.RevocationBasePoint,
+			commitPoint,
+		)
+
+		delay = uint32(lc.localChanCfg.CsvDelay)
 		delayBalance = ourBalance
 		p2wkhBalance = theirBalance
 	}
 
+	// TODO(roasbeef); create all keys unconditionally within commitment
+	// store in commitment, will need all when doing HTLC's
+
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
-	ourCommitTx := !remoteChain
-	commitTx, err := CreateCommitTx(lc.fundingTxIn, selfKey, remoteKey,
+	commitTx, err := CreateCommitTx(lc.fundingTxIn, delayKey, paymentKey,
 		revocationKey, delay, delayBalance, p2wkhBalance, dustLimit)
 	if err != nil {
 		return nil, err
 	}
 
+	// We'll now add all the HTLC outputs to the commitment transaction.
+	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
+	// need the objective local/remote keys for this particular commitment
+	// as well.
+	// TODO(roasbeef): could avoid computing them both here
+	localKey := TweakPubKey(lc.localChanCfg.PaymentBasePoint, commitPoint)
+	remoteKey := TweakPubKey(lc.remoteChanCfg.PaymentBasePoint, commitPoint)
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if htlcIsDust(false, !remoteChain, feePerKw, htlc.Amount,
 			dustLimit) {
 			continue
 		}
 
-		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
-			revocationHash, delay, false)
+		err := lc.addHTLC(commitTx, ourCommitTx, false, htlc, localKey,
+			remoteKey, revocationKey)
 		if err != nil {
 			return nil, err
 		}
@@ -1657,8 +1686,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 			continue
 		}
 
-		err := lc.addHTLC(commitTx, ourCommitTx, htlc,
-			revocationHash, delay, true)
+		err := lc.addHTLC(commitTx, ourCommitTx, true, htlc, localKey,
+			remoteKey, revocationKey)
 		if err != nil {
 			return nil, err
 		}
@@ -1698,6 +1727,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	c.incomingHTLCs = make([]PaymentDescriptor, len(filteredHTLCView.theirUpdates))
 	for i, htlc := range filteredHTLCView.theirUpdates {
 		c.incomingHTLCs[i] = *htlc
+	}
+
+	// Finally, we'll populate all the HTLC indexes so we can track the
+	// locations of each HTLC in the commitment state.
+	if err := c.populateHtlcIndexes(ourCommitTx, dustLimit); err != nil {
+		return nil, err
 	}
 
 	return c, nil
@@ -2063,8 +2098,9 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// HTLC log entries. When we creating a new remote view, we include
 	// _all_ of our changes (pending or committed) but only the remote
 	// node's changes up to the last change we've ACK'd.
-	newCommitView, err := lc.fetchCommitmentView(true, lc.localUpdateLog.logIndex,
-		lc.remoteUpdateLog.ackedIndex, remoteRevocationKey, remoteRevocationHash)
+	newCommitView, err := lc.fetchCommitmentView(true,
+		lc.localUpdateLog.logIndex, lc.remoteUpdateLog.ackedIndex,
+		commitPoint)
 	if err != nil {
 		return nil, nil, err
 	}

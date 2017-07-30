@@ -44,7 +44,7 @@ func NewListener(localStatic *btcec.PrivateKey, listenAddr string) (*Listener,
 // Accept waits for and returns the next connection to the listener. All
 // incoming connections are authenticated via the three act Brontide
 // key-exchange scheme. This funciton will fail with a non-nil error in the
-// case that either the handhska breaks down, or the remote peer doesn't know
+// case that either the handshake breaks down, or the remote peer doesn't know
 // our static public key.
 //
 // Part of the net.Listener interface.
@@ -84,8 +84,8 @@ func (l *Listener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 
-	// Finally, finish the handhskae processes by reading and decrypting
-	// the conneciton peer's static public key. If this succeeeds then both
+	// Finally, finish the handshake processes by reading and decrypting
+	// the connection peer's static public key. If this succeeds then both
 	// sides have mutually authenticated each other.
 	var actThree [ActThreeSize]byte
 	if _, err := io.ReadFull(conn, actThree[:]); err != nil {

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil/txsort"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/roasbeef/btcd/btcec"
@@ -43,7 +43,6 @@ var (
 		0x93, 0xaf, 0x71, 0xdb, 0x18, 0x6d, 0x6e, 0x90,
 	}
 
-	// We're alice :)
 	bobsPrivKey = []byte{
 		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
@@ -52,20 +51,40 @@ var (
 	}
 
 	// Use a hard-coded HD seed.
-	testHdSeed = [32]byte{
+	testHdSeed = chainhash.Hash{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
 		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
-	_, testPub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
+	aliceHDSeed = chainhash.Hash{
+		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
+		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
+		0x4f, 0x2f, 0x6f, 0x25, 0x18, 0xa3, 0xef, 0xb9,
+		0x64, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
+	}
+	bobHDSeed = chainhash.Hash{
+		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
+		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
+		0x4f, 0x2f, 0x6f, 0x25, 0x98, 0xa3, 0xef, 0xb9,
+		0x69, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
+	}
+
+	netParams = &chaincfg.SimNetParams
+	chainHash = netParams.GenesisHash
+
+	_, alicePub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
+	_, bobPub   = btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
 
 	// The number of confirmations required to consider any created channel
 	// open.
-	numReqConfs = uint16(1)
+	numReqConfs uint16 = 1
 
-	bobAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
+	csvDelay uint16 = 4
+
+	bobAddr, _   = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
+	aliceAddr, _ = net.ResolveTCPAddr("tcp", "10.0.0.3:9000")
 )
 
 // assertProperBalance asserts than the total value of the unspent outputs
@@ -118,177 +137,9 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
 
-// bobNode represents the other party involved as a node within LN. Bob is our
-// only "default-route", we have a direct connection with him.
-type bobNode struct {
-	privKey *btcec.PrivateKey
+func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
+	numOutputs, btcPerOutput int) error {
 
-	// For simplicity, used for both the commit tx and the multi-sig output.
-	channelKey      *btcec.PublicKey
-	deliveryAddress btcutil.Address
-	revocation      [32]byte
-	delay           uint32
-	id              *btcec.PublicKey
-
-	obsfucator [lnwallet.StateHintSize]byte
-
-	availableOutputs []*wire.TxIn
-	changeOutputs    []*wire.TxOut
-	fundingAmt       btcutil.Amount
-}
-
-// Contribution returns bobNode's contribution necessary to open a payment
-// channel with Alice.
-func (b *bobNode) Contribution(aliceCommitKey *btcec.PublicKey) *lnwallet.ChannelContribution {
-	revokeKey := lnwallet.DeriveRevocationPubkey(aliceCommitKey, b.revocation[:])
-	return &lnwallet.ChannelContribution{
-		FundingAmount:   b.fundingAmt,
-		Inputs:          b.availableOutputs,
-		ChangeOutputs:   b.changeOutputs,
-		MultiSigKey:     b.channelKey,
-		CommitKey:       b.channelKey,
-		DeliveryAddress: b.deliveryAddress,
-		RevocationKey:   revokeKey,
-		CsvDelay:        b.delay,
-	}
-}
-
-// SingleContribution returns bobNode's contribution to a single funded
-// channel. This contribution contains no inputs nor change outputs.
-func (b *bobNode) SingleContribution(aliceCommitKey *btcec.PublicKey) *lnwallet.ChannelContribution {
-	revokeKey := lnwallet.DeriveRevocationPubkey(aliceCommitKey, b.revocation[:])
-	return &lnwallet.ChannelContribution{
-		FundingAmount:   b.fundingAmt,
-		MultiSigKey:     b.channelKey,
-		CommitKey:       b.channelKey,
-		DeliveryAddress: b.deliveryAddress,
-		RevocationKey:   revokeKey,
-		CsvDelay:        b.delay,
-	}
-}
-
-// signFundingTx generates signatures for all the inputs in the funding tx
-// belonging to Bob.
-// NOTE: This generates the full witness stack.
-func (b *bobNode) signFundingTx(fundingTx *wire.MsgTx) ([]*lnwallet.InputScript, error) {
-	bobInputScripts := make([]*lnwallet.InputScript, 0, len(b.availableOutputs))
-	bobPkScript := b.changeOutputs[0].PkScript
-
-	inputValue := int64(7e8)
-	hashCache := txscript.NewTxSigHashes(fundingTx)
-	for i := range fundingTx.TxIn {
-		// Alice has already signed this input.
-		if fundingTx.TxIn[i].Witness != nil {
-			continue
-		}
-
-		witness, err := txscript.WitnessScript(fundingTx, hashCache, i,
-			inputValue, bobPkScript, txscript.SigHashAll, b.privKey,
-			true)
-		if err != nil {
-			return nil, err
-		}
-
-		inputScript := &lnwallet.InputScript{Witness: witness}
-		bobInputScripts = append(bobInputScripts, inputScript)
-	}
-
-	return bobInputScripts, nil
-}
-
-// signCommitTx generates a raw signature required for generating a spend from
-// the funding transaction.
-func (b *bobNode) signCommitTx(commitTx *wire.MsgTx, fundingScript []byte,
-	channelValue int64) ([]byte, error) {
-
-	hashCache := txscript.NewTxSigHashes(commitTx)
-
-	return txscript.RawTxInWitnessSignature(commitTx, hashCache, 0,
-		channelValue, fundingScript, txscript.SigHashAll, b.privKey)
-}
-
-// newBobNode generates a test "ln node" to interact with Alice (us). For the
-// funding transaction, bob has a single output totaling 7BTC. For our basic
-// test, he'll fund the channel with 5BTC, leaving 2BTC to the change output.
-// TODO(roasbeef): proper handling of change etc.
-func newBobNode(miner *rpctest.Harness, amt btcutil.Amount) (*bobNode, error) {
-	// First, parse Bob's priv key in order to obtain a key he'll use for the
-	// multi-sig funding transaction.
-	privKey, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), bobsPrivKey)
-
-	// Next, generate an output redeemable by bob.
-	pkHash := btcutil.Hash160(pubKey.SerializeCompressed())
-	bobAddr, err := btcutil.NewAddressWitnessPubKeyHash(
-		pkHash,
-		miner.ActiveNet)
-	if err != nil {
-		return nil, err
-	}
-	bobAddrScript, err := txscript.PayToAddrScript(bobAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	// Give bobNode one 7 BTC output for use in creating channels.
-	output := &wire.TxOut{
-		Value:    7e8,
-		PkScript: bobAddrScript,
-	}
-	mainTxid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
-	if err != nil {
-		return nil, err
-	}
-
-	// Mine a block in order to include the above output in a block. During
-	// the reservation workflow, we currently test to ensure that the funding
-	// output we're given actually exists.
-	if _, err := miner.Node.Generate(1); err != nil {
-		return nil, err
-	}
-
-	// Grab the transaction in order to locate the output index to Bob.
-	tx, err := miner.Node.GetRawTransaction(mainTxid)
-	if err != nil {
-		return nil, err
-	}
-	found, index := lnwallet.FindScriptOutputIndex(tx.MsgTx(), bobAddrScript)
-	if !found {
-		return nil, fmt.Errorf("output to bob never created")
-	}
-
-	prevOut := wire.NewOutPoint(mainTxid, index)
-	bobTxIn := wire.NewTxIn(prevOut, nil, nil)
-
-	// Using bobs priv key above, create a change output he can spend.
-	bobChangeOutput := wire.NewTxOut(2*1e8, bobAddrScript)
-
-	// Bob's initial revocation hash is just his private key with the first
-	// byte changed...
-	var revocation [32]byte
-	copy(revocation[:], bobsPrivKey)
-	revocation[0] = 0xff
-
-	var obsfucator [lnwallet.StateHintSize]byte
-	copy(obsfucator[:], revocation[:])
-
-	// His ID is just as creative...
-	var id [chainhash.HashSize]byte
-	id[0] = 0xff
-
-	return &bobNode{
-		id:               pubKey,
-		privKey:          privKey,
-		channelKey:       pubKey,
-		deliveryAddress:  bobAddr,
-		revocation:       revocation,
-		fundingAmt:       amt,
-		delay:            5,
-		availableOutputs: []*wire.TxIn{bobTxIn},
-		changeOutputs:    []*wire.TxOut{bobChangeOutput},
-	}, nil
-}
-
-func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet, numOutputs, btcPerOutput int) error {
 	// Using the mining node, spend from a coinbase output numOutputs to
 	// give us btcPerOutput with each output.
 	satoshiPerOutput := int64(btcPerOutput * 1e8)

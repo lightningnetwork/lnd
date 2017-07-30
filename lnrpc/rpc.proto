@@ -401,8 +401,6 @@ message OpenChannelRequest {
 
     int64 local_funding_amount = 4 [json_name = "local_funding_amount"];
     int64 push_sat = 5 [json_name = "push_sat"];
-
-    uint32 num_confs = 6 [json_name = "num_confs"];
 }
 message OpenStatusUpdate {
     oneof update {

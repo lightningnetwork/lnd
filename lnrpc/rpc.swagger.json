@@ -1410,10 +1410,6 @@
         "push_sat": {
           "type": "string",
           "format": "int64"
-        },
-        "num_confs": {
-          "type": "integer",
-          "format": "int64"
         }
       }
     },

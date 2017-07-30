@@ -1344,12 +1344,77 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 				err)
 		}
 
+		// Once the state has been updated on-disk, we'll fetch all the
+		// information needed to re-construct the precise state that
+		// was broadcast.
+		remoteChanState, err := lc.channelState.FindPreviousState(
+			broadcastStateNum,
+		)
+		if err != nil {
+			walletLog.Errorf("unable to find prior broadcast "+
+				"state: %v", err)
+			return
+		}
+
+		// First, we'll generate the commitment point and the
+		// revocation point so we can re-construct the HTLC state and
+		// also our payment key.
+		commitPoint := lc.channelState.RemoteCurrentRevocation
+		revokeKey := DeriveRevocationPubkey(
+			lc.localChanCfg.RevocationBasePoint,
+			commitPoint,
+		)
+
+		// With the necessary state obtained, we'll obtain HTLC
+		// resolutions for all the outgoing HTLC's we had on their
+		// commitment transaction.
+		htlcResolutions, localKey, err := extractHtlcResolutions(
+			remoteChanState.FeePerKw, false, lc.signer,
+			remoteChanState.Htlcs, commitPoint,
+			revokeKey, lc.localChanCfg, lc.remoteChanCfg,
+			*commitSpend.SpenderTxHash)
+		if err != nil {
+			walletLog.Errorf("unable to create htlc "+
+				"resolutions: %v", err)
+			return
+		}
+
+		// With the HTLC's taken care of, we'll generate the sign
+		// descriptor necessary to sweep our commitment output.
+		selfWitnessScript, err := commitScriptUnencumbered(localKey)
+		if err != nil {
+			walletLog.Errorf("unable to create self commit "+
+				"script: %v", err)
+			return
+		}
+		localPayBase := lc.localChanCfg.PaymentBasePoint
+		selfSignDesc := SignDescriptor{
+			PubKey:        localPayBase,
+			SingleTweak:   SingleTweakBytes(commitPoint, localPayBase),
+			WitnessScript: selfWitnessScript,
+			Output: &wire.TxOut{
+				Value:    int64(remoteChanState.LocalBalance),
+				PkScript: selfWitnessScript,
+			},
+			HashType: txscript.SigHashAll,
+		}
+
+		// TODO(roasbeef): send msg before writing to disk
+		//  * need to ensure proper fault tolerance in all cases
+		//  * get ACK from the consumer of the ntfn before writing to disk?
+		//  * no harm in repeated ntfns: at least once semantics
+
 		// Notify any subscribers that we've detected a unilateral
 		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
+
+		// We'll also send all the details necessary to re-claim funds
+		// that are suspended within any contracts.
 		lc.UnilateralClose <- &UnilateralCloseSummary{
 			SpendDetail:         commitSpend,
 			ChannelCloseSummary: closeSummary,
+			SelfOutputSignDesc:  selfSignDesc,
+			HtlcResolutions:     htlcResolutions,
 		}
 
 	// If the state number broadcast is lower than the remote node's

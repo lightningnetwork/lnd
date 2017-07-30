@@ -3232,13 +3232,197 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 
 	return &commitTx, nil
 }
+
+// UnilateralCloseSummary describes the details of a detected unilateral
+// channel closure. This includes the information about with which
+// transactions, and block the channel was unilaterally closed, as well as
+// summarization details concerning the _state_ of the channel at the point of
+// channel closure. Additionally, if we had a commitment output above dust on
+// the remote party's commitment transaction, the necessary a SignDescriptor
+// with the material necessary to seep the output are returned. Finally, if we
+// had any outgoing HTLC's within the commitment transaction, then an
+// OutgoingHtlcResolution for each output will included.
+type UnilateralCloseSummary struct {
+	// SpendDetail is a struct that describes how and when the commitment
+	// output was spent.
+	*chainntnfs.SpendDetail
+
+	// ChannelCloseSummary is a struct describing the final state of the
+	// channel and in which state is was closed.
+	channeldb.ChannelCloseSummary
+
+	// SelfOutputSignDesc is a fully populated sign descriptor capable of
+	// generating a valid signature to sweep the output paying to us
+	SelfOutputSignDesc SignDescriptor
+
+	// HtlcResolutions is a slice of HTLC resolutions which allows the
+	// local node to sweep any outgoing HTLC"s after the timeout period has
+	// passed.
+	HtlcResolutions []OutgoingHtlcResolution
+}
+
+// OutgoingHtlcResolution houses the information necessary to sweep any outging
+// HTLC's after their contract has expired. This struct will be needed in one
+// of tow cases: the local party force closes the commitment transaction or the
+// remote party unilaterally closes with their version of the commitment
+// transaction.
+type OutgoingHtlcResolution struct {
+	// Expiry the absolute timeout of the HTLC. This value is expressed in
+	// block height, meaning after this height the HLTC can be swept.
+	Expiry uint32
+
+	// SignedTimeoutTx is the fully signed HTLC timeout transaction. This
+	// must be broadcast immediately after timeout has passed. Once this
+	// has been confirmed, the HTLC output will transition into the
+	// delay+claim state.
+	SignedTimeoutTx *wire.MsgTx
+
+	// SweepSignDesc is a sign descriptor that has been populated with the
+	// necessary items required to spend the sole output of the above
+	// transaction.
+	SweepSignDesc SignDescriptor
+}
+
+// newHtlcResolution generates a new HTLC resolution capable of allowing the
+// caller to sweep an outgoing HTLC present on either their, or the remote
+// party's commitment transaction.
+func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
+	commitHash chainhash.Hash, htlc *channeldb.HTLC, commitTweak []byte,
+	delayKey, localKey, remoteKey *btcec.PublicKey, revokeKey *btcec.PublicKey,
+	feePewKw, dustLimit btcutil.Amount) (*OutgoingHtlcResolution, error) {
+
+	op := wire.OutPoint{
+		Hash:  commitHash,
+		Index: uint32(htlc.OutputIndex),
+	}
+
+	// In order to properly reconstruct the HTLC transaction, we'll need to
+	// re-calculate the fee required at this state, so we can add the
+	// correct output value amount to the transaction.
+	htlcFee := htlcTimeoutFee(feePewKw)
+	secondLevelOutputAmt := htlc.Amt - htlcFee
+
+	// With the fee calculated, re-construct the second level timeout
+	// transaction.
+	timeoutTx, err := createHtlcTimeoutTx(op, secondLevelOutputAmt,
+		htlc.RefundTimeout, uint32(localChanCfg.CsvDelay),
+		revokeKey, localKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the transaction created, we can generate a sign descriptor
+	// that's capable of generating the signature required to spend the
+	// HTLC output using the timeout transaction.
+	htlcCreationScript, err := senderHTLCScript(localKey, remoteKey,
+		revokeKey, htlc.RHash[:])
+	if err != nil {
+		return nil, err
+	}
+	timeoutSignDesc := SignDescriptor{
+		PubKey:        localChanCfg.PaymentBasePoint,
+		SingleTweak:   commitTweak,
+		WitnessScript: htlcCreationScript,
+		Output: &wire.TxOut{
+			Value: int64(htlc.Amt),
+		},
+		HashType:   txscript.SigHashAll,
+		SigHashes:  txscript.NewTxSigHashes(timeoutTx),
+		InputIndex: 0,
+	}
+
+	// With the sign desc created, we can now construct the full witness
+	// for the timeout transaction, and populate it as well.
+	timeoutWitness, err := senderHtlcSpendTimeout(
+		htlc.Signature, signer, &timeoutSignDesc, timeoutTx)
+	if err != nil {
+		return nil, err
+	}
+	timeoutTx.TxIn[0].Witness = timeoutWitness
+
+	// Finally, we'll generate the script output that the timeout
+	// transaction creates so we can generate the signDesc required to
+	// complete the claim process after a delay period.
+	htlcSweepScript, err := secondLevelHtlcScript(revokeKey,
+		delayKey, uint32(localChanCfg.CsvDelay))
+	if err != nil {
+		return nil, err
+	}
+
+	return &OutgoingHtlcResolution{
+		Expiry:          htlc.RefundTimeout,
+		SignedTimeoutTx: timeoutTx,
+		SweepSignDesc: SignDescriptor{
+			PubKey:        localChanCfg.DelayBasePoint,
+			SingleTweak:   commitTweak,
+			WitnessScript: htlcSweepScript,
+			Output: &wire.TxOut{
+				Value: int64(secondLevelOutputAmt),
+			},
+			HashType: txscript.SigHashAll,
+		},
+	}, nil
+}
+
+// extractHtlcResolutions creates a series of outgoing HTLC resolutions, and
+// the local key used when generating the HTLC scrips. This function is to be
+// used in two cases: force close, or a unilateral close.
+func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
+	signer Signer, htlcs []*channeldb.HTLC,
+	commitPoint, revokeKey *btcec.PublicKey,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	commitHash chainhash.Hash) ([]OutgoingHtlcResolution, *btcec.PublicKey, error) {
+
+	// As uusal, we start by re-generating the key-ring required to
+	// reconstruct the pkScripts used, and sign any transactions or inputs
+	// required to sweep all funds.
+	commitTweak := SingleTweakBytes(commitPoint,
+		localChanCfg.PaymentBasePoint)
+	localKey := TweakPubKey(localChanCfg.PaymentBasePoint, commitPoint)
+	delayKey := TweakPubKey(localChanCfg.DelayBasePoint, commitPoint)
+	remoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
+
+	dustLimit := remoteChanCfg.DustLimit
+	if ourCommit {
+		dustLimit = localChanCfg.DustLimit
+	}
+
+	htlcResolutions := make([]OutgoingHtlcResolution, len(htlcs))
+	for i, htlc := range htlcs {
+		// Skip any incoming HTLC's, as unless we have the pre-image to
+		// spend them, they'll eventually be swept by the party that
+		// offered the HTLC after the timeout.
+		if htlc.Incoming {
+			continue
+		}
+
+		// We'll also skip any HTLC's which were dust on the commitment
+		// transaction, as these don't have a corresponding output
+		// within the commitment transaction.
+		if htlcIsDust(htlc.Incoming, ourCommit, feePerKw, htlc.Amt,
+			dustLimit) {
+			continue
+		}
+
+		ohr, err := newHtlcResolution(signer, localChanCfg, commitHash,
+			htlc, commitTweak, delayKey, localKey, remoteKey,
+			revokeKey, feePerKw, dustLimit)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// TODO(roasbeef): needs to point to proper amount including
+		htlcResolutions[i] = *ohr
+	}
+
+	return htlcResolutions, localKey, nil
 }
 
 // ForceCloseSummary describes the final commitment state before the channel is
 // locked-down to initiate a force closure by broadcasting the latest state
 // on-chain. The summary includes all the information required to claim all
 // rightfully owned outputs.
-// TODO(roasbeef): generalize, add HTLC info, etc.
 type ForceCloseSummary struct {
 	// ChanPoint is the outpoint that created the channel which has been
 	// force closed.
@@ -3261,16 +3445,11 @@ type ForceCloseSummary struct {
 	// SelfOutputMaturity is the relative maturity period before the above
 	// output can be claimed.
 	SelfOutputMaturity uint32
-}
 
-// UnilateralCloseSummary describes the details of a detected unilateral
-// channel closure. This includes the information about with which
-// transactions, and block the channel was unilaterally closed, as well as
-// summarization details concerning the _state_ of the channel at the point of
-// channel closure.
-type UnilateralCloseSummary struct {
-	*chainntnfs.SpendDetail
-	*channeldb.ChannelCloseSummary
+	// HtlcResolutions is a slice of HTLC resolutions which allows the
+	// local node to sweep any outgoing HTLC"s after the timeout period has
+	// passed.
+	HtlcResolutions []OutgoingHtlcResolution
 }
 
 // ForceClose executes a unilateral closure of the transaction at the current

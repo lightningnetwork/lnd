@@ -235,56 +235,38 @@ type addSingleFunderSigsMsg struct {
 // executing workflow required to interact with the Lightning Network. It is
 // domain specific in the sense that it understands all the fancy scripts used
 // within the Lightning Network, channel lifetimes, etc. However, it embedds a
-// general purpose Bitcoin wallet within it. Therefore, it is also able to serve
-// as a regular Bitcoin wallet which uses HD keys. The wallet is highly concurrent
-// internally. All communication, and requests towards the wallet are
-// dispatched as messages over channels, ensuring thread safety across all
+// general purpose Bitcoin wallet within it. Therefore, it is also able to
+// serve as a regular Bitcoin wallet which uses HD keys. The wallet is highly
+// concurrent internally. All communication, and requests towards the wallet
+// are dispatched as messages over channels, ensuring thread safety across all
 // operations. Interaction has been designed independent of any peer-to-peer
-// communication protocol, allowing the wallet to be self-contained and embeddable
-// within future projects interacting with the Lightning Network.
+// communication protocol, allowing the wallet to be self-contained and
+// embeddable within future projects interacting with the Lightning Network.
+//
 // NOTE: At the moment the wallet requires a btcd full node, as it's dependent
-// on btcd's websockets notifications as even triggers during the lifetime of
-// a channel. However, once the chainntnfs package is complete, the wallet
-// will be compatible with multiple RPC/notification services such as Electrum,
+// on btcd's websockets notifications as even triggers during the lifetime of a
+// channel. However, once the chainntnfs package is complete, the wallet will
+// be compatible with multiple RPC/notification services such as Electrum,
 // Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node
-// at all, as SPV support is integrated inot btcwallet.
+// at all, as SPV support is integrated into btcwallet.
 type LightningWallet struct {
-	// This mutex is to be held when generating external keys to be used
-	// as multi-sig, and commitment keys within the channel.
+	// Cfg is the configuration struct that will be used by the wallet to
+	// access the necessary interfaces and default it needs to carry on its
+	// duties.
+	Cfg Config
+
+	// WalletController is the core wallet, all non Lightning Network
+	// specific interaction is proxied to the internal wallet.
+	WalletController
+
+	// This mutex is to be held when generating external keys to be used as
+	// multi-sig, and commitment keys within the channel.
 	keyGenMtx sync.RWMutex
 
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
 	// double spend inputs across each other.
 	coinSelectMtx sync.RWMutex
-
-	// A wrapper around a namespace within boltdb reserved for ln-based
-	// wallet metadata. See the 'channeldb' package for further
-	// information.
-	ChannelDB *channeldb.DB
-
-	// Used by in order to obtain notifications about funding transaction
-	// reaching a specified confirmation depth, and to catch
-	// counterparty's broadcasting revoked commitment states.
-	chainNotifier chainntnfs.ChainNotifier
-
-	// wallet is the the core wallet, all non Lightning Network specific
-	// interaction is proxied to the internal wallet.
-	WalletController
-
-	// Signer is the wallet's current Signer implementation. This Signer is
-	// used to generate signature for all inputs to potential funding
-	// transactions, as well as for spends from the funding transaction to
-	// update the commitment state.
-	Signer Signer
-
-	// FeeEstimator is the implementation that the wallet will use for the
-	// calculation of on-chain transaction fees.
-	FeeEstimator FeeEstimator
-
-	// ChainIO is an instance of the BlockChainIO interface. ChainIO is
-	// used to lookup the existence of outputs within the UTXO set.
-	ChainIO BlockChainIO
 
 	// rootKey is the root HD key derived from a WalletController private
 	// key. This rootKey is used to derive all LN specific secrets.
@@ -310,8 +292,6 @@ type LightningWallet struct {
 	// the currently locked outpoints.
 	lockedOutPoints map[wire.OutPoint]struct{}
 
-	netParams *chaincfg.Params
-
 	started  int32
 	shutdown int32
 	quit     chan struct{}
@@ -324,25 +304,15 @@ type LightningWallet struct {
 // NewLightningWallet creates/opens and initializes a LightningWallet instance.
 // If the wallet has never been created (according to the passed dataDir), first-time
 // setup is executed.
-//
-// NOTE: The passed channeldb, and ChainNotifier should already be fully
-// initialized/started before being passed as a function arugment.
-func NewLightningWallet(cdb *channeldb.DB, notifier chainntnfs.ChainNotifier,
-	wallet WalletController, signer Signer, bio BlockChainIO,
-	fe FeeEstimator, netParams *chaincfg.Params) (*LightningWallet, error) {
+func NewLightningWallet(Cfg Config) (*LightningWallet, error) {
 
 	return &LightningWallet{
-		chainNotifier:    notifier,
-		Signer:           signer,
-		WalletController: wallet,
-		FeeEstimator:     fe,
-		ChainIO:          bio,
-		ChannelDB:        cdb,
+		Cfg:              Cfg,
+		WalletController: Cfg.WalletController,
 		msgChan:          make(chan interface{}, msgBufferSize),
 		nextFundingID:    0,
 		fundingLimbo:     make(map[uint64]*ChannelReservation),
 		lockedOutPoints:  make(map[wire.OutPoint]struct{}),
-		netParams:        netParams,
 		quit:             make(chan struct{}),
 	}, nil
 }
@@ -369,7 +339,7 @@ func (l *LightningWallet) Startup() error {
 
 	// TODO(roasbeef): always re-derive on the fly?
 	rootKeyRaw := rootKey.Serialize()
-	l.rootKey, err = hdkeychain.NewMaster(rootKeyRaw, l.netParams)
+	l.rootKey, err = hdkeychain.NewMaster(rootKeyRaw, &l.Cfg.NetParams)
 	if err != nil {
 		return err
 	}
@@ -735,7 +705,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		signDesc.Output = info
 		signDesc.InputIndex = i
 
-		inputScript, err := l.Signer.ComputeInputScript(fundingTx, &signDesc)
+		inputScript, err := l.Cfg.Signer.ComputeInputScript(fundingTx,
+			&signDesc)
 		if err != nil {
 			req.err <- err
 			return
@@ -860,7 +831,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		SigHashes:     txscript.NewTxSigHashes(theirCommitTx),
 		InputIndex:    0,
 	}
-	sigTheirCommit, err := l.Signer.SignOutputRaw(theirCommitTx, &signDesc)
+	sigTheirCommit, err := l.Cfg.Signer.SignOutputRaw(theirCommitTx, &signDesc)
 	if err != nil {
 		req.err <- err
 		return
@@ -975,7 +946,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	res.Lock()
 	defer res.Unlock()
 
@@ -995,7 +966,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			// Fetch the alleged previous output along with the
 			// pkscript referenced by this input.
 			// TODO(roasbeef): when dual funder pass actual height-hint
-			output, err := l.ChainIO.GetUtxo(&txin.PreviousOutPoint, 0)
+			output, err := l.Cfg.ChainIO.GetUtxo(&txin.PreviousOutPoint, 0)
 			if output == nil {
 				msg.err <- fmt.Errorf("input to funding tx "+
 					"does not exist: %v", err)
@@ -1008,8 +979,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 				fundingTx, i, txscript.StandardVerifyFlags, nil,
 				fundingHashCache, output.Value)
 			if err != nil {
-				// TODO(roasbeef): cancel at this stage if
-				// invalid sigs?
 				msg.err <- fmt.Errorf("cannot create script "+
 					"engine: %s", err)
 				msg.completeChan <- nil
@@ -1056,6 +1025,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	sig, err := btcec.ParseSignature(theirCommitSig, btcec.S256())
 	if err != nil {
 		msg.err <- err
+		msg.completeChan <- nil
 		return
 	} else if !sig.Verify(sigHash, theirKey) {
 		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
@@ -1074,7 +1044,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	//
 	// TODO(roasbeef): this info can also be piped into light client's
 	// basic fee estimation?
-	_, bestHeight, err := l.ChainIO.GetBestBlock()
+	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		msg.err <- err
 		msg.completeChan <- nil
@@ -1121,7 +1091,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 

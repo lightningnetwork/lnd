@@ -3479,16 +3479,20 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// commitment transaction. We'll need this to find the corresponding
 	// output in the commitment transaction and potentially for creating
 	// the sign descriptor.
-	csvTimeout := lc.channelState.LocalCsvDelay
-	selfKey := lc.channelState.OurCommitKey
-	producer := lc.channelState.RevocationProducer
-	unusedRevocation, err := producer.AtIndex(lc.currentHeight)
+	csvTimeout := uint32(lc.localChanCfg.CsvDelay)
+	unusedRevocation, err := lc.channelState.RevocationProducer.AtIndex(
+		lc.currentHeight,
+	)
 	if err != nil {
 		return nil, err
 	}
-	revokeKey := DeriveRevocationPubkey(lc.channelState.TheirCommitKey,
-		unusedRevocation[:])
-	selfScript, err := commitScriptToSelf(csvTimeout, selfKey, revokeKey)
+	commitPoint := ComputeCommitmentPoint(unusedRevocation[:])
+	revokeKey := DeriveRevocationPubkey(
+		lc.remoteChanCfg.RevocationBasePoint,
+		commitPoint,
+	)
+	delayKey := TweakPubKey(lc.localChanCfg.DelayBasePoint, commitPoint)
+	selfScript, err := commitScriptToSelf(csvTimeout, delayKey, revokeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -3500,11 +3504,11 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// Locate the output index of the delayed commitment output back to us.
 	// We'll return the details of this output to the caller so they can
 	// sweep it once it's mature.
-	// TODO(roasbeef): also return HTLC info, assumes only p2wsh is commit
-	// tx
-	var delayIndex uint32
-	var delayScript []byte
-	var selfSignDesc *SignDescriptor
+	var (
+		delayIndex   uint32
+		delayScript  []byte
+		selfSignDesc *SignDescriptor
+	)
 	for i, txOut := range commitTx.TxOut {
 		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
 			continue
@@ -3519,10 +3523,14 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 	// descriptor which is capable of generating the signature the caller
 	// needs to sweep this output. The hash cache, and input index are not
 	// set as the caller will decide these values once sweeping the output.
-	// If the output is non-existant (dust), have the sign descriptor be nil.
+	// If the output is non-existent (dust), have the sign descriptor be
+	// nil.
 	if len(delayScript) != 0 {
+		singleTweak := SingleTweakBytes(commitPoint,
+			lc.localChanCfg.DelayBasePoint)
 		selfSignDesc = &SignDescriptor{
-			PubKey:        selfKey,
+			PubKey:        lc.localChanCfg.DelayBasePoint,
+			SingleTweak:   singleTweak,
 			WitnessScript: selfScript,
 			Output: &wire.TxOut{
 				PkScript: delayScript,
@@ -3530,6 +3538,17 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 			},
 			HashType: txscript.SigHashAll,
 		}
+	}
+
+	// Once the delay output has been found (if it exists), then we'll also
+	// need to create a series of sign descriptors for any lingering
+	// outgoing HTLC's that we'll need to claim as well.
+	txHash := commitTx.TxHash()
+	htlcResolutions, _, err := extractHtlcResolutions(
+		lc.channelState.FeePerKw, true, lc.signer, lc.channelState.Htlcs,
+		commitPoint, revokeKey, lc.localChanCfg, lc.remoteChanCfg, txHash)
+	if err != nil {
+		return nil, err
 	}
 
 	// Finally, close the channel force close signal which notifies any
@@ -3544,9 +3563,10 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 			Hash:  commitTx.TxHash(),
 			Index: delayIndex,
 		},
-		SelfOutputMaturity: csvTimeout,
 		CloseTx:            commitTx,
 		SelfOutputSignDesc: selfSignDesc,
+		SelfOutputMaturity: csvTimeout,
+		HtlcResolutions:    htlcResolutions,
 	}, nil
 }
 

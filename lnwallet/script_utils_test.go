@@ -203,6 +203,31 @@ func TestRevocationKeyDerivation(t *testing.T) {
 	// and the one derived from the private key should be identical.
 	if !revocationPub.IsEqual(derivedRevPub) {
 		t.Fatalf("derived public keys don't match!")
+// TestTweakKeyDerivation tests that given a public key, and commitment tweak,
+// then we're able to properly derive a tweaked private key that corresponds to
+// the computed tweak public key. This scenario ensure that our key derivation
+// for any of the non revocation keys on the commitment transaction is correct.
+func TestTweakKeyDerivation(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll generate a base public key that we'll be "tweaking".
+	baseSecret := testHdSeed.CloneBytes()
+	basePriv, basePub := btcec.PrivKeyFromBytes(btcec.S256(), baseSecret)
+
+	// With the base key create, we'll now create a commitment point, and
+	// from that derive the bytes we'll used to tweak the base public key.
+	commitPoint := ComputeCommitmentPoint(bobsPrivKey)
+	commitTweak := SingleTweakBytes(commitPoint, basePub)
+
+	// Next, we'll modify the public key. When we apply the same operation
+	// to the private key we should get a key that matches.
+	tweakedPub := TweakPubKey(basePub, commitPoint)
+
+	// Finally, attempt to re-generate the private key that matches the
+	// tweaked public key. The derived key should match exactly.
+	derivedPriv := TweakPrivKey(basePriv, commitTweak)
+	if !derivedPriv.PubKey().IsEqual(tweakedPub) {
+		t.Fatalf("pub keys don't match")
 	}
 }
 

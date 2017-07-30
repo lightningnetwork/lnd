@@ -185,24 +185,28 @@ func TestCommitmentSpendValidation(t *testing.T) {
 func TestRevocationKeyDerivation(t *testing.T) {
 	t.Parallel()
 
-	revocationPreimage := testHdSeed[:]
+	// First, we'll generate a commitment point, and a commitment secret.
+	// These will be used to derive the ultimate revocation keys.
+	revocationPreimage := testHdSeed.CloneBytes()
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
+		revocationPreimage)
 
-	priv, pub := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
+	// With the commitment secrets generated, we'll now create the base
+	// keys we'll use to derive the revocation key from.
+	basePriv, basePub := btcec.PrivKeyFromBytes(btcec.S256(),
+		testWalletPrivKey)
 
-	revocationPub := DeriveRevocationPubkey(pub, revocationPreimage)
+	// With the point and key obtained, we can now derive the revocation
+	// key itself.
+	revocationPub := DeriveRevocationPubkey(basePub, commitPoint)
 
-	revocationPriv := DeriveRevocationPrivKey(priv, revocationPreimage)
-	x, y := btcec.S256().ScalarBaseMult(revocationPriv.D.Bytes())
-	derivedRevPub := &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     x,
-		Y:     y,
+	// The revocation public key derived from the original public key, and
+	// the one derived from the private key should be identical.
+	revocationPriv := DeriveRevocationPrivKey(basePriv, commitSecret)
+	if !revocationPub.IsEqual(revocationPriv.PubKey()) {
+		t.Fatalf("derived public keys don't match!")
 	}
 
-	// The the revocation public key derived from the original public key,
-	// and the one derived from the private key should be identical.
-	if !revocationPub.IsEqual(derivedRevPub) {
-		t.Fatalf("derived public keys don't match!")
 // TestTweakKeyDerivation tests that given a public key, and commitment tweak,
 // then we're able to properly derive a tweaked private key that corresponds to
 // the computed tweak public key. This scenario ensure that our key derivation

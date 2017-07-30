@@ -52,15 +52,6 @@ var (
 	ErrInsufficientBalance = fmt.Errorf("insufficient local balance")
 )
 
-const (
-	// InitialRevocationWindow is the number of revoked commitment
-	// transactions allowed within the commitment chain. This value allows
-	// a greater degree of de-synchronization by allowing either parties to
-	// extend the other's commitment chain non-interactively, and also
-	// serves as a flow control mechanism to a degree.
-	InitialRevocationWindow = 1
-)
-
 // channelState is an enum like type which represents the current state of a
 // particular channel.
 // TODO(roasbeef): actually update state
@@ -606,29 +597,6 @@ type LightningChannel struct {
 	// accepted.
 	currentHeight uint64
 
-	// revocationWindowEdge is the edge of the current revocation window.
-	// New revocations for prior states created by this channel extend the
-	// edge of this revocation window. The existence of a revocation window
-	// allows the remote party to initiate new state updates independently
-	// until the window is exhausted.
-	revocationWindowEdge uint64
-
-	// usedRevocations is a slice of revocations given to us by the remote
-	// party that we've used. This slice is extended each time we create a
-	// new commitment. The front of the slice is popped off once we receive
-	// a revocation for a prior state. This head element then becomes the
-	// next set of keys/hashes we expect to be revoked.
-	usedRevocations []*lnwire.RevokeAndAck
-
-	// revocationWindow is a window of revocations sent to use by the
-	// remote party, allowing us to create new commitment transactions
-	// until depleted. The revocations don't contain a valid preimage,
-	// only an additional key/hash allowing us to create a new commitment
-	// transaction for the remote node that they are able to revoke. If
-	// this slice is empty, then we cannot make any new updates to their
-	// commitment chain.
-	revocationWindow []*lnwire.RevokeAndAck
-
 	// remoteCommitChain is the remote node's commitment chain. Any new
 	// commitments we initiate are added to the tip of this chain.
 	remoteCommitChain *commitmentChain
@@ -670,7 +638,6 @@ type LightningChannel struct {
 	// way to lookup the original PaymentDescriptor.
 	rHashMap map[PaymentHash][]*PaymentDescriptor
 
-	RemoteDeliveryScript []byte
 	// FundingWitnessScript is the witness script for the 2-of-2 multi-sig
 	// that opened the channel.
 	FundingWitnessScript []byte
@@ -1717,16 +1684,7 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 	// unable to create new states as we don't have any revocations we can
 	// use.
 	if lc.pendingACK {
-		return nil, ErrNoWindow
-	}
-
-	// Ensure that we have enough unused revocation hashes given to us by the
-	// remote party. If the set is empty, then we're unable to create a new
-	// state unless they first revoke a prior commitment transaction.
-	// TODO(roasbeef): remove now due to above?
-	if len(lc.revocationWindow) == 0 ||
-		len(lc.usedRevocations) == InitialRevocationWindow {
-		return nil, ErrNoWindow
+		return nil, nil, ErrNoWindow
 	}
 
 	// Before we extend this new commitment to the remote commitment chain,
@@ -1739,12 +1697,10 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 		return nil, err
 	}
 
-	// Grab the next revocation hash and key to use for this new commitment
-	// transaction, if no errors occur then this revocation tuple will be
-	// moved to the used set.
-	nextRevocation := lc.revocationWindow[0]
-	remoteRevocationKey := nextRevocation.NextRevocationKey
-	remoteRevocationHash := nextRevocation.NextRevocationHash
+	// Grab the next commitment point for the remote party. This well be
+	// used within fetchCommitmentView to derive all the keys necessary to
+	// construct the commitment state.
+	commitPoint := lc.channelState.RemoteNextRevocation
 
 	// Create a new commitment view which will calculate the evaluated
 	// state of the remote node's new commitment including our latest added
@@ -1791,13 +1747,6 @@ func (lc *LightningChannel) SignNextCommitment() ([]byte, error) {
 		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
 		lc.pendingFeeUpdate = nil
 	}
-
-	// Move the now used revocation hash from the unused set to the used set.
-	// We only do this at the end, as we know at this point the procedure will
-	// succeed without any errors.
-	lc.usedRevocations = append(lc.usedRevocations, nextRevocation)
-	lc.revocationWindow[0] = nil // Avoid a GC leak.
-	lc.revocationWindow = lc.revocationWindow[1:]
 
 	// As we've just created a new update for the remote commitment chain,
 	// we set the bool indicating that we're waiting for an ACK to our new
@@ -2013,31 +1962,43 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	lc.Lock()
 	defer lc.Unlock()
 
-	theirCommitKey := lc.channelState.TheirCommitKey
-
 	// Now that we've accept a new state transition, we send the remote
 	// party the revocation for our current commitment state.
 	revocationMsg := &lnwire.RevokeAndAck{}
-	currentRevocation, err := lc.channelState.RevocationProducer.AtIndex(lc.currentHeight)
+	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+		lc.currentHeight,
+	)
 	if err != nil {
 		return nil, err
 	}
-	copy(revocationMsg.Revocation[:], currentRevocation[:])
+	copy(revocationMsg.Revocation[:], commitSecret[:])
 
-	// Along with this revocation, we'll also send an additional extension
-	// to our revocation window to the remote party.
-	lc.revocationWindowEdge++
-	revocationEdge, err := lc.channelState.RevocationProducer.AtIndex(lc.revocationWindowEdge)
+	// Along with this revocation, we'll also send the _next_ commitment
+	// point that the remote party should use to create our next commitment
+	// transaction. We use a +2 here as we already gave them a look ahead
+	// of size one after the FundingLocked message was sent:
+	//
+	// 0: current revocation, 1: their "next" revocation, 2: this revocation
+	//
+	// We're revoking the current revocation. Once they receive this
+	// message they'll set the "current" revocation for us to their stored
+	// "next" revocation, and this revocation will become their new "next"
+	// revocation.
+	//
+	// Put simply in the window slides to the left by one.
+	nextCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+		lc.currentHeight + 2,
+	)
 	if err != nil {
 		return nil, err
 	}
-	revocationMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
-		revocationEdge[:])
-	revocationMsg.NextRevocationHash = sha256.Sum256(revocationEdge[:])
+	revocationMsg.NextRevocationKey = ComputeCommitmentPoint(
+		nextCommitSecret[:],
+	)
 
-	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v, window_edge=%v",
-		lc.channelState.ChanID, lc.localCommitChain.tail().height,
-		lc.currentHeight+1, lc.revocationWindowEdge)
+	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v",
+		lc.channelState.FundingOutpoint, lc.localCommitChain.tail().height,
+		lc.currentHeight+1)
 
 	// Advance our tail, as we've revoked our previous state.
 	lc.localCommitChain.advanceTail()
@@ -2093,56 +2054,37 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	lc.Lock()
 	defer lc.Unlock()
 
-	// The revocation has a nil (zero) preimage, then this should simply be
-	// added to the end of the revocation window for the remote node.
-	if bytes.Equal(zeroHash[:], revMsg.Revocation[:]) {
-		lc.revocationWindow = append(lc.revocationWindow, revMsg)
-		return nil, nil
-	}
-
 	// Now that we've received a new revocation from the remote party,
 	// we'll toggle our pendingACk bool to indicate that we can create a
 	// new commitment state after we finish processing this revocation.
 	lc.pendingACK = false
 
-	ourCommitKey := lc.channelState.OurCommitKey
-	currentRevocationKey := lc.channelState.TheirCurrentRevocation
-	pendingRevocation := chainhash.Hash(revMsg.Revocation)
-
 	// Ensure that the new pre-image can be placed in preimage store.
-	// TODO(rosbeef): abstract into func
 	store := lc.channelState.RevocationStore
-	if err := store.AddNextEntry(&pendingRevocation); err != nil {
+	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
+	if err != nil {
+		return nil, err
+	}
+	if err := store.AddNextEntry(revocation); err != nil {
 		return nil, err
 	}
 
-	// Verify that the revocation public key we can derive using this
-	// preimage and our private key is identical to the revocation key we
-	// were given for their current (prior) commitment transaction.
-	revocationPub := DeriveRevocationPubkey(ourCommitKey, pendingRevocation[:])
-	if !revocationPub.IsEqual(currentRevocationKey) {
+	// Verify that if we use the commitment point computed based off of the
+	// revealed secret to derive a revocation key with our revocation base
+	// point, then it matches the current revocation of the remote party.
+	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
+	derivedCommitPoint := ComputeCommitmentPoint(revMsg.Revocation[:])
+	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
 		return nil, fmt.Errorf("revocation key mismatch")
 	}
 
-	// Additionally, we need to ensure we were given the proper preimage
-	// to the revocation hash used within any current HTLCs.
-	if !bytes.Equal(lc.channelState.TheirCurrentRevocationHash[:], zeroHash[:]) {
-		revokeHash := sha256.Sum256(pendingRevocation[:])
-		// TODO(roasbeef): rename to drop the "Their"
-		if !bytes.Equal(lc.channelState.TheirCurrentRevocationHash[:], revokeHash[:]) {
-			return nil, fmt.Errorf("revocation hash mismatch")
-		}
-	}
-
-	// Advance the head of the revocation queue now that this revocation has
-	// been verified. Additionally, extend the end of our unused revocation
-	// queue with the newly extended revocation window update.
-	nextRevocation := lc.usedRevocations[0]
-	lc.channelState.TheirCurrentRevocation = nextRevocation.NextRevocationKey
-	lc.channelState.TheirCurrentRevocationHash = nextRevocation.NextRevocationHash
-	lc.usedRevocations[0] = nil // Prevent GC leak.
-	lc.usedRevocations = lc.usedRevocations[1:]
-	lc.revocationWindow = append(lc.revocationWindow, revMsg)
+	// Now that we've verified that the prior commitment has been properly
+	// revoked, we'll advance the revocation state we track for the remote
+	// party: the new current revocation is what was previously the next
+	// revocation, and the new next revocation is set to the key included
+	// in the message.
+	lc.channelState.RemoteCurrentRevocation = lc.channelState.RemoteNextRevocation
+	lc.channelState.RemoteNextRevocation = revMsg.NextRevocationKey
 
 	walletLog.Tracef("ChannelPoint(%v): remote party accepted state transition, "+
 		"revoked height %v, now at %v", lc.channelState.FundingOutpoint,
@@ -2217,41 +2159,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	return htlcsToForward, nil
 }
 
-// ExtendRevocationWindow extends our revocation window by a single revocation,
-// increasing the number of new commitment updates the remote party can
-// initiate without our cooperation.
-func (lc *LightningChannel) ExtendRevocationWindow() (*lnwire.RevokeAndAck, error) {
-	lc.Lock()
-	defer lc.Unlock()
-
-	/// TODO(roasbeef): error if window edge differs from tail by more than
-	// InitialRevocationWindow
-
-	revMsg := &lnwire.RevokeAndAck{}
-	revMsg.ChanID = lnwire.NewChanIDFromOutPoint(lc.channelState.ChanID)
-
-	nextHeight := lc.revocationWindowEdge + 1
-	revocation, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	theirCommitKey := lc.channelState.TheirCommitKey
-	revMsg.NextRevocationKey = DeriveRevocationPubkey(theirCommitKey,
-		revocation[:])
-	revMsg.NextRevocationHash = sha256.Sum256(revocation[:])
-
-	lc.revocationWindowEdge++
-
-	return revMsg, nil
-}
-
-// NextRevocationkey returns the revocation key for the _next_ commitment
+// NextRevocationKey returns the commitment point for the _next_ commitment
 // height. The pubkey returned by this function is required by the remote party
-// to extend our commitment chain with a new commitment.
-//
-// TODO(roasbeef): after commitment tx re-write add methdod to ingest
-// revocation key
+// along with their revocation base to to extend our commitment chain with a
+// new commitment.
 func (lc *LightningChannel) NextRevocationkey() (*btcec.PublicKey, error) {
 	lc.RLock()
 	defer lc.RUnlock()
@@ -2262,9 +2173,18 @@ func (lc *LightningChannel) NextRevocationkey() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	theirCommitKey := lc.channelState.TheirCommitKey
-	return DeriveRevocationPubkey(theirCommitKey,
-		revocation[:]), nil
+	return ComputeCommitmentPoint(revocation[:]), nil
+}
+
+// InitNextRevocation inserts the passed commitment point as the _next_
+// revocation to be used when created a new commitment state for the remote
+// party. This function MUST be called before the channel can accept or propose
+// any new states.
+func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.InsertNextRevocation(revKey)
 }
 
 // AddHTLC adds an HTLC to the state machine's local update log. This method

@@ -688,6 +688,83 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	return wire.TxWitness(inputScript.Witness), nil
 }
 
+// SingleTweakBytes computes set of bytes we call the single tweak. The purpose
+// of the single tweak is to randomize all regular delay and payment base
+// points. To do this, we generate a hash that binds the commitment point to
+// the pay/delay base point. The end end results is that the basePoint is
+// tweaked as follows:
+//
+//   * key = basePoint + sha256(commitPoint || basePoint)*G
+func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
+	h := sha256.New()
+	h.Write(commitPoint.SerializeCompressed())
+	h.Write(basePoint.SerializeCompressed())
+	return h.Sum(nil)
+}
+
+// TweakPubKey tweaks a public base point given a per commitment point. The per
+// commitment point is a unique point on our target curve for each commitment
+// transaction. When tweaking a local base point for use in a remote commitment
+// transaction, the remote party's current per commitment point is to be used.
+// The opposite applies for when tweaking remote keys. Precisely, the following
+// operation is used to "tweak" public keys:
+//
+//   tweakPub := basePoint + sha256(commitPoint || basePoint) * G
+//            := G*k + sha256(commitPoint || basePoint)*G
+//            := G*(k + sha256(commitPoint || basePoint)
+//
+// Therefore, if a party possess the value k, the private key of the base
+// point, then they are able to derive the private key by computing: compute
+// the proper private key for the revokeKey by computing:
+//
+//   revokePriv := k + sha256(commitPoint || basePoint) mod N
+//
+// Where N is the order of the sub-group.
+//
+// The rational for tweaking all public keys used within the commitment
+// contracts are to ensure that all keys are properly delinearized to avoid any
+// funny business when jointly collaborating to compute public and private
+// keys. Additionally, the use of the per commitment point ensures that each
+// commitment state houses a unique set of keys which is useful when creating
+// blinded channel outsourcing protocols.
+//
+// TODO(roasbeef): should be using double-scalar mult here
+func TweakPubKey(basePoint, commitPoint *btcec.PublicKey) *btcec.PublicKey {
+	tweakBytes := SingleTweakBytes(commitPoint, basePoint)
+	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
+
+	// TODO(roasbeef): check that both passed on curve?
+
+	x, y := btcec.S256().Add(basePoint.X, basePoint.Y, tweakX, tweakY)
+
+	return &btcec.PublicKey{
+		X:     x,
+		Y:     y,
+		Curve: btcec.S256(),
+	}
+}
+
+// TweakPrivKek tweaks the private key of a public base point given a per
+// commitment point. The per commitment secret is the revealed revocation
+// secret for the commitment state in question. This private key will only need
+// to be generated in the case that a channel counter party broadcasts a
+// revoked state. Precisely, the following operation is used to derive a
+// tweaked private key:
+//
+//  * tweakPriv := basePriv + sha256(commitment || basePub) mod N
+//
+// Where N is the order of the sub-group.
+func TweakPrivKey(basePriv *btcec.PrivateKey, commitTweak []byte) *btcec.PrivateKey {
+	// tweakInt := sha256(commitPoint || basePub)
+	tweakInt := new(big.Int).SetBytes(commitTweak)
+
+	tweakInt = tweakInt.Add(tweakInt, basePriv.D)
+	tweakInt = tweakInt.Mod(tweakInt, btcec.S256().N)
+
+	tweakPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(), tweakInt.Bytes())
+	return tweakPriv
+}
+
 // DeriveRevocationPubkey derives the revocation public key given the
 // counterparty's commitment key, and revocation preimage derived via a
 // pseudo-random-function. In the event that we (for some reason) broadcast a
@@ -698,27 +775,44 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 //
 // The derivation is performed as follows:
 //
-//   revokeKey := commitKey + revokePoint
-//             := G*k + G*h
-//             := G * (k+h)
+//   revokeKey := revokeBase * sha256(revocationBase || commitPoint) +
+//                commitPoint * sha256(commitPoint || revocationBase)
 //
-// Therefore, once we divulge the revocation preimage, the remote peer is able to
+//             := G*(revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//                G*(commitSecret * sha256(commitPoint || revocationBase))
+//
+//             := G*(revokeBasePriv * sha256(revocationBase || commitPoint) +
+//                   commitSecret * sha256(commitPoint || revocationBase))
+//
+// Therefore, once we divulge the revocation secret, the remote peer is able to
 // compute the proper private key for the revokeKey by computing:
-//   revokePriv := commitPriv + revokePreimge mod N
+//
+//   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
 // Where N is the order of the sub-group.
-func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
-	revokePreimage []byte) *btcec.PublicKey {
+func DeriveRevocationPubkey(revokeBase, commitPoint *btcec.PublicKey) *btcec.PublicKey {
 
-	// First we need to convert the revocation hash into a point on the
-	// elliptic curve.
-	revokePointX, revokePointY := btcec.S256().ScalarBaseMult(revokePreimage)
+	// R = revokeBase * sha256(revocationBase || commitPoint)
+	revokeTweakBytes := SingleTweakBytes(revokeBase, commitPoint)
+	rX, rY := btcec.S256().ScalarMult(revokeBase.X, revokeBase.Y,
+		revokeTweakBytes)
+
+	// C = commitPoint * sha256(commitPoint || revocationBase)
+	commitTweakBytes := SingleTweakBytes(commitPoint, revokeBase)
+	cX, cY := btcec.S256().ScalarMult(commitPoint.X, commitPoint.Y,
+		commitTweakBytes)
 
 	// Now that we have the revocation point, we add this to their commitment
 	// public key in order to obtain the revocation public key.
-	revokeX, revokeY := btcec.S256().Add(commitPubKey.X, commitPubKey.Y,
-		revokePointX, revokePointY)
-	return &btcec.PublicKey{X: revokeX, Y: revokeY}
+	//
+	// P = R + C
+	revX, revY := btcec.S256().Add(rX, rY, cX, cY)
+	return &btcec.PublicKey{
+		X:     revX,
+		Y:     revY,
+		Curve: btcec.S256(),
+	}
 }
 
 // DeriveRevocationPrivKey derives the revocation private key given a node's
@@ -728,28 +822,40 @@ func DeriveRevocationPubkey(commitPubKey *btcec.PublicKey,
 // a previously revoked commitment transaction.
 //
 // The private key is derived as follwos:
-//   revokePriv := commitPriv + revokePreimage mod N
+//   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
+//                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
 // Where N is the order of the sub-group.
-func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
-	revokePreimage []byte) *btcec.PrivateKey {
+func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
+	commitSecret *btcec.PrivateKey) *btcec.PrivateKey {
 
-	// Convert the revocation preimage into a scalar value so we can
-	// manipulate it within the curve's defined finite field.
-	revokeScalar := new(big.Int).SetBytes(revokePreimage)
+	// r = sha256(revokeBasePub || commitPoint)
+	revokeTweakBytes := SingleTweakBytes(revokeBasePriv.PubKey(),
+		commitSecret.PubKey())
+	revokeTweakInt := new(big.Int).SetBytes(revokeTweakBytes)
 
-	// To derive the revocation private key, we simply add the revocation
-	// preimage to the commitment private key.
+	// c = sha256(commitPoint || revokeBasePub)
+	commitTweakBytes := SingleTweakBytes(commitSecret.PubKey(),
+		revokeBasePriv.PubKey())
+	commitTweakInt := new(big.Int).SetBytes(commitTweakBytes)
+
+	// Finally to derive the revocation secret key we'll perform the
+	// following operation:
+	//
+	//  k = (revocationPriv * r) + (commitSecret * c) mod N
 	//
 	// This works since:
-	//  P = G*a + G*b
-	//    = G*(a+b)
-	//    = G*p
-	revokePriv := revokeScalar.Add(revokeScalar, commitPrivKey.D)
-	revokePriv = revokePriv.Mod(revokePriv, btcec.S256().N)
+	//  P = (G*a)*b + (G*c)*d
+	//  P = G*(a*b) + G*(c*d)
+	//  P = G*(a*b + c*d)
+	revokeHalfPriv := revokeTweakInt.Mul(revokeTweakInt, revokeBasePriv.D)
+	commitHalfPriv := commitTweakInt.Mul(commitTweakInt, commitSecret.D)
 
-	privRevoke, _ := btcec.PrivKeyFromBytes(btcec.S256(), revokePriv.Bytes())
-	return privRevoke
+	revocationPriv := revokeHalfPriv.Add(revokeHalfPriv, commitHalfPriv)
+	revocationPriv = revocationPriv.Mod(revocationPriv, btcec.S256().N)
+
+	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), revocationPriv.Bytes())
+	return priv
 }
 
 // DeriveRevocationRoot derives an root unique to a channel given the
@@ -780,14 +886,13 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 }
 
 // SetStateNumHint encodes the current state number within the passed
-// commitment transaction by re-purposing the locktime and sequence fields
-// in the commitment transaction to encode the obfuscated state number.
-// The state number is encoded using 48 bits. The lower 24 bits of the
-// locktime are the lower 24 bits of the obfuscated state number and the
-// lower 24 bits of the sequence field are the higher 24 bits. Finally
-// before encoding, the obfuscater is XOR'd against the state number in
-// order to hide the exact state number from the PoV of outside parties.
-// TODO(roasbeef): unexport function after bobNode is gone
+// commitment transaction by re-purposing the locktime and sequence fields in
+// the commitment transaction to encode the obfuscated state number.  The state
+// number is encoded using 48 bits. The lower 24 bits of the lock time are the
+// lower 24 bits of the obfuscated state number and the lower 24 bits of the
+// sequence field are the higher 24 bits. Finally before encoding, the
+// obfuscater is XOR'd against the state number in order to hide the exact
+// state number from the PoV of outside parties.
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	obsfucator [StateHintSize]byte) error {
 
@@ -843,4 +948,18 @@ func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint6
 	// Finally, to obtain the final state number, we XOR by the obfuscater
 	// value to de-obfuscate the state number.
 	return stateNumXor ^ xorInt
+}
+
+// ComputeCommitmentPoint generates a commitment point given a commitment
+// secret. The commitment point for each state is used to randomize each key in
+// the key-ring and also to used as a tweak to derive new public+private keys
+// for the state.
+func ComputeCommitmentPoint(commitSecret []byte) *btcec.PublicKey {
+	x, y := btcec.S256().ScalarBaseMult(commitSecret)
+
+	return &btcec.PublicKey{
+		X:     x,
+		Y:     y,
+		Curve: btcec.S256(),
+	}
 }

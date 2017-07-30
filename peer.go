@@ -750,6 +750,15 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 	return <-resp
 }
 
+// closingScripts are the set of clsoign deslivery scripts for each party. This
+// intermediate state is maintained for each active close negotiation, as the
+// final signatures sent must cover the specified delivery scripts for each
+// party.
+type closingScripts struct {
+	localScript  []byte
+	remoteScript []byte
+}
+
 // channelManager is goroutine dedicated to handling all requests/signals
 // pertaining to the opening, cooperative closing, and force closing of all
 // channels maintained with the remote peer.
@@ -762,11 +771,27 @@ func (p *peer) channelManager() {
 	// workflow.
 	chanShutdowns := make(map[lnwire.ChannelID]*htlcswitch.ChanClose)
 
+	deliveryAddrs := make(map[lnwire.ChannelID]*closingScripts)
+
 	// shutdownSigs is a map of signatures maintained by the responder in a
 	// cooperative channel close. This map enables us to respond to
 	// subsequent steps in the workflow without having to recalculate our
 	// signature for the channel close transaction.
 	shutdownSigs := make(map[lnwire.ChannelID][]byte)
+
+	// TODO(roasbeef): move to cfg closure func
+	genDeliveryScript := func() ([]byte, error) {
+		deliveryAddr, err := p.server.cc.wallet.NewAddress(
+			lnwallet.WitnessPubKey, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+		peerLog.Infof("Delivery addr for channel close: %v",
+			deliveryAddr)
+
+		return txscript.PayToAddrScript(deliveryAddr)
+	}
 out:
 	for {
 		select {
@@ -781,33 +806,43 @@ out:
 			p.activeChanMtx.RUnlock()
 			req.resp <- snapshots
 
+		// A new channel has arrived which means we've just completed a
+		// funding workflow. We'll initialize the necessary local
+		// state, and notify the htlc switch of a new link.
 		case newChanReq := <-p.newChannels:
 			chanPoint := newChanReq.channel.ChannelPoint()
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+			newChan := newChanReq.channel
 
+			// First, we'll add this channel to the set of active
+			// channels, so we can look it up later easily
+			// according to its channel ID.
 			p.activeChanMtx.Lock()
-			p.activeChannels[chanID] = newChanReq.channel
+			p.activeChannels[chanID] = newChan
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
 				"with peerId(%v)", chanPoint, p.id)
 
-			link := htlcswitch.NewChannelLink(
-				htlcswitch.ChannelLinkConfig{
-					Peer:                  p,
-					DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
-					DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
-					GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-						p.PubKey(), newChanReq.channel.ShortChanID()),
-					SettledContracts: p.server.breachArbiter.settledContracts,
-					DebugHTLC:        cfg.DebugHTLC,
-					Registry:         p.server.invoices,
-					Switch:           p.server.htlcSwitch,
-					FwrdingPolicy:    p.server.cc.routingPolicy,
-				},
-				newChanReq.channel,
-			)
+			// Next, we'll assemble a ChannelLink along with the
+			// necessary items it needs to function.
+			linkConfig := htlcswitch.ChannelLinkConfig{
+				Peer:                  p,
+				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+				DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
+					p.PubKey(), newChanReq.channel.ShortChanID()),
+				SettledContracts: p.server.breachArbiter.settledContracts,
+				DebugHTLC:        cfg.DebugHTLC,
+				Registry:         p.server.invoices,
+				Switch:           p.server.htlcSwitch,
+				FwrdingPolicy:    p.server.cc.routingPolicy,
+			}
+			link := htlcswitch.NewChannelLink(linkConfig, newChan)
 
+			// With the channel link created, we'll now notify the
+			// htlc switch so this channel can be used to dispatch
+			// local payments and also passively forward payments.
 			err := p.server.htlcSwitch.AddLink(link)
 			if err != nil {
 				peerLog.Errorf("can't register new channel "+
@@ -826,39 +861,95 @@ out:
 			// We'll only track this shutdown request if this is a
 			// regular close request, and not in response to a
 			// channel breach.
+			var (
+				deliveryScript []byte
+				err            error
+			)
 			if req.CloseType == htlcswitch.CloseRegular {
 				chanShutdowns[chanID] = req
+
+				// As we need to close out the channel and
+				// claim our funds on-chain, we'll request a
+				// new delivery address from the wallet, and
+				// turn that into it corresponding output
+				// script.
+				deliveryScript, err = genDeliveryScript()
+				if err != nil {
+					cErr := fmt.Errorf("Unable to generate "+
+						"delivery address: %v", err)
+
+					peerLog.Errorf(cErr.Error())
+
+					req.Err <- cErr
+					continue
+				}
+
+				// We'll also track this delivery script, as
+				// we'll need it to reconstruct the cooperative
+				// closure transaction during our closing fee
+				// negotiation ratchet.
+				deliveryAddrs[chanID] = &closingScripts{
+					localScript: deliveryScript,
+				}
 			}
 
 			// With the state marked as shutting down, we can now
 			// proceed with the channel close workflow. If this is
 			// regular close, we'll send a shutdown. Otherwise,
 			// we'll simply be clearing our indexes.
-			p.handleLocalClose(req)
+			p.handleLocalClose(req, deliveryScript)
 
 		// A receipt of a message over this channel indicates that
 		// either a shutdown proposal has been initiated, or a prior
 		// one has been completed, advancing to the next state of
 		// channel closure.
 		case req := <-p.shutdownChanReqs:
-			// We've just received a shutdown request. First, we'll
-			// check in the shutdown map to see if we're the
-			// initiator or not.  If we don't have an entry for
-			// this channel, then this means that we're the
-			// responder to the workflow.
+			// If we don't have a channel that matches this channel
+			// ID, then we'll ignore this message.
+			chanID := req.ChannelID
+			p.activeChanMtx.Lock()
+			_, ok := p.activeChannels[chanID]
+			p.activeChanMtx.Unlock()
+			if !ok {
+				peerLog.Warnf("Received unsolicited shutdown msg: %v",
+					spew.Sdump(req))
+				continue
+			}
+
+			// First, we'll track their delivery script for when we
+			// ultimately create the cooperative closure
+			// transaction.
+			deliveryScripts, ok := deliveryAddrs[chanID]
+			if !ok {
+				deliveryAddrs[chanID] = &closingScripts{}
+				deliveryScripts = deliveryAddrs[chanID]
+			}
+			deliveryScripts.remoteScript = req.Address
+
+			// Next, we'll check in the shutdown map to see if
+			// we're the initiator or not.  If we don't have an
+			// entry for this channel, then this means that we're
+			// the responder to the workflow.
 			if _, ok := chanShutdowns[req.ChannelID]; !ok {
+				// As we're the responder, we'll need to
+				// generate a delivery script of our own.
+				deliveryScript, err := genDeliveryScript()
+				if err != nil {
+					peerLog.Errorf("Unable to generate "+
+						"delivery address: %v", err)
+					continue
+				}
+				deliveryScripts.localScript = deliveryScript
+
 				// In this case, we'll send a shutdown message,
 				// and also prep our closing signature for the
 				// case they fees are immediately agreed upon.
-				closeSig := p.handleShutdownResponse(req)
+				closeSig := p.handleShutdownResponse(req,
+					deliveryScript)
 				if closeSig != nil {
-					shutdownSigs[req.ChannelID] = closeSig
+					shutdownSigs[chanID] = closeSig
 				}
 			}
-
-			// TODO(roasbeef): should also save their delivery
-			// address within close request after funding change.
-			//  * modify complete to include delivery address
 
 		// A receipt of a message over this channel indicates that the
 		// final stage of a channel shutdown workflow has been
@@ -866,18 +957,21 @@ out:
 		case req := <-p.closingSignedChanReqs:
 			// First we'll check if this has an entry in the local
 			// shutdown map.
-			localCloseReq, ok := chanShutdowns[req.ChannelID]
+			chanID := req.ChannelID
+			localCloseReq, ok := chanShutdowns[chanID]
 
 			// If it does, then this means we were the initiator of
 			// the channel shutdown procedure.
 			if ok {
-				// To finalize this shtudown, we'll now send a
+				// To finalize this shutdown, we'll now send a
 				// matching close signed message to the other
 				// party, and broadcast the closing transaction
 				// to the network.
-				p.handleInitClosingSigned(localCloseReq, req)
+				p.handleInitClosingSigned(localCloseReq, req,
+					deliveryAddrs[chanID])
 
 				delete(chanShutdowns, req.ChannelID)
+				delete(deliveryAddrs, req.ChannelID)
 				continue
 			}
 
@@ -886,10 +980,13 @@ out:
 			// channel as pending close, and watch the network for
 			// the ultimate confirmation of the closing
 			// transaction.
-			responderSig := append(shutdownSigs[req.ChannelID],
+			responderSig := append(shutdownSigs[chanID],
 				byte(txscript.SigHashAll))
-			p.handleResponseClosingSigned(req, responderSig)
-			delete(shutdownSigs, req.ChannelID)
+			p.handleResponseClosingSigned(req, responderSig,
+				deliveryAddrs[chanID])
+
+			delete(shutdownSigs, chanID)
+			delete(deliveryAddrs, chanID)
 
 		case <-p.quit:
 			break out
@@ -904,7 +1001,7 @@ out:
 //
 // TODO(roasbeef): if no more active channels with peer call Remove on connMgr
 // with peerID
-func (p *peer) handleLocalClose(req *htlcswitch.ChanClose) {
+func (p *peer) handleLocalClose(req *htlcswitch.ChanClose, deliveryScript []byte) {
 	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 
 	p.activeChanMtx.RLock()
@@ -919,11 +1016,12 @@ func (p *peer) handleLocalClose(req *htlcswitch.ChanClose) {
 	}
 
 	switch req.CloseType {
+
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case htlcswitch.CloseRegular:
-		err := p.sendShutdown(channel)
+		err := p.sendShutdown(channel, deliveryScript)
 		if err != nil {
 			req.Err <- err
 			return
@@ -932,6 +1030,7 @@ func (p *peer) handleLocalClose(req *htlcswitch.ChanClose) {
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.
 	case htlcswitch.CloseBreach:
+		// TODO(roasbeef): no longer need with newer beach logic?
 		peerLog.Infof("ChannelPoint(%v) has been breached, wiping "+
 			"channel", req.ChanPoint)
 		if err := p.WipeChannel(channel); err != nil {
@@ -948,7 +1047,9 @@ func (p *peer) handleLocalClose(req *htlcswitch.ChanClose) {
 // close workflow receives a Shutdown message. This is the second step in the
 // cooperative close workflow. This function generates a close transaction with
 // a proposed fee amount and sends the signed transaction to the initiator.
-func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
+func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown,
+	localDeliveryScript []byte) []byte {
+
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[msg.ChannelID]
 	p.activeChanMtx.RUnlock()
@@ -960,7 +1061,8 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 
 	// As we just received a shutdown message, we'll also send a shutdown
 	// message with our desired fee so we can start the negotiation.
-	if err := p.sendShutdown(channel); err != nil {
+	err := p.sendShutdown(channel, localDeliveryScript)
+	if err != nil {
 		peerLog.Errorf("error while sending shutdown message: %v", err)
 		return nil
 	}
@@ -973,8 +1075,9 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 
 	// Once both sides agree on a fee, we'll create a signature that closes
 	// the channel using the agree upon fee rate.
-	// TODO(roasbeef): remove encoding redundancy
-	closeSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
+	closeSig, proposedFee, err := channel.CreateCloseProposal(
+		feeRate, localDeliveryScript, msg.Address,
+	)
 	if err != nil {
 		peerLog.Errorf("unable to create close proposal: %v", err)
 		return nil
@@ -1008,7 +1111,9 @@ func (p *peer) handleShutdownResponse(msg *lnwire.Shutdown) []byte {
 // of an unresponsive remote party, the initiator can either choose to execute
 // a force closure, or backoff for a period of time, and retry the cooperative
 // closure.
-func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.ClosingSigned) {
+func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose,
+	msg *lnwire.ClosingSigned, deliveryScripts *closingScripts) {
+
 	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[chanID]
@@ -1030,7 +1135,9 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 
 	// We agree with the proposed channel close transaction and fee rate,
 	// so generate our signature.
-	initiatorSig, proposedFee, err := channel.CreateCloseProposal(feeRate)
+	initiatorSig, proposedFee, err := channel.CreateCloseProposal(
+		feeRate, deliveryScripts.localScript, deliveryScripts.remoteScript,
+	)
 	if err != nil {
 		req.Err <- err
 		return
@@ -1042,6 +1149,7 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 	responderSig := msg.Signature
 	respSig := append(responderSig.Serialize(), byte(txscript.SigHashAll))
 	closeTx, err := channel.CompleteCooperativeClose(initSig, respSig,
+		deliveryScripts.localScript, deliveryScripts.remoteScript,
 		feeRate)
 	if err != nil {
 		req.Err <- err
@@ -1150,7 +1258,8 @@ func (p *peer) handleInitClosingSigned(req *htlcswitch.ChanClose, msg *lnwire.Cl
 // close workflow receives a ClosingSigned message. This function handles the
 // finalization of the cooperative close from the perspective of the responder.
 func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
-	respSig []byte) {
+	respSig []byte, deliveryScripts *closingScripts) {
+
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[msg.ChannelID]
 	p.activeChanMtx.RUnlock()
@@ -1171,6 +1280,7 @@ func (p *peer) handleResponseClosingSigned(msg *lnwire.ClosingSigned,
 	// TODO(roasbeef): should instead use the fee within the message
 	feeRate := p.server.cc.feeEstimator.EstimateFeePerWeight(1) * 1000
 	closeTx, err := channel.CompleteCooperativeClose(respSig, initSig,
+		deliveryScripts.localScript, deliveryScripts.remoteScript,
 		feeRate)
 	if err != nil {
 		peerLog.Errorf("unable to complete cooperative "+
@@ -1279,17 +1389,18 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 // between peers to initiate the cooperative channel close workflow. In
 // addition, sendShutdown also signals to the HTLC switch to stop accepting
 // HTLCs for the specified channel.
-func (p *peer) sendShutdown(channel *lnwallet.LightningChannel) error {
+func (p *peer) sendShutdown(channel *lnwallet.LightningChannel,
+	deliveryScript []byte) error {
+
 	// In order to construct the shutdown message, we'll need to
 	// reconstruct the channelID, and the current set delivery script for
 	// the channel closure.
 	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
-	addr := lnwire.DeliveryAddress(channel.LocalDeliveryScript)
 
 	// With both items constructed we'll now send the shutdown message for
 	// this particular channel, advertising a shutdown request to our
 	// desired closing script.
-	shutdown := lnwire.NewShutdown(chanID, addr)
+	shutdown := lnwire.NewShutdown(chanID, deliveryScript)
 	p.queueMsg(shutdown, nil)
 
 	// Finally, we'll unregister the link from the switch in order to

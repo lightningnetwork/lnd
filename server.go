@@ -336,8 +336,8 @@ func (s *server) Start() error {
 	s.wg.Add(1)
 	go s.queryHandler()
 
-	// With all the relevant sub-systems started, we'll now atetmpt to
-	// stasblish persistent connections to our direct channel collaborators
+	// With all the relevant sub-systems started, we'll now attempt to
+	// establish persistent connections to our direct channel collaborators
 	// within the network.
 	if err := s.establishPersistentConnections(); err != nil {
 		return err
@@ -610,9 +610,21 @@ func (s *server) peerTerminationWatcher(p *peer) {
 
 	srvrLog.Debugf("Peer %v has been disconnected", p)
 
+	// If the server is exiting then we can bail out early ourselves as all
+	// the other sub-systems will already be shutting down.
+	select {
+	case <-s.quit:
+		return
+	default:
+		// If we aren't shutting down, then we'll fall through this
+		// this empty default case.
+	}
+
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.
+	//
+	// TODO(roasbeef): instead add a PurgeInterfaceLinks function?
 	links, err := p.server.htlcSwitch.GetLinksByInterface(p.pubKeyBytes)
 	if err != nil {
 		srvrLog.Errorf("unable to get channel links: %v", err)

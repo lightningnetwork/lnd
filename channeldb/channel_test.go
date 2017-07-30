@@ -205,12 +205,11 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	state.Htlcs = []*HTLC{
 		{
-			Signature:       testSig.Serialize(),
-			Incoming:        true,
-			Amt:             10,
-			RHash:           key,
-			RefundTimeout:   1,
-			RevocationDelay: 2,
+			Signature:     testSig.Serialize(),
+			Incoming:      true,
+			Amt:           10,
+			RHash:         key,
+			RefundTimeout: 1,
 		},
 	}
 	if err := state.FullSync(); err != nil {
@@ -348,17 +347,18 @@ func TestChannelStateTransition(t *testing.T) {
 			incoming = true
 		}
 		htlc := &HTLC{
-			Signature:       testSig.Serialize(),
-			Incoming:        incoming,
-			Amt:             10,
-			RHash:           key,
-			RefundTimeout:   i,
-			RevocationDelay: i + 2,
-			OutputIndex:     int32(i * 3),
+			Signature:     testSig.Serialize(),
+			Incoming:      incoming,
+			Amt:           10,
+			RHash:         key,
+			RefundTimeout: i,
+			OutputIndex:   int32(i * 3),
 		}
 		htlcs = append(htlcs, htlc)
 		htlcAmt += htlc.Amt
 	}
+
+	// TODO(roasbeef): ensure that expiry matches
 
 	// Create a new channel delta which includes the above HTLCs, some
 	// balance updates, and an increment of the current commitment height.

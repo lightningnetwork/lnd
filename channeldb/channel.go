@@ -530,13 +530,6 @@ type HTLC struct {
 	// must wait before reclaiming the funds in limbo.
 	RefundTimeout uint32
 
-	// RevocationDelay is the relative timeout the party who broadcasts the
-	// commitment transaction must wait before being able to fully sweep
-	// the funds on-chain in the case of a unilateral channel closure.
-	//
-	// TODO(roasbeef): no longer needed?
-	RevocationDelay uint32
-
 	// OutputIndex is the output index for this particular HTLC output
 	// within the commitment transaction.
 	OutputIndex int32
@@ -549,11 +542,10 @@ type HTLC struct {
 // Copy returns a full copy of the target HTLC.
 func (h *HTLC) Copy() HTLC {
 	clone := HTLC{
-		Incoming:        h.Incoming,
-		Amt:             h.Amt,
-		RefundTimeout:   h.RefundTimeout,
-		RevocationDelay: h.RevocationDelay,
-		OutputIndex:     h.OutputIndex,
+		Incoming:      h.Incoming,
+		Amt:           h.Amt,
+		RefundTimeout: h.RefundTimeout,
+		OutputIndex:   h.OutputIndex,
 	}
 	copy(clone.Signature[:], h.Signature)
 	copy(clone.RHash[:], h.RHash[:])
@@ -2045,9 +2037,6 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 	if err := binary.Write(w, byteOrder, h.RefundTimeout); err != nil {
 		return err
 	}
-	if err := binary.Write(w, byteOrder, h.RevocationDelay); err != nil {
-		return err
-	}
 	if err := binary.Write(w, byteOrder, h.OutputIndex); err != nil {
 		return err
 	}
@@ -2083,9 +2072,6 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &h.RefundTimeout); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(r, byteOrder, &h.RevocationDelay); err != nil {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &h.OutputIndex); err != nil {

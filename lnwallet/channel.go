@@ -3644,9 +3644,9 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 // returned.
 //
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
-// settle any inflight.
-func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, uint64,
-	error) {
+// settle any in flight.
+func (lc *LightningChannel) CreateCloseProposal(feeRate uint64,
+	localDeliveryScript, remoteDeliveryScript []byte) ([]byte, uint64, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3706,8 +3706,10 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64) ([]byte, uint64,
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
+func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
+	localDeliveryScript, remoteDeliveryScript []byte,
 	feeRate uint64) (*wire.MsgTx, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 

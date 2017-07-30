@@ -1233,22 +1233,45 @@ func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 }
 
-var walletTests = []func(miner *rpctest.Harness, w *lnwallet.LightningWallet, test *testing.T){
-	// TODO(roasbeef): reservation tests should prob be split out
-	testDualFundingReservationWorkflow,
-	testSingleFunderReservationWorkflowInitiator,
-	testSingleFunderReservationWorkflowResponder,
-	testFundingTransactionLockedOutputs,
-	testFundingCancellationNotEnoughFunds,
-	testTransactionSubscriptions,
-	testListTransactionDetails,
-	testSignOutputPrivateTweak,
-	testCancelNonExistantReservation,
+type walletTestCase struct {
+	name string
+	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
+		test *testing.T)
 }
 
-type testLnWallet struct {
-	lnwallet    *lnwallet.LightningWallet
-	cleanUpFunc func()
+var walletTests = []walletTestCase{
+	{
+		name: "single funding workflow",
+		test: testSingleFunderReservationWorkflow,
+	},
+	{
+		name: "dual funder workflow",
+		test: testDualFundingReservationWorkflow,
+	},
+	{
+		name: "output locking",
+		test: testFundingTransactionLockedOutputs,
+	},
+	{
+		name: "reservation insufficient funds",
+		test: testFundingCancellationNotEnoughFunds,
+	},
+	{
+		name: "transaction subscriptions",
+		test: testTransactionSubscriptions,
+	},
+	{
+		name: "transaction details",
+		test: testListTransactionDetails,
+	},
+	{
+		name: "signed with tweaked pubkeys",
+		test: testSignOutputUsingTweaks,
+	},
+	{
+		name: "test cancel non-existent reservation",
+		test: testCancelNonExistantReservation,
+	},
 }
 
 func clearWalletState(w *lnwallet.LightningWallet) error {
@@ -1357,8 +1380,14 @@ func TestLightningWallet(t *testing.T) {
 		// Execute every test, clearing possibly mutated wallet state after
 		// each step.
 		for _, walletTest := range walletTests {
-			// TODO(roasbeef): run as parallel sub-tests?
-			walletTest(miningNode, lnw, t)
+			testName := fmt.Sprintf("%v:%v", walletType,
+				walletTest.name)
+			success := t.Run(testName, func(t *testing.T) {
+				walletTest.test(miningNode, alice, bob, t)
+			})
+			if !success {
+				break
+			}
 
 			// TODO(roasbeef): possible reset mining node's
 			// chainstate to initial level, cleanly wipe buckets

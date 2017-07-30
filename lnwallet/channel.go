@@ -5,6 +5,8 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"fmt"
+	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -1002,6 +1004,21 @@ func (lc *LightningChannel) Stop() {
 
 	lc.wg.Wait()
 }
+
+// HtlcRetribution contains all the items necessary to seep a revoked HTLC
+// transaction from a revoked commitment transaction broadcast by the remot
+// party.
+type HtlcRetribution struct {
+	// SignDesc is a design descriptor capable of generating the necessary
+	// signatures to satisfy the revocation clause of the HTLC's public key
+	// script.
+	SignDesc SignDescriptor
+
+	// OutPoint is the target outpoint of this HTLC pointing to the
+	// breached commitment transaction.
+	OutPoint wire.OutPoint
+}
+
 // BreachRetribution contains all the data necessary to bring a channel
 // counterparty to justice claiming ALL lingering funds within the channel in
 // the scenario that they broadcast a revoked commitment transaction. A
@@ -1025,7 +1042,7 @@ type BreachRetribution struct {
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
 	// BreachTransaction that pays directly us.
-	LocalOutputSignDesc *SignDescriptor
+	LocalOutputSignDesc SignDescriptor
 
 	// LocalOutpoint is the outpoint of the output paying to us (the local
 	// party) within the breach transaction.
@@ -1035,11 +1052,15 @@ type BreachRetribution struct {
 	// generating the signature required to claim the funds as described
 	// within the revocation clause of the remote party's commitment
 	// output.
-	RemoteOutputSignDesc *SignDescriptor
+	RemoteOutputSignDesc SignDescriptor
 
 	// RemoteOutpoint is the output of the output paying to the remote
 	// party within the breach transaction.
 	RemoteOutpoint wire.OutPoint
+
+	// HtlcRetributions is a slice of HTLC retributions for each output
+	// active HTLC output within the breached commitment transaction.
+	HtlcRetributions []HtlcRetribution
 }
 
 // newBreachRetribution creates a new fully populated BreachRetribution for the
@@ -1064,21 +1085,32 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
+	commitmentSecret, commitmentPoint := btcec.PrivKeyFromBytes(btcec.S256(),
+		revocationPreimage[:])
+
+	// With the commitment point generated, we can now generate the four
+	// keys we'll need to reconstruct the commitment state,
+	localKey := TweakPubKey(chanState.LocalChanCfg.PaymentBasePoint,
+		commitmentPoint)
+	remoteKey := TweakPubKey(chanState.RemoteChanCfg.PaymentBasePoint,
+		commitmentPoint)
+	remoteDelayKey := TweakPubKey(chanState.RemoteChanCfg.DelayBasePoint,
+		commitmentPoint)
 
 	// Once we derive the revocation leaf, we can then re-create the
 	// revocation public key used within this state. This is needed in
 	// order to create the proper script below.
-	localCommitKey := chanState.OurCommitKey
-	revocationKey := DeriveRevocationPubkey(localCommitKey, revocationPreimage[:])
-
-	remoteCommitkey := chanState.TheirCommitKey
-	remoteDelay := chanState.RemoteCsvDelay
+	revocationKey := DeriveRevocationPubkey(
+		chanState.LocalChanCfg.RevocationBasePoint,
+		commitmentPoint,
+	)
 
 	// Next, reconstruct the scripts as they were present at this state
 	// number so we can have the proper witness script to sign and include
 	// within the final witness.
-	remotePkScript, err := commitScriptToSelf(remoteDelay,
-		remoteCommitkey, revocationKey)
+	remoteDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	remotePkScript, err := commitScriptToSelf(remoteDelay, remoteDelayKey,
+		revocationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,7 +1118,11 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
-	localPkScript, err := commitScriptUnencumbered(localCommitKey)
+	localPkScript, err := commitScriptUnencumbered(localKey)
+	if err != nil {
+		return nil, err
+	}
+	localWitnessHash, err := witnessScriptHash(localPkScript)
 	if err != nil {
 		return nil, err
 	}
@@ -1108,6 +1144,61 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		}
 	}
 
+	// With the commitment outputs located, we'll now generate all the
+	// retribution structs for each of the HTLC transactions active on the
+	// remote commitment transaction.
+	htlcRetributions := make([]HtlcRetribution, len(chanState.Htlcs))
+	for i, htlc := range revokedSnapshot.Htlcs {
+		var (
+			htlcScript []byte
+			err        error
+		)
+
+		// If this is an incoming HTLC, then this means that they were
+		// the sender of the HTLC (relative to us). So we'll
+		// re-generate the sender HTLC script.
+		if htlc.Incoming {
+			htlcScript, err = senderHTLCScript(localKey, remoteKey,
+				revocationKey, htlc.RHash[:])
+			if err != nil {
+				return nil, err
+			}
+
+			// Otherwise, is this was an outgoing HTLC that we sent, then
+			// from the PoV of the remote commitment state, they're the
+			// receiver of this HTLC.
+		} else {
+			htlcScript, err = receiverHTLCScript(
+				htlc.RefundTimeout, localKey, remoteKey,
+				revocationKey, htlc.RHash[:],
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		htlcRetributions[i] = HtlcRetribution{
+			SignDesc: SignDescriptor{
+				PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
+				DoubleTweak:   commitmentSecret,
+				WitnessScript: htlcScript,
+				Output: &wire.TxOut{
+					Value: int64(htlc.Amt),
+				},
+				HashType: txscript.SigHashAll,
+			},
+			OutPoint: wire.OutPoint{
+				Hash:  commitHash,
+				Index: uint32(htlc.OutputIndex),
+			},
+		}
+	}
+
+	// We'll need to reconstruct the single tweak so we can sweep our
+	// non-delayed pay-to-self output self.
+	singleTweak := SingleTweakBytes(commitmentPoint,
+		chanState.LocalChanCfg.PaymentBasePoint)
+
 	// Finally, with all the necessary data constructed, we can create the
 	// BreachRetribution struct which houses all the data necessary to
 	// swiftly bring justice to the cheating remote party.
@@ -1116,18 +1207,20 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		RevokedStateNum:   stateNum,
 		PendingHTLCs:      revokedSnapshot.Htlcs,
 		LocalOutpoint:     localOutpoint,
-		LocalOutputSignDesc: &SignDescriptor{
-			PubKey: localCommitKey,
+		LocalOutputSignDesc: SignDescriptor{
+			SingleTweak:   singleTweak,
+			PubKey:        chanState.LocalChanCfg.PaymentBasePoint,
+			WitnessScript: localPkScript,
 			Output: &wire.TxOut{
-				PkScript: localPkScript,
+				PkScript: localWitnessHash,
 				Value:    int64(revokedSnapshot.LocalBalance),
 			},
 			HashType: txscript.SigHashAll,
 		},
 		RemoteOutpoint: remoteOutpoint,
-		RemoteOutputSignDesc: &SignDescriptor{
-			PubKey:        localCommitKey,
-			PrivateTweak:  revocationPreimage[:],
+		RemoteOutputSignDesc: SignDescriptor{
+			PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
+			DoubleTweak:   commitmentSecret,
 			WitnessScript: remotePkScript,
 			Output: &wire.TxOut{
 				PkScript: remoteWitnessHash,
@@ -1135,6 +1228,7 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			},
 			HashType: txscript.SigHashAll,
 		},
+		HtlcRetributions: htlcRetributions,
 	}, nil
 }
 

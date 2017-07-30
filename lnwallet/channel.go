@@ -2597,50 +2597,61 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 // genHtlcScript generates the proper P2WSH public key scripts for the
 // HTLC output modified by two-bits denoting if this is an incoming HTLC, and
 // if the HTLC is being applied to their commitment transaction or ours.
+//
+// TODO(roasbeef): update comment
 func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
-	timeout, delay uint32, remoteKey, localKey *btcec.PublicKey, revocation,
-	rHash [32]byte) ([]byte, error) {
+	timeout uint32, rHash [32]byte, localKey, remoteKey *btcec.PublicKey,
+	revocationKey *btcec.PublicKey) ([]byte, []byte, error) {
+
+	var (
+		witnessScript []byte
+		err           error
+	)
+
 	// Generate the proper redeem scripts for the HTLC output modified by
 	// two-bits denoting if this is an incoming HTLC, and if the HTLC is
 	// being applied to their commitment transaction or ours.
-	var pkScript []byte
-	var err error
 	switch {
 	// The HTLC is paying to us, and being applied to our commitment
 	// transaction. So we need to use the receiver's version of HTLC the
 	// script.
 	case isIncoming && ourCommit:
-		pkScript, err = receiverHTLCScript(timeout, delay, remoteKey,
-			localKey, revocation[:], rHash[:])
+		witnessScript, err = receiverHTLCScript(timeout, remoteKey,
+			localKey, revocationKey, rHash[:])
+
 	// We're being paid via an HTLC by the remote party, and the HTLC is
 	// being added to their commitment transaction, so we use the sender's
 	// version of the HTLC script.
 	case isIncoming && !ourCommit:
-		pkScript, err = senderHTLCScript(timeout, delay, remoteKey,
-			localKey, revocation[:], rHash[:])
+		witnessScript, err = senderHTLCScript(remoteKey, localKey,
+			revocationKey, rHash[:])
+
 	// We're sending an HTLC which is being added to our commitment
 	// transaction. Therefore, we need to use the sender's version of the
 	// HTLC script.
 	case !isIncoming && ourCommit:
-		pkScript, err = senderHTLCScript(timeout, delay, localKey,
-			remoteKey, revocation[:], rHash[:])
+		witnessScript, err = senderHTLCScript(localKey, remoteKey,
+			revocationKey, rHash[:])
+
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
 	// receiver's version of the HTLC script.
 	case !isIncoming && !ourCommit:
-		pkScript, err = receiverHTLCScript(timeout, delay, localKey,
-			remoteKey, revocation[:], rHash[:])
+		witnessScript, err = receiverHTLCScript(timeout, localKey,
+			remoteKey, revocationKey, rHash[:])
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
 	// Now that we have the redeem scripts, create the P2WSH public key
 	// script for the output itself.
-	htlcP2WSH, err := witnessScriptHash(pkScript)
+	htlcP2WSH, err := witnessScriptHash(witnessScript)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return htlcP2WSH, nil
+
+	return htlcP2WSH, witnessScript, nil
 }
 
 // addHTLC adds a new HTLC to the passed commitment transaction. One of four
@@ -2651,30 +2662,30 @@ func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
 // PaymentDescriptor that generated it, the generated script is stored within
 // the descriptor itself.
 func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
-	paymentDesc *PaymentDescriptor, revocation [32]byte, delay uint32,
-	isIncoming bool) error {
+	isIncoming bool, paymentDesc *PaymentDescriptor,
+	localKey, remoteKey, revocationKey *btcec.PublicKey) error {
 
-	localKey := lc.channelState.OurCommitKey
-	remoteKey := lc.channelState.TheirCommitKey
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	htlcP2WSH, err := lc.genHtlcScript(isIncoming, ourCommit, timeout,
-		delay, remoteKey, localKey, revocation, rHash)
+	p2wsh, witnessScript, err := lc.genHtlcScript(isIncoming,
+		ourCommit, timeout, rHash, localKey, remoteKey, revocationKey)
 	if err != nil {
 		return err
 	}
 
 	// Add the new HTLC outputs to the respective commitment transactions.
 	amountPending := int64(paymentDesc.Amount)
-	commitTx.AddTxOut(wire.NewTxOut(amountPending, htlcP2WSH))
+	commitTx.AddTxOut(wire.NewTxOut(amountPending, p2wsh))
 
 	// Store the pkScript of this particular PaymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.
 	if ourCommit {
-		paymentDesc.ourPkScript = htlcP2WSH
+		paymentDesc.ourPkScript = p2wsh
+		paymentDesc.ourWitnessScript = witnessScript
 	} else {
-		paymentDesc.theirPkScript = htlcP2WSH
+		paymentDesc.theirPkScript = p2wsh
+		paymentDesc.theirWitnessScript = witnessScript
 	}
 
 	return nil

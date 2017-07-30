@@ -2,7 +2,6 @@ package htlcswitch
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -291,6 +289,7 @@ out:
 
 			// TODO(roasbeef): need to send HTLC outputs to nursery
 
+			// TODO(roasbeef): or let the arb sweep?
 			l.cfg.SettledContracts <- l.channel.ChannelPoint()
 			break out
 
@@ -630,10 +629,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.CommitSig:
 		// We just received a new update to our local commitment chain,
 		// validate this new commitment, closing the link if invalid.
-		//
-		// TODO(roasbeef): redundant re-serialization
-		sig := msg.CommitSig.Serialize()
-		if err := l.channel.ReceiveNewCommitment(sig); err != nil {
+		err := l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
+		if err != nil {
 			l.fail("unable to accept new commitment: %v", err)
 			return
 		}
@@ -718,7 +715,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 // commitment to their commitment chain which includes all the latest updates
 // we've received+processed up to this point.
 func (l *channelLink) updateCommitTx() error {
-	sigTheirs, err := l.channel.SignNextCommitment()
+	theirCommitSig, htlcSigs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		log.Tracef("revocation window exhausted, unable to send %v",
 			l.batchCounter)
@@ -727,14 +724,10 @@ func (l *channelLink) updateCommitTx() error {
 		return err
 	}
 
-	parsedSig, err := btcec.ParseSignature(sigTheirs, btcec.S256())
-	if err != nil {
-		return fmt.Errorf("unable to parse sig: %v", err)
-	}
-
 	commitSig := &lnwire.CommitSig{
 		ChanID:    l.ChanID(),
-		CommitSig: parsedSig,
+		CommitSig: theirCommitSig,
+		HtlcSigs:  htlcSigs,
 	}
 	l.cfg.Peer.SendMessage(commitSig)
 

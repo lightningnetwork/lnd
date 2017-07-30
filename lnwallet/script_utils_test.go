@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -28,11 +29,18 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// We generate a fake output, and the corresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
+	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
+	if err != nil {
+		t.Fatalf("unable to create txid: %v", err)
+	}
 	fundingOut := &wire.OutPoint{
-		Hash:  testHdSeed,
+		Hash:  *txid,
 		Index: 50,
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
+
+	const channelBalance = btcutil.Amount(1 * 10e8)
+	const csvTimeout = uint32(5)
 
 	// We also set up set some resources for the commitment transaction.
 	// Each side currently has 1 BTC within the channel, with a total
@@ -41,10 +49,17 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		testWalletPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		bobsPrivKey)
-	channelBalance := btcutil.Amount(1 * 10e8)
-	csvTimeout := uint32(5)
-	revocationPreimage := testHdSeed[:]
-	revokePubKey := DeriveRevocationPubkey(bobKeyPub, revocationPreimage)
+
+	revocationPreimage := testHdSeed.CloneBytes()
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
+		revocationPreimage)
+	revokePubKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+
+	aliceDelayKey := TweakPubKey(aliceKeyPub, commitPoint)
+	bobPayKey := TweakPubKey(bobKeyPub, commitPoint)
+
+	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
 
 	aliceSelfOutputSigner := &mockSigner{aliceKeyPriv}
 
@@ -55,8 +70,8 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceKeyPub,
-		bobKeyPub, revokePubKey, csvTimeout, channelBalance,
+	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceDelayKey,
+		bobPayKey, revokePubKey, csvTimeout, channelBalance,
 		channelBalance, DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
@@ -75,23 +90,23 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{
 		Hash:  commitmentTx.TxHash(),
 		Index: 0,
-	},
-		nil,
-		nil),
-	)
+	}, nil, nil))
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: targetOutput,
 		Value:    0.5 * 10e8,
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := commitScriptToSelf(csvTimeout, aliceKeyPub, revokePubKey)
+	delayScript, err := commitScriptToSelf(csvTimeout, aliceDelayKey,
+		revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)
 	}
 	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
 	signDesc := &SignDescriptor{
 		WitnessScript: delayScript,
+		PubKey:        aliceKeyPub,
+		SingleTweak:   aliceCommitTweak,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
 			Value: int64(channelBalance),
@@ -115,12 +130,14 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
+	bobSigner := &mockSigner{bobKeyPriv}
+
 	// Next, we'll test bob spending with the derived revocation key to
-	// simulate the scenario when alice broadcasts this commitment
+	// simulate the scenario when Alice broadcasts this commitment
 	// transaction after it's been revoked.
-	revokePrivKey := DeriveRevocationPrivKey(bobKeyPriv, revocationPreimage)
-	bobRevokeSigner := &mockSigner{revokePrivKey}
 	signDesc = &SignDescriptor{
+		PubKey:        bobKeyPub,
+		DoubleTweak:   commitSecret,
 		WitnessScript: delayScript,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
@@ -129,7 +146,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobWitnessSpend, err := CommitSpendRevoke(bobRevokeSigner, signDesc,
+	bobWitnessSpend, err := CommitSpendRevoke(bobSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
@@ -145,14 +162,25 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("revocation spend is invalid: %v", err)
 	}
 
+	// In order to test the final scenario, we modify the TxIn of the sweep
+	// transaction to instead point to to the regular output (non delay)
+	// within the commitment transaction.
+	sweepTx.TxIn[0] = &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  commitmentTx.TxHash(),
+			Index: 1,
+		},
+	}
+
 	// Finally, we test bob sweeping his output as normal in the case that
-	// alice broadcasts this commitment transaction.
-	bobSigner := &mockSigner{bobKeyPriv}
-	bobScriptp2wkh, err := commitScriptUnencumbered(bobKeyPub)
+	// Alice broadcasts this commitment transaction.
+	bobScriptp2wkh, err := commitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
 	signDesc = &SignDescriptor{
+		PubKey:        bobKeyPub,
+		SingleTweak:   bobCommitTweak,
 		WitnessScript: bobScriptp2wkh,
 		SigHashes:     txscript.NewTxSigHashes(sweepTx),
 		Output: &wire.TxOut{
@@ -206,6 +234,7 @@ func TestRevocationKeyDerivation(t *testing.T) {
 	if !revocationPub.IsEqual(revocationPriv.PubKey()) {
 		t.Fatalf("derived public keys don't match!")
 	}
+}
 
 // TestTweakKeyDerivation tests that given a public key, and commitment tweak,
 // then we're able to properly derive a tweaked private key that corresponds to

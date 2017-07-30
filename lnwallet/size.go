@@ -106,12 +106,6 @@ const (
 	// HTLCWeight 172 weight
 	HTLCWeight = blockchain.WitnessScaleFactor * HTLCSize
 
-	// MaxHTLCNumber shows as the maximum number HTLCs which can be
-	// included in commitment transaction. This numbers was calculated by
-	// Rusty Russel in "BOLT #5: Recommendations for On-chain Transaction
-	// Handling", based on the fact that we need to sweep all HTLCs within
-	// one penalty transaction.
-	MaxHTLCNumber = 1253
 	// HtlcTimeoutWeight is the weight of the HTLC timeout transaction
 	// which will transition an outgoing HTLC to the delay-and-claim state.
 	HtlcTimeoutWeight = 663
@@ -119,6 +113,13 @@ const (
 	// HtlcSuccessWeight is the weight of the HTLC success transaction
 	// which will transition an incoming HTLC to the delay-and-claim state.
 	HtlcSuccessWeight = 703
+
+	// MaxHTLCNumber is the maximum number HTLCs which can be included in a
+	// commitment transaction. This limit was chosen such that, in the case
+	// of a contract breach, the punishment transaction is able to sweep
+	// all the HTLC's yet still remain below the widely used standard
+	// weight limits.
+	MaxHTLCNumber = 967
 )
 
 // estimateCommitTxWeight estimate commitment transaction weight depending on

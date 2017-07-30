@@ -112,6 +112,13 @@ const (
 	// Handling", based on the fact that we need to sweep all HTLCs within
 	// one penalty transaction.
 	MaxHTLCNumber = 1253
+	// HtlcTimeoutWeight is the weight of the HTLC timeout transaction
+	// which will transition an outgoing HTLC to the delay-and-claim state.
+	HtlcTimeoutWeight = 663
+
+	// HtlcSuccessWeight is the weight of the HTLC success transaction
+	// which will transition an incoming HTLC to the delay-and-claim state.
+	HtlcSuccessWeight = 703
 )
 
 // estimateCommitTxWeight estimate commitment transaction weight depending on

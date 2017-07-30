@@ -573,6 +573,226 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	}
 }
 
+// TestSecondLevelHtlcSpends tests all the possible redemption clauses from the
+// HTLC success and timeout covenant transactions.
+func TestSecondLevelHtlcSpends(t *testing.T) {
+	t.Parallel()
+
+	// We'll start be creating a creating a 2BTC HTLC.
+	const htlcAmt = btcutil.Amount(2 * 10e8)
+
+	// In all of our scenarios, the CSV timeout to claim a self output will
+	// be 5 blocks.
+	const claimDelay = 5
+
+	// First we'll set up some initial key state for Alice and Bob that
+	// will be used in the scripts we created below.
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
+		testWalletPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
+		bobsPrivKey)
+
+	revokePreimage := testHdSeed.CloneBytes()
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(
+		btcec.S256(), revokePreimage)
+
+	// As we're modeling this as Bob sweeping the HTLC on-chain from his
+	// commitment transaction after a period of time, we'll be using a
+	// revocation key derived from Alice's base point and his secret.
+	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+
+	// Next, craft a fake HTLC outpoint that we'll use to generate the
+	// sweeping transaction using.
+	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
+	if err != nil {
+		t.Fatalf("unable to create txid: %v", err)
+	}
+	htlcOutPoint := &wire.OutPoint{
+		Hash:  *txid,
+		Index: 0,
+	}
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(wire.NewTxIn(htlcOutPoint, nil, nil))
+	sweepTx.AddTxOut(
+		&wire.TxOut{
+			PkScript: []byte("doesn't matter"),
+			Value:    1 * 10e8,
+		},
+	)
+	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+
+	// The delay key will be crafted using Bob's public key as the output
+	// we created will be spending from Alice's commitment transaction.
+	delayKey := TweakPubKey(bobKeyPub, commitPoint)
+
+	// The commit tweak will be required in order for Bob to derive the
+	// proper key need to spend the output.
+	commitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+
+	// Finally we'll generate the HTLC script itself that we'll be spending
+	// from. The revocation clause can be claimed by Alice, while Bob can
+	// sweep the output after a particular delay.
+	htlcWitnessScript, err := secondLevelHtlcScript(revocationKey,
+		delayKey, claimDelay)
+	if err != nil {
+		t.Fatalf("unable to create htlc script: %v", err)
+	}
+	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
+	if err != nil {
+		t.Fatalf("unable to create htlc output: %v", err)
+	}
+
+	htlcOutput := &wire.TxOut{
+		PkScript: htlcPkScript,
+		Value:    int64(htlcAmt),
+	}
+
+	// TODO(roasbeef): make actually use timeout/sucess txns?
+
+	// Finally, we'll create mock signers for both of them based on their
+	// private keys. This test simplifies a bit and uses the same key as
+	// the base point for all scripts and derivations.
+	bobSigner := &mockSigner{bobKeyPriv}
+	aliceSigner := &mockSigner{aliceKeyPriv}
+
+	testCases := []struct {
+		witness func() wire.TxWitness
+		valid   bool
+	}{
+		{
+			// Sender of the HTLC attempts to activate the
+			// revocation clause, but uses the wrong key (fails to
+			// use the double tweak in this case).
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				signDesc := &SignDescriptor{
+					PubKey:        aliceKeyPub,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return htlcSpendRevoke(aliceSigner, signDesc,
+					sweepTx)
+			}),
+			false,
+		},
+		{
+			// Sender of HTLC activates the revocation clause.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				signDesc := &SignDescriptor{
+					PubKey:        aliceKeyPub,
+					DoubleTweak:   commitSecret,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return htlcSpendRevoke(aliceSigner, signDesc,
+					sweepTx)
+			}),
+			true,
+		},
+		{
+			// Receiver of the HTLC attempts to sweep, but tries to
+			// do so pre-maturely with a smaller CSV delay (2
+			// blocks instead of 5 blocks).
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				signDesc := &SignDescriptor{
+					PubKey:        bobKeyPub,
+					SingleTweak:   commitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return htlcSpendSuccess(bobSigner, signDesc,
+					sweepTx, claimDelay-3)
+			}),
+			false,
+		},
+		{
+			// Receiver of the HTLC sweeps with the proper CSV
+			// delay, but uses the wrong key (leaves off the single
+			// tweak).
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				signDesc := &SignDescriptor{
+					PubKey:        bobKeyPub,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return htlcSpendSuccess(bobSigner, signDesc,
+					sweepTx, claimDelay)
+			}),
+			false,
+		},
+		{
+			// Receiver of the HTLC sweeps with the proper CSV
+			// delay, and the correct key.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				signDesc := &SignDescriptor{
+					PubKey:        bobKeyPub,
+					SingleTweak:   commitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return htlcSpendSuccess(bobSigner, signDesc,
+					sweepTx, claimDelay)
+			}),
+			true,
+		},
+	}
+
+	for i, testCase := range testCases {
+		sweepTx.TxIn[0].Witness = testCase.witness()
+
+		vm, err := txscript.NewEngine(htlcPkScript,
+			sweepTx, 0, txscript.StandardVerifyFlags, nil,
+			nil, int64(htlcAmt))
+		if err != nil {
+			t.Fatalf("unable to create engine: %v", err)
+		}
+
+		// This buffer will trace execution of the Script, only dumping
+		// out to stdout in the case that a test fails.
+		var debugBuf bytes.Buffer
+
+		done := false
+		for !done {
+			dis, err := vm.DisasmPC()
+			if err != nil {
+				t.Fatalf("stepping (%v)\n", err)
+			}
+			debugBuf.WriteString(fmt.Sprintf("stepping %v\n", dis))
+
+			done, err = vm.Step()
+			if err != nil && testCase.valid {
+				fmt.Println(debugBuf.String())
+				t.Fatalf("spend test case #%v failed, spend "+
+					"should be valid: %v", i, err)
+			} else if err == nil && !testCase.valid && done {
+				fmt.Println(debugBuf.String())
+				t.Fatalf("spend test case #%v succeed, spend "+
+					"should be invalid: %v", i, err)
+			}
+
+			debugBuf.WriteString(fmt.Sprintf("Stack: %v", vm.GetStack()))
+			debugBuf.WriteString(fmt.Sprintf("AltStack: %v", vm.GetAltStack()))
+		}
+	}
 }
 
 func TestCommitTxStateHint(t *testing.T) {

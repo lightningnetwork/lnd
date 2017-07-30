@@ -348,96 +348,120 @@ func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
 }
 
 // receiverHTLCScript constructs the public key script for an incoming HTLC
-// output payment for the receiver's version of the commitment transaction:
+// output payment for the receiver's version of the commitment transaction. The
+// possible execution paths from this script include:
+//   * The receiver of the HTLC uses it's second level HTLC transaction to
+//     advance the state of the HTLC into the delay+claim state.
+//   * The sender of the HTLC sweeps all the funds of the HTLC as a breached
+//     commitment was broadcast.
+//   * The sender of the HTLC sweeps the HTLC on-chain after the timeout period
+//     of the HTLC has passed.
 //
 // Possible Input Scripts:
-//    RECVR: <sig> <preimage> 1
-//    REVOK: <sig> <preimage> 0 1
-//    SENDR: <sig> 0 0
+//    RECVR: <0> <sender sig> <recvr sig> <preimage>
+//    REVOK: <sig> <key>
+//    SENDR: <sig> 0
 //
+//
+// OP_DUP OP_HASH160 <revocation key hash160> OP_EQUAL
 // OP_IF
-//     //Receiver
-//     OP_SIZE 32 OP_EQUALVERIFY
-//     OP_SHA256
-//     <payment hash> OP_EQUALVERIFY
-//     <relative blockheight> OP_CHECKSEQUENCEVERIFY OP_DROP
-//     <receiver key> OP_CHECKSIG
+//     OP_CHECKSIG
 // OP_ELSE
-//     //Sender
+//     <sendr key>
+//     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_IF
-// 	//Revocation
-//      OP_SHA256
-// 	<revoke hash> OP_EQUALVERIFY
+//         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
+//         2 OP_SWAP <recvr key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
-// 	//Refund
-// 	<absolute blockheight> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//         OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//         OP_CHECKSIG
 //     OP_ENDIF
-//     <sender key> OP_CHECKSIG
 // OP_ENDIF
-// TODO(roasbeef): go back to revocation keys in the HTLC outputs?
-//  * also could combine preimage with their key?
-func receiverHTLCScript(absoluteTimeout, relativeTimeout uint32, senderKey,
-	receiverKey *btcec.PublicKey, revokeHash, paymentHash []byte) ([]byte, error) {
+func receiverHTLCScript(cltvExipiry uint32, senderKey,
+	receiverKey, revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
-	// The receiver of the script will place a 1 as the first item of the
-	// witness stack forcing Script execution to enter the "if" clause of
-	// the main body of the script.
-	builder.AddOp(txscript.OP_IF)
+	// The opening operations are used to determine if this is the sender
+	// of the HTLC attempting to sweep all the funds due to a contract
+	// breach. In this case, they'll place the revocation key at the top of
+	// the stack.
+	builder.AddOp(txscript.OP_DUP)
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(btcutil.Hash160(revocationKey.SerializeCompressed()))
+	builder.AddOp(txscript.OP_EQUAL)
 
-	// In this clause, the receiver can redeem the HTLC after a relative
-	// timeout.  This added delay gives the sender (at this time) an
-	// opportunity to re-claim the pending HTLC in the event that the
-	// receiver (at this time) broadcasts this old commitment transaction
-	// after it has been revoked. Additionally, we require that the
-	// preimage is exactly 32-bytes in order to avoid undesirable
-	// redemption asymmetries in the multi-hop scenario.
+	// If the hash matches, then this is the revocation clause. The output
+	// can be spent if the check sig operation passes.
+	builder.AddOp(txscript.OP_IF)
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Otherwise, this may either be the receiver of the HTLC starting the
+	// claiming process via the second level HTLC success transaction and
+	// the pre-image, or the sender of the HTLC sweeping the output after
+	// it has timed out.
+	builder.AddOp(txscript.OP_ELSE)
+
+	// We'll do a bit of set up by pushing the sender's key on the top of
+	// the stack. This will be needed later if we decide that this is the
+	// receiver transitioning the output to the claim state using their
+	// second-level HTLC success transaction.
+	builder.AddData(senderKey.SerializeCompressed())
+
+	// Atm, the top item of the stack is the sender's key so we use a swap
+	// to expose what is either the payment pre-image or something else.
+	builder.AddOp(txscript.OP_SWAP)
+
+	// With the top item swapped, check if it's 32 bytes. If so, then this
+	// *may* be the payment pre-image.
 	builder.AddOp(txscript.OP_SIZE)
 	builder.AddInt64(32)
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-	builder.AddOp(txscript.OP_SHA256)
-	builder.AddData(paymentHash)
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-	builder.AddInt64(int64(relativeTimeout))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddData(receiverKey.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_EQUAL)
 
-	// Otherwise, the sender will place a 0 as the first item of the
-	// witness stack forcing execution to enter the "else" clause of the
-	// main body of the script.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// The sender will place a 1 as the second item of the witness stack in
-	// the scenario that the receiver broadcasts an invalidated commitment
-	// transaction, allowing the sender to sweep all the receiver's funds.
+	// If the item on the top of the stack is 32-bytes, then it is the
+	// proper size, so this indicates that the receiver of the HTLC is
+	// attempting to claim the output on-chain by transitioning the state
+	// of the HTLC to delay+claim.
 	builder.AddOp(txscript.OP_IF)
-	builder.AddOp(txscript.OP_SHA256)
-	builder.AddData(revokeHash)
+
+	// Next we'll hash the item on the top of the stack, if it matches the
+	// payment pre-image, then we'll continue. Otherwise, we'll end the
+	// script here as this is the invalid payment pre-image.
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(ripemd160H(paymentHash))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 
-	// If not, then the sender needs to wait for the HTLC timeout. This
-	// clause may be executed if the receiver fails to present the r-value
-	// in time. This prevents the pending funds from being locked up
-	// indefinitely.
+	// If the payment hash matches, then we'll also need to satisfy the
+	// multi-sig covenant by providing both signatures of the sender and
+	// receiver. If the convenient is met, then we'll allow the spending of
+	// this output, but only by the HTLC success transaction.
+	builder.AddOp(txscript.OP_2)
+	builder.AddOp(txscript.OP_SWAP)
+	builder.AddData(receiverKey.SerializeCompressed())
+	builder.AddOp(txscript.OP_2)
+	builder.AddOp(txscript.OP_CHECKMULTISIG)
 
-	// The sender will place a 0 as the second item of the witness stack if
-	// they wish to sweep the HTLC after an absolute refund timeout. This
-	// time out clause prevents the pending funds from being locked up
-	// indefinitely.
+	// Otherwise, this might be the sender of the HTLC attempting to sweep
+	// it on-chain after the timeout.
 	builder.AddOp(txscript.OP_ELSE)
-	builder.AddInt64(int64(absoluteTimeout))
+
+	// We'll drop the extra item (which is the output from evaluating the
+	// OP_EQUAL) above from the stack.
+	builder.AddOp(txscript.OP_DROP)
+
+	// With that item dropped off, we can now enforce the absolute
+	// lock-time required to timeout the HTLC. If the time has passed, then
+	// we'll proceed with a checksig to ensure that this is actually the
+	// sender of he original HLTC.
+	builder.AddInt64(int64(cltvExipiry))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
-	builder.AddOp(txscript.OP_ENDIF)
-
-	// In either case, we also require a valid signature with the sender's
-	// commitment private key.
-	builder.AddData(senderKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_CHECKSIG)
 
+	// Close out the inner if statement.
+	builder.AddOp(txscript.OP_ENDIF)
+
+	// Close out the outer if statement.
 	builder.AddOp(txscript.OP_ENDIF)
 
 	return builder.Script()

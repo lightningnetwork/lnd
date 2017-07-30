@@ -1352,6 +1352,12 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		pastHeight = lc.currentHeight - 1
 	}
 
+	// Obtain the local and remote channel configurations. These house all
+	// the relevant public keys and points we'll need in order to restore
+	// the state log.
+	localChanCfg := lc.localChanCfg
+	remoteChanCfg := lc.remoteChanCfg
+
 	// In order to reconstruct the pkScripts on each of the pending HTLC
 	// outputs (if any) we'll need to regenerate the current revocation for
 	// this current un-revoked state.
@@ -1359,18 +1365,40 @@ func (lc *LightningChannel) restoreStateLogs() error {
 	if err != nil {
 		return err
 	}
-	ourRevocation := sha256.Sum256(ourRevPreImage[:])
-	theirRevocation := lc.channelState.TheirCurrentRevocationHash
 
-	// Additionally, we'll fetch the current sent to commitment keys and
-	// CSV delay values which are also required to fully generate the
-	// scripts.
-	localKey := lc.channelState.OurCommitKey
-	remoteKey := lc.channelState.TheirCommitKey
-	ourDelay := lc.channelState.LocalCsvDelay
-	theirDelay := lc.channelState.RemoteCsvDelay
+	// With the commitment secret recovered, we'll generate the revocation
+	// used on the *local* commitment transaction. This is computed using
+	// the point derived from the commitment secret at the remote party's
+	// revocation based.
+	localCommitPoint := ComputeCommitmentPoint(ourRevPreImage[:])
+	localRevocation := DeriveRevocationPubkey(
+		remoteChanCfg.RevocationBasePoint,
+		localCommitPoint,
+	)
+	remoteCommitPoint := lc.channelState.RemoteCurrentRevocation
+	remoteRevocation := DeriveRevocationPubkey(
+		localChanCfg.RevocationBasePoint,
+		remoteCommitPoint,
+	)
+
+	// Additionally, we'll fetch the current payment base points which are
+	// required to fully generate the scripts.
+	localCommitLocalKey := TweakPubKey(localChanCfg.PaymentBasePoint,
+		localCommitPoint)
+	localCommitRemoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint,
+		localCommitPoint)
+
+	remoteCommitLocalKey := TweakPubKey(localChanCfg.PaymentBasePoint,
+		remoteCommitPoint)
+	remoteCommitRemoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint,
+		remoteCommitPoint)
 
 	var ourCounter, theirCounter uint64
+
+	// Grab the current fee rate as we'll need this to determine if the
+	// prior HTLC's were considered dust or not at this particular
+	// commitment sate.
+	feeRate := lc.channelState.FeePerKw
 
 	// TODO(roasbeef): partition entries added based on our current review
 	// an our view of them from the log?
@@ -1382,7 +1410,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		// The proper pkScripts for this PaymentDescriptor must be
 		// generated so we can easily locate them within the commitment
 		// transaction in the future.
-		var ourP2WSH, theirP2WSH []byte
+		var ourP2WSH, theirP2WSH, ourWitnessScript, theirWitnessScript []byte
 
 		// If the either outputs is dust from the local or remote
 		// node's perspective, then we don't need to generate the
@@ -1395,17 +1423,19 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		isDustRemote := htlcIsDust(htlc.Incoming, false, feeRate,
 			htlc.Amt, remoteChanCfg.DustLimit)
 		if !isDustLocal {
-			ourP2WSH, err = lc.genHtlcScript(htlc.Incoming, true,
-				htlc.RefundTimeout, ourDelay, remoteKey,
-				localKey, ourRevocation, htlc.RHash)
+			ourP2WSH, ourWitnessScript, err = lc.genHtlcScript(
+				htlc.Incoming, true, htlc.RefundTimeout, htlc.RHash,
+				localCommitLocalKey, localCommitRemoteKey,
+				localRevocation)
 			if err != nil {
 				return err
 			}
 		}
 		if !isDustRemote {
-			theirP2WSH, err = lc.genHtlcScript(htlc.Incoming, false,
-				htlc.RefundTimeout, theirDelay, remoteKey,
-				localKey, theirRevocation, htlc.RHash)
+			theirP2WSH, theirWitnessScript, err = lc.genHtlcScript(
+				htlc.Incoming, false, htlc.RefundTimeout, htlc.RHash,
+				remoteCommitLocalKey, remoteCommitRemoteKey,
+				remoteRevocation)
 			if err != nil {
 				return err
 			}
@@ -1419,7 +1449,9 @@ func (lc *LightningChannel) restoreStateLogs() error {
 			addCommitHeightRemote: pastHeight,
 			addCommitHeightLocal:  pastHeight,
 			ourPkScript:           ourP2WSH,
+			ourWitnessScript:      ourWitnessScript,
 			theirPkScript:         theirP2WSH,
+			theirWitnessScript:    theirWitnessScript,
 		}
 
 		if !htlc.Incoming {
@@ -1922,8 +1954,6 @@ func genRemoteHtlcSigJobs(commitPoint *btcec.PublicKey,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	remoteCommitView *commitment) ([]signJob, chan struct{}, error) {
 
-	// TODO(roasbeef): make the below into a sig pool job as well
-
 	// First, we'll generate all the keys required to generate the scripts
 	// for each HTLC output and transaction.
 	//
@@ -2063,8 +2093,10 @@ func genRemoteHtlcSigJobs(commitPoint *btcec.PublicKey,
 // decrements the available revocation window by 1. After a successful method
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
-//
-// TODO(roasbeef): update to detail second param
+// The first return parameter it he signature for the commitment transaction
+// itself, while the second parameter is a slice of all HTLC signatures (if
+// any). The HTLC signatures are sorted according to the BIP 69 order of the
+// HTLC's on the commitment transaction.
 func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Signature, error) {
 	lc.Lock()
 	defer lc.Unlock()
@@ -2127,7 +2159,6 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	if err != nil {
 		return nil, nil, err
 	}
-	// TODO(roasbeef): make fully async?
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
 	// While the jobs are being carried out, we'll Sign their version of
@@ -2987,8 +3018,6 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 // genHtlcScript generates the proper P2WSH public key scripts for the
 // HTLC output modified by two-bits denoting if this is an incoming HTLC, and
 // if the HTLC is being applied to their commitment transaction or ours.
-//
-// TODO(roasbeef): update comment
 func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
 	timeout uint32, rHash [32]byte, localKey, remoteKey *btcec.PublicKey,
 	revocationKey *btcec.PublicKey) ([]byte, []byte, error) {

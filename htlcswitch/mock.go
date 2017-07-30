@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -314,6 +315,8 @@ func (s *mockServer) PubKey() [33]byte {
 }
 
 func (s *mockServer) Disconnect(reason error) {
+	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
+
 	s.Stop()
 	s.t.Fatalf("server %v was disconnected", s.name)
 }
@@ -438,8 +441,22 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescri
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
+	if !privKey.PubKey().IsEqual(signDesc.PubKey) {
+		return nil, fmt.Errorf("incorrect key passed")
+	}
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll, privKey)
+		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll,
+		privKey)
 	if err != nil {
 		return nil, err
 	}
@@ -448,9 +465,23 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescri
 }
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
 
+	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
+	// duplicate this code?
+
+	privKey := m.key
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
-		txscript.SigHashAll, m.key, true)
+		txscript.SigHashAll, privKey, true)
 	if err != nil {
 		return nil, err
 	}

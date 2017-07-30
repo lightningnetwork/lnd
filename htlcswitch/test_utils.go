@@ -76,9 +76,11 @@ func generateRandomBytes(n int) ([]byte, error) {
 
 // createTestChannel creates the channel and returns our and remote channels
 // representations.
-func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
-	feePerKw btcutil.Amount, chanID lnwire.ShortChannelID) (
-	*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
+//
+// TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
+func createTestChannel(alicePrivKey, bobPrivKey []byte,
+	aliceAmount, bobAmount btcutil.Amount,
+	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
@@ -88,16 +90,6 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
 	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
-	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
-
-	witnessScript, _, err := lnwallet.GenFundingPkScript(
-		aliceKeyPub.SerializeCompressed(),
-		bobKeyPub.SerializeCompressed(),
-		int64(channelCapacity),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 
 	var hash [sha256.Size]byte
 	randomSeed, err := generateRandomBytes(sha256.Size)
@@ -112,49 +104,46 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
-	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, bobKeyPub,
-		aliceKeyPub)
-	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
+	aliceCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: aliceDustLimit,
+		},
+		CsvDelay:            uint16(csvTimeoutAlice),
+		MultiSigKey:         aliceKeyPub,
+		RevocationBasePoint: aliceKeyPub,
+		PaymentBasePoint:    aliceKeyPub,
+		DelayBasePoint:      aliceKeyPub,
+	}
+	bobCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: bobDustLimit,
+		},
+		CsvDelay:            uint16(csvTimeoutBob),
+		MultiSigKey:         bobKeyPub,
+		RevocationBasePoint: bobKeyPub,
+		PaymentBasePoint:    bobKeyPub,
+		DelayBasePoint:      bobKeyPub,
+	}
+
+	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, hash, aliceKeyPub)
+	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobRevokeKey := lnwallet.DeriveRevocationPubkey(aliceKeyPub,
-		bobFirstRevoke[:])
+	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
 
-	aliceRoot := lnwallet.DeriveRevocationRoot(aliceKeyPriv, aliceKeyPub,
-		bobKeyPub)
-	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
+	aliceRoot := lnwallet.DeriveRevocationRoot(aliceKeyPriv, hash, bobKeyPub)
+	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	aliceRevokeKey := lnwallet.DeriveRevocationPubkey(bobKeyPub,
-		aliceFirstRevoke[:])
+	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	aliceCommitTx, err := lnwallet.CreateCommitTx(
-		fundingTxIn,
-		aliceKeyPub,
-		bobKeyPub,
-		aliceRevokeKey,
-		csvTimeoutAlice,
-		aliceAmount-commitFee,
-		bobAmount,
-		lnwallet.DefaultDustLimit(),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	bobCommitTx, err := lnwallet.CreateCommitTx(
-		fundingTxIn,
-		bobKeyPub,
-		aliceKeyPub,
-		bobRevokeKey,
-		csvTimeoutBob,
-		bobAmount,
-		aliceAmount-commitFee,
-		lnwallet.DefaultDustLimit(),
-	)
+	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(aliceAmount,
+		bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
+		fundingTxIn)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -174,63 +163,47 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
 	var obsfucator [lnwallet.StateHintSize]byte
 	copy(obsfucator[:], aliceFirstRevoke[:])
 
+	estimator := &lnwallet.StaticFeeEstimator{24, 6}
+	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
+
 	aliceChannelState := &channeldb.OpenChannel{
-		IdentityPub:            aliceKeyPub,
-		ChanID:                 prevOut,
-		CommitFee:              commitFee,
-		FeePerKw:               feePerKw,
-		ChanType:               channeldb.SingleFunder,
-		IsInitiator:            true,
-		StateHintObsfucator:    obsfucator,
-		OurCommitKey:           aliceKeyPub,
-		TheirCommitKey:         bobKeyPub,
-		Capacity:               channelCapacity,
-		OurBalance:             aliceAmount - commitFee,
-		TheirBalance:           bobAmount,
-		OurCommitTx:            aliceCommitTx,
-		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
-		FundingOutpoint:        prevOut,
-		OurMultiSigKey:         aliceKeyPub,
-		TheirMultiSigKey:       bobKeyPub,
-		FundingWitnessScript:   witnessScript,
-		LocalCsvDelay:          csvTimeoutAlice,
-		RemoteCsvDelay:         csvTimeoutBob,
-		TheirCurrentRevocation: bobRevokeKey,
-		RevocationProducer:     alicePreimageProducer,
-		RevocationStore:        shachain.NewRevocationStore(),
-		TheirDustLimit:         bobDustLimit,
-		OurDustLimit:           aliceDustLimit,
-		ShortChanID:            chanID,
-		Db:                     dbAlice,
+		LocalChanCfg:            aliceCfg,
+		RemoteChanCfg:           bobCfg,
+		IdentityPub:             aliceKeyPub,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		FeePerKw:                feePerKw,
+		IsInitiator:             true,
+		Capacity:                channelCapacity,
+		LocalBalance:            aliceAmount - commitFee,
+		RemoteBalance:           bobAmount,
+		CommitTx:                *aliceCommitTx,
+		CommitSig:               bytes.Repeat([]byte{1}, 71),
+		RemoteCurrentRevocation: bobCommitPoint,
+		RevocationProducer:      alicePreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		ShortChanID:             chanID,
+		Db:                      dbAlice,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		IdentityPub:            bobKeyPub,
-		ChanID:                 prevOut,
-		CommitFee:              commitFee,
-		FeePerKw:               feePerKw,
-		ChanType:               channeldb.SingleFunder,
-		IsInitiator:            false,
-		StateHintObsfucator:    obsfucator,
-		OurCommitKey:           bobKeyPub,
-		TheirCommitKey:         aliceKeyPub,
-		Capacity:               channelCapacity,
-		OurBalance:             bobAmount,
-		TheirBalance:           aliceAmount - commitFee,
-		OurCommitTx:            bobCommitTx,
-		OurCommitSig:           bytes.Repeat([]byte{1}, 71),
-		FundingOutpoint:        prevOut,
-		OurMultiSigKey:         bobKeyPub,
-		TheirMultiSigKey:       aliceKeyPub,
-		FundingWitnessScript:   witnessScript,
-		LocalCsvDelay:          csvTimeoutBob,
-		RemoteCsvDelay:         csvTimeoutAlice,
-		TheirCurrentRevocation: aliceRevokeKey,
-		RevocationProducer:     bobPreimageProducer,
-		RevocationStore:        shachain.NewRevocationStore(),
-		TheirDustLimit:         aliceDustLimit,
-		OurDustLimit:           bobDustLimit,
-		ShortChanID:            chanID,
-		Db:                     dbBob,
+		LocalChanCfg:            bobCfg,
+		RemoteChanCfg:           aliceCfg,
+		IdentityPub:             bobKeyPub,
+		FeePerKw:                feePerKw,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		IsInitiator:             false,
+		Capacity:                channelCapacity,
+		LocalBalance:            bobAmount,
+		RemoteBalance:           aliceAmount - commitFee,
+		CommitTx:                *bobCommitTx,
+		CommitSig:               bytes.Repeat([]byte{1}, 71),
+		RemoteCurrentRevocation: aliceCommitPoint,
+		RevocationProducer:      bobPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		ShortChanID:             chanID,
+		Db:                      dbBob,
 	}
 
 	cleanUpFunc := func() {
@@ -240,10 +213,6 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
 
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
-	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate:      24,
-		Confirmation: 6,
-	}
 
 	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner,
 		nil, estimator, aliceChannelState)
@@ -253,6 +222,24 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte, aliceAmount, bobAmount,
 	channelBob, err := lnwallet.NewLightningChannel(bobSigner, nil,
 		estimator, bobChannelState)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Now that the channel are open, simulate the start of a session by
+	// having Alice and Bob extend their revocation windows to each other.
+	aliceNextRevoke, err := channelAlice.NextRevocationkey()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := channelBob.InitNextRevocation(aliceNextRevoke); err != nil {
+		return nil, nil, nil, err
+	}
+
+	bobNextRevoke, err := channelBob.NextRevocationkey()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := channelAlice.InitNextRevocation(bobNextRevoke); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -538,13 +525,13 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, 0, firstChanID)
+		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
 	if err != nil {
 		t.Fatalf("unable to create alice<->bob channel: %v", err)
 	}
 
 	secondBobChannel, carolChannel, sCleanUp, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, 0, secondChanID)
+		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
 	if err != nil {
 		t.Fatalf("unable to create bob<->carol channel: %v", err)
 	}

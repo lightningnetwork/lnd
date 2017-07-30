@@ -807,8 +807,8 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	}
 }
 
-// addLink is used to add the newly created channel link and start
-// use it to handle the channel updates.
+// addLink is used to add the newly created channel link and start use it to
+// handle the channel updates.
 func (s *Switch) addLink(link ChannelLink) error {
 	// First we'll add the link to the linkIndex which lets us quickly look
 	// up a channel when we need to close or register it, and the
@@ -958,7 +958,7 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	links, ok := s.interfaceIndex[destination]
 	if !ok {
 		return nil, errors.Errorf("unable to locate channel link by"+
-			"destination hop id %v", destination)
+			"destination hop id %x", destination)
 	}
 
 	channelLinks := make([]ChannelLink, 0, len(links))

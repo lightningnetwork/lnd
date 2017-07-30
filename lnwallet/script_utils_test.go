@@ -364,7 +364,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	for i, testCase := range testCases {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
-		vm, err := txscript.NewEngine(htlcWitnessScript,
+		vm, err := txscript.NewEngine(htlcPkScript,
 			sweepTx, 0, txscript.StandardVerifyFlags, nil,
 			nil, int64(paymentAmt))
 		if err != nil {
@@ -386,10 +386,12 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			done, err = vm.Step()
 			if err != nil && testCase.valid {
 				fmt.Println(debugBuf.String())
-				t.Fatalf("spend test case #%v failed, spend should be valid: %v", i, err)
+				t.Fatalf("spend test case #%v failed, spend "+
+					"should be valid: %v", i, err)
 			} else if err == nil && !testCase.valid && done {
 				fmt.Println(debugBuf.String())
-				t.Fatalf("spend test case #%v succeed, spend should be invalid: %v", i, err)
+				t.Fatalf("spend test case #%v succeed, spend "+
+					"should be invalid: %v", i, err)
 			}
 
 			debugBuf.WriteString(fmt.Sprintf("Stack: %v", vm.GetStack()))
@@ -414,19 +416,27 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 func TestHTLCReceiverSpendValidation(t *testing.T) {
 	t.Parallel()
 
-	// We generate a fake output, and the coresponding txin. This output
+	// We generate a fake output, and the corresponding txin. This output
 	// doesn't need to exist, as we'll only be validating spending from the
 	// transaction that references this.
+	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
+	if err != nil {
+		t.Fatalf("unable to create txid: %v", err)
+	}
 	fundingOut := &wire.OutPoint{
-		Hash:  testHdSeed,
+		Hash:  *txid,
 		Index: 50,
 	}
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
-	// Generate a payment and revocation preimage to be used below.
-	revokePreimage := testHdSeed[:]
-	revokeHash := sha256.Sum256(revokePreimage)
-	paymentPreimage := revokeHash
+	// Next we'll the commitment secret for our commitment tx and also the
+	// revocation key that we'll use as well.
+	revokePreimage := testHdSeed.CloneBytes()
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
+		revokePreimage)
+
+	// Generate a payment preimage to be used below.
+	paymentPreimage := revokePreimage
 	paymentPreimage[0] ^= 1
 	paymentHash := sha256.Sum256(paymentPreimage[:])
 
@@ -438,28 +448,36 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		bobsPrivKey)
 	paymentAmt := btcutil.Amount(1 * 10e8)
 	cltvTimeout := uint32(8)
-	csvTimeout := uint32(5)
+
+	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
+	bobLocalKey := TweakPubKey(bobKeyPub, commitPoint)
+
+	// As we'll be modeling spends from Bob's commitment transaction, we'll
+	// be using Alice's base point for the revocation key.
+	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcScript, err := receiverHTLCScript(cltvTimeout, csvTimeout,
-		aliceKeyPub, bobKeyPub, revokeHash[:], paymentHash[:])
+	htlcWitnessScript, err := receiverHTLCScript(cltvTimeout, aliceLocalKey,
+		bobLocalKey, revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcWitnessScript, err := witnessScriptHash(htlcScript)
+	htlcPkScript, err := witnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
 
-	// This will be Bob's commitment transaction. In this scenario Alice
-	// is sending an HTLC to a node she has a a path to (could be Bob,
-	// could be multiple hops down, it doesn't really matter).
-	receiverCommitTx := wire.NewMsgTx(2)
-	receiverCommitTx.AddTxIn(fakeFundingTxIn)
-	receiverCommitTx.AddTxOut(&wire.TxOut{
+	// This will be Bob's commitment transaction. In this scenario Alice is
+	// sending an HTLC to a node she has a path to (could be Bob, could be
+	// multiple hops down, it doesn't really matter).
+	htlcOutput := &wire.TxOut{
 		Value:    int64(paymentAmt),
 		PkScript: htlcWitnessScript,
-	})
+	}
+
+	receiverCommitTx := wire.NewMsgTx(2)
+	receiverCommitTx.AddTxIn(fakeFundingTxIn)
+	receiverCommitTx.AddTxOut(htlcOutput)
 
 	prevOut := &wire.OutPoint{
 		Hash:  receiverCommitTx.TxHash(),
@@ -467,14 +485,44 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	}
 
 	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxIn(wire.NewTxIn(prevOut, nil, nil))
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: *prevOut,
+	})
 	sweepTx.AddTxOut(
 		&wire.TxOut{
 			PkScript: []byte("doesn't matter"),
 			Value:    1 * 10e8,
 		},
 	)
+	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
 
+	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+
+	// Finally, we'll create mock signers for both of them based on their
+	// private keys. This test simplifies a bit and uses the same key as
+	// the base point for all scripts and derivations.
+	bobSigner := &mockSigner{bobKeyPriv}
+	aliceSigner := &mockSigner{aliceKeyPriv}
+
+	// We'll also generate a signature on the sweep transaction above
+	// that'll act as Alice's signature to Bob for the second level HTLC
+	// transaction.
+	aliceSignDesc := SignDescriptor{
+		PubKey:        aliceKeyPub,
+		SingleTweak:   aliceCommitTweak,
+		WitnessScript: htlcWitnessScript,
+		Output:        htlcOutput,
+		HashType:      txscript.SigHashAll,
+		SigHashes:     sweepTxSigHashes,
+		InputIndex:    0,
+	}
+	aliceSenderSig, err := aliceSigner.SignOutputRaw(sweepTx, &aliceSignDesc)
+	if err != nil {
+		t.Fatalf("unable to generate alice signature: %v", err)
+	}
+
+	// TODO(roasbeef): modify valid to check precise script errors?
 	testCases := []struct {
 		witness func() wire.TxWitness
 		valid   bool
@@ -482,55 +530,93 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// HTLC redemption w/ invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendRedeem(htlcScript,
-					paymentAmt, bobKeyPriv, sweepTx,
-					bytes.Repeat([]byte{1}, 45), csvTimeout,
-				)
-			}),
-			false,
-		},
-		{
-			// HTLC redemption w/ invalid sequence
-			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendRedeem(htlcScript,
-					paymentAmt, bobKeyPriv, sweepTx,
-					paymentPreimage[:], csvTimeout-2,
-				)
+				signDesc := &SignDescriptor{
+					PubKey:        bobKeyPub,
+					SingleTweak:   bobCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return receiverHtlcSpendRedeem(aliceSenderSig,
+					bytes.Repeat([]byte{1}, 45), bobSigner,
+					signDesc, sweepTx)
+
 			}),
 			false,
 		},
 		{
 			// HTLC redemption w/ valid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendRedeem(htlcScript,
-					paymentAmt, bobKeyPriv, sweepTx,
-					paymentPreimage[:], csvTimeout,
-				)
+				signDesc := &SignDescriptor{
+					PubKey:        bobKeyPub,
+					SingleTweak:   bobCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return receiverHtlcSpendRedeem(aliceSenderSig,
+					paymentPreimage[:], bobSigner,
+					signDesc, sweepTx)
 			}),
 			true,
 		},
 		{
 			// revoke w/ sig
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendRevoke(htlcScript, paymentAmt,
-					aliceKeyPriv, sweepTx, revokePreimage[:],
-				)
+				signDesc := &SignDescriptor{
+					PubKey:        aliceKeyPub,
+					DoubleTweak:   commitSecret,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return receiverHtlcSpendRevoke(aliceSigner,
+					signDesc, revocationKey, sweepTx)
 			}),
 			true,
 		},
 		{
 			// refund w/ invalid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendTimeout(htlcScript, paymentAmt,
-					aliceKeyPriv, sweepTx, cltvTimeout-2)
+				signDesc := &SignDescriptor{
+					PubKey:        aliceKeyPub,
+					SingleTweak:   aliceCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+					sweepTx, cltvTimeout-2)
 			}),
 			false,
 		},
 		{
 			// refund w/ valid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				return receiverHtlcSpendTimeout(htlcScript, paymentAmt,
-					aliceKeyPriv, sweepTx, cltvTimeout)
+				signDesc := &SignDescriptor{
+					PubKey:        aliceKeyPub,
+					SingleTweak:   aliceCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+					sweepTx, cltvTimeout)
 			}),
 			true,
 		},
@@ -539,7 +625,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	for i, testCase := range testCases {
 		sweepTx.TxIn[0].Witness = testCase.witness()
 
-		vm, err := txscript.NewEngine(htlcWitnessScript,
+		vm, err := txscript.NewEngine(htlcPkScript,
 			sweepTx, 0, txscript.StandardVerifyFlags, nil,
 			nil, int64(paymentAmt))
 		if err != nil {

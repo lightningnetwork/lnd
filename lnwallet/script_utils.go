@@ -469,38 +469,34 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 
 // receiverHtlcSpendRedeem constructs a valid witness allowing the receiver of
 // an HTLC to redeem the conditional payment in the event that their commitment
-// transaction is broadcast. Since this is a pay out to the receiving party as
-// an output on their commitment transaction, a relative time delay is required
-// before the output can be spent.
-func receiverHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
-	reciverKey *btcec.PrivateKey, sweepTx *wire.MsgTx,
-	paymentPreimage []byte, relativeTimeout uint32) (wire.TxWitness, error) {
+// transaction is broadcast. This clause transitions the state of the HLTC
+// output into the delay+claim state by activating the off-chain covenant bound
+// by the 2-of-2 multi-sig output. The HTLC success timeout transaction being
+// signed has a relative timelock delay enforced by its sequence number. This
+// delay give the sender of the HTLC enough time to revoke the output if this
+// is a breach commitment transaction.
+func receiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
+	signer Signer, signDesc *SignDescriptor,
+	htlcSuccessTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// In order to properly spend the transaction, we need to set the
-	// sequence number. We do this by converting the relative block delay
-	// into a sequence number value able to be interpreted by
-	// OP_CHECKSEQUENCEVERIFY.
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, relativeTimeout)
-
-	// Additionally, OP_CSV requires that the version of the transaction
-	// spending a pkscript with OP_CSV within it *must* be >= 2.
-	sweepTx.Version = 2
-
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-	sweepSig, err := txscript.RawTxInWitnessSignature(
-		sweepTx, hashCache, 0, int64(outputAmt), commitScript,
-		txscript.SigHashAll, reciverKey)
+	// First, we'll generate a signature for the HTLC success transaction.
+	// The signDesc should be signing with the public key used as the
+	// receiver's public key and also the correct single tweak.
+	sweepSig, err := signer.SignOutputRaw(htlcSuccessTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
 
-	// Place a one as the first item in the evaluated witness stack to
-	// force script execution to the HTLC redemption clause.
-	witnessStack := wire.TxWitness(make([][]byte, 4))
-	witnessStack[0] = sweepSig
-	witnessStack[1] = paymentPreimage
-	witnessStack[2] = []byte{1}
-	witnessStack[3] = commitScript
+	// The final witness stack is used the provide the script with the
+	// payment pre-image, and also execute the multi-sig clause after the
+	// pre-images matches. We add a nil item at the bottom of the stack in
+	// order to consume the extra pop within OP_CHECKMULTISIG.
+	witnessStack := wire.TxWitness(make([][]byte, 5))
+	witnessStack[0] = nil
+	witnessStack[1] = append(senderSig, byte(txscript.SigHashAll))
+	witnessStack[2] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[3] = paymentPreimage
+	witnessStack[4] = signDesc.WitnessScript
 
 	return witnessStack, nil
 }
@@ -509,15 +505,14 @@ func receiverHtlcSpendRedeem(commitScript []byte, outputAmt btcutil.Amount,
 // HTLC within a previously revoked commitment transaction to re-claim the
 // pending funds in the case that the receiver broadcasts this revoked
 // commitment transaction.
-func receiverHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
-	senderKey *btcec.PrivateKey, sweepTx *wire.MsgTx,
-	revokePreimage []byte) (wire.TxWitness, error) {
+func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	revokeKey *btcec.PublicKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
-	// TODO(roasbeef): move sig generate outside func, or just factor out?
-	hashCache := txscript.NewTxSigHashes(sweepTx)
-	sweepSig, err := txscript.RawTxInWitnessSignature(
-		sweepTx, hashCache, 0, int64(outputAmt), commitScript,
-		txscript.SigHashAll, senderKey)
+	// First, we'll generate a signature for the sweep transaction.  The
+	// signDesc should be signing with the public key used as the fully
+	// derived revocation public key and also the correct double tweak
+	// value.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
@@ -525,12 +520,10 @@ func receiverHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 	// We place a zero, then one as the first items in the evaluated
 	// witness stack in order to force script execution to the HTLC
 	// revocation clause.
-	witnessStack := wire.TxWitness(make([][]byte, 5))
-	witnessStack[0] = sweepSig
-	witnessStack[1] = revokePreimage
-	witnessStack[2] = []byte{1}
-	witnessStack[3] = nil
-	witnessStack[4] = commitScript
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = revokeKey.SerializeCompressed()
+	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil
 }
@@ -539,14 +532,35 @@ func receiverHtlcSpendRevoke(commitScript []byte, outputAmt btcutil.Amount,
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
 // commitment transaction.
-func receiverHtlcSpendTimeout(commitScript []byte, outputAmt btcutil.Amount,
-	senderKey *btcec.PrivateKey, sweepTx *wire.MsgTx,
-	absoluteTimeout uint32) (wire.TxWitness, error) {
+//
+// NOTE: The target input of the passed transaction MUST NOT have a final
+// sequence number. Otherwise, the OP_CHECKLOCKTIMEVERIFY check will fail.
+func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx, cltvExpiry uint32) (wire.TxWitness, error) {
 
 	// The HTLC output has an absolute time period before we are permitted
 	// to recover the pending funds. Therefore we need to set the locktime
 	// on this sweeping transaction in order to pass Script verification.
-	sweepTx.LockTime = absoluteTimeout
+	sweepTx.LockTime = cltvExpiry
+
+	// With the lock time on the transaction set, we'll not generate a
+	// signature for the sweep transaction. The passed sign descriptor
+	// should be created using the raw public key of the sender (w/o the
+	// single tweak applied), and the single tweak set to the proper value
+	// taking into account the current state's point.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = nil
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
 
 	hashCache := txscript.NewTxSigHashes(sweepTx)
 	sweepSig, err := txscript.RawTxInWitnessSignature(

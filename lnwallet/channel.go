@@ -1157,12 +1157,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	}
 	lc.RUnlock()
 
-	lc.Lock()
-	defer lc.Unlock()
-
-	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
-		"detected!", lc.channelState.ChanID)
-
 	// Otherwise, the remote party might have broadcast a prior revoked
 	// state...!!!
 	commitTxBroadcast := commitSpend.SpendingTx
@@ -1175,6 +1169,12 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	if isOurCommitment {
 		return
 	}
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
+		"detected!", lc.channelState.FundingOutpoint)
 
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
@@ -1203,6 +1203,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// As we've detected that the channel has been closed,
 		// immediately delete the state from disk, creating a close
 		// summary for future usage by related sub-systems.
+		//
 		// TODO(roasbeef): include HTLC's
 		//  * and time-locked balance, NEED TO???
 		closeSummary := channeldb.ChannelCloseSummary{

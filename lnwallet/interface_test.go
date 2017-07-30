@@ -1130,106 +1130,143 @@ func testTransactionSubscriptions(miner *rpctest.Harness, w *lnwallet.LightningW
 	}
 }
 
-func testSignOutputPrivateTweak(r *rpctest.Harness, w *lnwallet.LightningWallet, t *testing.T) {
-	t.Logf("Running private tweak test")
+func testSignOutputUsingTweaks(r *rpctest.Harness,
+	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
 	// We'd like to test the ability of the wallet's Signer implementation
 	// to be able to sign with a private key derived from tweaking the
 	// specific public key. This scenario exercises the case when the
-	// wallet needs to sign for a sweep of a revoked output.
+	// wallet needs to sign for a sweep of a revoked output, or just claim
+	// any output that pays to a tweaked key.
 
-	// First, generate a new public key under th control of the wallet,
+	// First, generate a new public key under the control of the wallet,
 	// then generate a revocation key using it.
-	pubkey, err := w.NewRawKey()
+	pubKey, err := alice.NewRawKey()
 	if err != nil {
 		t.Fatalf("unable to obtain public key: %v", err)
 	}
-	revocation := bytes.Repeat([]byte{2}, 32)
-	revocationKey := lnwallet.DeriveRevocationPubkey(pubkey, revocation)
 
-	// With the revocation key generated, create a pkScript that pays to
-	// the revocation key using a simple p2wkh script.
-	pubkeyHash := btcutil.Hash160(revocationKey.SerializeCompressed())
-	revokeAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
-		&chaincfg.SimNetParams)
-	if err != nil {
-		t.Fatalf("unable to create addr: %v", err)
-	}
-	revokeScript, err := txscript.PayToAddrScript(revokeAddr)
-	if err != nil {
-		t.Fatalf("unable to generate script: %v", err)
-	}
+	// As we'd like to test both single tweak, and double tweak spends,
+	// we'll generate a commitment pre-image, then derive a revocation key
+	// and single tweak from that.
+	commitPreimage := bytes.Repeat([]byte{2}, 32)
+	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
+		commitPreimage)
 
-	// With the script fully assemebld, instruct the wallet to fund the
-	// output with a newly creaed transaction.
-	revokeOutput := &wire.TxOut{
-		Value:    btcutil.SatoshiPerBitcoin,
-		PkScript: revokeScript,
-	}
-	txid, err := w.SendOutputs([]*wire.TxOut{revokeOutput})
-	if err != nil {
-		t.Fatalf("unable to create output: %v", err)
-	}
+	revocationKey := lnwallet.DeriveRevocationPubkey(pubKey, commitPoint)
+	commitTweak := lnwallet.SingleTweakBytes(commitPoint, pubKey)
 
-	// Query for the transaction generated above so we can located the
-	// index of our output.
-	tx, err := r.Node.GetRawTransaction(txid)
-	if err != nil {
-		t.Fatalf("unable to query for tx: %v", err)
-	}
-	var outputIndex uint32
-	if bytes.Equal(tx.MsgTx().TxOut[0].PkScript, revokeScript) {
-		outputIndex = 0
-	} else {
-		outputIndex = 1
-	}
+	tweakedPub := lnwallet.TweakPubKey(pubKey, commitPoint)
 
-	/// WIth the index located, we can create a transaction spending the
-	//referenced output.
-	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  tx.MsgTx().TxHash(),
-			Index: outputIndex,
-		},
-	})
+	// As we'd like to test both single and double tweaks, we'll repeat
+	// the same set up twice. The first will use a regular single tweak,
+	// and the second will use a double tweak.
+	baseKey := pubKey
+	for i := 0; i < 2; i++ {
+		var tweakedKey *btcec.PublicKey
+		if i == 0 {
+			tweakedKey = tweakedPub
+		} else {
+			tweakedKey = revocationKey
+		}
 
-	// Now we can populate the sign descriptor which we'll use to generate
-	// the signature. Within the descriptor we set the private tweak value
-	// as the key in the script is derived based on this tweak value and
-	// the key we originally generated above.
-	signDesc := &lnwallet.SignDescriptor{
-		PubKey:        pubkey,
-		PrivateTweak:  revocation,
-		WitnessScript: revokeScript,
-		Output:        revokeOutput,
-		HashType:      txscript.SigHashAll,
-		SigHashes:     txscript.NewTxSigHashes(sweepTx),
-		InputIndex:    0,
-	}
+		// Using the given key for the current iteration, we'll
+		// generate a regular p2wkh from that.
+		pubkeyHash := btcutil.Hash160(tweakedKey.SerializeCompressed())
+		keyAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
+			&chaincfg.SimNetParams)
+		if err != nil {
+			t.Fatalf("unable to create addr: %v", err)
+		}
+		keyScript, err := txscript.PayToAddrScript(keyAddr)
+		if err != nil {
+			t.Fatalf("unable to generate script: %v", err)
+		}
 
-	// With the descriptor created, we use it to generate a signature, then
-	// manually create a valid witness stack we'll use for signing.
-	spendSig, err := w.Signer.SignOutputRaw(sweepTx, signDesc)
-	if err != nil {
-		t.Fatalf("unable to generate signature: %v", err)
-	}
-	witness := make([][]byte, 2)
-	witness[0] = append(spendSig, byte(txscript.SigHashAll))
-	witness[1] = revocationKey.SerializeCompressed()
-	sweepTx.TxIn[0].Witness = witness
+		// With the script fully assembled, instruct the wallet to fund
+		// the output with a newly created transaction.
+		newOutput := &wire.TxOut{
+			Value:    btcutil.SatoshiPerBitcoin,
+			PkScript: keyScript,
+		}
+		txid, err := alice.SendOutputs([]*wire.TxOut{newOutput})
+		if err != nil {
+			t.Fatalf("unable to create output: %v", err)
+		}
 
-	// Finally, attempt to validate the completed transaction. This should
-	// succeed if the wallet was able to properly generate the proper
-	// private key.
-	vm, err := txscript.NewEngine(revokeScript,
-		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(btcutil.SatoshiPerBitcoin))
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
-	if err := vm.Execute(); err != nil {
-		t.Fatalf("revocation spend invalid: %v", err)
+		// Query for the transaction generated above so we can located
+		// the index of our output.
+		tx, err := r.Node.GetRawTransaction(txid)
+		if err != nil {
+			t.Fatalf("unable to query for tx: %v", err)
+		}
+		var outputIndex uint32
+		if bytes.Equal(tx.MsgTx().TxOut[0].PkScript, keyScript) {
+			outputIndex = 0
+		} else {
+			outputIndex = 1
+		}
+
+		// With the index located, we can create a transaction spending
+		// the referenced output.
+		sweepTx := wire.NewMsgTx(2)
+		sweepTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: wire.OutPoint{
+				Hash:  tx.MsgTx().TxHash(),
+				Index: outputIndex,
+			},
+		})
+		sweepTx.AddTxOut(&wire.TxOut{
+			Value:    1000,
+			PkScript: keyScript,
+		})
+
+		// Now we can populate the sign descriptor which we'll use to
+		// generate the signature. Within the descriptor we set the
+		// private tweak value as the key in the script is derived
+		// based on this tweak value and the key we originally
+		// generated above.
+		signDesc := &lnwallet.SignDescriptor{
+			PubKey:        baseKey,
+			WitnessScript: keyScript,
+			Output:        newOutput,
+			HashType:      txscript.SigHashAll,
+			SigHashes:     txscript.NewTxSigHashes(sweepTx),
+			InputIndex:    0,
+		}
+
+		// If this is the first, loop, we'll use the generated single
+		// tweak, otherwise, we'll use the double tweak.
+		if i == 0 {
+			signDesc.SingleTweak = commitTweak
+		} else {
+			signDesc.DoubleTweak = commitSecret
+		}
+
+		// With the descriptor created, we use it to generate a
+		// signature, then manually create a valid witness stack we'll
+		// use for signing.
+		spendSig, err := alice.Cfg.Signer.SignOutputRaw(sweepTx, signDesc)
+		if err != nil {
+			t.Fatalf("unable to generate signature: %v", err)
+		}
+		witness := make([][]byte, 2)
+		witness[0] = append(spendSig, byte(txscript.SigHashAll))
+		witness[1] = tweakedKey.SerializeCompressed()
+		sweepTx.TxIn[0].Witness = witness
+
+		// Finally, attempt to validate the completed transaction. This
+		// should succeed if the wallet was able to properly generate
+		// the proper private key.
+		vm, err := txscript.NewEngine(keyScript,
+			sweepTx, 0, txscript.StandardVerifyFlags, nil,
+			nil, int64(btcutil.SatoshiPerBitcoin))
+		if err != nil {
+			t.Fatalf("unable to create engine: %v", err)
+		}
+		if err := vm.Execute(); err != nil {
+			t.Fatalf("spend #%v is invalid: %v", i, err)
+		}
 	}
 }
 

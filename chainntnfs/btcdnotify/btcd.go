@@ -256,6 +256,10 @@ out:
 					close(outPointClients[msg.spendID].spendChan)
 					delete(b.spendNotifications[msg.op], msg.spendID)
 				}
+
+				// Signal that it's safe yield from Cancel to application.
+				close(msg.done)
+
 			case *epochCancel:
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
@@ -274,6 +278,7 @@ out:
 				close(b.blockEpochClients[msg.epochID].epochChan)
 				delete(b.blockEpochClients, msg.epochID)
 
+				// Signal that it's safe yield from Cancel to application.
 				close(msg.done)
 			}
 		case registerMsg := <-b.notificationRegistry:
@@ -620,6 +625,8 @@ type spendCancel struct {
 
 	// spendID the ID of the notification to cancel.
 	spendID uint64
+
+	done chan struct{}
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target
@@ -675,13 +682,22 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return &chainntnfs.SpendEvent{
 		Spend: ntfn.spendChan,
 		Cancel: func() {
-			select {
-			case b.notificationCancels <- &spendCancel{
+			cancel := &spendCancel{
 				op:      *outpoint,
 				spendID: ntfn.spendID,
-			}:
+				done:    make(chan struct{}),
+			}
+
+			// Submit spend cancellation to notification dispatcher.
+			select {
+			case b.notificationCancels <- cancel:
+				// Cancellation is being handled, wait for close before yielding to
+				// caller.
+				select {
+				case <-cancel.done:
+				case <-b.quit:
+				}
 			case <-b.quit:
-				return
 			}
 		},
 	}, nil
@@ -766,14 +782,16 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, er
 					done:    make(chan struct{}),
 				}
 
+				// Submit epoch cancellation to notification dispatcher.
 				select {
 				case b.notificationCancels <- cancel:
+					// Cancellation is being handled, wait for close before yielding to
+					// caller.
 					select {
 					case <-cancel.done:
 					case <-b.quit:
 					}
 				case <-b.quit:
-					return
 				}
 			},
 		}, nil

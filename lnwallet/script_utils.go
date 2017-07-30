@@ -753,20 +753,20 @@ func DeriveRevocationPrivKey(commitPrivKey *btcec.PrivateKey,
 }
 
 // DeriveRevocationRoot derives an root unique to a channel given the
-// private key for our public key in the 2-of-2 multi-sig, and the remote
-// node's multi-sig public key. The seed is derived using the HKDF[1][2]
-// instantiated with sha-256. The secret data used is our multi-sig private
-// key, with the salt being the remote node's public key.
+// derivation root, and the blockhash that the funding process began at and the
+// remote node's identity public key. The seed is derived using the HKDF[1][2]
+// instantiated with sha-256. With this schema, once we know the block hash of
+// the funding transaction, and who we funded the channel with, we can
+// reconstruct all of our revocation state.
 //
 // [1]: https://eprint.iacr.org/2010/264.pdf
 // [2]: https://tools.ietf.org/html/rfc5869
 func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
-	localMultiSigKey *btcec.PublicKey,
-	remoteMultiSigKey *btcec.PublicKey) *chainhash.Hash {
+	blockSalt chainhash.Hash, nodePubKey *btcec.PublicKey) chainhash.Hash {
 
 	secret := derivationRoot.Serialize()
-	salt := localMultiSigKey.SerializeCompressed()
-	info := remoteMultiSigKey.SerializeCompressed()
+	salt := blockSalt[:]
+	info := nodePubKey.SerializeCompressed()
 
 	seedReader := hkdf.New(sha256.New, secret, salt, info)
 
@@ -776,7 +776,7 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 	var root chainhash.Hash
 	seedReader.Read(root[:])
 
-	return &root
+	return root
 }
 
 // SetStateNumHint encodes the current state number within the passed

@@ -353,8 +353,8 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
-		in.LocalFundingAmount, in.PushSat, in.NumConfs)
+		"allocation(us=%v, them=%v)", in.TargetPeerId,
+		in.LocalFundingAmount, in.PushSat)
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
@@ -410,7 +410,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		nodePubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
+		nodePubKey, localFundingAmt, remoteInitialBalance)
 
 	var outpoint wire.OutPoint
 out:
@@ -460,8 +460,8 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
-		"allocation(us=%v, them=%v) numconfs=%v", in.TargetPeerId,
-		in.LocalFundingAmount, in.PushSat, in.NumConfs)
+		"allocation(us=%v, them=%v)", in.TargetPeerId,
+		in.LocalFundingAmount, in.PushSat)
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
@@ -498,7 +498,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(in.TargetPeerId,
-		nodepubKey, localFundingAmt, remoteInitialBalance, in.NumConfs)
+		nodepubKey, localFundingAmt, remoteInitialBalance)
 
 	select {
 	// If an error occurs them immediately return the error to the client.
@@ -675,7 +675,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 	// according to its channel point.
 	var dbChan *channeldb.OpenChannel
 	for _, dbChannel := range dbChannels {
-		if *dbChannel.ChanID == chanPoint {
+		if dbChannel.FundingOutpoint == chanPoint {
 			dbChan = dbChannel
 			break
 		}
@@ -689,7 +689,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 
 	// Otherwise, we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
-	return lnwallet.NewLightningChannel(r.server.cc.wallet.Signer, nil,
+	return lnwallet.NewLightningChannel(r.server.cc.wallet.Cfg.Signer, nil,
 		r.server.cc.feeEstimator, dbChan)
 }
 
@@ -881,7 +881,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	var balance btcutil.Amount
 	for _, channel := range channels {
 		if !channel.IsPending {
-			balance += channel.OurBalance
+			balance += channel.LocalBalance
 		}
 	}
 
@@ -918,17 +918,17 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// broadcast.
 		// TODO(roasbeef): query for funding tx from wallet, display
 		// that also?
-		utx := btcutil.NewTx(pendingChan.OurCommitTx)
+		utx := btcutil.NewTx(&pendingChan.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelResponse_PendingChannel{
 				RemoteNodePub: hex.EncodeToString(pub),
-				ChannelPoint:  pendingChan.ChanID.String(),
+				ChannelPoint:  pendingChan.FundingOutpoint.String(),
 				Capacity:      int64(pendingChan.Capacity),
-				LocalBalance:  int64(pendingChan.OurBalance),
-				RemoteBalance: int64(pendingChan.TheirBalance),
+				LocalBalance:  int64(pendingChan.LocalBalance),
+				RemoteBalance: int64(pendingChan.RemoteBalance),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(pendingChan.CommitFee),
@@ -1047,12 +1047,12 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 		nodePub := dbChannel.IdentityPub
 		nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
-		chanPoint := dbChannel.ChanID
+		chanPoint := dbChannel.FundingOutpoint
 
 		// With the channel point known, retrieve the network channel
 		// ID from the database.
 		var chanID uint64
-		chanID, _ = graph.ChannelID(chanPoint)
+		chanID, _ = graph.ChannelID(&chanPoint)
 
 		var peerOnline bool
 		if _, err := r.server.findPeer(nodePub); err == nil {
@@ -1064,7 +1064,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// estimated weight of the witness to calculate the weight of
 		// the transaction if it were to be immediately unilaterally
 		// broadcast.
-		utx := btcutil.NewTx(dbChannel.OurCommitTx)
+		utx := btcutil.NewTx(&dbChannel.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
@@ -1074,8 +1074,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,
 			Capacity:              int64(dbChannel.Capacity),
-			LocalBalance:          int64(dbChannel.OurBalance),
-			RemoteBalance:         int64(dbChannel.TheirBalance),
+			LocalBalance:          int64(dbChannel.LocalBalance),
+			RemoteBalance:         int64(dbChannel.RemoteBalance),
 			CommitFee:             int64(dbChannel.CommitFee),
 			CommitWeight:          commitWeight,
 			FeePerKw:              int64(dbChannel.FeePerKw),
@@ -1091,7 +1091,6 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 				Amount:           int64(htlc.Amt),
 				HashLock:         htlc.RHash[:],
 				ExpirationHeight: htlc.RefundTimeout,
-				RevocationDelay:  htlc.RevocationDelay,
 			}
 		}
 

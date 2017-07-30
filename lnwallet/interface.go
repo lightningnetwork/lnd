@@ -234,14 +234,33 @@ type SignDescriptor struct {
 	// key corresponding to this public key.
 	PubKey *btcec.PublicKey
 
-	// PrivateTweak is a scalar value that should be added to the private
-	// key corresponding to the above public key to obtain the private key
-	// to be used to sign this input. This value is typically a leaf node
-	// from the revocation tree.
+	// SingleTweak is a scalar value that will be added to the private key
+	// corresponding to the above public key to obtain the private key to
+	// be used to sign this input. This value is typically derived via the
+	// following computation:
+	//
+	//  * derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
 	//
 	// NOTE: If this value is nil, then the input can be signed using only
-	// the above public key.
-	PrivateTweak []byte
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	SingleTweak []byte
+
+	// DoubleTweak is a private key that will be used in combination with
+	// its corresponding private key to derive the private key that is to
+	// be used to sign the target input. Within the Lightning protocol,
+	// this value is typically the commitment secret from a previously
+	// revoked commitment transaction. This value is in combination with
+	// two hash values, and the original private key to derive the private
+	// key to be used when signing.
+	//
+	//  * k = (privKey*sha256(pubKey || tweakPub) +
+	//        tweakPriv*sha256(tweakPub || pubKey)) mod N
+	//
+	// NOTE: If this value is nil, then the input can be signed using only
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	DoubleTweak *btcec.PrivateKey
 
 	// WitnessScript is the full script required to properly redeem the
 	// output. This field will only be populated if a p2wsh or a p2sh
@@ -283,6 +302,10 @@ type Signer interface {
 	// SignDescriptor. This method should be capable of generating the
 	// proper input script for both regular p2wkh output and p2wkh outputs
 	// nested within a regular p2sh output.
+	//
+	// NOTE: This method will ignore any tweak parameters set within the
+	// passed SignDescriptor as it assumes a set of typical script
+	// templates (p2wkh, np2wkh, etc).
 	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error)
 }
 

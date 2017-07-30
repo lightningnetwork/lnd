@@ -704,6 +704,12 @@ type LightningChannel struct {
 
 	status channelState
 
+	// sigPool is a pool of workers that are capable of signing and
+	// validating signatures in parallel. This is utilized as an
+	// optimization to void serially signing or validating the HTLC
+	// signatures, of which there may be hundreds.
+	sigPool *sigPool
+
 	// feeEstimator is used to calculate the fee rate for the channel's
 	// commitment and cooperative close transactions.
 	feeEstimator FeeEstimator
@@ -838,6 +844,8 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	}
 
 	lc := &LightningChannel{
+		// TODO(roasbeef): tune num sig workers?
+		sigPool:               newSigPool(runtime.NumCPU(), signer),
 		signer:                signer,
 		channelEvents:         events,
 		feeEstimator:          fe,
@@ -969,9 +977,31 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	s := lc.StateSnapshot()
 	lc.availableLocalBalance = s.LocalBalance
 
+	// Finally, we'll kick of the signature job pool to handle any upcoming
+	// commitment state generation and validation.
+	if lc.sigPool.Start(); err != nil {
+		return nil, err
+	}
+
 	return lc, nil
 }
 
+// Stop gracefully shuts down any active goroutines spawned by the
+// LightningChannel during regular duties.
+func (lc *LightningChannel) Stop() {
+	if !atomic.CompareAndSwapInt32(&lc.shutdown, 0, 1) {
+		return
+	}
+
+	// TODO(roasbeef): ensure that when channel links and breach arbs exit,
+	// that they call Stop?
+
+	lc.sigPool.Stop()
+
+	close(lc.quit)
+
+	lc.wg.Wait()
+}
 // BreachRetribution contains all the data necessary to bring a channel
 // counterparty to justice claiming ALL lingering funds within the channel in
 // the scenario that they broadcast a revoked commitment transaction. A

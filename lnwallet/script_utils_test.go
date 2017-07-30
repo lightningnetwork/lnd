@@ -573,43 +573,45 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	}
 }
 
-var stateHintTests = []struct {
-	name       string
-	from       uint64
-	to         uint64
-	inputs     int
-	shouldFail bool
-}{
-	{
-		name:       "states 0 to 1000",
-		from:       0,
-		to:         1000,
-		inputs:     1,
-		shouldFail: false,
-	},
-	{
-		name:       "states 'maxStateHint-1000' to 'maxStateHint'",
-		from:       maxStateHint - 1000,
-		to:         maxStateHint,
-		inputs:     1,
-		shouldFail: false,
-	},
-	{
-		name:       "state 'maxStateHint+1'",
-		from:       maxStateHint + 1,
-		to:         maxStateHint + 10,
-		inputs:     1,
-		shouldFail: true,
-	},
-	{
-		name:       "commit transaction with two inputs",
-		inputs:     2,
-		shouldFail: true,
-	},
 }
 
 func TestCommitTxStateHint(t *testing.T) {
 	t.Parallel()
+
+	stateHintTests := []struct {
+		name       string
+		from       uint64
+		to         uint64
+		inputs     int
+		shouldFail bool
+	}{
+		{
+			name:       "states 0 to 1000",
+			from:       0,
+			to:         1000,
+			inputs:     1,
+			shouldFail: false,
+		},
+		{
+			name:       "states 'maxStateHint-1000' to 'maxStateHint'",
+			from:       maxStateHint - 1000,
+			to:         maxStateHint,
+			inputs:     1,
+			shouldFail: false,
+		},
+		{
+			name:       "state 'maxStateHint+1'",
+			from:       maxStateHint + 1,
+			to:         maxStateHint + 10,
+			inputs:     1,
+			shouldFail: true,
+		},
+		{
+			name:       "commit transaction with two inputs",
+			inputs:     2,
+			shouldFail: true,
+		},
+	}
 
 	var obsfucator [StateHintSize]byte
 	copy(obsfucator[:], testHdSeed[:StateHintSize])

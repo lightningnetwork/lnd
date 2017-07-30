@@ -268,9 +268,6 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					delete(n.spendNotifications[msg.op], msg.spendID)
 				}
 
-				// Signal that it's safe yield from Cancel to application.
-				close(msg.done)
-
 			case *epochCancel:
 				chainntnfs.Log.Infof("Cancelling epoch "+
 					"notification, epoch_id=%v", msg.epochID)
@@ -288,9 +285,6 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				// cancelled.
 				close(n.blockEpochClients[msg.epochID].epochChan)
 				delete(n.blockEpochClients, msg.epochID)
-
-				// Signal that it's safe yield from Cancel to application.
-				close(msg.done)
 			}
 
 		case registerMsg := <-n.notificationRegistry:
@@ -687,8 +681,6 @@ type spendCancel struct {
 
 	// spendID the ID of the notification to cancel.
 	spendID uint64
-
-	done chan struct{}
 }
 
 // RegisterSpendNtfn registers an intent to be notified once the target
@@ -716,17 +708,21 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			cancel := &spendCancel{
 				op:      *outpoint,
 				spendID: ntfn.spendID,
-				done:    make(chan struct{}),
 			}
 
 			// Submit spend cancellation to notification dispatcher.
 			select {
 			case n.notificationCancels <- cancel:
-				// Cancellation is being handled, wait for close before yielding to
-				// caller.
-				select {
-				case <-cancel.done:
-				case <-n.quit:
+				// Cancellation is being handled, drain the spend chan until it is
+				// closed before yielding to the caller.
+				for {
+					select {
+					case _, ok := <-ntfn.spendChan:
+						if !ok {
+							return
+						}
+					case <-n.quit:
+					}
 				}
 			case <-n.quit:
 			}
@@ -860,8 +856,6 @@ type blockEpochRegistration struct {
 // to cancel an outstanding epoch notification that has yet to be dispatched.
 type epochCancel struct {
 	epochID uint64
-
-	done chan struct{}
 }
 
 // RegisterBlockEpochNtfn returns a BlockEpochEvent which subscribes the caller
@@ -883,17 +877,21 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent
 			Cancel: func() {
 				cancel := &epochCancel{
 					epochID: registration.epochID,
-					done:    make(chan struct{}),
 				}
 
 				// Submit epoch cancellation to notification dispatcher.
 				select {
 				case n.notificationCancels <- cancel:
-					// Cancellation is being handled, wait for close before yielding to
-					// caller.
-					select {
-					case <-cancel.done:
-					case <-n.quit:
+					// Cancellation is being handled, drain the epoch channel until it is
+					// closed before yielding to caller.
+					for {
+						select {
+						case _, ok := <-registration.epochChan:
+							if !ok {
+								return
+							}
+						case <-n.quit:
+						}
 					}
 				case <-n.quit:
 				}

@@ -922,14 +922,8 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 
 	chanPoint := n.aliceChannelLink.ChanID()
 
-	// Append initial channel window revocation messages which occurs after
-	// channel opening.
-	var aliceOrder []lnwire.Message
-	for i := 0; i < lnwallet.InitialRevocationWindow; i++ {
-		aliceOrder = append(aliceOrder, &lnwire.RevokeAndAck{})
-	}
-
 	// The order in which Alice receives wire messages.
+	var aliceOrder []lnwire.Message
 	aliceOrder = append(aliceOrder, []lnwire.Message{
 		&lnwire.RevokeAndAck{},
 		&lnwire.CommitSig{},
@@ -938,14 +932,8 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		&lnwire.RevokeAndAck{},
 	}...)
 
-	// Append initial channel window revocation messages which occurs after
-	// channel channel opening.
-	var bobOrder []lnwire.Message
-	for i := 0; i < lnwallet.InitialRevocationWindow; i++ {
-		bobOrder = append(bobOrder, &lnwire.RevokeAndAck{})
-	}
-
 	// The order in which Bob receives wire messages.
+	var bobOrder []lnwire.Message
 	bobOrder = append(bobOrder, []lnwire.Message{
 		&lnwire.UpdateAddHTLC{},
 		&lnwire.CommitSig{},

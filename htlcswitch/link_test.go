@@ -20,9 +20,9 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// messageToString is used to produce less spammy log messages in trace
-// mode by setting the 'Curve" parameter to nil. Doing this avoids printing out
-// each of the field elements in the curve parameters for secp256k1.
+// messageToString is used to produce less spammy log messages in trace mode by
+// setting the 'Curve" parameter to nil. Doing this avoids printing out each of
+// the field elements in the curve parameters for secp256k1.
 func messageToString(msg lnwire.Message) string {
 	switch m := msg.(type) {
 	case *lnwire.RevokeAndAck:
@@ -34,15 +34,20 @@ func messageToString(msg lnwire.Message) string {
 		m.NodeID2.Curve = nil
 		m.BitcoinKey1.Curve = nil
 		m.BitcoinKey2.Curve = nil
-	case *lnwire.SingleFundingComplete:
-		m.RevocationKey.Curve = nil
-	case *lnwire.SingleFundingRequest:
-		m.CommitmentKey.Curve = nil
-		m.ChannelDerivationPoint.Curve = nil
-	case *lnwire.SingleFundingResponse:
-		m.ChannelDerivationPoint.Curve = nil
-		m.CommitmentKey.Curve = nil
-		m.RevocationKey.Curve = nil
+	case *lnwire.AcceptChannel:
+		m.FundingKey.Curve = nil
+		m.RevocationPoint.Curve = nil
+		m.PaymentPoint.Curve = nil
+		m.DelayedPaymentPoint.Curve = nil
+		m.FirstCommitmentPoint.Curve = nil
+	case *lnwire.OpenChannel:
+		m.FundingKey.Curve = nil
+		m.RevocationPoint.Curve = nil
+		m.PaymentPoint.Curve = nil
+		m.DelayedPaymentPoint.Curve = nil
+		m.FirstCommitmentPoint.Curve = nil
+	case *lnwire.FundingLocked:
+		m.NextPerCommitmentPoint.Curve = nil
 	}
 
 	return spew.Sdump(msg)

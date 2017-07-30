@@ -1043,7 +1043,7 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 // received, an error is returned.
 func (n *networkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
-	pushAmt btcutil.Amount, numConfs uint32) (lnrpc.Lightning_OpenChannelClient, error) {
+	pushAmt btcutil.Amount) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -1060,7 +1060,6 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
 		PushSat:            int64(pushAmt),
-		NumConfs:           numConfs,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)
@@ -1106,7 +1105,7 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 // received, an error is returned.
 func (n *networkHarness) OpenPendingChannel(ctx context.Context,
 	srcNode, destNode *lightningNode, amt btcutil.Amount,
-	pushAmt btcutil.Amount, numConfs uint32) (*lnrpc.PendingUpdate, error) {
+	pushAmt btcutil.Amount) (*lnrpc.PendingUpdate, error) {
 
 	// Wait until srcNode and destNode have blockchain synced
 	if err := srcNode.WaitForBlockchainSync(ctx); err != nil {
@@ -1120,7 +1119,6 @@ func (n *networkHarness) OpenPendingChannel(ctx context.Context,
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
 		PushSat:            int64(pushAmt),
-		NumConfs:           numConfs,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

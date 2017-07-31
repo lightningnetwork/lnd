@@ -1,5 +1,5 @@
-hash: 4bb81ddd26fab353e8f9912d3571e5ea64b0d53e7ce6da550feea175ea2971a6
-updated: 2017-07-14T17:46:59.256925351-07:00
+hash: 53c3b4c414ea0e38f2cc125d4a98ff6b4d701f6249574e4600f614f488c2daf5
+updated: 2017-07-30T19:37:33.017113672-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -16,7 +16,7 @@ imports:
   - parser
   - token
 - name: github.com/boltdb/bolt
-  version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
+  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
@@ -72,7 +72,7 @@ imports:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: a90e2d9284413c6c53585a608e47febf2d300ab9
+  version: a164ed004296342ba8412c03ed9875699b6c594b
 - name: github.com/ltcsuite/ltcd
   version: 38f2b6f507e2523ae972f2ee6ae4c9f04f6c1c4a
   subpackages:

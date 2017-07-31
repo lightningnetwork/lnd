@@ -56,7 +56,7 @@ import:
 - package: google.golang.org/grpc
   version: 8050b9cbc271307e5a716a9d782803d09b0d6f2d
 - package: github.com/lightningnetwork/lightning-onion
-  version: a90e2d9284413c6c53585a608e47febf2d300ab9
+  version: a164ed004296342ba8412c03ed9875699b6c594b
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: 1.1.0
 - package: github.com/go-errors/errors

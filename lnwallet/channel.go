@@ -1366,24 +1366,42 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			return
 		}
 
-		// With the HTLC's taken care of, we'll generate the sign
-		// descriptor necessary to sweep our commitment output.
-		selfWitnessScript, err := commitScriptUnencumbered(localKey)
+		// Before we can generate the proper sign descriptor, we'll
+		// need to locate the output index of our non-delayed output on
+		// the commitment transaction.
+		selfP2WKH, err := commitScriptUnencumbered(localKey)
 		if err != nil {
 			walletLog.Errorf("unable to create self commit "+
 				"script: %v", err)
 			return
 		}
-		localPayBase := lc.localChanCfg.PaymentBasePoint
-		selfSignDesc := SignDescriptor{
-			PubKey:        localPayBase,
-			SingleTweak:   SingleTweakBytes(commitPoint, localPayBase),
-			WitnessScript: selfWitnessScript,
-			Output: &wire.TxOut{
-				Value:    int64(remoteChanState.LocalBalance),
-				PkScript: selfWitnessScript,
-			},
-			HashType: txscript.SigHashAll,
+		var selfPoint *wire.OutPoint
+		for outputIndex, txOut := range commitTxBroadcast.TxOut {
+			if bytes.Equal(txOut.PkScript, selfP2WKH) {
+				selfPoint = &wire.OutPoint{
+					Hash:  *commitSpend.SpenderTxHash,
+					Index: uint32(outputIndex),
+				}
+				break
+			}
+		}
+
+		// With the HTLC's taken care of, we'll generate the sign
+		// descriptor necessary to sweep our commitment output, but
+		// only if we had a non-trimmed balance.
+		var selfSignDesc *SignDescriptor
+		if selfPoint != nil {
+			localPayBase := lc.localChanCfg.PaymentBasePoint
+			selfSignDesc = &SignDescriptor{
+				PubKey:        localPayBase,
+				SingleTweak:   SingleTweakBytes(commitPoint, localPayBase),
+				WitnessScript: selfP2WKH,
+				Output: &wire.TxOut{
+					Value:    int64(lc.channelState.LocalBalance),
+					PkScript: selfP2WKH,
+				},
+				HashType: txscript.SigHashAll,
+			}
 		}
 
 		// TODO(roasbeef): send msg before writing to disk
@@ -1400,6 +1418,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		lc.UnilateralClose <- &UnilateralCloseSummary{
 			SpendDetail:         commitSpend,
 			ChannelCloseSummary: closeSummary,
+			SelfOutPoint:        selfPoint,
 			SelfOutputSignDesc:  selfSignDesc,
 			HtlcResolutions:     htlcResolutions,
 		}
@@ -3303,9 +3322,14 @@ type UnilateralCloseSummary struct {
 	// channel and in which state is was closed.
 	channeldb.ChannelCloseSummary
 
+	// SelfOutPoint is the full outpoint that points to our non-delayed
+	// pay-to-self output within the commitment transaction of the remote
+	// party.
+	SelfOutPoint *wire.OutPoint
+
 	// SelfOutputSignDesc is a fully populated sign descriptor capable of
 	// generating a valid signature to sweep the output paying to us
-	SelfOutputSignDesc SignDescriptor
+	SelfOutputSignDesc *SignDescriptor
 
 	// HtlcResolutions is a slice of HTLC resolutions which allows the
 	// local node to sweep any outgoing HTLC"s after the timeout period has

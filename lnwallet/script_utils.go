@@ -1005,6 +1005,20 @@ func TweakPubKey(basePoint, commitPoint *btcec.PublicKey) *btcec.PublicKey {
 	}
 }
 
+// TweakPubKeyWithTweak is the exact same as the TweakPubKey function, however
+// it accepts the raw tweak bytes directly rather than the commitment point.
+func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.PublicKey {
+	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
+
+	x, y := btcec.S256().Add(pubKey.X, pubKey.Y, tweakX, tweakY)
+
+	return &btcec.PublicKey{
+		X:     x,
+		Y:     y,
+		Curve: btcec.S256(),
+	}
+}
+
 // TweakPrivKek tweaks the private key of a public base point given a per
 // commitment point. The per commitment secret is the revealed revocation
 // secret for the commitment state in question. This private key will only need

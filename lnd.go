@@ -162,7 +162,7 @@ func lndMain() error {
 			// TODO(roasbeef): add configurable mapping
 			//  * simple switch initially
 			//  * assign coefficient, etc
-			return 1
+			return uint16(cfg.DefaultNumChanConfs)
 		},
 		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
 			// TODO(roasbeef): add additional hooks for

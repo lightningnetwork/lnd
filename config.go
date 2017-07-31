@@ -30,6 +30,7 @@ const (
 	defaultPeerPort           = 5656
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
+	defaultNumChanConfs       = 1
 )
 
 var (
@@ -96,6 +97,8 @@ type config struct {
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
 
+	DefaultNumChanConfs int `long:"defaultchanconfs" description:"The default number of confirmations a channel must have before it's considered open."`
+
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 }
 
@@ -109,14 +112,15 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		ConfigFile:         defaultConfigFile,
-		DataDir:            defaultDataDir,
-		DebugLevel:         defaultLogLevel,
-		LogDir:             defaultLogDir,
-		PeerPort:           defaultPeerPort,
-		RPCPort:            defaultRPCPort,
-		RESTPort:           defaultRESTPort,
-		MaxPendingChannels: defaultMaxPendingChannels,
+		ConfigFile:          defaultConfigFile,
+		DataDir:             defaultDataDir,
+		DebugLevel:          defaultLogLevel,
+		LogDir:              defaultLogDir,
+		PeerPort:            defaultPeerPort,
+		RPCPort:             defaultRPCPort,
+		RESTPort:            defaultRESTPort,
+		MaxPendingChannels:  defaultMaxPendingChannels,
+		DefaultNumChanConfs: defaultNumChanConfs,
 		Bitcoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,

@@ -691,6 +691,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// path.
 		htlcsToForward := l.processLockedInHtlcs(htlcs)
 		go func() {
+			log.Debugf("ChannelPoint(%v) forwarding %v HTLC's",
+				l.channel.ChannelPoint(), len(htlcsToForward))
 			for _, packet := range htlcsToForward {
 				if err := l.cfg.Switch.forward(packet); err != nil {
 					log.Errorf("channel link(%v): "+

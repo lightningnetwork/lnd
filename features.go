@@ -37,4 +37,8 @@ var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 		Name: "encrypted-errors",
 		Flag: lnwire.RequiredFlag,
 	},
+	{
+		Name: "new-funding-and-commitment",
+		Flag: lnwire.RequiredFlag,
+	},
 })

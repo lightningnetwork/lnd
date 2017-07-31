@@ -504,8 +504,8 @@ func computeBlindingFactor(hopPubKey *btcec.PublicKey, hopSharedSecret []byte) [
 // blindGroupElement blinds the group element by performing scalar
 // multiplication of the group element by blindingFactor: G x blindingFactor.
 func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec.PublicKey {
-	newX, newY := hopPubKey.Curve.ScalarMult(hopPubKey.X, hopPubKey.Y, blindingFactor[:])
-	return &btcec.PublicKey{hopPubKey.Curve, newX, newY}
+	newX, newY := btcec.S256().ScalarMult(hopPubKey.X, hopPubKey.Y, blindingFactor[:])
+	return &btcec.PublicKey{btcec.S256(), newX, newY}
 }
 
 // generateSharedSecret generates the shared secret for a particular hop. The
@@ -516,7 +516,7 @@ func blindGroupElement(hopPubKey *btcec.PublicKey, blindingFactor []byte) *btcec
 // single SHA256 invocation.  The resulting value is the shared secret.
 func generateSharedSecret(pub *btcec.PublicKey, priv *btcec.PrivateKey) [32]byte {
 	s := &btcec.PublicKey{}
-	x, y := pub.Curve.ScalarMult(pub.X, pub.Y, priv.D.Bytes())
+	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, priv.D.Bytes())
 	s.X = x
 	s.Y = y
 
@@ -739,7 +739,7 @@ func (r *Router) generateSharedSecret(dhKey *btcec.PublicKey) ([sha256.Size]byte
 	var sharedSecret [sha256.Size]byte
 
 	// Ensure that the public key is on our curve.
-	if !r.onionKey.Curve.IsOnCurve(dhKey.X, dhKey.Y) {
+	if !btcec.S256().IsOnCurve(dhKey.X, dhKey.Y) {
 		return sharedSecret, ErrInvalidOnionKey
 	}
 

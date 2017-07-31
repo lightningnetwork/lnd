@@ -142,7 +142,7 @@ func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint
 //
 // TODO(roasbeef): rename!
 func initRevocationWindows(chanA, chanB *LightningChannel, windowSize int) error {
-	aliceNextRevoke, err := chanA.NextRevocationkey()
+	aliceNextRevoke, err := chanA.NextRevocationKey()
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func initRevocationWindows(chanA, chanB *LightningChannel, windowSize int) error
 		return err
 	}
 
-	bobNextRevoke, err := chanB.NextRevocationkey()
+	bobNextRevoke, err := chanB.NextRevocationKey()
 	if err != nil {
 		return err
 	}

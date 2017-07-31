@@ -1095,7 +1095,7 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// consider the channel open by presenting the remote party with our
 	// next revocation key. Without the revocation key, the remote party
 	// will be unable to propose state transitions.
-	nextRevocation, err := channel.NextRevocationkey()
+	nextRevocation, err := channel.NextRevocationKey()
 	if err != nil {
 		fndgLog.Errorf("unable to create next revocation: %v", err)
 		return

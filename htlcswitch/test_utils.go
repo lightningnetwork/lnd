@@ -163,7 +163,10 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	var obsfucator [lnwallet.StateHintSize]byte
 	copy(obsfucator[:], aliceFirstRevoke[:])
 
-	estimator := &lnwallet.StaticFeeEstimator{24, 6}
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate:      24,
+		Confirmation: 6,
+	}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
 	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
 
@@ -227,7 +230,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
-	aliceNextRevoke, err := channelAlice.NextRevocationkey()
+	aliceNextRevoke, err := channelAlice.NextRevocationKey()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -235,7 +238,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		return nil, nil, nil, err
 	}
 
-	bobNextRevoke, err := channelBob.NextRevocationkey()
+	bobNextRevoke, err := channelBob.NextRevocationKey()
 	if err != nil {
 		return nil, nil, nil, err
 	}

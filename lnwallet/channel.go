@@ -2495,7 +2495,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	// HLTC output. Given the sighash, and the signing key, we'll be able
 	// to validate each signature within the worker pool.
 	i := 0
-	for index, _ := range localCommitmentView.txn.TxOut {
+	for index := range localCommitmentView.txn.TxOut {
 		var sigHash func() ([]byte, error)
 
 		outputIndex := int32(index)
@@ -2953,7 +2953,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 // height. The pubkey returned by this function is required by the remote party
 // along with their revocation base to to extend our commitment chain with a
 // new commitment.
-func (lc *LightningChannel) NextRevocationkey() (*btcec.PublicKey, error) {
+func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 	lc.RLock()
 	defer lc.RUnlock()
 

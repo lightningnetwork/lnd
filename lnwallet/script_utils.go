@@ -1019,7 +1019,7 @@ func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.Pub
 	}
 }
 
-// TweakPrivKek tweaks the private key of a public base point given a per
+// TweakPrivKey tweaks the private key of a public base point given a per
 // commitment point. The per commitment secret is the revealed revocation
 // secret for the commitment state in question. This private key will only need
 // to be generated in the case that a channel counter party broadcasts a

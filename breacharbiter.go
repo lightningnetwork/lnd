@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -172,6 +173,9 @@ func (b *breachArbiter) Start() error {
 
 			brarLog.Infof("ChannelPoint(%v) is fully closed, "+
 				"at height: %v", chanPoint, confInfo.BlockHeight)
+
+			// TODO(roasbeef): need to store UnilateralCloseSummary
+			// on disk so can possibly sweep output here
 
 			if err := b.db.MarkChanFullyClosed(chanPoint); err != nil {
 				brarLog.Errorf("unable to mark chan as closed: %v", err)
@@ -460,7 +464,32 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// outbound HTLC's in flight
 		go waitForChanToClose(uint32(closeInfo.SpendingHeight), b.notifier,
 			nil, chanPoint, closeInfo.SpenderTxHash, func() {
+				// As we just detected a channel was closed via
+				// a unilateral commitment broadcast by the
+				// remote party, we'll need to sweep our main
+				// commitment output, and any outstanding
+				// outgoing HTLC we had as well.
+				//
+				// TODO(roasbeef): actually sweep HTLC's *
+				// ensure reliable confirmation
+				if closeInfo.SelfOutPoint != nil {
+					sweepTx, err := b.craftCommitSweepTx(
+						closeInfo,
+					)
+					if err != nil {
+						brarLog.Errorf("unable to "+
+							"generate sweep tx: %v", err)
+						goto close
+					}
 
+					err = b.wallet.PublishTransaction(sweepTx)
+					if err != nil {
+						brarLog.Errorf("unable to "+
+							"broadcast tx: %v", err)
+					}
+				}
+
+			close:
 				brarLog.Infof("Force closed ChannelPoint(%v) is "+
 					"fully closed, updating DB", chanPoint)
 
@@ -640,4 +669,70 @@ func (b *breachArbiter) createJusticeTx(r *retributionInfo) (*wire.MsgTx, error)
 	justiceTx.TxIn[1].Witness = remoteWitness
 
 	return justiceTx, nil
+}
+
+// craftCommitmentSweepTx creates a transaction to sweep the non-delayed output
+// within the commitment transaction that pays to us. We must manually sweep
+// this output as it uses a tweaked public key in its pkScript, so the wallet
+// won't immediacy be aware of it.
+//
+// TODO(roasbeef): alternative options
+//  * leave the output in the chain, use as input to future funding tx
+//  * leave output in the chain, extend wallet to add knowledge of how to claim
+func (b *breachArbiter) craftCommitSweepTx(closeInfo *lnwallet.UnilateralCloseSummary) (*wire.MsgTx, error) {
+	// First, we'll fetch a fresh script that we can use to sweep the funds
+	// under the control of the wallet.
+	sweepPkScript, err := newSweepPkScript(b.wallet)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(roasbeef): use proper fees
+	outputAmt := closeInfo.SelfOutputSignDesc.Output.Value
+	sweepAmt := int64(outputAmt - 5000)
+
+	if sweepAmt <= 0 {
+		// TODO(roasbeef): add output to special pool, can be swept
+		// when: funding a channel, sweeping time locked outputs, or
+		// delivering
+		// justice after a channel breach
+		return nil, fmt.Errorf("output to small to sweep in isolation")
+	}
+
+	// With the amount we're sweeping computed, we can now creating the
+	// sweep transaction itself.
+	sweepTx := wire.NewMsgTx(1)
+	sweepTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: *closeInfo.SelfOutPoint,
+	})
+	sweepTx.AddTxOut(&wire.TxOut{
+		PkScript: sweepPkScript,
+		Value:    int64(sweepAmt),
+	})
+
+	// Next, we'll generate the signature required to satisfy the p2wkh
+	// witness program.
+	signDesc := closeInfo.SelfOutputSignDesc
+	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
+	signDesc.InputIndex = 0
+	sweepSig, err := b.wallet.Cfg.Signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll manually craft the witness. The witness here is the
+	// exact same as a regular p2wkh witness, but we'll need to ensure that
+	// we use the tweaked public key as the last item in the witness stack
+	// which was originally used to created the pkScript we're spending.
+	witness := make([][]byte, 2)
+	witness[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witness[1] = lnwallet.TweakPubKeyWithTweak(
+		signDesc.PubKey, signDesc.SingleTweak,
+	).SerializeCompressed()
+
+	sweepTx.TxIn[0].Witness = witness
+
+	brarLog.Infof("Sweeping commitment output with: %v", spew.Sdump(sweepTx))
+
+	return sweepTx, nil
 }

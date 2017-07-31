@@ -19,7 +19,8 @@ import (
 	"encoding/hex"
 	"reflect"
 
-	"math/rand"
+	"crypto/rand"
+	prand "math/rand"
 
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
@@ -140,7 +141,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarne
 	pushAmt btcutil.Amount) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate, err := net.OpenChannel(ctx, alice, bob, fundingAmt,
-		pushAmt, 1)
+		pushAmt)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -379,7 +380,7 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 	// open, then broadcast the funding transaction
 	const numConfs = 1
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
-		chanAmt, pushAmt, numConfs)
+		chanAmt, pushAmt)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -698,7 +699,7 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	chanAmt := btcutil.Amount(10e4)
 	pushAmt := btcutil.Amount(5e4)
 	chanOpenUpdate, err := net.OpenChannel(ctxb, net.Alice, net.Bob,
-		chanAmt, pushAmt, numFundingConfs)
+		chanAmt, pushAmt)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
@@ -984,7 +985,6 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	}
 
 	// Ensure we obtain the proper preimage in the response.
-
 	if resp, err := sendStream.Recv(); err != nil {
 		t.Fatalf("payment stream has been close: %v", err)
 	} else if resp.PaymentError != "" {
@@ -1569,7 +1569,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	for i := 0; i < maxPendingChannels; i++ {
 		ctx, _ = context.WithTimeout(context.Background(), timeout)
 		stream, err := net.OpenChannel(ctx, net.Alice, carol, amount,
-			0, 1)
+			0)
 		if err != nil {
 			t.Fatalf("unable to open channel: %v", err)
 		}
@@ -1579,7 +1579,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// Carol exhausted available amount of pending channels, next open
 	// channel request should cause ErrorGeneric to be sent back to Alice.
 	ctx, _ = context.WithTimeout(context.Background(), timeout)
-	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 0, 1)
+	_, err = net.OpenChannel(ctx, net.Alice, carol, amount, 0)
 	if err == nil {
 		t.Fatalf("error wasn't received")
 	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {
@@ -2526,7 +2526,7 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 	numInvoices++
 
 	// Initialize seed random in order to generate invoices.
-	rand.Seed(time.Now().UnixNano())
+	prand.Seed(time.Now().UnixNano())
 
 	// With the channel open, we'll create a invoices for Bob that
 	// Alice will pay to in order to advance the state of the channel.
@@ -2709,7 +2709,7 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 	bobAmt := info.RemoteBalance
 
 	// Initialize seed random in order to generate invoices.
-	rand.Seed(time.Now().UnixNano())
+	prand.Seed(time.Now().UnixNano())
 
 	// With the channel open, we'll create a invoices for Bob that
 	// Alice will pay to in order to advance the state of the channel.

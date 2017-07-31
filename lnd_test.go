@@ -493,27 +493,39 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 10)
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 
+	// As we need to create a channel that requires more than 1
+	// confirmation before it's open, with the current set of defaults,
+	// we'll need to create a new node instance.
+	const numConfs = 5
+	carolArgs := []string{fmt.Sprintf("--defaultchanconfs=%v", numConfs)}
+	carol, err := net.NewNode(carolArgs)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
-	const numConfs = 5
-	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
-		chanAmt, pushAmt, numConfs)
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
+		chanAmt, pushAmt)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
 
-	// At this point, the channel's funding transaction will have
-	// been broadcast, but not confirmed. Alice and Bob's nodes
-	// should reflect this when queried via RPC.
+	// At this point, the channel's funding transaction will have been
+	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
+	// this when queried via RPC.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
-	if err := net.RestartNode(net.Bob, nil); err != nil {
+	if err := net.RestartNode(carol, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -534,7 +546,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
-	if err := net.RestartNode(net.Bob, nil); err != nil {
+	if err := net.RestartNode(carol, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -549,7 +561,7 @@ peersPoll:
 		case <-peersTimeout:
 			t.Fatalf("peers unable to reconnect after restart")
 		case <-checkPeersTick.C:
-			peers, err := net.Bob.ListPeers(ctxb,
+			peers, err := carol.ListPeers(ctxb,
 				&lnrpc.ListPeersRequest{})
 			if err != nil {
 				t.Fatalf("ListPeers error: %v\n", err)
@@ -569,7 +581,7 @@ peersPoll:
 	// Both nodes should still show a single channel as pending.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
 
 	// Finally, mine the last block which should mark the channel as open.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
@@ -580,7 +592,7 @@ peersPoll:
 	// be no pending channels remaining for either node.
 	time.Sleep(time.Millisecond * 300)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 0)
 
 	// The channel should be listed in the peer information returned by
 	// both peers.
@@ -595,7 +607,7 @@ peersPoll:
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	if err := net.AssertChannelExists(ctxt, net.Bob, &outPoint); err != nil {
+	if err := net.AssertChannelExists(ctxt, carol, &outPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
@@ -608,6 +620,11 @@ peersPoll:
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+
+	// Clean up carol's node.
+	if err := carol.Shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
 }
 
 // testChannelBalance creates a new channel between Alice and  Bob, then

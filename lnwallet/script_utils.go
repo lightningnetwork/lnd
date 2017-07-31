@@ -941,12 +941,22 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 
 	// This is just a regular p2wkh spend which looks something like:
 	//  * witness: <sig> <pubkey>
-	inputScript, err := signer.ComputeInputScript(sweepTx, signDesc)
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
 
-	return wire.TxWitness(inputScript.Witness), nil
+	// Finally, we'll manually craft the witness. The witness here is the
+	// exact same as a regular p2wkh witness, but we'll need to ensure that
+	// we use the tweaked public key as the last item in the witness stack
+	// which was originally used to created the pkScript we're spending.
+	witness := make([][]byte, 2)
+	witness[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witness[1] = TweakPubKeyWithTweak(
+		signDesc.PubKey, signDesc.SingleTweak,
+	).SerializeCompressed()
+
+	return witness, nil
 }
 
 // SingleTweakBytes computes set of bytes we call the single tweak. The purpose

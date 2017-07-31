@@ -1344,18 +1344,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 				err)
 		}
 
-		// Once the state has been updated on-disk, we'll fetch all the
-		// information needed to re-construct the precise state that
-		// was broadcast.
-		remoteChanState, err := lc.channelState.FindPreviousState(
-			broadcastStateNum,
-		)
-		if err != nil {
-			walletLog.Errorf("unable to find prior broadcast "+
-				"state: %v", err)
-			return
-		}
-
 		// First, we'll generate the commitment point and the
 		// revocation point so we can re-construct the HTLC state and
 		// also our payment key.
@@ -1365,12 +1353,11 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			commitPoint,
 		)
 
-		// With the necessary state obtained, we'll obtain HTLC
-		// resolutions for all the outgoing HTLC's we had on their
-		// commitment transaction.
+		// Next, we'll obtain HTLC resolutions for all the outgoing
+		// HTLC's we had on their commitment transaction.
 		htlcResolutions, localKey, err := extractHtlcResolutions(
-			remoteChanState.FeePerKw, false, lc.signer,
-			remoteChanState.Htlcs, commitPoint,
+			lc.channelState.FeePerKw, false, lc.signer,
+			lc.channelState.Htlcs, commitPoint,
 			revokeKey, lc.localChanCfg, lc.remoteChanCfg,
 			*commitSpend.SpenderTxHash)
 		if err != nil {

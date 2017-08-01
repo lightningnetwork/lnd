@@ -441,6 +441,9 @@ func (c *chanMsgStream) Stop() {
 	// TODO(roasbeef): signal too?
 
 	close(c.quit)
+
+	// Wake up the msgConsumer is we've been signalled to exit.
+	c.msgCond.Signal()
 }
 
 // msgConsumer is the main goroutine that streams messages from the peer's
@@ -454,6 +457,17 @@ func (c *chanMsgStream) msgConsumer() {
 		c.msgCond.L.Lock()
 		for len(c.msgs) == 0 {
 			c.msgCond.Wait()
+
+			// If we were woke up in order to exit, then we'll do
+			// so. Otherwise, we'll check the message queue for any
+			// new items.
+			select {
+			case <-c.quit:
+				peerLog.Tracef("Update stream for "+
+					"ChannelID(%x) exiting", c.cid[:])
+				return
+			default:
+			}
 		}
 
 		// Grab the message off the front of the queue, shifting the

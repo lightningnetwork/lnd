@@ -376,8 +376,8 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
 
-// createHTLC is a utility function for generating an HTLC with a given preimage
-// and a given amount.
+// createHTLC is a utility function for generating an HTLC with a given
+// preimage and a given amount.
 func createHTLC(data int, amount btcutil.Amount) (*lnwire.UpdateAddHTLC, [32]byte) {
 	preimage := bytes.Repeat([]byte{byte(data)}, 32)
 	paymentHash := sha256.Sum256(preimage)
@@ -798,7 +798,7 @@ func TestForceClose(t *testing.T) {
 	htlcAmount := btcutil.Amount(500)
 
 	aliceAmount := aliceChannel.channelState.LocalBalance
-	bobAmount := bobChannel.channelState.RemoteBalance
+	bobAmount := bobChannel.channelState.LocalBalance
 
 	closeSummary, err := aliceChannel.ForceClose()
 	if err != nil {
@@ -851,8 +851,8 @@ func TestForceClose(t *testing.T) {
 	if closeSummary.SelfOutputSignDesc.Output.Value != int64(bobAmount) {
 		t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
-			bobChannel.channelState.LocalBalance,
-			closeSummary.SelfOutputSignDesc.Output.Value)
+			int64(bobAmount),
+			int64(closeSummary.SelfOutputSignDesc.Output.Value))
 	}
 	if closeSummary.SelfOutputMaturity !=
 		uint32(bobChannel.channelState.LocalChanCfg.CsvDelay) {

@@ -563,6 +563,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		if err != nil {
 			return err
 		}
+		defer channel.Stop()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {

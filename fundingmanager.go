@@ -1090,6 +1090,7 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 		fndgLog.Errorf("error creating new lightning channel: %v", err)
 		return
 	}
+	defer channel.Stop()
 
 	// Next, we'll send over the funding locked message which marks that we
 	// consider the channel open by presenting the remote party with our

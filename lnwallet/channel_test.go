@@ -1195,6 +1195,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 
 	const numHtlcs = 4
+	const htlcAmt = 20000
 
 	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
 	var alicePreimage [32]byte
@@ -1205,7 +1206,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		rHash := sha256.Sum256(alicePreimage[:])
 		h := &lnwire.UpdateAddHTLC{
 			PaymentHash: rHash,
-			Amount:      btcutil.Amount(5000),
+			Amount:      htlcAmt,
 			Expiry:      uint32(10),
 		}
 
@@ -1219,7 +1220,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	rHash := sha256.Sum256(bobPreimage[:])
 	bobh := &lnwire.UpdateAddHTLC{
 		PaymentHash: rHash,
-		Amount:      btcutil.Amount(5000),
+		Amount:      htlcAmt,
 		Expiry:      uint32(10),
 	}
 	if _, err := bobChannel.AddHTLC(bobh); err != nil {
@@ -1286,9 +1287,6 @@ func TestStateUpdatePersistence(t *testing.T) {
 		bobChannel.feeEstimator, bobChannels[0])
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
-	}
-	if err := initRevocationWindows(aliceChannelNew, bobChannelNew, 3); err != nil {
-		t.Fatalf("unable to init revocation windows: %v", err)
 	}
 
 	// The state update logs of the new channels and the old channels
@@ -1396,7 +1394,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 
 	// Now settle all the HTLCs, then force a state update. The state
-	// update should suceed as both sides have identical.
+	// update should succeed as both sides have identical.
 	for i := 0; i < 3; i++ {
 		settleIndex, err := bobChannelNew.SettleHTLC(alicePreimage)
 		if err != nil {
@@ -1429,21 +1427,21 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The amounts transferred should been updated as per the amounts in
 	// the HTLCs
-	if aliceChannelNew.channelState.TotalSatoshisSent != 15000 {
+	if aliceChannelNew.channelState.TotalSatoshisSent != htlcAmt*3 {
 		t.Fatalf("expected %v alice satoshis sent, got %v",
-			15000, aliceChannelNew.channelState.TotalSatoshisSent)
+			htlcAmt*3, aliceChannelNew.channelState.TotalSatoshisSent)
 	}
-	if aliceChannelNew.channelState.TotalSatoshisReceived != 5000 {
+	if aliceChannelNew.channelState.TotalSatoshisReceived != htlcAmt {
 		t.Fatalf("expected %v alice satoshis received, got %v",
-			5000, aliceChannelNew.channelState.TotalSatoshisReceived)
+			htlcAmt, aliceChannelNew.channelState.TotalSatoshisReceived)
 	}
-	if bobChannelNew.channelState.TotalSatoshisSent != 5000 {
+	if bobChannelNew.channelState.TotalSatoshisSent != htlcAmt {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			5000, bobChannel.channelState.TotalSatoshisSent)
+			htlcAmt, bobChannel.channelState.TotalSatoshisSent)
 	}
-	if bobChannelNew.channelState.TotalSatoshisReceived != 15000 {
+	if bobChannelNew.channelState.TotalSatoshisReceived != htlcAmt*3 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			15000, bobChannel.channelState.TotalSatoshisSent)
+			htlcAmt*3, bobChannel.channelState.TotalSatoshisSent)
 	}
 }
 

@@ -143,7 +143,7 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := (feePerKw * commitWeight) / 1000
+	commitFee := btcutil.Amount((int64(feePerKw) * commitWeight) / 1000)
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing

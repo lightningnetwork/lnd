@@ -181,7 +181,7 @@ func TestSwitchCancel(t *testing.T) {
 	case <-aliceChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to channelPoint")
+		t.Fatal("request was not propagated to channelPoint")
 	}
 
 	if s.circuits.pending() != 0 {

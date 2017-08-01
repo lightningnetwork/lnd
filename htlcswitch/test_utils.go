@@ -2,8 +2,8 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -64,6 +64,9 @@ func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
 // case the caller should not continue.
 func generateRandomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
+
+	// TODO(roasbeef): should use counter in tests (atomic) rather than
+	// this
 
 	_, err := rand.Read(b[:])
 	// Note that Err == nil only if we read len(b) bytes.
@@ -273,10 +276,6 @@ func getChanID(msg lnwire.Message) lnwire.ChannelID {
 func generatePayment(invoiceAmt, htlcAmt btcutil.Amount, timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
 
-	// Initialize random seed with unix time in order to generate random
-	// preimage every time.
-	rand.Seed(time.Now().UTC().UnixNano())
-
 	var preimage [sha256.Size]byte
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
@@ -451,7 +450,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	select {
 	case err := <-errChan:
 		return invoice, err
-	case <-time.After(50 * time.Second):
+	case <-time.After(5 * time.Minute):
 		return invoice, errors.New("htlc was not settled in time")
 	}
 }

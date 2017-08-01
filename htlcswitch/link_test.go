@@ -181,8 +181,8 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 
 	// Send max available payment number in both sides, thereby testing
 	// the property of channel link to cope with overflowing.
-	resultChan := make(chan *result)
 	count := 2 * lnwallet.MaxHTLCNumber
+	resultChan := make(chan *result, count)
 	for i := 0; i < count/2; i++ {
 		go func(i int) {
 			r := &result{
@@ -236,7 +236,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 			}
 			averageDelay += delay
 
-		case <-time.After(30 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Fatalf("timeout: (%v/%v)", i+1, count)
 		}
 	}

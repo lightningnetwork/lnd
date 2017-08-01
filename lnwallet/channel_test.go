@@ -1040,6 +1040,7 @@ func TestDustHTLCFees(t *testing.T) {
 // chain, the amount of the HTLC will contribute to the fees to be paid.
 func TestHTLCDustLimit(t *testing.T) {
 	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1069,15 +1070,20 @@ func TestHTLCDustLimit(t *testing.T) {
 	// while Bob's should not, because the value falls beneath his dust
 	// limit. The amount of the HTLC should be applied to fees in Bob's
 	// commitment transaction.
-	commitment := aliceChannel.localCommitChain.tip()
-	if len(commitment.txn.TxOut) != 3 {
+	aliceCommitment := aliceChannel.localCommitChain.tip()
+	if len(aliceCommitment.txn.TxOut) != 3 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
-			3, len(commitment.txn.TxOut))
+			3, len(aliceCommitment.txn.TxOut))
+	}
+	bobCommitment := bobChannel.localCommitChain.tip()
+	if len(bobCommitment.txn.TxOut) != 2 {
+		t.Fatalf("incorrect # of outputs: expected %v, got %v",
+			2, len(bobCommitment.txn.TxOut))
 	}
 	defaultFee := calcStaticFee(0)
-	if bobChannel.channelState.CommitFee != defaultFee-htlcAmount {
-		t.Fatalf("dust htlc amount not subtracted from commitment fee "+
-			"expected %v, got %v", defaultFee-htlcAmount,
+	if bobChannel.channelState.CommitFee != defaultFee {
+		t.Fatalf("dust htlc amount was subtracted from commitment fee "+
+			"expected %v, got %v", defaultFee,
 			bobChannel.channelState.CommitFee)
 	}
 
@@ -1096,7 +1102,7 @@ func TestHTLCDustLimit(t *testing.T) {
 
 	// At this point, for Alice's commitment chains, the value of the HTLC
 	// should have been added to Alice's balance and TotalSatoshisSent.
-	commitment = aliceChannel.localCommitChain.tip()
+	commitment := aliceChannel.localCommitChain.tip()
 	if len(commitment.txn.TxOut) != 2 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			2, len(commitment.txn.TxOut))

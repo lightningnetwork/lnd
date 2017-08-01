@@ -1136,6 +1136,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	dustLimit := aliceChannel.channelState.LocalChanCfg.DustLimit
 	aliceBalance := aliceChannel.channelState.LocalBalance
 	htlcAmount := aliceBalance - (defaultFee + dustLimit + 100)
+	htlcAmount += htlcSuccessFee(aliceChannel.channelState.FeePerKw)
 
 	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {

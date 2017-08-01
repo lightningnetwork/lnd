@@ -444,7 +444,7 @@ out:
 		case *lnwire.OpenChannel:
 			p.server.fundingMgr.processFundingOpen(msg, p.addr)
 		case *lnwire.AcceptChannel:
-			p.server.fundingMgr.processFundingResponse(msg, p.addr)
+			p.server.fundingMgr.processFundingAccept(msg, p.addr)
 		case *lnwire.FundingCreated:
 			p.server.fundingMgr.processFundingCreated(msg, p.addr)
 		case *lnwire.FundingSigned:

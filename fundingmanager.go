@@ -687,7 +687,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 // processFundingAccept sends a message to the fundingManager allowing it to
 // continue the second phase of a funding workflow with the target peer.
-func (f *fundingManager) processFundingResponse(msg *lnwire.AcceptChannel,
+func (f *fundingManager) processFundingAccept(msg *lnwire.AcceptChannel,
 	peerAddress *lnwire.NetAddress) {
 
 	f.fundingMsgs <- &fundingAcceptMsg{msg, peerAddress}

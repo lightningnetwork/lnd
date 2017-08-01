@@ -784,7 +784,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// our commitment transaction or theirs, and also if it's an HTLC
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
-		kgtnOutput.witnessFunc = kgtnOutput.witnessType.generateFunc(
+		kgtnOutput.witnessFunc = kgtnOutput.witnessType.GenWitnessFunc(
 			&wallet.Cfg.Signer, kgtnOutput.signDescriptor,
 		)
 	}
@@ -1011,25 +1011,7 @@ func serializeKidOutput(w io.Writer, kid *kidOutput) error {
 		return err
 	}
 
-	if err := lnwallet.WriteSignDescriptor(w, kid.signDescriptor); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.SingleTweak); err != nil {
-		return err
-	}
-
-	if err := wire.WriteVarBytes(w, 0, kid.signDescriptor.WitnessScript); err != nil {
-		return err
-	}
-
-	if err := writeTxOut(w, kid.signDescriptor.Output); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint32(scratch[:4], uint32(kid.signDescriptor.HashType))
-	_, err := w.Write(scratch[:4])
-	return err
+	return lnwallet.WriteSignDescriptor(w, kid.signDescriptor)
 }
 
 // deserializeKidOutput takes a byte array representation of a kidOutput
@@ -1072,37 +1054,7 @@ func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
 	kid.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
 
 	kid.signDescriptor = &lnwallet.SignDescriptor{}
-
-	descKeyBytes, err := wire.ReadVarBytes(r, 0, 34, "descKeyBytes")
-	if err != nil {
-		return nil, err
-	}
-
-	descKey, err := btcec.ParsePubKey(descKeyBytes, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.PubKey = descKey
-
-	descPrivateTweak, err := wire.ReadVarBytes(r, 0, 32, "privateTweak")
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.SingleTweak = descPrivateTweak
-
-	descWitnessScript, err := wire.ReadVarBytes(r, 0, 100, "witnessScript")
-	if err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.WitnessScript = descWitnessScript
-
-	descTxOut := &wire.TxOut{}
-	if err := readTxOut(r, descTxOut); err != nil {
-		return nil, err
-	}
-	kid.signDescriptor.Output = descTxOut
-
-	if _, err := r.Read(scratch[:4]); err != nil {
+	if err := lnwallet.ReadSignDescriptor(r, kid.signDescriptor); err != nil {
 		return nil, err
 	}
 

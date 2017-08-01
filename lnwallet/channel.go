@@ -1775,18 +1775,17 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// Determine how many current HTLCs are over the dust limit, and should
 	// be counted for the purpose of fee calculation.
-	var dustLimit, dustFees btcutil.Amount
+	var dustLimit btcutil.Amount
 	if remoteChain {
 		dustLimit = lc.remoteChanCfg.DustLimit
 	} else {
 		dustLimit = lc.localChanCfg.DustLimit
 	}
-	numHTLCs := 0
+	numHTLCs := int64(0)
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if htlcIsDust(false, ourCommitTx, feePerKw, htlc.Amount,
 			dustLimit) {
 
-			dustFees += htlc.Amount
 			continue
 		}
 
@@ -1796,7 +1795,6 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		if htlcIsDust(true, ourCommitTx, feePerKw, htlc.Amount,
 			dustLimit) {
 
-			dustFees += htlc.Amount
 			continue
 		}
 
@@ -1807,20 +1805,19 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := commitWeight + btcutil.Amount(htlcWeight*numHTLCs)
+	totalCommitWeight := commitWeight + (htlcWeight * numHTLCs)
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
-	commitFee := (feePerKw * totalCommitWeight) / 1000
-	commitFee -= dustFees
+	commitFee := btcutil.Amount((int64(feePerKw) * totalCommitWeight) / 1000)
 
 	// Currently, within the protocol, the initiator always pays the fees.
 	// So we'll subtract the fee amount from the balance of the current
 	// initiator.
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - commitFee
+		ourBalance -= commitFee
 	} else if !lc.channelState.IsInitiator {
-		theirBalance = theirBalance - commitFee
+		theirBalance -= commitFee
 	}
 
 	var (
@@ -3686,7 +3683,7 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64,
 	// Subtract the proposed fee from the appropriate balance, taking care
 	// not to persist the adjusted balance, as the feeRate may change
 	// during the channel closing process.
-	proposedFee := uint64(btcutil.Amount(feeRate) * commitWeight / 1000)
+	proposedFee := (feeRate * uint64(commitWeight)) / 1000
 	ourBalance := lc.channelState.LocalBalance
 	theirBalance := lc.channelState.RemoteBalance
 
@@ -3748,7 +3745,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// Subtract the proposed fee from the appropriate balance, taking care
 	// not to persist the adjusted balance, as the feeRate may change
 	// during the channel closing process.
-	proposedFee := uint64(btcutil.Amount(feeRate) * commitWeight / 1000)
+	proposedFee := (feeRate * uint64(commitWeight)) / 1000
 	ourBalance := lc.channelState.LocalBalance
 	theirBalance := lc.channelState.RemoteBalance
 

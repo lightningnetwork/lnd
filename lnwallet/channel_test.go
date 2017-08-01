@@ -973,6 +973,8 @@ func TestDustHTLCFees(t *testing.T) {
 	}
 	defer cleanUp()
 
+	aliceStartingBalance := aliceChannel.channelState.LocalBalance
+
 	// This HTLC amount should be lower than the dust limits of both nodes.
 	htlcAmount := btcutil.Amount(100)
 	htlc, _ := createHTLC(0, htlcAmount)
@@ -986,16 +988,48 @@ func TestDustHTLCFees(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
+	// After the transition, we'll ensure that we performed fee accounting
+	// properly. Namely, the local+remote+commitfee values should add up to
+	// the total capacity of the channel. This same should hold for both
+	// sides.
+	totalSatoshisAlice := (aliceChannel.channelState.LocalBalance +
+		aliceChannel.channelState.RemoteBalance +
+		aliceChannel.channelState.CommitFee)
+	if totalSatoshisAlice+htlcAmount != aliceChannel.Capacity {
+		t.Fatalf("alice's funds leaked: total satoshis are %v, but channel "+
+			"capacity is %v", int64(totalSatoshisAlice),
+			int64(aliceChannel.Capacity))
+	}
+	totalSatoshisBob := (bobChannel.channelState.LocalBalance +
+		bobChannel.channelState.RemoteBalance +
+		bobChannel.channelState.CommitFee)
+	if totalSatoshisBob+htlcAmount != bobChannel.Capacity {
+		t.Fatalf("bob's funds leaked: total satoshis are %v, but channel "+
+			"capacity is %v", int64(totalSatoshisBob),
+			int64(bobChannel.Capacity))
+	}
+
+	// The commitment fee paid should be the same, as there have been no
+	// new material outputs added.
 	defaultFee := calcStaticFee(0)
-	if aliceChannel.channelState.CommitFee != defaultFee-htlcAmount {
+	if aliceChannel.channelState.CommitFee != defaultFee {
 		t.Fatalf("dust htlc amounts not subtracted from commitment fee "+
-			"expected %v, got %v", defaultFee-htlcAmount,
+			"expected %v, got %v", defaultFee,
 			aliceChannel.channelState.CommitFee)
 	}
-	if bobChannel.channelState.CommitFee != defaultFee-htlcAmount {
+	if bobChannel.channelState.CommitFee != defaultFee {
 		t.Fatalf("dust htlc amounts not subtracted from commitment fee "+
-			"expected %v, got %v", defaultFee-htlcAmount,
+			"expected %v, got %v", defaultFee,
 			bobChannel.channelState.CommitFee)
+	}
+
+	// Alice's final balance should reflect the HTLC deficit even though
+	// the HTLC was paid to fees as it was trimmed.
+	aliceEndBalance := aliceChannel.channelState.LocalBalance
+	aliceExpectedBalance := aliceStartingBalance - htlcAmount
+	if aliceEndBalance != aliceExpectedBalance {
+		t.Fatalf("alice not credited for dust: expected %v, got %v",
+			aliceExpectedBalance, aliceEndBalance)
 	}
 }
 

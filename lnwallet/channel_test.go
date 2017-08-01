@@ -290,16 +290,18 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 
 	estimator := &StaticFeeEstimator{24, 6}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	commitFee := calcStaticFee(0)
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
+		CommitFee:               commitFee,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            channelBal,
+		LocalBalance:            channelBal - commitFee,
 		RemoteBalance:           channelBal,
 		CommitTx:                *aliceCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
@@ -313,12 +315,13 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
 		FeePerKw:                feePerKw,
+		CommitFee:               commitFee,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
 		LocalBalance:            channelBal,
-		RemoteBalance:           channelBal,
+		RemoteBalance:           channelBal - commitFee,
 		CommitTx:                *bobCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
@@ -361,6 +364,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 // calcStaticFee calculates appropriate fees for commitment transactions.  This
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
+//
 // TODO(bvu): Refactor when dynamic fee estimation is added.
 func calcStaticFee(numHTLCs int) btcutil.Amount {
 	const (

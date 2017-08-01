@@ -114,6 +114,21 @@ const (
 	Settle
 )
 
+// String returns a human readable string that uniquely identifies the target
+// update type.
+func (u updateType) String() string {
+	switch u {
+	case Add:
+		return "Add"
+	case Fail:
+		return "Fail"
+	case Settle:
+		return "Settle"
+	default:
+		return "<unknown type>"
+	}
+}
+
 // PaymentDescriptor represents a commitment state update which either adds,
 // settles, or removes an HTLC. PaymentDescriptors encapsulate all necessary
 // metadata w.r.t to an HTLC, and additional data pairing a settle message to

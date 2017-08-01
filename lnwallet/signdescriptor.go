@@ -2,12 +2,19 @@ package lnwallet
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+)
+
+var (
+	// ErrTweakOverdose signals a SignDescriptor is invalid because both of its
+	// SingleTweak and DoubleTweak are non-nil.
+	ErrTweakOverdose = errors.New("sign descriptor should only have one tweak")
 )
 
 // SignDescriptor houses the necessary information required to successfully sign
@@ -19,14 +26,33 @@ type SignDescriptor struct {
 	// key corresponding to this public key.
 	PubKey *btcec.PublicKey
 
-	// PrivateTweak is a scalar value that should be added to the private
-	// key corresponding to the above public key to obtain the private key
-	// to be used to sign this input. This value is typically a leaf node
-	// from the revocation tree.
+	// SingleTweak is a scalar value that will be added to the private key
+	// corresponding to the above public key to obtain the private key to
+	// be used to sign this input. This value is typically derived via the
+	// following computation:
+	//
+	//  * derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
 	//
 	// NOTE: If this value is nil, then the input can be signed using only
-	// the above public key.
-	PrivateTweak []byte
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	SingleTweak []byte
+
+	// DoubleTweak is a private key that will be used in combination with
+	// its corresponding private key to derive the private key that is to
+	// be used to sign the target input. Within the Lightning protocol,
+	// this value is typically the commitment secret from a previously
+	// revoked commitment transaction. This value is in combination with
+	// two hash values, and the original private key to derive the private
+	// key to be used when signing.
+	//
+	//  * k = (privKey*sha256(pubKey || tweakPub) +
+	//        tweakPriv*sha256(tweakPub || pubKey)) mod N
+	//
+	// NOTE: If this value is nil, then the input can be signed using only
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	DoubleTweak *btcec.PrivateKey
 
 	// WitnessScript is the full script required to properly redeem the
 	// output. This field will only be populated if a p2wsh or a p2sh
@@ -62,7 +88,15 @@ func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
 		return err
 	}
 
-	if err := wire.WriteVarBytes(w, 0, sd.PrivateTweak); err != nil {
+	if err := wire.WriteVarBytes(w, 0, sd.SingleTweak); err != nil {
+		return err
+	}
+
+	var doubleTweakBytes []byte
+	if sd.DoubleTweak != nil {
+		doubleTweakBytes = sd.DoubleTweak.Serialize()
+	}
+	if err := wire.WriteVarBytes(w, 0, doubleTweakBytes); err != nil {
 		return err
 	}
 
@@ -96,20 +130,41 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 
-	privateTweak, err := wire.ReadVarBytes(r, 0, 32, "privateTweak")
+	singleTweak, err := wire.ReadVarBytes(r, 0, 32, "singleTweak")
 	if err != nil {
 		return err
 	}
 
-	// Serializing a SignDescriptor with a nil-valued PrivateTweak results in
-	// deserializing a zero-length slice. Since a nil-valued PrivateTweak has
-	// special meaning and a zero-length slice for a PrivateTweak is invalid,
+	// Serializing a SignDescriptor with a nil-valued SingleTweak results in
+	// deserializing a zero-length slice. Since a nil-valued SingleTweak has
+	// special meaning and a zero-length slice for a SingleTweak is invalid,
 	// we can use the zero-length slice as the flag for a nil-valued
-	// PrivateTweak.
-	if len(privateTweak) == 0 {
-		sd.PrivateTweak = nil
+	// SingleTweak.
+	if len(singleTweak) == 0 {
+		sd.SingleTweak = nil
 	} else {
-		sd.PrivateTweak = privateTweak
+		sd.SingleTweak = singleTweak
+	}
+
+	doubleTweakBytes, err := wire.ReadVarBytes(r, 0, 32, "doubleTweak")
+	if err != nil {
+		return err
+	}
+
+	// Serializing a SignDescriptor with a nil-valued DoubleTweak results in
+	// deserializing a zero-length slice. Since a nil-valued DoubleTweak has
+	// special meaning and a zero-length slice for a DoubleTweak is invalid,
+	// we can use the zero-length slice as the flag for a nil-valued
+	// DoubleTweak.
+	if len(doubleTweakBytes) == 0 {
+		sd.DoubleTweak = nil
+	} else {
+		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(btcec.S256(), doubleTweakBytes)
+	}
+
+	// Only one tweak should ever be set, fail if both are present.
+	if sd.SingleTweak != nil && sd.DoubleTweak != nil {
+		return ErrTweakOverdose
 	}
 
 	witnessScript, err := wire.ReadVarBytes(r, 0, 100, "witnessScript")

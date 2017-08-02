@@ -692,6 +692,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 							return
 						}
 					case <-b.quit:
+						return
 					}
 				}
 			case <-b.quit:
@@ -788,6 +789,7 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, er
 								return
 							}
 						case <-b.quit:
+							return
 						}
 					}
 				case <-b.quit:

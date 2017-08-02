@@ -722,6 +722,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 							return
 						}
 					case <-n.quit:
+						return
 					}
 				}
 			case <-n.quit:
@@ -891,6 +892,7 @@ func (n *NeutrinoNotifier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent
 								return
 							}
 						case <-n.quit:
+							return
 						}
 					}
 				case <-n.quit:

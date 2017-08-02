@@ -303,6 +303,16 @@ func newHandshakeState(initiator bool, prologue []byte,
 	return h
 }
 
+// EphemeralGenerator is a functional option that allows callers to substitute
+// a custom function for use when generating ephemeral keys for ActOne or
+// ActTwo.  The function closure return by this function can be passed into
+// NewBrontideMachine as a function option parameter.
+func EphemeralGenerator(gen func() (*btcec.PrivateKey, error)) func(*Machine) {
+	return func(m *Machine) {
+		m.ephemeralGen = gen
+	}
+}
+
 // Machine is a state-machine which implements Brontide: an
 // Authenticated-key Exchange in Three Acts. Brontide is derived from the Noise
 // framework, specifically implementing the Noise_XK handshake. Once the
@@ -332,20 +342,38 @@ type Machine struct {
 	sendCipher cipherState
 	recvCipher cipherState
 
+	ephemeralGen func() (*btcec.PrivateKey, error)
+
 	handshakeState
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
 // the responder (listener) is creating the object, then the remotePub should
 // be nil. The handshake state within brontide is initialized using the ascii
-// string "bitcoin" as the prologue.
+// string "bitcoin" as the prologue. The last parameter is a set of variadic
+// arguments for adding additional options to the brontide Machine
+// initialization.
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
-	remotePub *btcec.PublicKey) *Machine {
+	remotePub *btcec.PublicKey, options ...func(*Machine)) *Machine {
 
 	handshake := newHandshakeState(initiator, []byte("lightning"), localPub,
 		remotePub)
 
-	return &Machine{handshakeState: handshake}
+	m := &Machine{handshakeState: handshake}
+
+	// With the initial base machine created, we'll assign our default
+	// version of the ephemeral key generator.
+	m.ephemeralGen = func() (*btcec.PrivateKey, error) {
+		return btcec.NewPrivateKey(btcec.S256())
+	}
+
+	// With the default options established, we'll now process all the
+	// options passed in as parameters.
+	for _, option := range options {
+		option(m)
+	}
+
+	return m
 }
 
 const (
@@ -392,7 +420,7 @@ func (b *Machine) GenActOne() ([ActOneSize]byte, error) {
 	)
 
 	// e
-	b.localEphemeral, err = btcec.NewPrivateKey(btcec.S256())
+	b.localEphemeral, err = b.ephemeralGen()
 	if err != nil {
 		return actOne, err
 	}
@@ -465,7 +493,7 @@ func (b *Machine) GenActTwo() ([ActTwoSize]byte, error) {
 	)
 
 	// e
-	b.localEphemeral, err = btcec.NewPrivateKey(btcec.S256())
+	b.localEphemeral, err = b.ephemeralGen()
 	if err != nil {
 		return actTwo, err
 	}
@@ -569,9 +597,6 @@ func (b *Machine) RecvActThree(actThree [ActThreeSize]byte) error {
 			"only %v is valid, msg=%x", actThree[0], HandshakeVersion,
 			actThree[:])
 	}
-
-	// TODO(roasbeef): print out entire version each time, also print out
-	// which act the error occurred at
 
 	copy(s[:], actThree[1:33+16+1])
 	copy(p[:], actThree[33+16+1:])

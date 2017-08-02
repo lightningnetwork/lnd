@@ -8,7 +8,7 @@ import (
 )
 
 // Listener is an implementation of a net.Conn which executes an authenticated
-// key exchange and message encryption protocol dubeed "Machine" after
+// key exchange and message encryption protocol dubbed "Machine" after
 // initial connection acceptance. See the Machine struct for additional
 // details w.r.t the handshake and encryption scheme used within the
 // connection.
@@ -43,7 +43,7 @@ func NewListener(localStatic *btcec.PrivateKey, listenAddr string) (*Listener,
 
 // Accept waits for and returns the next connection to the listener. All
 // incoming connections are authenticated via the three act Brontide
-// key-exchange scheme. This funciton will fail with a non-nil error in the
+// key-exchange scheme. This function will fail with a non-nil error in the
 // case that either the handshake breaks down, or the remote peer doesn't know
 // our static public key.
 //

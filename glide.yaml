@@ -70,4 +70,4 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 9c4ad129283f1aeb148d390fd4182d86c0c53367
+  version: 807d3e267a2863654e99dda39ac4daac78943f7e

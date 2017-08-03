@@ -1,12 +1,13 @@
-# How to write a Python gRPC client for the Lightning Network Daemon #
+# How to write a Python gRPC client for the Lightning Network Daemon
 
 This section enumerates what you need to do to write a client that communicates
 with lnd in Python.
 
+### Setup and Installation
+
 Lnd uses the gRPC protocol for communication with clients like lncli. gRPC is
 based on protocol buffers and as such, you will need to compile the lnd proto
-file in Python before you can use it to communicate with lnd. The following are
-the steps to take.
+file in Python before you can use it to communicate with lnd.
 
 * Create a virtual environment for your project
 ```
@@ -26,8 +27,9 @@ $ source lnd/bin/activate
 ```
 (lnd)$ git clone https://github.com/googleapis/googleapis.git
 ```
-* Copy the lnd rpc.proto file (you'll find this in lnrpc/rpc.proto) or just
-  download it
+* Copy the lnd rpc.proto file (you'll find this at
+  [lnrpc/rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto))
+  or just download it
 ```
 (lnd)$ curl -o rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
 ```
@@ -37,29 +39,83 @@ $ source lnd/bin/activate
 ```
 
 After following these steps, two files `rpc_pb2.py` and `rpc_pb2_grpc.py` will
-be generated. These files will be imported in your project while writing your
-clients. Here's an example of a simple client that was built using these.
+be generated. These files will be imported in your project anytime you use
+Python gRPC.
+
+#### Imports and Client
+
+Everytime you use Python gRPC, you will have to import the generated rpc modeuls
+and set up a channel and stub to your connect to your `lnd` node:
 
 ```python
-# python-based lnd client to retrieve and display wallet balance
-
-import grpc
-
 import rpc_pb2 as ln
 import rpc_pb2_grpc as lnrpc
+import grpc
 
 channel = grpc.insecure_channel('localhost:10009')
 stub = lnrpc.LightningStub(channel)
-
-response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
-print(response.balance)
 ```
+
+### Examples
+
+Let's walk through some examples of Python gRPC clients.
+
+#### Simple RPC
+
+```python
+# Retrieve and display the wallet balance
+response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
+print response.balance
+```
+
+#### Response-streaming RPC
+
+```python
+request = ln.InvoiceSubscription()
+for invoice in stub.SubscribeInvoices(request);
+    print invoice
+```
+Now, create an invoice for your node at `localhost:10009` and send a payment to
+it. Your Python console should display the details of the recently satisfied
+invoice.
+
+#### Bidirectional-streaming RPC
+
+```python
+from time import sleep
+import codecs
+
+def request_generator(dest, amt):
+      # Initialization code here
+      counter = 0
+      print("Starting up")
+      while True:
+          request = ln.SendRequest(
+              dest=dest,
+              amt=amt,
+          )
+          yield request
+          # Alter parameters here
+          counter += 1
+          sleep(2)
+
+# Outputs from lncli are hex-encoded
+dest_hex = <RECEIVER_ID_PUBKEY>
+dest_bytes = codecs.decode(dest_hex, 'hex')
+
+request_iterable = request_generator(dest=dest_bytes, amt=100)
+
+for payment in stub.SendPayment(request_iterable):
+    print payment
+```
+This example will send a payment of 100 satoshis every 2 seconds.
+
+### Conclusion
 
 With the above, you should have all the `lnd` related `gRPC` dependencies
 installed locally into your virtual environment. In order to get up to speed
 with `protofbuf` usage from Python, see [this official `protobuf` tutorial for
 Python](https://developers.google.com/protocol-buffers/docs/pythontutorial).
 Additionally, [this official gRPC
-resource](http://www.grpc.io/docs/tutorials/basic/python.html) details how to
-drive `gRPC` from Python including the basics of making RPC calls, streaming
-RPC's (bi-directional and uni-directional), etc.
+resource](http://www.grpc.io/docs/tutorials/basic/python.html) provides more
+details around how to drive `gRPC` from Python.

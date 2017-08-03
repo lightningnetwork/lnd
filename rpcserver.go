@@ -1923,6 +1923,7 @@ func marshalRoute(route *routing.Route) *lnrpc.Route {
 			ChanCapacity: int64(hop.Channel.Capacity),
 			AmtToForward: int64(hop.AmtToForward),
 			Fee:          int64(hop.Fee),
+			Expiry:       uint32(hop.OutgoingTimeLock),
 		}
 	}
 

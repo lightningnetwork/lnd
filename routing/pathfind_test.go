@@ -310,6 +310,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
 	// to follow along with the assumptions we'll use to test the path
 	// finding.
+	const startingHeight = 100
 
 	const paymentAmt = btcutil.Amount(100)
 	target := aliases["sophon"]
@@ -318,7 +319,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, path)
+	route, err := newRoute(paymentAmt, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -330,8 +331,9 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	}
 
 	// As each hop only decrements a single block from the time-lock, the
-	// total time lock value should be two.
-	if route.TotalTimeLock != 2 {
+	// total time lock value should two more than our starting block
+	// height.
+	if route.TotalTimeLock != 102 {
 		t.Fatalf("expected time lock of %v, instead have %v", 2,
 			route.TotalTimeLock)
 	}
@@ -375,7 +377,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	// We'll also assert that the outgoing CLTV value for each hop was set
 	// accordingly.
-	if route.Hops[0].OutgoingTimeLock != 1 {
+	if route.Hops[0].OutgoingTimeLock != 101 {
 		t.Fatalf("expected outgoing time-lock of %v, instead have %v",
 			1, route.Hops[0].OutgoingTimeLock)
 	}
@@ -413,7 +415,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, path)
+	route, err = newRoute(paymentAmt, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -426,8 +428,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	}
 
 	// As we have a direct path, the total time lock value should be
-	// exactly one.
-	if route.TotalTimeLock != 1 {
+	// exactly the current block height plus one.
+	if route.TotalTimeLock != 101 {
 		t.Fatalf("expected time lock of %v, instead have %v", 1,
 			route.TotalTimeLock)
 	}

@@ -398,8 +398,12 @@ out:
 							"spend notification for "+
 							"outpoint=%v", ntfn.targetOutpoint)
 						ntfn.spendChan <- spendDetails
-					}
 
+						// Close spendChan to ensure that any calls to Cancel will not
+						// block. This is safe to do since the channel is buffered, and the
+						// message can still be read by the receiver.
+						close(ntfn.spendChan)
+					}
 					delete(b.spendNotifications, prevOut)
 				}
 			}

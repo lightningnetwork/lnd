@@ -31,7 +31,7 @@ var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	MinHTLC:       0,
 	BaseFee:       1,
 	FeeRate:       1,
-	TimeLockDelta: 1,
+	TimeLockDelta: 144,
 }
 
 // defaultLitecoinForwardingPolicy is the default forwarding policy used for
@@ -40,7 +40,7 @@ var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	MinHTLC:       0,
 	BaseFee:       1,
 	FeeRate:       1,
-	TimeLockDelta: 1,
+	TimeLockDelta: 576,
 }
 
 // defaultChannelConstraints is the default set of channel constraints that are

@@ -247,12 +247,22 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
 
-	return &lnrpc.VerifyMessageResponse{Valid: active, Pubkey: pubKeyHex}, nil
+	return &lnrpc.VerifyMessageResponse{
+		Valid:  active,
+		Pubkey: pubKeyHex,
+	}, nil
 }
 
 // ConnectPeer attempts to establish a connection to a remote peer.
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
+
+	// The server hasn't yet started, so it won't be able to service any of
+	// our requests, so we'll bail early here.
+	if !r.server.Started() {
+		return nil, fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
 
 	if in.Addr == nil {
 		return nil, fmt.Errorf("need: lnc pubkeyhash@hostname")
@@ -310,6 +320,11 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 
 	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
 
+	if !r.server.Started() {
+		return nil, fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
+
 	// First we'll validate the string passed in within the request to
 	// ensure that it's a valid hex-string, and also a valid compressed
 	// public key.
@@ -355,6 +370,11 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v)", in.TargetPeerId,
 		in.LocalFundingAmount, in.PushSat)
+
+	if !r.server.Started() {
+		return fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
@@ -462,6 +482,14 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v)", in.TargetPeerId,
 		in.LocalFundingAmount, in.PushSat)
+
+	// We don't allow new channels to be open while the server is still
+	// syncing, as otherwise we may not be able to obtain the relevant
+	// notifications.
+	if !r.server.Started() {
+		return nil, fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
@@ -1136,6 +1164,14 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	errChan := make(chan error, 1)
 	payChan := make(chan *lnrpc.SendRequest)
 
+	// We don't allow payments to be sent while the daemon itself is still
+	// syncing as we may be trying to sent a payment over a "stale"
+	// channel.
+	if !r.server.Started() {
+		return fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
+
 	// TODO(roasbeef): check payment filter to see if already used?
 
 	// In order to limit the level of concurrency and prevent a client from
@@ -1284,6 +1320,14 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // hash (if any) to be encoded as hex strings.
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+
+	// We don't allow payments to be sent while the daemon itself is still
+	// syncing as we may be trying to sent a payment over a "stale"
+	// channel.
+	if !r.server.Started() {
+		return nil, fmt.Errorf("chain backend is still syncing, server " +
+			"not active yet")
+	}
 
 	var (
 		destPub *btcec.PublicKey

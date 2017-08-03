@@ -2230,6 +2230,12 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 				return
 			default:
 				graphUpdate, err := topologyClient.Recv()
+				select {
+				case <-quit:
+					return
+				default:
+				}
+
 				if err == io.EOF {
 					return
 				} else if err != nil {

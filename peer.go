@@ -645,8 +645,10 @@ out:
 
 	p.Disconnect(errors.New("read handler closed"))
 
-	for _, chanStream := range chanMsgStreams {
+	for cid, chanStream := range chanMsgStreams {
 		chanStream.Stop()
+
+		delete(chanMsgStreams, cid)
 	}
 
 	p.wg.Done()

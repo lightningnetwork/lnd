@@ -165,6 +165,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
+
 			s.peersMtx.RLock()
 			peer, ok := s.peersByPub[string(pubKey)]
 			s.peersMtx.RUnlock()

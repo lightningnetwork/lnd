@@ -473,6 +473,7 @@ func (c *chanMsgStream) msgConsumer() {
 			case <-c.quit:
 				peerLog.Tracef("Update stream for "+
 					"ChannelID(%x) exiting", c.cid[:])
+				c.msgCond.L.Unlock()
 				return
 			default:
 			}

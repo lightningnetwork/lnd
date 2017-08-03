@@ -199,9 +199,16 @@ func (s sortableRoutes) Swap(i, j int) {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error) {
+func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop,
+	currentHeight uint32) (*Route, error) {
+
+	// First, we'll create a new empty route with enough hops to match the
+	// amount of path edges. We set the TotalTimeLock to the current block
+	// height, as this is the basis that all of the time locks will be
+	// calculated from.
 	route := &Route{
-		Hops: make([]*Hop, len(pathEdges)),
+		Hops:          make([]*Hop, len(pathEdges)),
+		TotalTimeLock: currentHeight,
 	}
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
@@ -268,7 +275,8 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop) (*Route, error)
 		} else {
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_
-			// HTLC.
+			// HTLC, so we factor in their specified grace period
+			// (time lock delta).
 			nextHop.OutgoingTimeLock = route.TotalTimeLock -
 				uint32(edge.TimeLockDelta)
 		}

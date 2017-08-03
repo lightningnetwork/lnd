@@ -18,6 +18,18 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+const (
+	// expiryGraceDelta is a grace period that the timeout of incoming
+	// HTLC's that pay directly to us (i.e we're the "exit node") must up
+	// hold. We'll reject any HTLC's who's timeout minus this value is less
+	// that or equal to the current block height. We require this in order
+	// to ensure that if the extending party goes to the chain, then we'll
+	// be able to claim the HTLC still.
+	//
+	// TODO(roasbeef): must be < default delta
+	expiryGraceDelta = 2
+)
+
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
 // is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
 // constraints will be consulted in order to ensure that adequate fees are
@@ -76,23 +88,23 @@ type ChannelLinkConfig struct {
 	// targeted at a given ChannelLink concrete interface implementation.
 	FwrdingPolicy ForwardingPolicy
 
-	// Switch is a subsystem which is used to forward the incoming htlc
+	// Switch is a subsystem which is used to forward the incoming HTLC
 	// packets according to the encoded hop forwarding information
 	// contained in the forwarding blob within each HTLC.
 	Switch *Switch
 
-	// DecodeHopIterator function is responsible for decoding htlc Sphinx
+	// DecodeHopIterator function is responsible for decoding HTLC Sphinx
 	// onion blob, and creating hop iterator which will give us next
-	// destination of htlc.
+	// destination of HTLC.
 	DecodeHopIterator func(r io.Reader, rHash []byte) (HopIterator, lnwire.FailCode)
 
-	// DecodeOnionObfuscator function is responsible for decoding htlc
+	// DecodeOnionObfuscator function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
 	DecodeOnionObfuscator func(r io.Reader) (Obfuscator, lnwire.FailCode)
 
-	// GetLastChannelUpdate reterives the latest routing policy for this
-	// particualr channel. This will be used to provide payment senders our
-	// laest policy when sending encrypted error messages.
+	// GetLastChannelUpdate retrieves the latest routing policy for this
+	// particular channel. This will be used to provide payment senders our
+	// latest policy when sending encrypted error messages.
 	GetLastChannelUpdate func() (*lnwire.ChannelUpdate, error)
 
 	// Peer is a lightning network node with which we have the channel link
@@ -102,6 +114,13 @@ type ChannelLinkConfig struct {
 	// Registry is a sub-system which responsible for managing the invoices
 	// in thread-safe manner.
 	Registry InvoiceDatabase
+
+	// BlockEpochs is an active block epoch event stream backed by an
+	// active ChainNotifier instance. The ChannelLink will use new block
+	// notifications sent over this channel to decide when a _new_ HTLC is
+	// too close to expiry, and also when any active HTLC's have expired
+	// (or are close to expiry).
+	BlockEpochs *chainntnfs.BlockEpochEvent
 
 	// SettledContracts is used to notify that a channel has peacefully
 	// been closed. Once a channel has been closed the other subsystem no
@@ -152,6 +171,10 @@ type channelLink struct {
 	// BatchNumber() method in state machine.
 	batchCounter uint32
 
+	// bestHeight is the best known height of the main chain. The link will
+	// use this information to govern decisions based on HTLC timeouts.
+	bestHeight uint32
+
 	// channel is a lightning network channel to which we apply htlc
 	// updates.
 	channel *lnwallet.LightningChannel
@@ -192,8 +215,8 @@ type channelLink struct {
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
 // and active channel that will be used to verify/apply updates to.
-func NewChannelLink(cfg ChannelLinkConfig,
-	channel *lnwallet.LightningChannel) ChannelLink {
+func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
+	currentHeight uint32) ChannelLink {
 
 	return &channelLink{
 		cfg:               cfg,
@@ -205,6 +228,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cancelReasons:     make(map[uint64]lnwire.OpaqueReason),
 		logCommitTimer:    time.NewTimer(300 * time.Millisecond),
 		overflowQueue:     newWaitingQueue(),
+		bestHeight:        currentHeight,
 		quit:              make(chan struct{}),
 	}
 }
@@ -245,6 +269,8 @@ func (l *channelLink) Stop() {
 
 	close(l.quit)
 	l.wg.Wait()
+
+	l.cfg.BlockEpochs.Cancel()
 }
 
 // htlcManager is the primary goroutine which drives a channel's commitment
@@ -276,6 +302,21 @@ func (l *channelLink) htlcManager() {
 out:
 	for {
 		select {
+		// A new block has arrived, we'll examine all the active HTLC's
+		// to see if any of them have expired, and also update our
+		// track of the best current height.
+		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
+			if !ok {
+				break out
+			}
+
+			log.Debugf("New block(height=%v, hash=%v) examining "+
+				"active HTLC's", blockEpoch.Height,
+				blockEpoch.Hash)
+
+			// TODO(roasbeef): check HTLC's for expiry
+			l.bestHeight = uint32(blockEpoch.Height)
+
 		// The underlying channel has notified us of a unilateral close
 		// carried out by the remote peer. In the case of such an
 		// event, we'll wipe the channel state from the peer, and mark
@@ -342,8 +383,7 @@ out:
 		case packet := <-l.overflowQueue.pending:
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
 			log.Tracef("Reprocessing downstream add update "+
-				"with payment hash(%x)",
-				msg.PaymentHash[:])
+				"with payment hash(%x)", msg.PaymentHash[:])
 
 			l.handleDownStreamPkt(packet)
 
@@ -703,8 +743,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}()
 	case *lnwire.UpdateFee:
-		// We received fee update from peer. If we are the initator we will fail the
-		// channel, if not we will apply the update.
+		// We received fee update from peer. If we are the initator we
+		// will fail the channel, if not we will apply the update.
 		fee := msg.FeePerKw
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
 			l.fail("error receiving fee update: %v", err)
@@ -986,7 +1026,9 @@ func (l *channelLink) processLockedInHtlcs(
 			// *forced* to use the same payment hash twice, thereby
 			// losing their money entirely.
 			onionReader = bytes.NewReader(onionBlob[:])
-			chanIterator, failureCode := l.cfg.DecodeHopIterator(onionReader, pd.RHash[:])
+			chanIterator, failureCode := l.cfg.DecodeHopIterator(
+				onionReader, pd.RHash[:],
+			)
 			if failureCode != lnwire.CodeNone {
 				// If we unable to process the onion blob than
 				// we should send the malformed htlc error to
@@ -998,9 +1040,27 @@ func (l *channelLink) processLockedInHtlcs(
 				continue
 			}
 
+			heightNow := l.bestHeight
+
 			fwdInfo := chanIterator.ForwardingInstructions()
 			switch fwdInfo.NextHop {
 			case exitHop:
+				// First, we'll check the expiry of the HTLC
+				// itself against, the current block height. If
+				// the timeout is too soon, then we'll reject
+				// the HTLC.
+				if pd.Timeout-expiryGraceDelta <= heightNow {
+					log.Errorf("htlc(%x) has an expiry "+
+						"that's too soon: expiry=%v, "+
+						"best_height=%v", pd.RHash[:],
+						pd.Timeout, heightNow)
+
+					failure := lnwire.FailFinalIncorrectCltvExpiry{}
+					l.sendHTLCError(pd.RHash, &failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
 				// We're the designated payment destination.
 				// Therefore we attempt to see if we have an
 				// invoice locally which'll allow us to settle
@@ -1099,7 +1159,31 @@ func (l *channelLink) processLockedInHtlcs(
 			// constraints have been properly met by by this
 			// incoming HTLC.
 			default:
-				// As our first sanity check, we'll ensure that
+				// We want to avoid forwarding an HTLC which
+				// will expire in the near future, so we'll
+				// reject an HTLC if its expiration time is too
+				// close to the current height.
+				timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
+				if pd.Timeout-timeDelta <= heightNow {
+					log.Errorf("htlc(%x) has an expiry "+
+						"that's too soon: expiry=%v, "+
+						"best_height=%v", pd.RHash[:],
+						pd.Timeout, heightNow)
+
+					var failure lnwire.FailureMessage
+					update, err := l.cfg.GetLastChannelUpdate()
+					if err != nil {
+						failure = lnwire.NewTemporaryChannelFailure(nil)
+					} else {
+						failure = lnwire.NewExpiryTooSoon(*update)
+					}
+
+					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
+				// As our second sanity check, we'll ensure that
 				// the passed HTLC isn't too small. If so, then
 				// we'll cancel the HTLC directly.
 				if pd.Amount < l.cfg.FwrdingPolicy.MinHTLC {
@@ -1126,8 +1210,8 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
-				// Next, using the amount of the incoming
-				// HTLC, we'll calculate the expected fee this
+				// Next, using the amount of the incoming HTLC,
+				// we'll calculate the expected fee this
 				// incoming HTLC must carry in order to be
 				// accepted.
 				expectedFee := ExpectedFee(
@@ -1175,7 +1259,6 @@ func (l *channelLink) processLockedInHtlcs(
 				// time lock. Otherwise, whether the sender
 				// messed up, or an intermediate node tampered
 				// with the HTLC.
-				timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
 				if pd.Timeout-timeDelta != fwdInfo.OutgoingCTLV {
 					log.Errorf("Incoming htlc(%x) has "+
 						"incorrect time-lock value: expected "+

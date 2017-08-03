@@ -302,11 +302,16 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	return s, nil
 }
 
+// Started returns true if the server has been started, and false otherwise.
+func (s *server) Started() bool {
+	return atomic.LoadInt32(&s.started) != 0
+}
+
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 func (s *server) Start() error {
 	// Already running?
-	if atomic.AddInt32(&s.started, 1) != 1 {
+	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		return nil
 	}
 
@@ -353,7 +358,7 @@ func (s *server) Start() error {
 // all successfully exited. Additionally, any/all listeners are closed.
 func (s *server) Stop() error {
 	// Bail if we're already shutting down.
-	if atomic.AddInt32(&s.shutdown, 1) != 1 {
+	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		return nil
 	}
 

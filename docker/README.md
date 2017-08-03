@@ -279,7 +279,7 @@ bitcoins. The schema will be following:
 ```
 
 First of all you need to run `btcd` node in `testnet` and wait it to be 
-synced with test network (`May the Force and Patience be with you` ᕦ(ò_óˇ)ᕤ).
+synced with test network (`May the Force and Patience be with you`).
 ```bash 
 # Init bitcoin network env variable:
 $ export NETWORK="testnet"

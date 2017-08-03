@@ -465,16 +465,21 @@ func (r *ChannelRouter) networkHandler() {
 			log.Infof("Block %v (height=%v) closed %v channels",
 				chainUpdate.Hash, blockHeight, len(chansClosed))
 
-			if len(chansClosed) == 0 {
-				continue
-			}
-
-			// Invalidate the route cache as channels within the
-			// graph have closed, which may affect our choice of
-			// the KSP's for a particular routeTuple.
+			// Invalidate the route cache as the block height has
+			// changed which will invalidate the HTLC timeouts we
+			// have crafted within each of the pre-computed routes.
+			//
+			// TODO(roasbeef): need to invalidate after each
+			// chan ann update?
+			//  * can have map of chanID to routes involved, avoids
+			//    full invalidation
 			r.routeCacheMtx.Lock()
 			r.routeCache = make(map[routeTuple][]*Route)
 			r.routeCacheMtx.Unlock()
+
+			if len(chansClosed) == 0 {
+				continue
+			}
 
 			// Notify all currently registered clients of the newly
 			// closed channels.

@@ -1008,7 +1008,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	if err == nil {
 		t.Fatalf("payment should have failed due to a too early " +
 			"time lock value")
-	} else if err.Error() != lnwire.CodeFinalIncorrectCltvExpiry.String() {
+	} else if err.Error() != lnwire.CodeExpiryTooSoon.String() {
 		t.Fatalf("incorrect error, expected final time lock too "+
 			"early, instead have: %v", err)
 	}

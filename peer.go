@@ -307,21 +307,29 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
 		// new payments triggered by RPC clients.
-		link := htlcswitch.NewChannelLink(
-			htlcswitch.ChannelLinkConfig{
-				Peer:                  p,
-				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
-				DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
-				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
-					p.PubKey(), lnChan.ShortChanID()),
-				SettledContracts: p.server.breachArbiter.settledContracts,
-				DebugHTLC:        cfg.DebugHTLC,
-				Registry:         p.server.invoices,
-				Switch:           p.server.htlcSwitch,
-				FwrdingPolicy:    p.server.cc.routingPolicy,
-			},
-			lnChan,
-		)
+		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
+		if err != nil {
+			return err
+		}
+		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
+		if err != nil {
+			return err
+		}
+		linkCfg := htlcswitch.ChannelLinkConfig{
+			Peer:                  p,
+			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
+			DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
+				p.PubKey(), lnChan.ShortChanID()),
+			SettledContracts: p.server.breachArbiter.settledContracts,
+			DebugHTLC:        cfg.DebugHTLC,
+			Registry:         p.server.invoices,
+			Switch:           p.server.htlcSwitch,
+			FwrdingPolicy:    p.server.cc.routingPolicy,
+			BlockEpochs:      blockEpoch,
+		}
+		link := htlcswitch.NewChannelLink(linkCfg, lnChan,
+			uint32(currentHeight))
 
 		if err := p.server.htlcSwitch.AddLink(link); err != nil {
 			return err
@@ -927,6 +935,18 @@ out:
 
 			// Next, we'll assemble a ChannelLink along with the
 			// necessary items it needs to function.
+			//
+			// TODO(roasbeef): panic on below?
+			blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
+			if err != nil {
+				peerLog.Errorf("unable to register for block epoch: %v", err)
+				continue
+			}
+			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
+			if err != nil {
+				peerLog.Errorf("unable to get best block: %v", err)
+				continue
+			}
 			linkConfig := htlcswitch.ChannelLinkConfig{
 				Peer:                  p,
 				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
@@ -938,14 +958,15 @@ out:
 				Registry:         p.server.invoices,
 				Switch:           p.server.htlcSwitch,
 				FwrdingPolicy:    p.server.cc.routingPolicy,
+				BlockEpochs:      blockEpoch,
 			}
-			link := htlcswitch.NewChannelLink(linkConfig, newChan)
+			link := htlcswitch.NewChannelLink(linkConfig, newChan,
+				uint32(currentHeight))
 
 			// With the channel link created, we'll now notify the
 			// htlc switch so this channel can be used to dispatch
 			// local payments and also passively forward payments.
-			err := p.server.htlcSwitch.AddLink(link)
-			if err != nil {
+			if err := p.server.htlcSwitch.AddLink(link); err != nil {
 				peerLog.Errorf("can't register new channel "+
 					"link(%v) with peerId(%v)", chanPoint, p.id)
 			}
@@ -1525,7 +1546,6 @@ func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
 
 	// Instruct the Htlc Switch to close this link as the channel is no
 	// longer active.
-
 	if err := p.server.htlcSwitch.RemoveLink(chanID); err != nil {
 		if err == htlcswitch.ErrChannelLinkNotFound {
 			peerLog.Warnf("unable remove channel link with "+

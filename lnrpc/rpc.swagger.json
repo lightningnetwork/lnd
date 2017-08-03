@@ -1131,6 +1131,10 @@
         "fee": {
           "type": "string",
           "format": "int64"
+        },
+        "expiry": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

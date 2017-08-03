@@ -483,6 +483,7 @@ message Hop {
     int64 chan_capacity = 2 [json_name = "chan_capacity"];
     int64 amt_to_forward = 3 [json_name = "amt_to_forward"];
     int64 fee = 4 [json_name = "fee"];
+    uint32 expiry = 5 [json_name = "expiry"];
 }
 
 message Route {

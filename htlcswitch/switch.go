@@ -149,7 +149,7 @@ type Switch struct {
 	// the channel close handler.
 	chanCloseRequests chan *ChanClose
 
-	// linkControl is a channel used to propogate add/remove/get htlc
+	// linkControl is a channel used to propagate add/remove/get htlc
 	// switch handler commands.
 	linkControl chan interface{}
 }
@@ -512,7 +512,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 		// If this is failure than we need to obfuscate the error.
 		if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
-			htlc.Reason = circuit.Obfuscator.BackwardObfuscate(htlc.Reason)
+			htlc.Reason = circuit.Obfuscator.BackwardObfuscate(
+				htlc.Reason,
+			)
 		}
 
 		// Propagating settle/fail htlc back to src of add htlc packet.
@@ -542,7 +544,7 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 	closeType ChannelCloseType) (chan *lnrpc.CloseStatusUpdate, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
-	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
+	updateChan := make(chan *lnrpc.CloseStatusUpdate, 2)
 	errChan := make(chan error, 1)
 
 	command := &ChanClose{
@@ -562,34 +564,6 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 		close(updateChan)
 		return updateChan, errChan
 	}
-}
-
-// handleCloseLink sends a message to the peer responsible for the target
-// channel point, instructing it to initiate a cooperative channel closure.
-func (s *Switch) handleChanelClose(req *ChanClose) {
-	targetChanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
-
-	var link ChannelLink
-	for chanID, l := range s.linkIndex {
-		if chanID == targetChanID {
-			link = l
-		}
-	}
-
-	if link == nil {
-		req.Err <- errors.Errorf("channel with ChannelID(%v) not "+
-			"found", targetChanID)
-		return
-	}
-
-	log.Debugf("requesting local channel close, peer(%v) channel(%v)",
-		link.Peer(), targetChanID)
-
-	// TODO(roasbeef): if type was CloseBreach initiate force closure with
-	// all other channels (if any) we have with the remote peer.
-	peerPub := link.Peer().PubKey()
-	s.cfg.LocalChannelClose(peerPub[:], req)
-	return
 }
 
 // htlcForwarder is responsible for optimally forwarding (and possibly
@@ -630,7 +604,19 @@ func (s *Switch) htlcForwarder() {
 		// relevant link (if it exists) so the channel can be
 		// cooperatively closed (if possible).
 		case req := <-s.chanCloseRequests:
-			s.handleChanelClose(req)
+			chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+			link, ok := s.linkIndex[chanID]
+			if !ok {
+				req.Err <- errors.Errorf("channel with "+
+					"chan_id=%v not found", chanID[:])
+				continue
+			}
+
+			peerPub := link.Peer().PubKey()
+			log.Debugf("Requesting local channel close: peer=%v, "+
+				"chan_id=%x", link.Peer(), chanID[:])
+
+			go s.cfg.LocalChannelClose(peerPub[:], req)
 
 		// A new packet has arrived for forwarding, we'll interpret the
 		// packet concretely, then either forward it along, or

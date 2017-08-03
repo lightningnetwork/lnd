@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -342,14 +343,12 @@ type threeHopNetwork struct {
 // generateHops creates the per hop payload, the total amount to be sent, and
 // also the time lock value needed to route a HTLC with the target amount over
 // the specified path.
-func generateHops(payAmt btcutil.Amount,
+func generateHops(payAmt btcutil.Amount, startingHeight uint32,
 	path ...*channelLink) (btcutil.Amount, uint32, []ForwardingInfo) {
 
 	lastHop := path[len(path)-1]
 
-	var (
-		totalTimelock uint32
-	)
+	totalTimelock := startingHeight
 	runningAmt := payAmt
 
 	hops := make([]ForwardingInfo, len(path))
@@ -510,7 +509,7 @@ func (n *threeHopNetwork) stop() {
 // channel link	    	  channel link   channel link		channel link
 //
 func newThreeHopNetwork(t *testing.T, aliceToBob,
-	bobToCarol btcutil.Amount) *threeHopNetwork {
+	bobToCarol btcutil.Amount, startingHeight uint32) *threeHopNetwork {
 	var err error
 
 	// Create three peers/servers.
@@ -538,10 +537,15 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		t.Fatalf("unable to create bob<->carol channel: %v", err)
 	}
 
+	globalEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Cancel: func() {
+		},
+	}
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       5,
 		BaseFee:       btcutil.Amount(1),
-		TimeLockDelta: 1,
+		TimeLockDelta: 6,
 	}
 	obfuscator := newMockObfuscator()
 	aliceChannelLink := NewChannelLink(
@@ -556,8 +560,10 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             aliceServer.registry,
+			BlockEpochs:          globalEpoch,
 		},
 		aliceChannel,
+		startingHeight,
 	)
 	if err := aliceServer.htlcSwitch.addLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice channel link: %v", err)
@@ -575,8 +581,10 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
+			BlockEpochs:          globalEpoch,
 		},
 		firstBobChannel,
+		startingHeight,
 	)
 	if err := bobServer.htlcSwitch.addLink(firstBobChannelLink); err != nil {
 		t.Fatalf("unable to add first bob channel link: %v", err)
@@ -594,8 +602,10 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
+			BlockEpochs:          globalEpoch,
 		},
 		secondBobChannel,
+		startingHeight,
 	)
 	if err := bobServer.htlcSwitch.addLink(secondBobChannelLink); err != nil {
 		t.Fatalf("unable to add second bob channel link: %v", err)
@@ -613,8 +623,10 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             carolServer.registry,
+			BlockEpochs:          globalEpoch,
 		},
 		carolChannel,
+		startingHeight,
 	)
 	if err := carolServer.htlcSwitch.addLink(carolChannelLink); err != nil {
 		t.Fatalf("unable to add carol channel link: %v", err)

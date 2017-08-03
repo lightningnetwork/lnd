@@ -20,6 +20,10 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+const (
+	testStartingHeight = 100
+)
+
 // messageToString is used to produce less spammy log messages in trace mode by
 // setting the 'Curve" parameter to nil. Doing this avoids printing out each of
 // the field elements in the curve parameters for secp256k1.
@@ -81,6 +85,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -102,7 +107,8 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, totalTimelock, hops := generateHops(amount, n.firstBobChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
 
 	// Wait for:
 	// * HTLC add request to be sent to bob.
@@ -146,6 +152,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -169,8 +176,9 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	const amt btcutil.Amount = 20000
 
 	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
-		n.firstBobChannelLink)
-	_, _, hopsBackwards := generateHops(amt, n.aliceChannelLink)
+		testStartingHeight, n.firstBobChannelLink)
+	_, _, hopsBackwards := generateHops(amt,
+		testStartingHeight, n.aliceChannelLink)
 
 	type result struct {
 		err    error
@@ -266,6 +274,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -298,6 +307,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
 	htlcAmt, totalTimelock, hops := generateHops(amount,
+		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// Wait for:
@@ -361,6 +371,7 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -369,7 +380,7 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 
 	const amount = btcutil.SatoshiPerBitcoin
 	htlcAmt, htlcExpiry, hops := generateHops(amount,
-		n.firstBobChannelLink)
+		testStartingHeight, n.firstBobChannelLink)
 
 	// In order to exercise this case, we'll now _manually_ modify the
 	// per-hop payload for outgoing time lock to be the incorrect value.
@@ -399,6 +410,7 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -406,7 +418,8 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	defer n.stop()
 
 	const amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, htlcExpiry, hops := generateHops(amount, n.firstBobChannelLink)
+	htlcAmt, htlcExpiry, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
 
 	// In order to exercise this case, we'll now _manually_ modify the
 	// per-hop payload for amount to be the incorrect value.  The proper
@@ -435,6 +448,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -447,8 +461,8 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// Generate the route over two hops, ignoring the total time lock that
 	// we'll need to use for the first HTLC in order to have a sufficient
 	// time-lock value to account for the decrements over the entire route.
-	htlcAmt, htlcExpiry, hops := generateHops(amount, n.firstBobChannelLink,
-		n.carolChannelLink)
+	htlcAmt, htlcExpiry, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
 	htlcExpiry += 10
 
 	// Next, we'll make the payment which'll send an HTLC with our
@@ -475,6 +489,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -488,8 +503,8 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 
 	// Generate the route over two hops, ignoring the amount we _should_
 	// actually send in order to be able to cover fees.
-	_, htlcExpiry, hops := generateHops(amountNoFee, n.firstBobChannelLink,
-		n.carolChannelLink)
+	_, htlcExpiry, hops := generateHops(amountNoFee, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
 
 	// Next, we'll make the payment which'll send an HTLC with our
 	// specified parameters to the first hop in the route.
@@ -518,6 +533,7 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -531,7 +547,7 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 
 	// With the amount set, we'll generate a route over 2 hops within the
 	// network that attempts to pay out our specified amount.
-	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
+	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// Next, we'll make the payment which'll send an HTLC with our
@@ -562,6 +578,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*5,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -575,6 +592,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	amountNoFee := btcutil.Amount(10)
 	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
+		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// First, send this 1 BTC payment over the three hops, the payment
@@ -634,6 +652,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
@@ -646,7 +665,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	var amount btcutil.Amount = 4 * btcutil.SatoshiPerBitcoin
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// Wait for:
@@ -703,6 +722,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
@@ -716,7 +736,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
 
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 	blob, err := generateRoute(hops...)
 	if err != nil {
@@ -786,6 +806,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
@@ -798,7 +819,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	davePub := newMockServer(t, "save").PubKey()
@@ -850,6 +871,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
@@ -868,7 +890,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, totalTimelock, hops := generateHops(amount,
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
@@ -918,6 +940,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	n := newThreeHopNetwork(t,
 		btcutil.SatoshiPerBitcoin*3,
 		btcutil.SatoshiPerBitcoin*5,
+		testStartingHeight,
 	)
 
 	chanPoint := n.aliceChannelLink.ChanID()
@@ -991,7 +1014,8 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	defer n.stop()
 
 	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
-	htlcAmt, totalTimelock, hops := generateHops(amount, n.firstBobChannelLink)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
 
 	// Wait for:
 	// * htlc add htlc request to be sent to alice

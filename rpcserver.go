@@ -1808,7 +1808,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	return edge
 }
 
-// GetChainInfo returns the latest authenticated network announcement for the
+// GetChanInfo returns the latest authenticated network announcement for the
 // given channel identified by its channel ID: an 8-byte integer which uniquely
 // identifies the location of transaction's funding output within the block
 // chain.

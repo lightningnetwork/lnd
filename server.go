@@ -403,9 +403,15 @@ func (s *server) genNodeAnnouncement(refresh bool) (*lnwire.NodeAnnouncement, er
 	}
 
 	var err error
-	s.currentNodeAnn.Timestamp = uint32(time.Now().Unix())
-	s.currentNodeAnn.Signature, err = discovery.SignAnnouncement(s.nodeSigner,
-		s.identityPriv.PubKey(), s.currentNodeAnn,
+
+	newStamp := uint32(time.Now().Unix())
+	if newStamp <= s.currentNodeAnn.Timestamp {
+		newStamp = s.currentNodeAnn.Timestamp + 1
+	}
+
+	s.currentNodeAnn.Timestamp = newStamp
+	s.currentNodeAnn.Signature, err = discovery.SignAnnouncement(
+		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
 	)
 
 	return s.currentNodeAnn, err

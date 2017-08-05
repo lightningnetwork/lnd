@@ -621,7 +621,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		// With the necessary indexes cleaned up, we'll now force close
 		// the channel.
-		closingTxid, err := r.forceCloseChan(channel)
+		closingTxid, closeSummary, err := r.forceCloseChan(channel)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)
 			return err
@@ -629,7 +629,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		// With the transaction broadcast, we send our first update to
 		// the client.
-		updateChan = make(chan *lnrpc.CloseStatusUpdate, 1)
+		updateChan = make(chan *lnrpc.CloseStatusUpdate, 2)
 		updateChan <- &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
 				ClosePending: &lnrpc.PendingUpdate{
@@ -652,10 +652,21 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 						},
 					},
 				}
+
+				// If we didn't have an output active on the
+				// commitment transaction, and had no outgoing
+				// HTLC's then we can mark the channels as
+				// closed as there are no funds to be swept.
+				if closeSummary.SelfOutputSignDesc == nil &&
+					len(closeSummary.HtlcResolutions) == 0 {
+					err := r.server.chanDB.MarkChanFullyClosed(chanPoint)
+					if err != nil {
+						rpcsLog.Errorf("unable to "+
+							"mark channel as closed: %v", err)
+						return
+					}
+				}
 			})
-
-		// TODO(roasbeef): utxo nursery marks as fully closed
-
 	} else {
 		// Otherwise, the caller has requested a regular interactive
 		// cooperative channel closure. So we'll forward the request to
@@ -731,12 +742,13 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (*lnwallet.Light
 // commitment transaction has been broadcast, a struct describing the final
 // state of the channel is sent to the utxoNursery in order to ultimately sweep
 // the immature outputs.
-func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainhash.Hash, error) {
+func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainhash.Hash, *lnwallet.ForceCloseSummary, error) {
+
 	// Execute a unilateral close shutting down all further channel
 	// operation.
 	closeSummary, err := channel.ForceClose()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	closeTx := closeSummary.CloseTx
@@ -749,7 +761,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 			return spew.Sdump(closeTx)
 		}))
 	if err := r.server.cc.wallet.PublishTransaction(closeTx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Now that the closing transaction has been broadcast successfully,
@@ -769,14 +781,14 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 		IsPending:         true,
 	}
 	if err := channel.DeleteState(closeInfo); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Send the closed channel summary over to the utxoNursery in order to
 	// have its outputs swept back into the wallet once they're mature.
 	r.server.utxoNursery.IncubateOutputs(closeSummary)
 
-	return &txid, nil
+	return &txid, closeSummary, nil
 }
 
 // GetInfo serves a request to the "getinfo" RPC call. This call returns

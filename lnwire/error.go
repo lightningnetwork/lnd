@@ -27,6 +27,11 @@ const (
 	// channel update or a funding request while their still syncing to the
 	// latest state of the blockchain.
 	ErrSynchronizingChain ErrorCode = 2
+
+	// ErrChanTooLarge is retruend by a remote peer that receives a
+	// FundingOpen request for a channel that is above their current
+	// soft-limit.
+	ErrChanTooLarge ErrorCode = 3
 )
 
 // ErrorData is a set of bytes associated with a particular sent error. A
@@ -39,6 +44,8 @@ type ErrorData []byte
 // format is purposefully general in order to allow expression of a wide array
 // of possible errors. Each Error message is directed at a particular open
 // channel referenced by ChannelPoint.
+//
+// TODO(roasbeef): remove the error code
 type Error struct {
 	// ChanID references the active channel in which the error occurred
 	// within. If the ChanID is all zeroes, then this error applies to the

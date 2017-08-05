@@ -17,8 +17,13 @@ type nodeSigner struct {
 // newNodeSigner creates a new instance of the nodeSigner backed by the target
 // private key.
 func newNodeSigner(key *btcec.PrivateKey) *nodeSigner {
+	priv := &btcec.PrivateKey{}
+	priv.Curve = btcec.S256()
+	priv.PublicKey.X = key.X
+	priv.PublicKey.Y = key.Y
+	priv.D = key.D
 	return &nodeSigner{
-		privKey: key,
+		privKey: priv,
 	}
 }
 

@@ -380,11 +380,19 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 
 	// Ensure that the initial balance of the remote party (if pushing
-	// satoshis) does not execeed the amount the local party has requested
+	// satoshis) does not exceed the amount the local party has requested
 	// for funding.
 	if remoteInitialBalance >= localFundingAmt {
 		return fmt.Errorf("amount pushed to remote peer for initial " +
 			"state must be below the local funding amount")
+	}
+
+	// Ensure that the user doesn't exceed the current soft-limit for
+	// channel size. If the funding amount is above the soft-limit, then
+	// we'll reject the request.
+	if localFundingAmt > maxFundingAmount {
+		return fmt.Errorf("funding amount is too large, the max "+
+			"channel size is: %v", maxFundingAmount)
 	}
 
 	const minChannelSize = btcutil.Amount(6000)

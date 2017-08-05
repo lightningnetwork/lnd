@@ -29,6 +29,15 @@ const (
 	msgBufferSize = 50
 
 	defaultCsvDelay = 4
+
+	// maxFundingAmount is a soft-limit of the maximum channel size
+	// accepted within the Lightning Protocol Currently. This limit is
+	// currently defined in BOLT-0002, and serves as an initial
+	// precaturioary limit while implementations are battle tested in the
+	// real world.
+	//
+	// TODO(roasbeef): add command line param to modify
+	maxFundingAmount = btcutil.Amount(2 << 24)
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper
@@ -524,6 +533,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// violated.
 	peerIDKey := newSerializedKey(fmsg.peerAddress.IdentityKey)
 
+	msg := fmsg.msg
+	amt := msg.FundingAmount
+
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
 	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
@@ -562,10 +574,22 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
-	// TODO(roasbeef): validate sanity of all params sent
+	// We'll reject any request to create a channel that's above the
+	// current soft-limit for channel size.
+	if msg.FundingAmount > maxFundingAmount {
+		errMsg := &lnwire.Error{
+			ChanID: fmsg.msg.PendingChannelID,
+			Data:   []byte("channel too large"),
+		}
+		err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg)
+		if err != nil {
+			fndgLog.Errorf("unable to send error message to peer %v", err)
+			return
+		}
+		return
+	}
 
-	msg := fmsg.msg
-	amt := msg.FundingAmount
+	// TODO(roasbeef): validate sanity of all params sent
 
 	// TODO(roasbeef): error if funding flow already ongoing
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, pendingId=%x) "+
@@ -1544,6 +1568,8 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	e := fmsg.err
 
 	switch e.Code {
+	case lnwire.ErrChanTooLarge:
+		fallthrough
 	case lnwire.ErrMaxPendingChannels:
 		fallthrough
 	case lnwire.ErrSynchronizingChain:

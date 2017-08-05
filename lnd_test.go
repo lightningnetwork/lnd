@@ -2222,7 +2222,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	// We'll launch a goroutine that'll be responsible for proxying all
 	// notifications recv'd from the client into the channel below.
 	quit := make(chan struct{})
-	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 3)
+	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 4)
 	go func() {
 		for {
 			select {
@@ -2242,7 +2242,11 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 					t.Fatalf("unable to recv graph update: %v", err)
 				}
 
-				graphUpdates <- graphUpdate
+				select {
+				case graphUpdates <- graphUpdate:
+				case <-quit:
+					return
+				}
 			}
 		}
 	}()
@@ -2256,6 +2260,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphUpdates:
+
 			if len(graphUpdate.ChannelUpdates) > 0 {
 				chanUpdate := graphUpdate.ChannelUpdates[0]
 				if chanUpdate.Capacity != int64(chanAmt) {
@@ -2368,7 +2373,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 3; i++ {
 		select {
 		case graphUpdate := <-graphUpdates:
 

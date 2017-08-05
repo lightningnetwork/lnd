@@ -75,7 +75,7 @@ type Config struct {
 }
 
 // New creates a new AuthenticatedGossiper instance, initialized with the
-// passed configuration paramters.
+// passed configuration parameters.
 func New(cfg Config) (*AuthenticatedGossiper, error) {
 	storage, err := channeldb.NewWaitingProofStore(cfg.DB)
 	if err != nil {
@@ -439,9 +439,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 	switch msg := nMsg.msg.(type) {
 
-	// A new node announcement has arrived which either presents new information
-	// about a node in one of the channels we know about, or a updating
-	// previously advertised information.
+	// A new node announcement has arrived which either presents new
+	// information about a node in one of the channels we know about, or a
+	// updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
 		if nMsg.isRemote {
 			if err := d.validateNodeAnn(msg); err != nil {
@@ -464,7 +464,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		}
 
 		if err := d.cfg.Router.AddNode(node); err != nil {
-			if routing.IsError(err, routing.ErrOutdated, routing.ErrIgnored) {
+			if routing.IsError(err, routing.ErrOutdated,
+				routing.ErrIgnored) {
+
 				log.Debug(err)
 			} else {
 				log.Error(err)
@@ -504,8 +506,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			return nil
 		}
 
-		// If this is a remote channel annoucement, then we'll validate
-		// all the signatues within the proof as it should be well
+		// If this is a remote channel announcement, then we'll validate
+		// all the signatures within the proof as it should be well
 		// formed.
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {

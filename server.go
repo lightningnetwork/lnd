@@ -94,6 +94,12 @@ type server struct {
 	// only affect the protocol between these two nodes.
 	localFeatures *lnwire.FeatureVector
 
+	// currentNodeAnn is the node announcement that has been broadcast to
+	// the network upon startup, if the attributes of the node (us) has
+	// changed since last start.
+	annMtx         sync.Mutex
+	currentNodeAnn *lnwire.NodeAnnouncement
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -208,7 +214,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	// TODO(roasbeef): make alias configurable
 	alias := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
-	self := &channeldb.LightningNode{
+	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
@@ -220,24 +226,29 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	// If our information has changed since our last boot, then we'll
 	// re-sign our node announcement so a fresh authenticated version of it
 	// can be propagated throughout the network upon startup.
+	//
 	// TODO(roasbeef): don't always set timestamp above to _now.
-	self.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
-		s.identityPriv.PubKey(),
-		&lnwire.NodeAnnouncement{
-			Timestamp: uint32(self.LastUpdate.Unix()),
-			Addresses: self.Addresses,
-			NodeID:    self.PubKey,
-			Alias:     alias,
-			Features:  self.Features,
-		},
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Timestamp: uint32(selfNode.LastUpdate.Unix()),
+		Addresses: selfNode.Addresses,
+		NodeID:    selfNode.PubKey,
+		Alias:     alias,
+		Features:  selfNode.Features,
+	}
+	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
+		s.identityPriv.PubKey(), nodeAnn,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
-	if err := chanGraph.SetSourceNode(self); err != nil {
+
+	if err := chanGraph.SetSourceNode(selfNode); err != nil {
 		return nil, fmt.Errorf("can't set self node: %v", err)
 	}
+
+	nodeAnn.Signature = selfNode.AuthSig
+	s.currentNodeAnn = nodeAnn
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
@@ -378,6 +389,26 @@ func (s *server) Stop() error {
 	s.wg.Wait()
 
 	return nil
+}
+
+// genNodeAnnouncement generates and returns the current fully signed node
+// announcement. If refresh is true, then the time stamp of the announcement
+// will be updated in order to ensure it propagates through the network.
+func (s *server) genNodeAnnouncement(refresh bool) (*lnwire.NodeAnnouncement, error) {
+	s.annMtx.Lock()
+	defer s.annMtx.Unlock()
+
+	if !refresh {
+		return s.currentNodeAnn, nil
+	}
+
+	var err error
+	s.currentNodeAnn.Timestamp = uint32(time.Now().Unix())
+	s.currentNodeAnn.Signature, err = discovery.SignAnnouncement(s.nodeSigner,
+		s.identityPriv.PubKey(), s.currentNodeAnn,
+	)
+
+	return s.currentNodeAnn, err
 }
 
 // establishPersistentConnections attempts to establish persistent connections

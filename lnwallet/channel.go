@@ -3528,6 +3528,9 @@ type ForceCloseSummary struct {
 
 	// SelfOutputSignDesc is a fully populated sign descriptor capable of
 	// generating a valid signature to sweep the self output.
+	//
+	// NOTE: If the commitment delivery output of the force closing party
+	// is below the dust limit, then this will be nil.
 	SelfOutputSignDesc *SignDescriptor
 
 	// SelfOutputMaturity is the relative maturity period before the above

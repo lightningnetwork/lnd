@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -247,14 +246,14 @@ func (l *lightningNode) Start(lndError chan error) error {
 		return err
 	}
 
-	// Wait until TLS certificate is created before using it, up to 10 sec.
-	tlsTimeout := time.After(10 * time.Second)
+	// Wait until TLS certificate is created before using it, up to 20 sec.
+	tlsTimeout := time.After(20 * time.Second)
 	for !fileExists(l.cfg.TLSCertPath) {
 		time.Sleep(100 * time.Millisecond)
 		select {
 		case <-tlsTimeout:
 			panic(fmt.Errorf("timeout waiting for TLS cert file " +
-				"to be created after 10 seconds"))
+				"to be created after 20 seconds"))
 		default:
 		}
 	}
@@ -395,12 +394,6 @@ type chanWatchRequest struct {
 func (l *lightningNode) lightningNetworkWatcher() {
 	defer l.wg.Done()
 
-	// If the channel router is shutting down, then we won't consider it as
-	// a real error. This just indicates the daemon itself is quitting.
-	isShutdownError := func(err error) bool {
-		return strings.Contains(err.Error(), "shutting down")
-	}
-
 	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate)
 	l.wg.Add(1)
 	go func() {
@@ -422,25 +415,7 @@ func (l *lightningNode) lightningNetworkWatcher() {
 			if err == io.EOF {
 				return
 			} else if err != nil {
-				// If the node has been signalled to quit, then
-				// we'll exit early.
-				select {
-				case <-l.quit:
-					return
-				default:
-				}
-
-				// Otherwise, if the node is shutting down on
-				// it's own, then we'll also bail out early.
-				if isShutdownError(err) {
-					return
-				}
-
-				// Similar to the case above, we also panic
-				// here (and end the tests) as these
-				// notifications are critical to the success of
-				// many tests.
-				panic(fmt.Errorf("unable read update ntfn: %v", err))
+				return
 			}
 
 			select {

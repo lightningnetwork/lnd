@@ -1502,7 +1502,7 @@ func waitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 
 	// The channel has been closed, remove it from any active indexes, and
 	// the database state.
-	srvrLog.Infof("ChannelPoint(%v) is now closed at "+
+	peerLog.Infof("ChannelPoint(%v) is now closed at "+
 		"height %v", chanPoint, height.BlockHeight)
 
 	// Finally, execute the closure call back to mark the confirmation of

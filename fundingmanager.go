@@ -37,7 +37,7 @@ const (
 	// real world.
 	//
 	// TODO(roasbeef): add command line param to modify
-	maxFundingAmount = btcutil.Amount(2 << 24)
+	maxFundingAmount = btcutil.Amount(1 << 24)
 )
 
 // reservationWithCtx encapsulates a pending channel reservation. This wrapper

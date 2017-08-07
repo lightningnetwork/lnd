@@ -468,12 +468,24 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 				routing.ErrIgnored) {
 
 				log.Debug(err)
+
+				// If we are handling a self node announcement,
+				// AddNode might fail with ErrOutdated or
+				// ErrIgnored (since we already know about our
+				// own node), but we want to announce it to the
+				// network regardless. If this is a remote node
+				// announcement, consider it an error.
+				sourceNode := d.cfg.Router.SourceNode()
+				isSelf := sourceNode.PubKey.IsEqual(node.PubKey)
+				if !isSelf {
+					nMsg.err <- err
+					return nil
+				}
 			} else {
 				log.Error(err)
+				nMsg.err <- err
+				return nil
 			}
-
-			nMsg.err <- err
-			return nil
 		}
 
 		// Node announcement was successfully proceeded and know it

@@ -108,6 +108,29 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 	}, cleanUp, nil
 }
 
+// TestGetSourceNode checks that we can fetch the graph's source node from the
+// router.
+func TestGetSourceNode(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	routerSource := ctx.router.SourceNode()
+	graphSource, err := ctx.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("failed getting graph source node: %v", err)
+	}
+	if !routerSource.PubKey.IsEqual(graphSource.PubKey) {
+		t.Fatalf("router source node (%v) does not match graph source "+
+			"node (%v)", routerSource.PubKey, graphSource.PubKey)
+	}
+}
+
 // TestFindRoutesFeeSorting asserts that routes found by the FindRoutes method
 // within the channel router are properly returned in a sorted order, with the
 // lowest fee route coming first.

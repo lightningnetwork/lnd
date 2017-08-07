@@ -46,6 +46,10 @@ type ChannelGraphSource interface {
 	// edge considered as not fully constructed.
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
 
+	// SourceNode returns the "source" node which is the center of the
+	// star-graph.
+	SourceNode() *channeldb.LightningNode
+
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// eminating from the "source" node which is the center of the
 	// star-graph.
@@ -1118,6 +1122,14 @@ func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
 	case <-r.quit:
 		return errors.New("router has been shutted down")
 	}
+}
+
+// SourceNode returns the "source" node which is the center of the
+// star-graph.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) SourceNode() *channeldb.LightningNode {
+	return r.selfNode
 }
 
 // CurrentBlockHeight returns the block height from POV of the router subsystem.

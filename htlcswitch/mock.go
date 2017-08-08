@@ -330,7 +330,7 @@ func (s *mockServer) Stop() {
 		return
 	}
 
-	go s.htlcSwitch.Stop()
+	s.htlcSwitch.Stop()
 
 	close(s.quit)
 	s.wg.Wait()

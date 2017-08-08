@@ -136,7 +136,7 @@ func lndMain() error {
 				pubKey, msg,
 			)
 		},
-		CurrentNodeAnnouncement: func() (*lnwire.NodeAnnouncement, error) {
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return server.genNodeAnnouncement(true)
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {

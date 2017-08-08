@@ -172,7 +172,7 @@ type fundingConfig struct {
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lighting Network node.
-	CurrentNodeAnnouncement func() (*lnwire.NodeAnnouncement, error)
+	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
 
 	// SendAnnouncement is used by the FundingManager to announce newly
 	// created channels to the rest of the Lightning Network.
@@ -1413,7 +1413,7 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 		fndgLog.Errorf("can't generate node announcement: %v", err)
 		return
 	}
-	f.cfg.SendAnnouncement(nodeAnn)
+	f.cfg.SendAnnouncement(&nodeAnn)
 }
 
 // initFundingWorkflow sends a message to the funding manager instructing it

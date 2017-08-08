@@ -2205,6 +2205,12 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	timeout := time.Duration(time.Second * 5)
 	ctxb := context.Background()
 
+	graphReq := &lnrpc.ChannelGraphRequest{}
+	graph, err := net.Alice.DescribeGraph(ctxb, graphReq)
+	if err != nil {
+		t.Fatalf("unable to query graph: %v", err)
+	}
+
 	// We'll first start by establishing a notification client to Alice
 	// which'll send us notifications upon detected changes in the channel
 	// graph.
@@ -2253,8 +2259,10 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 
 	// The channel opening above should've triggered a few notifications
 	// sent to the notification client. We'll expect two channel updates,
-	// and two node announcements.
-	const numExpectedUpdates = 4
+	// and one node announcement for each node in the channel not already
+	// in the channel graph. We must do this in case the node we just added
+	// a channel to was known from a previous test case.
+	numExpectedUpdates := 4 - len(graph.Nodes)
 	for i := 0; i < numExpectedUpdates; i++ {
 		select {
 		// Ensure that a new update for both created edges is properly

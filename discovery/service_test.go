@@ -141,6 +141,12 @@ func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
 	return nil
 }
 
+func (r *mockGraphSource) SourceNode() *channeldb.LightningNode {
+	return &channeldb.LightningNode{
+		PubKey: nodeKeyPub1,
+	}
+}
+
 func (r *mockGraphSource) SelfEdges() ([]*channeldb.ChannelEdgePolicy, error) {
 	return nil, nil
 }

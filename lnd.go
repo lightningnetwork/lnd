@@ -137,7 +137,7 @@ func lndMain() error {
 			)
 		},
 		CurrentNodeAnnouncement: func() (*lnwire.NodeAnnouncement, error) {
-			return server.genNodeAnnouncement(true)
+			return server.genNodeAnnouncement(false)
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
 			server.discoverSrv.ProcessLocalAnnouncement(msg,

@@ -611,7 +611,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// as eligible for forwarding HTLC's. If the peer is online,
 		// then we'll also purge all of its indexes.
 		remotePub := &channel.StateSnapshot().RemoteIdentity
-		if peer, err := r.server.findPeer(remotePub); err == nil {
+		if peer, err := r.server.FindPeer(remotePub); err == nil {
 			// TODO(roasbeef): actually get the active channel
 			// instead too?
 			//  * so only need to grab from database
@@ -1108,7 +1108,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		chanID, _ = graph.ChannelID(&chanPoint)
 
 		var peerOnline bool
-		if _, err := r.server.findPeer(nodePub); err == nil {
+		if _, err := r.server.FindPeer(nodePub); err == nil {
 			peerOnline = true
 		}
 

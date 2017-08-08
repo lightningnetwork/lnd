@@ -145,8 +145,8 @@ func lndMain() error {
 			return <-errChan
 		},
 		ArbiterChan:    server.breachArbiter.newContracts,
-		SendToPeer:     server.sendToPeer,
-		FindPeer:       server.findPeer,
+		SendToPeer:     server.SendToPeer,
+		FindPeer:       server.FindPeer,
 		TempChanIDSeed: chanIDSeed,
 		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
 			dbChannels, err := chanDB.FetchAllChannels()

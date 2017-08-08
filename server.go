@@ -394,12 +394,12 @@ func (s *server) Stop() error {
 // genNodeAnnouncement generates and returns the current fully signed node
 // announcement. If refresh is true, then the time stamp of the announcement
 // will be updated in order to ensure it propagates through the network.
-func (s *server) genNodeAnnouncement(refresh bool) (*lnwire.NodeAnnouncement, error) {
+func (s *server) genNodeAnnouncement(refresh bool) (lnwire.NodeAnnouncement, error) {
 	s.annMtx.Lock()
 	defer s.annMtx.Unlock()
 
 	if !refresh {
-		return s.currentNodeAnn, nil
+		return *s.currentNodeAnn, nil
 	}
 
 	var err error
@@ -414,7 +414,7 @@ func (s *server) genNodeAnnouncement(refresh bool) (*lnwire.NodeAnnouncement, er
 		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
 	)
 
-	return s.currentNodeAnn, err
+	return *s.currentNodeAnn, err
 }
 
 // establishPersistentConnections attempts to establish persistent connections

@@ -267,25 +267,43 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 }
 
 //assertNumConnections asserts number current connections between two peers
-func assertNumConnections(ctxt context.Context, t *harnessTest,
-	alice, bob *lightningNode, expected int) {
-	aliceNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-	if err != nil {
-		t.Fatalf("unable to fetch alice's node (%v) list peers %v",
-			alice.nodeID, err)
-	}
-	bobNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-	if err != nil {
-		t.Fatalf("unable to fetch bob's node (%v) list peers %v",
-			bob.nodeID, err)
-	}
-	if len(aliceNumPeers.Peers) != expected {
-		t.Fatalf("number of peers connected to alice is incorrect: expected %v, got %v",
-			expected, len(aliceNumPeers.Peers))
-	}
-	if len(bobNumPeers.Peers) != expected {
-		t.Fatalf("number of peers connected to bob is incorrect: expected %v, got %v",
-			expected, len(bobNumPeers.Peers))
+func assertNumConnections(
+	ctxt context.Context,
+	t *harnessTest,
+	alice, bob *lightningNode,
+	expected int) {
+
+	const nPolls = 10
+
+	tick := time.Tick(300 * time.Millisecond)
+	for i := nPolls - 1; i >= 0; i-- {
+		select {
+		case <-tick:
+			aNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+			if err != nil {
+				t.Fatalf("unable to fetch alice's node (%v) list peers %v",
+					alice.nodeID, err)
+			}
+			bNumPeers, err := bob.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
+			if err != nil {
+				t.Fatalf("unable to fetch bob's node (%v) list peers %v",
+					bob.nodeID, err)
+			}
+			if len(aNumPeers.Peers) != expected {
+				if i > 0 {
+					continue
+				}
+				t.Fatalf("number of peers connected to alice is incorrect: "+
+					"expected %v, got %v", expected, len(aNumPeers.Peers))
+			}
+			if len(bNumPeers.Peers) != expected {
+				if i > 0 {
+					continue
+				}
+				t.Fatalf("number of peers connected to bob is incorrect: "+
+					"expected %v, got %v", expected, len(bNumPeers.Peers))
+			}
+		}
 	}
 }
 

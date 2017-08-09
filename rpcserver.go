@@ -812,11 +812,12 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
 	}
 
-	pendingChannels, err := r.server.fundingMgr.NumPendingChannels()
+	pendingChannels, err := r.server.chanDB.FetchPendingChannels()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get number of pending "+
+		return nil, fmt.Errorf("unable to get retrieve pending "+
 			"channels: %v", err)
 	}
+	nPendingChannels := uint32(len(pendingChannels))
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
 
@@ -839,7 +840,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:     hex.EncodeToString(idPub),
-		NumPendingChannels: pendingChannels,
+		NumPendingChannels: nPendingChannels,
 		NumActiveChannels:  activeChannels,
 		NumPeers:           uint32(len(serverPeers)),
 		BlockHeight:        uint32(bestHeight),

@@ -290,6 +290,8 @@ func assertNumConnections(
 					bob.nodeID, err)
 			}
 			if len(aNumPeers.Peers) != expected {
+				// Continue polling if this is not the final
+				// loop.
 				if i > 0 {
 					continue
 				}
@@ -297,12 +299,18 @@ func assertNumConnections(
 					"expected %v, got %v", expected, len(aNumPeers.Peers))
 			}
 			if len(bNumPeers.Peers) != expected {
+				// Continue polling if this is not the final
+				// loop.
 				if i > 0 {
 					continue
 				}
 				t.Fatalf("number of peers connected to bob is incorrect: "+
 					"expected %v, got %v", expected, len(bNumPeers.Peers))
 			}
+
+			// Alice and Bob both have the required number of
+			// peers, stop polling and return to caller.
+			return
 		}
 	}
 }

@@ -1538,6 +1538,12 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
 		chanPoints[i] = openChannelAndAssert(ctx, t, net, net.Alice,
 			net.Bob, amount, 0)
+
+		// We need to give Bob a bit of time to make sure the newly
+		// opened channel is not still pending.
+		if i != numChannels-1 {
+			time.Sleep(time.Millisecond * 500)
+		}
 	}
 
 	// Close the channel between Alice and Bob, asserting that the

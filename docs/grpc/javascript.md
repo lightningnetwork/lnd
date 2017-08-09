@@ -18,8 +18,8 @@ at least somewhere reachable by your Javascript code).
 The `rpc.proto` file is [located in the `lnrpc` directory of the `lnd`
 sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto).
 
-In order to allow the auto code generated to compile the protos successfully,
-you'll need to comment out the following line:
+In order for the auto-generated code to compile successfully, you'll need to
+comment out the following line:
 ```
 //import "google/api/annotations.proto";
 ```
@@ -31,14 +31,23 @@ Every time you work with Javascript gRPC, you will have to import `grpc`, load
 
 ```js
 var grpc = require('grpc');
+var fs = require("fs");
+
+//  Lnd cert is at ~/.lnd/tls.cert on Linux and
+//  ~/Library/Application Support/Lnd/tls.cert on Mac
+var lndCert = fs.readFileSync("~/.lnd/tls.cert");
+var credentials = grpc.credentials.createSsl(lndCert);
 var lnrpcDescriptor = grpc.load("rpc.proto");
 var lnrpc = lnrpcDescriptor.lnrpc;
-var lightning = new lnrpc.Lightning('localhost:10009', grpc.credentials.createInsecure());
+var lightning = new lnrpc.Lightning('localhost:10009', credentials);
 ```
 
 ### Examples
 
-Let's walk through some examples of Javascript gRPC clients.
+Let's walk through some examples of Javascript gRPC clients. These examples
+assume that you have at least two `lnd` nodes running, the RPC location of one
+of which is at the default `localhost:10009`, with an open channel between the
+two nodes.
 
 #### Simple RPC
 
@@ -78,8 +87,18 @@ call.on('data', function(invoice) {
   console.log("Current status" + status);
 });
 ```
-Now, create an invoice for your node at `localhost:10009` and send a payment to
-it. Your Javascript console should display the details of the recently satisfied
+
+Now, create an invoice for your node at `localhost:10009`and send a payment to
+it from another node.
+```bash
+$ lncli addinvoice --value=100
+{
+	"r_hash": <RHASH>,
+	"pay_req": <PAYMENT_REQUEST>
+}
+$ lncli sendpayment --pay_req=<PAYMENT_REQUEST>
+```
+Your Javascript console should now display the details of the recently satisfied
 invoice.
 
 #### Bidirectional-streaming RPC

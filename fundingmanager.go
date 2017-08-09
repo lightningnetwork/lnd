@@ -489,26 +489,6 @@ func (f *fundingManager) Stop() error {
 	return nil
 }
 
-type numPendingReq struct {
-	resp chan uint32
-	err  chan error
-}
-
-// NumPendingChannels returns the number of pending channels currently
-// progressing through the reservation workflow.
-func (f *fundingManager) NumPendingChannels() (uint32, error) {
-	respChan := make(chan uint32, 1)
-	errChan := make(chan error)
-
-	req := &numPendingReq{
-		resp: respChan,
-		err:  errChan,
-	}
-	f.queries <- req
-
-	return <-respChan, <-errChan
-}
-
 // nextPendingChanID returns the next free pending channel ID to be used to
 // identify a particular future channel funding workflow.
 func (f *fundingManager) nextPendingChanID() [32]byte {
@@ -589,8 +569,6 @@ func (f *fundingManager) reservationCoordinator() {
 
 		case req := <-f.queries:
 			switch msg := req.(type) {
-			case *numPendingReq:
-				f.handleNumPending(msg)
 			case *pendingChansReq:
 				f.handlePendingChannels(msg)
 			}
@@ -598,20 +576,6 @@ func (f *fundingManager) reservationCoordinator() {
 			return
 		}
 	}
-}
-
-// handleNumPending handles a request for the total number of pending channels.
-func (f *fundingManager) handleNumPending(msg *numPendingReq) {
-	// TODO(roasbeef): remove this method?
-	dbPendingChannels, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		close(msg.resp)
-		msg.err <- err
-		return
-	}
-
-	msg.resp <- uint32(len(dbPendingChannels))
-	msg.err <- nil
 }
 
 // handlePendingChannels responds to a request for details concerning all

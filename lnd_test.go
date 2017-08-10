@@ -2954,7 +2954,7 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
-		case <-time.After(time.Second * maxTime):
+		case <-time.After(maxTime):
 			t.Fatalf("waiting for payments to finish too long "+
 				"(%v)", maxTime)
 		}

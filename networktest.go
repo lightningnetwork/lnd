@@ -804,6 +804,7 @@ func (n *networkHarness) SetUp() error {
 	expectedBalance := int64(btcutil.SatoshiPerBitcoin * 10)
 	balReq := &lnrpc.WalletBalanceRequest{}
 	balanceTicker := time.Tick(time.Millisecond * 50)
+	balanceTimeout := time.After(time.Second * 30)
 out:
 	for {
 		select {
@@ -821,7 +822,7 @@ out:
 				bobResp.Balance == expectedBalance {
 				break out
 			}
-		case <-time.After(time.Second * 30):
+		case <-balanceTimeout:
 			return fmt.Errorf("balances not synced after deadline")
 		}
 	}
@@ -1370,9 +1371,11 @@ func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 	// Pause until the nodes current wallet balances reflects the amount
 	// sent to it above.
 	// TODO(roasbeef): factor out into helper func
+	balanceTicker := time.Tick(time.Millisecond * 50)
+	balanceTimeout := time.After(time.Second * 30)
 	for {
 		select {
-		case <-time.Tick(time.Millisecond * 50):
+		case <-balanceTicker:
 			currentBal, err := target.WalletBalance(ctx, balReq)
 			if err != nil {
 				return err
@@ -1381,7 +1384,7 @@ func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
 			if currentBal.Balance == initialBalance.Balance+int64(amt) {
 				return nil
 			}
-		case <-time.After(time.Second * 30):
+		case <-balanceTimeout:
 			return fmt.Errorf("balances not synced after deadline")
 		}
 	}

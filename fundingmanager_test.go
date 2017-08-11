@@ -930,7 +930,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	}
 
 	// Sleep to make sure database write is finished.
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// Alice should still be markedOpen
 	state, _, err = alice.fundingMgr.getChannelOpeningState(fundingOutPoint)

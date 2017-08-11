@@ -54,7 +54,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 			tcpAddr, ok := addr.(*net.TCPAddr)
 			if !ok {
 				return fmt.Errorf("TCP address required instead "+
-					"have %T", addrs[0])
+					"have %T", addr)
 			}
 			if tcpAddr.Port == 0 {
 				tcpAddr.Port = defaultPeerPort

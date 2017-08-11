@@ -164,12 +164,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 			select {
 			case peer.localCloseChanReqs <- request:
-				srvrLog.Infof("local close channel request "+
-					"delivered to peer: %v", string(pubKey))
+				srvrLog.Infof("Local close channel request "+
+					"delivered to peer: %x", pubKey[:])
 			case <-peer.quit:
-				srvrLog.Errorf("unable to deliver local close "+
-					"channel request to peer %v, err: %v",
-					string(pubKey), err)
+				srvrLog.Errorf("Unable to deliver local close "+
+					"channel request to peer %x, err: %v",
+					pubKey[:], err)
 			}
 		},
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {

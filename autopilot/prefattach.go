@@ -29,10 +29,10 @@ type ConstrainedPrefAttachment struct {
 	threshold float64
 }
 
-// NewPrefAttchment creates a new instance of a ConstrainedPrefAttachment
-// heuristics given bounds on allowed channel sizes, and an allocation amount
-// which is interpreted as a percentage of funds that is to be committed to
-// channels at all times.
+// NewConstrainedPrefAttachment creates a new instance of a
+// ConstrainedPrefAttachment heuristics given bounds on allowed channel sizes,
+// and an allocation amount which is interpreted as a percentage of funds that
+// is to be committed to channels at all times.
 func NewConstrainedPrefAttachment(minChanSize, maxChanSize btcutil.Amount,
 	chanLimit uint16, allocation float64) *ConstrainedPrefAttachment {
 
@@ -96,7 +96,7 @@ func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
 	return fundsAvailable, true
 }
 
-// nodeID is a simple type that holds a EC public key serialized in compressed
+// NodeID is a simple type that holds a EC public key serialized in compressed
 // format.
 type NodeID [33]byte
 

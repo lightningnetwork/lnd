@@ -82,14 +82,16 @@ type server struct {
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
 
-	// localFeatures is an feature vector which represent the features which
-	// only affect the protocol between these two nodes.
+	// localFeatures is an feature vector which represent the features
+	// which only affect the protocol between these two nodes.
 	localFeatures *lnwire.FeatureVector
 
 	// currentNodeAnn is the node announcement that has been broadcast to
 	// the network upon startup, if the attributes of the node (us) has
 	// changed since last start.
 	currentNodeAnn *lnwire.NodeAnnouncement
+
+	quit chan struct{}
 
 	wg sync.WaitGroup
 }
@@ -137,6 +139,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		globalFeatures: globalFeatures,
 		localFeatures:  localFeatures,
+
+		quit: make(chan struct{}),
 	}
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
@@ -363,6 +367,8 @@ func (s *server) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		return nil
 	}
+
+	close(s.quit)
 
 	// Shutdown the wallet, funding manager, and the rpc server.
 	s.cc.chainNotifier.Stop()

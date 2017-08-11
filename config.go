@@ -51,7 +51,7 @@ var (
 )
 
 type chainConfig struct {
-	Active   bool   `long:"active" destination:"If the chain should be active or not."`
+	Active   bool   `long:"active" description:"If the chain should be active or not."`
 	ChainDir string `long:"chaindir" description:"The directory to store the chains's data within."`
 
 	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
@@ -66,12 +66,19 @@ type chainConfig struct {
 }
 
 type neutrinoConfig struct {
-	Active       bool          `long:"active" destination:"If SPV mode should be active or not."`
+	Active       bool          `long:"active" description:"If SPV mode should be active or not."`
 	AddPeers     []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
 	ConnectPeers []string      `long:"connect" description:"Connect only to the specified peers at startup"`
 	MaxPeers     int           `long:"maxpeers" description:"Max number of inbound and outbound peers"`
 	BanDuration  time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`
 	BanThreshold uint32        `long:"banthreshold" description:"Maximum allowed ban score before disconnecting and banning misbehaving peers."`
+}
+
+type autoPilotConfig struct {
+	// TODO(roasbeef): add
+	Active      bool    `long:"active" description:"If the autopilot agent should be active or not."`
+	MaxChannels int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation  float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
 }
 
 // config defines the configuration options for lnd.
@@ -106,6 +113,8 @@ type config struct {
 	DefaultNumChanConfs int `long:"defaultchanconfs" description:"The default number of confirmations a channel must have before it's considered open."`
 
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
+
+	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -136,6 +145,10 @@ func loadConfig() (*config, error) {
 		Litecoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
+		},
+		Autopilot: &autoPilotConfig{
+			MaxChannels: 5,
+			Allocation:  0.6,
 		},
 	}
 

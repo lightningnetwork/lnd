@@ -1576,6 +1576,7 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 			return nil, err
 		}
 
+		// TODO(roasbeef): also add onion addrs
 		switch addressType(scratch[0]) {
 		case tcp4Addr:
 			addr := &net.TCPAddr{}

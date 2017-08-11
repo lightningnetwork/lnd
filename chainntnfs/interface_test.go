@@ -348,7 +348,7 @@ func testSpendNotification(miner *rpctest.Harness,
 	// Broadcast our spending transaction.
 	spenderSha, err := miner.Node.SendRawTransaction(spendingTx, true)
 	if err != nil {
-		t.Fatalf("unable to brodacst tx: %v", err)
+		t.Fatalf("unable to broadcast tx: %v", err)
 	}
 
 	// Now we mine a single block, which should include our spend. The
@@ -364,7 +364,7 @@ func testSpendNotification(miner *rpctest.Harness,
 
 	// For each event we registered for above, we create a goroutine which
 	// will listen on the event channel, passing it proxying each
-	// notification into a single which will be examined below..
+	// notification into a single which will be examined below.
 	spentNtfn := make(chan *chainntnfs.SpendDetail, numClients)
 	for i := 0; i < numClients; i++ {
 		go func(c *chainntnfs.SpendEvent) {
@@ -384,7 +384,7 @@ func testSpendNotification(miner *rpctest.Harness,
 			}
 			if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
 				t.Fatalf("ntfn includes wrong spender tx sha, "+
-					"reports %v intead of %v",
+					"reports %v instead of %v",
 					ntfn.SpenderTxHash[:], spenderSha[:])
 			}
 			if ntfn.SpenderInputIndex != 0 {

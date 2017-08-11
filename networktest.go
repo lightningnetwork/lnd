@@ -176,6 +176,7 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--datadir=%v", l.cfg.DataDir))
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", l.cfg.TLSCertPath))
 	args = append(args, fmt.Sprintf("--tlskeypath=%v", l.cfg.TLSKeyPath))
+	args = append(args, fmt.Sprintf("--configfile=%v", l.cfg.DataDir))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)

@@ -216,6 +216,7 @@ func (p *peer) Start() error {
 		if err != nil {
 			readErr <- err
 			msgChan <- nil
+			return
 		}
 		readErr <- nil
 		msgChan <- msg

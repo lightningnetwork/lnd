@@ -776,18 +776,29 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	// we'll mark this channel as being in the pending closed state. The
 	// UTXO nursery will mark the channel as fully closed once all the
 	// outputs have been swept.
+	//
+	// TODO(roasbeef): don't set local balance if close summary detects
+	// dust output?
 	chanPoint := channel.ChannelPoint()
 	chanInfo := channel.StateSnapshot()
 	closeInfo := &channeldb.ChannelCloseSummary{
-		ChanPoint:         *chanPoint,
-		ClosingTXID:       closeTx.TxHash(),
-		RemotePub:         &chanInfo.RemoteIdentity,
-		Capacity:          chanInfo.Capacity,
-		SettledBalance:    chanInfo.LocalBalance,
-		TimeLockedBalance: chanInfo.LocalBalance,
-		CloseType:         channeldb.ForceClose,
-		IsPending:         true,
+		ChanPoint:   *chanPoint,
+		ClosingTXID: closeTx.TxHash(),
+		RemotePub:   &chanInfo.RemoteIdentity,
+		Capacity:    chanInfo.Capacity,
+		CloseType:   channeldb.ForceClose,
+		IsPending:   true,
 	}
+
+	// If our commitment output isn't dust or we have active HTLC's on the
+	// commitment transaction, then we'll populate the balances on the
+	// close channel summary.
+	if closeSummary.SelfOutputSignDesc != nil ||
+		len(closeSummary.HtlcResolutions) == 0 {
+		closeInfo.SettledBalance = chanInfo.LocalBalance
+		closeInfo.TimeLockedBalance = chanInfo.LocalBalance
+	}
+
 	if err := channel.DeleteState(closeInfo); err != nil {
 		return nil, nil, err
 	}

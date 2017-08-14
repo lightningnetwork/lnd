@@ -155,7 +155,7 @@ func (b *breachArbiter) Start() error {
 	nActive := len(activeChannels)
 	if nActive > 0 {
 		brarLog.Infof("Retrieved %v channels from database, watching "+
-			"with vigilance!", len(activeChannels))
+			"with vigilance!", nActive)
 	}
 
 	// Here we will determine a set of channels that will need to be managed
@@ -163,25 +163,23 @@ func (b *breachArbiter) Start() error {
 	// disk, we will create a channel state machine that can be used to
 	// watch for any potential channel closures.  We must first exclude any
 	// channel whose retribution process has been initiated, and proceed to
-	// mark them as closed.
-	// The state machines generated for these filtered channels can be
-	// discarded, as their fate will be placed in the hands of an
-	// exactRetribution task spawned later.
+	// mark them as closed.  The state machines generated for these filtered
+	// channels can be discarded, as their fate will be placed in the hands
+	// of an exactRetribution task spawned later.
 	//
 	// NOTE Spawning of the exactRetribution task is intentionally postponed
 	// until after this step in order to ensure that the all breached
 	// channels are reflected as closed in channeldb and consistent with
 	// what is checkpointed by the breach arbiter. Instead of treating the
 	// breached-and-closed and breached-but-still-active channels as
-	// separate sets of channels, we first
-	// ensure that all breach-but-still-active channels are promoted to
+	// separate sets of channels, we first ensure that all
+	// breached-but-still-active channels are promoted to
 	// breached-and-closed during restart, allowing us to treat them as a
 	// single set from here on out. This approach also has the added benefit
 	// of minimizing the likelihood that the wrong number of tasks are
 	// spawned per breached channel, and prevents us from being in a
-	// position where
-	// retribution has completed but the channel is still marked as open in
-	// channeldb.
+	// position where retribution has completed but the channel is still
+	// marked as open in channeldb.
 	channelsToWatch := make([]*lnwallet.LightningChannel, 0, nActive)
 	for _, chanState := range activeChannels {
 		// Initialize active channel from persisted channel state.
@@ -229,8 +227,6 @@ func (b *breachArbiter) Start() error {
 		// channels to watch.
 		channelsToWatch = append(channelsToWatch, channel)
 	}
-	// Trim channels in the event that some were filtered.
-	channelsToWatch = channelsToWatch[:]
 
 	// TODO(roasbeef): instead use closure height of channel
 	_, currentHeight, err := b.chainIO.GetBestBlock()
@@ -510,8 +506,7 @@ func (b *breachArbiter) exactRetribution(
 		return
 	}
 
-	brarLog.Debugf(
-		"Broadcasting justice tx: %v",
+	brarLog.Debugf("Broadcasting justice tx: %v",
 		newLogClosure(func() string {
 			return spew.Sdump(justiceTx)
 		}))
@@ -599,8 +594,8 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 	chanPoint := contract.ChannelPoint()
 
-	brarLog.Debugf(
-		"Breach observer for ChannelPoint(%v) started", chanPoint)
+	brarLog.Debugf("Breach observer for ChannelPoint(%v) started",
+		chanPoint)
 
 	select {
 	// A read from this channel indicates that the contract has been
@@ -633,12 +628,8 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		//
 		// TODO(roasbeef): also notify utxoNursery, might've had
 		// outbound HTLC's in flight
-		go waitForChanToClose(
-			uint32(closeInfo.SpendingHeight),
-			b.notifier,
-			nil,
-			chanPoint,
-			closeInfo.SpenderTxHash,
+		go waitForChanToClose(uint32(closeInfo.SpendingHeight),
+			b.notifier, nil, chanPoint, closeInfo.SpenderTxHash,
 			func() {
 				// As we just detected a channel was closed via
 				// a unilateral commitment broadcast by the
@@ -780,8 +771,8 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			IsPending:      true,
 		}
 		if err := contract.DeleteState(closeInfo); err != nil {
-			brarLog.Errorf(
-				"unable to delete channel state: %v", err)
+			brarLog.Errorf("unable to delete channel state: %v",
+				err)
 		}
 
 		// Finally, we send the retribution information into the
@@ -984,7 +975,6 @@ func (b *breachArbiter) craftCommitSweepTx(
 // RetributionStore should use appropriate synchronization primitives, or
 // be otherwise safe for concurrent access.
 type RetributionStore interface {
-
 	// Add persists the retributionInfo to disk, using the information's
 	// chanPoint as the key. This method should overwrite any existing
 	// entires found under the same key, and an error should be raised if
@@ -1037,14 +1027,7 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 			return err
 		}
 
-		if err := retBucket.Put(
-			outBuf.Bytes(),
-			retBuf.Bytes(),
-		); err != nil {
-			return err
-		}
-
-		return nil
+		return retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
 	})
 }
 
@@ -1067,11 +1050,7 @@ func (rs *retributionStore) Remove(key *wire.OutPoint) error {
 			return err
 		}
 
-		if err := retBucket.Delete(outBuf.Bytes()); err != nil {
-			return err
-		}
-
-		return nil
+		return retBucket.Delete(outBuf.Bytes())
 	})
 }
 

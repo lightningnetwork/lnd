@@ -107,6 +107,13 @@ const (
 	// which contains the Fail entry.
 	Fail
 
+	// MalformedFail is an update type which removes a prior HTLC entry from the
+	// log. Adding a MalformedFail entry to ones log will modify the _remote_
+	// parties update log once a new commitment view has been evaluated which
+	// contains the MalformedFail entry. The difference from Fail type lie in
+	// the different data we have to store.
+	MalformedFail
+
 	// Settle is an update type which settles a prior HTLC crediting the
 	// balance of the receiving node. Adding a Settle entry to a log will
 	// result in the settle entry being removed on the log as well as the
@@ -123,6 +130,8 @@ func (u updateType) String() string {
 		return "Add"
 	case Fail:
 		return "Fail"
+	case MalformedFail:
+		return "MalformedFail"
 	case Settle:
 		return "Settle"
 	default:
@@ -214,10 +223,20 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only on add payment descriptor entry types.
 	OnionBlob []byte
 
+	// ShaOnionBlob is a sha of the onion blob.
+	//
+	// NOTE: Populated only in payment descriptor with MalfromedFail type.
+	ShaOnionBlob [sha256.Size]byte
+
 	// FailReason stores the reason why a particular payment was cancelled.
 	//
 	// NOTE: Populate only in fail payment descriptor entry types.
 	FailReason []byte
+
+	// FailCode stores the code why a particular payment was cancelled.
+	//
+	// NOTE: Populated only in payment descriptor with MalfromedFail type.
+	FailCode lnwire.FailCode
 
 	// [our|their|]PkScript are the raw public key scripts that encodes the
 	// redemption rules for this particular HTLC. These fields will only be
@@ -2153,7 +2172,7 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 
 	// Otherwise, this HTLC is being failed out, therefore the value of the
 	// HTLC should return to the remote party.
-	case isIncoming && htlc.EntryType == Fail:
+	case isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
 		*theirBalance += htlc.Amount
 
 	// If an outgoing HTLC is being settled, then this means that the
@@ -2165,7 +2184,7 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 
 	// Otherwise, one of our outgoing HTLC's has timed out, so the value of
 	// the HTLC should be returned to our settled balance.
-	case !isIncoming && htlc.EntryType == Fail:
+	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
 		*ourBalance += htlc.Amount
 	}
 
@@ -2509,6 +2528,13 @@ func (lc *LightningChannel) ReceiveReestablish(msg *lnwire.ChannelReestablish) (
 					ChanID: chanID,
 					ID:     htlc.Index,
 					Reason: lnwire.OpaqueReason([]byte{}),
+				})
+			case MalformedFail:
+				updates = append(updates, &lnwire.UpdateFailMalformedHTLC{
+					ChanID:       chanID,
+					ID:           htlc.Index,
+					ShaOnionBlob: htlc.ShaOnionBlob,
+					FailureCode:  htlc.FailCode,
 				})
 			case Settle:
 				updates = append(updates, &lnwire.UpdateFufillHTLC{
@@ -3253,7 +3279,43 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte, reason []byte) (uint64, err
 	return addEntry.HtlcIndex, nil
 }
 
-// ReceiveFailHTLC attempts to cancel a targeted HTLC by its log htlc,
+// MalformedFailHTLC attempts to fail a targeted HTLC by its payment hash,
+// inserting an entry which will remove the target log entry within the next
+// commitment update. This method is intended to be called in order to cancel
+// in _incoming_ HTLC.
+func (lc *LightningChannel) MalformedFailHTLC(rHash [32]byte,
+	failCode lnwire.FailCode, shaOnionBlob [sha256.Size]byte) (uint64, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
+	addEntries, ok := lc.rHashMap[rHash]
+	if !ok {
+		return 0, fmt.Errorf("unable to find HTLC to fail")
+	}
+	addEntry := addEntries[0]
+
+	pd := &PaymentDescriptor{
+		Amount:       addEntry.Amount,
+		RHash:        addEntry.RHash,
+		ParentIndex:  addEntry.HtlcIndex,
+		LogIndex:     lc.localUpdateLog.logIndex,
+		EntryType:    MalformedFail,
+		FailCode:     failCode,
+		ShaOnionBlob: shaOnionBlob,
+	}
+
+	lc.localUpdateLog.appendUpdate(pd)
+
+	lc.rHashMap[rHash][0] = nil
+	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
+	if len(lc.rHashMap[rHash]) == 0 {
+		delete(lc.rHashMap, rHash)
+	}
+
+	return addEntry.HtlcIndex, nil
+}
+
+// ReceiveFailHTLC attempts to cancel a targeted HTLC by its log index,
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC. The value of the failed HTLC is returned

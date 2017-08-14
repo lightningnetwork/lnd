@@ -1513,7 +1513,9 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 // to the payment sender.
 func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCode,
 	onionBlob []byte) {
-	index, err := l.channel.FailHTLC(rHash)
+
+	shaOnionBlob := sha256.Sum256(onionBlob)
+	index, err := l.channel.MalformedFailHTLC(rHash, code, shaOnionBlob)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1522,7 +1524,7 @@ func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCod
 	l.cfg.Peer.SendMessage(&lnwire.UpdateFailMalformedHTLC{
 		ChanID:       l.ChanID(),
 		ID:           index,
-		ShaOnionBlob: sha256.Sum256(onionBlob),
+		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
 	})
 }

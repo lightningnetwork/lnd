@@ -559,8 +559,11 @@ func countRetributions(t *testing.T, rs RetributionStore) int {
 	return count
 }
 
-// testRetributionStore executes a generic test suite for any concrete
-// implementation of the RetributionStore interface.
+// testRetributionStoreAddRemove executes a generic test suite for any concrete
+// implementation of the RetributionStore interface. This test adds all
+// retributions to the store, confirms that they are all present, and then
+// removes each one individually.  Between each addition or removal, the number
+// of elements in the store is checked to ensure that it only changes by one.
 func testRetributionStoreAddRemove(frs FailingRetributionStore, t *testing.T) {
 	// Make sure that a new retribution store is actually emtpy.
 	if count := countRetributions(t, frs); count != 0 {
@@ -574,6 +577,9 @@ func testRetributionStoreAddRemove(frs FailingRetributionStore, t *testing.T) {
 	testRetributionStoreRemoves(frs, t, false)
 }
 
+// testRetributionStorePersistence executes the same general test as
+// testRetributionStoreAddRemove, except that it also restarts the store between
+// each operation to ensure that the results are properly persisted.
 func testRetributionStorePersistence(frs FailingRetributionStore, t *testing.T) {
 	// Make sure that a new retribution store is still emtpy after failing
 	// right off the bat.
@@ -598,6 +604,8 @@ func testRetributionStorePersistence(frs FailingRetributionStore, t *testing.T) 
 	testRetributionStoreRemoves(frs, t, true)
 }
 
+// testRetributionStoreInit ensures that a retribution store is always
+// initialized with no retributions.
 func testRetributionStoreInit(frs FailingRetributionStore, t *testing.T) {
 	// Make sure that a new retribution store starts empty.
 	if count := countRetributions(t, frs); count != 0 {
@@ -605,10 +613,15 @@ func testRetributionStoreInit(frs FailingRetributionStore, t *testing.T) {
 	}
 }
 
+// testRetributionStoreRemoveEmpty ensures that a retribution store will not
+// fail or panic if it is instructed to remove an entry while empty.
 func testRetributionStoreRemoveEmpty(frs FailingRetributionStore, t *testing.T) {
 	testRetributionStoreRemoves(frs, t, false)
 }
 
+// testRetributionStoreOverwrite ensures that attempts to write retribution
+// information regarding a channel point that already exists does not change the
+// total number of entries held by the retribution store.
 func testRetributionStoreOverwrite(frs FailingRetributionStore, t *testing.T) {
 	// Initially, add all retributions to store.
 	testRetributionStoreAdds(frs, t, false)
@@ -627,6 +640,10 @@ func testRetributionStoreOverwrite(frs FailingRetributionStore, t *testing.T) {
 	}
 }
 
+// testRetributionStoreAdds adds all of the test retributions to the database,
+// ensuring that the total number of elements increases by exactly 1 after each
+// operation.  If the `failing` flag is provide, the test will restart the
+// database and confirm that the delta is still 1.
 func testRetributionStoreAdds(
 	frs FailingRetributionStore,
 	t *testing.T,
@@ -664,6 +681,10 @@ func testRetributionStoreAdds(
 	}
 }
 
+// testRetributionStoreRemoves removes all of the test retributions to the
+// database, ensuring that the total number of elements decreases by exactly 1
+// after each operation.  If the `failing` flag is provide, the test will
+// restart the database and confirm that the delta is the same.
 func testRetributionStoreRemoves(
 	frs FailingRetributionStore,
 	t *testing.T,
@@ -707,6 +728,11 @@ func testRetributionStoreRemoves(
 	}
 }
 
+// testRetributionStoreForAll iterates over the current entries in the
+// retribution store, ensuring that each entry in the database is unique, and
+// corresponds to exactly one of the entries in the test vector. If the
+// `failing` flag is provide, the test will restart the database and confirm
+// that the entries again validate against the test vectors.
 func testRetributionStoreForAll(
 	frs FailingRetributionStore,
 	t *testing.T,

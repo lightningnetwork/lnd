@@ -1003,20 +1003,39 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		err != channeldb.ErrNoPastDeltas {
 		return nil, err
 	}
-	remoteCommitment := &commitment{
-		ourBalance:        state.LocalBalance,
-		ourMessageIndex:   0,
-		theirBalance:      state.RemoteBalance,
-		theirMessageIndex: 0,
-		fee:               state.CommitFee,
-		feePerKw:          state.FeePerKw,
-	}
+	remoteCommitment := &commitment{}
 	if logTail == nil {
+		remoteCommitment.ourBalance = state.LocalBalance
+		remoteCommitment.ourMessageIndex = 0
+		remoteCommitment.theirBalance = state.RemoteBalance
+		remoteCommitment.theirMessageIndex = 0
+		remoteCommitment.fee = state.CommitFee
+		remoteCommitment.feePerKw = state.FeePerKw
 		remoteCommitment.height = 0
 	} else {
+		remoteCommitment.ourBalance = logTail.LocalBalance
+		remoteCommitment.ourMessageIndex = 0
+		remoteCommitment.theirBalance = logTail.RemoteBalance
+		remoteCommitment.theirMessageIndex = 0
+		remoteCommitment.fee = logTail.CommitFee
+		remoteCommitment.feePerKw = logTail.FeePerKw
 		remoteCommitment.height = logTail.UpdateNum + 1
 	}
 	lc.remoteCommitChain.addCommitment(remoteCommitment)
+
+	commitDiff, err := channeldb.FetchCommitDiff(lc.channelState.Db)
+	if err == nil {
+		lc.remoteCommitChain.addCommitment(&commitment{
+			height:            commitDiff.PendingHeight,
+			ourBalance:        commitDiff.PendingCommitment.LocalBalance,
+			theirBalance:      commitDiff.PendingCommitment.RemoteBalance,
+			ourMessageIndex:   0,
+			theirMessageIndex: 0,
+			fee:               commitDiff.PendingCommitment.CommitFee,
+			feePerKw:          commitDiff.PendingCommitment.FeePerKw,
+		})
+	}
+
 	walletLog.Debugf("ChannelPoint(%v), starting remote commitment: %v",
 		state.FundingOutpoint, newLogClosure(func() string {
 			return spew.Sdump(lc.remoteCommitChain.tail())
@@ -2323,6 +2342,58 @@ func genRemoteHtlcSigJobs(keyRing *commitmentKeyRing,
 	return sigBatch, cancelChan, nil
 }
 
+// createCommitDiff
+func (lc *LightningChannel) createCommitDiff(commitment *commitment) (*channeldb.CommitDiff,
+	error) {
+
+	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
+	var htlcs []lnwire.Message
+	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
+		pd := e.Value.(*PaymentDescriptor)
+
+		// ...
+		var htlc lnwire.Message
+		if pd.addCommitHeightRemote == commitment.height {
+			switch pd.EntryType {
+			case Add:
+				continue
+			case Settle:
+				htlc = &lnwire.UpdateFufillHTLC{
+					ChanID:          chanID,
+					ID:              pd.Index,
+					PaymentPreimage: pd.RPreimage,
+				}
+			case Fail:
+				htlc = &lnwire.UpdateFailHTLC{
+					ChanID: chanID,
+					ID:     pd.Index,
+					Reason: pd.FailReason,
+				}
+			case MalformedFail:
+				htlc = &lnwire.UpdateFailMalformedHTLC{
+					ChanID:       chanID,
+					ID:           pd.Index,
+					ShaOnionBlob: pd.ShaOnionBlob,
+					FailureCode:  pd.FailCode,
+				}
+			}
+
+			htlcs = append(htlcs, htlc)
+		}
+	}
+
+	delta, err := commitment.toChannelDelta(false)
+	if err != nil {
+		return nil, err
+	}
+
+	return &channeldb.CommitDiff{
+		PendingHeight:     commitment.height,
+		PendingCommitment: delta,
+		Updates:           htlcs,
+	}, nil
+}
+
 // SignNextCommitment signs a new commitment which includes any previous
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
@@ -2442,6 +2513,18 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// Extend the remote commitment chain by one with the addition of our
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
+
+	// ...
+	commitDiff, err := lc.createCommitDiff(newCommitView)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// ...
+	if err := channeldb.AddCommitDiff(lc.channelState.Db, commitDiff); err != nil {
+		fmt.Println(err)
+		return nil, nil, err
+	}
 
 	// If we are the channel initiator then we would have signed any sent
 	// fee update at this point, so mark this update as pending ACK, and

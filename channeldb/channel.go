@@ -36,6 +36,9 @@ var (
 	// active channels.
 	chanIDBucket = []byte("cib")
 
+	// commitDiffBucket...
+	commitDiffBucket = []byte("cdb")
+
 	// closedChannelBucket stores summarization information concerning
 	// previously open, but now closed channels.
 	closedChannelBucket = []byte("ccb")
@@ -337,6 +340,9 @@ type OpenChannel struct {
 	// within the channel.
 	Htlcs []*HTLC
 
+	// LastUpdates...
+	LastUpdates lnwire.Message
+
 	// TODO(roasbeef): eww
 	Db *DB
 
@@ -586,6 +592,114 @@ type ChannelDelta struct {
 	Htlcs []*HTLC
 }
 
+// CommitDiff...
+type CommitDiff struct {
+	// PendingHeight...
+	PendingHeight uint64
+
+	// PendingCommitment...
+	PendingCommitment *ChannelDelta
+
+	// Updates...
+	Updates []lnwire.Message
+}
+
+// decode...
+func (d *CommitDiff) decode(w io.Writer) error {
+	var h [8]byte
+	binary.BigEndian.PutUint64(h[:], d.PendingHeight)
+	if _, err := w.Write(h[:]); err != nil {
+		return err
+	}
+
+	if err := serializeChannelDelta(w, d.PendingCommitment); err != nil {
+		return err
+	}
+
+	var l [2]byte
+	binary.BigEndian.PutUint16(l[:], uint16(len(d.Updates)))
+	if _, err := w.Write(l[:]); err != nil {
+		return err
+	}
+
+	for _, msg := range d.Updates {
+		if _, err := lnwire.WriteMessage(w, msg, 0); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// encode...
+func (d *CommitDiff) encode(r io.Reader) error {
+	var h [8]byte
+	if _, err := r.Read(h[:]); err != nil {
+		return err
+	}
+	d.PendingHeight = binary.BigEndian.Uint64(h[:])
+
+	delta, err := deserializeChannelDelta(r)
+	if err != nil {
+		return err
+	}
+	d.PendingCommitment = delta
+
+	var l [2]byte
+	if _, err := r.Read(l[:]); err != nil {
+		return err
+	}
+	d.Updates = make([]lnwire.Message, binary.BigEndian.Uint16(l[:]))
+
+	for i, _ := range d.Updates {
+		msg, err := lnwire.ReadMessage(r, 0)
+		if err != nil {
+			return err
+		}
+		d.Updates[i] = msg
+	}
+
+	return nil
+}
+
+// AddCommitDiff...
+func AddCommitDiff(db *DB, diff *CommitDiff) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(commitDiffBucket)
+		if err != nil {
+			return err
+		}
+
+		var b bytes.Buffer
+		if err := diff.decode(&b); err != nil {
+			return err
+		}
+
+		return bucket.Put([]byte("cdf"), b.Bytes())
+	})
+}
+
+// FetchCommitDiff...
+func FetchCommitDiff(db *DB) (*CommitDiff, error) {
+	var diff *CommitDiff
+	err := db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(commitDiffBucket)
+		if bucket == nil {
+			return errors.New("commit diff bucket haven't been found")
+		}
+
+		data := bucket.Get([]byte("cdf"))
+		if data != nil {
+			return errors.New("unable to find commit diff")
+		}
+
+		diff = &CommitDiff{}
+		return diff.encode(bytes.NewReader(data))
+	})
+
+	return diff, err
+}
+
 // InsertNextRevocation inserts the _next_ commitment point (revocation) into
 // the database, and also modifies the internal RemoteNextRevocation attribute
 // to point to the passed key. This method is to be using during final channel
@@ -649,6 +763,16 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 		logBucket, err := nodeChanBucket.CreateBucketIfNotExists(logKey)
 		if err != nil {
 			return err
+		}
+
+		// ...
+		diffBucket := tx.Bucket(commitDiffBucket)
+		if diffBucket != nil {
+			if diffBucket.Get([]byte("cdf")) != nil {
+				if err := diffBucket.Delete([]byte("cdf")); err != nil {
+					return err
+				}
+			}
 		}
 
 		return appendChannelLogEntry(logBucket, delta, &c.FundingOutpoint)

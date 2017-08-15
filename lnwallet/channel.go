@@ -3671,14 +3671,14 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 //
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
-func (lc *LightningChannel) CreateCloseProposal(feeRate uint64,
+func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
 	localDeliveryScript, remoteDeliveryScript []byte) ([]byte, uint64, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're already closing the channel, then ignore this request.
-	if lc.status == channelClosing || lc.status == channelClosed {
+	// If we've already closed the channel, then ignore this request.
+	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, 0, ErrChanClosing
 	}
@@ -3686,7 +3686,6 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64,
 	// Subtract the proposed fee from the appropriate balance, taking care
 	// not to persist the adjusted balance, as the feeRate may change
 	// during the channel closing process.
-	proposedFee := (feeRate * uint64(commitWeight)) / 1000
 	ourBalance := lc.channelState.LocalBalance
 	theirBalance := lc.channelState.RemoteBalance
 
@@ -3734,7 +3733,7 @@ func (lc *LightningChannel) CreateCloseProposal(feeRate uint64,
 // signatures including the proper sighash byte.
 func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	feeRate uint64) (*wire.MsgTx, error) {
+	proposedFee uint64) (*wire.MsgTx, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -3748,7 +3747,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// Subtract the proposed fee from the appropriate balance, taking care
 	// not to persist the adjusted balance, as the feeRate may change
 	// during the channel closing process.
-	proposedFee := (feeRate * uint64(commitWeight)) / 1000
 	ourBalance := lc.channelState.LocalBalance
 	theirBalance := lc.channelState.RemoteBalance
 
@@ -3946,4 +3944,10 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	txsort.InPlaceSort(closeTx)
 
 	return closeTx
+}
+
+// CalcFee returns the commitment fee to use for the given
+// fee rate (fee-per-kw).
+func (lc *LightningChannel) CalcFee(feeRate uint64) uint64 {
+	return (feeRate * uint64(commitWeight)) / 1000
 }

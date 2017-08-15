@@ -872,6 +872,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				}
 			}
 		}()
+
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initator we
 		// will fail the channel, if not we will apply the update.

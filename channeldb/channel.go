@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -68,6 +69,8 @@ var (
 	minFeePerKwPrefix  = []byte("mfp")
 	chanConfigPrefix   = []byte("chan-config")
 	updatePrefix       = []byte("uup")
+	ourIndexPrefix     = []byte("tip")
+	theirIndexPrefix   = []byte("oip")
 	satSentPrefix      = []byte("ssp")
 	satReceivedPrefix  = []byte("srp")
 	commitFeePrefix    = []byte("cfp")
@@ -328,6 +331,22 @@ type OpenChannel struct {
 	// channel.
 	NumUpdates uint64
 
+	// OurMessageIndex...
+	OurMessageIndex uint64
+
+	// TheirMessageIndex...
+	TheirMessageIndex uint64
+
+	// OurMessageIndex...
+	OurAckedIndex uint64
+
+	// TheirMessageIndex...
+	TheirAckedIndex uint64
+
+	// TotalSatoshisSent is the total number of satoshis we've sent within
+	// this channel.
+	TotalSatoshisSent uint64
+
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
 	TotalMSatSent lnwire.MilliSatoshi
@@ -474,6 +493,8 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 		c.LocalBalance = delta.LocalBalance
 		c.RemoteBalance = delta.RemoteBalance
 		c.NumUpdates = delta.UpdateNum
+		c.OurMessageIndex = delta.OurMessageIndex
+		c.TheirMessageIndex = delta.TheirMessageIndex
 		c.Htlcs = delta.Htlcs
 		c.CommitFee = delta.CommitFee
 		c.FeePerKw = delta.FeePerKw
@@ -491,6 +512,12 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 		if err := putChanNumUpdates(chanBucket, c); err != nil {
 			return err
 		}
+		if err := putOurMessageIndex(chanBucket, c); err != nil {
+			return err
+		}
+		if err := putTheirMessageIndex(chanBucket, c); err != nil {
+			return err
+		}
 		if err := putChanCommitFee(chanBucket, c); err != nil {
 			return err
 		}
@@ -501,6 +528,32 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
 			return err
 		}
 		if err := putCurrentHtlcs(nodeChanBucket, delta.Htlcs,
+			&c.FundingOutpoint); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// UpdateHTLCs....
+func (c *OpenChannel) UpdateHTLCs(htlcs []*HTLC) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+		if err != nil {
+			return err
+		}
+
+		id := c.IdentityPub.SerializeCompressed()
+		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
+		if err != nil {
+			return err
+		}
+
+		if err := putCurrentHtlcs(nodeChanBucket, htlcs,
 			&c.FundingOutpoint); err != nil {
 			return err
 		}
@@ -542,6 +595,15 @@ type HTLC struct {
 	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.
 	OnionBlob []byte
+
+	// AddLocalInclusionHeight...
+	AddLocalInclusionHeight uint64
+
+	// AddRemoteInclusionHeight...
+	AddRemoteInclusionHeight uint64
+
+	// DescriptorIndex...
+	DescriptorIndex uint64
 }
 
 // Copy returns a full copy of the target HTLC.
@@ -565,6 +627,12 @@ func (h *HTLC) Copy() HTLC {
 // For ourselves (the local node) we ONLY store our most recent (unrevoked)
 // state for safety purposes.
 type ChannelDelta struct {
+	// OurMessageIndex...
+	OurMessageIndex uint64
+
+	// TheirMessageIndex...
+	TheirMessageIndex uint64
+
 	// LocalBalance is our current balance at this particular update
 	// number.
 	LocalBalance lnwire.MilliSatoshi
@@ -606,9 +674,7 @@ type CommitDiff struct {
 
 // decode...
 func (d *CommitDiff) decode(w io.Writer) error {
-	var h [8]byte
-	binary.BigEndian.PutUint64(h[:], d.PendingHeight)
-	if _, err := w.Write(h[:]); err != nil {
+	if err := binary.Write(w, byteOrder, d.PendingHeight); err != nil {
 		return err
 	}
 
@@ -616,9 +682,7 @@ func (d *CommitDiff) decode(w io.Writer) error {
 		return err
 	}
 
-	var l [2]byte
-	binary.BigEndian.PutUint16(l[:], uint16(len(d.Updates)))
-	if _, err := w.Write(l[:]); err != nil {
+	if err := binary.Write(w, byteOrder, uint16(len(d.Updates))); err != nil {
 		return err
 	}
 
@@ -633,11 +697,9 @@ func (d *CommitDiff) decode(w io.Writer) error {
 
 // encode...
 func (d *CommitDiff) encode(r io.Reader) error {
-	var h [8]byte
-	if _, err := r.Read(h[:]); err != nil {
+	if err := binary.Read(r, byteOrder, &d.PendingHeight); err != nil {
 		return err
 	}
-	d.PendingHeight = binary.BigEndian.Uint64(h[:])
 
 	delta, err := deserializeChannelDelta(r)
 	if err != nil {
@@ -645,11 +707,11 @@ func (d *CommitDiff) encode(r io.Reader) error {
 	}
 	d.PendingCommitment = delta
 
-	var l [2]byte
-	if _, err := r.Read(l[:]); err != nil {
+	var length uint16
+	if err := binary.Read(r, byteOrder, &length); err != nil {
 		return err
 	}
-	d.Updates = make([]lnwire.Message, binary.BigEndian.Uint16(l[:]))
+	d.Updates = make([]lnwire.Message, length)
 
 	for i, _ := range d.Updates {
 		msg, err := lnwire.ReadMessage(r, 0)
@@ -663,7 +725,8 @@ func (d *CommitDiff) encode(r io.Reader) error {
 }
 
 // AddCommitDiff...
-func AddCommitDiff(db *DB, diff *CommitDiff) error {
+func AddCommitDiff(db *DB, fundingOutpoint *wire.OutPoint,
+	diff *CommitDiff) error {
 	return db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(commitDiffBucket)
 		if err != nil {
@@ -675,12 +738,19 @@ func AddCommitDiff(db *DB, diff *CommitDiff) error {
 			return err
 		}
 
-		return bucket.Put([]byte("cdf"), b.Bytes())
+		var outpoint bytes.Buffer
+		if err := writeOutpoint(&outpoint, fundingOutpoint); err != nil {
+			return err
+		}
+
+		key := []byte("cdf")
+		key = append(key, outpoint.Bytes()...)
+		return bucket.Put(key, b.Bytes())
 	})
 }
 
 // FetchCommitDiff...
-func FetchCommitDiff(db *DB) (*CommitDiff, error) {
+func FetchCommitDiff(db *DB, fundingOutpoint *wire.OutPoint) (*CommitDiff, error) {
 	var diff *CommitDiff
 	err := db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(commitDiffBucket)
@@ -688,8 +758,15 @@ func FetchCommitDiff(db *DB) (*CommitDiff, error) {
 			return errors.New("commit diff bucket haven't been found")
 		}
 
-		data := bucket.Get([]byte("cdf"))
-		if data != nil {
+		var outpoint bytes.Buffer
+		if err := writeOutpoint(&outpoint, fundingOutpoint); err != nil {
+			return err
+		}
+
+		key := []byte("cdf")
+		key = append(key, outpoint.Bytes()...)
+		data := bucket.Get(key)
+		if data == nil {
 			return errors.New("unable to find commit diff")
 		}
 
@@ -768,8 +845,15 @@ func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
 		// ...
 		diffBucket := tx.Bucket(commitDiffBucket)
 		if diffBucket != nil {
-			if diffBucket.Get([]byte("cdf")) != nil {
-				if err := diffBucket.Delete([]byte("cdf")); err != nil {
+			var outpoint bytes.Buffer
+			if err := writeOutpoint(&outpoint, &c.FundingOutpoint); err != nil {
+				return err
+			}
+
+			key := []byte("cdf")
+			key = append(key, outpoint.Bytes()...)
+			if diffBucket.Get(key) != nil {
+				if err := diffBucket.Delete(key); err != nil {
 					return err
 				}
 			}
@@ -1241,6 +1325,12 @@ func putOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err := putChanNumUpdates(openChanBucket, channel); err != nil {
 		return err
 	}
+	if err := putOurMessageIndex(openChanBucket, channel); err != nil {
+		return err
+	}
+	if err := putTheirMessageIndex(openChanBucket, channel); err != nil {
+		return err
+	}
 	if err := putChanAmountsTransferred(openChanBucket, channel); err != nil {
 		return err
 	}
@@ -1322,6 +1412,12 @@ func fetchOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 	if err = fetchChanNumUpdates(openChanBucket, channel); err != nil {
 		return nil, fmt.Errorf("unable to read num updates: %v", err)
 	}
+	if err = fetchOurMessageIndex(openChanBucket, channel); err != nil {
+		return nil, fmt.Errorf("unable to read our message index: %v", err)
+	}
+	if err = fetchTheirMessageIndex(openChanBucket, channel); err != nil {
+		return nil, fmt.Errorf("unable to read their message index: %v", err)
+	}
 	if err = fetchChanAmountsTransferred(openChanBucket, channel); err != nil {
 		return nil, fmt.Errorf("unable to read sat transferred: %v", err)
 	}
@@ -1350,6 +1446,12 @@ func deleteOpenChannel(openChanBucket *bolt.Bucket, nodeChanBucket *bolt.Bucket,
 		return err
 	}
 	if err := deleteChanNumUpdates(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteOurMessageIndex(openChanBucket, channelID); err != nil {
+		return err
+	}
+	if err := deleteTheirMessageIndex(openChanBucket, channelID); err != nil {
 		return err
 	}
 	if err := deleteChanAmountsTransferred(openChanBucket, channelID); err != nil {
@@ -2182,6 +2284,84 @@ func fetchChanRevocationState(nodeChanBucket *bolt.Bucket, channel *OpenChannel)
 	return nil
 }
 
+func putOurMessageIndex(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	scratch := make([]byte, 8)
+	byteOrder.PutUint64(scratch, channel.OurMessageIndex)
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, &channel.FundingOutpoint); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, ourIndexPrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	return openChanBucket.Put(keyPrefix, scratch)
+}
+
+func deleteOurMessageIndex(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
+	copy(keyPrefix, ourIndexPrefix)
+	copy(keyPrefix[3:], chanID)
+	return openChanBucket.Delete(keyPrefix)
+}
+
+func fetchOurMessageIndex(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, &channel.FundingOutpoint); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, ourIndexPrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	updateBytes := openChanBucket.Get(keyPrefix)
+	channel.OurMessageIndex = byteOrder.Uint64(updateBytes)
+
+	return nil
+}
+
+func putTheirMessageIndex(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	scratch := make([]byte, 8)
+	byteOrder.PutUint64(scratch, channel.TheirMessageIndex)
+
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, &channel.FundingOutpoint); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, theirIndexPrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	return openChanBucket.Put(keyPrefix, scratch)
+}
+
+func deleteTheirMessageIndex(openChanBucket *bolt.Bucket, chanID []byte) error {
+	keyPrefix := make([]byte, 3+len(chanID))
+	copy(keyPrefix, theirIndexPrefix)
+	copy(keyPrefix[3:], chanID)
+	return openChanBucket.Delete(keyPrefix)
+}
+
+func fetchTheirMessageIndex(openChanBucket *bolt.Bucket, channel *OpenChannel) error {
+	var b bytes.Buffer
+	if err := writeOutpoint(&b, &channel.FundingOutpoint); err != nil {
+		return err
+	}
+
+	keyPrefix := make([]byte, 3+b.Len())
+	copy(keyPrefix, theirIndexPrefix)
+	copy(keyPrefix[3:], b.Bytes())
+
+	updateBytes := openChanBucket.Get(keyPrefix)
+	channel.TheirMessageIndex = byteOrder.Uint64(updateBytes)
+
+	return nil
+}
+
 func serializeHTLC(w io.Writer, h *HTLC) error {
 	if err := wire.WriteVarBytes(w, 0, h.Signature); err != nil {
 		return err
@@ -2219,6 +2399,18 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 	}
 
 	if _, err := w.Write(h.OnionBlob); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, h.AddLocalInclusionHeight); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, h.AddRemoteInclusionHeight); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, h.DescriptorIndex); err != nil {
 		return err
 	}
 
@@ -2270,6 +2462,18 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 		if _, err := io.ReadFull(r, h.OnionBlob); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := binary.Read(r, byteOrder, &h.AddLocalInclusionHeight); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, byteOrder, &h.AddRemoteInclusionHeight); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, byteOrder, &h.DescriptorIndex); err != nil {
+		return nil, err
 	}
 
 	return h, nil

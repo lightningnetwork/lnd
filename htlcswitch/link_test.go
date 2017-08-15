@@ -1828,9 +1828,9 @@ func TestChannelRetransmission(t *testing.T) {
 		serverErr := make(chan error, 4)
 
 		aliceInterceptor := createInterceptorFunc("[alice] <-- [bob]",
-			"alice", messages, chanID, false)
+			"alice", messages, chanID, true)
 		bobInterceptor := createInterceptorFunc("[alice] --> [bob]",
-			"bob", messages, chanID, false)
+			"bob", messages, chanID, true)
 
 		// Add interceptor to check the order of Bob and Alice messages.
 		n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,

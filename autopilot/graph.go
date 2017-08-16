@@ -3,8 +3,8 @@ package autopilot
 import (
 	"bytes"
 	"math/big"
-	prand "math/rand"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -21,6 +21,8 @@ var (
 	}
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
+
+	chanIdCounter uint64 = 0
 )
 
 // databaseChannelGraph wraps a channeldb.ChannelGraph instance with the
@@ -297,7 +299,8 @@ func (m memChannelGraph) ForEachNode(cb func(Node) error) error {
 
 // randChanID generates a new random channel ID.
 func randChanID() lnwire.ShortChannelID {
-	return lnwire.NewShortChanIDFromInt(uint64(prand.Int63()))
+	id := atomic.AddUint64(&chanIdCounter, 1)
+	return lnwire.NewShortChanIDFromInt(id)
 }
 
 // randKey returns a random public key.

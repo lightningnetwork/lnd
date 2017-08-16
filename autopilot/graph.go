@@ -22,7 +22,7 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	chanIdCounter uint64 = 0
+	chanIDCounter uint64
 )
 
 // databaseChannelGraph wraps a channeldb.ChannelGraph instance with the
@@ -299,7 +299,7 @@ func (m memChannelGraph) ForEachNode(cb func(Node) error) error {
 
 // randChanID generates a new random channel ID.
 func randChanID() lnwire.ShortChannelID {
-	id := atomic.AddUint64(&chanIdCounter, 1)
+	id := atomic.AddUint64(&chanIDCounter, 1)
 	return lnwire.NewShortChanIDFromInt(id)
 }
 

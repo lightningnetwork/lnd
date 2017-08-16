@@ -50,7 +50,7 @@ type Config struct {
 // helper utility methods.
 type channelState map[lnwire.ShortChannelID]Channel
 
-// CHannels returns a slice of all the active channels.
+// Channels returns a slice of all the active channels.
 func (c channelState) Channels() []Channel {
 	chans := make([]Channel, 0, len(c))
 	for _, channel := range c {
@@ -209,6 +209,43 @@ func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
 	}()
 }
 
+// mergeNodeMaps merges the Agent's set of nodes that it already has active
+// channels open to, with the set of nodes that are pending new channels. This
+// ensures that the Agent doesn't attempt to open any "duplicate" channels to
+// the same node.
+func mergeNodeMaps(a map[NodeID]struct{},
+	b map[NodeID]Channel) map[NodeID]struct{} {
+
+	c := make(map[NodeID]struct{}, len(a)+len(b))
+	for nodeID := range a {
+		c[nodeID] = struct{}{}
+	}
+	for nodeID := range b {
+		c[nodeID] = struct{}{}
+	}
+
+	return c
+}
+
+// mergeChanState merges the Agent's set of active channels, with the set of
+// channels awaiting confirmation. This ensures that the agent doesn't go over
+// the prescribed channel limit or fund allocation limit.
+func mergeChanState(pendingChans map[NodeID]Channel,
+	activeChans channelState) []Channel {
+
+	numChans := len(pendingChans) + len(activeChans)
+	totalChans := make([]Channel, 0, numChans)
+
+	for _, activeChan := range activeChans.Channels() {
+		totalChans = append(totalChans, activeChan)
+	}
+	for _, pendingChan := range pendingChans {
+		totalChans = append(totalChans, pendingChan)
+	}
+
+	return totalChans
+}
+
 // controller implements the closed-loop control system of the Agent. The
 // controller will make a decision w.r.t channel placement within the graph
 // based on: it's current internal state of the set of active channels open,
@@ -218,14 +255,19 @@ func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
 func (a *Agent) controller(startingBalance btcutil.Amount) {
 	defer a.wg.Done()
 
-	// TODO(roasbeef): add queries for internal state?
-
 	// We'll start off by assigning our starting balance, and injecting
 	// that amount as an initial wake up to the main controller goroutine.
 	a.OnBalanceChange(startingBalance)
 
 	// TODO(roasbeef): do we in fact need to maintain order?
 	//  * use sync.Cond if so
+
+	// pendingOpens tracks the channels that we've requested to be
+	// initiated, but haven't yet been confirmed as being fully opened.
+	// This state is required as otherwise, we may go over our allotted
+	// channel limit, or open multiple channels to the same node.
+	pendingOpens := make(map[NodeID]Channel)
+	var pendingMtx sync.Mutex
 
 	// TODO(roasbeef): add 10-minute wake up timer
 	for {
@@ -258,6 +300,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				newChan := update.newChan
 				a.chanState[newChan.ChanID] = newChan
 
+				pendingMtx.Lock()
+				delete(pendingOpens, newChan.Node)
+				pendingMtx.Unlock()
+
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -271,15 +317,17 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			}
 
 			// With all the updates applied, we'll obtain a set of
-			// the current active channels.
-			chans := a.chanState.Channels()
+			// the current active channels (confirmed channels),
+			// and also factor in our set of unconfirmed channels.
+			confirmedChans := a.chanState
+			totalChans := mergeChanState(pendingOpens, confirmedChans)
 
 			// Now that we've updated our internal state, we'll
 			// consult our channel attachment heuristic to
 			// determine if we should open up any additional
 			// channels or modify existing channels.
 			availableFunds, needMore := a.cfg.Heuristic.NeedMoreChans(
-				chans, a.totalBalance,
+				totalChans, a.totalBalance,
 			)
 			if !needMore {
 				continue
@@ -290,7 +338,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// We're to attempt an attachment so we'll o obtain the
 			// set of nodes that we currently have channels with so
 			// we avoid duplicate edges.
-			nodesToSkip := a.chanState.ConnectedNodes()
+			connectedNodes := a.chanState.ConnectedNodes()
+			pendingMtx.Lock()
+			nodesToSkip := mergeNodeMaps(connectedNodes, pendingOpens)
+			pendingMtx.Unlock()
 
 			// If we reach this point, then according to our
 			// heuristic we should modify our channel state to tend
@@ -321,7 +372,14 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// directive. If any of these succeed, then we'll
 			// receive a new state update, taking us back to the
 			// top of our controller loop.
+			pendingMtx.Lock()
 			for _, chanCandidate := range chanCandidates {
+				nID := NewNodeID(chanCandidate.PeerKey)
+				pendingOpens[nID] = Channel{
+					Capacity: chanCandidate.ChanAmt,
+					Node:     nID,
+				}
+
 				go func(directive AttachmentDirective) {
 					pub := directive.PeerKey
 					err := a.cfg.ChanController.OpenChannel(
@@ -334,14 +392,20 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 							"channel to %x of %v: %v",
 							pub.SerializeCompressed(),
 							directive.ChanAmt, err)
-						return
+
+						// As the attempt failed, we'll
+						// clear it from the set of
+						// pending channels.
+						pendingMtx.Lock()
+						nID := NewNodeID(directive.PeerKey)
+						delete(pendingOpens, nID)
+						pendingMtx.Unlock()
+
 					}
 
-					// TODO(roasbeef): on err signal
-					// failure so attempt to allocate
-					// again?
 				}(chanCandidate)
 			}
+			pendingMtx.Unlock()
 
 		// The agent has been signalled to exit, so we'll bail out
 		// immediately.

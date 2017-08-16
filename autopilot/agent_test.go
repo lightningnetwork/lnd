@@ -17,20 +17,53 @@ type moreChansResp struct {
 	amt      btcutil.Amount
 }
 
+type moreChanArg struct {
+	chans   []Channel
+	balance btcutil.Amount
+}
+
 type mockHeuristic struct {
 	moreChansResps chan moreChansResp
+	moreChanArgs   chan moreChanArg
+
 	directiveResps chan []AttachmentDirective
+	directiveArgs  chan directiveArg
 }
 
 func (m *mockHeuristic) NeedMoreChans(chans []Channel,
 	balance btcutil.Amount) (btcutil.Amount, bool) {
 
+	if m.moreChanArgs != nil {
+		m.moreChanArgs <- moreChanArg{
+			chans:   chans,
+			balance: balance,
+		}
+
+	}
+
 	resp := <-m.moreChansResps
 	return resp.amt, resp.needMore
 }
 
+type directiveArg struct {
+	self  *btcec.PublicKey
+	graph ChannelGraph
+	amt   btcutil.Amount
+	skip  map[NodeID]struct{}
+}
+
 func (m *mockHeuristic) Select(self *btcec.PublicKey, graph ChannelGraph,
+
 	amtToUse btcutil.Amount, skipChans map[NodeID]struct{}) ([]AttachmentDirective, error) {
+
+	if m.directiveArgs != nil {
+		m.directiveArgs <- directiveArg{
+			self:  self,
+			graph: graph,
+			amt:   amtToUse,
+			skip:  skipChans,
+		}
+	}
 
 	resp := <-m.directiveResps
 	return resp, nil
@@ -550,5 +583,181 @@ func TestAgentImmediateAttach(t *testing.T) {
 		case <-time.After(time.Second * 10):
 			t.Fatalf("channel not opened in time")
 		}
+	}
+}
+
+// TestAgentPendingChannelState ensures that the agent properly factors in its
+// pending channel state when making decisions w.r.t if it needs more channels
+// or not, and if so, who is eligible to open new channels to.
+func TestAgentPendingChannelState(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create all the dependencies that we'll need in order to
+	// create the autopilot agent.
+	self, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	heuristic := &mockHeuristic{
+		moreChansResps: make(chan moreChansResp),
+		directiveResps: make(chan []AttachmentDirective),
+	}
+	chanController := &mockChanController{
+		openChanSignals: make(chan openChanIntent),
+	}
+	memGraph, _, _ := newMemChanGraph()
+
+	// The wallet will start with 6 BTC available.
+	const walletBalance = btcutil.SatoshiPerBitcoin * 6
+
+	// With the dependencies we created, we can now create the initial
+	// agent itself.
+	testCfg := Config{
+		Self:           self,
+		Heuristic:      heuristic,
+		ChanController: chanController,
+		WalletBalance: func() (btcutil.Amount, error) {
+			return walletBalance, nil
+		},
+		Graph: memGraph,
+	}
+	initialChans := []Channel{}
+	agent, err := New(testCfg, initialChans)
+	if err != nil {
+		t.Fatalf("unable to create agent: %v", err)
+	}
+
+	// With the autopilot agent and all its dependencies we'll start the
+	// primary controller goroutine.
+	if err := agent.Start(); err != nil {
+		t.Fatalf("unable to start agent: %v", err)
+	}
+	defer agent.Stop()
+
+	var wg sync.WaitGroup
+
+	// Once again, we'll start by telling the agent as part of its first
+	// query, that it needs more channels and has 3 BTC available for
+	// attachment.
+	wg.Add(1)
+	go func() {
+		select {
+
+		// We'll send over a response indicating that it should
+		// establish more channels, and give it a budget of 1 BTC to do
+		// so.
+		case heuristic.moreChansResps <- moreChansResp{true, btcutil.SatoshiPerBitcoin}:
+			wg.Done()
+			return
+		case <-time.After(time.Second * 10):
+			t.Fatalf("heuristic wasn't queried in time")
+		}
+	}()
+
+	// We'll wait for the first query to be consumed. If this doesn't
+	// happen then the above goroutine will timeout, and fail the test.
+	wg.Wait()
+
+	heuristic.moreChanArgs = make(chan moreChanArg)
+
+	// Next, the agent should deliver a query to the Select method of the
+	// heuristic. We'll only return a single directive for a pre-chosen
+	// node.
+	nodeKey, err := randKey()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	nodeID := NewNodeID(nodeKey)
+	nodeDirective := AttachmentDirective{
+		PeerKey: nodeKey,
+		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
+		Addrs: []net.Addr{
+			&net.TCPAddr{
+				IP: bytes.Repeat([]byte("a"), 16),
+			},
+		},
+	}
+	select {
+	case heuristic.directiveResps <- []AttachmentDirective{nodeDirective}:
+		return
+	case <-time.After(time.Second * 10):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	heuristic.directiveArgs = make(chan directiveArg)
+
+	// A request to open the channel should've also been sent.
+	select {
+	case openChan := <-chanController.openChanSignals:
+		if openChan.amt != nodeDirective.ChanAmt {
+			t.Fatalf("invalid chan amt: expected %v, got %v",
+				nodeDirective.ChanAmt, openChan.amt)
+		}
+		if !openChan.target.IsEqual(nodeKey) {
+			t.Fatalf("unexpected key: expected %x, got %x",
+				nodeKey.SerializeCompressed(),
+				openChan.target.SerializeCompressed())
+		}
+		if len(openChan.addrs) != 1 {
+			t.Fatalf("should have single addr, instead have: %v",
+				len(openChan.addrs))
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatalf("channel wasn't opened in time")
+	}
+
+	// Now, in order to test that the pending state was properly updated,
+	// we'll trigger a balance update in order to trigger a query to the
+	// heuristic.
+	agent.OnBalanceChange(0.4 * btcutil.SatoshiPerBitcoin)
+
+	wg = sync.WaitGroup{}
+
+	// The heuristic should be queried, and the argument for the set of
+	// channels passed in should include the pending channels that
+	// should've been created above.
+	select {
+	// The request that we get should include a pending channel for the
+	// one that we just created, otherwise the agent isn't properly
+	// updating its internal state.
+	case req := <-heuristic.moreChanArgs:
+		if len(req.chans) != 1 {
+			t.Fatalf("should include pending chan in current "+
+				"state, instead have %v chans", len(req.chans))
+		}
+		if req.chans[0].Capacity != nodeDirective.ChanAmt {
+			t.Fatalf("wrong chan capacity: expected %v, got %v",
+				req.chans[0].Capacity, nodeDirective.ChanAmt)
+		}
+		if req.chans[0].Node != nodeID {
+			t.Fatalf("wrong node ID: expected %x, got %x",
+				req.chans[0].Node[:], nodeID)
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatalf("need more chans wasn't queried in time")
+	}
+
+	// We'll send across a response indicating that it *does* need more
+	// channels.
+	select {
+	case heuristic.moreChansResps <- moreChansResp{true, btcutil.SatoshiPerBitcoin}:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("need more chans wasn't queried in time")
+	}
+
+	// The response above should prompt the agent to make a query to the
+	// Select method. The arguments passed should reflect the fact that the
+	// node we have a pending channel to, should be ignored.
+	select {
+	case req := <-heuristic.directiveArgs:
+		if len(req.skip) == 0 {
+			t.Fatalf("expected to skip %v nodes, instead "+
+				"skipping %v", 1, len(req.skip))
+		}
+		if _, ok := req.skip[nodeID]; !ok {
+			t.Fatalf("pending node not included in skip arguments")
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatalf("select wasn't queried in time")
 	}
 }

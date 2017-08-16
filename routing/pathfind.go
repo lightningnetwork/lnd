@@ -536,7 +536,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 
 	// While we still have candidate paths to explore we'll keep exploring
 	// the sub-graphs created to find the next k-th shortest path.
-	for k := 1; k == 1 || candidatePaths.Len() != 0; k++ {
+	for k := 1; k < 100; k++ {
 		prevShortest := shortestPaths[k-1]
 
 		// We'll examine each edge in the previous iteration's shortest
@@ -604,6 +604,8 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 			}
 			newPath.hops = append(newPath.hops, rootPath...)
 			newPath.hops = append(newPath.hops, spurPath...)
+
+			// TODO(roasbeef): add and consult path finger print
 
 			// We'll now add this newPath to the heap of candidate
 			// shortest paths.

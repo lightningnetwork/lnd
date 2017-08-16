@@ -729,9 +729,9 @@ func secondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	return builder.Script()
 }
 
-// htlcSuccessSpend spends a second-level HTLC output. This function is to be
+// htlcSpendSuccess spends a second-level HTLC output. This function is to be
 // used by the sender of an HTLC to claim the output after a relative timeout
-// or the receiver of the HTLC to claim on-chain with the pre-image.o
+// or the receiver of the HTLC to claim on-chain with the pre-image.
 func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, csvDelay uint32) (wire.TxWitness, error) {
 
@@ -768,7 +768,7 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// htlcTimeoutSpend spends a second-level HTLC output. This function is to be
+// htlcTimeoutRevoke spends a second-level HTLC output. This function is to be
 // used by the sender or receiver of an HTLC to claim the HTLC after a revoked
 // commitment transaction was broadcast.
 func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,

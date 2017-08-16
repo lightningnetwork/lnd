@@ -311,8 +311,9 @@ out:
 				break out
 			}
 
-			log.Debugf("New block(height=%v, hash=%v) examining "+
-				"active HTLC's", blockEpoch.Height,
+			log.Debugf("ChannelPoint(%v): new block(height=%v, "+
+				"hash=%v) examining active HTLC's",
+				l.channel.ChannelPoint(), blockEpoch.Height,
 				blockEpoch.Hash)
 
 			// TODO(roasbeef): check HTLC's for expiry

@@ -960,7 +960,9 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// entry for this peer from the map.
 	if connReqs, ok := s.persistentConnReqs[pubStr]; ok {
 		for _, pConnReq := range connReqs {
-			if pConnReq.ID() != connReq.ID() {
+			if connReq != nil &&
+				pConnReq.ID() != connReq.ID() {
+
 				s.connMgr.Remove(pConnReq.ID())
 			}
 		}
@@ -977,7 +979,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			srvrLog.Warnf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
-			s.connMgr.Remove(connReq.ID())
+
+			if connReq != nil {
+				s.connMgr.Remove(connReq.ID())
+			}
+
 			conn.Close()
 			return
 		}

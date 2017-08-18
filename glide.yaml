@@ -71,3 +71,8 @@ import:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
   version: 807d3e267a2863654e99dda39ac4daac78943f7e
+- package: gopkg.in/macaroon.v1
+- package: gopkg.in/macaroon-bakery.v1
+- package: github.com/juju/loggo
+- package: github.com/rogpeppe/fastuuid
+- package: gopkg.in/errgo.v1

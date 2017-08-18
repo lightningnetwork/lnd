@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/macaroon-bakery.v1/bakery"
+
 	"sync"
 	"sync/atomic"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/roasbeef/btcd/blockchain"
@@ -39,6 +42,26 @@ import (
 
 var (
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
+
+	// roPermissions is a slice of method names that are considered "read-only"
+	// for authorization purposes, all lowercase.
+	roPermissions = []string{
+		"verifymessage",
+		"getinfo",
+		"listpeers",
+		"walletbalance",
+		"channelbalance",
+		"listchannels",
+		"readinvoices",
+		"gettransactions",
+		"describegraph",
+		"getchaninfo",
+		"getnodeinfo",
+		"queryroutes",
+		"getnetworkinfo",
+		"listpayments",
+		"decodepayreq",
+	}
 )
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
@@ -48,6 +71,10 @@ type rpcServer struct {
 	shutdown int32 // To be used atomically.
 
 	server *server
+
+	// authSvc is the authentication/authorization service backed by
+	// macaroons.
+	authSvc *bakery.Service
 
 	wg sync.WaitGroup
 
@@ -59,8 +86,12 @@ type rpcServer struct {
 var _ lnrpc.LightningServer = (*rpcServer)(nil)
 
 // newRPCServer creates and returns a new instance of the rpcServer.
-func newRPCServer(s *server) *rpcServer {
-	return &rpcServer{server: s, quit: make(chan struct{}, 1)}
+func newRPCServer(s *server, authSvc *bakery.Service) *rpcServer {
+	return &rpcServer{
+		server:  s,
+		authSvc: authSvc,
+		quit:    make(chan struct{}, 1),
+	}
 }
 
 // Start launches any helper goroutines required for the rpcServer
@@ -123,6 +154,13 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*chainhash.Ha
 // SendMany, this RPC call only allows creating a single output at a time.
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "sendcoins",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v", in.Addr, btcutil.Amount(in.Amount))
 
@@ -141,6 +179,13 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 // outputs in parallel.
 func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "sendcoins",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	txid, err := r.sendCoinsOnChain(in.AddrToAmount)
 	if err != nil {
@@ -155,6 +200,13 @@ func (r *rpcServer) SendMany(ctx context.Context,
 // NewAddress creates a new address under control of the local wallet.
 func (r *rpcServer) NewAddress(ctx context.Context,
 	in *lnrpc.NewAddressRequest) (*lnrpc.NewAddressResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "newaddress",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
@@ -181,6 +233,13 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 // the local wallet.
 func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 	in *lnrpc.NewWitnessAddressRequest) (*lnrpc.NewAddressResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "newaddress",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	addr, err := r.server.cc.wallet.NewAddress(lnwallet.WitnessPubKey, false)
 	if err != nil {
@@ -197,6 +256,13 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 // verification.
 func (r *rpcServer) SignMessage(ctx context.Context,
 	in *lnrpc.SignMessageRequest) (*lnrpc.SignMessageResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "signmessage",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	if in.Msg == nil {
 		return nil, fmt.Errorf("need a message to sign")
@@ -217,6 +283,13 @@ func (r *rpcServer) SignMessage(ctx context.Context,
 // VerifyMessage also returns the recovered pubkey from the signature.
 func (r *rpcServer) VerifyMessage(ctx context.Context,
 	in *lnrpc.VerifyMessageRequest) (*lnrpc.VerifyMessageResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "verifymessage",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	if in.Msg == nil {
 		return nil, fmt.Errorf("need a message to verify")
@@ -256,6 +329,13 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 // ConnectPeer attempts to establish a connection to a remote peer.
 func (r *rpcServer) ConnectPeer(ctx context.Context,
 	in *lnrpc.ConnectPeerRequest) (*lnrpc.ConnectPeerResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "connectpeer",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// The server hasn't yet started, so it won't be able to service any of
 	// our requests, so we'll bail early here.
@@ -317,6 +397,13 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 // with the target peer, this action will be disallowed.
 func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "disconnectpeer",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
 
@@ -366,6 +453,13 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 // request to a remote peer.
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	updateStream lnrpc.Lightning_OpenChannelServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(updateStream.Context(),
+			"openchannel", r.authSvc); err != nil {
+			return err
+		}
+	}
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v)", in.TargetPeerId,
@@ -486,6 +580,13 @@ out:
 // strings.
 func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	in *lnrpc.OpenChannelRequest) (*lnrpc.ChannelPoint, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "openchannel",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Tracef("[openchannel] request to peerid(%v) "+
 		"allocation(us=%v, them=%v)", in.TargetPeerId,
@@ -569,6 +670,13 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 // a force close after a timeout period in the case of an inactive peer.
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	updateStream lnrpc.Lightning_CloseChannelServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(updateStream.Context(),
+			"closechannel", r.authSvc); err != nil {
+			return err
+		}
+	}
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
@@ -815,6 +923,13 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 // concerning the number of open+pending channels.
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "getinfo",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	var activeChannels uint32
 	serverPeers := r.server.Peers()
@@ -864,6 +979,13 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 // ListPeers returns a verbose listing of all currently active peers.
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "listpeers",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Tracef("[listpeers] request")
 
@@ -919,6 +1041,13 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 // TODO(roasbeef): add async hooks into wallet balance changes
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "walletbalance",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	balance, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
 	if err != nil {
@@ -936,6 +1065,13 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 // channels in satoshis.
 func (r *rpcServer) ChannelBalance(ctx context.Context,
 	in *lnrpc.ChannelBalanceRequest) (*lnrpc.ChannelBalanceResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "channelbalance",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	channels, err := r.server.chanDB.FetchAllChannels()
 	if err != nil {
@@ -958,6 +1094,13 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 // process of closure, either initiated cooperatively or non-cooperatively.
 func (r *rpcServer) PendingChannels(ctx context.Context,
 	in *lnrpc.PendingChannelRequest) (*lnrpc.PendingChannelResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "listchannels",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Debugf("[pendingchannels]")
 
@@ -1091,6 +1234,13 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 // is a participant in.
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "listchannels",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	resp := &lnrpc.ListChannelsResponse{}
 
@@ -1196,6 +1346,14 @@ func (r *rpcServer) savePayment(route *routing.Route, amount btcutil.Amount,
 // bi-directional stream allowing clients to rapidly send payments through the
 // Lightning Network with a single persistent connection.
 func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(paymentStream.Context(),
+			"sendpayment", r.authSvc); err != nil {
+			return err
+		}
+	}
+
 	errChan := make(chan error, 1)
 	payChan := make(chan *lnrpc.SendRequest)
 
@@ -1355,6 +1513,13 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // hash (if any) to be encoded as hex strings.
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "sendpayment",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// We don't allow payments to be sent while the daemon itself is still
 	// syncing as we may be trying to sent a payment over a "stale"
@@ -1439,6 +1604,13 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 // unique payment preimage.
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "addinvoice",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	var paymentPreimage [32]byte
 
@@ -1521,6 +1693,13 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
 	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "readinvoices",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	var (
 		payHash [32]byte
@@ -1579,6 +1758,13 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 // database. Any active debug invoices are ignored.
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "readinvoices",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	dbInvoices, err := r.server.chanDB.FetchAllInvoices(req.PendingOnly)
 	if err != nil {
@@ -1618,6 +1804,13 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 // notifying the client of newly added/settled invoices.
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(updateStream.Context(),
+			"readinvoices", r.authSvc); err != nil {
+			return err
+		}
+	}
 
 	invoiceClient := r.server.invoices.SubscribeNotifications()
 	defer invoiceClient.Cancel()
@@ -1650,6 +1843,13 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 // over.
 func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(updateStream.Context(),
+			"gettransactions", r.authSvc); err != nil {
+			return err
+		}
+	}
 
 	txClient, err := r.server.cc.wallet.SubscribeTransactions()
 	if err != nil {
@@ -1689,8 +1889,15 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 
 // GetTransactions returns a list of describing all the known transactions
 // relevant to the wallet.
-func (r *rpcServer) GetTransactions(context.Context,
-	*lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+func (r *rpcServer) GetTransactions(ctx context.Context,
+	_ *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "gettransactions",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// TODO(btcsuite): add pagination support
 	transactions, err := r.server.cc.wallet.ListTransactionDetails()
@@ -1722,8 +1929,15 @@ func (r *rpcServer) GetTransactions(context.Context,
 // As this is a directed graph, the edges also contain the node directional
 // specific routing policy which includes: the time lock delta, fee
 // information, etc.
-func (r *rpcServer) DescribeGraph(context.Context,
-	*lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
+func (r *rpcServer) DescribeGraph(ctx context.Context,
+	_ *lnrpc.ChannelGraphRequest) (*lnrpc.ChannelGraph, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "describegraph",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	resp := &lnrpc.ChannelGraph{}
 
@@ -1823,8 +2037,15 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 // given channel identified by its channel ID: an 8-byte integer which uniquely
 // identifies the location of transaction's funding output within the block
 // chain.
-func (r *rpcServer) GetChanInfo(_ context.Context, in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
+func (r *rpcServer) GetChanInfo(ctx context.Context, in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 	graph := r.server.chanDB.ChannelGraph()
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "getchaninfo",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	edgeInfo, edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
 	if err != nil {
@@ -1841,7 +2062,14 @@ func (r *rpcServer) GetChanInfo(_ context.Context, in *lnrpc.ChanInfoRequest) (*
 
 // GetNodeInfo returns the latest advertised and aggregate authenticated
 // channel information for the specified node identified by its public key.
-func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
+func (r *rpcServer) GetNodeInfo(ctx context.Context, in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "getnodeinfo",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -1910,8 +2138,15 @@ func (r *rpcServer) GetNodeInfo(_ context.Context, in *lnrpc.NodeInfoRequest) (*
 //
 // TODO(roasbeef): should return a slice of routes in reality
 //  * create separate PR to send based on well formatted route
-func (r *rpcServer) QueryRoutes(_ context.Context,
+func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "queryroutes",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// First parse the hex-encdoed public key into a full public key objet
 	// we can properly manipulate.
@@ -1967,7 +2202,14 @@ func marshalRoute(route *routing.Route) *lnrpc.Route {
 
 // GetNetworkInfo returns some basic stats about the known channel graph from
 // the PoV of the node.
-func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
+func (r *rpcServer) GetNetworkInfo(ctx context.Context, _ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "getnetworkinfo",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	graph := r.server.chanDB.ChannelGraph()
 
@@ -2081,7 +2323,14 @@ func (r *rpcServer) GetNetworkInfo(context.Context, *lnrpc.NetworkInfoRequest) (
 
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
-func (r *rpcServer) StopDaemon(context.Context, *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+func (r *rpcServer) StopDaemon(ctx context.Context, _ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "stopdaemon",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	shutdownRequestChannel <- struct{}{}
 	return &lnrpc.StopResponse{}, nil
@@ -2095,6 +2344,13 @@ func (r *rpcServer) StopDaemon(context.Context, *lnrpc.StopRequest) (*lnrpc.Stop
 // and finally when prior channels are closed on-chain.
 func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 	updateStream lnrpc.Lightning_SubscribeChannelGraphServer) error {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(updateStream.Context(),
+			"describegraph", r.authSvc); err != nil {
+			return err
+		}
+	}
 
 	// First, we start by subscribing to a new intent to receive
 	// notifications from the channel router.
@@ -2206,8 +2462,15 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 }
 
 // ListPayments returns a list of all outgoing payments.
-func (r *rpcServer) ListPayments(context.Context,
-	*lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
+func (r *rpcServer) ListPayments(ctx context.Context,
+	_ *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "listpayments",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Debugf("[ListPayments]")
 
@@ -2237,8 +2500,15 @@ func (r *rpcServer) ListPayments(context.Context,
 }
 
 // DeleteAllPayments deletes all outgoing payments from DB.
-func (r *rpcServer) DeleteAllPayments(context.Context,
-	*lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
+func (r *rpcServer) DeleteAllPayments(ctx context.Context,
+	_ *lnrpc.DeleteAllPaymentsRequest) (*lnrpc.DeleteAllPaymentsResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "deleteallpayments",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	rpcsLog.Debugf("[DeleteAllPayments]")
 
@@ -2250,7 +2520,15 @@ func (r *rpcServer) DeleteAllPayments(context.Context,
 }
 
 // SetAlias...
-func (r *rpcServer) SetAlias(context.Context, *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
+func (r *rpcServer) SetAlias(ctx context.Context, _ *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "setalias",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
+
 	return nil, nil
 }
 
@@ -2260,6 +2538,13 @@ func (r *rpcServer) SetAlias(context.Context, *lnrpc.SetAliasRequest) (*lnrpc.Se
 // sub-system.
 func (r *rpcServer) DebugLevel(ctx context.Context,
 	req *lnrpc.DebugLevelRequest) (*lnrpc.DebugLevelResponse, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "debuglevel",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// If show is set, then we simply print out the list of available
 	// sub-systems.
@@ -2285,6 +2570,13 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 // payment request.
 func (r *rpcServer) DecodePayReq(ctx context.Context,
 	req *lnrpc.PayReqString) (*lnrpc.PayReq, error) {
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "decodepayreq",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
 
 	// Fist we'll attempt to decode the payment request string, if the
 	// request is invalid or the checksum doesn't match, then we'll exit

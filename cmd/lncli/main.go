@@ -2,28 +2,33 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
+	"gopkg.in/macaroon.v1"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
 
-	flags "github.com/btcsuite/go-flags"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 const (
-	defaultConfigFilename  = "lnd.conf"
-	defaultTLSCertFilename = "tls.cert"
+	defaultTLSCertFilename  = "tls.cert"
+	defaultMacaroonFilename = "admin.macaroon"
 )
 
 var (
-	lndHomeDir         = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile  = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultTLSCertPath = filepath.Join(lndHomeDir, defaultTLSCertFilename)
+	lndHomeDir          = btcutil.AppDataDir("lnd", false)
+	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
+	defaultMacaroonPath = filepath.Join(lndHomeDir, defaultMacaroonFilename)
 )
 
 func fatal(err error) {
@@ -41,38 +46,56 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	return lnrpc.NewLightningClient(conn), cleanUp
 }
 
-type config struct {
-	TLSCertPath string `long:"tlscertpath" description:"path to TLS certificate"`
-}
-
 func getClientConn(ctx *cli.Context) *grpc.ClientConn {
-	// TODO(roasbeef): macaroon based auth
-	// * http://www.grpc.io/docs/guides/auth.html
-	// * http://research.google.com/pubs/pub41892.html
-	// * https://github.com/go-macaroon/macaroon
-	cfg := config{
-		TLSCertPath: defaultTLSCertPath,
-	}
-
-	// We want only the TLS certificate information from the configuration
-	// file at this time, so ignore anything else. We can always add fields
-	// as we need them. When specifying a file on the `lncli` command line,
-	// this should work with just a trusted CA cert assuming the server's
-	// cert file contains the entire chain from the CA to the server's cert.
-	parser := flags.NewParser(&cfg, flags.IgnoreUnknown)
-	iniParser := flags.NewIniParser(parser)
-	if err := iniParser.ParseFile(ctx.GlobalString("config")); err != nil {
-		fatal(err)
-	}
-	if ctx.GlobalString("tlscertpath") != defaultTLSCertPath {
-		cfg.TLSCertPath = ctx.GlobalString("tlscertpath")
-	}
-	cfg.TLSCertPath = cleanAndExpandPath(cfg.TLSCertPath)
-	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
+	// Load the specified TLS certificate and build transport credentials
+	// with it.
+	tlsCertPath := cleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+	creds, err := credentials.NewClientTLSFromFile(tlsCertPath, "")
 	if err != nil {
 		fatal(err)
 	}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+
+	// Create a dial options array.
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	// Only process macaroon credentials if --no-macaroons isn't set.
+	if !ctx.GlobalBool("no-macaroons") {
+		// Load the specified macaroon file.
+		macPath := cleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+		macBytes, err := ioutil.ReadFile(macPath)
+		if err != nil {
+			fatal(err)
+		}
+		mac := &macaroon.Macaroon{}
+		if err = mac.UnmarshalBinary(macBytes); err != nil {
+			fatal(err)
+		}
+
+		// We add a time-based constraint to prevent replay of the
+		// macaroon. It's good for 60 seconds by default to make up for
+		// any discrepancy between client and server clocks, but leaking
+		// the macaroon before it becomes invalid makes it possible for
+		// an attacker to reuse the macaroon. In addition, the validity
+		// time of the macaroon is extended by the time the server clock
+		// is behind the client clock, or shortened by the time the
+		// server clock is ahead of the client clock (or invalid
+		// altogether if, in the latter case, this time is more than 60
+		// seconds).
+		// TODO(aakselrod): add better anti-replay protection.
+		macaroonTimeout := time.Duration(ctx.GlobalInt64("macaroontimeout"))
+		requestTimeout := time.Now().Add(time.Second * macaroonTimeout)
+		timeCaveat := checkers.TimeBeforeCaveat(requestTimeout)
+		mac.AddFirstPartyCaveat(timeCaveat.Condition)
+
+		// Now we append the macaroon credentials to the dial options.
+		opts = append(
+			opts,
+			grpc.WithPerRPCCredentials(
+				macaroons.NewMacaroonCredential(mac)),
+		)
+	}
 
 	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)
 	if err != nil {
@@ -94,14 +117,23 @@ func main() {
 			Usage: "host:port of ln daemon",
 		},
 		cli.StringFlag{
-			Name:  "config",
-			Value: defaultConfigFile,
-			Usage: "path to config file for TLS cert path",
-		},
-		cli.StringFlag{
 			Name:  "tlscertpath",
 			Value: defaultTLSCertPath,
 			Usage: "path to TLS certificate",
+		},
+		cli.BoolFlag{
+			Name:  "no-macaroons",
+			Usage: "disable macaroon authentication",
+		},
+		cli.StringFlag{
+			Name:  "macaroonpath",
+			Value: defaultMacaroonPath,
+			Usage: "path to macaroon file",
+		},
+		cli.Int64Flag{
+			Name:  "macaroontimeout",
+			Value: 60,
+			Usage: "anti-replay macaroon validity time in seconds",
 		},
 	}
 	app.Commands = []cli.Command{

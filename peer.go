@@ -298,9 +298,15 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
 
-		peerLog.Infof("peerID(%v) loaded ChannelPoint(%v)", p.id, chanPoint)
+		peerLog.Infof("peerID(%v) loading ChannelPoint(%v)", p.id, chanPoint)
 
-		p.server.breachArbiter.newContracts <- lnChan
+		select {
+		case p.server.breachArbiter.newContracts <- lnChan:
+		case <-p.server.quit:
+			return fmt.Errorf("server shutting down")
+		case <-p.quit:
+			return fmt.Errorf("peer shutting down")
+		}
 
 		// Register this new channel link with the HTLC Switch. This is
 		// necessary to properly route multi-hop payments, and forward
@@ -1369,6 +1375,16 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 		return ourSig, ourFee
 	}
 
+	chanPoint := channel.ChannelPoint()
+
+	select {
+	case p.server.breachArbiter.settledContracts <- chanPoint:
+	case <-p.server.quit:
+		return nil, 0
+	case <-p.quit:
+		return nil, 0
+	}
+
 	// We agreed on a fee, and we can broadcast the closure transaction to
 	// the network.
 	peerLog.Infof("Broadcasting cooperative close tx: %v",
@@ -1376,7 +1392,6 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 			return spew.Sdump(closeTx)
 		}))
 
-	chanPoint := channel.ChannelPoint()
 	if err := p.server.cc.wallet.PublishTransaction(closeTx); err != nil {
 		// TODO(halseth): Add relevant error types to the
 		// WalletController interface as this is quite fragile.
@@ -1397,7 +1412,6 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 	// Once we've completed the cooperative channel closure, we'll wipe the
 	// channel so we reject any incoming forward or payment requests via
 	// this channel.
-	p.server.breachArbiter.settledContracts <- chanPoint
 	if err := p.WipeChannel(channel); err != nil {
 		if localReq != nil {
 			localReq.Err <- err

@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"time"
 
+	"gopkg.in/macaroon-bakery.v1/bakery"
+	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
+
 	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
@@ -24,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -77,6 +81,30 @@ func lndMain() error {
 		return err
 	}
 	defer chanDB.Close()
+
+	// Only process macaroons if --no-macaroons isn't set.
+	var macaroonService *bakery.Service
+	if !cfg.NoMacaroons {
+		// Create the macaroon authentication/authorization service.
+		macaroonService, err = macaroons.NewService(cfg.DataDir)
+		if err != nil {
+			srvrLog.Errorf("unable to create macaroon service: %v",
+				err)
+			return err
+		}
+
+		// Create macaroon files for lncli to use if they don't exist.
+		if !fileExists(cfg.AdminMacPath) &&
+			!fileExists(cfg.ReadMacPath) {
+			err = genMacaroons(macaroonService, cfg.AdminMacPath,
+				cfg.ReadMacPath)
+			if err != nil {
+				ltndLog.Errorf("unable to create macaroon "+
+					"files: %v", err)
+				return err
+			}
+		}
+	}
 
 	// With the information parsed from the configuration, create valid
 	// instances of the paertinent interfaces required to operate the
@@ -197,7 +225,7 @@ func lndMain() error {
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer := newRPCServer(server)
+	rpcServer := newRPCServer(server, macaroonService)
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
@@ -373,5 +401,39 @@ func genCertPair(certFile, keyFile string) error {
 	}
 
 	rpcsLog.Infof("Done generating TLS certificates")
+	return nil
+}
+
+// genMacaroons generates a pair of macaroon files; one admin-level and one
+// read-only. These can also be used to generate more granular macaroons.
+func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
+	// Generate the admin macaroon and write it to a file.
+	admMacaroon, err := svc.NewMacaroon("", nil, nil)
+	if err != nil {
+		return err
+	}
+	admBytes, err := admMacaroon.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	if err = ioutil.WriteFile(admFile, admBytes, 0600); err != nil {
+		return err
+	}
+
+	// Generate the read-only macaroon and write it to a file.
+	caveat := checkers.AllowCaveat(roPermissions...)
+	roMacaroon := admMacaroon.Clone()
+	if err = svc.AddCaveat(roMacaroon, caveat); err != nil {
+		return err
+	}
+	roBytes, err := roMacaroon.MarshalBinary()
+	if err != nil {
+		return err
+	}
+	if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
+		os.Remove(admFile)
+		return err
+	}
+
 	return nil
 }

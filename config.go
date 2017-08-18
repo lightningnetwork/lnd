@@ -24,6 +24,8 @@ const (
 	defaultDataDirname        = "data"
 	defaultTLSCertFilename    = "tls.cert"
 	defaultTLSKeyFilename     = "tls.key"
+	defaultAdminMacFilename   = "admin.macaroon"
+	defaultReadMacFilename    = "readonly.macaroon"
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -36,12 +38,14 @@ const (
 )
 
 var (
-	lndHomeDir         = btcutil.AppDataDir("lnd", false)
-	defaultConfigFile  = filepath.Join(lndHomeDir, defaultConfigFilename)
-	defaultDataDir     = filepath.Join(lndHomeDir, defaultDataDirname)
-	defaultTLSCertPath = filepath.Join(lndHomeDir, defaultTLSCertFilename)
-	defaultTLSKeyPath  = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
-	defaultLogDir      = filepath.Join(lndHomeDir, defaultLogDirname)
+	lndHomeDir          = btcutil.AppDataDir("lnd", false)
+	defaultConfigFile   = filepath.Join(lndHomeDir, defaultConfigFilename)
+	defaultDataDir      = filepath.Join(lndHomeDir, defaultDataDirname)
+	defaultTLSCertPath  = filepath.Join(lndHomeDir, defaultTLSCertFilename)
+	defaultTLSKeyPath   = filepath.Join(lndHomeDir, defaultTLSKeyFilename)
+	defaultAdminMacPath = filepath.Join(lndHomeDir, defaultAdminMacFilename)
+	defaultReadMacPath  = filepath.Join(lndHomeDir, defaultReadMacFilename)
+	defaultLogDir       = filepath.Join(lndHomeDir, defaultLogDirname)
 
 	btcdHomeDir            = btcutil.AppDataDir("btcd", false)
 	defaultBtcdRPCCertFile = filepath.Join(btcdHomeDir, "rpc.cert")
@@ -88,11 +92,14 @@ type autoPilotConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	ConfigFile  string `long:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir     string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	TLSCertPath string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath  string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
-	LogDir      string `long:"logdir" description:"Directory to log output."`
+	ConfigFile   string `long:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	TLSCertPath  string `long:"tlscertpath" description:"Path to TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath   string `long:"tlskeypath" description:"Path to TLS private key for lnd's RPC and REST services"`
+	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir       string `long:"logdir" description:"Directory to log output."`
 
 	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 5656)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
@@ -132,6 +139,8 @@ func loadConfig() (*config, error) {
 		DebugLevel:          defaultLogLevel,
 		TLSCertPath:         defaultTLSCertPath,
 		TLSKeyPath:          defaultTLSKeyPath,
+		AdminMacPath:        defaultAdminMacPath,
+		ReadMacPath:         defaultReadMacPath,
 		LogDir:              defaultLogDir,
 		PeerPort:            defaultPeerPort,
 		RPCPort:             defaultRPCPort,

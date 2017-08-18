@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	macaroon "gopkg.in/macaroon.v1"
+
 	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpctest"
@@ -137,6 +140,8 @@ func newLightningNode(btcrpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (
 	}
 	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
 	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
+	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
+	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 
 	cfg.PeerPort, cfg.RPCPort = generateListeningPorts()
 
@@ -177,6 +182,8 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--tlscertpath=%v", l.cfg.TLSCertPath))
 	args = append(args, fmt.Sprintf("--tlskeypath=%v", l.cfg.TLSKeyPath))
 	args = append(args, fmt.Sprintf("--configfile=%v", l.cfg.DataDir))
+	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", l.cfg.AdminMacPath))
+	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", l.cfg.ReadMacPath))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)
@@ -247,23 +254,34 @@ func (l *lightningNode) Start(lndError chan error) error {
 		return err
 	}
 
-	// Wait until TLS certificate is created before using it, up to 20 sec.
+	// Wait until TLS certificate and admin macaroon are created before
+	// using them, up to 20 sec.
 	tlsTimeout := time.After(20 * time.Second)
-	for !fileExists(l.cfg.TLSCertPath) {
+	for !fileExists(l.cfg.TLSCertPath) || !fileExists(l.cfg.AdminMacPath) {
 		time.Sleep(100 * time.Millisecond)
 		select {
 		case <-tlsTimeout:
 			panic(fmt.Errorf("timeout waiting for TLS cert file " +
-				"to be created after 20 seconds"))
+				"and admin macaroon file to be created after " +
+				"20 seconds"))
 		default:
 		}
 	}
-	creds, err := credentials.NewClientTLSFromFile(l.cfg.TLSCertPath, "")
+	tlsCreds, err := credentials.NewClientTLSFromFile(l.cfg.TLSCertPath, "")
 	if err != nil {
 		return err
 	}
+	macBytes, err := ioutil.ReadFile(l.cfg.AdminMacPath)
+	if err != nil {
+		return err
+	}
+	mac := &macaroon.Macaroon{}
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		return err
+	}
 	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
+		grpc.WithTransportCredentials(tlsCreds),
+		grpc.WithPerRPCCredentials(macaroons.NewMacaroonCredential(mac)),
 		grpc.WithBlock(),
 		grpc.WithTimeout(time.Second * 20),
 	}

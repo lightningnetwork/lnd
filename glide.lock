@@ -1,5 +1,5 @@
-hash: d40636a5875b6dedd06b34514ea3430717c02153ecd16f32aa5bcedeedd6a833
-updated: 2017-08-02T21:19:34.129016558-07:00
+hash: 6569f51a7172f16b26c374cdcf3cae0abea234207ac99bfa6dc4712406bfc4d2
+updated: 2017-08-09T14:51:02.638659953-06:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -180,4 +180,14 @@ imports:
   - stats
   - tap
   - transport
+- name: gopkg.in/macaroon.v1
+  version: d8fd13e6951f2ce46f0964a58149cf2f103cac9a
+- name: gopkg.in/macaroon-bakery.v1
+  version: 8e14f8b0f5e286ad100ca8d6ce5bde0f0dfb8b21
+- name: github.com/juju/loggo
+  version: 8232ab8918d91c72af1a9fb94d3edbe31d88b790
+- name: github.com/rogpeppe/fastuuid
+  version: 6724a57986aff9bff1a1770e9347036def7c89f6
+- name: gopkg.in/errgo.v1
+  version: 442357a80af5c6bf9b6d51ae791a39c3421004f3
 testImports: []

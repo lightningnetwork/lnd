@@ -3128,7 +3128,19 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}
-	defer lndHarness.TearDownAll()
+
+	// Set up teardowns. While it's easier to set up the lnd harness before
+	// the btcd harness, they should be torn down in reverse order to
+	// prevent certain types of hangs.
+	var btcdHarness *rpctest.Harness
+	defer func() {
+		if lndHarness != nil {
+			lndHarness.TearDownAll()
+		}
+		if btcdHarness != nil {
+			btcdHarness.TearDown()
+		}
+	}()
 
 	handlers := &btcrpcclient.NotificationHandlers{
 		OnTxAccepted: lndHarness.OnTxAccepted,
@@ -3157,11 +3169,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Transactions on the lightning network should always be standard to get
 	// better guarantees of getting included in to blocks.
 	args := []string{"--rejectnonstd"}
-	btcdHarness, err := rpctest.New(harnessNetParams, handlers, args)
+	btcdHarness, err = rpctest.New(harnessNetParams, handlers, args)
 	if err != nil {
 		ht.Fatalf("unable to create mining node: %v", err)
 	}
-	defer btcdHarness.TearDown()
 
 	// Turn off the btcd rpc logging, otherwise it will lead to panic.
 	// TODO(andrew.shvv|roasbeef) Remove the hack after re-work the way the log

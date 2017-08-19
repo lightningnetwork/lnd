@@ -256,7 +256,7 @@ func (l *lightningNode) Start(lndError chan error) error {
 
 	// Wait until TLS certificate and admin macaroon are created before
 	// using them, up to 20 sec.
-	tlsTimeout := time.After(20 * time.Second)
+	tlsTimeout := time.After(30 * time.Second)
 	for !fileExists(l.cfg.TLSCertPath) || !fileExists(l.cfg.AdminMacPath) {
 		time.Sleep(100 * time.Millisecond)
 		select {

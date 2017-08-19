@@ -496,6 +496,7 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 	assertNumConnections(ctxb, t, net.Alice, net.Bob, 0)
 
 	// Finally, re-connect both nodes.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, net.Bob); err != nil {
 		t.Fatalf("unable to connect Alice's peer to Bob's: err %v", err)
 	}
@@ -517,7 +518,6 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	pushAmt := btcutil.Amount(0)
 
 	timeout := time.Duration(time.Second * 10)
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
 
 	// As we need to create a channel that requires more than 1
 	// confirmation before it's open, with the current set of defaults,
@@ -528,12 +528,14 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
 
 	// Create a new channel that requires 5 confs before it's considered
 	// open, then broadcast the funding transaction
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
 		chanAmt, pushAmt)
 	if err != nil {
@@ -2531,6 +2533,7 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 	}
 
 	// Close the channel between Bob and Dave.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
 
 	if err := dave.Shutdown(); err != nil {

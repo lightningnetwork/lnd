@@ -33,7 +33,6 @@ check_test_ports() {
 # tool won't gather any useful coverage information from them.
 test_with_coverage_profile() {
     print "* Running tests with creating coverage profile"
-    check_test_ports
 
     echo "mode: count" > profile.cov
 
@@ -74,7 +73,6 @@ test_with_coverage_profile() {
 # profile but with race condition checks.
 test_race_conditions() {
     print "* Running tests with the race condition detector"
-    check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
     env GORACE="history_size=7 halt_on_error=1" go test -v -p 1 -race $test_targets
@@ -164,6 +162,8 @@ fi
 # we may calmly send coverage profile (if script is run on travis)
 if [ "$NEED_COVERAGE" == "true" ] || [ "$RACE" == "false" ]; then
     print "* Running integration tests"
+
+    check_test_ports
     go test -v -tags rpctest
 
     test_with_coverage_profile

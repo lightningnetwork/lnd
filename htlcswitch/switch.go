@@ -208,14 +208,16 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	case e := <-payment.err:
 		err = e
 	case <-s.quit:
-		return zeroPreimage, errors.New("service is shutdown")
+		return zeroPreimage, errors.New("htlc switch have been stopped " +
+			"during waiting for payment result")
 	}
 
 	select {
 	case p := <-payment.preimage:
 		preimage = p
 	case <-s.quit:
-		return zeroPreimage, errors.New("service is shutdown")
+		return zeroPreimage, errors.New("htlc switch have been stopped " +
+			"during waiting for payment result")
 	}
 
 	return preimage, err
@@ -240,7 +242,8 @@ func (s *Switch) forward(packet *htlcPacket) error {
 	case err := <-command.err:
 		return err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to forward htlc packet htlc switch was " +
+			"stopped")
 	}
 }
 
@@ -744,7 +747,7 @@ func (s *Switch) htlcForwarder() {
 func (s *Switch) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		log.Warn("Htlc Switch already started")
-		return nil
+		return errors.New("htlc switch already started")
 	}
 
 	log.Infof("Starting HTLC Switch")
@@ -760,10 +763,10 @@ func (s *Switch) Start() error {
 func (s *Switch) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		log.Warn("Htlc Switch already stopped")
-		return nil
+		return errors.New("htlc switch already shutdown")
 	}
 
-	log.Infof("HLTC Switch shutting down")
+	log.Infof("HTLC Switch shutting down")
 
 	close(s.quit)
 	s.wg.Wait()
@@ -790,7 +793,7 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	case s.linkControl <- command:
 		return <-command.err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to add link htlc switch was stopped")
 	}
 }
 
@@ -813,12 +816,12 @@ func (s *Switch) addLink(link ChannelLink) error {
 	s.interfaceIndex[peerPub][link] = struct{}{}
 
 	if err := link.Start(); err != nil {
+		s.removeLink(link.ChanID())
 		return err
 	}
 
-	log.Infof("Added channel link with chan_id=%v, short_chan_id=(%v), "+
-		"bandwidth=%v", link.ChanID(), spew.Sdump(link.ShortChanID()),
-		link.Bandwidth())
+	log.Infof("Added channel link with chan_id=%v, short_chan_id=(%v)",
+		link.ChanID(), spew.Sdump(link.ShortChanID()))
 
 	return nil
 }
@@ -844,7 +847,7 @@ func (s *Switch) GetLink(chanID lnwire.ChannelID) (ChannelLink, error) {
 	case s.linkControl <- command:
 		return <-command.done, <-command.err
 	case <-s.quit:
-		return nil, errors.New("Htlc Switch was stopped")
+		return nil, errors.New("unable to get link htlc switch was stopped")
 	}
 }
 
@@ -888,7 +891,7 @@ func (s *Switch) RemoveLink(chanID lnwire.ChannelID) error {
 	case s.linkControl <- command:
 		return <-command.err
 	case <-s.quit:
-		return errors.New("Htlc Switch was stopped")
+		return errors.New("unable to remove link htlc switch was stopped")
 	}
 }
 
@@ -909,7 +912,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) error {
 	peerPub := link.Peer().PubKey()
 	delete(s.interfaceIndex, peerPub)
 
-	go link.Stop()
+	link.Stop()
 
 	return nil
 }
@@ -935,7 +938,7 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelLink, error) {
 	case s.linkControl <- command:
 		return <-command.done, <-command.err
 	case <-s.quit:
-		return nil, errors.New("Htlc Switch was stopped")
+		return nil, errors.New("unable to get links htlc switch was stopped")
 	}
 }
 

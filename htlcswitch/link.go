@@ -132,6 +132,11 @@ type ChannelLinkConfig struct {
 	// with the debug htlc R-Hash are immediately settled in the next
 	// available state transition.
 	DebugHTLC bool
+
+	// SyncStates is used to indicate that we need send the channel
+	// reestablishment message to the remote peer. It should be done if our
+	// clients have been restarted, or remote peer have been reconnected.
+	SyncStates bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -143,25 +148,6 @@ type channelLink struct {
 	// The following fields are only meant to be used *atomically*
 	started  int32
 	shutdown int32
-
-	// cancelReasons stores the reason why a particular HTLC was cancelled.
-	// The index of the HTLC within the log is mapped to the cancellation
-	// reason. This value is used to thread the proper error through to the
-	// htlcSwitch, or subsystem that initiated the HTLC.
-	//
-	// TODO(andrew.shvv) remove after payment descriptor start store
-	// htlc cancel reasons.
-	cancelReasons map[uint64]lnwire.OpaqueReason
-
-	// clearedOnionBlobs tracks the remote log index of the incoming
-	// htlc's, mapped to the htlc onion blob which encapsulates the next
-	// hop. HTLC's are added to this map once the HTLC has been cleared,
-	// meaning the commitment state reflects the update encoded within this
-	// HTLC.
-	//
-	// TODO(andrew.shvv) remove after payment descriptor start store
-	// htlc onion blobs.
-	clearedOnionBlobs map[uint64][lnwire.OnionPacketSize]byte
 
 	// batchCounter is the number of updates which we received from remote
 	// side, but not include in commitment transaction yet and plus the
@@ -220,17 +206,15 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 	currentHeight uint32) ChannelLink {
 
 	return &channelLink{
-		cfg:               cfg,
-		channel:           channel,
-		clearedOnionBlobs: make(map[uint64][lnwire.OnionPacketSize]byte),
-		upstream:          make(chan lnwire.Message),
-		downstream:        make(chan *htlcPacket),
-		linkControl:       make(chan interface{}),
-		cancelReasons:     make(map[uint64]lnwire.OpaqueReason),
-		logCommitTimer:    time.NewTimer(300 * time.Millisecond),
-		overflowQueue:     newWaitingQueue(),
-		bestHeight:        currentHeight,
-		quit:              make(chan struct{}),
+		cfg:            cfg,
+		channel:        channel,
+		upstream:       make(chan lnwire.Message),
+		downstream:     make(chan *htlcPacket),
+		linkControl:    make(chan interface{}),
+		logCommitTimer: time.NewTimer(300 * time.Millisecond),
+		overflowQueue:  newWaitingQueue(),
+		bestHeight:     currentHeight,
+		quit:           make(chan struct{}),
 	}
 }
 
@@ -244,8 +228,9 @@ var _ ChannelLink = (*channelLink)(nil)
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Start() error {
 	if !atomic.CompareAndSwapInt32(&l.started, 0, 1) {
-		log.Warnf("channel link(%v): already started", l)
-		return nil
+		err := errors.Errorf("channel link(%v): already started", l)
+		log.Warn(err)
+		return err
 	}
 
 	log.Infof("ChannelLink(%v) is starting", l)
@@ -290,6 +275,29 @@ func (l *channelLink) htlcManager() {
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.getBandwidth())
 
+	// If the link have been recreated, than we need to sync the states by
+	// sending the channel reestablishment message.
+	if l.cfg.SyncStates {
+		log.Infof("Syncing states for channel(%v) via sending the "+
+			"re-establishment message", l.channel.ChannelPoint())
+
+		localCommitmentNumber, remoteRevocationNumber := l.channel.LastCounters()
+
+		l.cfg.Peer.SendMessage(&lnwire.ChannelReestablish{
+			ChanID: l.ChanID(),
+			NextLocalCommitmentNumber:  localCommitmentNumber + 1,
+			NextRemoteRevocationNumber: remoteRevocationNumber + 1,
+		})
+
+		if err := l.channelInitialization(); err != nil {
+			err := errors.Errorf("unable to sync the states for channel(%v)"+
+				"with remote node: %v", l.ChanID(), err)
+			log.Error(err)
+			l.cfg.Peer.Disconnect(err)
+			return
+		}
+	}
+
 	// TODO(roasbeef): check to see if able to settle any currently pending
 	// HTLCs
 	//   * also need signals when new invoices are added by the
@@ -299,6 +307,11 @@ func (l *channelLink) htlcManager() {
 	defer batchTimer.Stop()
 
 	// TODO(roasbeef): fail chan in case of protocol violation
+
+	// ...
+	for i := 0; i < l.overflowQueue.length(); i++ {
+		l.overflowQueue.release()
+	}
 
 out:
 	for {
@@ -326,14 +339,17 @@ out:
 		case <-l.channel.UnilateralCloseSignal:
 			log.Warnf("Remote peer has closed ChannelPoint(%v) on-chain",
 				l.channel.ChannelPoint())
-			if err := l.cfg.Peer.WipeChannel(l.channel); err != nil {
-				log.Errorf("unable to wipe channel %v", err)
-			}
 
-			// TODO(roasbeef): need to send HTLC outputs to nursery
+			go func() {
+				if err := l.cfg.Peer.WipeChannel(l.channel); err != nil {
+					log.Errorf("unable to wipe channel %v", err)
+				}
 
-			// TODO(roasbeef): or let the arb sweep?
-			l.cfg.SettledContracts <- l.channel.ChannelPoint()
+				// TODO(roasbeef): need to send HTLC outputs to nursery
+				// TODO(roasbeef): or let the arb sweep?
+				l.cfg.SettledContracts <- l.channel.ChannelPoint()
+			}()
+
 			break out
 
 		// A local sub-system has initiated a force close of the active
@@ -417,15 +433,7 @@ out:
 			l.handleUpstreamMsg(msg)
 
 		case cmd := <-l.linkControl:
-			switch req := cmd.(type) {
-			case *getBandwidthCmd:
-				req.resp <- l.getBandwidth()
-			case *policyUpdate:
-				l.cfg.FwrdingPolicy = req.policy
-				if req.done != nil {
-					close(req.done)
-				}
-			}
+			l.handleControlCommand(cmd)
 
 		case <-l.quit:
 			break out
@@ -550,7 +558,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		logIndex, err := l.channel.FailHTLC(pkt.payHash)
+		logIndex, err := l.channel.FailHTLC(pkt.payHash, htlc.Reason)
 		if err != nil {
 			log.Errorf("unable to cancel HTLC: %v", err)
 			return
@@ -586,6 +594,30 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
+	case *lnwire.ChannelReestablish:
+		log.Infof("Received re-establishment message from remote side "+
+			"for channel(%v)", l.channel.ChannelPoint())
+
+		messagesToSyncState, err := l.channel.ReceiveReestablish(msg)
+		if err != nil {
+			err := errors.Errorf("unable to handle upstream reestablish "+
+				"message: %v", err)
+			log.Error(err)
+			l.cfg.Peer.Disconnect(err)
+			return
+		}
+
+		// Send message to the remote side which are needed to synchronize
+		// the state.
+		log.Infof("Sending %v updates to synchronize the "+
+			"state for channel(%v)", len(messagesToSyncState),
+			l.channel.ChannelPoint())
+		for _, msg := range messagesToSyncState {
+			l.cfg.Peer.SendMessage(msg)
+		}
+
+		return
+
 	case *lnwire.UpdateAddHTLC:
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
@@ -597,11 +629,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 		log.Tracef("Receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
-
-		// Store the onion blob which encapsulate the htlc route and
-		// use in on stage of HTLC inclusion to retrieve the next hop
-		// and propagate the HTLC along the remaining route.
-		l.clearedOnionBlobs[index] = msg.OnionBlob
 
 	case *lnwire.UpdateFufillHTLC:
 		pre := msg.PaymentPreimage
@@ -616,15 +643,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// repeated r-values
 
 	case *lnwire.UpdateFailMalformedHTLC:
-		// If remote side have been unable to parse the onion blob we
-		// have sent to it, than we should transform the malformed HTLC
-		// message to the usual HTLC fail message.
-		idx := msg.ID
-		if err := l.channel.ReceiveFailHTLC(idx); err != nil {
-			l.fail("unable to handle upstream fail HTLC: %v", err)
-			return
-		}
-
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -657,19 +675,24 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		l.cancelReasons[idx] = lnwire.OpaqueReason(b.Bytes())
-
-	case *lnwire.UpdateFailHTLC:
+		// If remote side have been unable to parse the onion blob we
+		// have sent to it, than we should transform the malformed HTLC
+		// message to the usual HTLC fail message.
 		idx := msg.ID
-		if err := l.channel.ReceiveFailHTLC(idx); err != nil {
+		if err := l.channel.ReceiveFailHTLC(idx, b.Bytes()); err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
 		}
 
-		l.cancelReasons[idx] = msg.Reason
+	case *lnwire.UpdateFailHTLC:
+		idx := msg.ID
+		if err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:]); err != nil {
+			l.fail("unable to handle upstream fail HTLC: %v", err)
+			return
+		}
 
 	case *lnwire.CommitSig:
-		// We just received a new update to our local commitment chain,
+		// We just received a new updates to our local commitment chain,
 		// validate this new commitment, closing the link if invalid.
 		err := l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
 		if err != nil {
@@ -744,6 +767,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				}
 			}
 		}()
+
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initator we
 		// will fail the channel, if not we will apply the update.
@@ -974,10 +998,8 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Fail:
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
-			opaqueReason := l.cancelReasons[pd.ParentIndex]
-
 			failUpdate := &lnwire.UpdateFailHTLC{
-				Reason: opaqueReason,
+				Reason: lnwire.OpaqueReason(pd.FailReason),
 				ChanID: l.ChanID(),
 			}
 			failPacket := newFailPacket(l.ShortChanID(), failUpdate,
@@ -995,10 +1017,8 @@ func (l *channelLink) processLockedInHtlcs(
 		// or are able to settle it (and it adheres to our fee related
 		// constraints).
 		case lnwallet.Add:
-			// Fetch the onion blob that was included within this
-			// processed payment descriptor.
-			onionBlob := l.clearedOnionBlobs[pd.Index]
-			delete(l.clearedOnionBlobs, pd.Index)
+			var onionBlob [lnwire.OnionPacketSize]byte
+			copy(onionBlob[:], pd.OnionBlob)
 
 			// Retrieve onion obfuscator from onion blob in order
 			// to produce initial obfuscation of the onion
@@ -1340,7 +1360,7 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 		return
 	}
 
-	index, err := l.channel.FailHTLC(rHash)
+	index, err := l.channel.FailHTLC(rHash, reason)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1357,7 +1377,9 @@ func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessag
 // to the payment sender.
 func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCode,
 	onionBlob []byte) {
-	index, err := l.channel.FailHTLC(rHash)
+
+	shaOnionBlob := sha256.Sum256(onionBlob)
+	index, err := l.channel.MalformedFailHTLC(rHash, code, shaOnionBlob)
 	if err != nil {
 		log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -1366,7 +1388,7 @@ func (l *channelLink) sendMalformedHTLCError(rHash [32]byte, code lnwire.FailCod
 	l.cfg.Peer.SendMessage(&lnwire.UpdateFailMalformedHTLC{
 		ChanID:       l.ChanID(),
 		ID:           index,
-		ShaOnionBlob: sha256.Sum256(onionBlob),
+		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
 	})
 }
@@ -1377,4 +1399,51 @@ func (l *channelLink) fail(format string, a ...interface{}) {
 	reason := errors.Errorf(format, a...)
 	log.Error(reason)
 	l.cfg.Peer.Disconnect(reason)
+}
+
+// channelInitialization waits for channel synchronization message to
+// be received from another side and handled.
+func (l *channelLink) channelInitialization() error {
+	// Before we launch any of the helper goroutines off the channel link
+	// struct, we'll first ensure proper adherence to the p2p protocol. The
+	// channel reestablish message MUST be sent before any other message.
+	expired := time.After(time.Second * 5)
+
+	for {
+		select {
+		case msg := <-l.upstream:
+			if msg, ok := msg.(*lnwire.ChannelReestablish); ok {
+				l.handleUpstreamMsg(msg)
+				return nil
+			} else {
+				return errors.New("very first message between nodes " +
+					"for channel link should be reestablish message")
+			}
+
+		case pkt := <-l.downstream:
+			l.overflowQueue.consume(pkt)
+
+		case cmd := <-l.linkControl:
+			l.handleControlCommand(cmd)
+
+		// In order to avoid blocking indefinitely, we'll give the other peer
+		// an upper timeout of 5 seconds to respond before we bail out early.
+		case <-expired:
+			return errors.Errorf("peer did not complete handshake for channel " +
+				"link within 5 seconds")
+		}
+	}
+}
+
+// handleControlCommand...
+func (l *channelLink) handleControlCommand(cmd interface{}) {
+	switch req := cmd.(type) {
+	case *getBandwidthCmd:
+		req.resp <- l.getBandwidth()
+	case *policyUpdate:
+		l.cfg.FwrdingPolicy = req.policy
+		if req.done != nil {
+			close(req.done)
+		}
+	}
 }

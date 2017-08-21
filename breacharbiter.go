@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -40,6 +39,7 @@ var retributionBucket = []byte("retribution")
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
 	wallet     *lnwallet.LightningWallet
+	signer     lnwallet.Signer
 	db         *channeldb.DB
 	notifier   chainntnfs.ChainNotifier
 	chainIO    lnwallet.BlockChainIO
@@ -87,6 +87,7 @@ func newBreachArbiter(wallet *lnwallet.LightningWallet, db *channeldb.DB,
 
 	return &breachArbiter{
 		wallet:     wallet,
+		signer:     wallet.Cfg.Signer,
 		db:         db,
 		notifier:   notifier,
 		chainIO:    chain,
@@ -129,7 +130,7 @@ func (b *breachArbiter) Start() error {
 		closeSummary := channeldb.ChannelCloseSummary{
 			ChanPoint:      ret.chanPoint,
 			ClosingTXID:    ret.commitHash,
-			RemotePub:      &ret.remoteIdentity,
+			RemotePub:      ret.remoteIdentity,
 			Capacity:       ret.capacity,
 			SettledBalance: ret.settledBalance,
 			CloseType:      channeldb.BreachClose,
@@ -234,6 +235,13 @@ func (b *breachArbiter) Start() error {
 		return err
 	}
 
+	// Additionally, we'll also want to watch any pending close or force
+	// close transactions to we can properly mark them as resolved in the
+	// database.
+	if err := b.watchForPendingCloseConfs(currentHeight); err != nil {
+		return err
+	}
+
 	// Spawn the exactRetribution tasks to monitor and resolve any breaches
 	// that were loaded from the retribution store.
 	for chanPoint, closeSummary := range closeSummaries {
@@ -259,10 +267,13 @@ func (b *breachArbiter) Start() error {
 	b.wg.Add(1)
 	go b.contractObserver(channelsToWatch)
 
-	// Additionally, we'll also want to retrieve any pending close or force
-	// close transactions to we can properly mark them as resolved in the
-	// database.
-	pendingCloseChans, err := b.db.FetchClosedChannels(true)
+	return nil
+}
+
+// watchForPendingCloseConfs dispatches confirmation notification subscribers
+// that mark any pending channels as fully closed when signaled.
+func (b *breachArbiter) watchForPendingCloseConfs(currentHeight int32) error {
+	pendingCloseChans, err := b.cfg.DB.FetchClosedChannels(true)
 	if err != nil {
 		brarLog.Errorf("unable to fetch closing channels: %v", err)
 		return err
@@ -311,7 +322,7 @@ func (b *breachArbiter) Start() error {
 
 				err := b.db.MarkChanFullyClosed(&chanPoint)
 				if err != nil {
-					brarLog.Errorf("unable to mark chan "+
+					brarLog.Errorf("unable to mark channel "+
 						"as closed: %v", err)
 				}
 
@@ -375,8 +386,8 @@ out:
 		case breachInfo := <-b.breachedContracts:
 			_, currentHeight, err := b.chainIO.GetBestBlock()
 			if err != nil {
-				brarLog.Errorf(
-					"unable to get best height: %v", err)
+				brarLog.Errorf("unable to get best height: %v",
+					err)
 			}
 
 			// A new channel contract has just been breached! We
@@ -572,8 +583,6 @@ func (b *breachArbiter) exactRetribution(
 		// TODO(roasbeef): close other active channels with offending
 		// peer
 
-		close(breachInfo.doneChan)
-
 		return
 	case <-b.quit:
 		return
@@ -621,10 +630,11 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 
 		// Next, we'll launch a goroutine to wait until the closing
 		// transaction has been confirmed so we can mark the contract
-		// as resolved in the database. This go routine is _not_
-		// tracked by the breach aribter's wait group since the callback
-		// may not be executed before shutdown, potentially leading to
-		// a deadlock.
+		// as resolved in the database. This go routine is _not_ tracked
+		// by the breach arbiter's wait group since the callback may not
+		// be executed before shutdown, potentially leading to a
+		// deadlocks as the arbiter may not be able to finish shutting
+		// down.
 		//
 		// TODO(roasbeef): also notify utxoNursery, might've had
 		// outbound HTLC's in flight
@@ -649,6 +659,10 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 							err)
 						goto close
 					}
+
+					brarLog.Infof("Sweeping %v breached "+
+						"outputs with: %v",
+						spew.Sdump(sweepTx))
 
 					err = b.wallet.PublishTransaction(
 						sweepTx,
@@ -685,82 +699,45 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// multi-hop HTLCs aren't sent over this link, nor any other
 		// links associated with this peer.
 		b.htlcSwitch.CloseLink(chanPoint, htlcswitch.CloseBreach)
-		chanInfo := contract.StateSnapshot()
 
 		// TODO(roasbeef): need to handle case of remote broadcast
 		// mid-local initiated state-transition, possible
 		// false-positive?
 
-		// First we generate the witness generation function which will
-		// be used to sweep the output only we can satisfy on the
-		// commitment transaction. This output is just a regular p2wkh
-		// output.
-		localSignDesc := breachInfo.LocalOutputSignDesc
-		localWitness := func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-			inputIndex int) ([][]byte, error) {
+		// Obtain a snapshot of the final channel state, which can be
+		// used to reclose a breached channel in the event of a failure.
+		chanInfo := contract.StateSnapshot()
 
-			desc := localSignDesc
-			desc.SigHashes = hc
-			desc.InputIndex = inputIndex
-
-			return lnwallet.CommitSpendNoDelay(
-				b.wallet.Cfg.Signer, &desc, tx)
-		}
-
-		// Next we create the witness generation function that will be
-		// used to sweep the cheating counterparty's output by taking
-		// advantage of the revocation clause within the output's
-		// witness script.
-		remoteSignDesc := breachInfo.RemoteOutputSignDesc
-		remoteWitness := func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-			inputIndex int) ([][]byte, error) {
-
-			desc := breachInfo.RemoteOutputSignDesc
-			desc.SigHashes = hc
-			desc.InputIndex = inputIndex
-
-			return lnwallet.CommitSpendRevoke(
-				b.wallet.Cfg.Signer, &desc, tx)
-		}
-
-		// Assemble the retribution information that parameterizes the
-		// construction of transactions required to correct the breach.
-		// TODO(roasbeef): populate htlc breaches
-		retInfo := &retributionInfo{
-			commitHash: breachInfo.BreachTransaction.TxHash(),
-			chanPoint:  *chanPoint,
-
-			remoteIdentity: chanInfo.RemoteIdentity,
-			capacity:       chanInfo.Capacity,
-			settledBalance: chanInfo.LocalBalance.ToSatoshis(),
-
-			selfOutput: &breachedOutput{
-				amt:            btcutil.Amount(localSignDesc.Output.Value),
-				outpoint:       breachInfo.LocalOutpoint,
-				signDescriptor: localSignDesc,
-				witnessType:    lnwallet.CommitmentNoDelay,
-				witnessFunc:    localWitness,
-			},
-
-			revokedOutput: &breachedOutput{
-				amt:            btcutil.Amount(remoteSignDesc.Output.Value),
-				outpoint:       breachInfo.RemoteOutpoint,
-				signDescriptor: remoteSignDesc,
-				witnessType:    lnwallet.CommitmentRevoke,
-				witnessFunc:    remoteWitness,
-			},
-
-			htlcOutputs: []*breachedOutput{},
-
-			doneChan: make(chan struct{}),
-		}
+		// Using the breach information provided by the wallet and the
+		// channel snapshot, construct the retribution information that
+		// will be persisted to disk.
+		retInfo := newRetributionInfo(chanPoint, breachInfo, chanInfo)
 
 		// Persist the pending retribution state to disk.
 		if err := b.retributionStore.Add(retInfo); err != nil {
-			brarLog.Errorf("unable to persist "+
-				"retribution info to db: %v", err)
+			brarLog.Errorf("unable to persist retribution info "+
+				"to db: %v", err)
 		}
 
+		// TODO(conner): move responsibility of channel closure into
+		// lnwallet. Have breach arbiter ACK after writing to disk, then
+		// have wallet mark channel as closed. This allows the wallet to
+		// attempt to retransmit the breach info if the either arbiter
+		// or the wallet goes down before completing the hand off.
+
+		// Now that the breach arbiter has persisted the information,
+		// we can go ahead and mark the channel as closed in the
+		// channeldb.  This step is done after persisting the
+		// retribution information so that a failure between these steps
+		// will cause an attempt to monitor the still-open channel.
+		// However, since the retribution information was persisted
+		// before, the arbiter will recognize that the channel should be
+		// closed, and proceed to mark it as such after a restart, and
+		// forgo monitoring it for breaches.
+
+		// Construct the breached channel's close summary marking the
+		// channel using the snapshot from before, and marking this as a
+		// BreachClose.
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:      *chanPoint,
 			ClosingTXID:    breachInfo.BreachTransaction.TxHash(),
@@ -770,6 +747,10 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			CloseType:      channeldb.BreachClose,
 			IsPending:      true,
 		}
+
+		// Next, persist the channel close to disk. Upon restart, the
+		// arbiter will recognize that this channel has been breached
+		// and marked close, and fast track its path to justice.
 		if err := contract.DeleteState(closeInfo); err != nil {
 			brarLog.Errorf("unable to delete channel state: %v",
 				err)
@@ -787,19 +768,92 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 	}
 }
 
+// SpendableOutput an interface which can be used by the breach arbiter to
+// construct a transaction spending from outputs we control.
+type SpendableOutput interface {
+	// Amount returns the number of satoshis contained within the output.
+	Amount() btcutil.Amount
+
+	// Outpoint returns the reference to the output being spent, used to
+	// construct the corresponding transaction input.
+	OutPoint() *wire.OutPoint
+
+	// BuildWitness returns a valid witness allowing this output to be
+	// spent, the witness should be attached to the transaction at the
+	// location determined by the given `txinIdx`.
+	BuildWitness(signer lnwallet.Signer,
+		txn *wire.MsgTx,
+		hashCache *txscript.TxSigHashes,
+		txinIdx int) ([][]byte, error)
+}
+
 // breachedOutput contains all the information needed to sweep a breached
 // output. A breached output is an output that we are now entitled to due to a
 // revoked commitment transaction being broadcast.
 type breachedOutput struct {
-	amt      btcutil.Amount
-	outpoint wire.OutPoint
+	amt         btcutil.Amount
+	outpoint    wire.OutPoint
+	witnessType lnwallet.WitnessType
+	signDesc    *lnwallet.SignDescriptor
 
-	signDescriptor lnwallet.SignDescriptor
-	witnessType    lnwallet.WitnessType
-	witnessFunc    lnwallet.WitnessGenerator
-
-	twoStageClaim bool
+	witnessFunc lnwallet.WitnessGenerator
 }
+
+// newBreachedOutput assembles new breachedOutput that can be used by the breach
+// arbiter to construct a justice or sweep transaction.
+func newBreachedOutput(outpoint *wire.OutPoint,
+	witnessType lnwallet.WitnessType,
+	signDescriptor *lnwallet.SignDescriptor) *breachedOutput {
+
+	amount := signDescriptor.Output.Value
+
+	return &breachedOutput{
+		amt:         btcutil.Amount(amount),
+		outpoint:    *outpoint,
+		witnessType: witnessType,
+		signDesc:    signDescriptor,
+	}
+}
+
+// Amount returns the number of satoshis contained in the breached output.
+func (bo *breachedOutput) Amount() btcutil.Amount {
+	return bo.amt
+}
+
+// OutPoint returns the breached outputs identifier that is to be included as a
+// transaction input.
+func (bo *breachedOutput) OutPoint() *wire.OutPoint {
+	return &bo.outpoint
+}
+
+// BuildWitness computes a valid witness that allows us to spend from the
+// breached output. It does so by first generating and memoizing the witness
+// generation function, which parameterized primarily by the witness type and
+// sign descriptor. The method then returns the witness computed by invoking
+// this function on the first and subsequent calls.
+func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer,
+	txn *wire.MsgTx,
+	hashCache *txscript.TxSigHashes,
+	txinIdx int) ([][]byte, error) {
+
+	// First, we ensure that the witness generation function has
+	// been initialized for this breached output.
+	if bo.witnessFunc == nil {
+		bo.witnessFunc = bo.witnessType.GenWitnessFunc(
+			signer,
+			bo.signDesc,
+		)
+	}
+
+	// Now that we have ensured that the witness generation function has
+	// been initialized, we can proceed to execute it and generate the
+	// witness for this particular breached output.
+	return bo.witnessFunc(txn, hashCache, txinIdx)
+}
+
+// Add compile-time constraint ensuring breachedOutput implements
+// SpendableOutput.
+var _ SpendableOutput = (*breachedOutput)(nil)
 
 // retributionInfo encapsulates all the data needed to sweep all the contested
 // funds within a channel whose contract has been breached by the prior
@@ -810,11 +864,14 @@ type retributionInfo struct {
 	commitHash chainhash.Hash
 	chanPoint  wire.OutPoint
 
+	// TODO(conner) remove the following group of fields after decoupling
+	// the breach arbiter from the wallet.
+
 	// Fields copied from channel snapshot when a breach is detected. This
 	// is necessary for deterministically constructing the channel close
 	// summary in the event that the breach arbiter crashes before closing
 	// the channel.
-	remoteIdentity btcec.PublicKey
+	remoteIdentity *btcec.PublicKey
 	capacity       btcutil.Amount
 	settledBalance btcutil.Amount
 
@@ -827,6 +884,68 @@ type retributionInfo struct {
 	doneChan chan struct{}
 }
 
+// newRetributionInfo constructs a retributionInfo containing all the
+// information required by the breach arbiter to recover funds from breached
+// channels.  The information is primarily populated using the BreachRetribution
+// delivered by the wallet when it detects a channel breach.
+func newRetributionInfo(chanPoint *wire.OutPoint,
+	breachInfo *lnwallet.BreachRetribution,
+	chanInfo *channeldb.ChannelSnapshot) *retributionInfo {
+
+	// First, record the breach information and witness type for the local
+	// channel point.  This will allow us to completely generate a valid
+	// witness in the event of failures, as it will be persisted in the
+	// retribution store.  Here we use CommitmentNoDelay since this output
+	// belongs to us and has no time-based constraints on spending.
+	selfOutput := newBreachedOutput(
+		&breachInfo.LocalOutpoint,
+		lnwallet.CommitmentNoDelay,
+		&breachInfo.LocalOutputSignDesc,
+	)
+
+	// Second, record the same information and witness type regarding the
+	// remote outpoint, which belongs to the party who tried to steal our
+	// money! Here we set witnessType of the breachedOutput to
+	// CommitmentRevoke, since we will be using a revoke key, withdrawing
+	// the funds from the commitment transaction immediately.
+	revokedOutput := newBreachedOutput(
+		&breachInfo.RemoteOutpoint,
+		lnwallet.CommitmentRevoke,
+		&breachInfo.RemoteOutputSignDesc,
+	)
+
+	// Determine the number of second layer HTLCs we will attempt to sweep.
+	nHtlcs := len(breachInfo.HtlcRetributions)
+
+	// Lastly, for each of the breached HTLC outputs, assemble the
+	// information we will persist to disk, such that we will be able to
+	// deterministically generate a valid witness for each output. This will
+	// allow the breach arbiter to recover from failures, in the event that
+	// it must sign and broadcast the justice transaction.
+	var htlcOutputs = make([]*breachedOutput, nHtlcs)
+	for i, breachedHtlc := range breachInfo.HtlcRetributions {
+		htlcOutputs[i] = newBreachedOutput(
+			&breachedHtlc.OutPoint,
+			lnwallet.CommitmentRevoke,
+			&breachedHtlc.SignDesc,
+		)
+	}
+
+	// TODO(conner) remove dependency on channel snapshot after decoupling
+	// channel closure from the breach arbiter.
+
+	return &retributionInfo{
+		commitHash:     breachInfo.BreachTransaction.TxHash(),
+		chanPoint:      *chanPoint,
+		remoteIdentity: &chanInfo.RemoteIdentity,
+		capacity:       chanInfo.Capacity,
+		settledBalance: chanInfo.LocalBalance.ToSatoshis(),
+		selfOutput:     selfOutput,
+		revokedOutput:  revokedOutput,
+		htlcOutputs:    htlcOutputs,
+	}
+}
+
 // createJusticeTx creates a transaction which exacts "justice" by sweeping ALL
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
@@ -834,66 +953,33 @@ type retributionInfo struct {
 func (b *breachArbiter) createJusticeTx(
 	r *retributionInfo) (*wire.MsgTx, error) {
 
-	// First, we obtain a new public key script from the wallet which we'll
-	// sweep the funds to.
-	// TODO(roasbeef): possibly create many outputs to minimize change in
-	// the future?
-	pkScriptOfJustice, err := newSweepPkScript(b.wallet)
-	if err != nil {
-		return nil, err
+	// Determine the number of HTLCs to be swept by the justice txn.
+	nHtlcs := len(r.htlcOutputs)
+
+	// Assemble the breached outputs into a slice of spendable outputs,
+	// starting with the self and revoked outputs, then adding any htlc
+	// outputs.
+	var breachedOutputs = make([]SpendableOutput, 2+nHtlcs)
+	breachedOutputs[0] = r.selfOutput
+	breachedOutputs[1] = r.revokedOutput
+	for i, htlcOutput := range r.htlcOutputs {
+		breachedOutputs[2+i] = htlcOutput
 	}
 
-	r.selfOutput.witnessFunc = r.selfOutput.witnessType.GenWitnessFunc(
-		&b.wallet.Cfg.Signer, &r.selfOutput.signDescriptor)
-
-	r.revokedOutput.witnessFunc = r.revokedOutput.witnessType.GenWitnessFunc(
-		&b.wallet.Cfg.Signer, &r.revokedOutput.signDescriptor)
-
-	for i := range r.htlcOutputs {
-		r.htlcOutputs[i].witnessFunc = r.htlcOutputs[i].witnessType.GenWitnessFunc(
-			&b.wallet.Cfg.Signer, &r.htlcOutputs[i].signDescriptor)
+	var txWeight uint64
+	// Begin with a base txn weight of 4 * tx_non_wit_data +
+	// witness_header_size.
+	txWeight += 4*53 + 2
+	// Add to_local revoke script and tx input.
+	txWeight += 154 + 4*41
+	// Add to_remote p2wpkh witness and tx input.
+	txWeight += 108 + 4*41
+	for range r.htlcOutputs {
+		// Add revoke offered htlc witness and tx input.
+		txWeight += 243 + 4*41
 	}
 
-	// Before creating the actual TxOut, we'll need to calculate the proper
-	// fee to attach to the transaction to ensure a timely confirmation.
-	// TODO(roasbeef): remove hard-coded fee
-	totalAmt := r.selfOutput.amt + r.revokedOutput.amt
-	sweepedAmt := int64(totalAmt - 5000)
-
-	// With the fee calculated, we can now create the justice transaction
-	// using the information gathered above.
-	justiceTx := wire.NewMsgTx(2)
-	justiceTx.AddTxOut(&wire.TxOut{
-		PkScript: pkScriptOfJustice,
-		Value:    sweepedAmt,
-	})
-	justiceTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: r.selfOutput.outpoint,
-	})
-	justiceTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: r.revokedOutput.outpoint,
-	})
-
-	hashCache := txscript.NewTxSigHashes(justiceTx)
-
-	// Finally, using the witness generation functions attached to the
-	// retribution information, we'll populate the inputs with fully valid
-	// witnesses for both commitment outputs, and all the pending HTLCs at
-	// this state in the channel's history.
-	// TODO(roasbeef): handle the 2-layer HTLCs
-	localWitness, err := r.selfOutput.witnessFunc(justiceTx, hashCache, 0)
-	if err != nil {
-		return nil, err
-	}
-	justiceTx.TxIn[0].Witness = localWitness
-
-	remoteWitness, err := r.revokedOutput.witnessFunc(justiceTx, hashCache, 1)
-	if err != nil {
-		return nil, err
-	}
-	justiceTx.TxIn[1].Witness = remoteWitness
-
-	return justiceTx, nil
+	return b.sweepSpendableOutputsTxn(txWeight, breachedOutputs...)
 }
 
 // craftCommitmentSweepTx creates a transaction to sweep the non-delayed output
@@ -907,61 +993,102 @@ func (b *breachArbiter) createJusticeTx(
 func (b *breachArbiter) craftCommitSweepTx(
 	closeInfo *lnwallet.UnilateralCloseSummary) (*wire.MsgTx, error) {
 
-	// First, we'll fetch a fresh script that we can use to sweep the funds
-	// under the control of the wallet.
-	sweepPkScript, err := newSweepPkScript(b.wallet)
+	selfOutput := newBreachedOutput(
+		closeInfo.SelfOutPoint,
+		lnwallet.CommitmentNoDelay,
+		closeInfo.SelfOutputSignDesc,
+	)
+
+	var txWeight uint64
+	// Begin with a base txn weight of 4 * tx_non_wit_data +
+	// witness_header_size.
+	txWeight += 4*53 + 2
+	// Add receiver script witness and tx input
+	txWeight += 325 + 4*41
+
+	return b.sweepSpendableOutputsTxn(txWeight, selfOutput)
+}
+
+// sweepSpendableOutputsTxn creates a signed transaction from a sequence of
+// spendable outputs by sweeping the funds into a single p2wkh output.
+func (b *breachArbiter) sweepSpendableOutputsTxn(
+	txWeight uint64,
+	inputs ...SpendableOutput) (*wire.MsgTx, error) {
+
+	// First, we obtain a new public key script from the wallet which we'll
+	// sweep the funds to.
+	// TODO(roasbeef): possibly create many outputs to minimize change in
+	// the future?
+	pkScript, err := newSweepPkScript(b.wallet)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO(roasbeef): use proper fees
-	outputAmt := closeInfo.SelfOutputSignDesc.Output.Value
-	sweepAmt := int64(outputAmt - 5000)
-
-	if sweepAmt <= 0 {
-		// TODO(roasbeef): add output to special pool, can be swept
-		// when: funding a channel, sweeping time locked outputs, or
-		// delivering
-		// justice after a channel breach
-		return nil, fmt.Errorf("output to small to sweep in isolation")
+	// Compute the total amount contained in the inputs.
+	var totalAmt btcutil.Amount
+	for _, input := range inputs {
+		totalAmt += input.Amount()
 	}
 
-	// With the amount we're sweeping computed, we can now creating the
-	// sweep transaction itself.
-	sweepTx := wire.NewMsgTx(1)
-	sweepTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: *closeInfo.SelfOutPoint,
-	})
-	sweepTx.AddTxOut(&wire.TxOut{
-		PkScript: sweepPkScript,
-		Value:    int64(sweepAmt),
+	feePerWeight := b.estimator.EstimateFeePerWeight(1)
+	txFee := btcutil.Amount(txWeight * feePerWeight)
+
+	sweepAmt := int64(totalAmt - txFee)
+
+	// With the fee calculated, we can now create the transaction using the
+	// information gathered above and the provided retribution information.
+	var txn = wire.NewMsgTx(2)
+
+	// We begin by adding the output to which our funds will be deposited.
+	txn.AddTxOut(&wire.TxOut{
+		PkScript: pkScript,
+		Value:    sweepAmt,
 	})
 
-	// Next, we'll generate the signature required to satisfy the p2wkh
-	// witness program.
-	signDesc := closeInfo.SelfOutputSignDesc
-	signDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
-	signDesc.InputIndex = 0
-	sweepSig, err := b.wallet.Cfg.Signer.SignOutputRaw(sweepTx, signDesc)
-	if err != nil {
-		return nil, err
+	// Next, we add all of the spendable outputs as inputs to the
+	// transaction.
+	for _, input := range inputs {
+		txn.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *input.OutPoint(),
+		})
 	}
 
-	// Finally, we'll manually craft the witness. The witness here is the
-	// exact same as a regular p2wkh witness, but we'll need to ensure that
-	// we use the tweaked public key as the last item in the witness stack
-	// which was originally used to created the pkScript we're spending.
-	witness := make([][]byte, 2)
-	witness[0] = append(sweepSig, byte(txscript.SigHashAll))
-	witness[1] = lnwallet.TweakPubKeyWithTweak(
-		signDesc.PubKey, signDesc.SingleTweak,
-	).SerializeCompressed()
+	// Create a sighash cache to improve the performance of hashing and
+	// signing SigHashAll inputs.
+	hashCache := txscript.NewTxSigHashes(txn)
 
-	sweepTx.TxIn[0].Witness = witness
+	// Create a closure that encapsulates the process of initializing a
+	// particular output's witness generation function, computing the
+	// witness, and attaching it to the transaction. This function accepts
+	// an integer index representing the intended txin index, and the
+	// breached output from which it will spend.
+	addWitness := func(idx int, so SpendableOutput) error {
+		// First, we construct a valid witness for this outpoint and
+		// transaction using the SpendableOutput's witness generation
+		// function.
+		witness, err := so.BuildWitness(
+			b.wallet.Cfg.Signer, txn, hashCache, idx,
+		)
+		if err != nil {
+			return err
+		}
 
-	brarLog.Infof("Sweeping commitment output with: %v", spew.Sdump(sweepTx))
+		// Then, we add the witness to the transaction at the
+		// appropriate txin index.
+		txn.TxIn[idx].Witness = witness
 
-	return sweepTx, nil
+		return nil
+	}
+
+	// Finally, generate a witness for each output and attach it to the
+	// transaction.
+	for i, input := range inputs {
+		if err := addWitness(i, input); err != nil {
+			return nil, err
+		}
+	}
+
+	return txn, nil
 }
 
 // RetributionStore provides an interface for managing a persistent map from
@@ -1154,7 +1281,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	ret.remoteIdentity = *remoteIdentity
+	ret.remoteIdentity = remoteIdentity
 
 	if _, err := io.ReadFull(r, scratch[:8]); err != nil {
 		return err
@@ -1184,7 +1311,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	numHtlcOutputs := int(numHtlcOutputsU64)
 
 	ret.htlcOutputs = make([]*breachedOutput, numHtlcOutputs)
-	for i := 0; i < numHtlcOutputs; i++ {
+	for i := range ret.htlcOutputs {
 		ret.htlcOutputs[i] = &breachedOutput{}
 		if err := ret.htlcOutputs[i].Decode(r); err != nil {
 			return err
@@ -1207,22 +1334,12 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := lnwallet.WriteSignDescriptor(
-		w, &bo.signDescriptor); err != nil {
+	if err := lnwallet.WriteSignDescriptor(w, bo.signDesc); err != nil {
 		return err
 	}
 
 	binary.BigEndian.PutUint16(scratch[:2], uint16(bo.witnessType))
 	if _, err := w.Write(scratch[:2]); err != nil {
-		return err
-	}
-
-	if bo.twoStageClaim {
-		scratch[0] = 1
-	} else {
-		scratch[0] = 0
-	}
-	if _, err := w.Write(scratch[:1]); err != nil {
 		return err
 	}
 
@@ -1242,8 +1359,8 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 		return err
 	}
 
-	if err := lnwallet.ReadSignDescriptor(
-		r, &bo.signDescriptor); err != nil {
+	bo.signDesc = &lnwallet.SignDescriptor{}
+	if err := lnwallet.ReadSignDescriptor(r, bo.signDesc); err != nil {
 		return err
 	}
 
@@ -1252,15 +1369,6 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	}
 	bo.witnessType = lnwallet.WitnessType(
 		binary.BigEndian.Uint16(scratch[:2]))
-
-	if _, err := io.ReadFull(r, scratch[:1]); err != nil {
-		return err
-	}
-	if scratch[0] == 1 {
-		bo.twoStageClaim = true
-	} else {
-		bo.twoStageClaim = false
-	}
 
 	return nil
 }

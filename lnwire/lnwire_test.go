@@ -124,7 +124,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		}
 		if !reflect.DeepEqual(msg, newMsg) {
 			t.Fatalf("messages don't match after re-encoding: %v "+
-				"vs %v", msg, newMsg)
+				"vs %v", spew.Sdump(msg), spew.Sdump(newMsg))
 			return false
 		}
 
@@ -149,11 +149,11 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgOpenChannel: func(v []reflect.Value, r *rand.Rand) {
 			req := OpenChannel{
 				FundingAmount:    btcutil.Amount(r.Int63()),
-				PushAmount:       btcutil.Amount(r.Int63()),
+				PushAmount:       MilliSatoshi(r.Int63()),
 				DustLimit:        btcutil.Amount(r.Int63()),
-				MaxValueInFlight: btcutil.Amount(r.Int63()),
+				MaxValueInFlight: MilliSatoshi(r.Int63()),
 				ChannelReserve:   btcutil.Amount(r.Int63()),
-				HtlcMinimum:      uint32(r.Int31()),
+				HtlcMinimum:      MilliSatoshi(r.Int31()),
 				FeePerKiloWeight: uint32(r.Int63()),
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
@@ -202,10 +202,10 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgAcceptChannel: func(v []reflect.Value, r *rand.Rand) {
 			req := AcceptChannel{
 				DustLimit:        btcutil.Amount(r.Int63()),
-				MaxValueInFlight: btcutil.Amount(r.Int63()),
+				MaxValueInFlight: MilliSatoshi(r.Int63()),
 				ChannelReserve:   btcutil.Amount(r.Int63()),
 				MinAcceptDepth:   uint32(r.Int31()),
-				HtlcMinimum:      uint32(r.Int31()),
+				HtlcMinimum:      MilliSatoshi(r.Int31()),
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
 			}
@@ -412,7 +412,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				Timestamp:       uint32(r.Int31()),
 				Flags:           uint16(r.Int31()),
 				TimeLockDelta:   uint16(r.Int31()),
-				HtlcMinimumMsat: uint64(r.Int63()),
+				HtlcMinimumMsat: MilliSatoshi(r.Int63()),
 				BaseFee:         uint32(r.Int31()),
 				FeeRate:         uint32(r.Int31()),
 			}

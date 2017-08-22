@@ -31,9 +31,7 @@ type OpenChannel struct {
 	// PushAmount is the value that the initiating party wishes to "push"
 	// to the responding as part of the first commitment state. If the
 	// responder accepts, then this will be their initial balance.
-	//
-	// TODO(roasbeef): is msat
-	PushAmount btcutil.Amount
+	PushAmount MilliSatoshi
 
 	// DustLimit is the specific dust limit the sender of this message
 	// would like enforced on their version of the commitment transaction.
@@ -44,7 +42,7 @@ type OpenChannel struct {
 	// MaxValueInFlight represents the maximum amount of coins that can be
 	// pending within the channel at any given time. If the amount of funds
 	// in limbo exceeds this amount, then the channel will be failed.
-	MaxValueInFlight btcutil.Amount
+	MaxValueInFlight MilliSatoshi
 
 	// ChannelReserve is the amount of BTC that the receiving party MUST
 	// maintain a balance above at all times. This is a safety mechanism to
@@ -54,9 +52,7 @@ type OpenChannel struct {
 
 	// HtlcMinimum is the smallest HTLC that the sender of this message
 	// will accept.
-	//
-	// TODO(roasbeef): is msat
-	HtlcMinimum uint32
+	HtlcMinimum MilliSatoshi
 
 	// FeePerKiloWeight is the initial fee rate that the initiator suggests
 	// for both commitment transaction. This value is expressed in sat per
@@ -179,6 +175,6 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	// (32 * 2) + (8 * 5) + (4 * 2) + (2 * 2) + (33 * 5) + 1
-	return 282
+	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 5) + 1
+	return 286
 }

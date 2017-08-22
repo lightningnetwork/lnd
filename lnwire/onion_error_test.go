@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"reflect"
 	"testing"
-
-	"github.com/roasbeef/btcutil"
 )
 
 var (
 	testOnionHash     = []byte{}
-	testAmount        = btcutil.Amount(1)
+	testAmount        = MilliSatoshi(1)
 	testCtlvExpiry    = uint32(2)
 	testFlags         = uint16(2)
 	testChannelUpdate = ChannelUpdate{

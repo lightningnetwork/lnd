@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcutil"
-)
+import "io"
 
 // OnionPacketSize is the size of the serialized Sphinx onion packet included
 // in each UpdateAddHTLC message. The breakdown of the onion packet is as
@@ -35,8 +31,8 @@ type UpdateAddHTLC struct {
 	// sufficient expiry value to allow her to redeem the incoming HTLC.
 	Expiry uint32
 
-	// Amount is the amount of satoshis this HTLC is worth.
-	Amount btcutil.Amount
+	// Amount is the amount of millisatoshis this HTLC is worth.
+	Amount MilliSatoshi
 
 	// PaymentHash is the payment hash to be included in the HTLC this
 	// request creates. The pre-image to this HTLC must be revelaed by the

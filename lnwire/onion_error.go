@@ -448,15 +448,15 @@ func (f *FailTemporaryChannelFailure) Encode(w io.Writer, pver uint32) error {
 // NOTE: May only be returned by the intermediate nodes in the path.
 type FailAmountBelowMinimum struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
-	HtlcMsat btcutil.Amount
+	HtlcMsat MilliSatoshi
 
-	// Update is used to update information about state of the channel which
-	// caused the failure.
+	// Update is used to update information about state of the channel
+	// which caused the failure.
 	Update ChannelUpdate
 }
 
 // NewAmountBelowMinimum creates new instance of the FailAmountBelowMinimum.
-func NewAmountBelowMinimum(htlcMsat btcutil.Amount,
+func NewAmountBelowMinimum(htlcMsat MilliSatoshi,
 	update ChannelUpdate) *FailAmountBelowMinimum {
 
 	return &FailAmountBelowMinimum{
@@ -512,7 +512,7 @@ func (f *FailAmountBelowMinimum) Encode(w io.Writer, pver uint32) error {
 // NOTE: May only be returned by intermediate nodes.
 type FailFeeInsufficient struct {
 	// HtlcMsat is the wrong amount of the incoming HTLC.
-	HtlcMsat btcutil.Amount
+	HtlcMsat MilliSatoshi
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
@@ -520,7 +520,7 @@ type FailFeeInsufficient struct {
 }
 
 // NewFeeInsufficient creates new instance of the FailFeeInsufficient.
-func NewFeeInsufficient(htlcMsat btcutil.Amount,
+func NewFeeInsufficient(htlcMsat MilliSatoshi,
 	update ChannelUpdate) *FailFeeInsufficient {
 	return &FailFeeInsufficient{
 		HtlcMsat: htlcMsat,
@@ -791,12 +791,12 @@ func (f *FailFinalIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
 // NOTE: May only be returned by the final node.
 type FailFinalIncorrectHtlcAmount struct {
 	// IncomingHTLCAmount is the wrong forwarded htlc amount.
-	IncomingHTLCAmount btcutil.Amount
+	IncomingHTLCAmount MilliSatoshi
 }
 
 // NewFinalIncorrectHtlcAmount creates new instance of the
 // FailFinalIncorrectHtlcAmount.
-func NewFinalIncorrectHtlcAmount(amount btcutil.Amount) *FailFinalIncorrectHtlcAmount {
+func NewFinalIncorrectHtlcAmount(amount MilliSatoshi) *FailFinalIncorrectHtlcAmount {
 	return &FailFinalIncorrectHtlcAmount{
 		IncomingHTLCAmount: amount,
 	}

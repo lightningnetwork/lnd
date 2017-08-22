@@ -25,9 +25,7 @@ type AcceptChannel struct {
 	// MaxValueInFlight represents the maximum amount of coins that can be
 	// pending within the channel at any given time. If the amount of funds
 	// in limbo exceeds this amount, then the channel will be failed.
-	//
-	// TODO(roasbeef): is msat
-	MaxValueInFlight btcutil.Amount
+	MaxValueInFlight MilliSatoshi
 
 	// ChannelReserve is the amount of BTC that the receiving party MUST
 	// maintain a balance above at all times. This is a safety mechanism to
@@ -41,9 +39,7 @@ type AcceptChannel struct {
 
 	// HtlcMinimum is the smallest HTLC that the sender of this message
 	// will accept.
-	//
-	// TODO(roasbeef): is msat
-	HtlcMinimum uint32
+	HtlcMinimum MilliSatoshi
 
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
@@ -149,6 +145,6 @@ func (a *AcceptChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
-	// 32 + (8 * 3) + (4 * 2) + (2 * 2) + (33 * 5)
-	return 233
+	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 5)
+	return 237
 }

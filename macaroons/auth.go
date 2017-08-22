@@ -23,13 +23,18 @@ func (m MacaroonCredential) RequireTransportSecurity() bool {
 	return true
 }
 
-// GetRequestMetadata implements the PerRPCCredentials interface.
+// GetRequestMetadata implements the PerRPCCredentials interface. This method
+// is required in order to pass the wrapped macaroon into the gRPC context.
+// With this, the macaroon will be available within the request handling scope
+// of the ultimate gRPC server implementation.
 func (m MacaroonCredential) GetRequestMetadata(ctx context.Context,
 	uri ...string) (map[string]string, error) {
+
 	macBytes, err := m.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
+
 	md := make(map[string]string)
 	md["macaroon"] = hex.EncodeToString(macBytes)
 	return md, nil
@@ -43,10 +48,15 @@ func NewMacaroonCredential(m *macaroon.Macaroon) MacaroonCredential {
 	return ms
 }
 
-// ValidateMacaroon validates auth given a bakery service, context, and uri.
+// ValidateMacaroon validates the capabilities of a given request given a
+// bakery service, context, and uri. Within the passed context.Context, we
+// expect a macaroon to be encoded as request metadata using the key
+// "macaroon".
 func ValidateMacaroon(ctx context.Context, method string,
 	svc *bakery.Service) error {
+
 	// Get macaroon bytes from context and unmarshal into macaroon.
+	//
 	// TODO(aakselrod): use FromIncomingContext after grpc update in glide.
 	md, ok := metadata.FromContext(ctx)
 	if !ok {
@@ -56,6 +66,10 @@ func ValidateMacaroon(ctx context.Context, method string,
 		return fmt.Errorf("expected 1 macaroon, got %d",
 			len(md["macaroon"]))
 	}
+
+	// With the macaroon obtained, we'll now decode the hex-string
+	// encoding, then unmarshal it from binary into its concrete struct
+	// representation.
 	macBytes, err := hex.DecodeString(md["macaroon"][0])
 	if err != nil {
 		return err
@@ -66,8 +80,9 @@ func ValidateMacaroon(ctx context.Context, method string,
 		return err
 	}
 
-	// Check the method being called against the permitted operation and the
-	// expiration time and return the result.
+	// Check the method being called against the permitted operation and
+	// the expiration time and return the result.
+	//
 	// TODO(aakselrod): Add more checks as required.
 	return svc.Check(macaroon.Slice{mac}, checkers.New(
 		checkers.OperationChecker(method),

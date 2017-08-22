@@ -17,12 +17,14 @@ var (
 // NewService returns a service backed by the macaroon Bolt DB stored in the
 // passed directory.
 func NewService(dir string) (*bakery.Service, error) {
-	// Open the database.
+	// Open the database that we'll use to store the primary macaroon key,
+	// and all generated macaroons+caveats.
 	macaroonDB, err := bolt.Open(path.Join(dir, dbFilename), 0600,
 		bolt.DefaultOptions)
 	if err != nil {
 		return nil, err
 	}
+
 	rootKeyStore, err := NewRootKeyStorage(macaroonDB)
 	if err != nil {
 		return nil, err
@@ -31,6 +33,7 @@ func NewService(dir string) (*bakery.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	macaroonParams := bakery.NewServiceParams{
 		Location:     "lnd",
 		Store:        macaroonStore,

@@ -19,6 +19,7 @@ var (
 
 	// defaultRootKeyID is the ID of the default root key. The first is
 	// just 0, to emulate the memory storage that comes with bakery.
+	//
 	// TODO(aakselrod): Add support for key rotation.
 	defaultRootKeyID = "0"
 
@@ -42,6 +43,7 @@ func NewRootKeyStorage(db *bolt.DB) (*RootKeyStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	// Return the DB wrapped in a RootKeyStorage object.
 	return &RootKeyStorage{db}, nil
 }
@@ -60,6 +62,7 @@ func (r *RootKeyStorage) Get(id string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return rootKey, nil
 }
 
@@ -88,6 +91,7 @@ func (r *RootKeyStorage) RootKey() ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
 	return rootKey, id, nil
 }
 
@@ -97,6 +101,7 @@ type Storage struct {
 }
 
 // NewStorage creates a Storage instance.
+//
 // TODO(aakselrod): Add support for encryption of data with passphrase.
 func NewStorage(db *bolt.DB) (*Storage, error) {
 	// If the store's bucket doesn't exist, create it.
@@ -107,6 +112,7 @@ func NewStorage(db *bolt.DB) (*Storage, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	// Return the DB wrapped in a Storage object.
 	return &Storage{db}, nil
 }
@@ -134,6 +140,7 @@ func (s *Storage) Get(location string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return item, nil
 }
 

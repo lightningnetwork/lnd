@@ -1251,7 +1251,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// construct the forwarding information for
 				// this hop. In any case, we'll cancel this
 				// HTLC.
-				if pd.Amount-expectedFee != fwdInfo.AmountToForward {
+				if pd.Amount-expectedFee < fwdInfo.AmountToForward {
 					log.Errorf("Incoming htlc(%x) has "+
 						"insufficient fee: expected "+
 						"%v, got %v", pd.RHash[:],

@@ -11,28 +11,28 @@ import (
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
 func (d *AuthenticatedGossiper) validateChannelAnn(a *lnwire.ChannelAnnouncement) error {
-	// First we'll verify that the passed bitcoin key signature is indeed a
-	// signature over the digest of the node signature.
-	sigHash := chainhash.DoubleHashB(a.NodeID1.SerializeCompressed())
-	if !a.BitcoinSig1.Verify(sigHash, copyPubKey(a.BitcoinKey1)) {
-		return errors.New("can't verify first bitcoin signature")
-	}
-
-	// If that checks out, then we'll verify that the second bitcoin
-	// signature is a valid signature of the bitcoin public key over the
-	// second node signature.
-	sigHash = chainhash.DoubleHashB(a.NodeID2.SerializeCompressed())
-	if !a.BitcoinSig2.Verify(sigHash, copyPubKey(a.BitcoinKey2)) {
-		return errors.New("can't verify second bitcoin signature")
-	}
-
-	// With the first two bitcoin signatures verified, we'll reconstruct
-	// the original digest of the channel announcement message.
+	// First, we'll compute the digest (h) which is to be signed by each of
+	// the keys included within the node announcement message. This hash
+	// digest includes all the keys, so the (up to 4 signatures) will
+	// attest to the validity of each of the keys.
 	data, err := a.DataToSign()
 	if err != nil {
 		return err
 	}
 	dataHash := chainhash.DoubleHashB(data)
+
+	// First we'll verify that the passed bitcoin key signature is indeed a
+	// signature over the computed hash digest.
+	if !a.BitcoinSig1.Verify(dataHash, copyPubKey(a.BitcoinKey1)) {
+		return errors.New("can't verify first bitcoin signature")
+	}
+
+	// If that checks out, then we'll verify that the second bitcoin
+	// signature is a valid signature of the bitcoin public key over hash
+	// digest as well.
+	if !a.BitcoinSig2.Verify(dataHash, copyPubKey(a.BitcoinKey2)) {
+		return errors.New("can't verify second bitcoin signature")
+	}
 
 	// Both node signatures attached should indeed be a valid signature
 	// over the selected digest of the channel announcement signature.

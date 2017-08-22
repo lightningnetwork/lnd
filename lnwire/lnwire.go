@@ -301,10 +301,6 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case Alias:
-		if err := writeElements(w, e.data[:]); err != nil {
-			return err
-		}
 	case DeliveryAddress:
 		var length [2]byte
 		binary.BigEndian.PutUint16(length[:], uint16(len(e)))
@@ -584,13 +580,6 @@ func readElement(r io.Reader, element interface{}) error {
 		if err != nil {
 			return err
 		}
-	case *Alias:
-		var a [32]byte
-		if err := readElements(r, a[:]); err != nil {
-			return err
-		}
-
-		*e = newAlias(a[:])
 	case *DeliveryAddress:
 		var addrLen [2]byte
 		if _, err = io.ReadFull(r, addrLen[:]); err != nil {

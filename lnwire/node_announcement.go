@@ -2,77 +2,52 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net"
+	"unicode/utf8"
 
-	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 )
 
 var (
-	startPort    uint16 = 1024
-	endPort      uint16 = 49151
-	aliasSpecLen        = 21
+	startPort uint16 = 1024
+	endPort   uint16 = 49151
 )
 
-// RGB is used to represent the color.
+// RGB is used to represent the "color" of a particular node encoded as a 24
+// bit value.
 type RGB struct {
 	red   uint8
 	green uint8
 	blue  uint8
 }
 
-// Alias a hex encoded UTF-8 string that may be displayed as an alternative to
-// the node's ID. Notice that aliases are not unique and may be freely chosen
-// by the node operators.
-type Alias struct {
-	data     [32]byte
-	aliasLen int
+// NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
+// to the node's ID. Notice that aliases are not unique and may be freely
+// chosen by the node operators.
+type NodeAlias [32]byte
+
+// NewNodeAlias creates a new instance of a NodeAlias. Verification is
+// performed on the passed string to ensure it meets the alias requirements.
+func NewNodeAlias(s string) (NodeAlias, error) {
+	var n NodeAlias
+
+	if len(s) > 32 {
+		return n, fmt.Errorf("alias too large: max is %v, got %v", 32, len(s))
+	}
+
+	if !utf8.ValidString(s) {
+		return n, fmt.Errorf("invalid utf8 string")
+	}
+
+	copy(n[:], []byte(s))
+	return n, nil
 }
 
-// NewAlias create the alias from string and also checks spec requirements.
-func NewAlias(s string) Alias {
-	data := []byte(s)
-	return newAlias(data)
-}
-
-func newAlias(data []byte) Alias {
-	var a [32]byte
-
-	rawAlias := data
-	if len(data) > aliasSpecLen {
-		rawAlias = data[:aliasSpecLen]
-	}
-
-	aliasEnd := len(rawAlias)
-	for rawAlias[aliasEnd-1] == 0 && aliasEnd > 0 {
-		aliasEnd--
-	}
-
-	copy(a[:aliasEnd], rawAlias[:aliasEnd])
-
-	return Alias{
-		data:     a,
-		aliasLen: aliasEnd,
-	}
-}
-
-func (a *Alias) String() string {
-	return string(a.data[:a.aliasLen])
-}
-
-// Validate check that alias data length is lower than spec size.
-func (a *Alias) Validate() error {
-	nonzero := len(a.data)
-	for a.data[nonzero-1] == 0 && nonzero > 0 {
-		nonzero--
-	}
-
-	if nonzero > aliasSpecLen {
-		return errors.New("alias should be less then 21 bytes")
-	}
-
-	return nil
+// String returns a utf8 string representation of the alias bytes.
+func (n NodeAlias) String() string {
+	return string(n[:])
 }
 
 // NodeAnnouncement message is used to announce the presence of a Lightning
@@ -94,11 +69,12 @@ type NodeAnnouncement struct {
 	// maps and graphs
 	RGBColor RGB
 
-	// Alias is used to customize their node's appearance in maps and graphs
-	Alias Alias
 
 	// Features is the list of protocol features this node supports.
 	Features *FeatureVector
+	// Alias is used to customize their node's appearance in maps and
+	// graphs
+	Alias NodeAlias
 
 	// Address includes two specification fields: 'ipv6' and 'port' on which
 	// the node is accepting incoming connections.

@@ -31,7 +31,7 @@ const (
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
-	defaultPeerPort           = 5656
+	defaultPeerPort           = 9735
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNumChanConfs       = 1
@@ -102,7 +102,7 @@ type config struct {
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir       string `long:"logdir" description:"Directory to log output."`
 
-	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 5656)"`
+	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 9735)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`

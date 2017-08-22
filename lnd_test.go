@@ -2138,23 +2138,39 @@ out:
 
 	// To do so, we'll push most of the funds in the channel over to
 	// Alice's side, leaving on 10k satoshis of available balance for bob.
-	invoiceReq = &lnrpc.Invoice{
-		Value: int64(chanAmt) - 10000,
-	}
-	carolInvoice2, err := carol.AddInvoice(ctxb, invoiceReq)
-	if err != nil {
-		t.Fatalf("unable to generate carol invoice: %v", err)
-	}
-	if err := bobPayStream.Send(&lnrpc.SendRequest{
-		PaymentRequest: carolInvoice2.PaymentRequest,
-	}); err != nil {
-		t.Fatalf("unable to send payment: %v", err)
-	}
+	// There's a max payment amount, so we'll have to do this
+	// incrementally.
+	amtToSend := int64(chanAmt) - 10000
+	amtSent := int64(0)
+	for amtSent != amtToSend {
+		// We'll send in chunks of the max payment amount. If we're
+		// about to send too much, then we'll only send the amount
+		// remaining.
+		toSend := int64(maxPaymentMSat.ToSatoshis())
+		if toSend+amtSent > amtToSend {
+			toSend = amtToSend - amtSent
+		}
 
-	if resp, err := bobPayStream.Recv(); err != nil {
-		t.Fatalf("payment stream has been closed: %v", err)
-	} else if resp.PaymentError != "" {
-		t.Fatalf("bob's payment failed: %v", err)
+		invoiceReq = &lnrpc.Invoice{
+			Value: toSend,
+		}
+		carolInvoice2, err := carol.AddInvoice(ctxb, invoiceReq)
+		if err != nil {
+			t.Fatalf("unable to generate carol invoice: %v", err)
+		}
+		if err := bobPayStream.Send(&lnrpc.SendRequest{
+			PaymentRequest: carolInvoice2.PaymentRequest,
+		}); err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+
+		if resp, err := bobPayStream.Recv(); err != nil {
+			t.Fatalf("payment stream has been closed: %v", err)
+		} else if resp.PaymentError != "" {
+			t.Fatalf("bob's payment failed: %v", resp.PaymentError)
+		}
+
+		amtSent += toSend
 	}
 
 	// At this point, Alice has 50mil satoshis on her side of the channel,

@@ -518,7 +518,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			ClosingTXID:    breachInfo.BreachTransaction.TxHash(),
 			RemotePub:      &chanInfo.RemoteIdentity,
 			Capacity:       chanInfo.Capacity,
-			SettledBalance: chanInfo.LocalBalance,
+			SettledBalance: chanInfo.LocalBalance.ToSatoshis(),
 			CloseType:      channeldb.BreachClose,
 			IsPending:      true,
 		}

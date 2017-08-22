@@ -1,5 +1,5 @@
-hash: 6569f51a7172f16b26c374cdcf3cae0abea234207ac99bfa6dc4712406bfc4d2
-updated: 2017-08-09T14:51:02.638659953-06:00
+hash: d764a70faea8c707055deba8b205f998bde08ac418174c0778c16298d840770d
+updated: 2017-08-19T16:52:01.119649599-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -51,9 +51,10 @@ imports:
   - jsonpb
   - proto
   - protoc-gen-go/descriptor
+  - ptypes/any
   - ptypes/struct
 - name: github.com/grpc-ecosystem/grpc-gateway
-  version: a8f25bd1ab549f8b87afd48aa9181221e9d439bb
+  version: f2862b476edcef83412c7af8687c9cd8e4097c0f
   subpackages:
   - runtime
   - runtime/internal
@@ -64,6 +65,8 @@ imports:
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
   - rotator
+- name: github.com/juju/loggo
+  version: 8232ab8918d91c72af1a9fb94d3edbe31d88b790
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
@@ -124,16 +127,20 @@ imports:
   - walletdb
   - walletdb/bdb
   - wtxmgr
+- name: github.com/rogpeppe/fastuuid
+  version: 6724a57986aff9bff1a1770e9347036def7c89f6
 - name: github.com/tv42/zbase32
   version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
-  version: 0bdeddeeb0f650497d603c4ad7b20cfe685682f6
+  version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
 - name: golang.org/x/crypto
   version: 122d919ec1efcfb58483215da23f815853e24b81
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
+  - curve25519
   - hkdf
+  - nacl/box
   - nacl/secretbox
   - pbkdf2
   - poly1305
@@ -166,11 +173,14 @@ imports:
   version: bb3573be0c484136831138976d444b8754777aff
   subpackages:
   - googleapis/api/annotations
+  - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: 8050b9cbc271307e5a716a9d782803d09b0d6f2d
+  version: b3ddf786825de56a4178401b7e174ee332173b66
   subpackages:
   - codes
+  - connectivity
   - credentials
+  - grpclb/grpc_lb_v1
   - grpclog
   - internal
   - keepalive
@@ -178,16 +188,16 @@ imports:
   - naming
   - peer
   - stats
+  - status
   - tap
   - transport
-- name: gopkg.in/macaroon.v1
-  version: d8fd13e6951f2ce46f0964a58149cf2f103cac9a
-- name: gopkg.in/macaroon-bakery.v1
-  version: 8e14f8b0f5e286ad100ca8d6ce5bde0f0dfb8b21
-- name: github.com/juju/loggo
-  version: 8232ab8918d91c72af1a9fb94d3edbe31d88b790
-- name: github.com/rogpeppe/fastuuid
-  version: 6724a57986aff9bff1a1770e9347036def7c89f6
 - name: gopkg.in/errgo.v1
   version: 442357a80af5c6bf9b6d51ae791a39c3421004f3
+- name: gopkg.in/macaroon-bakery.v1
+  version: 8e14f8b0f5e286ad100ca8d6ce5bde0f0dfb8b21
+  subpackages:
+  - bakery
+  - bakery/checkers
+- name: gopkg.in/macaroon.v1
+  version: d8fd13e6951f2ce46f0964a58149cf2f103cac9a
 testImports: []

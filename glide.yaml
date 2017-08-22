@@ -54,11 +54,11 @@ import:
   subpackages:
   - context
 - package: google.golang.org/grpc
-  version: 8050b9cbc271307e5a716a9d782803d09b0d6f2d
+  version: b3ddf786825de56a4178401b7e174ee332173b66
 - package: github.com/lightningnetwork/lightning-onion
   version: a164ed004296342ba8412c03ed9875699b6c594b
 - package: github.com/grpc-ecosystem/grpc-gateway
-  version: 1.1.0
+  version: f2862b476edcef83412c7af8687c9cd8e4097c0f
 - package: github.com/go-errors/errors
 - package: github.com/tv42/zbase32
 - package: github.com/awalterschulze/gographviz

@@ -106,7 +106,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
-	var amount lnwire.MilliSatoshi = lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink)
 

@@ -71,22 +71,22 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
 		TimeLockDelta:             uint16(prand.Int63()),
-		MinHTLC:                   btcutil.Amount(prand.Int31()),
-		FeeBaseMSat:               btcutil.Amount(prand.Int31()),
-		FeeProportionalMillionths: btcutil.Amount(prand.Int31()),
+		MinHTLC:                   lnwire.MilliSatoshi(prand.Int31()),
+		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int31()),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int31()),
 		Node: node,
 	}
 }
 
 func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
-	chanValue int64, fundingHeight uint32) (*wire.MsgTx, *wire.OutPoint,
+	chanValue btcutil.Amount, fundingHeight uint32) (*wire.MsgTx, *wire.OutPoint,
 	*lnwire.ShortChannelID, error) {
 
 	fundingTx := wire.NewMsgTx(2)
 	_, tx, err := lnwallet.GenFundingPkScript(
 		bitcoinKey1,
 		bitcoinKey2,
-		chanValue,
+		int64(chanValue),
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -365,17 +365,17 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			t.Fatalf("capacity of edge doesn't match: "+
 				"expected %v, got %v", chanValue, edgeUpdate.Capacity)
 		}
-		if edgeUpdate.MinHTLC != btcutil.Amount(edgeAnn.MinHTLC) {
+		if edgeUpdate.MinHTLC != edgeAnn.MinHTLC {
 			t.Fatalf("min HTLC of edge doesn't match: "+
-				"expected %v, got %v", btcutil.Amount(edgeAnn.MinHTLC),
+				"expected %v, got %v", edgeAnn.MinHTLC,
 				edgeUpdate.MinHTLC)
 		}
-		if edgeUpdate.BaseFee != btcutil.Amount(edgeAnn.FeeBaseMSat) {
+		if edgeUpdate.BaseFee != edgeAnn.FeeBaseMSat {
 			t.Fatalf("base fee of edge doesn't match: "+
 				"expected %v, got %v", edgeAnn.FeeBaseMSat,
 				edgeUpdate.BaseFee)
 		}
-		if edgeUpdate.FeeRate != btcutil.Amount(edgeAnn.FeeProportionalMillionths) {
+		if edgeUpdate.FeeRate != edgeAnn.FeeProportionalMillionths {
 			t.Fatalf("fee rate of edge doesn't match: "+
 				"expected %v, got %v", edgeAnn.FeeProportionalMillionths,
 				edgeUpdate.FeeRate)

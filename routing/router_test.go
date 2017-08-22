@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 type testCtx struct {
@@ -126,7 +125,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	// selection.
 
 	// Execute a query for all possible routes between roasbeef and luo ji.
-	const paymentAmt = btcutil.Amount(100)
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(target, paymentAmt)
 	if err != nil {
@@ -166,7 +165,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	var payHash [32]byte
 	payment := LightningPayment{
 		Target:      ctx.aliases["luoji"],
-		Amount:      btcutil.Amount(1000),
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
 		PaymentHash: payHash,
 	}
 
@@ -341,7 +340,8 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// that the nodes are found after the fact.
 	fundingTx, _, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(), 10000, 500)
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500)
 	if err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
@@ -370,9 +370,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.Flags = 0
 
@@ -386,9 +386,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.Flags = 1
 
@@ -466,9 +466,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.Flags = 0
 
@@ -481,9 +481,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.Flags = 1
 
@@ -492,7 +492,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 
 	// We should now be able to find one route to node 2.
-	const paymentAmt = btcutil.Amount(100)
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt)
 	if err != nil {

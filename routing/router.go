@@ -71,19 +71,16 @@ type ChannelGraphSource interface {
 // FeeSchema is the set fee configuration for a Lighting Node on the network.
 // Using the coefficients described within he schema, the required fee to
 // forward outgoing payments can be derived.
-//
-// TODO(roasbeef): should be in switch instead?
 type FeeSchema struct {
-	// TODO(rosbeef): all these should be in msat instead
-
-	// BaseFee is the base amount that will be chained for ANY payment
-	// forwarded.
-	BaseFee btcutil.Amount
+	// BaseFee is the base amount of milli-satoshis that will be chained
+	// for ANY payment forwarded.
+	BaseFee lnwire.MilliSatoshi
 
 	// FeeRate is the rate that will be charged for forwarding payments.
-	// The fee rate has a granularity of 1/1000 th of a mili-satoshi, or a
-	// millionth of a satoshi.
-	FeeRate btcutil.Amount
+	// This value should be interpreted as the numerator for a fraction
+	// whose denominator is 1 million. As a result the effective fee rate
+	// charged per mSAT will be: (amount * FeeRate/1,000,000)
+	FeeRate uint32
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within
@@ -105,11 +102,6 @@ type Config struct {
 	// we need in order to properly maintain the channel graph.
 	ChainView chainview.FilteredChainView
 
-	// FeeSchema is the set fee schema that will be announced on to the
-	// network.
-	// TODO(roasbeef): should either be in discovery or switch
-	FeeSchema *FeeSchema
-
 	// SendToSwitch is a function that directs a link-layer switch to
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
@@ -123,12 +115,12 @@ type Config struct {
 // amount. We required the target amount as that will influence the available
 // set of paths for a payment.
 type routeTuple struct {
-	amt  btcutil.Amount
+	amt  lnwire.MilliSatoshi
 	dest [33]byte
 }
 
 // newRouteTuple creates a new route tuple from the target and amount.
-func newRouteTuple(amt btcutil.Amount, dest *btcec.PublicKey) routeTuple {
+func newRouteTuple(amt lnwire.MilliSatoshi, dest *btcec.PublicKey) routeTuple {
 	r := routeTuple{
 		amt: amt,
 	}
@@ -387,6 +379,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 // NOTE: This MUST be run as a goroutine.
 func (r *ChannelRouter) networkHandler() {
 	defer r.wg.Done()
+
+	// TODO(roasbeef): ticker to check if should prune in two weeks or not
 
 	for {
 		select {
@@ -812,9 +806,10 @@ type routingMsg struct {
 // required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
-func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey, amt btcutil.Amount) ([]*Route, error) {
-	dest := target.SerializeCompressed()
+func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
+	amt lnwire.MilliSatoshi) ([]*Route, error) {
 
+	dest := target.SerializeCompressed()
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
 
 	// We can short circuit the routing by opportunistically checking to
@@ -953,9 +948,8 @@ type LightningPayment struct {
 	Target *btcec.PublicKey
 
 	// Amount is the value of the payment to send through the network in
-	// satoshis.
-	// TODO(roasbeef): this should be milli satoshis
-	Amount btcutil.Amount
+	// milli-satoshis.
+	Amount lnwire.MilliSatoshi
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.

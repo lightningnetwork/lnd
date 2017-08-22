@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 
 	"container/heap"
@@ -9,6 +10,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
@@ -60,18 +62,18 @@ type Hop struct {
 	// AmtToForward is the amount that this hop will forward to the next
 	// hop. This value is less than the value that the incoming HTLC
 	// carries as a fee will be subtracted by the hop.
-	AmtToForward btcutil.Amount
+	AmtToForward lnwire.MilliSatoshi
 
 	// Fee is the total fee that this hop will subtract from the incoming
 	// payment, this difference nets the hop fees for forwarding the
 	// payment.
-	Fee btcutil.Amount
+	Fee lnwire.MilliSatoshi
 }
 
-// computeFee computes the fee to forward an HTLC of `amt` satoshis over the
-// passed active payment channel. This value is currently computed as specified
-// in BOLT07, but will likely change in the near future.
-func computeFee(amt btcutil.Amount, edge *ChannelHop) btcutil.Amount {
+// computeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
+// the passed active payment channel. This value is currently computed as
+// specified in BOLT07, but will likely change in the near future.
+func computeFee(amt lnwire.MilliSatoshi, edge *ChannelHop) lnwire.MilliSatoshi {
 	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
 }
 
@@ -108,7 +110,7 @@ type Route struct {
 	// TotalFees is the sum of the fees paid at each hop within the final
 	// route. In the case of a one-hop payment, this value will be zero as
 	// we don't need to pay a fee it ourself.
-	TotalFees btcutil.Amount
+	TotalFees lnwire.MilliSatoshi
 
 	// TotalAmount is the total amount of funds required to complete a
 	// payment over this route. This value includes the cumulative fees at
@@ -116,7 +118,7 @@ type Route struct {
 	// route will need to have at least this many satoshis, otherwise the
 	// route will fail at an intermediate node due to an insufficient
 	// amount of fees.
-	TotalAmount btcutil.Amount
+	TotalAmount lnwire.MilliSatoshi
 
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
@@ -199,7 +201,7 @@ func (s sortableRoutes) Swap(i, j int) {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop,
+func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 	currentHeight uint32) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
@@ -236,9 +238,13 @@ func newRoute(amtToSend btcutil.Amount, pathEdges []*ChannelHop,
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which
 		// includes the fee dictated at each hop.
-		if nextHop.AmtToForward > nextHop.Channel.Capacity {
-			return nil, newErrf(ErrInsufficientCapacity, "channel graph has "+
-				"insufficient capacity for the payment")
+		if nextHop.AmtToForward.ToSatoshis() > nextHop.Channel.Capacity {
+			err := fmt.Sprintf("channel graph has insufficient "+
+				"capacity for the payment: need %v, have %v",
+				nextHop.AmtToForward.ToSatoshis(),
+				nextHop.Channel.Capacity)
+
+			return nil, newErrf(ErrInsufficientCapacity, err)
 		}
 
 		// We don't pay any fees to ourselves on the first-hop channel,
@@ -329,7 +335,7 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // from the target to the source.
 func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
 	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
-	ignoredEdges map[uint64]struct{}, amt btcutil.Amount) ([]*ChannelHop, error) {
+	ignoredEdges map[uint64]struct{}, amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
 
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
@@ -414,7 +420,7 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 			// off irrelevant edges by adding the sufficient
 			// capacity of an edge to our relaxation condition.
 			if tempDist < distance[v].dist &&
-				edgeInfo.Capacity >= amt {
+				edgeInfo.Capacity >= amt.ToSatoshis() {
 
 				// TODO(roasbeef): need to also account
 				// for min HTLC
@@ -497,7 +503,7 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
 func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
-	target *btcec.PublicKey, amt btcutil.Amount) ([][]*ChannelHop, error) {
+	target *btcec.PublicKey, amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})

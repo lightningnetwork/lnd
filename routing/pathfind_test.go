@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -265,9 +266,9 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
 			TimeLockDelta:             edge.Expiry,
-			MinHTLC:                   btcutil.Amount(edge.MinHTLC),
-			FeeBaseMSat:               btcutil.Amount(edge.FeeBaseMsat),
-			FeeProportionalMillionths: btcutil.Amount(edge.FeeRate),
+			MinHTLC:                   lnwire.MilliSatoshi(edge.MinHTLC),
+			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 		}
 
 		// As the graph itself is directed, we need to insert two edges
@@ -312,7 +313,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// finding.
 	const startingHeight = 100
 
-	const paymentAmt = btcutil.Amount(100)
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["sophon"]
 	path, err := findPath(graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
@@ -465,7 +466,7 @@ func TestKShortestPathFinding(t *testing.T) {
 	// ji. Our algorithm should properly find both paths, and also rank
 	// them in order of their total "distance".
 
-	const paymentAmt = btcutil.Amount(100)
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["luoji"]
 	paths, err := findPaths(graph, sourceNode, target, paymentAmt)
 	if err != nil {
@@ -523,7 +524,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})
 
-	const paymentAmt = btcutil.Amount(100)
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.

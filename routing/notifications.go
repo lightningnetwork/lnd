@@ -9,6 +9,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -254,15 +255,15 @@ type ChannelEdgeUpdate struct {
 	Capacity btcutil.Amount
 
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
-	MinHTLC btcutil.Amount
+	MinHTLC lnwire.MilliSatoshi
 
 	// BaseFee is the base fee that will charged for all HTLC's forwarded
 	// across the this channel direction.
-	BaseFee btcutil.Amount
+	BaseFee lnwire.MilliSatoshi
 
 	// FeeRate is the fee rate that will be shared for all HTLC's forwarded
 	// across this channel direction.
-	FeeRate btcutil.Amount
+	FeeRate lnwire.MilliSatoshi
 
 	// TimeLockDelta is the time-lock expressed in blocks that will be
 	// added to outgoing HTLC's from incoming HTLC's. This value is the

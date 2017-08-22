@@ -67,6 +67,11 @@ func (c channelState) ConnectedNodes() map[NodeID]struct{} {
 	for _, channels := range c {
 		nodes[channels.Node] = struct{}{}
 	}
+
+	// TODO(roasbeef): add outgoing, nodes, allow incoming and outgoing to
+	// per node
+	//  * only add node is chan as funding amt set
+
 	return nodes
 }
 
@@ -316,11 +321,15 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 			}
 
+			log.Debugf("Pending channels: %v", spew.Sdump(pendingOpens))
+
 			// With all the updates applied, we'll obtain a set of
 			// the current active channels (confirmed channels),
 			// and also factor in our set of unconfirmed channels.
 			confirmedChans := a.chanState
+			pendingMtx.Lock()
 			totalChans := mergeChanState(pendingOpens, confirmedChans)
+			pendingMtx.Unlock()
 
 			// Now that we've updated our internal state, we'll
 			// consult our channel attachment heuristic to
@@ -413,5 +422,4 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			return
 		}
 	}
-
 }

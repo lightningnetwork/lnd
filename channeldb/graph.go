@@ -1187,15 +1187,15 @@ type ChannelEdgePolicy struct {
 
 	// MinHTLC is the smallest value HTLC this node will accept, expressed
 	// in millisatoshi.
-	MinHTLC btcutil.Amount
+	MinHTLC lnwire.MilliSatoshi
 
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat btcutil.Amount
+	FeeBaseMSat lnwire.MilliSatoshi
 
 	// FeeProportionalMillionths is the rate that the node will charge for
 	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths btcutil.Amount
+	FeeProportionalMillionths lnwire.MilliSatoshi
 
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
@@ -1918,17 +1918,17 @@ func deserializeChanEdgePolicy(r io.Reader,
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.MinHTLC = btcutil.Amount(n)
+	edge.MinHTLC = lnwire.MilliSatoshi(n)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeBaseMSat = btcutil.Amount(n)
+	edge.FeeBaseMSat = lnwire.MilliSatoshi(n)
 
 	if err := binary.Read(r, byteOrder, &n); err != nil {
 		return nil, err
 	}
-	edge.FeeProportionalMillionths = btcutil.Amount(n)
+	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(n)
 
 	var pub [33]byte
 	if _, err := r.Read(pub[:]); err != nil {

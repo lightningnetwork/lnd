@@ -208,7 +208,9 @@ func createTestFundingManager(t *testing.T, pubKey *btcec.PublicKey,
 			t.Fatal("did not expect FindChannel to be called")
 			return nil, nil
 		},
-		NumRequiredConfs: func(chanAmt btcutil.Amount, pushAmt btcutil.Amount) uint16 {
+		NumRequiredConfs: func(chanAmt btcutil.Amount,
+			pushAmt lnwire.MilliSatoshi) uint16 {
+
 			return uint16(cfg.DefaultNumChanConfs)
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
@@ -382,7 +384,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		targetPubkey:    bob.privKey.PubKey(),
 		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: localFundingAmt,
-		pushAmt:         pushAmt,
+		pushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
 		updates:         updateChan,
 		err:             errChan,
 	}
@@ -404,8 +406,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		errorMsg, gotError := aliceMsg.(*lnwire.Error)
 		if gotError {
 			t.Fatalf("expected OpenChannel to be sent "+
-				"from bob, instead got error: (%v) %v",
-				errorMsg.Code, string(errorMsg.Data))
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
 		}
 		t.Fatalf("expected OpenChannel to be sent from "+
 			"alice, instead got %T", aliceMsg)
@@ -427,8 +429,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		errorMsg, gotError := bobMsg.(*lnwire.Error)
 		if gotError {
 			t.Fatalf("expected AcceptChannel to be sent "+
-				"from bob, instead got error: (%v) %v",
-				errorMsg.Code, string(errorMsg.Data))
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
 		}
 		t.Fatalf("expected AcceptChannel to be sent from bob, "+
 			"instead got %T", bobMsg)
@@ -448,8 +450,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		errorMsg, gotError := aliceMsg.(*lnwire.Error)
 		if gotError {
 			t.Fatalf("expected FundingCreated to be sent "+
-				"from bob, instead got error: (%v) %v",
-				errorMsg.Code, string(errorMsg.Data))
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
 		}
 		t.Fatalf("expected FundingCreated to be sent from "+
 			"alice, instead got %T", aliceMsg)
@@ -470,8 +472,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		errorMsg, gotError := bobMsg.(*lnwire.Error)
 		if gotError {
 			t.Fatalf("expected FundingSigned to be "+
-				"sent from bob, instead got error: (%v) %v",
-				errorMsg.Code, string(errorMsg.Data))
+				"sent from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
 		}
 		t.Fatalf("expected FundingSigned to be sent from "+
 			"bob, instead got %T", bobMsg)

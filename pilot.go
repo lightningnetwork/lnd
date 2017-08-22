@@ -246,6 +246,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 					chanID := lnwire.NewShortChanIDFromInt(
 						chanClose.ChanID,
 					)
+
 					pilot.OnChannelClose(chanID)
 				}
 

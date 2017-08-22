@@ -212,7 +212,7 @@ type fundingConfig struct {
 	// channel extended to it. The function is able to take into account
 	// the amount of the channel, and any funds we'll be pushed in the
 	// process to determine how many confirmations we'll require.
-	NumRequiredConfs func(btcutil.Amount, btcutil.Amount) uint16
+	NumRequiredConfs func(btcutil.Amount, lnwire.MilliSatoshi) uint16
 
 	// RequiredRemoteDelay is a function that maps the total amount in a
 	// proposed channel to the CSV delay that we'll require for the remote
@@ -596,8 +596,8 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 			identityPub:   dbPendingChan.IdentityPub,
 			channelPoint:  &dbPendingChan.FundingOutpoint,
 			capacity:      dbPendingChan.Capacity,
-			localBalance:  dbPendingChan.LocalBalance,
-			remoteBalance: dbPendingChan.RemoteBalance,
+			localBalance:  dbPendingChan.LocalBalance.ToSatoshis(),
+			remoteBalance: dbPendingChan.RemoteBalance.ToSatoshis(),
 		}
 
 		pendingChannels = append(pendingChannels, pendingChan)
@@ -762,7 +762,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: msg.MaxValueInFlight,
 				ChanReserve:      msg.ChannelReserve,
-				MinHTLC:          btcutil.Amount(msg.HtlcMinimum),
+				MinHTLC:          msg.HtlcMinimum,
 				MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 			},
 			CsvDelay:            remoteCsvDelay,
@@ -791,7 +791,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		MaxValueInFlight:     ourContribution.MaxPendingAmount,
 		ChannelReserve:       ourContribution.ChanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
-		HtlcMinimum:          uint32(ourContribution.MinHTLC),
+		HtlcMinimum:          ourContribution.MinHTLC,
 		CsvDelay:             uint16(remoteCsvDelay),
 		FundingKey:           ourContribution.MultiSigKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint,
@@ -859,7 +859,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				DustLimit:        msg.DustLimit,
 				MaxPendingAmount: msg.MaxValueInFlight,
 				ChanReserve:      msg.ChannelReserve,
-				MinHTLC:          btcutil.Amount(msg.HtlcMinimum),
+				MinHTLC:          msg.HtlcMinimum,
 				MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 			},
 			MultiSigKey:         copyPubKey(msg.FundingKey),
@@ -1406,13 +1406,15 @@ func (f *fundingManager) sendFundingLockedAndAnnounceChannel(
 		return
 	}
 
+	// TODO(roasbeef): wait 6 blocks before announcing
+
 	f.sendChannelAnnouncement(completeChan, channel, shortChanID)
 }
 
-// sendChannelAnnouncement broadcast the neccessary channel announcement
-// messages to the network. Should be called after the fundingLocked message is
-// sent (channelState is 'fundingLockedSent') and the channel is ready to be
-// used.
+// sendChannelAnnouncement broadcast the necessary channel announcement
+// messages to the network. Should be called after the fundingLocked message
+// is sent (channelState is 'fundingLockedSent') and the channel is ready to
+// be used.
 func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenChannel,
 	channel *lnwallet.LightningChannel, shortChanID *lnwire.ShortChannelID) {
 
@@ -1432,8 +1434,9 @@ func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenCha
 		return
 	}
 
-	// After the channel is successully announced from the fundingManager,
-	// we delete the channel from our internal database. We can do this
+	// After the channel is successfully announced from the
+	// fundingManager, we delete the channel from our internal database.
+	// We can do this
 	// because we assume the AuthenticatedGossiper queues the announcement
 	// messages, and persists them in case of a daemon shutdown.
 	err = f.deleteChannelOpeningState(&completeChan.FundingOutpoint)
@@ -1494,6 +1497,8 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 			"funding", chanID)
 		return
 	}
+
+	// TODO(roasbeef): done nothing if repeat message sent
 
 	// The funding locked message contains the next commitment point we'll
 	// need to create the next commitment state for the remote party. So
@@ -1615,10 +1620,11 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 
 	chanUpdateAnn := &lnwire.ChannelUpdate{
 		ShortChannelID:  shortChanID,
+		ChainHash:       chainHash,
 		Timestamp:       uint32(time.Now().Unix()),
 		Flags:           chanFlags,
 		TimeLockDelta:   uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
-		HtlcMinimumMsat: uint64(f.cfg.DefaultRoutingPolicy.MinHTLC),
+		HtlcMinimumMsat: f.cfg.DefaultRoutingPolicy.MinHTLC,
 		BaseFee:         uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate:         uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
 	}
@@ -1642,8 +1648,8 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// need two signatures: one under the identity public key used which
 	// signs the message itself and another signature of the identity
 	// public key under the funding key itself.
-	// TODO(roasbeef): need to revisit, ensure signatures are signed
-	// properly
+	//
+	// TODO(roasbeef): use SignAnnouncement here instead?
 	chanAnnMsg, err := chanAnn.DataToSign()
 	if err != nil {
 		return nil, err

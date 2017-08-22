@@ -210,7 +210,7 @@ func lndMain() error {
 			return nil, fmt.Errorf("unable to find channel")
 		},
 		DefaultRoutingPolicy: activeChainControl.routingPolicy,
-		NumRequiredConfs: func(chanAmt btcutil.Amount, pushAmt btcutil.Amount) uint16 {
+		NumRequiredConfs: func(chanAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi) uint16 {
 			// TODO(roasbeef): add configurable mapping
 			//  * simple switch initially
 			//  * assign coefficient, etc

@@ -8,6 +8,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
 )
@@ -63,7 +64,7 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
-			Value:           amt,
+			Value:           lnwire.NewMSatFromSatoshis(amt),
 			PaymentPreimage: preimage,
 		},
 	}

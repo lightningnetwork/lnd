@@ -127,18 +127,15 @@ const (
 // constraints is static for the duration of the channel, meaning the channel
 // must be teared down for them to change.
 type ChannelConstraints struct {
-	// DustLimit is the min satoshis/kilo-weight that should be paid within
-	// the commitment transaction for the entire duration of the channel's
-	// lifetime. This field may be updated during normal operation of the
-	// channel as on-chain conditions change.
+	// DustLimit is the threhsold (in satoshis) below which any outputs
+	// should be trimmed. When an output is trimmed, it isn't materialized
+	// as an actual output, but is instead burned to miner's fees.
 	DustLimit btcutil.Amount
 
 	// MaxPendingAmount is the maximum pending HTLC value that can be
 	// present within the channel at a particular time. This value is set
 	// by the initiator of the channel and must be upheld at all times.
-	//
-	// TODO(roasbeef): in mSAT
-	MaxPendingAmount btcutil.Amount
+	MaxPendingAmount lnwire.MilliSatoshi
 
 	// ChanReserve is an absolute reservation on the channel for this
 	// particular node. This means that the current settled balance for
@@ -154,9 +151,7 @@ type ChannelConstraints struct {
 	// If any HTLC's below this amount are offered, then the HTLC will be
 	// rejected. This, in tandem with the dust limit allows a node to
 	// regulate the smallest HTLC that it deems economically relevant.
-	//
-	// TODO(roasbeef): in mSAT
-	MinHTLC btcutil.Amount
+	MinHTLC lnwire.MilliSatoshi
 
 	// MaxAcceptedHtlcs is the maximum amount of HTLC's that are to be
 	// accepted by the owner of this set of constraints. This allows each
@@ -275,11 +270,11 @@ type OpenChannel struct {
 
 	// LocalBalance is the current available settled balance within the
 	// channel directly spendable by us.
-	LocalBalance btcutil.Amount
+	LocalBalance lnwire.MilliSatoshi
 
 	// RemoteBalance is the current available settled balance within the
 	// channel directly spendable by the remote node.
-	RemoteBalance btcutil.Amount
+	RemoteBalance lnwire.MilliSatoshi
 
 	// CommitFee is the amount calculated to be paid in fees for the
 	// current set of commitment transactions. The fee amount is persisted
@@ -330,13 +325,13 @@ type OpenChannel struct {
 	// channel.
 	NumUpdates uint64
 
-	// TotalSatoshisSent is the total number of satoshis we've sent within
-	// this channel.
-	TotalSatoshisSent uint64
-
-	// TotalSatoshisReceived is the total number of satoshis we've received
+	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
-	TotalSatoshisReceived uint64
+	TotalMSatSent lnwire.MilliSatoshi
+
+	// TotalMSatReceived is the total number of milli-satoshis we've
+	// received within this channel.
+	TotalMSatReceived lnwire.MilliSatoshi
 
 	// Htlcs is the list of active, uncleared HTLCs currently pending
 	// within the channel.
@@ -523,8 +518,8 @@ type HTLC struct {
 	// RHash is the payment hash of the HTLC.
 	RHash [32]byte
 
-	// Amt is the amount of satoshis this HTLC escrows.
-	Amt btcutil.Amount
+	// Amt is the amount of milli-satoshis this HTLC escrows.
+	Amt lnwire.MilliSatoshi
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
@@ -562,11 +557,11 @@ func (h *HTLC) Copy() HTLC {
 type ChannelDelta struct {
 	// LocalBalance is our current balance at this particular update
 	// number.
-	LocalBalance btcutil.Amount
+	LocalBalance lnwire.MilliSatoshi
 
 	// RemoteBalanceis the balance of the remote node at this particular
 	// update number.
-	RemoteBalance btcutil.Amount
+	RemoteBalance lnwire.MilliSatoshi
 
 	// CommitFee is the fee that has been subtracted from the channel
 	// initiator's balance at this point in the commitment chain.
@@ -927,13 +922,13 @@ type ChannelSnapshot struct {
 	ChannelPoint *wire.OutPoint
 
 	Capacity      btcutil.Amount
-	LocalBalance  btcutil.Amount
-	RemoteBalance btcutil.Amount
+	LocalBalance  lnwire.MilliSatoshi
+	RemoteBalance lnwire.MilliSatoshi
 
 	NumUpdates uint64
 
-	TotalSatoshisSent     uint64
-	TotalSatoshisReceived uint64
+	TotalMilliSatoshisSent     lnwire.MilliSatoshi
+	TotalMilliSatoshisReceived lnwire.MilliSatoshi
 
 	Htlcs []HTLC
 }
@@ -946,14 +941,14 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	defer c.RUnlock()
 
 	snapshot := &ChannelSnapshot{
-		RemoteIdentity:        *c.IdentityPub,
-		ChannelPoint:          &c.FundingOutpoint,
-		Capacity:              c.Capacity,
-		LocalBalance:          c.LocalBalance,
-		RemoteBalance:         c.RemoteBalance,
-		NumUpdates:            c.NumUpdates,
-		TotalSatoshisSent:     c.TotalSatoshisSent,
-		TotalSatoshisReceived: c.TotalSatoshisReceived,
+		RemoteIdentity:             *c.IdentityPub,
+		ChannelPoint:               &c.FundingOutpoint,
+		Capacity:                   c.Capacity,
+		LocalBalance:               c.LocalBalance,
+		RemoteBalance:              c.RemoteBalance,
+		NumUpdates:                 c.NumUpdates,
+		TotalMilliSatoshisSent:     c.TotalMSatSent,
+		TotalMilliSatoshisReceived: c.TotalMSatReceived,
 	}
 
 	// Copy over the current set of HTLCs to ensure the caller can't
@@ -1308,11 +1303,11 @@ func fetchChanCapacity(openChanBucket *bolt.Bucket, channel *OpenChannel) error 
 
 	copy(keyPrefix[:3], selfBalancePrefix)
 	selfBalanceBytes := openChanBucket.Get(keyPrefix)
-	channel.LocalBalance = btcutil.Amount(byteOrder.Uint64(selfBalanceBytes))
+	channel.LocalBalance = lnwire.MilliSatoshi(byteOrder.Uint64(selfBalanceBytes))
 
 	copy(keyPrefix[:3], theirBalancePrefix)
 	theirBalanceBytes := openChanBucket.Get(keyPrefix)
-	channel.RemoteBalance = btcutil.Amount(byteOrder.Uint64(theirBalanceBytes))
+	channel.RemoteBalance = lnwire.MilliSatoshi(byteOrder.Uint64(theirBalanceBytes))
 
 	return nil
 }
@@ -1408,13 +1403,13 @@ func putChanAmountsTransferred(openChanBucket *bolt.Bucket, channel *OpenChannel
 	copy(keyPrefix[3:], b.Bytes())
 
 	copy(keyPrefix[:3], satSentPrefix)
-	byteOrder.PutUint64(scratch1, channel.TotalSatoshisSent)
+	byteOrder.PutUint64(scratch1, uint64(channel.TotalMSatSent))
 	if err := openChanBucket.Put(keyPrefix, scratch1); err != nil {
 		return err
 	}
 
 	copy(keyPrefix[:3], satReceivedPrefix)
-	byteOrder.PutUint64(scratch2, channel.TotalSatoshisReceived)
+	byteOrder.PutUint64(scratch2, uint64(channel.TotalMSatReceived))
 	return openChanBucket.Put(keyPrefix, scratch2)
 }
 
@@ -1442,11 +1437,11 @@ func fetchChanAmountsTransferred(openChanBucket *bolt.Bucket, channel *OpenChann
 
 	copy(keyPrefix[:3], satSentPrefix)
 	totalSentBytes := openChanBucket.Get(keyPrefix)
-	channel.TotalSatoshisSent = byteOrder.Uint64(totalSentBytes)
+	channel.TotalMSatSent = lnwire.MilliSatoshi(byteOrder.Uint64(totalSentBytes))
 
 	copy(keyPrefix[:3], satReceivedPrefix)
 	totalReceivedBytes := openChanBucket.Get(keyPrefix)
-	channel.TotalSatoshisReceived = byteOrder.Uint64(totalReceivedBytes)
+	channel.TotalMSatReceived = lnwire.MilliSatoshi(byteOrder.Uint64(totalReceivedBytes))
 
 	return nil
 }
@@ -2208,11 +2203,11 @@ func deserializeChannelDelta(r io.Reader) (*ChannelDelta, error) {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err
 	}
-	delta.LocalBalance = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	delta.LocalBalance = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err
 	}
-	delta.RemoteBalance = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	delta.RemoteBalance = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
 
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err

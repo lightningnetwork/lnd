@@ -131,9 +131,9 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	localCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
 			DustLimit:        btcutil.Amount(rand.Int63()),
-			MaxPendingAmount: btcutil.Amount(rand.Int63()),
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(rand.Int31()),
@@ -145,9 +145,9 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	remoteCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
 			DustLimit:        btcutil.Amount(rand.Int63()),
-			MaxPendingAmount: btcutil.Amount(rand.Int63()),
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(rand.Int31()),
@@ -172,8 +172,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		CommitFee:               btcutil.Amount(rand.Int63()),
 		FeePerKw:                btcutil.Amount(5000),
 		Capacity:                btcutil.Amount(10000),
-		LocalBalance:            btcutil.Amount(3000),
-		RemoteBalance:           btcutil.Amount(9000),
+		LocalBalance:            lnwire.MilliSatoshi(3000),
+		RemoteBalance:           lnwire.MilliSatoshi(9000),
 		CommitTx:                *testTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		NumConfsRequired:        4,
@@ -182,9 +182,9 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationProducer:      producer,
 		RevocationStore:         store,
 		NumUpdates:              0,
-		TotalSatoshisSent:       8,
-		TotalSatoshisReceived:   2,
-		Db: cdb,
+		TotalMSatSent:           8,
+		TotalMSatReceived:       2,
+		Db:                      cdb,
 	}, nil
 }
 
@@ -339,7 +339,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// Half of the HTLCs are incoming, while the other half are outgoing.
 	var (
 		htlcs   []*HTLC
-		htlcAmt btcutil.Amount
+		htlcAmt lnwire.MilliSatoshi
 	)
 	for i := uint32(0); i < 10; i++ {
 		var incoming bool
@@ -368,8 +368,8 @@ func TestChannelStateTransition(t *testing.T) {
 	newTx := channel.CommitTx.Copy()
 	newTx.TxIn[0].Sequence = newSequence
 	delta := &ChannelDelta{
-		LocalBalance:  btcutil.Amount(1e8),
-		RemoteBalance: btcutil.Amount(1e8),
+		LocalBalance:  lnwire.MilliSatoshi(1e8),
+		RemoteBalance: lnwire.MilliSatoshi(1e8),
 		Htlcs:         htlcs,
 		UpdateNum:     1,
 	}
@@ -684,8 +684,8 @@ func TestFetchClosedChannels(t *testing.T) {
 		ClosingTXID:       rev,
 		RemotePub:         state.IdentityPub,
 		Capacity:          state.Capacity,
-		SettledBalance:    state.LocalBalance,
-		TimeLockedBalance: state.LocalBalance + 10000,
+		SettledBalance:    state.LocalBalance.ToSatoshis(),
+		TimeLockedBalance: state.LocalBalance.ToSatoshis() + 10000,
 		CloseType:         ForceClose,
 		IsPending:         true,
 	}

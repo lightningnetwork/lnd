@@ -1405,9 +1405,15 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	// Launch a new goroutine to handle reading new payment requests from
 	// the client. This way we can handle errors independently of blocking
 	// and waiting for the next payment request to come through.
+	reqQuit := make(chan struct{})
+	defer func() {
+		close(reqQuit)
+	}()
 	go func() {
 		for {
 			select {
+			case <-reqQuit:
+				return
 			case <-r.quit:
 				errChan <- nil
 				return
@@ -1421,7 +1427,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					errChan <- nil
 					return
 				} else if err != nil {
-					errChan <- err
+					select {
+					case errChan <- err:
+					case <-reqQuit:
+						return
+					}
 					return
 				}
 
@@ -1433,7 +1443,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				if nextPayment.PaymentRequest != "" {
 					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
 					if err != nil {
-						errChan <- err
+						select {
+						case errChan <- err:
+						case <-reqQuit:
+							return
+						}
 						return
 					}
 
@@ -1444,7 +1458,11 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					nextPayment.PaymentHash = payReq.PaymentHash[:]
 				}
 
-				payChan <- nextPayment
+				select {
+				case payChan <- nextPayment:
+				case <-reqQuit:
+					return
+				}
 			}
 		}
 	}()

@@ -2645,3 +2645,151 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		NumSatoshis: int64(payReq.Amount),
 	}, nil
 }
+
+// feeBase is the fixed point that fee rate computation are performed over.
+// Nodes on the network advertise their fee rate using this point as a base.
+// This means that the minimal possible fee rate if 1e-6, or 0.000001, or
+// 0.0001%.
+const feeBase = 1000000
+
+// FeeReport allows the caller to obtain a report detailing the current fee
+// schedule enforced by the node globally for each channel.
+func (r *rpcServer) FeeReport(ctx context.Context,
+	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
+
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "feereport",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
+
+	// TODO(roasbeef): use UnaryInterceptor to add automated logging
+
+	channelGraph := r.server.chanDB.ChannelGraph()
+	selfNode, err := channelGraph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+
+	var feeReports []*lnrpc.ChannelFeeReport
+	err = selfNode.ForEachChannel(nil, func(_ *bolt.Tx, chanInfo *channeldb.ChannelEdgeInfo,
+		edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
+
+		// We'll compute the effective fee rate by converting from a
+		// fixed point fee rate to a floating point fee rate. The fee
+		// rate field in the database the amount of mSAT charged per
+		// 1mil mSAT sent, so will divide by this to get the proper fee
+		// rate.
+		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
+		feeRate := float64(feeRateFixedPoint) / float64(feeBase)
+
+		// TODO(roasbeef): also add stats for revenue for each channel
+		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
+			ChanPoint:   chanInfo.ChannelPoint.String(),
+			BaseFeeMsat: int64(edgePolicy.FeeBaseMSat),
+			FeePerMil:   int64(feeRateFixedPoint),
+			FeeRate:     feeRate,
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.FeeReportResponse{feeReports}, nil
+}
+
+// minFeeRate is the smallest permitted fee rate within the network. This is
+// dervied by the fact that fee rates are computed using a fixed point of
+// 1,000,000. As a result, the smallest representable fee rate is 1e-6, or
+// 0.000001, or 0.0001%.
+const minFeeRate = 1e-6
+
+// UpdateFees allows the caller to update the fee schedule for all channels
+// globally, or a particular channel.
+func (r *rpcServer) UpdateFees(ctx context.Context,
+	req *lnrpc.FeeUpdateRequest) (*lnrpc.FeeUpdateResponse, error) {
+
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "udpatefees",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
+
+	var targetChans []wire.OutPoint
+	switch scope := req.Scope.(type) {
+	// If the request is targeting all active channels, then we don't need
+	// target any channels by their channel point.
+	case *lnrpc.FeeUpdateRequest_Global:
+
+	// Otherwise, we're targeting an individual channel by its channel
+	// point.
+	case *lnrpc.FeeUpdateRequest_ChanPoint:
+		txid, err := chainhash.NewHash(scope.ChanPoint.FundingTxid)
+		if err != nil {
+			return nil, err
+		}
+		targetChans = append(targetChans, wire.OutPoint{
+			Hash:  *txid,
+			Index: scope.ChanPoint.OutputIndex,
+		})
+	default:
+		return nil, fmt.Errorf("unknown scope: %v", scope)
+	}
+
+	// As a sanity check, we'll ensure that the passed fee rate is below
+	// 1e-6, or the lowest allowed fee rate.
+	if req.FeeRate < minFeeRate {
+		return nil, fmt.Errorf("fee rate of %v is too small, min fee "+
+			"rate is %v", req.FeeRate, minFeeRate)
+	}
+
+	// We'll also need to convert the floating point fee rate we accept
+	// over RPC to the fixed point rate that we use within the protocol. We
+	// do this by multiplying the passed fee rate by the fee base. This
+	// gives us the fixed point, scaled by 1 million that's used within the
+	// protocol.
+	feeRateFixed := uint32(req.FeeRate * feeBase)
+	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
+	feeSchema := routing.FeeSchema{
+		BaseFee: baseFeeMsat,
+		FeeRate: feeRateFixed,
+	}
+
+	rpcsLog.Tracef("[updatefees] updating fee schedule base_fee=%v, "+
+		"rate_float=%v, rate_fixed=%v, targets=%v",
+		req.BaseFeeMsat, req.FeeRate, feeRateFixed,
+		spew.Sdump(targetChans))
+
+	// With the scope resolved, we'll now send this to the
+	// AuthenticatedGossiper so it can propagate the new fee schema for out
+	// target channel(s).
+	err := r.server.authGossiper.PropagateFeeUpdate(
+		feeSchema, targetChans...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll apply the set of active links amongst the target
+	// channels.
+	//
+	// We create a partially policy as the logic won't overwrite a valid
+	// sub-policy with a "nil" one.
+	p := htlcswitch.ForwardingPolicy{
+		BaseFee: baseFeeMsat,
+		FeeRate: lnwire.MilliSatoshi(feeRateFixed),
+	}
+	err = r.server.htlcSwitch.UpdateForwardingPolicies(p, targetChans...)
+	if err != nil {
+		// If we're unable update the fees due to the links not being
+		// online, then we don't need to fail the call. We'll simply
+		// log the failure.
+		rpcsLog.Warnf("Unable to update link fees: %v", err)
+	}
+
+	return &lnrpc.FeeUpdateResponse{}, nil
+}

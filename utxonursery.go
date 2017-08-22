@@ -786,7 +786,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
 		kgtnOutput.witnessFunc = kgtnOutput.witnessType.GenWitnessFunc(
-			&wallet.Cfg.Signer, kgtnOutput.signDescriptor,
+			wallet.Cfg.Signer, kgtnOutput.signDescriptor,
 		)
 	}
 

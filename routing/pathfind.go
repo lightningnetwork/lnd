@@ -394,9 +394,11 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 		pivot := newVertex(bestNode.PubKey)
 		err := bestNode.ForEachChannel(nil, func(tx *bolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
-			edge *channeldb.ChannelEdgePolicy) error {
+			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
 
-			v := newVertex(edge.Node.PubKey)
+			v := newVertex(outEdge.Node.PubKey)
+
+			// TODO(roasbeef): skip if disabled
 
 			// If this vertex or edge has been black listed, then
 			// we'll skip exploring this edge during this
@@ -404,14 +406,14 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 			if _, ok := ignoredNodes[v]; ok {
 				return nil
 			}
-			if _, ok := ignoredEdges[edge.ChannelID]; ok {
+			if _, ok := ignoredEdges[outEdge.ChannelID]; ok {
 				return nil
 			}
 
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
-			tempDist := distance[pivot].dist + edgeWeight(edge)
+			tempDist := distance[pivot].dist + edgeWeight(inEdge)
 
 			// If this new tentative distance is better than the
 			// current best known distance to this node, then we
@@ -427,15 +429,27 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 
 				distance[v] = nodeWithDist{
 					dist: tempDist,
-					node: edge.Node,
+					node: outEdge.Node,
 				}
 				prev[v] = edgeWithPrev{
+					// We'll use the *incoming* edge here
+					// as we need to use the routing policy
+					// specified by the node this channel
+					// connects to.
 					edge: &ChannelHop{
-						ChannelEdgePolicy: edge,
+						ChannelEdgePolicy: inEdge,
 						Capacity:          edgeInfo.Capacity,
 					},
 					prevNode: bestNode.PubKey,
 				}
+
+				// In order for the path unwinding to work
+				// properly, we'll ensure that this edge
+				// properly points to the outgoing node.
+				//
+				// TODO(roasbeef): revisit, possibly switch db
+				// format?
+				prev[v].edge.Node = outEdge.Node
 
 				// Add this new node to our heap as we'd like
 				// to further explore down this edge.

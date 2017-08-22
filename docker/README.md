@@ -124,7 +124,7 @@ alice$ lncli listpeers
         {
             "pub_key": "0343bc80b914aebf8e50eb0b8e445fc79b9e6e8e5e018fa8c5f85c7d429c117b38",
             "peer_id": 1,
-            "address": "172.19.0.4:5656",
+            "address": "172.19.0.4:9735",
             "bytes_sent": "357",
             "bytes_recv": "357",
             "sat_sent": "0",

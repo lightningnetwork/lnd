@@ -61,6 +61,7 @@ var (
 		"getnetworkinfo",
 		"listpayments",
 		"decodepayreq",
+		"feereport",
 	}
 )
 

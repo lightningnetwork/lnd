@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
@@ -216,7 +217,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		FeeEstimator:     lnwallet.StaticFeeEstimator{FeeRate: 250},
 		DefaultConstraints: channeldb.ChannelConstraints{
 			DustLimit:        500,
-			MaxPendingAmount: btcutil.Amount(btcutil.SatoshiPerBitcoin) * 100,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) * 100,
 			ChanReserve:      100,
 			MinHTLC:          400,
 			MaxAcceptedHtlcs: 900,
@@ -541,7 +542,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// funded solely by us. We'll also initially push 1 BTC of the channel
 	// towards Bob's side.
 	fundingAmt := btcutil.Amount(4 * 1e8)
-	pushAmt := btcutil.Amount(btcutil.SatoshiPerBitcoin)
+	pushAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	feePerWeight := btcutil.Amount(alice.Cfg.FeeEstimator.EstimateFeePerWeight(1))
 	feePerKw := feePerWeight * 1000
 	aliceChanReservation, err := alice.InitChannelReservation(fundingAmt,

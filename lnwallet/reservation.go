@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -114,10 +115,10 @@ type ChannelReservation struct {
 	// throughout its lifetime.
 	reservationID uint64
 
-	// pushSat the amount of satoshis that should be pushed to the
+	// pushMSat the amount of milli-satoshis that should be pushed to the
 	// responder of a single funding channel as part of the initial
 	// commitment state.
-	pushSat btcutil.Amount
+	pushMSat lnwire.MilliSatoshi
 
 	// chanOpen houses a struct containing the channel and additional
 	// confirmation details will be sent on once the channel is considered
@@ -134,23 +135,27 @@ type ChannelReservation struct {
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
-	wallet *LightningWallet, id uint64, pushSat btcutil.Amount,
+	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
 	chainHash *chainhash.Hash) *ChannelReservation {
 
 	var (
-		ourBalance   btcutil.Amount
-		theirBalance btcutil.Amount
+		ourBalance   lnwire.MilliSatoshi
+		theirBalance lnwire.MilliSatoshi
 		initiator    bool
 	)
 
 	commitFee := btcutil.Amount((int64(feePerKw) * commitWeight) / 1000)
 
+	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
+	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
+	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
+
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
 	// some funds to us within the first commitment state.
 	if fundingAmt == 0 {
-		ourBalance = pushSat
-		theirBalance = capacity - commitFee - pushSat
+		ourBalance = pushMSat
+		theirBalance = capacityMSat - feeMSat - pushMSat
 		initiator = false
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
@@ -161,15 +166,14 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 			// we pay all the initial fees within the commitment
 			// transaction. We also deduct our balance by the
 			// amount pushed as part of the initial state.
-			ourBalance = capacity - commitFee - pushSat
-			theirBalance = pushSat
+			ourBalance = capacityMSat - feeMSat - pushMSat
+			theirBalance = pushMSat
 		} else {
 			// Otherwise, this is a dual funder workflow where both
 			// slides split the amount funded and the commitment
 			// fee.
-			ourBalance = fundingAmt - (commitFee / 2)
-			theirBalance = capacity - fundingAmt -
-				(commitFee / 2) + pushSat
+			ourBalance = fundingMSat - (feeMSat / 2)
+			theirBalance = capacityMSat - fundingMSat - (feeMSat / 2) + pushMSat
 		}
 
 		initiator = true
@@ -182,7 +186,7 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 	// If either of the balances are zero at this point, or we have a
 	// non-zero push amt (there's no pushing for dual funder), then this is
 	// a single-funder channel.
-	if ourBalance == 0 || theirBalance == 0 || pushSat != 0 {
+	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
 		chanType = channeldb.SingleFunder
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
@@ -193,11 +197,11 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
-			FundingAmount: ourBalance,
+			FundingAmount: ourBalance.ToSatoshis(),
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		theirContribution: &ChannelContribution{
-			FundingAmount: theirBalance,
+			FundingAmount: theirBalance.ToSatoshis(),
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		partialState: &channeldb.OpenChannel{
@@ -212,7 +216,7 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 			FeePerKw:      feePerKw,
 			CommitFee:     commitFee,
 		},
-		pushSat:       pushSat,
+		pushMSat:      pushMSat,
 		reservationID: id,
 		chanOpen:      make(chan *openChanDetails, 1),
 		chanOpenErr:   make(chan error, 1),

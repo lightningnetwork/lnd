@@ -106,7 +106,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	var amount lnwire.MilliSatoshi = lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink)
 
@@ -173,7 +173,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 			n.firstBobChannelLink.ChanID()))
 	}
 
-	const amt btcutil.Amount = 20000
+	amt := lnwire.NewMSatFromSatoshis(20000)
 
 	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
 		testStartingHeight, n.firstBobChannelLink)
@@ -305,7 +305,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 			n.carolChannelLink.ChanID()))
 	}
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount,
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
@@ -456,7 +456,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	defer n.stop()
 
 	// We'll be sending 1 BTC over a 2-hop (3 vertex) route.
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	// Generate the route over two hops, ignoring the total time lock that
 	// we'll need to use for the first HTLC in order to have a sufficient
@@ -499,7 +499,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	// We'll be sending 1 BTC over a 2-hop (3 vertex) route. Given the
 	// current default fee of 1 SAT, if we just send a single BTC over in
 	// an HTLC, it should be rejected.
-	var amountNoFee btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amountNoFee := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	// Generate the route over two hops, ignoring the amount we _should_
 	// actually send in order to be able to cover fees.
@@ -543,7 +543,7 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	// The current default global min HTLC policy set in the default config
 	// for the three-hop-network is 5 SAT. So in order to trigger this
 	// failure mode, we'll create an HTLC with 1 satoshi.
-	amountNoFee := btcutil.Amount(1)
+	amountNoFee := lnwire.NewMSatFromSatoshis(1)
 
 	// With the amount set, we'll generate a route over 2 hops within the
 	// network that attempts to pay out our specified amount.
@@ -590,7 +590,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
-	amountNoFee := btcutil.Amount(10)
+	amountNoFee := lnwire.NewMSatFromSatoshis(10)
 	htlcAmt, htlcExpiry, hops := generateHops(amountNoFee,
 		testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
@@ -639,8 +639,10 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// TODO(roasbeef): should implement grace period within link policy
 	// update logic
 	newPolicy := n.globalPolicy
-	newPolicy.BaseFee = btcutil.Amount(1000)
+	newPolicy.BaseFee = lnwire.NewMSatFromSatoshis(1000)
 	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
+
+	// TODO(roasbeef): should send again an ensure rejected?
 }
 
 // TestChannelLinkMultiHopInsufficientPayment checks that we receive error if
@@ -664,7 +666,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
-	var amount btcutil.Amount = 4 * btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
@@ -734,7 +736,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
@@ -818,7 +820,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
@@ -889,7 +891,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
@@ -950,7 +952,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 	defer n.stop()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	// We'll craft an HTLC packet, but set the starting height to 10 blocks
 	// before the current true height.
@@ -991,7 +993,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	}
 	defer n.stop()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	// We'll craft an HTLC packet, but set the starting height to 10 blocks
 	// before the current true height. The final route will be three hops,
@@ -1096,7 +1098,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	}
 	defer n.stop()
 
-	var amount btcutil.Amount = btcutil.SatoshiPerBitcoin
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink)
 

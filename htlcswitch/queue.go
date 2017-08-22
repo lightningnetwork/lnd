@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcutil"
 )
 
 // packetQueue represent the wrapper around the original queue plus the
@@ -103,11 +102,11 @@ func (q *packetQueue) length() int {
 }
 
 // pendingAmount returns the amount of money which is stored in pending queue.
-func (q *packetQueue) pendingAmount() btcutil.Amount {
+func (q *packetQueue) pendingAmount() lnwire.MilliSatoshi {
 	q.Lock()
 	defer q.Unlock()
 
-	var amount btcutil.Amount
+	var amount lnwire.MilliSatoshi
 	for e := q.Front(); e != nil; e = e.Next() {
 		packet := e.Value.(*htlcPacket)
 		htlc := packet.htlc.(*lnwire.UpdateAddHTLC)

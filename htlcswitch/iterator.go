@@ -6,7 +6,6 @@ import (
 
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcutil"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next
@@ -58,9 +57,9 @@ type ForwardingInfo struct {
 	// end-to-end route.
 	NextHop lnwire.ShortChannelID
 
-	// AmountToForward is the amount that the receiving node should forward
-	// to the next hop.
-	AmountToForward btcutil.Amount
+	// AmountToForward is the amount of milli-satoshis that the receiving
+	// node should forward to the next hop.
+	AmountToForward lnwire.MilliSatoshi
 
 	// OutgoingCTLV is the specified value of the CTLV timelock to be used
 	// in the outgoing HTLC.
@@ -133,7 +132,7 @@ func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
 	return ForwardingInfo{
 		Network:         BitcoinHop,
 		NextHop:         nextHop,
-		AmountToForward: btcutil.Amount(fwdInst.ForwardAmount),
+		AmountToForward: lnwire.MilliSatoshi(fwdInst.ForwardAmount),
 		OutgoingCTLV:    fwdInst.OutgoingCltv,
 	}
 }

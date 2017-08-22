@@ -5,7 +5,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -63,16 +62,16 @@ type ChannelLink interface {
 	// policy to govern if it an incoming HTLC should be forwarded or not.
 	UpdateForwardingPolicy(ForwardingPolicy)
 
-	// Bandwidth returns the amount of satoshis which current link might
-	// pass through channel link. The value returned from this method
+	// Bandwidth returns the amount of milli-satoshis which current link
+	// might pass through channel link. The value returned from this method
 	// represents the up to date available flow through the channel. This
 	// takes into account any forwarded but un-cleared HTLC's, and any
 	// HTLC's which have been set to the over flow queue.
-	Bandwidth() btcutil.Amount
+	Bandwidth() lnwire.MilliSatoshi
 
 	// Stats return the statistics of channel link. Number of updates,
-	// total sent/received satoshis.
-	Stats() (uint64, btcutil.Amount, btcutil.Amount)
+	// total sent/received milli-satoshis.
+	Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi)
 
 	// Peer returns the representation of remote peer with which we have
 	// the channel link opened.

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcutil"
 )
 
 // htlcPacket is a wrapper around htlc lnwire update, which adds additional
@@ -29,8 +28,7 @@ type htlcPacket struct {
 	src lnwire.ShortChannelID
 
 	// amount is the value of the HTLC that is being created or modified.
-	// TODO(andrew.shvv) should be removed after introducing sphinx payment.
-	amount btcutil.Amount
+	amount lnwire.MilliSatoshi
 
 	// htlc lnwire message type of which depends on switch request type.
 	htlc lnwire.Message
@@ -77,7 +75,7 @@ func newAddPacket(src, dest lnwire.ShortChannelID,
 // settle htlc request which should be created and sent back by last hope in
 // htlc path.
 func newSettlePacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFufillHTLC,
-	payHash [sha256.Size]byte, amount btcutil.Amount) *htlcPacket {
+	payHash [sha256.Size]byte, amount lnwire.MilliSatoshi) *htlcPacket {
 
 	return &htlcPacket{
 		src:     src,
@@ -92,7 +90,9 @@ func newSettlePacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFufillHTLC,
 // add request if something wrong happened on the path to the final
 // destination.
 func newFailPacket(src lnwire.ShortChannelID, htlc *lnwire.UpdateFailHTLC,
-	payHash [sha256.Size]byte, amount btcutil.Amount, isObfuscated bool) *htlcPacket {
+	payHash [sha256.Size]byte, amount lnwire.MilliSatoshi,
+	isObfuscated bool) *htlcPacket {
+
 	return &htlcPacket{
 		src:          src,
 		payHash:      payHash,

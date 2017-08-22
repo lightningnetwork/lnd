@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,7 +32,7 @@ var (
 // successfully.
 type pendingPayment struct {
 	paymentHash lnwallet.PaymentHash
-	amount      btcutil.Amount
+	amount      lnwire.MilliSatoshi
 
 	preimage chan [sha256.Size]byte
 	err      chan error
@@ -91,6 +92,8 @@ type Config struct {
 
 	// UpdateTopology sends the onion error failure topology update to router
 	// subsystem.
+	//
+	// TODO(roasbeef): remove
 	UpdateTopology func(msg *lnwire.ChannelUpdate) error
 }
 
@@ -208,14 +211,14 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	case e := <-payment.err:
 		err = e
 	case <-s.quit:
-		return zeroPreimage, errors.New("service is shutdown")
+		return zeroPreimage, errors.New("switch is shutting down")
 	}
 
 	select {
 	case p := <-payment.preimage:
 		preimage = p
 	case <-s.quit:
-		return zeroPreimage, errors.New("service is shutdown")
+		return zeroPreimage, errors.New("switch is shutting down")
 	}
 
 	return preimage, err
@@ -348,7 +351,7 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 			// Will allow us more flexibility w.r.t how we handle
 			// the error.
 			if update != nil {
-				log.Info("Received payment failure(%v), "+
+				log.Infof("Received payment failure(%v), "+
 					"applying lightning network topology update",
 					failure.Code())
 
@@ -624,7 +627,7 @@ func (s *Switch) htlcForwarder() {
 		case cmd := <-s.htlcPlex:
 			var (
 				paymentHash lnwallet.PaymentHash
-				amount      btcutil.Amount
+				amount      lnwire.MilliSatoshi
 			)
 
 			// Only three types of message should be forwarded:
@@ -677,8 +680,8 @@ func (s *Switch) htlcForwarder() {
 				// stats printed.
 				updates, sent, recv := link.Stats()
 				newNumUpdates += updates
-				newSatSent += sent
-				newSatRecv += recv
+				newSatSent += sent.ToSatoshis()
+				newSatRecv += recv.ToSatoshis()
 			}
 
 			var (
@@ -958,8 +961,9 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 
 // removePendingPayment is the helper function which removes the pending user
 // payment.
-func (s *Switch) removePendingPayment(amount btcutil.Amount,
+func (s *Switch) removePendingPayment(amount lnwire.MilliSatoshi,
 	hash lnwallet.PaymentHash) error {
+
 	s.pendingMutex.Lock()
 	defer s.pendingMutex.Unlock()
 
@@ -987,8 +991,9 @@ func (s *Switch) removePendingPayment(amount btcutil.Amount,
 }
 
 // findPayment is the helper function which find the payment.
-func (s *Switch) findPayment(amount btcutil.Amount,
+func (s *Switch) findPayment(amount lnwire.MilliSatoshi,
 	hash lnwallet.PaymentHash) (*pendingPayment, error) {
+
 	s.pendingMutex.RLock()
 	defer s.pendingMutex.RUnlock()
 

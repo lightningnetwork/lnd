@@ -40,19 +40,17 @@ const (
 // latest policy.
 type ForwardingPolicy struct {
 	// MinHTLC is the smallest HTLC that is to be forwarded.
-	MinHTLC btcutil.Amount
+	MinHTLC lnwire.MilliSatoshi
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
 	// used to compute the required fee for a given HTLC.
-	//
-	// TODO(roasbeef): need to be in mSAT
-	BaseFee btcutil.Amount
+	BaseFee lnwire.MilliSatoshi
 
 	// FeeRate is the fee rate, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field combined with BaseFee is
 	// used to compute the required fee for a given HTLC.
-	FeeRate btcutil.Amount
+	FeeRate lnwire.MilliSatoshi
 
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
@@ -75,7 +73,9 @@ type ForwardingPolicy struct {
 //
 // TODO(roasbeef): also add in current available channel bandwidth, inverse
 // func
-func ExpectedFee(f ForwardingPolicy, htlcAmt btcutil.Amount) btcutil.Amount {
+func ExpectedFee(f ForwardingPolicy, htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	// TODO(roasbeef): write some basic table driven tests
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
 }
 
@@ -299,6 +299,8 @@ func (l *channelLink) htlcManager() {
 	defer batchTimer.Stop()
 
 	// TODO(roasbeef): fail chan in case of protocol violation
+
+	// TODO(roasbeef): resend funding locked if state zero
 
 out:
 	for {
@@ -820,7 +822,7 @@ func (l *channelLink) ChanID() lnwire.ChannelID {
 
 // getBandwidthCmd is a wrapper for get bandwidth handler.
 type getBandwidthCmd struct {
-	resp chan btcutil.Amount
+	resp chan lnwire.MilliSatoshi
 }
 
 // Bandwidth returns the amount which current link might pass through channel
@@ -828,9 +830,9 @@ type getBandwidthCmd struct {
 // will not be changed during function execution.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Bandwidth() btcutil.Amount {
+func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	command := &getBandwidthCmd{
-		resp: make(chan btcutil.Amount, 1),
+		resp: make(chan lnwire.MilliSatoshi, 1),
 	}
 
 	select {
@@ -846,7 +848,7 @@ func (l *channelLink) Bandwidth() btcutil.Amount {
 //
 // NOTE: Should be used inside main goroutine only, otherwise the result might
 // not be accurate.
-func (l *channelLink) getBandwidth() btcutil.Amount {
+func (l *channelLink) getBandwidth() lnwire.MilliSatoshi {
 	return l.channel.LocalAvailableBalance() - l.overflowQueue.pendingAmount()
 }
 
@@ -883,11 +885,11 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 // Stats returns the statistics of channel link.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Stats() (uint64, btcutil.Amount, btcutil.Amount) {
+func (l *channelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 	snapshot := l.channel.StateSnapshot()
 	return snapshot.NumUpdates,
-		btcutil.Amount(snapshot.TotalSatoshisSent),
-		btcutil.Amount(snapshot.TotalSatoshisReceived)
+		snapshot.TotalMilliSatoshisSent,
+		snapshot.TotalMilliSatoshisReceived
 }
 
 // String returns the string representation of channel link.
@@ -1070,7 +1072,7 @@ func (l *channelLink) processLockedInHtlcs(
 				invoiceHash := chainhash.Hash(pd.RHash)
 				invoice, err := l.cfg.Registry.LookupInvoice(invoiceHash)
 				if err != nil {
-					log.Errorf("unable to query to locate:"+
+					log.Errorf("unable to query invoice registry: "+
 						" %v", err)
 					failure := lnwire.FailUnknownPaymentHash{}
 					l.sendHTLCError(pd.RHash, failure, obfuscator)
@@ -1218,7 +1220,7 @@ func (l *channelLink) processLockedInHtlcs(
 				// accepted.
 				expectedFee := ExpectedFee(
 					l.cfg.FwrdingPolicy,
-					pd.Amount,
+					fwdInfo.AmountToForward,
 				)
 
 				// If the amount of the incoming HTLC, minus
@@ -1233,8 +1235,8 @@ func (l *channelLink) processLockedInHtlcs(
 					log.Errorf("Incoming htlc(%x) has "+
 						"insufficient fee: expected "+
 						"%v, got %v", pd.RHash[:],
-						btcutil.Amount(pd.Amount-fwdInfo.AmountToForward),
-						btcutil.Amount(expectedFee))
+						int64(expectedFee),
+						int64(pd.Amount-fwdInfo.AmountToForward))
 
 					// As part of the returned error, we'll
 					// send our latest routing policy so

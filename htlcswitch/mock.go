@@ -22,7 +22,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 type mockServer struct {
@@ -371,13 +370,13 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
 
-func (f *mockChannelLink) Stats() (uint64, btcutil.Amount, btcutil.Amount) {
+func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 	return 0, 0, 0
 }
 
 func (f *mockChannelLink) ChanID() lnwire.ChannelID           { return f.chanID }
 func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID { return f.shortChanID }
-func (f *mockChannelLink) Bandwidth() btcutil.Amount          { return 99999999 }
+func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi     { return 99999999 }
 func (f *mockChannelLink) Peer() Peer                         { return f.peer }
 func (f *mockChannelLink) Start() error                       { return nil }
 func (f *mockChannelLink) Stop()                              {}

@@ -224,9 +224,9 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
-			MaxPendingAmount: btcutil.Amount(rand.Int63()),
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutAlice),
@@ -238,9 +238,9 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        bobDustLimit,
-			MaxPendingAmount: btcutil.Amount(rand.Int63()),
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
 		},
 		CsvDelay:            uint16(csvTimeoutBob),
@@ -301,8 +301,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            channelBal - commitFee,
-		RemoteBalance:           channelBal,
+		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
 		CommitTx:                *aliceCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -320,8 +320,8 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
-		LocalBalance:            channelBal,
-		RemoteBalance:           channelBal - commitFee,
+		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal - commitFee),
 		CommitTx:                *bobCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
@@ -378,7 +378,7 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 
 // createHTLC is a utility function for generating an HTLC with a given
 // preimage and a given amount.
-func createHTLC(data int, amount btcutil.Amount) (*lnwire.UpdateAddHTLC, [32]byte) {
+func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [32]byte) {
 	preimage := bytes.Repeat([]byte{byte(data)}, 32)
 	paymentHash := sha256.Sum256(preimage)
 
@@ -417,7 +417,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	paymentHash := sha256.Sum256(paymentPreimage)
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: paymentHash,
-		Amount:      btcutil.SatoshiPerBitcoin,
+		Amount:      lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin),
 		Expiry:      uint32(5),
 	}
 
@@ -501,24 +501,24 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// At this point, both sides should have the proper number of satoshis
 	// sent, and commitment height updated within their local channel
 	// state.
-	aliceSent := uint64(0)
-	bobSent := uint64(0)
+	aliceSent := lnwire.MilliSatoshi(0)
+	bobSent := lnwire.MilliSatoshi(0)
 
-	if aliceChannel.channelState.TotalSatoshisSent != aliceSent {
-		t.Fatalf("alice has incorrect satoshis sent: %v vs %v",
-			aliceChannel.channelState.TotalSatoshisSent, aliceSent)
+	if aliceChannel.channelState.TotalMSatSent != aliceSent {
+		t.Fatalf("alice has incorrect milli-satoshis sent: %v vs %v",
+			aliceChannel.channelState.TotalMSatSent, aliceSent)
 	}
-	if aliceChannel.channelState.TotalSatoshisReceived != bobSent {
-		t.Fatalf("alice has incorrect satoshis received %v vs %v",
-			aliceChannel.channelState.TotalSatoshisReceived, bobSent)
+	if aliceChannel.channelState.TotalMSatReceived != bobSent {
+		t.Fatalf("alice has incorrect milli-satoshis received %v vs %v",
+			aliceChannel.channelState.TotalMSatReceived, bobSent)
 	}
-	if bobChannel.channelState.TotalSatoshisSent != bobSent {
-		t.Fatalf("bob has incorrect satoshis sent %v vs %v",
-			bobChannel.channelState.TotalSatoshisSent, bobSent)
+	if bobChannel.channelState.TotalMSatSent != bobSent {
+		t.Fatalf("bob has incorrect milli-satoshis sent %v vs %v",
+			bobChannel.channelState.TotalMSatSent, bobSent)
 	}
-	if bobChannel.channelState.TotalSatoshisReceived != aliceSent {
-		t.Fatalf("bob has incorrect satoshis received %v vs %v",
-			bobChannel.channelState.TotalSatoshisReceived, aliceSent)
+	if bobChannel.channelState.TotalMSatReceived != aliceSent {
+		t.Fatalf("bob has incorrect milli-satoshis received %v vs %v",
+			bobChannel.channelState.TotalMSatReceived, aliceSent)
 	}
 	if bobChannel.currentHeight != 1 {
 		t.Fatalf("bob has incorrect commitment height, %v vs %v",
@@ -585,27 +585,27 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	}
 
 	// At this point, Bob should have 6 BTC settled, with Alice still having
-	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel should
-	// show 1 BTC received. They should also be at commitment height two,
-	// with the revocation window extended by by 1 (5).
-	satoshisTransferred := uint64(100000000)
-	if aliceChannel.channelState.TotalSatoshisSent != satoshisTransferred {
+	// 4 BTC. Alice's channel should show 1 BTC sent and Bob's channel
+	// should show 1 BTC received. They should also be at commitment height
+	// two, with the revocation window extended by by 1 (5).
+	mSatTransferred := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	if aliceChannel.channelState.TotalMSatSent != mSatTransferred {
 		t.Fatalf("alice satoshis sent incorrect %v vs %v expected",
-			aliceChannel.channelState.TotalSatoshisSent,
-			satoshisTransferred)
+			aliceChannel.channelState.TotalMSatSent,
+			mSatTransferred)
 	}
-	if aliceChannel.channelState.TotalSatoshisReceived != 0 {
+	if aliceChannel.channelState.TotalMSatReceived != 0 {
 		t.Fatalf("alice satoshis received incorrect %v vs %v expected",
-			aliceChannel.channelState.TotalSatoshisSent, 0)
+			aliceChannel.channelState.TotalMSatReceived, 0)
 	}
-	if bobChannel.channelState.TotalSatoshisReceived != satoshisTransferred {
+	if bobChannel.channelState.TotalMSatReceived != mSatTransferred {
 		t.Fatalf("bob satoshis received incorrect %v vs %v expected",
-			bobChannel.channelState.TotalSatoshisReceived,
-			satoshisTransferred)
+			bobChannel.channelState.TotalMSatReceived,
+			mSatTransferred)
 	}
-	if bobChannel.channelState.TotalSatoshisSent != 0 {
+	if bobChannel.channelState.TotalMSatSent != 0 {
 		t.Fatalf("bob satoshis sent incorrect %v vs %v expected",
-			bobChannel.channelState.TotalSatoshisReceived, 0)
+			bobChannel.channelState.TotalMSatSent, 0)
 	}
 	if bobChannel.currentHeight != 2 {
 		t.Fatalf("bob has incorrect commitment height, %v vs %v",
@@ -680,7 +680,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// Adding HTLCs and check that size stays in allowable estimation
 	// error window.
 	for i := 1; i <= 10; i++ {
-		htlc, _ := createHTLC(i, btcutil.Amount(1e7))
+		htlc, _ := createHTLC(i, lnwire.MilliSatoshi(1e7))
 
 		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 			t.Fatalf("alice unable to add htlc: %v", err)
@@ -699,7 +699,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// Settle HTLCs and check that estimation is counting cost of settle
 	// HTLCs properly.
 	for i := 10; i >= 1; i-- {
-		_, preimage := createHTLC(i, btcutil.Amount(1e7))
+		_, preimage := createHTLC(i, lnwire.MilliSatoshi(1e7))
 
 		settleIndex, err := bobChannel.SettleHTLC(preimage)
 		if err != nil {
@@ -797,7 +797,7 @@ func TestForceClose(t *testing.T) {
 	}
 	defer cleanUp()
 
-	htlcAmount := btcutil.Amount(500)
+	htlcAmount := lnwire.NewMSatFromSatoshis(500)
 
 	aliceAmount := aliceChannel.channelState.LocalBalance
 	bobAmount := bobChannel.channelState.LocalBalance
@@ -818,10 +818,12 @@ func TestForceClose(t *testing.T) {
 	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(aliceDelayPoint) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
-	if closeSummary.SelfOutputSignDesc.Output.Value != int64(aliceAmount) {
+	if closeSummary.SelfOutputSignDesc.Output.Value !=
+		int64(aliceAmount.ToSatoshis()) {
+
 		t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
-			aliceChannel.channelState.LocalBalance,
+			aliceChannel.channelState.LocalBalance.ToSatoshis(),
 			closeSummary.SelfOutputSignDesc.Output.Value)
 	}
 	if closeSummary.SelfOutputMaturity !=
@@ -850,10 +852,12 @@ func TestForceClose(t *testing.T) {
 	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(bobDelayPoint) {
 		t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 	}
-	if closeSummary.SelfOutputSignDesc.Output.Value != int64(bobAmount) {
+	if closeSummary.SelfOutputSignDesc.Output.Value !=
+		int64(bobAmount.ToSatoshis()) {
+
 		t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
-			int64(bobAmount),
+			bobAmount.ToSatoshis(),
 			int64(closeSummary.SelfOutputSignDesc.Output.Value))
 	}
 	if closeSummary.SelfOutputMaturity !=
@@ -922,10 +926,10 @@ func TestForceClose(t *testing.T) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
 	if closeSummary.SelfOutputSignDesc.Output.Value !=
-		int64(aliceAmount) {
+		int64(aliceAmount.ToSatoshis()) {
 		t.Fatalf("alice incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
-			aliceChannel.channelState.LocalBalance,
+			aliceChannel.channelState.LocalBalance.ToSatoshis(),
 			closeSummary.SelfOutputSignDesc.Output.Value)
 	}
 
@@ -978,7 +982,7 @@ func TestDustHTLCFees(t *testing.T) {
 	aliceStartingBalance := aliceChannel.channelState.LocalBalance
 
 	// This HTLC amount should be lower than the dust limits of both nodes.
-	htlcAmount := btcutil.Amount(100)
+	htlcAmount := lnwire.NewMSatFromSatoshis(100)
 	htlc, _ := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
@@ -996,16 +1000,16 @@ func TestDustHTLCFees(t *testing.T) {
 	// sides.
 	totalSatoshisAlice := (aliceChannel.channelState.LocalBalance +
 		aliceChannel.channelState.RemoteBalance +
-		aliceChannel.channelState.CommitFee)
-	if totalSatoshisAlice+htlcAmount != aliceChannel.Capacity {
+		lnwire.NewMSatFromSatoshis(aliceChannel.channelState.CommitFee))
+	if totalSatoshisAlice+htlcAmount != lnwire.NewMSatFromSatoshis(aliceChannel.Capacity) {
 		t.Fatalf("alice's funds leaked: total satoshis are %v, but channel "+
 			"capacity is %v", int64(totalSatoshisAlice),
 			int64(aliceChannel.Capacity))
 	}
 	totalSatoshisBob := (bobChannel.channelState.LocalBalance +
 		bobChannel.channelState.RemoteBalance +
-		bobChannel.channelState.CommitFee)
-	if totalSatoshisBob+htlcAmount != bobChannel.Capacity {
+		lnwire.NewMSatFromSatoshis(bobChannel.channelState.CommitFee))
+	if totalSatoshisBob+htlcAmount != lnwire.NewMSatFromSatoshis(bobChannel.Capacity) {
 		t.Fatalf("bob's funds leaked: total satoshis are %v, but channel "+
 			"capacity is %v", int64(totalSatoshisBob),
 			int64(bobChannel.Capacity))
@@ -1054,8 +1058,9 @@ func TestHTLCDustLimit(t *testing.T) {
 
 	// The amount of the HTLC should be above Alice's dust limit and below
 	// Bob's dust limit.
-	htlcAmount := (btcutil.Amount(500) +
+	htlcSat := (btcutil.Amount(500) +
 		htlcTimeoutFee(aliceChannel.channelState.FeePerKw))
+	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
 	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
@@ -1109,9 +1114,9 @@ func TestHTLCDustLimit(t *testing.T) {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			2, len(commitment.txn.TxOut))
 	}
-	if aliceChannel.channelState.TotalSatoshisSent != uint64(htlcAmount) {
+	if aliceChannel.channelState.TotalMSatSent != htlcAmount {
 		t.Fatalf("alice satoshis sent incorrect: expected %v, got %v",
-			htlcAmount, aliceChannel.channelState.TotalSatoshisSent)
+			htlcAmount, aliceChannel.channelState.TotalMSatSent)
 	}
 }
 
@@ -1136,9 +1141,11 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// once fees have been subtracted, but smaller than Bob's dust limit.
 	defaultFee := calcStaticFee(0)
 	dustLimit := aliceChannel.channelState.LocalChanCfg.DustLimit
-	aliceBalance := aliceChannel.channelState.LocalBalance
-	htlcAmount := aliceBalance - (defaultFee + dustLimit + 100)
-	htlcAmount += htlcSuccessFee(aliceChannel.channelState.FeePerKw)
+	aliceBalance := aliceChannel.channelState.LocalBalance.ToSatoshis()
+	htlcSat := aliceBalance - (defaultFee + dustLimit + 100)
+	htlcSat += htlcSuccessFee(aliceChannel.channelState.FeePerKw)
+
+	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
 	htlc, preimage := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
@@ -1171,9 +1178,9 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			1, len(commitment.txn.TxOut))
 	}
-	if aliceChannel.channelState.TotalSatoshisSent != uint64(htlcAmount) {
+	if aliceChannel.channelState.TotalMSatSent != htlcAmount {
 		t.Fatalf("alice satoshis sent incorrect: expected %v, got %v",
-			htlcAmount, aliceChannel.channelState.TotalSatoshisSent)
+			htlcAmount, aliceChannel.channelState.TotalMSatSent)
 	}
 }
 
@@ -1197,7 +1204,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 
 	const numHtlcs = 4
-	const htlcAmt = 20000
+	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
 
 	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
 	var alicePreimage [32]byte
@@ -1429,21 +1436,21 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The amounts transferred should been updated as per the amounts in
 	// the HTLCs
-	if aliceChannelNew.channelState.TotalSatoshisSent != htlcAmt*3 {
+	if aliceChannelNew.channelState.TotalMSatSent != htlcAmt*3 {
 		t.Fatalf("expected %v alice satoshis sent, got %v",
-			htlcAmt*3, aliceChannelNew.channelState.TotalSatoshisSent)
+			htlcAmt*3, aliceChannelNew.channelState.TotalMSatSent)
 	}
-	if aliceChannelNew.channelState.TotalSatoshisReceived != htlcAmt {
+	if aliceChannelNew.channelState.TotalMSatReceived != htlcAmt {
 		t.Fatalf("expected %v alice satoshis received, got %v",
-			htlcAmt, aliceChannelNew.channelState.TotalSatoshisReceived)
+			htlcAmt, aliceChannelNew.channelState.TotalMSatReceived)
 	}
-	if bobChannelNew.channelState.TotalSatoshisSent != htlcAmt {
+	if bobChannelNew.channelState.TotalMSatSent != htlcAmt {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			htlcAmt, bobChannel.channelState.TotalSatoshisSent)
+			htlcAmt, bobChannel.channelState.TotalMSatSent)
 	}
-	if bobChannelNew.channelState.TotalSatoshisReceived != htlcAmt*3 {
+	if bobChannelNew.channelState.TotalMSatReceived != htlcAmt*3 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
-			htlcAmt*3, bobChannel.channelState.TotalSatoshisSent)
+			htlcAmt*3, bobChannel.channelState.TotalMSatReceived)
 	}
 }
 
@@ -1461,7 +1468,7 @@ func TestCancelHTLC(t *testing.T) {
 
 	// Add a new HTLC from Alice to Bob, then trigger a new state
 	// transition in order to include it in the latest state.
-	const htlcAmt = btcutil.SatoshiPerBitcoin
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{0xaa}, 32))
@@ -1486,9 +1493,10 @@ func TestCancelHTLC(t *testing.T) {
 	// of the new HTLC.
 	aliceExpectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin*4) -
 		calcStaticFee(1)
-	if aliceChannel.channelState.LocalBalance != aliceExpectedBalance {
+	if aliceChannel.channelState.LocalBalance.ToSatoshis() != aliceExpectedBalance {
 		t.Fatalf("Alice's balance is wrong: expected %v, got %v",
-			aliceExpectedBalance, aliceChannel.channelState.LocalBalance)
+			aliceExpectedBalance,
+			aliceChannel.channelState.LocalBalance.ToSatoshis())
 	}
 
 	// Now, with the HTLC committed on both sides, trigger a cancellation
@@ -1527,22 +1535,28 @@ func TestCancelHTLC(t *testing.T) {
 	}
 
 	expectedBalance := btcutil.Amount(btcutil.SatoshiPerBitcoin * 5)
-	if aliceChannel.channelState.LocalBalance != expectedBalance-calcStaticFee(0) {
+	if aliceChannel.channelState.LocalBalance.ToSatoshis() !=
+		expectedBalance-calcStaticFee(0) {
+
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			aliceChannel.channelState.LocalBalance, expectedBalance-
-				calcStaticFee(0))
+			aliceChannel.channelState.LocalBalance.ToSatoshis(),
+			expectedBalance-calcStaticFee(0))
 	}
-	if aliceChannel.channelState.RemoteBalance != expectedBalance {
+	if aliceChannel.channelState.RemoteBalance.ToSatoshis() != expectedBalance {
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			aliceChannel.channelState.RemoteBalance, expectedBalance)
+			aliceChannel.channelState.RemoteBalance.ToSatoshis(),
+			expectedBalance)
 	}
-	if bobChannel.channelState.LocalBalance != expectedBalance {
+	if bobChannel.channelState.LocalBalance.ToSatoshis() != expectedBalance {
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			bobChannel.channelState.LocalBalance, expectedBalance)
+			bobChannel.channelState.LocalBalance.ToSatoshis(),
+			expectedBalance)
 	}
-	if bobChannel.channelState.RemoteBalance != expectedBalance-calcStaticFee(0) {
+	if bobChannel.channelState.RemoteBalance.ToSatoshis() !=
+		expectedBalance-calcStaticFee(0) {
+
 		t.Fatalf("balance is wrong: expected %v, got %v",
-			bobChannel.channelState.RemoteBalance,
+			bobChannel.channelState.RemoteBalance.ToSatoshis(),
 			expectedBalance-calcStaticFee(0))
 	}
 }
@@ -1574,7 +1588,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		bobChannel.status = channelOpen
 	}
 
-	setBalances := func(aliceBalance, bobBalance btcutil.Amount) {
+	setBalances := func(aliceBalance, bobBalance lnwire.MilliSatoshi) {
 		aliceChannel.channelState.LocalBalance = aliceBalance
 		aliceChannel.channelState.RemoteBalance = bobBalance
 		bobChannel.channelState.LocalBalance = bobBalance
@@ -1626,8 +1640,8 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 
 	// Next we'll modify the current balances and dust limits such that
 	// Bob's current balance is above _below_ his dust limit.
-	aliceBal := btcutil.Amount(btcutil.SatoshiPerBitcoin)
-	bobBal := btcutil.Amount(250)
+	aliceBal := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	bobBal := lnwire.NewMSatFromSatoshis(250)
 	setBalances(aliceBal, bobBal)
 
 	// Attempt another cooperative channel closure. It should succeed
@@ -1659,9 +1673,10 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		t.Fatalf("close tx has wrong number of outputs: expected %v "+
 			"got %v", 1, len(closeTx.TxOut))
 	}
-	if closeTx.TxOut[0].Value != int64(aliceBal-calcStaticFee(0)) {
+	if closeTx.TxOut[0].Value != int64(aliceBal.ToSatoshis()-calcStaticFee(0)) {
 		t.Fatalf("alice's balance is incorrect: expected %v, got %v",
-			int64(aliceBal-calcStaticFee(0)), closeTx.TxOut[0].Value)
+			int64(aliceBal.ToSatoshis()-calcStaticFee(0)),
+			closeTx.TxOut[0].Value)
 	}
 
 	// Finally, we'll modify the current balances and dust limits such that
@@ -1698,9 +1713,9 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		t.Fatalf("close tx has wrong number of outputs: expected %v "+
 			"got %v", 1, len(closeTx.TxOut))
 	}
-	if closeTx.TxOut[0].Value != int64(aliceBal) {
+	if closeTx.TxOut[0].Value != int64(aliceBal.ToSatoshis()) {
 		t.Fatalf("bob's balance is incorrect: expected %v, got %v",
-			aliceBal, closeTx.TxOut[0].Value)
+			aliceBal.ToSatoshis(), closeTx.TxOut[0].Value)
 	}
 }
 

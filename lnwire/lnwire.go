@@ -61,6 +61,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case MilliSatoshi:
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], uint64(e))
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case btcutil.Amount:
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
@@ -80,6 +86,10 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case *btcec.PublicKey:
+		if e == nil {
+			fmt.Errorf("cannot write nil pubkey")
+		}
+
 		var b [33]byte
 		serializedPubkey := e.SerializeCompressed()
 		copy(b[:], serializedPubkey)
@@ -101,6 +111,10 @@ func writeElement(w io.Writer, element interface{}) error {
 			}
 		}
 	case *btcec.Signature:
+		if e == nil {
+			return fmt.Errorf("cannot write nil signature")
+		}
+
 		var b [64]byte
 		err := serializeSigToWire(&b, e)
 		if err != nil {
@@ -166,6 +180,10 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case *FeatureVector:
+		if e == nil {
+			return fmt.Errorf("cannot write nil feature vector")
+		}
+
 		if err := e.Encode(w); err != nil {
 			return err
 		}
@@ -229,6 +247,10 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 	case *net.TCPAddr:
+		if e == nil {
+			return fmt.Errorf("cannot write nil TCPAddr")
+		}
+
 		if e.IP.To4() != nil {
 			var descriptor [1]byte
 			descriptor[0] = uint8(tcp4Addr)
@@ -347,6 +369,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint64(b[:])
+	case *MilliSatoshi:
+		var b [8]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = MilliSatoshi(int64(binary.BigEndian.Uint64(b[:])))
 	case *btcutil.Amount:
 		var b [8]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

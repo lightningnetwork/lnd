@@ -834,8 +834,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 		return nil, err
 	}
 	if failureLength > failureMessageLength {
-		return nil, errors.New(fmt.Sprintf("failure message is too "+
-			"long: %v", failureLength))
+		return nil, fmt.Errorf("failure message is too "+
+			"long: %v", failureLength)
 	}
 	failureData := make([]byte, failureLength)
 	if _, err := io.ReadFull(r, failureData); err != nil {
@@ -900,8 +900,8 @@ func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 	// failure message length.
 	failureMessage := failureMessageBuffer.Bytes()
 	if len(failureMessage) > failureMessageLength {
-		return errors.New(fmt.Sprintf("failure message exceed max "+
-			"available size: %v", len(failureMessage)))
+		return fmt.Errorf("failure message exceed max "+
+			"available size: %v", len(failureMessage))
 	}
 
 	// Finally, we'll add some padding in order to ensure that all failure

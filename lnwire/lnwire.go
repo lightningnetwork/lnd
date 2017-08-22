@@ -87,7 +87,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 	case *btcec.PublicKey:
 		if e == nil {
-			fmt.Errorf("cannot write nil pubkey")
+			return fmt.Errorf("cannot write nil pubkey")
 		}
 
 		var b [33]byte

@@ -722,7 +722,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// within the database for our path finding and syncing needs.
 		var featureBuf bytes.Buffer
 		if err := msg.Features.Encode(&featureBuf); err != nil {
-			log.Error("unable to encode features: %v", err)
+			log.Errorf("unable to encode features: %v", err)
 			nMsg.err <- err
 			return nil
 		}

@@ -2771,7 +2771,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.FeeReportResponse{feeReports}, nil
+	return &lnrpc.FeeReportResponse{
+		ChannelFees: feeReports,
+	}, nil
 }
 
 // minFeeRate is the smallest permitted fee rate within the network. This is

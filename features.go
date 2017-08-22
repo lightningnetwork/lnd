@@ -8,37 +8,15 @@ var globalFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
 
 // localFeatures is an feature vector which represent the features which
 // only affect the protocol between these two nodes.
+//
+// TODO(roasbeef): update to only have one, add a dummy vector?
 var localFeatures = lnwire.NewFeatureVector([]lnwire.Feature{
 	{
-		Name: "new-ping-and-funding",
-		Flag: lnwire.RequiredFlag,
+		Name: "filler",
+		Flag: lnwire.OptionalFlag,
 	},
 	{
-		Name: "node-ann-feature-addr-swap",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "dynamic-fees",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "shutdown-close-flow",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "sphinx-payload",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "htlc-dust-accounting",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "encrypted-errors",
-		Flag: lnwire.RequiredFlag,
-	},
-	{
-		Name: "new-funding-and-commitment",
-		Flag: lnwire.RequiredFlag,
+		Name: "announce-graph",
+		Flag: lnwire.OptionalFlag,
 	},
 })

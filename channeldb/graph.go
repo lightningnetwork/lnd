@@ -1078,6 +1078,13 @@ type ChannelEdgeInfo struct {
 	// and the last 2 bytes are the output index for the channel.
 	ChannelID uint64
 
+	// ChainHash is the hash that uniquely identifies the chain that this
+	// channel was opened within.
+	//
+	// TODO(roasbeef): need to modify db keying for multi-chain
+	//  * must add chain hash to prefix as well
+	ChainHash chainhash.Hash
+
 	// NodeKey1 is the identity public key of the "first" node that was
 	// involved in the creation of this channel. A node is considered
 	// "first" if the lexicographical ordering the its serialized public
@@ -1674,6 +1681,9 @@ func putChanEdgeInfo(edgeIndex *bolt.Bucket, edgeInfo *ChannelEdgeInfo, chanID [
 	if _, err := b.Write(chanID[:]); err != nil {
 		return err
 	}
+	if _, err := b.Write(edgeInfo.ChainHash[:]); err != nil {
+		return err
+	}
 
 	return edgeIndex.Put(chanID[:], b.Bytes())
 }
@@ -1771,6 +1781,10 @@ func deserializeChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.ChannelID); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, edgeInfo.ChainHash[:]); err != nil {
 		return nil, err
 	}
 

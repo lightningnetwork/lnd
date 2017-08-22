@@ -1577,11 +1577,15 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID) (*chanAnnouncement, error) {
 
+	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
+
 	// The unconditional section of the announcement is the ShortChannelID
 	// itself which compactly encodes the location of the funding output
 	// within the blockchain.
 	chanAnn := &lnwire.ChannelAnnouncement{
 		ShortChannelID: shortChanID,
+		Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+		ChainHash:      chainHash,
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is
@@ -1657,7 +1661,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		return nil, errors.Errorf("unable to generate node "+
 			"signature for channel announcement: %v", err)
 	}
-	bitcoinSig, err := f.cfg.SignMessage(localFundingKey, selfBytes)
+	bitcoinSig, err := f.cfg.SignMessage(localFundingKey, chanAnnMsg)
 	if err != nil {
 		return nil, errors.Errorf("unable to generate bitcoin "+
 			"signature for node public key: %v", err)
@@ -1838,7 +1842,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		DustLimit:            ourContribution.DustLimit,
 		MaxValueInFlight:     ourContribution.MaxPendingAmount,
 		ChannelReserve:       ourContribution.ChanReserve,
-		HtlcMinimum:          uint32(ourContribution.MinHTLC),
+		HtlcMinimum:          ourContribution.MinHTLC,
 		FeePerKiloWeight:     uint32(feePerKw),
 		CsvDelay:             uint16(remoteCsvDelay),
 		MaxAcceptedHTLCs:     ourContribution.MaxAcceptedHtlcs,

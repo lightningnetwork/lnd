@@ -674,7 +674,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 	case *channeldb.ChannelEdgePolicy:
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		edge1Timestamp, edge2Timestamp, _, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
+		edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
+			msg.ChannelID,
+		)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
@@ -710,18 +712,23 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			}
 		}
 
-		// Before we can update the channel information, we'll ensure
-		// that the target channel is still open by querying the
-		// utxo-set for its existence.
-		chanPoint, err := r.fetchChanPoint(&channelID)
-		if err != nil {
-			return errors.Errorf("unable to fetch chan point for "+
-				"chan_id=%v: %v", msg.ChannelID, err)
-		}
-		_, err = r.cfg.Chain.GetUtxo(chanPoint, channelID.BlockHeight)
-		if err != nil {
-			return errors.Errorf("unable to fetch utxo for "+
-				"chan_id=%v: %v", msg.ChannelID, err)
+		if !exists {
+			// Before we can update the channel information, we'll
+			// ensure that the target channel is still open by
+			// querying the utxo-set for its existence.
+			chanPoint, err := r.fetchChanPoint(&channelID)
+			if err != nil {
+				return errors.Errorf("unable to fetch chan "+
+					"point for chan_id=%v: %v",
+					msg.ChannelID, err)
+			}
+			_, err = r.cfg.Chain.GetUtxo(
+				chanPoint, channelID.BlockHeight,
+			)
+			if err != nil {
+				return errors.Errorf("unable to fetch utxo for "+
+					"chan_id=%v: %v", msg.ChannelID, err)
+			}
 		}
 
 		// Now that we know this isn't a stale update, we'll apply the

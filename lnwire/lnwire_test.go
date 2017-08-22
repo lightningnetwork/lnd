@@ -384,14 +384,14 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req := NodeAnnouncement{
 				Signature: testSig,
+				Features:  randFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
-				Alias:     newAlias(a[:]),
+				Alias:     a,
 				RGBColor: RGB{
 					red:   uint8(r.Int31()),
 					green: uint8(r.Int31()),
 					blue:  uint8(r.Int31()),
 				},
-				Features:  randFeatureVector(r),
 				Addresses: testAddrs,
 			}
 			req.Features.featuresMap = nil

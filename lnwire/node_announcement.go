@@ -58,26 +58,25 @@ type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
 	Signature *btcec.Signature
 
-	// Timestamp allows ordering in the case of multiple
-	// announcements.
+	// Features is the list of protocol features this node supports.
+	Features *FeatureVector
+
+	// Timestamp allows ordering in the case of multiple announcements.
 	Timestamp uint32
 
 	// NodeID is a public key which is used as node identification.
 	NodeID *btcec.PublicKey
 
-	// RGBColor is used to customize their node's appearance in
-	// maps and graphs
+	// RGBColor is used to customize their node's appearance in maps and
+	// graphs
 	RGBColor RGB
 
-
-	// Features is the list of protocol features this node supports.
-	Features *FeatureVector
 	// Alias is used to customize their node's appearance in maps and
 	// graphs
 	Alias NodeAlias
 
-	// Address includes two specification fields: 'ipv6' and 'port' on which
-	// the node is accepting incoming connections.
+	// Address includes two specification fields: 'ipv6' and 'port' on
+	// which the node is accepting incoming connections.
 	Addresses []net.Addr
 }
 
@@ -92,11 +91,11 @@ var _ Message = (*NodeAnnouncement)(nil)
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.Signature,
+		&a.Features,
 		&a.Timestamp,
 		&a.NodeID,
 		&a.RGBColor,
-		&a.Alias,
-		&a.Features,
+		a.Alias[:],
 		&a.Addresses,
 	)
 }
@@ -107,11 +106,11 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.Signature,
+		a.Features,
 		a.Timestamp,
 		a.NodeID,
 		a.RGBColor,
-		a.Alias,
-		a.Features,
+		a.Alias[:],
 		a.Addresses,
 	)
 }
@@ -138,16 +137,18 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
+		a.Features,
 		a.Timestamp,
 		a.NodeID,
 		a.RGBColor,
-		a.Alias,
-		a.Features,
+		a.Alias[:],
 		a.Addresses,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(roasbeef): also capture the excess bytes in msg padded out?
 
 	return w.Bytes(), nil
 }

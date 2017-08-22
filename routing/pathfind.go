@@ -409,6 +409,9 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 			if _, ok := ignoredEdges[outEdge.ChannelID]; ok {
 				return nil
 			}
+			if inEdge == nil {
+				return nil
+			}
 
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current

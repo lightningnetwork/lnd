@@ -635,8 +635,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
 		errMsg := &lnwire.Error{
 			ChanID: fmsg.msg.PendingChannelID,
-			Code:   lnwire.ErrMaxPendingChannels,
-			Data:   []byte("Number of pending channels exceed maximum"),
+			Data:   lnwire.ErrorData{byte(lnwire.ErrMaxPendingChannels)},
 		}
 		if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg); err != nil {
 			fndgLog.Errorf("unable to send max pending channels "+
@@ -658,8 +657,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if !isSynced {
 		errMsg := &lnwire.Error{
 			ChanID: fmsg.msg.PendingChannelID,
-			Code:   lnwire.ErrSynchronizingChain,
-			Data:   []byte("Synchronizing blockchain"),
+			Data:   lnwire.ErrorData{byte(lnwire.ErrSynchronizingChain)},
 		}
 		if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg); err != nil {
 			fndgLog.Errorf("unable to send error message to peer %v", err)
@@ -673,7 +671,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if msg.FundingAmount > maxFundingAmount {
 		errMsg := &lnwire.Error{
 			ChanID: fmsg.msg.PendingChannelID,
-			Data:   []byte("channel too large"),
+			Data:   lnwire.ErrorData{byte(lnwire.ErrChanTooLarge)},
 		}
 		err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg)
 		if err != nil {
@@ -1892,7 +1890,8 @@ func (f *fundingManager) processFundingError(err *lnwire.Error,
 func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	e := fmsg.err
 
-	switch e.Code {
+	lnErr := lnwire.ErrorCode(e.Data[0])
+	switch lnErr {
 	case lnwire.ErrChanTooLarge:
 		fallthrough
 	case lnwire.ErrMaxPendingChannels:
@@ -1908,16 +1907,14 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 		}
 
 		fndgLog.Errorf("Received funding error from %x: %v",
-			peerKey.SerializeCompressed(), newLogClosure(func() string {
-				return spew.Sdump(e)
-			}),
+			peerKey.SerializeCompressed(), lnErr,
 		)
 
-		ctx.err <- grpc.Errorf(e.Code.ToGrpcCode(), string(e.Data))
+		ctx.err <- grpc.Errorf(lnErr.ToGrpcCode(), lnErr.String())
 		return
 
 	default:
-		fndgLog.Warnf("unknown funding error (%v:%v)", e.Code, e.Data)
+		fndgLog.Warnf("unknown funding error: %v", spew.Sdump(e.Data))
 	}
 }
 

@@ -245,7 +245,9 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 		}
 	}
 
-	addr, err := r.server.cc.wallet.NewAddress(lnwallet.WitnessPubKey, false)
+	addr, err := r.server.cc.wallet.NewAddress(
+		lnwallet.NestedWitnessPubKey, false,
+	)
 	if err != nil {
 		return nil, err
 	}

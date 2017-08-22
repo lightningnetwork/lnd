@@ -557,9 +557,10 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	skipNodes := make(map[NodeID]struct{})
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
+			skipNodes := make(map[NodeID]struct{})
+
 			graph, cleanup, err := graph.genFunc()
 			if err != nil {
 				t1.Fatalf("unable to create graph: %v", err)

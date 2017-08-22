@@ -1446,6 +1446,11 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 	// Once we've completed the cooperative channel closure, we'll wipe the
 	// channel so we reject any incoming forward or payment requests via
 	// this channel.
+	select {
+	case p.server.breachArbiter.settledContracts <- chanPoint:
+	case <-p.server.quit:
+		return nil, 0
+	}
 	if err := p.WipeChannel(channel); err != nil {
 		if localReq != nil {
 			localReq.Err <- err

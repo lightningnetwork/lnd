@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -54,9 +54,9 @@ type ContractTerm struct {
 	// extended.
 	PaymentPreimage [32]byte
 
-	// Value is the expected amount to be payed to an HTLC which can be
-	// satisfied by the above preimage.
-	Value btcutil.Amount
+	// Value is the expected amount of milli-satoshis to be payed to an
+	// HTLC which can be satisfied by the above preimage.
+	Value lnwire.MilliSatoshi
 
 	// Settled indicates if this particular contract term has been fully
 	// settled by the payer.
@@ -376,7 +376,7 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	invoice.Terms.Value = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	invoice.Terms.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
 
 	var settleByte [1]byte
 	if _, err := io.ReadFull(r, settleByte[:]); err != nil {
@@ -401,6 +401,8 @@ func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte) error {
 	if err := serializeInvoice(&buf, invoice); err != nil {
 		return nil
 	}
+
+	// TODO(roasbeef): add timestamp
 
 	return invoices.Put(invoiceNum[:], buf.Bytes())
 }

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-func randInvoice(value btcutil.Amount) (*Invoice, error) {
+func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 
 	var pre [32]byte
 	if _, err := rand.Read(pre[:]); err != nil {
@@ -48,7 +48,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	fakeInvoice.Memo = []byte("memo")
 	fakeInvoice.Receipt = []byte("recipt")
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
-	fakeInvoice.Terms.Value = btcutil.Amount(10000)
+	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
 	// Add the invoice to the database, this should suceed as there aren't
 	// any existing invoices within the database with the same payment
@@ -99,7 +99,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Add 100 random invoices.
 	const numInvoices = 10
-	amt := btcutil.Amount(1000)
+	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoices := make([]*Invoice, numInvoices+1)
 	invoices[0] = dbInvoice2
 	for i := 1; i < len(invoices)-1; i++ {

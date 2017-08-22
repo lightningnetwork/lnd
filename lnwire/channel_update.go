@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // ChannelUpdate message is used after channel has been initially announced.
@@ -16,11 +17,17 @@ type ChannelUpdate struct {
 	// ownership of node id.
 	Signature *btcec.Signature
 
+	// ChainHash denotes the target chain that this channel was opened
+	// within. This value should be the genesis hash of the target chain.
+	// Along with the short channel ID, this uniquely identifies the
+	// channel globally in a blockchain.
+	ChainHash chainhash.Hash
+
 	// ShortChannelID is the unique description of the funding transaction.
 	ShortChannelID ShortChannelID
 
-	// Timestamp allows ordering in the case of multiple announcements.
-	// We should ignore the message if timestamp is not greater than
+	// Timestamp allows ordering in the case of multiple announcements.  We
+	// should ignore the message if timestamp is not greater than
 	// the last-received.
 	Timestamp uint32
 
@@ -37,7 +44,7 @@ type ChannelUpdate struct {
 	TimeLockDelta uint16
 
 	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
-	HtlcMinimumMsat uint64
+	HtlcMinimumMsat MilliSatoshi
 
 	// BaseFee is the base fee that must be used for incoming HTLC's to
 	// this particular channel. This value will be tacked onto the required
@@ -60,6 +67,7 @@ var _ Message = (*ChannelUpdate)(nil)
 func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.Signature,
+		a.ChainHash[:],
 		&a.ShortChannelID,
 		&a.Timestamp,
 		&a.Flags,
@@ -77,6 +85,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.Signature,
+		a.ChainHash[:],
 		a.ShortChannelID,
 		a.Timestamp,
 		a.Flags,
@@ -104,6 +113,9 @@ func (a *ChannelUpdate) MaxPayloadLength(pver uint32) uint32 {
 
 	// Signature - 64 bytes
 	length += 64
+
+	// ChainHash - 64 bytes
+	length += 32
 
 	// ShortChannelID - 8 bytes
 	length += 8
@@ -136,6 +148,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
+		a.ChainHash[:],
 		a.ShortChannelID,
 		a.Timestamp,
 		a.Flags,

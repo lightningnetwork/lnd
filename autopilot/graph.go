@@ -82,7 +82,7 @@ func (d dbNode) Addrs() []net.Addr {
 // NOTE: Part of the autopilot.Node interface.
 func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.node.ForEachChannel(d.tx, func(tx *bolt.Tx,
-		ei *channeldb.ChannelEdgeInfo, ep *channeldb.ChannelEdgePolicy) error {
+		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
 
 		edge := ChannelEdge{
 			Channel: Channel{
@@ -220,9 +220,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 		Flags: 0,
 	}
 
@@ -234,9 +234,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
-		MinHTLC:                   btcutil.Amount(1),
-		FeeBaseMSat:               btcutil.Amount(10),
-		FeeProportionalMillionths: btcutil.Amount(10000),
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
 		Flags: 1,
 	}
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {

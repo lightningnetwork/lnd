@@ -65,6 +65,12 @@ var (
 	}
 )
 
+const (
+	// maxPaymentMSat is the maximum allowed payment permitted currently as
+	// defined in BOLT-0002.
+	maxPaymentMSat = lnwire.MilliSatoshi(math.MaxUint32)
+)
+
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
 // TODO(roasbeef): pagination support for the list-style calls
 type rpcServer struct {
@@ -1472,14 +1478,34 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		case err := <-errChan:
 			return err
 		case nextPayment := <-payChan:
+			// Currently, within the bootstrap phase of the
+			// network, we limit the largest payment size allotted
+			// to (2^32) - 1 mSAT or 4.29 million satoshis.
+			amt := btcutil.Amount(nextPayment.Amt)
+			amtMSat := lnwire.NewMSatFromSatoshis(amt)
+			if amtMSat > maxPaymentMSat {
+				// In this case, we'll send an error to the
+				// caller, but continue our loop for the next
+				// payment.
+				pErr := fmt.Errorf("payment of %v is too "+
+					"large, max payment allowed is %v",
+					nextPayment.Amt,
+					maxPaymentMSat.ToSatoshis())
+
+				if err := paymentStream.Send(&lnrpc.SendResponse{
+					PaymentError: pErr.Error(),
+				}); err != nil {
+					return err
+				}
+				continue
+			}
+
 			// Parse the details of the payment which include the
 			// pubkey of the destination and the payment amount.
 			dest := nextPayment.Dest
-			amt := btcutil.Amount(nextPayment.Amt)
 			destNode, err := btcec.ParsePubKey(dest, btcec.S256())
 			if err != nil {
 				return err
-
 			}
 
 			// If we're in debug HTLC mode, then all outgoing HTLCs
@@ -1511,7 +1537,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// error.
 				payment := &routing.LightningPayment{
 					Target:      destNode,
-					Amount:      amt,
+					Amount:      amtMSat,
 					PaymentHash: rHash,
 				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment)
@@ -1520,20 +1546,17 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					// instead of terminating the stream,
 					// send error response to the user.
 					err := paymentStream.Send(&lnrpc.SendResponse{
-						PaymentError:    err.Error(),
-						PaymentPreimage: nil,
-						PaymentRoute:    nil,
+						PaymentError: err.Error(),
 					})
 					if err != nil {
 						errChan <- err
-						return
 					}
 					return
 				}
 
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				if err := r.savePayment(route, amt, rHash[:]); err != nil {
+				if err := r.savePayment(route, amtMSat, rHash[:]); err != nil {
 					errChan <- err
 					return
 				}
@@ -1557,6 +1580,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 // hash (if any) to be encoded as hex strings.
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
+
 	// Check macaroon to see if this is allowed.
 	if r.authSvc != nil {
 		if err := macaroons.ValidateMacaroon(ctx, "sendpayment",
@@ -1564,6 +1588,9 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 			return nil, err
 		}
 	}
+
+	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
+	//  * limit either a %, or absolute, or iff more than sending
 
 	// We don't allow payments to be sent while the daemon itself is still
 	// syncing as we may be trying to sent a payment over a "stale"
@@ -1580,7 +1607,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	)
 
 	// If the proto request has an encoded payment request, then we we'll
-	// use that solely to dipatch the payment.
+	// use that solely to dispatch the payment.
 	if nextPayment.PaymentRequest != "" {
 		payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
 		if err != nil {
@@ -1619,12 +1646,22 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		amt = btcutil.Amount(nextPayment.Amt)
 	}
 
+	// Currently, within the bootstrap phase of the network, we limit the
+	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
+	// satoshis.
+	amtMSat := lnwire.NewMSatFromSatoshis(amt)
+	if amtMSat > maxPaymentMSat {
+		return nil, fmt.Errorf("payment of %v is too large, max payment "+
+			"allowed is %v", nextPayment.Amt,
+			maxPaymentMSat.ToSatoshis())
+	}
+
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
 	preImage, route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
 		Target:      destPub,
-		Amount:      amt,
+		Amount:      amtMSat,
 		PaymentHash: rHash,
 	})
 	if err != nil {
@@ -1633,7 +1670,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 	// With the payment completed successfully, we now ave the details of
 	// the completed payment to the database for historical record keeping.
-	if err := r.savePayment(route, amt, rHash[:]); err != nil {
+	if err := r.savePayment(route, amtMSat, rHash[:]); err != nil {
 		return nil, err
 	}
 
@@ -1696,6 +1733,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	// The value of an invoice MUST NOT be zero.
 	case invoice.Value == 0:
 		return nil, fmt.Errorf("zero value invoices are disallowed")
+
+	// The value of the invoice must also not exceed the current soft-limit
+	// on the largest payment within the network.
+	case amtMSat > maxPaymentMSat:
+		return nil, fmt.Errorf("payment of %v is too large, max "+
+			"payment allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
 
 	i := &channeldb.Invoice{
@@ -2220,11 +2263,20 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	// Currently, within the bootstrap phase of the network, we limit the
+	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
+	// satoshis.
+	amt := btcutil.Amount(in.Amt)
+	amtMSat := lnwire.NewMSatFromSatoshis(amt)
+	if amtMSat > maxPaymentMSat {
+		return nil, fmt.Errorf("payment of %v is too large, max payment "+
+			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
+	}
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(pubKey,
-		btcutil.Amount(in.Amt))
+	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat)
 	if err != nil {
 		return nil, err
 	}

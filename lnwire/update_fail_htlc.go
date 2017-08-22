@@ -12,8 +12,8 @@ type OpaqueReason []byte
 // next commitment transaction, with the UpdateFailHTLC propagated backwards in
 // the route to fully undo the HTLC.
 type UpdateFailHTLC struct {
-	// ChanIDPoint is the particular active channel that this UpdateFailHTLC
-	// is bound to.
+	// ChanIDPoint is the particular active channel that this
+	// UpdateFailHTLC is bound to.
 	ChanID ChannelID
 
 	// ID references which HTLC on the remote node's commitment transaction
@@ -79,7 +79,7 @@ func (c *UpdateFailHTLC) MaxPayloadLength(uint32) uint32 {
 	length += 2
 
 	// Length of the Reason
-	length += 166
+	length += 292
 
 	return length
 }

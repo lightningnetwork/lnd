@@ -49,7 +49,8 @@ type ChannelGraphSource interface {
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// eminating from the "source" node which is the center of the
 	// star-graph.
-	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error
+	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgeInfo,
+		e *channeldb.ChannelEdgePolicy) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -1153,12 +1154,13 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 // the router.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error {
+func (r *ChannelRouter) ForAllOutgoingChannels(cb func(*channeldb.ChannelEdgeInfo,
+	*channeldb.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *channeldb.ChannelEdgeInfo,
-		c *channeldb.ChannelEdgePolicy) error {
+	return r.selfNode.ForEachChannel(nil, func(_ *bolt.Tx, c *channeldb.ChannelEdgeInfo,
+		e, _ *channeldb.ChannelEdgePolicy) error {
 
-		return cb(c)
+		return cb(c, e)
 	})
 }
 

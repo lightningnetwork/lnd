@@ -35,7 +35,7 @@ type WitnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
 
 // GenWitnessFunc will return a WitnessGenerator function that an output
 // uses to generate the witness for a sweep transaction.
-func (wt WitnessType) GenWitnessFunc(signer *Signer,
+func (wt WitnessType) GenWitnessFunc(signer Signer,
 	descriptor *SignDescriptor) WitnessGenerator {
 
 	return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
@@ -47,11 +47,11 @@ func (wt WitnessType) GenWitnessFunc(signer *Signer,
 
 		switch wt {
 		case CommitmentTimeLock:
-			return CommitSpendTimeout(*signer, desc, tx)
+			return CommitSpendTimeout(signer, desc, tx)
 		case CommitmentNoDelay:
-			return CommitSpendNoDelay(*signer, desc, tx)
+			return CommitSpendNoDelay(signer, desc, tx)
 		case CommitmentRevoke:
-			return CommitSpendRevoke(*signer, desc, tx)
+			return CommitSpendRevoke(signer, desc, tx)
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)
 		}

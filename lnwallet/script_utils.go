@@ -821,11 +821,12 @@ func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //
 // Output Script:
 //     OP_IF
-//         <revokeKey> OP_CHECKSIG
+//         <revokeKey>
 //     OP_ELSE
-//         <timeKey> OP_CHECKSIGVERIFY
-//         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY
+//         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+//         <timeKey>
 //     OP_ENDIF
+//     OP_CHECKSIG
 func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
 	// This script is spendable under two conditions: either the
 	// 'csvTimeout' has passed and we can redeem our funds, or they can
@@ -841,18 +842,21 @@ func commitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	// If a valid signature using the revocation key is presented, then
 	// allow an immediate spend provided the proper signature.
 	builder.AddData(revokeKey.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIG)
 
 	builder.AddOp(txscript.OP_ELSE)
 
 	// Otherwise, we can re-claim our funds after a CSV delay of
 	// 'csvTimeout' timeout blocks, and a valid signature.
-	builder.AddData(selfKey.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
 	builder.AddInt64(int64(csvTimeout))
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddData(selfKey.SerializeCompressed())
 
 	builder.AddOp(txscript.OP_ENDIF)
+
+	// Finally, we'll validate the signature against the public key that's
+	// left on the top of the stack.
+	builder.AddOp(txscript.OP_CHECKSIG)
 
 	return builder.Script()
 }

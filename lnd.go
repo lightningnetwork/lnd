@@ -49,6 +49,8 @@ var (
 	shutdownChannel  = make(chan struct{})
 	registeredChains = newChainRegistry()
 
+	macaroonDatabaseDir string
+
 	// End of ASN.1 time.
 	endOfTime = time.Date(2049, 12, 31, 23, 59, 59, 0, time.UTC)
 
@@ -100,16 +102,14 @@ func lndMain() error {
 	var macaroonService *bakery.Service
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(cfg.DataDir)
+		macaroonService, err = macaroons.NewService(macaroonDatabaseDir)
 		if err != nil {
-			srvrLog.Errorf("unable to create macaroon service: %v",
-				err)
+			srvrLog.Errorf("unable to create macaroon service: %v", err)
 			return err
 		}
 
 		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) &&
-			!fileExists(cfg.ReadMacPath) {
+		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) {
 			err = genMacaroons(macaroonService, cfg.AdminMacPath,
 				cfg.ReadMacPath)
 			if err != nil {
@@ -121,7 +121,7 @@ func lndMain() error {
 	}
 
 	// With the information parsed from the configuration, create valid
-	// instances of the paertinent interfaces required to operate the
+	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(cfg, chanDB)
 	if err != nil {
@@ -183,7 +183,7 @@ func lndMain() error {
 			return server.genNodeAnnouncement(true)
 		},
 		SendAnnouncement: func(msg lnwire.Message) error {
-			errChan := server.discoverSrv.ProcessLocalAnnouncement(msg,
+			errChan := server.authGossiper.ProcessLocalAnnouncement(msg,
 				idPrivKey.PubKey())
 			return <-errChan
 		},

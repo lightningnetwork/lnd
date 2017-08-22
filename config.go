@@ -38,6 +38,7 @@ const (
 )
 
 var (
+	// TODO(roasbeef): base off of datadir instead?
 	lndHomeDir          = btcutil.AppDataDir("lnd", false)
 	defaultConfigFile   = filepath.Join(lndHomeDir, defaultConfigFilename)
 	defaultDataDir      = filepath.Join(lndHomeDir, defaultDataDirname)
@@ -308,6 +309,21 @@ func loadConfig() (*config, error) {
 			fmt.Fprintln(os.Stderr, usageMessage)
 			return nil, err
 		}
+	}
+
+	// At this point, we'll save the base data directory in order to ensure
+	// we don't store the macaroon database within any of the chain
+	// namespaced directories.
+	macaroonDatabaseDir = cfg.DataDir
+
+	// If a custom macaroon directory wasn't specified and the data
+	// directory has changed from the default path, then we'll also update
+	// the path for the macaroons to be generated.
+	if cfg.DataDir != defaultDataDir && cfg.AdminMacPath == defaultAdminMacPath {
+		cfg.AdminMacPath = filepath.Join(cfg.DataDir, defaultAdminMacFilename)
+	}
+	if cfg.DataDir != defaultDataDir && cfg.ReadMacPath == defaultReadMacPath {
+		cfg.ReadMacPath = filepath.Join(cfg.DataDir, defaultReadMacFilename)
 	}
 
 	// Append the network type to the data directory so it is "namespaced"

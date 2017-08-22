@@ -92,6 +92,8 @@ func (t MessageType) String() string {
 		return "AnnounceSignatures"
 	case MsgPong:
 		return "Pong"
+	case MsgUpdateFee:
+		return "UpdateFee"
 	default:
 		return "<unknown>"
 	}

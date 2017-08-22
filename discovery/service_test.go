@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"sync"
@@ -158,7 +159,8 @@ func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error)
 	return nil
 }
 
-func (r *mockGraphSource) ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgePolicy) error) error {
+func (r *mockGraphSource) ForAllOutgoingChannels(cb func(i *channeldb.ChannelEdgeInfo,
+	c *channeldb.ChannelEdgePolicy) error) error {
 	return nil
 }
 
@@ -312,7 +314,11 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	error) {
 	var err error
 
-	alias := lnwire.NewAlias("kek" + string(priv.Serialize()))
+	k := hex.EncodeToString(priv.Serialize())
+	alias, err := lnwire.NewNodeAlias("kek" + k[:10])
+	if err != nil {
+		return nil, err
+	}
 
 	a := &lnwire.NodeAnnouncement{
 		Timestamp: uint32(prand.Int31()),
@@ -339,7 +345,7 @@ func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdate, error)
 		},
 		Timestamp:       uint32(prand.Int31()),
 		TimeLockDelta:   uint16(prand.Int63()),
-		HtlcMinimumMsat: uint64(prand.Int63()),
+		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
 	}
@@ -367,6 +373,7 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 		NodeID2:     nodeKeyPub2,
 		BitcoinKey1: bitcoinKeyPub1,
 		BitcoinKey2: bitcoinKeyPub2,
+		Features:    testFeatures,
 	}
 
 	pub := nodeKeyPriv1.PubKey()
@@ -381,15 +388,15 @@ func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnounc
 		return nil, err
 	}
 
-	hash := chainhash.DoubleHashB(nodeKeyPub1.SerializeCompressed())
-	a.BitcoinSig1, err = bitcoinKeyPriv1.Sign(hash)
-	if err != nil {
+	pub = bitcoinKeyPriv1.PubKey()
+	signer = mockSigner{bitcoinKeyPriv1}
+	if a.BitcoinSig1, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
 
-	hash = chainhash.DoubleHashB(nodeKeyPub2.SerializeCompressed())
-	a.BitcoinSig2, err = bitcoinKeyPriv2.Sign(hash)
-	if err != nil {
+	pub = bitcoinKeyPriv2.PubKey()
+	signer = mockSigner{bitcoinKeyPriv2}
+	if a.BitcoinSig2, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
 
@@ -432,7 +439,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		TrickleDelay:     trickleDelay,
 		ProofMatureDelta: proofMatureDelta,
 		DB:               db,
-	})
+	}, nodeKeyPub1)
 	if err != nil {
 		cleanUpDb()
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -770,7 +777,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// between two nodes.
 	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localChanAnn, localKey)
 	if err != nil {
-		t.Fatalf("unable to process :%v", err)
+		t.Fatalf("unable to process: %v", err)
 	}
 
 	select {
@@ -781,7 +788,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
 	if err != nil {
-		t.Fatalf("unable to process :%v", err)
+		t.Fatalf("unable to process: %v", err)
 	}
 	select {
 	case <-ctx.broadcastedMessage:
@@ -791,7 +798,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
 	if err != nil {
-		t.Fatalf("unable to process :%v", err)
+		t.Fatalf("unable to process: %v", err)
 	}
 	select {
 	case <-ctx.broadcastedMessage:
@@ -803,7 +810,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// the channel announcement.
 	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn, localKey)
 	if err != nil {
-		t.Fatalf("unable to process :%v", err)
+		t.Fatalf("unable to process: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {

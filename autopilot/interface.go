@@ -112,6 +112,8 @@ type AttachmentHeuristic interface {
 	// indeed need more channels, then the second argument returned will
 	// represent the amount of additional funds to be used towards creating
 	// channels.
+	//
+	// TODO(roasbeef): return number of chans? ensure doesn't go over
 	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, bool)
 
 	// Select is a method that given the current state of the channel

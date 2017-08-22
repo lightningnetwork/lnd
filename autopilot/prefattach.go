@@ -122,7 +122,8 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
 func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph,
-	fundsAvailable btcutil.Amount, skipNodes map[NodeID]struct{}) ([]AttachmentDirective, error) {
+	fundsAvailable btcutil.Amount,
+	skipNodes map[NodeID]struct{}) ([]AttachmentDirective, error) {
 
 	// TODO(roasbeef): rename?
 
@@ -135,7 +136,8 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 	// We'll continue our attachment loop until we've exhausted the current
 	// amount of available funds.
 	visited := make(map[NodeID]struct{})
-	for i := uint16(0); i < p.chanLimit; i++ {
+	chanLimit := p.chanLimit - uint16(len(skipNodes))
+	for i := uint16(0); i < chanLimit; i++ {
 		// selectionSlice will be used to randomly select a node
 		// according to a power law distribution. For each connected
 		// edge, we'll add an instance of the node to this slice. Thus,

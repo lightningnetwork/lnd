@@ -1666,3 +1666,155 @@ func verifyMessage(ctx *cli.Context) error {
 	printRespJSON(resp)
 	return nil
 }
+
+var feeReportCommand = cli.Command{
+	Name:  "feereport",
+	Usage: "display the current fee policies of all active channels",
+	Description: "Returns the current fee policies of all active " +
+		"channels. Fee policies can be updated using the " +
+		"updateFees command. ",
+	Action: feeReport,
+}
+
+func feeReport(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.FeeReportRequest{}
+	resp, err := client.FeeReport(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var updateFeesCommand = cli.Command{
+	Name:      "updatefees",
+	Usage:     "update the fee policy for all channels, or a single channel",
+	ArgsUsage: "base_fee_msat fee_rate [channel_point]",
+	Description: ` Updates the fee policy for all channels, or just a
+		particular channel identified by it's channel point. The 
+		fee update will be committed, and broadcast to the rest 
+		of the network within the next batch. Channel points are encoded
+		as: funding_txid:output_index`,
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "base_fee_msat",
+			Usage: "the base fee in milli-satoshis that will " +
+				"be charged for each forwarded HTLC, regardless " +
+				"of payment size",
+		},
+		cli.StringFlag{
+			Name: "fee_rate",
+			Usage: "the fee rate that will be charged " +
+				"proportionally based on the value of each " +
+				"forwarded HTLC, the lowest possible rate is 0.000001",
+		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "The channel whose fee policy should be " +
+				"updated, if nil the policies for all channels " +
+				"will be updated. Takes the form of: txid:output_index",
+		},
+	},
+	Action: updateFees,
+}
+
+func updateFees(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		baseFee int64
+		feeRate float64
+		err     error
+	)
+	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("base_fee_msat"):
+		baseFee = ctx.Int64("base_fee_msat")
+	case args.Present():
+		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode base_fee_msat: %v", err)
+		}
+		args = args.Tail()
+	default:
+		return fmt.Errorf("base_fee_msat argument missing")
+	}
+
+	switch {
+	case ctx.IsSet("fee_rate"):
+		feeRate = ctx.Float64("fee_rate")
+	case args.Present():
+		feeRate, err = strconv.ParseFloat(args.First(), 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode fee_rate: %v", err)
+		}
+
+		args = args.Tail()
+	default:
+		return fmt.Errorf("fee_rate argument missing")
+	}
+
+	var (
+		chanPoint    *lnrpc.ChannelPoint
+		chanPointStr string
+	)
+	switch {
+	case ctx.IsSet("chan_point"):
+		chanPointStr = ctx.String("chan_point")
+	case args.Present():
+		chanPointStr = args.First()
+	}
+
+	if chanPointStr != "" {
+		split := strings.Split(chanPointStr, ":")
+		if len(split) != 2 {
+			return fmt.Errorf("expecting chan_point to be in format of: " +
+				"txid:index")
+		}
+
+		txHash, err := chainhash.NewHashFromStr(split[0])
+		if err != nil {
+			return err
+		}
+		index, err := strconv.ParseInt(split[1], 10, 32)
+		if err != nil {
+			return fmt.Errorf("unable to decode output index: %v", err)
+		}
+
+		chanPoint = &lnrpc.ChannelPoint{
+			FundingTxid: txHash[:],
+			OutputIndex: uint32(index),
+		}
+	}
+
+	req := &lnrpc.FeeUpdateRequest{
+		BaseFeeMsat: baseFee,
+		FeeRate:     feeRate,
+	}
+
+	if chanPoint != nil {
+		req.Scope = &lnrpc.FeeUpdateRequest_ChanPoint{
+			ChanPoint: chanPoint,
+		}
+	} else {
+		req.Scope = &lnrpc.FeeUpdateRequest_Global{
+			Global: true,
+		}
+	}
+
+	resp, err := client.UpdateFees(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}

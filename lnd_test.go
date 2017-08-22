@@ -607,7 +607,7 @@ peersPoll:
 	}
 
 	// Both nodes should still show a single channel as pending.
-	time.Sleep(time.Millisecond * 300)
+	time.Sleep(time.Second * 1)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 1)
 
@@ -618,7 +618,7 @@ peersPoll:
 
 	// At this point, the channel should be fully opened and there should
 	// be no pending channels remaining for either node.
-	time.Sleep(time.Millisecond * 300)
+	time.Sleep(time.Second * 1)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	assertNumOpenChannelsPending(ctxt, t, net.Alice, carol, 0)
 
@@ -1011,6 +1011,11 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
 	}
 

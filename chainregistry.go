@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcrpcclient"
@@ -29,7 +30,7 @@ import (
 // Bitcoin channels.
 var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	MinHTLC:       0,
-	BaseFee:       1,
+	BaseFee:       lnwire.NewMSatFromSatoshis(1),
 	FeeRate:       1,
 	TimeLockDelta: 144,
 }

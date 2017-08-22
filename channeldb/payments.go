@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/boltdb/bolt"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -25,8 +25,8 @@ var (
 type OutgoingPayment struct {
 	Invoice
 
-	// Fee is the total fee paid for the payment in satoshis.
-	Fee btcutil.Amount
+	// Fee is the total fee paid for the payment in milli-satoshis.
+	Fee lnwire.MilliSatoshi
 
 	// TotalTimeLock is the total cumulative time-lock in the HTLC extended
 	// from the second-to-last hop to the destination.
@@ -184,7 +184,7 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	if _, err := r.Read(scratch[:]); err != nil {
 		return nil, err
 	}
-	p.Fee = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	p.Fee = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
 
 	if _, err = r.Read(scratch[:4]); err != nil {
 		return nil, err

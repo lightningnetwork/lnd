@@ -11,6 +11,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil/hdkeychain"
@@ -102,9 +103,9 @@ type initFundingReserveMsg struct {
 	// of the accepted base fee rate of the network.
 	feePerKw btcutil.Amount
 
-	// pushSat is the number of satoshis that should be pushed over the
-	// responder as part of the initial channel creation.
-	pushSat btcutil.Amount
+	// pushMSat is the number of milli-satoshis that should be pushed over
+	// the responder as part of the initial channel creation.
+	pushMSat lnwire.MilliSatoshi
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -444,7 +445,8 @@ out:
 // transaction, and that the signature we records for our version of the
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
-	capacity, ourFundAmt, pushSat, feePerKw btcutil.Amount,
+	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
+	feePerKw btcutil.Amount,
 	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
 	chainHash *chainhash.Hash) (*ChannelReservation, error) {
 
@@ -458,7 +460,7 @@ func (l *LightningWallet) InitChannelReservation(
 		fundingAmount: ourFundAmt,
 		capacity:      capacity,
 		feePerKw:      feePerKw,
-		pushSat:       pushSat,
+		pushMSat:      pushMSat,
 		err:           errChan,
 		resp:          respChan,
 	}
@@ -489,7 +491,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.feePerKw, l, id, req.pushSat, l.Cfg.NetParams.GenesisHash)
+		req.feePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -826,8 +828,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// With the funding tx complete, create both commitment transactions.
-	localBalance := pendingReservation.partialState.LocalBalance
-	remoteBalance := pendingReservation.partialState.RemoteBalance
+	localBalance := pendingReservation.partialState.LocalBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.RemoteBalance.ToSatoshis()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
@@ -1141,8 +1143,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// Now that we have the funding outpoint, we can generate both versions
 	// of the commitment transaction, and generate a signature for the
 	// remote node's commitment transactions.
-	localBalance := pendingReservation.partialState.LocalBalance
-	remoteBalance := pendingReservation.partialState.RemoteBalance
+	localBalance := pendingReservation.partialState.LocalBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.RemoteBalance.ToSatoshis()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,

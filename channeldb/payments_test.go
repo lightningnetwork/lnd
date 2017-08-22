@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 func makeFakePayment() *OutgoingPayment {
@@ -21,7 +21,7 @@ func makeFakePayment() *OutgoingPayment {
 	}
 
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
-	fakeInvoice.Terms.Value = btcutil.Amount(10000)
+	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
 	fakePath := make([][33]byte, 3)
 	for i := 0; i < 3; i++ {
@@ -71,7 +71,7 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 	}
 	copy(fakeInvoice.Terms.PaymentPreimage[:], preImg)
 
-	fakeInvoice.Terms.Value = btcutil.Amount(rand.Intn(10000))
+	fakeInvoice.Terms.Value = lnwire.MilliSatoshi(rand.Intn(10000))
 
 	fakePathLen := 1 + rand.Intn(5)
 	fakePath := make([][33]byte, fakePathLen)
@@ -86,7 +86,7 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 	rHash := sha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
 	fakePayment := &OutgoingPayment{
 		Invoice:        *fakeInvoice,
-		Fee:            btcutil.Amount(rand.Intn(1001)),
+		Fee:            lnwire.MilliSatoshi(rand.Intn(1001)),
 		Path:           fakePath,
 		TimeLockLength: uint32(rand.Intn(10000)),
 		PaymentHash:    rHash,

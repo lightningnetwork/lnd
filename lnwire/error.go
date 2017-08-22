@@ -8,12 +8,12 @@ import (
 
 // ErrorCode represents the short error code for each of the defined errors
 // within the Lightning Network protocol spec.
-type ErrorCode uint16
+type ErrorCode uint8
 
 // ToGrpcCode is used to generate gRPC specific code which will be propagated
 // to the ln rpc client. This code is used to have more detailed view of what
-// goes wrong and also in order to have the ability pragmatically determine
-// the error and take specific actions on the client side.
+// goes wrong and also in order to have the ability pragmatically determine the
+// error and take specific actions on the client side.
 func (e ErrorCode) ToGrpcCode() codes.Code {
 	return (codes.Code)(e) + 100
 }
@@ -28,11 +28,25 @@ const (
 	// latest state of the blockchain.
 	ErrSynchronizingChain ErrorCode = 2
 
-	// ErrChanTooLarge is retruend by a remote peer that receives a
+	// ErrChanTooLarge is returned by a remote peer that receives a
 	// FundingOpen request for a channel that is above their current
 	// soft-limit.
 	ErrChanTooLarge ErrorCode = 3
 )
+
+// String returns a human readable version of the target ErrorCode.
+func (e ErrorCode) String() string {
+	switch e {
+	case ErrMaxPendingChannels:
+		return "Number of pending channels exceed maximum"
+	case ErrSynchronizingChain:
+		return "Synchronizing blockchain"
+	case ErrChanTooLarge:
+		return "channel too large"
+	default:
+		return "unknown error"
+	}
+}
 
 // ErrorData is a set of bytes associated with a particular sent error. A
 // receiving node SHOULD only print out data verbatim if the string is composed
@@ -51,13 +65,6 @@ type Error struct {
 	// within. If the ChanID is all zeroes, then this error applies to the
 	// entire established connection.
 	ChanID ChannelID
-
-	// Code is the short error code that succinctly identifies the error
-	// code. This is similar field is similar to HTTP error codes.
-	//
-	// TODO(roasbeef): make PR to repo to add error codes, in addition to
-	// what's there atm
-	Code ErrorCode
 
 	// Data is the attached error data that describes the exact failure
 	// which caused the error message to be sent.
@@ -80,7 +87,6 @@ var _ Message = (*Error)(nil)
 func (c *Error) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&c.ChanID,
-		&c.Code,
 		&c.Data,
 	)
 }
@@ -92,7 +98,6 @@ func (c *Error) Decode(r io.Reader, pver uint32) error {
 func (c *Error) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		c.ChanID,
-		c.Code,
 		c.Data,
 	)
 }

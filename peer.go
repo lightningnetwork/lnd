@@ -1784,7 +1784,7 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 	error) {
 
 	return func() (*lnwire.ChannelUpdate, error) {
-		_, edge1, edge2, err := router.GetChannelByID(chanID)
+		info, edge1, edge2, err := router.GetChannelByID(chanID)
 		if err != nil {
 			return nil, err
 		}
@@ -1802,15 +1802,21 @@ func createGetLastUpdate(router *routing.ChannelRouter,
 			local = edge1
 		}
 
-		return &lnwire.ChannelUpdate{
+		update := &lnwire.ChannelUpdate{
 			Signature:       local.Signature,
+			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(local.ChannelID),
-			Timestamp:       uint32(time.Now().Unix()),
+			Timestamp:       uint32(local.LastUpdate.Unix()),
 			Flags:           local.Flags,
 			TimeLockDelta:   local.TimeLockDelta,
 			HtlcMinimumMsat: local.MinHTLC,
 			BaseFee:         uint32(local.FeeBaseMSat),
 			FeeRate:         uint32(local.FeeProportionalMillionths),
-		}, nil
+		}
+
+		hswcLog.Debugf("Sending latest channel_update: %v",
+			spew.Sdump(update))
+
+		return update, nil
 	}
 }

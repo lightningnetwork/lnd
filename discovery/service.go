@@ -720,13 +720,22 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 		// With the proof validate (if necessary), we can now store it
 		// within the database for our path finding and syncing needs.
+		var featureBuf bytes.Buffer
+		if err := msg.Features.Encode(&featureBuf); err != nil {
+			log.Error("unable to encode features: %v", err)
+			nMsg.err <- err
+			return nil
+		}
+
 		edge := &channeldb.ChannelEdgeInfo{
 			ChannelID:   msg.ShortChannelID.ToUint64(),
+			ChainHash:   msg.ChainHash,
 			NodeKey1:    msg.NodeID1,
 			NodeKey2:    msg.NodeID2,
 			BitcoinKey1: msg.BitcoinKey1,
 			BitcoinKey2: msg.BitcoinKey2,
 			AuthProof:   proof,
+			Features:    featureBuf.Bytes(),
 		}
 
 		// We will add the edge to the channel router. If the nodes
@@ -1131,12 +1140,17 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 		if !node.HaveNodeAnnouncement {
 			return nil
 		}
+
+		alias, err := lnwire.NewNodeAlias(node.Alias)
+		if err != nil {
+			return err
+		}
 		ann := &lnwire.NodeAnnouncement{
 			Signature: node.AuthSig,
 			Timestamp: uint32(node.LastUpdate.Unix()),
 			Addresses: node.Addresses,
 			NodeID:    node.PubKey,
-			Alias:     lnwire.NewAlias(node.Alias),
+			Alias:     alias,
 			Features:  node.Features,
 		}
 		announceMessages = append(announceMessages, ann)

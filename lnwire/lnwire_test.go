@@ -11,6 +11,7 @@ import (
 	"testing"
 	"testing/quick"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
@@ -345,7 +346,9 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			req := ChannelAnnouncement{
 				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
+				Features:       randFeatureVector(r),
 			}
+			req.Features.featuresMap = nil
 			req.NodeSig1 = testSig
 			req.NodeSig2 = testSig
 			req.BitcoinSig1 = testSig
@@ -370,6 +373,10 @@ func TestLightningWireProtocol(t *testing.T) {
 			req.BitcoinKey2, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			if _, err := r.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to generate chain hash: %v", err)
 				return
 			}
 
@@ -415,6 +422,10 @@ func TestLightningWireProtocol(t *testing.T) {
 				HtlcMinimumMsat: MilliSatoshi(r.Int63()),
 				BaseFee:         uint32(r.Int31()),
 				FeeRate:         uint32(r.Int31()),
+			}
+			if _, err := r.Read(req.ChainHash[:]); err != nil {
+				t.Fatalf("unable to generate chain hash: %v", err)
+				return
 			}
 
 			v[0] = reflect.ValueOf(req)

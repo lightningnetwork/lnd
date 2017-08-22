@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // ChannelAnnouncement message is used to announce the existence of a channel
@@ -24,7 +25,18 @@ type ChannelAnnouncement struct {
 	BitcoinSig1 *btcec.Signature
 	BitcoinSig2 *btcec.Signature
 
-	// ShortChannelID is the unique description of the funding transaction.
+	// Features is the feature vector that encodes the features supported
+	// by the target node. This field can be used to signal the type of the
+	// channel, or modifications to the fields that would normally follow
+	// this vector.
+	Features *FeatureVector
+
+	// ChainHash denotes the target chain that this channel was opened
+	// within. This value should be the genesis hash of the target chain.
+	ChainHash chainhash.Hash
+
+	// ShortChannelID is the unique description of the funding transaction,
+	// or where exactly it's located within the target blockchain.
 	ShortChannelID ShortChannelID
 
 	// The public keys of the two nodes who are operating the channel, such
@@ -51,9 +63,11 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&a.NodeSig1,
 		&a.NodeSig2,
-		&a.ShortChannelID,
 		&a.BitcoinSig1,
 		&a.BitcoinSig2,
+		&a.Features,
+		a.ChainHash[:],
+		&a.ShortChannelID,
 		&a.NodeID1,
 		&a.NodeID2,
 		&a.BitcoinKey1,
@@ -69,9 +83,11 @@ func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		a.NodeSig1,
 		a.NodeSig2,
-		a.ShortChannelID,
 		a.BitcoinSig1,
 		a.BitcoinSig2,
+		a.Features,
+		a.ChainHash[:],
+		a.ShortChannelID,
 		a.NodeID1,
 		a.NodeID2,
 		a.BitcoinKey1,
@@ -100,14 +116,20 @@ func (a *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	// NodeSig2 - 64 bytes
 	length += 64
 
-	// ShortChannelID - 8 bytes
-	length += 8
-
 	// BitcoinSig1 - 64 bytes
 	length += 64
 
 	// BitcoinSig2 - 64 bytes
 	length += 64
+
+	// Features  (max possible features)
+	length += 65096
+
+	// ChainHash - 32 bytes
+	length += 32
+
+	// ShortChannelID - 8 bytes
+	length += 8
 
 	// NodeID1 - 33 bytes
 	length += 33
@@ -124,12 +146,14 @@ func (a *ChannelAnnouncement) MaxPayloadLength(pver uint32) uint32 {
 	return length
 }
 
-// DataToSign is used to retrieve part of the announcement message which
-// should be signed.
+// DataToSign is used to retrieve part of the announcement message which should
+// be signed.
 func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	var w bytes.Buffer
 	err := writeElements(&w,
+		a.Features,
+		a.ChainHash[:],
 		a.ShortChannelID,
 		a.NodeID1,
 		a.NodeID2,

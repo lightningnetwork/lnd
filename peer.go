@@ -308,9 +308,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			return fmt.Errorf("peer shutting down")
 		}
 
-		// Register this new channel link with the HTLC Switch. This is
-		// necessary to properly route multi-hop payments, and forward
-		// new payments triggered by RPC clients.
 		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
 		if err != nil {
 			return err
@@ -319,6 +316,42 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if err != nil {
 			return err
 		}
+
+		// Before we register this new link with the HTLC Switch, we'll
+		// need to fetch its current link-layer forwarding policy from
+		// the database.
+		graph := p.server.chanDB.ChannelGraph()
+		_, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
+		if err != nil {
+			return err
+		}
+
+		// We'll filter out our policy from the directional channel
+		// edges based whom the edge connects to. If it doesn't connect
+		// to us, then we know that we were the one that advertised the
+		// policy.
+		//
+		// TODO(roasbeef): can add helper method to get policy for
+		// particular channel.
+		var selfPolicy *channeldb.ChannelEdgePolicy
+		if !p1.Node.PubKey.IsEqual(p.server.identityPriv.PubKey()) {
+			selfPolicy = p1
+		} else {
+			selfPolicy = p2
+		}
+
+		forwardingPolicy := &htlcswitch.ForwardingPolicy{
+			MinHTLC:       selfPolicy.MinHTLC,
+			BaseFee:       selfPolicy.FeeBaseMSat,
+			FeeRate:       selfPolicy.FeeProportionalMillionths,
+			TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+		}
+
+		peerLog.Tracef("Using link policy of: %v", spew.Sdump(forwardingPolicy))
+
+		// Register this new channel link with the HTLC Switch. This is
+		// necessary to properly route multi-hop payments, and forward
+		// new payments triggered by RPC clients.
 		linkCfg := htlcswitch.ChannelLinkConfig{
 			Peer:                  p,
 			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
@@ -329,7 +362,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			DebugHTLC:        cfg.DebugHTLC,
 			Registry:         p.server.invoices,
 			Switch:           p.server.htlcSwitch,
-			FwrdingPolicy:    p.server.cc.routingPolicy,
+			FwrdingPolicy:    *forwardingPolicy,
 			BlockEpochs:      blockEpoch,
 		}
 		link := htlcswitch.NewChannelLink(linkCfg, lnChan,

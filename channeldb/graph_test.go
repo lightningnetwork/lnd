@@ -19,7 +19,6 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -313,6 +312,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	// errors.
 	edgeInfo := ChannelEdgeInfo{
 		ChannelID:   chanID,
+		ChainHash:   key,
 		NodeKey1:    node1.PubKey,
 		NodeKey2:    node2.PubKey,
 		BitcoinKey1: node1.PubKey,
@@ -360,6 +360,11 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 	if e1.ChannelID != e2.ChannelID {
 		t.Fatalf("chan id's don't match: %v vs %v", e1.ChannelID,
 			e2.ChannelID)
+	}
+
+	if e1.ChainHash != e2.ChainHash {
+		t.Fatalf("chain hashes don't match: %v vs %v", e1.ChainHash,
+			e2.ChainHash)
 	}
 
 	if !e1.NodeKey1.IsEqual(e2.NodeKey1) {
@@ -460,6 +465,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// errors.
 	edgeInfo := &ChannelEdgeInfo{
 		ChannelID:   chanID,
+		ChainHash:   key,
 		NodeKey1:    firstNode.PubKey,
 		NodeKey2:    secondNode.PubKey,
 		BitcoinKey1: firstNode.PubKey,
@@ -569,9 +575,9 @@ func randEdgePolicy(chanID uint64, op wire.OutPoint, db *DB) *ChannelEdgePolicy 
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(update, 0),
 		TimeLockDelta:             uint16(prand.Int63()),
-		MinHTLC:                   btcutil.Amount(prand.Int63()),
-		FeeBaseMSat:               btcutil.Amount(prand.Int63()),
-		FeeProportionalMillionths: btcutil.Amount(prand.Int63()),
+		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
+		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int63()),
 		db: db,
 	}
 }
@@ -650,6 +656,7 @@ func TestGraphTraversal(t *testing.T) {
 
 		edgeInfo := ChannelEdgeInfo{
 			ChannelID:   chanID,
+			ChainHash:   key,
 			NodeKey1:    nodes[0].PubKey,
 			NodeKey2:    nodes[1].PubKey,
 			BitcoinKey1: nodes[0].PubKey,
@@ -711,13 +718,20 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	err = firstNode.ForEachChannel(nil, func(_ *bolt.Tx, _ *ChannelEdgeInfo,
-		c *ChannelEdgePolicy) error {
+		outEdge, inEdge *ChannelEdgePolicy) error {
 
 		// Each each should indicate that it's outgoing (pointed
 		// towards the second node).
-		if !c.Node.PubKey.IsEqual(secondNode.PubKey) {
+		if !outEdge.Node.PubKey.IsEqual(secondNode.PubKey) {
 			return fmt.Errorf("wrong outgoing edge")
 		}
+
+		// The incoming edge should also indicate that it's pointing to
+		// the origin node.
+		if !inEdge.Node.PubKey.IsEqual(firstNode.PubKey) {
+			return fmt.Errorf("wrong outgoing edge")
+		}
+
 		numNodeChans++
 		return nil
 	})
@@ -725,7 +739,8 @@ func TestGraphTraversal(t *testing.T) {
 		t.Fatalf("for each failure: %v", err)
 	}
 	if numNodeChans != numChannels {
-		t.Fatalf("all edges for node reached within ForEach")
+		t.Fatalf("all edges for node not reached within ForEach: "+
+			"expected %v, got %v", numChannels, numNodeChans)
 	}
 }
 
@@ -831,6 +846,7 @@ func TestGraphPruning(t *testing.T) {
 
 		edgeInfo := ChannelEdgeInfo{
 			ChannelID:   chanID,
+			ChainHash:   key,
 			NodeKey1:    graphNodes[i].PubKey,
 			NodeKey2:    graphNodes[i+1].PubKey,
 			BitcoinKey1: graphNodes[i].PubKey,

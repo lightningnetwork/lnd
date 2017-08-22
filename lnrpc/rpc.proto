@@ -203,7 +203,7 @@ service Lightning {
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}/{force}"
+            delete: "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}"
         };
     }
 
@@ -387,21 +387,48 @@ service Lightning {
     sub-system.
     */
     rpc DebugLevel (DebugLevelRequest) returns (DebugLevelResponse);
+
+    /** lncli: `feereport`
+    FeeReport allows the caller to obtain a report detailing the current fee
+    schedule enforced by the node globally for each channel.
+    */
+    rpc FeeReport(FeeReportRequest) returns (FeeReportResponse) {
+        option (google.api.http) = {
+            get: "/v1/fees"
+        };
+    }
+
+    /** lncli: `updatefees`
+    UpdateFees allows the caller to update the fee schedule for all channels
+    globally, or a particular channel.
+    */
+    rpc UpdateFees(FeeUpdateRequest) returns (FeeUpdateResponse) {
+        option (google.api.http) = {
+            post: "/v1/fees"
+            body: "*"
+        };
+    }
 }
 
 message Transaction {
     /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
+
     /// The transaction ammount, denominated in satoshis
     int64 amount = 2 [ json_name = "amount" ];
+
     /// The number of confirmations
     int32 num_confirmations = 3 [ json_name = "num_confirmations" ];
+
     /// The hash of the block this transaction was included in
     string block_hash = 4 [ json_name = "block_hash" ];
+
     /// The height of the block this transaction was included in
     int32 block_height = 5 [ json_name = "block_height" ];
+
     /// Timestamp of this transaction 
     int64 time_stamp = 6 [ json_name = "time_stamp" ];
+
     /// Fees paid for this transaction
     int64 total_fees = 7 [ json_name = "total_fees" ];
 }
@@ -415,14 +442,16 @@ message TransactionDetails {
 message SendRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
+
     /// The hex-encoded identity pubkey of the payment recipient
     string dest_string = 2;
 
-    /// Number of satoshis to send
+    /// Number of satoshis to send. 
     int64 amt = 3;
 
     /// The hash to use within the payment's HTLC
     bytes payment_hash = 4;
+
     /// The hex-encoded hash to use within the payment's HTLC
     string payment_hash_string = 5;
 
@@ -444,8 +473,10 @@ message ChannelPoint {
 
     /// Txid of the funding transaction
     bytes funding_txid = 1 [ json_name = "funding_txid" ];
+
     /// Hex-encoded string representing the funding transaction
     string funding_txid_str = 2 [ json_name = "funding_txid_str" ];
+
     /// The index of the output of the funding transaction
     uint32 output_index = 3 [ json_name = "output_index" ];
 }
@@ -453,6 +484,7 @@ message ChannelPoint {
 message LightningAddress {
     /// The identity pubkey of the Lightning node
     string pubkey = 1 [json_name = "pubkey"];
+
     /// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
     string host = 2 [json_name = "host"];
 }
@@ -469,6 +501,7 @@ message SendManyResponse {
 message SendCoinsRequest {
     /// The address to send coins to 
     string addr = 1;
+
     /// The amount in satoshis to send
     int64 amount = 2;
 }
@@ -515,12 +548,14 @@ message SignMessageResponse {
 message VerifyMessageRequest {
     /// The message over which the signature is to be verified
     bytes msg = 1 [ json_name = "msg" ];
+
     /// The signature to be verifed over the given message
     string signature = 2 [ json_name = "signature" ];
 }
 message VerifyMessageResponse {
     /// Whether the signature was valid over the given message
     bool valid = 1 [ json_name = "valid" ];
+
     /// The pubkey recovered from the signature
     string pubkey = 2 [ json_name = "pubkey" ];
 }
@@ -556,6 +591,7 @@ message HTLC {
 message ActiveChannel {
     /// Whether this channel is active or not
     bool active = 1 [json_name = "active"];
+
     /// The identity pubkey of the remote node
     string remote_pubkey = 2 [json_name = "remote_pubkey"];
 
@@ -589,8 +625,10 @@ message ActiveChannel {
     update, including updates that happen after a system restart.
     */
     int64 commit_fee = 8 [json_name = "commit_fee"];
+
     /// The weight of the commitment transaction
     int64 commit_weight = 9 [ json_name = "commit_weight" ];
+
     /**
     The required number of satoshis per kilo-weight that the requester will pay
     at all times, for both the funding transaction and commitment transaction.
@@ -632,18 +670,22 @@ message ListChannelsResponse {
 message Peer {
     /// The identity pubkey of the peer
     string pub_key = 1 [json_name = "pub_key"];
+
     /// The peer's id from the local point of view
     int32 peer_id = 2 [json_name = "peer_id"];
+
     /// Network address of the peer; eg `127.0.0.1:10011`
     string address = 3 [json_name = "address"];
 
     /// Bytes of data transmitted to this peer
     uint64 bytes_sent = 4 [json_name = "bytes_sent"];
+
     /// Bytes of data transmitted from this peer
     uint64 bytes_recv = 5 [json_name = "bytes_recv"];
 
     /// Satoshis sent to this peer
     int64 sat_sent = 6 [json_name = "sat_sent"];
+
     /// Satoshis received from this peer
     int64 sat_recv = 7 [json_name = "sat_recv"];
 
@@ -667,11 +709,13 @@ message GetInfoResponse {
 
     /// The identity pubkey of the current node.
     string identity_pubkey = 1 [json_name = "identity_pubkey"];
+
     /// If applicable, the alias of the current node, e.g. "bob"
     string alias = 2 [json_name = "alias"];
 
     /// Number of pending channels
     uint32 num_pending_channels = 3 [json_name = "num_pending_channels"];
+
     /// Number of active channels
     uint32 num_active_channels = 4 [json_name = "num_active_channels"];
 
@@ -680,11 +724,13 @@ message GetInfoResponse {
 
     /// The node's current view of the height of the best block
     uint32 block_height = 6 [json_name = "block_height"];
+
     /// The node's current view of the hash of the best block
     string block_hash = 8 [json_name = "block_hash"];
 
     /// Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
+
     /// Whether the current node is connected to testnet
     bool testnet = 10 [ json_name = "testnet" ];
 
@@ -716,10 +762,9 @@ message CloseChannelRequest {
     transaction.
     */
     ChannelPoint channel_point = 1;
-    /// a relative deadline afterwhich the attempt should be abandoned
-    int64 time_limit = 2;
-    /// after the time limit has passed, attempt an uncooperative closure
-    bool force = 3;
+
+    /// If true, then the channel will be closed forcibly. This means the current commitment transaction will be signed and broadcast.
+    bool force = 2;
 }
 message CloseStatusUpdate {
     oneof update {
@@ -777,6 +822,7 @@ message PendingChannelResponse {
 
         /// The height at which this channel will be confirmed
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
+
         /// The number of blocks until this channel is open
         uint32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
 
@@ -788,6 +834,7 @@ message PendingChannelResponse {
         restart.
         */
         int64 commit_fee = 4 [json_name = "commit_fee" ];
+
         /// The weight of the commitment transaction
         int64 commit_weight = 5 [ json_name = "commit_weight" ];
 
@@ -818,18 +865,23 @@ message PendingChannelResponse {
 
         /// The balance in satoshis encumbered in this pending channel
         int64 limbo_balance = 3 [ json_name = "limbo_balance" ];
+
         /// The height at which funds can be sweeped into the wallet
         uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+
         /// Remaining # of blocks until funds can be sweeped into the wallet
         uint32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
     }
 
     /// The balance in satoshis encumbered in pending channels
     int64 total_limbo_balance = 1 [ json_name = "total_limbo_balance" ];
+
     /// Channels pending opening
     repeated PendingOpenChannel pending_open_channels = 2 [ json_name = "pending_open_channels" ];
+
     /// Channels pending closing
     repeated ClosedChannel pending_closing_channels = 3 [ json_name = "pending_closing_channels" ];
+
     /// Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels =  4 [ json_name = "pending_force_closing_channels" ];
 }
@@ -992,6 +1044,7 @@ message ChannelGraphRequest {
 message ChannelGraph {
     /// The list of `LightningNode`s in this channel graph
     repeated LightningNode nodes = 1 [json_name = "nodes"];
+
     /// The list of `ChannelEdge`s in this channel graph
     repeated ChannelEdge edges = 2 [json_name = "edges"];
 }
@@ -1078,6 +1131,7 @@ message SetAliasResponse {
 message Invoice {
     /// An optional memo to attach along with the invoice
     string memo = 1 [json_name = "memo"];
+
     /// An optional cryptographic receipt of payment
     bytes receipt = 2 [json_name = "receipt"];
 
@@ -1125,11 +1179,12 @@ message PaymentHash {
     payment hash must be exactly 32 bytes, otherwise an error is returned.
     */
     string r_hash_str = 1 [json_name = "r_hash_str"];
+
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
 message ListInvoiceRequest {
-    /// Toggles if all invoices should be returned, or only those that are currently unsettled
+    /// Toggles if all invoices should be returned, or only those that are currently unsettled.
     bool pending_only = 1;
 }
 message ListInvoiceResponse {
@@ -1186,4 +1241,41 @@ message PayReq {
     string destination = 1 [json_name = "destination"];
     string payment_hash = 2 [json_name = "payment_hash"];
     int64 num_satoshis = 3 [json_name = "num_satoshis"];
+}
+
+message FeeReportRequest {}
+message ChannelFeeReport {
+    /// The channel that this fee report belongs to.
+    string chan_point = 1 [json_name = "channel_point"];
+
+    /// The base fee charged regardless of the number of milli-satoshis sent.
+    int64 base_fee_msat = 2 [json_name = "base_fee_msat"];
+
+    /// The amount charged per milli-satoshis transferred expressed in millionths of a satoshi.
+    int64 fee_per_mil = 3 [json_name = "fee_per_mil"];
+
+    /// The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million.
+    double fee_rate = 4 [json_name = "fee_rate"];
+}
+message FeeReportResponse {
+    /// An array of channel fee reports which describes the current fee schedule for each channel.
+    repeated ChannelFeeReport channel_fees = 1 [json_name = "channel_fees"];
+}
+
+message FeeUpdateRequest {
+    oneof scope {
+        /// If set, then this fee update applies to all currently active channels.
+        bool global = 1 [json_name = "global"] ;
+
+        /// If set, this fee update will target a specific channel.
+        ChannelPoint chan_point = 2 [json_name = "chan_point"];
+    }
+
+    /// The base fee charged regardless of the number of milli-satoshis sent.
+    int64 base_fee_msat = 3 [json_name = "base_fee_msat"];
+
+    /// The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6.
+    double fee_rate = 4 [json_name = "fee_rate"];
+}
+message FeeUpdateResponse {
 }

@@ -423,7 +423,23 @@ out:
 			case *getBandwidthCmd:
 				req.resp <- l.getBandwidth()
 			case *policyUpdate:
-				l.cfg.FwrdingPolicy = req.policy
+				// In order to avoid overriding a valid policy
+				// with a "null" field in the new policy, we'll
+				// only update to the set sub policy if the new
+				// value isn't uninitialized.
+				if req.policy.MinHTLC != 0 {
+					l.cfg.FwrdingPolicy.MinHTLC = req.policy.MinHTLC
+				}
+				if req.policy.BaseFee != 0 {
+					l.cfg.FwrdingPolicy.BaseFee = req.policy.BaseFee
+				}
+				if req.policy.FeeRate != 0 {
+					l.cfg.FwrdingPolicy.FeeRate = req.policy.FeeRate
+				}
+				if req.policy.TimeLockDelta != 0 {
+					l.cfg.FwrdingPolicy.TimeLockDelta = req.policy.TimeLockDelta
+				}
+
 				if req.done != nil {
 					close(req.done)
 				}
@@ -862,7 +878,10 @@ type policyUpdate struct {
 
 // UpdateForwardingPolicy updates the forwarding policy for the target
 // ChannelLink. Once updated, the link will use the new forwarding policy to
-// govern if it an incoming HTLC should be forwarded or not.
+// govern if it an incoming HTLC should be forwarded or not. Note that this
+// processing of the new policy will ensure that uninitialized fields in the
+// passed policy won't override already initialized fields in the current
+// policy.
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
@@ -887,6 +906,7 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 	snapshot := l.channel.StateSnapshot()
+
 	return snapshot.NumUpdates,
 		snapshot.TotalMilliSatoshisSent,
 		snapshot.TotalMilliSatoshisReceived

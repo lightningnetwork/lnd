@@ -224,6 +224,79 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	return preimage, err
 }
 
+// UpdateForwardingPolicies sends a message to the switch to update the
+// forwarding policies for the set of target channels. If the set of targeted
+// channels is nil, then the forwarding policies for all active channels with
+// be updated.
+//
+// NOTE: This function is synchronous and will block until either the
+// forwarding policies for all links have been updated, or the switch shuts
+// down.
+func (s *Switch) UpdateForwardingPolicies(newPolicy ForwardingPolicy,
+	targetChans ...wire.OutPoint) error {
+
+	errChan := make(chan error, 1)
+	select {
+	case s.linkControl <- &updatePoliciesCmd{
+		newPolicy:   newPolicy,
+		targetChans: targetChans,
+		err:         errChan,
+	}:
+	case <-s.quit:
+		return fmt.Errorf("switch is shutting down")
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-s.quit:
+		return fmt.Errorf("switch is shutting down")
+	}
+}
+
+// updatePoliciesCmd is a message sent to the switch to update the forwarding
+// policies of a set of target links.
+type updatePoliciesCmd struct {
+	newPolicy   ForwardingPolicy
+	targetChans []wire.OutPoint
+
+	err chan error
+}
+
+// updateLinkPolicies attempts to update the forwarding policies for the set of
+// passed links identified by their channel points. If a nil set of channel
+// points is passed, then the forwarding policies for all active links will be
+// updated.k
+func (s *Switch) updateLinkPolicies(c *updatePoliciesCmd) error {
+	log.Debugf("Updating link policies: %v", spew.Sdump(c))
+
+	// If no channels have been targeted, then we'll update the link policies
+	// for all active channels
+	if len(c.targetChans) == 0 {
+		for _, link := range s.linkIndex {
+			link.UpdateForwardingPolicy(c.newPolicy)
+		}
+	}
+
+	// Otherwise, we'll only attempt to update the forwarding policies for the
+	// set of targeted links.
+	for _, targetLink := range c.targetChans {
+		cid := lnwire.NewChanIDFromOutPoint(&targetLink)
+
+		// If we can't locate a link by its converted channel ID, then we'll
+		// return an error back to the caller.
+		link, ok := s.linkIndex[cid]
+		if !ok {
+			return fmt.Errorf("unable to find ChannelPoint(%v) to "+
+				"update link policy", targetLink)
+		}
+
+		link.UpdateForwardingPolicy(c.newPolicy)
+	}
+
+	return nil
+}
+
 // forward is used in order to find next channel link and apply htlc
 // update. Also this function is used by channel links itself in order to
 // forward the update after it has been included in the channel.
@@ -723,6 +796,8 @@ func (s *Switch) htlcForwarder() {
 
 		case req := <-s.linkControl:
 			switch cmd := req.(type) {
+			case *updatePoliciesCmd:
+				cmd.err <- s.updateLinkPolicies(cmd)
 			case *addLinkCmd:
 				cmd.err <- s.addLink(cmd.link)
 			case *removeLinkCmd:

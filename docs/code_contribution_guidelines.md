@@ -348,8 +348,13 @@ The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity
 of all protos checked, in we require that all contributors pin against the
 _exact same_ version of `protoc`. As of the writing of this article, the `lnd`
-project uses [v3.2.0](https://github.com/google/protobuf/releases/tag/v3.2.0)
+project uses [v3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0)
 of `protoc`.
+
+The following commit hashes of related projects are also required in order to
+generate identical compiled protos and related files:
+   * grpc-ecosystem/grpc-gateway: f2862b476edcef83412c7af8687c9cd8e4097c0f
+   * golang/protobuf: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
 
 Additionally, in order to maintain a uniform display of the RPC responses
 rendered by `lncli`, all added or modified `protof` definitions, _must_ attach

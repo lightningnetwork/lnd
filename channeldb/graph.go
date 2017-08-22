@@ -984,16 +984,18 @@ func (c *ChannelGraph) HasLightningNode(pub *btcec.PublicKey) (time.Time, bool, 
 }
 
 // ForEachChannel iterates through all the outgoing channel edges from this
-// node, executing the passed callback with each edge as its sole argument. If
-// the callback returns an error, then the iteration is halted with the error
-// propagated back up to the caller.
+// node, executing the passed callback with each edge as its sole argument. The
+// first edge policy is the outgoing edge *to* the connecting node, while the
+// second is the incoming edge *from* the connecting node. If the callback
+// returns an error, then the iteration is halted with the error propagated
+// back up to the caller.
 //
 // If the caller wishes to re-use an existing boltdb transaction, then it
 // should be passed as the first argument.  Otherwise the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
 func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
-	cb func(*bolt.Tx, *ChannelEdgeInfo, *ChannelEdgePolicy) error) error {
+	cb func(*bolt.Tx, *ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
 
 	nodePub := l.PubKey.SerializeCompressed()
 
@@ -1033,12 +1035,12 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 			// edge info and fetch the outgoing node in order to
 			// retrieve the full channel edge.
 			edgeReader := bytes.NewReader(edgeInfo)
-			edgePolicy, err := deserializeChanEdgePolicy(edgeReader, nodes)
+			toEdgePolicy, err := deserializeChanEdgePolicy(edgeReader, nodes)
 			if err != nil {
 				return err
 			}
-			edgePolicy.db = l.db
-			edgePolicy.Node.db = l.db
+			toEdgePolicy.db = l.db
+			toEdgePolicy.Node.db = l.db
 
 			chanID := nodeEdge[33:]
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
@@ -1046,8 +1048,26 @@ func (l *LightningNode) ForEachChannel(tx *bolt.Tx,
 				return err
 			}
 
+			// We'll also fetch the incoming edge so this
+			// information can be available to the caller.
+			incomingNode := toEdgePolicy.Node.PubKey.SerializeCompressed()
+			fromEdgePolicy, err := fetchChanEdgePolicy(
+				edges, chanID, incomingNode, nodes,
+			)
+			if err != nil && err != ErrEdgeNotFound &&
+				err != ErrGraphNodeNotFound {
+				return err
+			}
+			if fromEdgePolicy != nil {
+				fromEdgePolicy.db = l.db
+				if fromEdgePolicy.Node != nil {
+					fromEdgePolicy.Node.db = l.db
+				}
+			}
+
 			// Finally, we execute the callback.
-			if err := cb(tx, edgeInfo, edgePolicy); err != nil {
+			err = cb(tx, edgeInfo, toEdgePolicy, fromEdgePolicy)
+			if err != nil {
 				return err
 			}
 		}

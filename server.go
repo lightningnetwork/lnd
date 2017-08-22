@@ -70,7 +70,7 @@ type server struct {
 
 	chanRouter *routing.ChannelRouter
 
-	discoverSrv *discovery.AuthenticatedGossiper
+	authGossiper *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
 
@@ -177,7 +177,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			}
 		},
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			s.discoverSrv.ProcessRemoteAnnouncement(msg, nil)
+			s.authGossiper.ProcessRemoteAnnouncement(msg, nil)
 			return nil
 		},
 	})
@@ -205,7 +205,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	chanGraph := chanDB.ChannelGraph()
 
 	// TODO(roasbeef): make alias configurable
-	alias := lnwire.NewAlias(hex.EncodeToString(serializedPubKey[:10]))
+	alias, err := lnwire.NewNodeAlias(hex.EncodeToString(serializedPubKey[:10]))
+	if err != nil {
+		return nil, err
+	}
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
@@ -267,15 +270,18 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, fmt.Errorf("can't create router: %v", err)
 	}
 
-	s.discoverSrv, err = discovery.New(discovery.Config{
-		Broadcast:        s.BroadcastMessage,
-		Notifier:         s.cc.chainNotifier,
+	s.authGossiper, err = discovery.New(discovery.Config{
 		Router:           s.chanRouter,
+		Notifier:         s.cc.chainNotifier,
+		Broadcast:        s.BroadcastMessage,
 		SendToPeer:       s.SendToPeer,
-		TrickleDelay:     time.Millisecond * 300,
 		ProofMatureDelta: 0,
+		TrickleDelay:     time.Millisecond * 300,
 		DB:               chanDB,
-	})
+		AnnSigner:        s.nodeSigner,
+	},
+		s.identityPriv.PubKey(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +345,7 @@ func (s *server) Start() error {
 	if err := s.breachArbiter.Start(); err != nil {
 		return err
 	}
-	if err := s.discoverSrv.Start(); err != nil {
+	if err := s.authGossiper.Start(); err != nil {
 		return err
 	}
 	if err := s.chanRouter.Start(); err != nil {
@@ -376,7 +382,7 @@ func (s *server) Stop() error {
 	s.htlcSwitch.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()
-	s.discoverSrv.Stop()
+	s.authGossiper.Stop()
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
@@ -484,7 +490,7 @@ func (s *server) establishPersistentConnections() error {
 	err = sourceNode.ForEachChannel(nil, func(
 		_ *bolt.Tx,
 		_ *channeldb.ChannelEdgeInfo,
-		policy *channeldb.ChannelEdgePolicy) error {
+		policy, _ *channeldb.ChannelEdgePolicy) error {
 
 		pubStr := string(policy.Node.PubKey.SerializeCompressed())
 
@@ -1041,7 +1047,7 @@ func (s *server) addPeer(p *peer) {
 	// Once the peer has been added to our indexes, send a message to the
 	// channel router so we can synchronize our view of the channel graph
 	// with this new peer.
-	go s.discoverSrv.SynchronizeNode(p.addr.IdentityKey)
+	go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
 }
 
 // removePeer removes the passed peer from the server's state of all active

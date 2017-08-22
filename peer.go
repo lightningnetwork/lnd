@@ -663,7 +663,7 @@ out:
 			*lnwire.NodeAnnouncement,
 			*lnwire.AnnounceSignatures:
 
-			p.server.discoverSrv.ProcessRemoteAnnouncement(msg,
+			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
 		default:
 			peerLog.Errorf("unknown message received from peer "+
@@ -1374,6 +1374,7 @@ func calculateCompromiseFee(ourIdealFee, lastSentFee, peerFee uint64) uint64 {
 func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 	msg *lnwire.ClosingSigned, deliveryScripts *closingScripts,
 	lastSig []byte, lastFee uint64) ([]byte, uint64) {
+
 	chanID := msg.ChannelID
 	p.activeChanMtx.RLock()
 	channel, ok := p.activeChannels[chanID]

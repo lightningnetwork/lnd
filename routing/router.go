@@ -982,8 +982,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	)
 
 	var (
-		sendError error
-		preImage  [32]byte
+		preImage [32]byte
 	)
 
 	// TODO(roasbeef): consult KSP cache before dispatching
@@ -1016,7 +1015,33 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		routes = freshRoutes
 	}
 
-	// For each eligible path, we'll attempt to successfully send our
+	// Attempt to send this payment through the routes we just have found
+	return r.SendToRoute(routes, payment)
+}
+
+// SendToRoute attempts to send a payment  through the passed
+// and defined by sender routes to the final destination.
+// This function is blocking and will return either: when
+// the passed routes are existed and the payment is successful, or all passed routes
+// have been attempted and resulted in a failed payment.
+// If the payment succeeds, then a non-nil Route
+// will be returned which describes the path the successful payment traversed
+// within the network to reach the destination. Additionally, the payment
+// preimage will also be returned.
+func (r *ChannelRouter) SendToRoute(routes []*Route, payment *LightningPayment) ([32]byte, *Route, error) {
+	log.Tracef("Dispatching route for lightning route payment: %v",
+		newLogClosure(func() string {
+			payment.Target.Curve = nil
+			return spew.Sdump(payment)
+		}),
+	)
+
+	var (
+		sendError error
+		preImage  [32]byte
+	)
+
+	// For each eligible path from passed routes, we'll attempt to successfully send our
 	// target payment using the multi-hop route. We'll try each route
 	// serially until either once succeeds, or we've exhausted our set of
 	// available paths.

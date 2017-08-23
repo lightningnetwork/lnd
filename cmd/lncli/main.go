@@ -108,7 +108,7 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 func main() {
 	app := cli.NewApp()
 	app.Name = "lncli"
-	app.Version = "0.2.1"
+	app.Version = "0.3"
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{

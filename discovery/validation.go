@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -81,8 +82,8 @@ func (d *AuthenticatedGossiper) validateChannelUpdateAnn(pubKey *btcec.PublicKey
 	dataHash := chainhash.DoubleHashB(data)
 
 	if !a.Signature.Verify(dataHash, copyPubKey(pubKey)) {
-		return errors.Errorf("verification of channel updates "+
-			"failed chan_id=%v", a.ShortChannelID.ToUint64())
+		return errors.Errorf("invalid signature for channel "+
+			"update %v", spew.Sdump(a))
 	}
 
 	return nil

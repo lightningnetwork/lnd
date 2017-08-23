@@ -684,7 +684,7 @@ func (s *Switch) htlcForwarder() {
 			link, ok := s.linkIndex[chanID]
 			if !ok {
 				req.Err <- errors.Errorf("channel with "+
-					"chan_id=%v not found", chanID[:])
+					"chan_id=%x not found", chanID[:])
 				continue
 			}
 

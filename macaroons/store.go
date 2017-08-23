@@ -52,11 +52,14 @@ func NewRootKeyStorage(db *bolt.DB) (*RootKeyStorage, error) {
 func (r *RootKeyStorage) Get(id string) ([]byte, error) {
 	var rootKey []byte
 	err := r.View(func(tx *bolt.Tx) error {
-		rootKey = tx.Bucket(rootKeyBucketName).Get([]byte(id))
-		if len(rootKey) == 0 {
+		dbKey := tx.Bucket(rootKeyBucketName).Get([]byte(id))
+		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",
 				id)
 		}
+
+		rootKey = make([]byte, len(dbKey))
+		copy(rootKey[:], dbKey)
 		return nil
 	})
 	if err != nil {
@@ -127,21 +130,23 @@ func (s *Storage) Put(location string, item string) error {
 
 // Get implements the Get method for the bakery.Storage interface.
 func (s *Storage) Get(location string) (string, error) {
-	var item string
+	var item []byte
 	err := s.View(func(tx *bolt.Tx) error {
 		itemBytes := tx.Bucket(macaroonBucketName).Get([]byte(location))
 		if len(itemBytes) == 0 {
 			return fmt.Errorf("couldn't get item for location %s",
 				location)
 		}
-		item = string(itemBytes)
+
+		item = make([]byte, len(itemBytes))
+		copy(item, itemBytes)
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
 
-	return item, nil
+	return string(item), nil
 }
 
 // Del implements the Del method for the bakery.Storage interface.

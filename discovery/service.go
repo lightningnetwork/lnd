@@ -447,12 +447,13 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 			// Iterate over our channels and construct the
 			// announcements array.
-			err := d.cfg.Router.ForAllOutgoingChannels(func(_ *channeldb.ChannelEdgeInfo,
+			err := d.cfg.Router.ForAllOutgoingChannels(func(ei *channeldb.ChannelEdgeInfo,
 				p *channeldb.ChannelEdgePolicy) error {
 
 				c := &lnwire.ChannelUpdate{
 					Signature:       p.Signature,
 					ShortChannelID:  lnwire.NewShortChanIDFromInt(p.ChannelID),
+					ChainHash:       ei.ChainHash,
 					Timestamp:       uint32(p.LastUpdate.Unix()),
 					Flags:           p.Flags,
 					TimeLockDelta:   p.TimeLockDelta,
@@ -540,6 +541,7 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 		// updated, as we'll be re-signing it shortly.
 		c := &lnwire.ChannelUpdate{
 			Signature:       edge.Signature,
+			ChainHash:       info.ChainHash,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
 			Timestamp:       uint32(edge.LastUpdate.Unix()),
 			Flags:           edge.Flags,
@@ -815,12 +817,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// key, In the case of an invalid channel , we'll return an
 		// error to the caller and exit early.
 		if err := d.validateChannelUpdateAnn(pubKey, msg); err != nil {
-			err := errors.Errorf("unable to validate channel "+
+			rErr := errors.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
 
-			log.Error(err)
-			nMsg.err <- err
+			log.Error(rErr)
+			nMsg.err <- rErr
 			return nil
 		}
 

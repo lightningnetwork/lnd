@@ -321,7 +321,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// need to fetch its current link-layer forwarding policy from
 		// the database.
 		graph := p.server.chanDB.ChannelGraph()
-		_, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
+		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
 		if err != nil {
 			return err
 		}
@@ -334,17 +334,25 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
 		var selfPolicy *channeldb.ChannelEdgePolicy
-		if !p1.Node.PubKey.IsEqual(p.server.identityPriv.PubKey()) {
+		if info.NodeKey1.IsEqual(p.server.identityPriv.PubKey()) {
 			selfPolicy = p1
 		} else {
 			selfPolicy = p2
 		}
 
-		forwardingPolicy := &htlcswitch.ForwardingPolicy{
-			MinHTLC:       selfPolicy.MinHTLC,
-			BaseFee:       selfPolicy.FeeBaseMSat,
-			FeeRate:       selfPolicy.FeeProportionalMillionths,
-			TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+		// If we don't yet have an advertised routing policy, then
+		// we'll use the current default, otherwise we'll translate the
+		// routing policy into a forwarding policy.
+		var forwardingPolicy *htlcswitch.ForwardingPolicy
+		if selfPolicy != nil {
+			forwardingPolicy = &htlcswitch.ForwardingPolicy{
+				MinHTLC:       selfPolicy.MinHTLC,
+				BaseFee:       selfPolicy.FeeBaseMSat,
+				FeeRate:       selfPolicy.FeeProportionalMillionths,
+				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+			}
+		} else {
+			forwardingPolicy = &p.server.cc.routingPolicy
 		}
 
 		peerLog.Tracef("Using link policy of: %v", spew.Sdump(forwardingPolicy))

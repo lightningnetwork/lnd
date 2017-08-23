@@ -35,7 +35,7 @@
     go get -u github.com/Masterminds/glide
     ```
 
-### Installing LND
+### Installing lnd
 
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
@@ -69,11 +69,6 @@ go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
 into the master branch. Instead, [roasbeef](https://github.com/roasbeef/btcd)
 maintains a fork with his segwit implementation applied. To install, run the
 following commands:
-
-Install **btcutil**: (must be from roasbeef fork, not from btcsuite)
-```
-go get -u github.com/roasbeef/btcutil
-```
 
 Install **btcd**: (must be from roasbeef fork, not from btcsuite)
 ```
@@ -121,7 +116,7 @@ You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 btcctl --testnet --rpcuser=kek --rpcpass=kek getpeerinfo | more
 ```
 
-### LND
+### lnd
 
 #### Simnet vs. Testnet Development
 
@@ -139,7 +134,28 @@ won't need to manually insert invoices in order to test payment connectivity.
 To send this "special" HTLC type, include the `--debugsend` command at the end
 of your `sendpayment` commands.
 
-### Running LND
+
+There are currently two primary ways to run `lnd`, one requires a local `btcd`
+instance with the RPC service exposed, and the other uses a fully integrate
+light client powered by [neutrino](https://github.com/lightninglabs/neutrino).
+
+#### Running lnd in light client mode
+
+In order to run `lnd` in its light client mode, you'll need to locate a
+full-node which is capable of serving this new light client mode. A [BIP
+draft](https://github.com/Roasbeef/bips/blob/master/gcs_light_client.mediawiki)
+exists, and will be finalized in the near future, but for now you'll need to be
+running `roasbeef`'s fork of btcd. A public instance of such a node can be
+found at `faucet.lightning.community`.
+
+To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
+in `--bitcoin.simnet` for `simnet` mode if needed), and also your own `btcd`
+node if available:
+```
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --neutrino.active --neutrino.connect=faucet.lightning.community
+```
+
+#### Running lnd using the btcd backend
 
 If you are on testnet, run this command after `btcd` has finished syncing.
 Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you
@@ -148,6 +164,8 @@ installing `lnd` in preparation for the
 ```
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.rpcuser=kek --bitcoin.rpcpass=kek --externalip=X.X.X.X
 ```
+
+#### Network Reachability 
 
 If you'd like to signal to other nodes on the network that you'll accept
 incoming channels (as peers need to connect inbound to initiate a channel

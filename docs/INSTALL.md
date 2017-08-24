@@ -1,18 +1,28 @@
 # Installation
 
 ### Preliminaries
-  In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the following build dependencies are required:
+  In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the
+  following build dependencies are required:
   
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
-  
-    ```
-    # On Linux:
-    sudo apt-get install golang-go
 
-    # On Mac OS X
+  
+    **Note**: The minimum version of Go supported is Go 1.7.
+
+    
+    On Linux:
+    ```
+    sudo apt-get install golang-1.8-go
+    ```
+
+    On Mac OS X
+    ```
     brew install go
     ```
-    More detailed installation instructions can be found
+
+    Alternatively, one can download the pre-compiled binaries hosted on the
+    [golang download page](https://golang.org/dl/). If one seeks to install
+    from source, then more detailed installation instructions can be found
     [here](http://golang.org/doc/install). 
 
     At this point, you should set your `$GOPATH` environment variable, which
@@ -21,12 +31,12 @@
     that your shell will be able to detect the binaries you install.
 
     ```bash
-    export GOPATH=~/projects/lightning
+    export GOPATH=~/gocode
     export PATH=$PATH:$GOPATH/bin
     ```
-    We recommend placing the above in your .bashrc or in a setup
-    script so that you can avoid typing this every time you open a new terminal
-    window.
+
+    We recommend placing the above in your .bashrc or in a setup script so that
+    you can avoid typing this every time you open a new terminal window.
 
   * **Glide:** This project uses `Glide` to manage dependencies as well 
     as to provide *reproducible builds*. To install `Glide`, execute the
@@ -63,7 +73,7 @@ To check that `lnd` was installed properly run the following command:
 go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
 ```
 
-### Installing BTCD
+### Installing btcd
 
 `lnd` currently requires `btcd` with segwit support, which is not yet merged
 into the master branch. Instead, [roasbeef](https://github.com/roasbeef/btcd)
@@ -204,4 +214,4 @@ for Litecoin accordingly.
 # Accurate as of:
 - _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8` 
 - _roasbeef/btcutil commit:_ `a259eaf2ec1b54653cdd67848a41867f280797ee` 
-- _lightningnetwork/lnd commit:_ `d7b36c6`
+- _lightningnetwork/lnd commit:_ `08de2becf8d77fae192205172c4fb17bb09bd0dbf49e64aa323b2fcbf9fe2a35`

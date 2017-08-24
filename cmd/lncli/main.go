@@ -150,6 +150,7 @@ func main() {
 		getInfoCommand,
 		pendingChannelsCommand,
 		sendPaymentCommand,
+		sendToRouteCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,

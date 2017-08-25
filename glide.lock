@@ -1,5 +1,5 @@
-hash: d764a70faea8c707055deba8b205f998bde08ac418174c0778c16298d840770d
-updated: 2017-08-19T16:52:01.119649599-07:00
+hash: e75e8006b7f03805dc1f8a54cc3375b755eb652e3e451f32bb704104d4be39d2
+updated: 2017-08-24T18:04:51.985840683-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -40,13 +40,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  version: adab96458c51a58dc1783b3335dcce5461522e75
   subpackages:
   - spew
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: fec3b39b059c0f88fa6b20f5ed012b1aa203a8b4
+  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
   subpackages:
   - jsonpb
   - proto
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 807d3e267a2863654e99dda39ac4daac78943f7e
+  version: ae7d7bf1950cce2637e2184958f64f39d761471d
   subpackages:
   - filterdb
   - headerfs
@@ -83,7 +83,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcd
-  version: 34fdda7d41cc47d9456550fd1147a77db89f601a
+  version: ee68739ba4ed83f244b115bec0e176f5711b3e7a
   subpackages:
   - addrmgr
   - blockchain
@@ -93,16 +93,18 @@ imports:
   - chaincfg/chainhash
   - connmgr
   - database
+  - integration/rpctest
   - peer
-  - rpctest
+  - rpcclient
   - txscript
   - wire
 - name: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - name: github.com/roasbeef/btcutil
-  version: a259eaf2ec1b54653cdd67848a41867f280797ee
+  version: 4675c7e1e02d8fe1f40d1e40a71d31922e62e605
   subpackages:
   - base58
+  - bech32
   - bloom
   - coinset
   - gcs
@@ -110,7 +112,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 14f1a03bda72692c17e3f8931710b90ba62bde8b
+  version: ea0c0b93c6ee2fd89062a7845585a37c9e695ba5
   subpackages:
   - chain
   - internal/helpers
@@ -134,7 +136,7 @@ imports:
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
 - name: golang.org/x/crypto
-  version: 122d919ec1efcfb58483215da23f815853e24b81
+  version: eb71ad9bd329b5ac0fd0148dd99bd62e8be8e035
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -149,7 +151,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: 513929065c19401a1c7b76ecd942f9f86a0c061b
+  version: 57efc9c3d9f91fb3277f8da1cff370539c4d3dc5
   subpackages:
   - context
   - http2
@@ -159,18 +161,18 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: e62c3de784db939836898e5c19ffd41bece347da
+  version: 07c182904dbd53199946ba614a412c61d3c548f5
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 19e51611da83d6be54ddafce4a4af510cb3e9ea4
+  version: cc24f0397b10b6321b1a1322b6bd592984fdabf2
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: bb3573be0c484136831138976d444b8754777aff
+  version: ee236bd376b077c7a89f260c026c4735b195e459
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status
@@ -199,5 +201,5 @@ imports:
   - bakery
   - bakery/checkers
 - name: gopkg.in/macaroon.v1
-  version: d8fd13e6951f2ce46f0964a58149cf2f103cac9a
+  version: ab101776739ee61baab9bc50e4b33b5aeb3ac843
 testImports: []

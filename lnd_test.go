@@ -1757,7 +1757,7 @@ poll:
 func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const (
-		timeout     = time.Duration(time.Second * 5)
+		timeout     = time.Duration(time.Second * 10)
 		chanAmt     = maxFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
@@ -2016,7 +2016,7 @@ func testRevokedCloseRetributionPostBreachConf(
 
 	ctxb := context.Background()
 	const (
-		timeout     = time.Duration(time.Second * 5)
+		timeout     = time.Duration(time.Second * 10)
 		chanAmt     = maxFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6

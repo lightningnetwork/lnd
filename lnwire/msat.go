@@ -11,7 +11,7 @@ import (
 const mSatScale int64 = 1000
 
 // MilliSatoshi are the native unit of the Lightning Network. A milli-satoshi
-// is simply 1/1000th of a satoshi. There are 100 milli-satoshis in a single
+// is simply 1/1000th of a satoshi. There are 1000 milli-satoshis in a single
 // satoshi. Within the network, all HTLC payments are denominated in
 // milli-satoshis. As milli-satoshis aren't deliverable on the native
 // blockchain, before settling to broadcasting, the values are rounded down to

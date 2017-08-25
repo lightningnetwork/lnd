@@ -1722,7 +1722,7 @@ func copyFile(dest, src string) error {
 	return d.Close()
 }
 
-func waitForTxInMempool(miner *btcrpcclient.Client,
+func waitForTxInMempool(miner *rpcclient.Client,
 	timeout time.Duration) (*chainhash.Hash, error) {
 
 	var txid *chainhash.Hash

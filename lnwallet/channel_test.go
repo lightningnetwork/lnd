@@ -101,7 +101,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 			signDesc.DoubleTweak)
 	}
 
-	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
+	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
 		txscript.SigHashAll, privKey, true)
 	if err != nil {

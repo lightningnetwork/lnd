@@ -36,7 +36,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
-	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
+	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value,
 		signDesc.Output.PkScript, txscript.SigHashAll, m.key, true)
 	if err != nil {

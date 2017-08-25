@@ -225,7 +225,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 
 	// Generate a valid witness stack for the input.
 	// TODO(roasbeef): adhere to passed HashType
-	witnessScript, err := txscript.WitnessScript(tx, signDesc.SigHashes,
+	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, witnessProgram,
 		txscript.SigHashAll, privKey, true)
 	if err != nil {

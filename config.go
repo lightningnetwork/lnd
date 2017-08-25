@@ -481,8 +481,8 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 }
 
 func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error {
-	// If the rpcuser and rpcpass paramters aren't set, then we'll attempt
-	// to automatically obtain the properm mcredentials for btcd and set
+	// If the rpcuser and rpcpass parameters aren't set, then we'll attempt
+	// to automatically obtain the proper credentials for btcd and set
 	// them within the configuration.
 	if cConfig.RPCUser != "" || cConfig.RPCPass != "" {
 		return nil
@@ -490,10 +490,10 @@ func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error 
 
 	// If we're in simnet mode, then the running btcd instance won't read
 	// the RPC credentials from the configuration. So if lnd wasn't
-	// specified the paramters, then we won't be able to start.
+	// specified the parameters, then we won't be able to start.
 	if cConfig.SimNet {
 		str := "%v: rpcuser and rpcpass must be set to your btcd " +
-			"node's RPC paramters"
+			"node's RPC parameters for simnet mode"
 		return fmt.Errorf(str, funcName)
 	}
 

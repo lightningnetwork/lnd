@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 )
 
 // BtcdFilteredChainView is an implementation of the FilteredChainView
@@ -23,7 +23,7 @@ type BtcdFilteredChainView struct {
 	// bestHeight is the height of the latest block in the main chain.
 	bestHeight int32
 
-	btcdConn *btcrpcclient.Client
+	btcdConn *rpcclient.Client
 
 	// newBlocks is the channel in which new filtered blocks are sent over.
 	newBlocks chan *FilteredBlock
@@ -61,7 +61,7 @@ var _ FilteredChainView = (*BtcdFilteredChainView)(nil)
 
 // NewBtcdFilteredChainView creates a new instance of a FilteredChainView from
 // RPC credentials for an active btcd instance.
-func NewBtcdFilteredChainView(config btcrpcclient.ConnConfig) (*BtcdFilteredChainView, error) {
+func NewBtcdFilteredChainView(config rpcclient.ConnConfig) (*BtcdFilteredChainView, error) {
 	chainView := &BtcdFilteredChainView{
 		newBlocks:         make(chan *FilteredBlock),
 		staleBlocks:       make(chan *FilteredBlock),
@@ -72,16 +72,16 @@ func NewBtcdFilteredChainView(config btcrpcclient.ConnConfig) (*BtcdFilteredChai
 		quit:              make(chan struct{}),
 	}
 
-	ntfnCallbacks := &btcrpcclient.NotificationHandlers{
+	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    chainView.onBlockConnected,
 		OnBlockDisconnected: chainView.onBlockDisconnected,
 	}
 
-	// Disable connecting to btcd within the btcrpcclient.New method. We
+	// Disable connecting to btcd within the rpcclient.New method. We
 	// defer establishing the connection to our .Start() method.
 	config.DisableConnectOnNew = true
 	config.DisableAutoReconnect = false
-	chainConn, err := btcrpcclient.New(&config, ntfnCallbacks)
+	chainConn, err := rpcclient.New(&config, ntfnCallbacks)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ type chainUpdate struct {
 	blockHeight int32
 }
 
-// onBlockConnected implements on OnBlockConnected callback for btcrpcclient.
+// onBlockConnected implements on OnBlockConnected callback for rpcclient.
 // Ingesting a block updates the wallet's internal utxo state based on the
 // outputs created and destroyed within each block.
 func (b *BtcdFilteredChainView) onBlockConnected(hash *chainhash.Hash,
@@ -173,7 +173,7 @@ func (b *BtcdFilteredChainView) onBlockConnected(hash *chainhash.Hash,
 	}()
 }
 
-// onBlockDisconnected implements on OnBlockDisconnected callback for btcrpcclient.
+// onBlockDisconnected implements on OnBlockDisconnected callback for rpcclient.
 func (b *BtcdFilteredChainView) onBlockDisconnected(hash *chainhash.Hash,
 	height int32, t time.Time) {
 

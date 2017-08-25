@@ -27,7 +27,7 @@ import (
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/rpctest"
+	"github.com/roasbeef/btcd/integration/rpctest"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"

@@ -30,10 +30,10 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpctest"
+	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -118,7 +118,7 @@ type lightningNode struct {
 
 // newLightningNode creates a new test lightning node instance from the passed
 // rpc config and slice of extra arguments.
-func newLightningNode(btcrpcConfig *btcrpcclient.ConnConfig, lndArgs []string) (*lightningNode, error) {
+func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*lightningNode, error) {
 	var err error
 
 	cfg := &config{
@@ -662,7 +662,7 @@ func (l *lightningNode) WaitForBlockchainSync(ctx context.Context) error {
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
 type networkHarness struct {
-	rpcConfig btcrpcclient.ConnConfig
+	rpcConfig rpcclient.ConnConfig
 	netParams *chaincfg.Params
 	Miner     *rpctest.Harness
 

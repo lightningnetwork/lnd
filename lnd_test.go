@@ -29,9 +29,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpctest"
+	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -3166,7 +3166,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}()
 
-	handlers := &btcrpcclient.NotificationHandlers{
+	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: lndHarness.OnTxAccepted,
 	}
 
@@ -3201,7 +3201,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Turn off the btcd rpc logging, otherwise it will lead to panic.
 	// TODO(andrew.shvv|roasbeef) Remove the hack after re-work the way the log
 	// rotator os work.
-	btcrpcclient.UseLogger(btclog.Disabled)
+	rpcclient.UseLogger(btclog.Disabled)
 
 	if err := btcdHarness.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)

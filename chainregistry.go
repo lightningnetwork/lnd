@@ -21,7 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
@@ -230,7 +230,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 
 		btcdUser := homeChainConfig.RPCUser
 		btcdPass := homeChainConfig.RPCPass
-		rpcConfig := &btcrpcclient.ConnConfig{
+		rpcConfig := &rpcclient.ConnConfig{
 			Host:                 btcdHost,
 			Endpoint:             "ws",
 			User:                 btcdUser,

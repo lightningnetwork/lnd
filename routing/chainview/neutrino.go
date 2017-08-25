@@ -7,8 +7,8 @@ import (
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcutil/gcs/builder"
 	"github.com/roasbeef/btcwallet/waddrmgr"
@@ -109,7 +109,7 @@ func (c *CfFilteredChainView) Start() error {
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(c.quit),
 		neutrino.NotificationHandlers(
-			btcrpcclient.NotificationHandlers{
+			rpcclient.NotificationHandlers{
 				OnFilteredBlockConnected:    c.onFilteredBlockConnected,
 				OnFilteredBlockDisconnected: c.onFilteredBlockDisconnected,
 			},

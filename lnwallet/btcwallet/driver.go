@@ -23,7 +23,7 @@ func createNewWallet(args ...interface{}) (lnwallet.WalletController, error) {
 	config, ok := args[0].(*Config)
 	if !ok {
 		return nil, fmt.Errorf("first argument to btcdnotifier.New is " +
-			"incorrect, expected a *btcrpcclient.ConnConfig")
+			"incorrect, expected a *rpcclient.ConnConfig")
 	}
 
 	return New(*config)

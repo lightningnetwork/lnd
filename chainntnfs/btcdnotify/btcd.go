@@ -10,8 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcjson"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -58,7 +58,7 @@ type BtcdNotifier struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn *btcrpcclient.Client
+	chainConn *rpcclient.Client
 
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
@@ -90,7 +90,7 @@ var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 // New returns a new BtcdNotifier instance. This function assumes the btcd node
 // detailed in the passed configuration is already running, and willing to
 // accept new websockets clients.
-func New(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
+func New(config *rpcclient.ConnConfig) (*BtcdNotifier, error) {
 	notifier := &BtcdNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
@@ -110,17 +110,17 @@ func New(config *btcrpcclient.ConnConfig) (*BtcdNotifier, error) {
 		quit: make(chan struct{}),
 	}
 
-	ntfnCallbacks := &btcrpcclient.NotificationHandlers{
+	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    notifier.onBlockConnected,
 		OnBlockDisconnected: notifier.onBlockDisconnected,
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
-	// Disable connecting to btcd within the btcrpcclient.New method. We
+	// Disable connecting to btcd within the rpcclient.New method. We
 	// defer establishing the connection to our .Start() method.
 	config.DisableConnectOnNew = true
 	config.DisableAutoReconnect = false
-	chainConn, err := btcrpcclient.New(config, ntfnCallbacks)
+	chainConn, err := rpcclient.New(config, ntfnCallbacks)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ type blockNtfn struct {
 	height int32
 }
 
-// onBlockConnected implements on OnBlockConnected callback for btcrpcclient.
+// onBlockConnected implements on OnBlockConnected callback for rpcclient.
 // Ingesting a block updates the wallet's internal utxo state based on the
 // outputs created and destroyed within each block.
 func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32, t time.Time) {
@@ -216,11 +216,11 @@ func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32, t ti
 	}()
 }
 
-// onBlockDisconnected implements on OnBlockDisconnected callback for btcrpcclient.
+// onBlockDisconnected implements on OnBlockDisconnected callback for rpcclient.
 func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32, t time.Time) {
 }
 
-// onRedeemingTx implements on OnRedeemingTx callback for btcrpcclient.
+// onRedeemingTx implements on OnRedeemingTx callback for rpcclient.
 func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetails) {
 	// Append this new transaction update to the end of the queue of new
 	// chain updates.

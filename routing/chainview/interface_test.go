@@ -14,10 +14,10 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpctest"
+	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcrpcclient"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/walletdb"
 
@@ -473,12 +473,12 @@ var chainViewTests = []testCase{
 
 var interfaceImpls = []struct {
 	name          string
-	chainViewInit func(rpcInfo btcrpcclient.ConnConfig,
+	chainViewInit func(rpcInfo rpcclient.ConnConfig,
 		p2pAddr string) (func(), FilteredChainView, error)
 }{
 	{
 		name: "p2p_neutrino",
-		chainViewInit: func(_ btcrpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
+		chainViewInit: func(_ rpcclient.ConnConfig, p2pAddr string) (func(), FilteredChainView, error) {
 			spvDir, err := ioutil.TempDir("", "neutrino")
 			if err != nil {
 				return nil, nil, err
@@ -526,7 +526,7 @@ var interfaceImpls = []struct {
 	},
 	{
 		name: "btcd_websockets",
-		chainViewInit: func(config btcrpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
+		chainViewInit: func(config rpcclient.ConnConfig, _ string) (func(), FilteredChainView, error) {
 			chainView, err := NewBtcdFilteredChainView(config)
 			if err != nil {
 				return nil, nil, err

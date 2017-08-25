@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/roasbeef/btcrpcclient"
+	"github.com/roasbeef/btcd/rpcclient"
 )
 
 // createNewNotifier creates a new instance of the ChainNotifier interface
@@ -15,10 +15,10 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 			"expected 1, instead passed %v", len(args))
 	}
 
-	config, ok := args[0].(*btcrpcclient.ConnConfig)
+	config, ok := args[0].(*rpcclient.ConnConfig)
 	if !ok {
 		return nil, fmt.Errorf("first argument to btcdnotifier.New is " +
-			"incorrect, expected a *btcrpcclient.ConnConfig")
+			"incorrect, expected a *rpcclient.ConnConfig")
 	}
 
 	return New(config)

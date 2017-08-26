@@ -2009,7 +2009,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 
 // testRevokedCloseRetributinPostBreachConf tests that Alice is able carry out
 // retribution in the event that she fails immediately after receiving a
-// confirmation of Bob's breach txn.
+// confirmation of Carol's breach txn.
 func testRevokedCloseRetributionPostBreachConf(
 	net *networkHarness,
 	t *harnessTest) {
@@ -2022,14 +2022,27 @@ func testRevokedCloseRetributionPostBreachConf(
 		numInvoices = 6
 	)
 
+	// Since we'd like to test some multi-hop failure scenarios, we'll
+	// introduce another node into our test network: Carol.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+
+	// We must let Dave have an open channel before he can send a node
+	// announcement, so we open a channel with Carol,
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
 	// In order to test Alice's response to an uncooperative channel
-	// closure by Bob, we'll first open up a channel between them with a
+	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
 		chanAmt, 0)
 
-	// With the channel open, we'll create a few invoices for Bob that
+	// With the channel open, we'll create a few invoices for Caro that
 	// Alice will pay to in order to advance the state of the channel.
 	bobPaymentHashes := make([][]byte, numInvoices)
 	for i := 0; i < numInvoices; i++ {
@@ -2039,7 +2052,7 @@ func testRevokedCloseRetributionPostBreachConf(
 			RPreimage: preimage,
 			Value:     paymentAmt,
 		}
-		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		resp, err := carol.AddInvoice(ctxb, invoice)
 		if err != nil {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
@@ -2049,9 +2062,9 @@ func testRevokedCloseRetributionPostBreachConf(
 
 	// As we'll be querying the state of bob's channels frequently we'll
 	// create a closure helper function for the purpose.
-	getBobChanInfo := func() (*lnrpc.ActiveChannel, error) {
+	getCarolChanInfo := func() (*lnrpc.ActiveChannel, error) {
 		req := &lnrpc.ListChannelsRequest{}
-		bobChannelInfo, err := net.Bob.ListChannels(ctxb, req)
+		bobChannelInfo, err := carol.ListChannels(ctxb, req)
 		if err != nil {
 			return nil, err
 		}
@@ -2065,15 +2078,15 @@ func testRevokedCloseRetributionPostBreachConf(
 
 	// Wait for Alice to receive the channel edge from the funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->bob channel before "+
 			"timeout: %v", err)
 	}
 
 	// Open up a payment stream to Alice that we'll use to send payment to
-	// Bob. We also create a small helper function to send payments to Bob,
-	// consuming the payment hashes we generated above.
+	// Carol. We also create a small helper function to send payments to
+	// Carol, consuming the payment hashes we generated above.
 	alicePayStream, err := net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
@@ -2082,7 +2095,7 @@ func testRevokedCloseRetributionPostBreachConf(
 		for i := start; i < stop; i++ {
 			sendReq := &lnrpc.SendRequest{
 				PaymentHash: bobPaymentHashes[i],
-				Dest:        net.Bob.PubKey[:],
+				Dest:        carol.PubKey[:],
 				Amt:         paymentAmt,
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
@@ -2098,16 +2111,16 @@ func testRevokedCloseRetributionPostBreachConf(
 		return nil
 	}
 
-	// Send payments from Alice to Bob using 3 of Bob's payment hashes
+	// Send payments from Alice to Carol using 3 of Carol's payment hashes
 	// generated above.
 	if err := sendPayments(0, numInvoices/2); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	// Next query for Bob's channel state, as we sent 3 payments of 10k
-	// satoshis each, Bob should now see his balance as being 30k satoshis.
+	// Next query for Carol's channel state, as we sent 3 payments of 10k
+	// satoshis each, Carol should now see his balance as being 30k satoshis.
 	time.Sleep(time.Millisecond * 200)
-	bobChan, err := getBobChanInfo()
+	bobChan, err := getCarolChanInfo()
 	if err != nil {
 		t.Fatalf("unable to get bob's channel info: %v", err)
 	}
@@ -2116,12 +2129,12 @@ func testRevokedCloseRetributionPostBreachConf(
 			bobChan.LocalBalance, 30000)
 	}
 
-	// Grab Bob's current commitment height (update number), we'll later
+	// Grab Carol's current commitment height (update number), we'll later
 	// revert him to this state after additional updates to force him to
 	// broadcast this soon to be revoked state.
 	bobStateNumPreCopy := bobChan.NumUpdates
 
-	// Create a temporary file to house Bob's database state at this
+	// Create a temporary file to house Carol's database state at this
 	// particular point in history.
 	bobTempDbPath, err := ioutil.TempDir("", "bob-past-state")
 	if err != nil {
@@ -2130,38 +2143,38 @@ func testRevokedCloseRetributionPostBreachConf(
 	bobTempDbFile := filepath.Join(bobTempDbPath, "channel.db")
 	defer os.Remove(bobTempDbPath)
 
-	// With the temporary file created, copy Bob's current state into the
+	// With the temporary file created, copy Carol's current state into the
 	// temporary file we created above. Later after more updates, we'll
 	// restore this state.
-	bobDbPath := filepath.Join(net.Bob.cfg.DataDir, "simnet/bitcoin/channel.db")
+	bobDbPath := filepath.Join(carol.cfg.DataDir, "simnet/bitcoin/channel.db")
 	if err := copyFile(bobTempDbFile, bobDbPath); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
-	// Finally, send payments from Alice to Bob, consuming Bob's remaining
+	// Finally, send payments from Alice to Carol, consuming Carol's remaining
 	// payment hashes.
 	if err := sendPayments(numInvoices/2, numInvoices); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	bobChan, err = getBobChanInfo()
+	bobChan, err = getCarolChanInfo()
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
 
-	// Now we shutdown Bob, copying over the his temporary database state
+	// Now we shutdown Carol, copying over the his temporary database state
 	// which has the *prior* channel state over his current most up to date
-	// state. With this, we essentially force Bob to travel back in time
+	// state. With this, we essentially force Carol to travel back in time
 	// within the channel's history.
-	if err = net.RestartNode(net.Bob, func() error {
+	if err = net.RestartNode(carol, func() error {
 		return os.Rename(bobTempDbFile, bobDbPath)
 	}); err != nil {
 		t.Fatalf("unable to restart node: %v", err)
 	}
 
-	// Now query for Bob's channel state, it should show that he's at a
+	// Now query for Carol's channel state, it should show that he's at a
 	// state number in the past, not the *latest* state.
-	bobChan, err = getBobChanInfo()
+	bobChan, err = getCarolChanInfo()
 	if err != nil {
 		t.Fatalf("unable to get bob chan info: %v", err)
 	}
@@ -2169,12 +2182,12 @@ func testRevokedCloseRetributionPostBreachConf(
 		t.Fatalf("db copy failed: %v", bobChan.NumUpdates)
 	}
 
-	// Now force Bob to execute a *force* channel closure by unilaterally
+	// Now force Carol to execute a *force* channel closure by unilaterally
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Alice's retribution.
 	force := true
-	closeUpdates, _, err := net.CloseChannel(ctxb, net.Bob, chanPoint, force)
+	closeUpdates, _, err := net.CloseChannel(ctxb, carol, chanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
@@ -2184,7 +2197,7 @@ func testRevokedCloseRetributionPostBreachConf(
 	// block.
 	block := mineBlocks(t, net, 1)[0]
 
-	// Here, Alice receives a confirmation of Bob's breach transaction.  We
+	// Here, Alice receives a confirmation of Carol's breach transaction.  We
 	// restart Alice to ensure that she is persisting her retribution state and
 	// continues exacting justice after her node restarts.
 	if err := net.RestartNode(net.Alice, nil); err != nil {
@@ -2198,7 +2211,7 @@ func testRevokedCloseRetributionPostBreachConf(
 	assertTxInBlock(t, block, breachTXID)
 
 	// Query the mempool for Alice's justice transaction, this should be
-	// broadcast as Bob's contract breaching transaction gets confirmed
+	// broadcast as Carol's contract breaching transaction gets confirmed
 	// above.
 	justiceTXID, err := waitForTxInMempool(net.Miner.Node, 5*time.Second)
 	if err != nil {
@@ -2208,7 +2221,7 @@ func testRevokedCloseRetributionPostBreachConf(
 
 	// Query for the mempool transaction found above. Then assert that all
 	// the inputs of this transaction are spending outputs generated by
-	// Bob's breach transaction above.
+	// Carol's breach transaction above.
 	justiceTx, err := net.Miner.Node.GetRawTransaction(justiceTXID)
 	if err != nil {
 		t.Fatalf("unable to query for justice tx: %v", err)
@@ -2244,7 +2257,7 @@ func testRevokedCloseRetributionPostBreachConf(
 	}
 
 	// Finally, obtain Alice's channel state, she shouldn't report any
-	// channel as she just successfully brought Bob to justice by sweeping
+	// channel as she just successfully brought Carol to justice by sweeping
 	// all the channel funds.
 	req := &lnrpc.ListChannelsRequest{}
 	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)

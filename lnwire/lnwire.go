@@ -152,7 +152,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 		var b [64]byte
-		err := serializeSigToWire(&b, e)
+		err := SerializeSigToWire(&b, e)
 		if err != nil {
 			return err
 		}
@@ -467,7 +467,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
-		err = deserializeSigFromWire(e, b)
+		err = DeserializeSigFromWire(e, b)
 		if err != nil {
 			return err
 		}

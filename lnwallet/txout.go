@@ -1,4 +1,4 @@
-package lnwire
+package lnwallet
 
 import (
 	"encoding/binary"
@@ -7,8 +7,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
-// WriteTxOut serializes a wire.TxOut struct into the passed io.Writer stream.
-func WriteTxOut(w io.Writer, txo *wire.TxOut) error {
+// writeTxOut serializes a wire.TxOut struct into the passed io.Writer stream.
+func writeTxOut(w io.Writer, txo *wire.TxOut) error {
 	var scratch [8]byte
 
 	binary.BigEndian.PutUint64(scratch[:], uint64(txo.Value))
@@ -23,8 +23,8 @@ func WriteTxOut(w io.Writer, txo *wire.TxOut) error {
 	return nil
 }
 
-// ReadTxOut deserializes a wire.TxOut struct from the passed io.Reader stream.
-func ReadTxOut(r io.Reader, txo *wire.TxOut) error {
+// readTxOut deserializes a wire.TxOut struct from the passed io.Reader stream.
+func readTxOut(r io.Reader, txo *wire.TxOut) error {
 	var scratch [8]byte
 
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {

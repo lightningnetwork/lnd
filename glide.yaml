@@ -67,6 +67,7 @@ import:
   subpackages:
   - googleapis/api/annotations
 - package: github.com/ltcsuite/ltcd
+  version: 42622bfd8b6aeb7beb23cb840d0dd490bd25dc17
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino

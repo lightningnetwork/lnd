@@ -1,4 +1,4 @@
-package lnwire
+package lnwallet
 
 import (
 	"bytes"
@@ -28,12 +28,12 @@ func TestTxOutSerialization(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	if err := WriteTxOut(&buf, &txo); err != nil {
+	if err := writeTxOut(&buf, &txo); err != nil {
 		t.Fatalf("unable to serialize txout: %v", err)
 	}
 
 	var deserializedTxo wire.TxOut
-	if err := ReadTxOut(&buf, &deserializedTxo); err != nil {
+	if err := readTxOut(&buf, &deserializedTxo); err != nil {
 		t.Fatalf("unable to deserialize txout: %v", err)
 	}
 

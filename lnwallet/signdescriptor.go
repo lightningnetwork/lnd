@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -104,7 +103,7 @@ func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
 		return err
 	}
 
-	if err := lnwire.WriteTxOut(w, sd.Output); err != nil {
+	if err := writeTxOut(w, sd.Output); err != nil {
 		return err
 	}
 
@@ -174,7 +173,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 	sd.WitnessScript = witnessScript
 
 	txOut := &wire.TxOut{}
-	if err := lnwire.ReadTxOut(r, txOut); err != nil {
+	if err := readTxOut(r, txOut); err != nil {
 		return err
 	}
 	sd.Output = txOut

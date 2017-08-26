@@ -15,12 +15,12 @@ func TestSignatureSerializeDeserialize(t *testing.T) {
 	// check for errors as well as check if the results are correct.
 	signatureSerializeDeserialize := func(e btcec.Signature) error {
 		var b [64]byte
-		err := serializeSigToWire(&b, &e)
+		err := SerializeSigToWire(&b, &e)
 		if err != nil {
 			return err
 		}
 		var e2 *btcec.Signature
-		err = deserializeSigFromWire(&e2, b)
+		err = DeserializeSigFromWire(&e2, b)
 		if err != nil {
 			return err
 		}

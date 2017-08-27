@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -551,4 +552,26 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 	}
 
 	return migrations, migrationVersions
+}
+
+// Backup performs a backup of the database to the file passed as a parameter.
+func (d *DB) Backup(f *os.File) error {
+	// Start a read-only transaction
+	err := d.View(func(tx *bolt.Tx) error {
+		// Create a buffered writer from the file
+		bufferedWriter := bufio.NewWriter(f)
+
+		// Write channel db to the writer
+		_, err := tx.WriteTo(bufferedWriter)
+		if err != nil {
+			return err
+		}
+
+		// Write memory buffer to disk
+		bufferedWriter.Flush()
+
+		return nil
+	})
+
+	return err
 }

@@ -833,6 +833,19 @@
         }
       }
     },
+    "lnrpcBackupResponse": {
+      "type": "object",
+      "properties": {
+        "channeldb_backup_path": {
+          "type": "string",
+          "description": "/ The backup path for channel db."
+        },
+        "walletdb_backup_path": {
+          "type": "string",
+          "description": "/ The backup path for wallet db."
+        }
+      }
+    },
     "lnrpcChannelBalanceResponse": {
       "type": "object",
       "properties": {

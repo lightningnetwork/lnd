@@ -408,6 +408,11 @@ service Lightning {
             body: "*"
         };
     }
+
+    /** lncli: `backup`
+    Backup enables online backup of channel db and wallet db.
+    */
+    rpc Backup(BackupRequest) returns (BackupResponse);
 }
 
 message Transaction {
@@ -1278,4 +1283,24 @@ message FeeUpdateRequest {
     double fee_rate = 4 [json_name = "fee_rate"];
 }
 message FeeUpdateResponse {
+}
+
+message BackupRequest {
+    /// The backup target path for channel db.
+    /// If unset, channel db will not be backed up.
+    string channeldb_backup_path = 1 [json_name = "channeldb_backup_path"];
+
+    /// The backup target path for wallet db.
+    /// If unset, wallet db will not be backed up.
+    string walletdb_backup_path = 2 [json_name = "walletdb_backup_path"];
+
+    /// If this flag is set the system will overwrite the files if they exist.
+    bool force = 3 [json_name = "force"];
+}
+message BackupResponse {
+    /// The backup path for channel db.
+    string channeldb_backup_path = 1 [json_name = "channeldb_backup_path"];
+
+    /// The backup path for wallet db.
+    string walletdb_backup_path = 2 [json_name = "walletdb_backup_path"];
 }

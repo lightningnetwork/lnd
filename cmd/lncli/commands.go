@@ -1818,3 +1818,61 @@ func updateFees(ctx *cli.Context) error {
 	printRespJSON(resp)
 	return nil
 }
+
+var backupCommand = cli.Command{
+	Name:  "backup",
+	Usage: "enables online backup of channel db and wallet db",
+	Description: `Enables the backup of channel db and wallet db. If
+	 channeldb_backup_path or walletdb_backup_path are set, the backup will be
+	 performed in the given path. It is allowed to set only one.`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "channeldb_backup_path, channeldb",
+			Usage: `The backup target path for channel db. If unset, channel db
+			 will not be backed up.`,
+		},
+		cli.StringFlag{
+			Name: "walletdb_backup_path, walletdb",
+			Usage: `The backup target path for wallet db. If unset, wallet db
+			 will not be backed up.`,
+		},
+		cli.BoolFlag{
+			Name: "force, f",
+			Usage: `If this flag is set the system will overwrite the files
+			if they exist.`,
+		},
+	},
+	Action: backup,
+}
+
+func backup(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "backup")
+		return nil
+	}
+
+	req := &lnrpc.BackupRequest{}
+
+	if ctx.IsSet("channeldb_backup_path") {
+		req.ChanneldbBackupPath = ctx.String("channeldb_backup_path")
+	}
+
+	if ctx.IsSet("walletdb_backup_path") {
+		req.WalletdbBackupPath = ctx.String("walletdb_backup_path")
+	}
+
+	req.Force = ctx.Bool("force")
+
+	resp, err := client.Backup(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}

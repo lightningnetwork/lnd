@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/invoiceregistry"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nodesigner"
@@ -27,6 +28,17 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+)
+
+var (
+	// debugPre is the default debug preimage which is inserted into the
+	// invoice registry if the --debughtlc flag is activated on start up.
+	// All nodes initialized with the flag active will immediately settle
+	// any incoming HTLC whose rHash corresponds with the debug
+	// preimage.
+	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
+
+	debugHash = chainhash.Hash(sha256.Sum256(debugPre[:]))
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -66,7 +78,7 @@ type server struct {
 	chanDB *channeldb.DB
 
 	htlcSwitch    *htlcswitch.Switch
-	invoices      *invoiceRegistry
+	invoices      *invoiceregistry.InvoiceRegistry
 	breachArbiter *breachArbiter
 
 	chanRouter *routing.ChannelRouter
@@ -117,7 +129,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		chanDB: chanDB,
 		cc:     cc,
 
-		invoices: newInvoiceRegistry(chanDB),
+		invoices: invoiceregistry.NewInvoiceRegistry(chanDB),
 
 		utxoNursery: newUtxoNursery(chanDB, cc.chainNotifier, cc.wallet),
 

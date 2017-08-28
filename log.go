@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoiceregistry"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/connmgr"
@@ -70,6 +71,7 @@ var (
 	crtrLog = backendLog.Logger("CRTR")
 	btcnLog = backendLog.Logger("BTCN")
 	atplLog = backendLog.Logger("ATPL")
+	invrLog = backendLog.Logger("INVR")
 )
 
 // Initialize package-global logger variables.
@@ -83,6 +85,7 @@ func init() {
 	routing.UseLogger(crtrLog)
 	neutrino.UseLogger(btcnLog)
 	autopilot.UseLogger(atplLog)
+	invoiceregistry.UseLogger(invrLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -103,6 +106,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"CRTR": crtrLog,
 	"BTCN": btcnLog,
 	"ATPL": atplLog,
+	"INVR": invrLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

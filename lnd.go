@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/nodesigner"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -158,7 +159,7 @@ func lndMain() error {
 
 	// Next, we'll initialize the funding manager itself so it can answer
 	// queries while the wallet+chain are still syncing.
-	nodeSigner := newNodeSigner(idPrivKey)
+	nodeSigner := nodesigner.NewNodeSigner(idPrivKey)
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
 		return err

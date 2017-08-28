@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/nodesigner"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -42,7 +43,7 @@ type server struct {
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
-	nodeSigner *nodeSigner
+	nodeSigner *nodesigner.NodeSigner
 
 	// lightningID is the sha256 of the public key corresponding to our
 	// long-term identity private key.
@@ -121,7 +122,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		utxoNursery: newUtxoNursery(chanDB, cc.chainNotifier, cc.wallet),
 
 		identityPriv: privKey,
-		nodeSigner:   newNodeSigner(privKey),
+		nodeSigner:   nodesigner.NewNodeSigner(privKey),
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule

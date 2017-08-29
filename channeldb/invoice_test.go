@@ -12,14 +12,15 @@ import (
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
-
 	var pre [32]byte
 	if _, err := rand.Read(pre[:]); err != nil {
 		return nil, err
 	}
 
 	i := &Invoice{
-		CreationDate: time.Now(),
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		CreationDate: time.Unix(time.Now().Unix(), 0),
 		Terms: ContractTerm{
 			PaymentPreimage: pre,
 			Value:           value,
@@ -43,7 +44,9 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Create a fake invoice which we'll use several times in the tests
 	// below.
 	fakeInvoice := &Invoice{
-		CreationDate: time.Now(),
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		CreationDate: time.Unix(time.Now().Unix(), 0),
 	}
 	fakeInvoice.Memo = []byte("memo")
 	fakeInvoice.Receipt = []byte("recipt")

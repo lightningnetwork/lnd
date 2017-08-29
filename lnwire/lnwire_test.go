@@ -316,8 +316,13 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 			req.CommitSig = testSig
 
+			// Only create the slice if there will be any signatures
+			// in it to prevent false positive test failures due to
+			// an empty slice versus a nil slice.
 			numSigs := uint16(r.Int31n(1020))
-			req.HtlcSigs = make([]*btcec.Signature, numSigs)
+			if numSigs > 0 {
+				req.HtlcSigs = make([]*btcec.Signature, numSigs)
+			}
 			for i := 0; i < int(numSigs); i++ {
 				req.HtlcSigs[i] = testSig
 			}

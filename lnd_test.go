@@ -2042,7 +2042,7 @@ func testRevokedCloseRetributionPostBreachConf(
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
 		chanAmt, 0)
 
-	// With the channel open, we'll create a few invoices for Caro that
+	// With the channel open, we'll create a few invoices for Carol that
 	// Alice will pay to in order to advance the state of the channel.
 	bobPaymentHashes := make([][]byte, numInvoices)
 	for i := 0; i < numInvoices; i++ {

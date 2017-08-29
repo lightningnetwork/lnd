@@ -1,5 +1,5 @@
-hash: 2d4bd5b1aa661c61dcba829083b1925244cd2b55da07fc2a90a93d72510182d3
-updated: 2017-08-25T18:03:35.514975087-07:00
+hash: a0380b95ccb2379edffc43642889b3a344cd4ac36d0475b3bb0319f8a18c03a0
+updated: 2017-08-29T15:27:16.511012578-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -40,7 +40,7 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: adab96458c51a58dc1783b3335dcce5461522e75
+  version: a476722483882dd40b8111f0eb64e1d7f43f56e4
   subpackages:
   - spew
 - name: github.com/go-errors/errors
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: ae7d7bf1950cce2637e2184958f64f39d761471d
+  version: 69a3bce5c69831aa7338d51fadec1f5c3946716c
   subpackages:
   - filterdb
   - headerfs
@@ -83,7 +83,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcd
-  version: ee68739ba4ed83f244b115bec0e176f5711b3e7a
+  version: 4b411f0e78f1faa96ae650d886170d018c1835bf
   subpackages:
   - addrmgr
   - blockchain
@@ -112,7 +112,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: ea0c0b93c6ee2fd89062a7845585a37c9e695ba5
+  version: e4e29cf417847d7a9196d021bb333192f6dad339
   subpackages:
   - chain
   - internal/helpers
@@ -151,7 +151,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: 57efc9c3d9f91fb3277f8da1cff370539c4d3dc5
+  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
   subpackages:
   - context
   - http2
@@ -161,11 +161,11 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 2d6f6f883a06fc0d5f4b14a81e4c28705ea64c15
+  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: ac87088df8ef557f1e32cd00ed0b6fbc3f7ddafb
+  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
   subpackages:
   - secure/bidirule
   - transform

@@ -321,7 +321,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 
 	for i, txOut := range tx.TxOut {
 		if bytes.Equal(txOut.PkScript, pkScript) &&
-			txOut.Value == int64(p.Amount) {
+			txOut.Value == int64(p.Amount.ToSatoshis()) {
 
 			// If this payment hash and index has already been
 			// found, then we'll continue in order to avoid any
@@ -3274,7 +3274,7 @@ func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	}
 
 	// Add the new HTLC outputs to the respective commitment transactions.
-	amountPending := int64(paymentDesc.Amount)
+	amountPending := int64(paymentDesc.Amount.ToSatoshis())
 	commitTx.AddTxOut(wire.NewTxOut(amountPending, p2wsh))
 
 	// Store the pkScript of this particular PaymentDescriptor so we can

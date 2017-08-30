@@ -392,6 +392,19 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 	}, returnPreimage
 }
 
+func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
+	value btcutil.Amount) {
+
+	for _, txOut := range commitTx.TxOut {
+		if txOut.Value == int64(value) {
+			return
+		}
+	}
+
+	t.Fatalf("unable to find output of value %v within tx %v", value,
+		spew.Sdump(commitTx))
+}
+
 // TestSimpleAddSettleWorkflow tests a simple channel scenario wherein the
 // local node (Alice in this case) creates a new outgoing HTLC to bob, commits
 // this change, then bob immediately commits a settlement of the HTLC after the
@@ -415,9 +428,10 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 
 	paymentPreimage := bytes.Repeat([]byte{1}, 32)
 	paymentHash := sha256.Sum256(paymentPreimage)
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	htlc := &lnwire.UpdateAddHTLC{
 		PaymentHash: paymentHash,
-		Amount:      lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin),
+		Amount:      htlcAmt,
 		Expiry:      uint32(5),
 	}
 
@@ -528,6 +542,21 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice has incorrect commitment height, %v vs %v",
 			aliceChannel.currentHeight, 1)
 	}
+
+	// Both commitment transactions should have three outputs, and one of
+	// them should be exactly the amount of the HTLC.
+	if len(aliceChannel.channelState.CommitTx.TxOut) != 3 {
+		t.Fatalf("alice should have three commitment outputs, instead "+
+			"have %v", len(aliceChannel.channelState.CommitTx.TxOut))
+	}
+	if len(bobChannel.channelState.CommitTx.TxOut) != 3 {
+		t.Fatalf("bob should have three commitment outputs, instead "+
+			"have %v", len(bobChannel.channelState.CommitTx.TxOut))
+	}
+	assertOutputExistsByValue(t, &aliceChannel.channelState.CommitTx,
+		htlcAmt.ToSatoshis())
+	assertOutputExistsByValue(t, &bobChannel.channelState.CommitTx,
+		htlcAmt.ToSatoshis())
 
 	// Now we'll repeat a similar exchange, this time with Bob settling the
 	// HTLC once he learns of the preimage.

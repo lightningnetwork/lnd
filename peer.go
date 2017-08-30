@@ -322,7 +322,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// the database.
 		graph := p.server.chanDB.ChannelGraph()
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
-		if err != nil {
+		if err != nil && err != channeldb.ErrEdgeNotFound {
 			return err
 		}
 
@@ -334,7 +334,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
 		var selfPolicy *channeldb.ChannelEdgePolicy
-		if info.NodeKey1.IsEqual(p.server.identityPriv.PubKey()) {
+		if info != nil && info.NodeKey1.IsEqual(p.server.identityPriv.PubKey()) {
 			selfPolicy = p1
 		} else {
 			selfPolicy = p2

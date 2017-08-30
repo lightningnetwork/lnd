@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
@@ -168,11 +169,11 @@ func (b *breachArbiter) Start() error {
 	// channels can be discarded, as their fate will be placed in the hands
 	// of an exactRetribution task spawned later.
 	//
-	// NOTE Spawning of the exactRetribution task is intentionally postponed
-	// until after this step in order to ensure that the all breached
-	// channels are reflected as closed in channeldb and consistent with
-	// what is checkpointed by the breach arbiter. Instead of treating the
-	// breached-and-closed and breached-but-still-active channels as
+	// NOTE: Spawning of the exactRetribution task is intentionally
+	// postponed until after this step in order to ensure that the all
+	// breached channels are reflected as closed in channeldb and consistent
+	// with what is checkpointed by the breach arbiter. Instead of treating
+	// the breached-and-closed and breached-but-still-active channels as
 	// separate sets of channels, we first ensure that all
 	// breached-but-still-active channels are promoted to
 	// breached-and-closed during restart, allowing us to treat them as a
@@ -799,8 +800,8 @@ type breachedOutput struct {
 	witnessFunc lnwallet.WitnessGenerator
 }
 
-// newBreachedOutput assembles new breachedOutput that can be used by the breach
-// arbiter to construct a justice or sweep transaction.
+// newBreachedOutput assembles a new breachedOutput that can be used by the
+// breach arbiter to construct a justice or sweep transaction.
 func newBreachedOutput(outpoint *wire.OutPoint,
 	witnessType lnwallet.WitnessType,
 	signDescriptor *lnwallet.SignDescriptor) *breachedOutput {
@@ -864,7 +865,7 @@ type retributionInfo struct {
 	commitHash chainhash.Hash
 	chanPoint  wire.OutPoint
 
-	// TODO(conner) remove the following group of fields after decoupling
+	// TODO(conner): remove the following group of fields after decoupling
 	// the breach arbiter from the wallet.
 
 	// Fields copied from channel snapshot when a breach is detected. This
@@ -931,7 +932,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		)
 	}
 
-	// TODO(conner) remove dependency on channel snapshot after decoupling
+	// TODO(conner): remove dependency on channel snapshot after decoupling
 	// channel closure from the breach arbiter.
 
 	return &retributionInfo{
@@ -967,17 +968,16 @@ func (b *breachArbiter) createJusticeTx(
 	}
 
 	var txWeight uint64
-	// Begin with a base txn weight of 4 * tx_non_wit_data +
-	// witness_header_size.
-	txWeight += 4*53 + 2
+	// Begin with a base txn weight, e.g. version, nLockTime, etc.
+	txWeight += 4*lnwallet.BaseSweepTxSize + lnwallet.WitnessHeaderSize
+
 	// Add to_local revoke script and tx input.
-	txWeight += 154 + 4*41
+	txWeight += 4*lnwallet.InputSize + lnwallet.ToLocalPenaltyWitnessSize
 	// Add to_remote p2wpkh witness and tx input.
-	txWeight += 108 + 4*41
-	for range r.htlcOutputs {
-		// Add revoke offered htlc witness and tx input.
-		txWeight += 243 + 4*41
-	}
+	txWeight += 4*lnwallet.InputSize + lnwallet.P2WKHWitnessSize
+	// Add revoked offered-htlc witnesses and tx inputs.
+	txWeight += uint64(len(r.htlcOutputs)) *
+		(4*lnwallet.InputSize + lnwallet.OfferedHtlcWitnessSize)
 
 	return b.sweepSpendableOutputsTxn(txWeight, breachedOutputs...)
 }
@@ -1000,19 +1000,17 @@ func (b *breachArbiter) craftCommitSweepTx(
 	)
 
 	var txWeight uint64
-	// Begin with a base txn weight of 4 * tx_non_wit_data +
-	// witness_header_size.
-	txWeight += 4*53 + 2
-	// Add receiver script witness and tx input
-	txWeight += 325 + 4*41
+	// Begin with a base txn weight, e.g. version, nLockTime, etc.
+	txWeight += 4*lnwallet.BaseSweepTxSize + lnwallet.WitnessHeaderSize
+	// Add to_local p2wpkh witness and tx input.
+	txWeight += 4*lnwallet.InputSize + lnwallet.P2WKHWitnessSize
 
 	return b.sweepSpendableOutputsTxn(txWeight, selfOutput)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *breachArbiter) sweepSpendableOutputsTxn(
-	txWeight uint64,
+func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight uint64,
 	inputs ...SpendableOutput) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
@@ -1051,6 +1049,13 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(
 		txn.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *input.OutPoint(),
 		})
+	}
+
+	// Before signing the transaction, check to ensure that it meets some
+	// basic validity requirements.
+	btx := btcutil.NewTx(txn)
+	if err := blockchain.CheckTransactionSanity(btx); err != nil {
+		return nil, err
 	}
 
 	// Create a sighash cache to improve the performance of hashing and

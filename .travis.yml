@@ -1,7 +1,7 @@
 language: go
 go:
-  - 1.7.6
   - 1.8.3
+  - 1.9
 sudo: false
 install:
   - GLIDE_TAG=v0.12.3

@@ -481,7 +481,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// If the funding request is for a different chain than the one the
 	// wallet is aware of, then we'll reject the request.
-	if *l.Cfg.NetParams.GenesisHash != *req.chainHash {
+	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.chainHash[:]) {
 		req.err <- fmt.Errorf("unable to create channel reservation "+
 			"for chain=%v, wallet is on chain=%v",
 			req.chainHash, l.Cfg.NetParams.GenesisHash)

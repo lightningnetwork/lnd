@@ -2,7 +2,6 @@ package lnwallet
 
 import (
 	"github.com/btcsuite/btclog"
-	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcwallet/chain"
 	btcwallet "github.com/roasbeef/btcwallet/wallet"
 	"github.com/roasbeef/btcwallet/wtxmgr"
@@ -32,7 +31,6 @@ func UseLogger(logger btclog.Logger) {
 
 	btcwallet.UseLogger(logger)
 	wtxmgr.UseLogger(logger)
-	rpcclient.UseLogger(logger)
 	chain.UseLogger(logger)
 }
 

@@ -1894,33 +1894,32 @@ func (f *fundingManager) processFundingError(err *lnwire.Error,
 // depending on the type of error we should do different clean up steps and
 // inform the user about it.
 func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
-	e := fmsg.err
+	protocolErr := fmsg.err
 
-	lnErr := lnwire.ErrorCode(e.Data[0])
-	switch lnErr {
-	case lnwire.ErrChanTooLarge:
-		fallthrough
-	case lnwire.ErrMaxPendingChannels:
-		fallthrough
-	case lnwire.ErrSynchronizingChain:
-		peerKey := fmsg.peerAddress.IdentityKey
-		chanID := fmsg.err.ChanID
-		ctx, err := f.cancelReservationCtx(peerKey, chanID)
-		if err != nil {
-			fndgLog.Warnf("unable to delete reservation: %v", err)
-			ctx.err <- err
-			return
-		}
+	peerKey := fmsg.peerAddress.IdentityKey
+	chanID := fmsg.err.ChanID
 
-		fndgLog.Errorf("Received funding error from %x: %v",
-			peerKey.SerializeCompressed(), lnErr,
-		)
-
-		ctx.err <- grpc.Errorf(lnErr.ToGrpcCode(), lnErr.String())
+	// First, we'll attempt to retrieve the funding workflow that this
+	// error was tied to. If we're unable to do so, then we'll exit early
+	// as this was an unwarranted error.
+	resCtx, err := f.getReservationCtx(peerKey, chanID)
+	if err != nil {
+		fndgLog.Warnf("Received error for non-existent funding "+
+			"flow: %v", protocolErr)
 		return
+	}
 
-	default:
-		fndgLog.Warnf("unknown funding error: %v", spew.Sdump(e.Data))
+	// If we did indeed find the funding workflow, then we'll return the
+	// error back to the caller (if any), and cancel the workflow itself.
+	lnErr := lnwire.ErrorCode(protocolErr.Data[0])
+	fndgLog.Errorf("Received funding error from %x: %v",
+		peerKey.SerializeCompressed(), lnErr,
+	)
+	resCtx.err <- grpc.Errorf(lnErr.ToGrpcCode(), lnErr.String())
+
+	if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
+		fndgLog.Warnf("unable to delete reservation: %v", err)
+		return
 	}
 }
 

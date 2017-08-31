@@ -321,6 +321,7 @@ func (u *utxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent,
 	startingHeight uint32) {
 
 	defer u.wg.Done()
+	defer newBlockChan.Cancel()
 
 	currentHeight := startingHeight
 out:

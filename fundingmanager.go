@@ -1210,6 +1210,8 @@ func (f *fundingManager) waitForFundingWithTimeout(completeChan *channeldb.OpenC
 		return
 	}
 
+	defer epochClient.Cancel()
+
 	waitingDoneChan := make(chan struct{})
 	cancelChan := make(chan struct{})
 

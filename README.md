@@ -47,12 +47,12 @@ said, `lnd` the current status of `lnd`'s BOLT compliance is:
 ## Developer Resources
 
 The daemon has been designed to be as developer friendly as possible in order
-to facilitate application development on top of `lnd`. To primary RPC
+to facilitate application development on top of `lnd`. Two primary RPC
 interfaces are exported: an HTTP REST API, and a [gRPC](https://grpc.io/)
 service. The exported API's are not yet stable, so be warned: they may change
 drastically in the near future.
 
-An automatically generated set of documentation for the RPC API's can be found
+An automatically generated set of documentation for the RPC APIs can be found
 at [api.lightning.community](api.lightning.community). A set of developer
 resources including talks, articles, and example applications can be found at:
 [dev.lightning.community](dev.lightning.community).

@@ -65,9 +65,9 @@ type chainConfig struct {
 	RPCCert    string `long:"rpccert" description:"File containing the daemon's certificate file"`
 	RawRPCCert string `long:"rawrpccert" description:"The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection."`
 
-	TestNet3 bool `long:"testnet" description:"Use the test network"`
-	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
-	RegTest  bool `long:"regtest" description:"Use the regression test network"`
+	TestNet bool `long:"testnet" description:"Use the test network"`
+	SimNet  bool `long:"simnet" description:"Use the simulation test network"`
+	RegTest bool `long:"regtest" description:"Use the regression test network"`
 }
 
 type neutrinoConfig struct {
@@ -234,13 +234,19 @@ func loadConfig() (*config, error) {
 		}
 
 		// The litecoin chain is the current active chain. However
-		// throuhgout the codebase we required chiancfg.Params. So as a
+		// throuhgout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
-		// bitcoin with the litecoin specific informat.ion
-		paramCopy := bitcoinTestNetParams
-		applyLitecoinParams(&paramCopy)
-		activeNetParams = paramCopy
-
+		// bitcoin with the litecoin specific information.
+		if cfg.Litecoin.TestNet {
+			paramCopy := bitcoinTestNetParams
+			applyLitecoinParams(&paramCopy, &litecoinTestNetParams)
+			activeNetParams = paramCopy
+		} else {
+			paramCopy := bitcoinMainNetParams
+			applyLitecoinParams(&paramCopy, &litecoinMainNetParams)
+			activeNetParams = paramCopy
+		}
+	
 		if !cfg.NeutrinoMode.Active {
 			// Attempt to parse out the RPC credentials for the
 			// litecoin chain if the information wasn't specified
@@ -263,7 +269,7 @@ func loadConfig() (*config, error) {
 		// number of network flags passed; assign active network params
 		// while we're at it.
 		numNets := 0
-		if cfg.Bitcoin.TestNet3 {
+		if cfg.Bitcoin.TestNet {
 			numNets++
 			activeNetParams = bitcoinTestNetParams
 		}

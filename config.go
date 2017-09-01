@@ -113,6 +113,7 @@ type config struct {
 	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
 	RESTPort           int  `long:"restport" description:"The port for the REST server"`
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`

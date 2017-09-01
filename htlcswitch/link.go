@@ -132,6 +132,12 @@ type ChannelLinkConfig struct {
 	// with the debug htlc R-Hash are immediately settled in the next
 	// available state transition.
 	DebugHTLC bool
+
+	// HodlHTLC should be active if you want this node to refrain from
+	// settling all incoming HTLCs with the sender if it finds itself to be
+	// the exit node.
+	// NOTE: HodlHTLC should be active in conjunction with DebugHTLC.
+	HodlHTLC bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -1173,6 +1179,13 @@ func (l *channelLink) processLockedInHtlcs(
 					failure := lnwire.FailIncorrectPaymentAmount{}
 					l.sendHTLCError(pd.RHash, failure, obfuscator)
 					needUpdate = true
+					continue
+				}
+
+				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
+					log.Warnf("hodl HTLC mode enabled, " +
+						"will not attempt to settle " +
+						"HTLC with sender")
 					continue
 				}
 

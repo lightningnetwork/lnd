@@ -420,10 +420,25 @@ func (f *fundingManager) Start() error {
 			return err
 		}
 
-		fndgLog.Debugf("channel with opening state %v found",
-			channelState)
-
 		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		fndgLog.Debugf("channel (%v) with opening state %v found",
+			chanID, channelState)
+
+		// If the number of updates on this channel is 0, it means we
+		// never received the fundingLocked message. Set up the channel
+		// barriers again, to make sure we don't start accepting HTLCs
+		// before this is received.
+		if channel.Snapshot().NumUpdates == 0 {
+			f.barrierMtx.Lock()
+			fndgLog.Tracef("Loading pending ChannelPoint(%v), "+
+				"creating chan barrier", channel.FundingOutpoint)
+			f.newChanBarriers[chanID] = make(chan struct{})
+			f.barrierMtx.Unlock()
+		}
+
+		// Set up a localDiscoverySignals to make sure we finish sending
+		// our own fundingLocked and channel announcements before
+		// processing a received fundingLocked.
 		f.localDiscoverySignals[chanID] = make(chan struct{})
 
 		// If we did find the channel in the opening state database, we
@@ -560,6 +575,7 @@ func (f *fundingManager) reservationCoordinator() {
 			case *fundingSignedMsg:
 				f.handleFundingSigned(fmsg)
 			case *fundingLockedMsg:
+				f.wg.Add(1)
 				go f.handleFundingLocked(fmsg)
 			case *fundingErrorMsg:
 				f.handleErrorMsg(fmsg)
@@ -1468,17 +1484,24 @@ func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 // handleFundingLocked finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
 func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
+	defer f.wg.Done()
+
 	f.localDiscoveryMtx.Lock()
 	localDiscoverySignal, ok := f.localDiscoverySignals[fmsg.msg.ChanID]
 	f.localDiscoveryMtx.Unlock()
 
 	if ok {
 		// Before we proceed with processing the funding locked
-		// message, we'll wait for the lcoal waitForFundingConfirmation
+		// message, we'll wait for the local waitForFundingConfirmation
 		// goroutine to signal that it has the necessary state in
 		// place. Otherwise, we may be missing critical information
 		// required to handle forwarded HTLC's.
-		<-localDiscoverySignal
+		select {
+		case <-localDiscoverySignal:
+			// Fallthrough
+		case <-f.quit:
+			return
+		}
 
 		// With the signal received, we can now safely delete the entry
 		// from the map.

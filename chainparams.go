@@ -69,6 +69,7 @@ func applyLitecoinParams(params *bitcoinNetParams) {
 	params.PrivateKeyID = liteTestNetParams.PrivateKeyID
 	params.WitnessPubKeyHashAddrID = liteTestNetParams.WitnessPubKeyHashAddrID
 	params.WitnessScriptHashAddrID = liteTestNetParams.WitnessScriptHashAddrID
+	params.Bech32HRPSegwit = liteTestNetParams.Bech32HRPSegwit
 
 	copy(params.HDPrivateKeyID[:], liteTestNetParams.HDPrivateKeyID[:])
 	copy(params.HDPublicKeyID[:], liteTestNetParams.HDPublicKeyID[:])

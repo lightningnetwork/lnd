@@ -2,7 +2,9 @@ package main
 
 import (
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg"
 	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -75,6 +77,18 @@ func applyLitecoinParams(params *bitcoinNetParams) {
 	copy(params.HDPublicKeyID[:], liteTestNetParams.HDPublicKeyID[:])
 
 	params.HDCoinType = liteTestNetParams.HDCoinType
+
+	checkPoints := make([]chaincfg.Checkpoint, len(liteTestNetParams.Checkpoints))
+	for i := 0; i < len(liteTestNetParams.Checkpoints); i++ {
+		var chainHash chainhash.Hash
+		copy(chainHash[:], liteTestNetParams.Checkpoints[i].Hash[:])
+
+		checkPoints[i] = chaincfg.Checkpoint{
+			Height: liteTestNetParams.Checkpoints[i].Height,
+			Hash:   &chainHash,
+		}
+	}
+	params.Checkpoints = checkPoints
 
 	params.rpcPort = liteTestNetParams.rpcPort
 }

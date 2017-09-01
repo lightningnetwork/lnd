@@ -27,7 +27,7 @@ import:
 - package: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil
-  version: 4675c7e1e02d8fe1f40d1e40a71d31922e62e605
+  version: 1584022350b4400b511beab6a013f0189adeef40
   subpackages:
   - bloom
   - coinset
@@ -67,7 +67,7 @@ import:
   subpackages:
   - googleapis/api/annotations
 - package: github.com/ltcsuite/ltcd
-  version: 42622bfd8b6aeb7beb23cb840d0dd490bd25dc17
+  version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino

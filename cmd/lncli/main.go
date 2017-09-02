@@ -6,9 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
 	"gopkg.in/macaroon.v1"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -73,28 +71,29 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 			fatal(err)
 		}
 
-		// We add a time-based constraint to prevent replay of the
-		// macaroon. It's good for 60 seconds by default to make up for
-		// any discrepancy between client and server clocks, but leaking
-		// the macaroon before it becomes invalid makes it possible for
-		// an attacker to reuse the macaroon. In addition, the validity
-		// time of the macaroon is extended by the time the server clock
-		// is behind the client clock, or shortened by the time the
-		// server clock is ahead of the client clock (or invalid
-		// altogether if, in the latter case, this time is more than 60
-		// seconds).
-		// TODO(aakselrod): add better anti-replay protection.
-		macaroonTimeout := time.Duration(ctx.GlobalInt64("macaroontimeout"))
-		requestTimeout := time.Now().Add(time.Second * macaroonTimeout)
-		timeCaveat := checkers.TimeBeforeCaveat(requestTimeout)
-		mac.AddFirstPartyCaveat(timeCaveat.Condition)
+		macConstraints := []macaroons.Constraint{
+			// We add a time-based constraint to prevent replay of the
+			// macaroon. It's good for 60 seconds by default to make up for
+			// any discrepancy between client and server clocks, but leaking
+			// the macaroon before it becomes invalid makes it possible for
+			// an attacker to reuse the macaroon. In addition, the validity
+			// time of the macaroon is extended by the time the server clock
+			// is behind the client clock, or shortened by the time the
+			// server clock is ahead of the client clock (or invalid
+			// altogether if, in the latter case, this time is more than 60
+			// seconds).
+			// TODO(aakselrod): add better anti-replay protection.
+			macaroons.TimeoutConstraint(ctx.GlobalInt64("macaroontimeout")),
+
+			// ... Add more constraints if needed.
+		}
+
+		// Apply constraints to the macaroon.
+		constrainedMac := macaroons.AddConstraints(mac, macConstraints...)
 
 		// Now we append the macaroon credentials to the dial options.
-		opts = append(
-			opts,
-			grpc.WithPerRPCCredentials(
-				macaroons.NewMacaroonCredential(mac)),
-		)
+		cred := macaroons.NewMacaroonCredential(constrainedMac)
+		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
 
 	conn, err := grpc.Dial(ctx.GlobalString("rpcserver"), opts...)

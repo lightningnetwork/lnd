@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"gopkg.in/macaroon-bakery.v1/bakery"
-	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
 
 	"golang.org/x/net/context"
 
@@ -569,11 +568,8 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	caveat := checkers.AllowCaveat(roPermissions...)
-	roMacaroon := admMacaroon.Clone()
-	if err = svc.AddCaveat(roMacaroon, caveat); err != nil {
-		return err
-	}
+	roMacaroon := macaroons.AddConstraints(admMacaroon,
+		macaroons.PermissionsConstraint(roPermissions...))
 	roBytes, err := roMacaroon.MarshalBinary()
 	if err != nil {
 		return err

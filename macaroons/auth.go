@@ -3,9 +3,11 @@ package macaroons
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 
 	"gopkg.in/macaroon-bakery.v1/bakery"
 	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
@@ -67,6 +69,16 @@ func ValidateMacaroon(ctx context.Context, method string,
 			len(md["macaroon"]))
 	}
 
+	// Get peer info and extract IP address from it for macaroon check
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return fmt.Errorf("unable to get peer info from context")
+	}
+	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
+	if err != nil {
+		return fmt.Errorf("unable to parse peer address")
+	}
+
 	// With the macaroon obtained, we'll now decode the hex-string
 	// encoding, then unmarshal it from binary into its concrete struct
 	// representation.
@@ -87,5 +99,6 @@ func ValidateMacaroon(ctx context.Context, method string,
 	return svc.Check(macaroon.Slice{mac}, checkers.New(
 		PermissionsChecker(method),
 		TimeoutChecker(),
+		IPLockChecker(peerAddr),
 	))
 }

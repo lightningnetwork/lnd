@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 )
 
@@ -49,6 +50,15 @@ type feeUpdateRequest struct {
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
+	// ChainHash is a hash that indicates which resident chain of the
+	// AuthenticatedGossiper. Any announcements that don't match this
+	// chain hash will be ignored.
+	//
+	// TODO(roasbeef): eventually make into map so can de-multiplex
+	// incoming announcements
+	//   * also need to do same for Notifier
+	ChainHash chainhash.Hash
+
 	// Router is the subsystem which is responsible for managing the
 	// topology of lightning network. After incoming channel, node, channel
 	// updates announcements are validated they are sent to the router in
@@ -678,6 +688,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 	// the existence of a channel and not yet the routing policies in
 	// either direction of the channel.
 	case *lnwire.ChannelAnnouncement:
+		// We'll ignore any channel announcements that target any chain
+		// other than the set of chains we know of.
+		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
+			log.Error("Ignoring ChannelAnnouncement from "+
+				"chain=%v, gossiper on chain=%v", msg.ChainHash,
+				d.cfg.ChainHash)
+			return nil
+		}
+
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
@@ -771,6 +790,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 	// that the directional information for an already known channel has
 	// been updated.
 	case *lnwire.ChannelUpdate:
+		// We'll ignore any channel announcements that target any chain
+		// other than the set of chains we know of.
+		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
+			log.Error("Ignoring ChannelUpdate from "+
+				"chain=%v, gossiper on chain=%v", msg.ChainHash,
+				d.cfg.ChainHash)
+			return nil
+		}
+
 		blockHeight := msg.ShortChannelID.BlockHeight
 		shortChanID := msg.ShortChannelID.ToUint64()
 

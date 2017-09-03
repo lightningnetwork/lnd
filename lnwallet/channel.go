@@ -2304,7 +2304,7 @@ func genRemoteHtlcSigJobs(commitPoint *btcec.PublicKey,
 // decrements the available revocation window by 1. After a successful method
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
-// The first return parameter it he signature for the commitment transaction
+// The first return parameter is the signature for the commitment transaction
 // itself, while the second parameter is a slice of all HTLC signatures (if
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction.
@@ -2329,7 +2329,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 		return nil, nil, err
 	}
 
-	// Grab the next commitment point for the remote party. This well be
+	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
 	commitPoint := lc.channelState.RemoteNextRevocation
@@ -2390,13 +2390,14 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// We'll need to send over the signatures to the remote party in the
 	// order as they appear on the commitment transaction after BIP 69
 	// sorting.
-	sortedSigs := sortableSignBatch(sigBatch)
-	sort.Sort(sortedSigs)
+	sort.Slice(sigBatch, func(i, j int) bool {
+		return sigBatch[i].outputIndex < sigBatch[j].outputIndex
+	})
 
 	// With the jobs sorted, we'll now iterate through all the responses to
 	// gather each of the signatures in order.
 	htlcSigs := make([]*btcec.Signature, 0, len(sigBatch))
-	for _, htlcSigJob := range sortedSigs {
+	for _, htlcSigJob := range sigBatch {
 		jobResp := <-htlcSigJob.resp
 
 		// If an error occurred, then we'll cancel any other active

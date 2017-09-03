@@ -83,29 +83,6 @@ type signJob struct {
 	resp chan signJobResp
 }
 
-// sortableSignBatch is a type wrapper around a slice of signJobs which is able
-// to sort each job according to tis outputs index. Such sorting is necessary
-// as when creating a new commitment state, we need to send over all the HTLC
-// signatures (if any) in the exact order the appears on the commitment
-// transaction after BIP 69 sorting.
-type sortableSignBatch []signJob
-
-// Len returns the number of items sortable batch of sign jobs. It is part of
-// the sort.Interface implementation.
-func (s sortableSignBatch) Len() int { return len(s) }
-
-// Less returns whether the item in the batch with index i should sort before
-// the item with index j. It is part of the sort.Interface implementation.
-func (s sortableSignBatch) Less(i, j int) bool {
-	return s[i].outputIndex < s[j].outputIndex
-}
-
-// Swap swaps the items at the passed indices in the priority queue. It is part
-// of the sort.Interface implementation.
-func (s sortableSignBatch) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
 // signJobResp is the response to a sign job. Both channels are to be read in
 // order to ensure no unnecessary goroutine blocking occurs. Additionally, both
 // channels should be buffered.

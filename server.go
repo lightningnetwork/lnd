@@ -273,6 +273,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	s.authGossiper, err = discovery.New(discovery.Config{
 		Router:           s.chanRouter,
 		Notifier:         s.cc.chainNotifier,
+		ChainHash:        *activeNetParams.GenesisHash,
 		Broadcast:        s.BroadcastMessage,
 		SendToPeer:       s.SendToPeer,
 		ProofMatureDelta: 0,
@@ -288,9 +289,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	s.breachArbiter = newBreachArbiter(cc.wallet, chanDB, cc.chainNotifier,
 		s.htlcSwitch, s.cc.chainIO, s.cc.feeEstimator)
-
-	// TODO(roasbeef): introduce closure and config system to decouple the
-	// initialization above ^
 
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
@@ -952,7 +950,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		conn.Close()
 		return
 	}
-
 	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
 		srvrLog.Debugf("Ignoring cancelled outbound connection")
 		conn.Close()

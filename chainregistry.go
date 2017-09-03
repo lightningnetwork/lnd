@@ -53,8 +53,8 @@ var defaultChannelConstraints = channeldb.ChannelConstraints{
 	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
 }
 
-// chainCode is an enum-like structure for keeping track of the chains currently
-// supported within lnd.
+// chainCode is an enum-like structure for keeping track of the chains
+// currently supported within lnd.
 type chainCode uint32
 
 const (
@@ -112,26 +112,29 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 	ltndLog.Infof("Primary chain is set to: %v",
 		registeredChains.PrimaryChain())
 
-	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
-	walletConfig := &btcwallet.Config{
-		PrivatePass:  []byte("hello"),
-		DataDir:      homeChainConfig.ChainDir,
-		NetParams:    activeNetParams.Params,
-		FeeEstimator: estimator,
-	}
-
-	cc := &chainControl{
-		feeEstimator: estimator,
-	}
+	cc := &chainControl{}
 
 	switch registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		cc.routingPolicy = defaultBitcoinForwardingPolicy
+		cc.feeEstimator = lnwallet.StaticFeeEstimator{
+			FeeRate: 50,
+		}
 	case litecoinChain:
 		cc.routingPolicy = defaultLitecoinForwardingPolicy
+		cc.feeEstimator = lnwallet.StaticFeeEstimator{
+			FeeRate: 100,
+		}
 	default:
 		return nil, nil, fmt.Errorf("Default routing policy for "+
 			"chain %v is unknown", registeredChains.PrimaryChain())
+	}
+
+	walletConfig := &btcwallet.Config{
+		PrivatePass:  []byte("hello"),
+		DataDir:      homeChainConfig.ChainDir,
+		NetParams:    activeNetParams.Params,
+		FeeEstimator: cc.feeEstimator,
 	}
 
 	var (
@@ -139,7 +142,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		cleanUp func()
 	)
 
-	// If spv mode is active, then we'll be using a distimnct set of
+	// If spv mode is active, then we'll be using a distinct set of
 	// chainControl interfaces that interface directly with the p2p network
 	// of the selected chain.
 	if cfg.NeutrinoMode.Active {

@@ -336,6 +336,18 @@ var (
 		bitcoinChain:  bitcoinGenesis,
 		litecoinChain: litecoinGenesis,
 	}
+
+	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
+	// that will be use to bootstrap peers upon first startup.
+	//
+	// TODO(roasbeef): extend and collapse these and chainparams.go into
+	// struct like chaincfg.Params
+	chainDNSSeeds = map[chainhash.Hash][]string{
+		bitcoinGenesis: []string{
+			"nodes.lightning.directory",
+			//"lseed.bitcoinstats.com",
+		},
+	}
 )
 
 // chainRegistry keeps track of the current chains

@@ -36,7 +36,7 @@ type syncRequest struct {
 }
 
 // feeUpdateRequest is a request that is sent to the server when a caller
-// wishes to update the fees for a particular set of tchannels. New UpdateFee
+// wishes to update the fees for a particular set of channels. New UpdateFee
 // messages will be crafted to be sent out during the next broadcast epoch and
 // the fee updates committed to the lower layer.
 type feeUpdateRequest struct {

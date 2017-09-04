@@ -204,7 +204,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 			return nil, err
 		}
 
-		tries += 1
+		tries++
 
 		// We'll now rotate our hash accumulator one value forwards.
 		c.hashAccumulator = sha256.Sum256(c.hashAccumulator[:])

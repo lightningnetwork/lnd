@@ -596,7 +596,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// Finally, we'll launch a new goroutine for each
 			// prospective peer candidates.
 			for _, addr := range peerAddrs {
-				epochAttempts += 1
+				epochAttempts++
 
 				go func(a *lnwire.NetAddress) {
 					// TODO(roasbeef): can do AS, subnet,

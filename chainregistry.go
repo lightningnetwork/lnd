@@ -343,7 +343,7 @@ var (
 	// TODO(roasbeef): extend and collapse these and chainparams.go into
 	// struct like chaincfg.Params
 	chainDNSSeeds = map[chainhash.Hash][]string{
-		bitcoinGenesis: []string{
+		bitcoinGenesis: {
 			"nodes.lightning.directory",
 			//"lseed.bitcoinstats.com",
 		},

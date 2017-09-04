@@ -35,7 +35,9 @@ func TestHeapOrdering(t *testing.T) {
 
 	// Sort the regular slice, we'll compare this against all the entries
 	// popped from the heap.
-	sort.Sort(&distanceHeap{sortedEntries})
+	sort.Slice(sortedEntries, func(i, j int) bool {
+		return sortedEntries[i].dist < sortedEntries[j].dist
+	})
 
 	// One by one, pop of all the entries from the heap, they should come
 	// out in sorted order.

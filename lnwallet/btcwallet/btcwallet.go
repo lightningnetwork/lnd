@@ -1,10 +1,12 @@
 package btcwallet
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -679,4 +681,21 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
 	return !blockHeader.Timestamp.Before(minus24Hours), nil
+}
+
+// Backup performs a backup of the database to the file passed as a parameter.
+func (b *BtcWallet) Backup(f *os.File) error {
+	// Create a buffered writer from the file
+	bufferedWriter := bufio.NewWriter(f)
+
+	// Write wallet db to the writer
+	err := b.db.Copy(bufferedWriter)
+	if err != nil {
+		return err
+	}
+
+	// Write memory buffer to disk
+	bufferedWriter.Flush()
+
+	return nil
 }

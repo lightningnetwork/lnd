@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
@@ -2867,4 +2869,97 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 	}
 
 	return &lnrpc.FeeUpdateResponse{}, nil
+}
+
+// getBackupFile returns the file in which to perform a backup for the Backup
+// function
+func getBackupFile(backupPath string, force bool) (*os.File, error) {
+	// Check if the backup destination file exists.
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		// If it is allowed to overwrite the file then we try to open it in
+		// writing
+		if force {
+			// Try to open the file in WRONLY mode.
+			f, err := os.OpenFile(backupPath, os.O_WRONLY, 0666)
+			if os.IsPermission(err) {
+				return nil, fmt.Errorf("Write permissions are denied for " +
+					backupPath)
+			}
+			return f, nil
+		}
+		return nil, fmt.Errorf("The file " + backupPath + " exists." +
+			" Use--force to overwrite it.")
+	}
+
+	// Create the backup file
+	f, err := os.Create(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to create channel db backup " +
+			"destination file.")
+	}
+
+	return f, nil
+}
+
+// Backup enables online backup of channel db and wallet db.
+func (r *rpcServer) Backup(ctx context.Context,
+	req *lnrpc.BackupRequest) (*lnrpc.BackupResponse, error) {
+
+	// Check macaroon to see if this is allowed.
+	if r.authSvc != nil {
+		if err := macaroons.ValidateMacaroon(ctx, "backup",
+			r.authSvc); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.ChanneldbBackupPath == "" && req.WalletdbBackupPath == "" {
+		return nil, fmt.Errorf("At least one path must be sent")
+	}
+
+	response := &lnrpc.BackupResponse{}
+
+	if req.ChanneldbBackupPath != "" {
+		// Request the backup destination file
+		f, err := getBackupFile(req.ChanneldbBackupPath, req.Force)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+
+		// Perform backup
+		err = r.server.chanDB.Backup(f)
+		if err != nil {
+			return nil, err
+		}
+
+		response.ChanneldbBackupPath = f.Name()
+	}
+
+	if req.WalletdbBackupPath != "" {
+		// Verify that the wallet used is BtcWallet. If this is not the case,
+		// there is no database to back up.
+		switch w := r.server.cc.wallet.WalletController.(type) {
+		case *btcwallet.BtcWallet:
+			// Request the backup destination file
+			f, err := getBackupFile(req.WalletdbBackupPath, req.Force)
+			if err != nil {
+				return nil, err
+			}
+			defer f.Close()
+
+			// Perform backup
+			err = w.Backup(f)
+			if err != nil {
+				return nil, err
+			}
+
+			response.WalletdbBackupPath = f.Name()
+		default:
+			return nil, fmt.Errorf("The current wallet is not" +
+				"compatible with this command.")
+		}
+	}
+
+	return response, nil
 }

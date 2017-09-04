@@ -168,6 +168,7 @@ func main() {
 		verifyMessageCommand,
 		feeReportCommand,
 		updateFeesCommand,
+		backupCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

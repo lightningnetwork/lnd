@@ -3374,6 +3374,153 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+func testBackup(net *networkHarness, t *harnessTest) {
+	const (
+		chanAmt = btcutil.Amount(500000)
+		timeout = time.Duration(time.Second * 5)
+	)
+
+	ctxb := context.Background()
+
+	// Open a channel with 500k satoshis between Alice and Bob. The goal is
+	// to test the channel db backup later.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		chanAmt, 0)
+
+	// Store the state of Alice's channels.
+	channelsBeforeBackup, err := net.Alice.ListChannels(ctxt,
+		&lnrpc.ListChannelsRequest{})
+	if err != nil {
+		t.Fatalf("unable to get list of alice channels: %v", err)
+	}
+
+	// Create a temporary file and close it to test whether Backup overwrites
+	// the file or not.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	tmpfile, err := ioutil.TempFile("", "")
+	tmpfile.Close()
+	defer os.Remove(tmpfile.Name())
+
+	_, err = net.Alice.Backup(ctxt, &lnrpc.BackupRequest{
+		ChanneldbBackupPath: tmpfile.Name(),
+	})
+	if err == nil {
+		t.Fatalf("the backup should have failed: the function was not " +
+			"allowed to overwrite an existing file")
+	}
+
+	// With the same file, add the --force flag to allow Backup to overwrite
+	// the file
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, err = net.Alice.Backup(ctxt, &lnrpc.BackupRequest{
+		ChanneldbBackupPath: tmpfile.Name(),
+		Force:               true,
+	})
+	if err != nil {
+		t.Fatalf("the backup should not have failed: the function was "+
+			"allowed to overwrite the file: %v", err)
+	}
+
+	// Now turn off the Alice node, replace channel.db by the backup, and
+	// restart the node.
+	err = net.RestartNode(net.Alice, func() error {
+		aliceDbPath := filepath.Join(net.Alice.cfg.DataDir,
+			"simnet/bitcoin/channel.db")
+
+		os.Remove(aliceDbPath)
+
+		if err := copyFile(aliceDbPath, tmpfile.Name()); err != nil {
+			t.Fatalf("unable to copy backup file: %v", err)
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Unable to restart alice node after replacing "+
+			"channel.db with the backup: %v", err)
+	}
+
+	// Store the state of Alice's channels.
+	channelsAfterBackup, err := net.Alice.ListChannels(ctxt,
+		&lnrpc.ListChannelsRequest{})
+	if err != nil {
+		t.Fatalf("unable to get list of alice channels: %v", err)
+	}
+
+	// Check that the state before and after the backup are the same.
+	if len(channelsBeforeBackup.GetChannels()) !=
+		len(channelsAfterBackup.GetChannels()) {
+		t.Fatalf("the backup of channel db failed")
+	}
+
+	// Close the channel.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+
+	// Now repeat the process for the wallet.
+	// Store the balance of the wallet.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	balanceBeforeBackup, err := net.Alice.WalletBalance(ctxt,
+		&lnrpc.WalletBalanceRequest{})
+	if err != nil {
+		t.Fatalf("unable to get the balance of the Alice wallet: %v", err)
+	}
+
+	// Perform the wallet backup.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	_, err = net.Alice.Backup(ctxt, &lnrpc.BackupRequest{
+		WalletdbBackupPath: tmpfile.Name(),
+		Force:              true,
+	})
+
+	if err != nil {
+		if err.Error() == "The current wallet is not compatible with this "+
+			"command." {
+			t.Logf("The current wallet is not compatible with the " +
+				"backup command. It is therefore impossible to test the " +
+				"backup of the wallet.")
+		} else {
+			t.Fatalf("the backup of wallet db failed: %v", err)
+		}
+	} else {
+		// Now turn off the Alice node, replace wallet.db by the backup, and
+		// restart the node.
+		err = net.RestartNode(net.Alice, func() error {
+			aliceDbPath := filepath.Join(net.Alice.cfg.DataDir,
+				"bitcoin/simnet/wallet.db")
+
+			os.Remove(aliceDbPath)
+
+			if err := copyFile(aliceDbPath, tmpfile.Name()); err != nil {
+				t.Fatalf("unable to copy backup file: %v", err)
+				return err
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("Unable to restart alice node after replacing "+
+				"wallet.db with the backup: %v", err)
+		}
+
+		// Store the balance of the wallet.
+		ctxt, _ = context.WithTimeout(ctxb, timeout)
+		balanceAfterBackup, err := net.Alice.WalletBalance(ctxt,
+			&lnrpc.WalletBalanceRequest{})
+		if err != nil {
+			t.Fatalf("unable to get the balance of the Alice wallet: "+
+				"%v", err)
+		}
+
+		// Check that the balance before and after the backup are the same.
+		if balanceBeforeBackup.GetBalance() != balanceAfterBackup.GetBalance() {
+			t.Fatalf("the backup of wallet db failed")
+		}
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *networkHarness, t *harnessTest)
@@ -3458,6 +3605,10 @@ var testsCases = []*testCase{
 	{
 		name: "revoked uncooperative close retribution post breach conf",
 		test: testRevokedCloseRetributionPostBreachConf,
+	},
+	{
+		name: "backup",
+		test: testBackup,
 	},
 }
 

@@ -159,41 +159,6 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 	return hopPayloads
 }
 
-// sortableRoutes is a slice of routes that can be sorted. Routes are typically
-// sorted according to their total cumulative fee within the route. In the case
-// that two routes require and identical amount of fees, then the total
-// time-lock will be used as the tie breaker.
-type sortableRoutes []*Route
-
-// Len returns the number of routes in the collection.
-//
-// NOTE: This is part of the sort.Interface implementation.
-func (s sortableRoutes) Len() int {
-	return len(s)
-}
-
-// Less reports whether the route with index i should sort before the route
-// with index j. To make this decision we first check if the total fees
-// required for both routes are equal. If so, then we'll let the total time
-// lock be the tie breaker. Otherwise, we'll put the route with the lowest
-// total fees first.
-//
-// NOTE: This is part of the sort.Interface implementation.
-func (s sortableRoutes) Less(i, j int) bool {
-	if s[i].TotalFees == s[j].TotalFees {
-		return s[i].TotalTimeLock < s[j].TotalTimeLock
-	}
-
-	return s[i].TotalFees < s[j].TotalFees
-}
-
-// Swap swaps the elements with indexes i and j.
-//
-// NOTE: This is part of the sort.Interface implementation.
-func (s sortableRoutes) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
-}
-
 // newRoute returns a fully valid route between the source and target that's
 // capable of supporting a payment of `amtToSend` after fees are fully
 // computed. If the route is too long, or the selected path cannot support the

@@ -17,8 +17,10 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/invoiceregistry"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/nodesigner"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -27,6 +29,17 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+)
+
+var (
+	// debugPre is the default debug preimage which is inserted into the
+	// invoice registry if the --debughtlc flag is activated on start up.
+	// All nodes initialized with the flag active will immediately settle
+	// any incoming HTLC whose rHash corresponds with the debug
+	// preimage.
+	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
+
+	debugHash = chainhash.Hash(sha256.Sum256(debugPre[:]))
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -43,7 +56,7 @@ type server struct {
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
-	nodeSigner *nodeSigner
+	nodeSigner *nodesigner.NodeSigner
 
 	// lightningID is the sha256 of the public key corresponding to our
 	// long-term identity private key.
@@ -66,7 +79,7 @@ type server struct {
 	chanDB *channeldb.DB
 
 	htlcSwitch    *htlcswitch.Switch
-	invoices      *invoiceRegistry
+	invoices      *invoiceregistry.InvoiceRegistry
 	breachArbiter *breachArbiter
 
 	chanRouter *routing.ChannelRouter
@@ -117,12 +130,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		chanDB: chanDB,
 		cc:     cc,
 
-		invoices: newInvoiceRegistry(chanDB),
+		invoices: invoiceregistry.NewInvoiceRegistry(chanDB),
 
 		utxoNursery: newUtxoNursery(chanDB, cc.chainNotifier, cc.wallet),
 
 		identityPriv: privKey,
-		nodeSigner:   newNodeSigner(privKey),
+		nodeSigner:   nodesigner.NewNodeSigner(privKey),
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule

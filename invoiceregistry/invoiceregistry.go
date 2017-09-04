@@ -1,7 +1,6 @@
-package main
+package invoiceregistry
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"sync"
 	"time"
@@ -13,21 +12,10 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-var (
-	// debugPre is the default debug preimage which is inserted into the
-	// invoice registry if the --debughtlc flag is activated on start up.
-	// All nodes initialized with the flag active will immediately settle
-	// any incoming HTLC whose rHash corresponds with the debug
-	// preimage.
-	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
-
-	debugHash = chainhash.Hash(sha256.Sum256(debugPre[:]))
-)
-
-// invoiceRegistry is a central registry of all the outstanding invoices
+// InvoiceRegistry is a central registry of all the outstanding invoices
 // created by the daemon. The registry is a thin wrapper around a map in order
 // to ensure that all updates/reads are thread safe.
-type invoiceRegistry struct {
+type InvoiceRegistry struct {
 	sync.RWMutex
 
 	cdb *channeldb.DB
@@ -46,8 +34,8 @@ type invoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
-	return &invoiceRegistry{
+func NewInvoiceRegistry(cdb *channeldb.DB) *InvoiceRegistry {
+	return &InvoiceRegistry{
 		cdb:                 cdb,
 		debugInvoices:       make(map[chainhash.Hash]*channeldb.Invoice),
 		notificationClients: make(map[uint32]*invoiceSubscription),
@@ -58,7 +46,7 @@ func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
 // by the passed preimage. Once this invoice is added, subsystems within the
 // daemon add/forward HTLCs are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
-func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
+func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
 	paymentHash := chainhash.Hash(sha256.Sum256(preimage[:]))
 
 	invoice := &channeldb.Invoice{
@@ -73,7 +61,7 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 	i.debugInvoices[paymentHash] = invoice
 	i.Unlock()
 
-	ltndLog.Debugf("Adding debug invoice %v", newLogClosure(func() string {
+	log.Debugf("Adding debug invoice %v", newLogClosure(func() string {
 		return spew.Sdump(invoice)
 	}))
 }
@@ -83,8 +71,8 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 // also be stored on-disk. Once this invoice is added, subsystems within the
 // daemon add/forward HTLCs are able to obtain the proper preimage required
 // for redemption in the case that we're the final destination.
-func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
-	ltndLog.Debugf("Adding invoice %v", newLogClosure(func() string {
+func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+	log.Debugf("Adding invoice %v", newLogClosure(func() string {
 		return spew.Sdump(invoice)
 	}))
 
@@ -98,7 +86,7 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 // lookupInvoice looks up an invoice by its payment hash (R-Hash), if found
 // then we're able to pull the funds pending within an HTLC.
 // TODO(roasbeef): ignore if settled?
-func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
+func (i *InvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	i.RLock()
@@ -118,8 +106,8 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoic
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
-func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
-	ltndLog.Debugf("Settling invoice %x", rHash[:])
+func (i *InvoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
+	log.Debugf("Settling invoice %x", rHash[:])
 
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
@@ -144,11 +132,11 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 	go func() {
 		invoice, err := i.cdb.LookupInvoice(rHash)
 		if err != nil {
-			ltndLog.Errorf("unable to find invoice: %v", err)
+			log.Errorf("unable to find invoice: %v", err)
 			return
 		}
 
-		ltndLog.Infof("Payment received: %v", spew.Sdump(invoice))
+		log.Infof("Payment received: %v", spew.Sdump(invoice))
 
 		i.notifyClients(invoice, true)
 	}()
@@ -158,7 +146,7 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash) error {
 
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
-func (i *invoiceRegistry) notifyClients(invoice *channeldb.Invoice, settle bool) {
+func (i *InvoiceRegistry) notifyClients(invoice *channeldb.Invoice, settle bool) {
 	i.clientMtx.Lock()
 	defer i.clientMtx.Unlock()
 
@@ -185,7 +173,7 @@ type invoiceSubscription struct {
 	NewInvoices     chan *channeldb.Invoice
 	SettledInvoices chan *channeldb.Invoice
 
-	inv *invoiceRegistry
+	inv *InvoiceRegistry
 	id  uint32
 }
 
@@ -200,7 +188,7 @@ func (i *invoiceSubscription) Cancel() {
 // SubscribeNotifications returns an invoiceSubscription which allows the
 // caller to receive async notifications when any invoices are settled or
 // added.
-func (i *invoiceRegistry) SubscribeNotifications() *invoiceSubscription {
+func (i *InvoiceRegistry) SubscribeNotifications() *invoiceSubscription {
 	client := &invoiceSubscription{
 		NewInvoices:     make(chan *channeldb.Invoice),
 		SettledInvoices: make(chan *channeldb.Invoice),

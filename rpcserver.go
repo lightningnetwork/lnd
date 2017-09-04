@@ -1680,6 +1680,195 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}, nil
 }
 
+// SendToRoute dispatches a bi-directional streaming RPC for sending payments
+// through given array of routes. A single RPC invocation creates a persistent
+// bi-directional stream allowing clients to rapidly send payments through the
+// given array of routes with a single persistent connection.
+func (r *rpcServer) SendToRoute(paymentStream lnrpc.Lightning_SendToRouteServer) error {
+	errChan := make(chan error, 1)
+	payChan := make(chan *lnrpc.SendToRouteRequest)
+
+	// In order to limit the level of concurrency and prevent a client from
+	// attempting to OOM the server, we'll set up a semaphore to create an
+	// upper ceiling on the number of outstanding payments.
+	const numOutstandingPayments = 2000
+	htlcSema := make(chan struct{}, numOutstandingPayments)
+	for i := 0; i < numOutstandingPayments; i++ {
+		htlcSema <- struct{}{}
+	}
+
+	// Launch a new goroutine to handle reading new payment requests from
+	// the client. This way we can handle errors independently of blocking
+	// and waiting for the next payment request to come through.
+	go func() {
+		for {
+			select {
+			case <-r.quit:
+				errChan <- nil
+				return
+			default:
+				// Receive the next pending payment within the
+				// stream sent by the client. If we read the
+				// EOF sentinel, then the client has closed the
+				// stream, and we can exit normally.
+				nextPayment, err := paymentStream.Recv()
+				if err == io.EOF {
+					errChan <- nil
+					return
+				} else if err != nil {
+					errChan <- err
+					return
+				}
+
+				if len(nextPayment.Routes) == 0 {
+					errChan <- fmt.Errorf("empty array of routes has passed: %v", nextPayment.Routes)
+					return
+				}
+
+				payChan <- nextPayment
+			}
+		}
+	}()
+
+	for {
+		select {
+		case err := <-errChan:
+			return err
+		case nextPayment := <-payChan:
+			// If we're in debug HTLC mode, then all outgoing HTLCs
+			// will pay to the same debug rHash. Otherwise, we pay
+			// to the rHash specified within the RPC request.
+			var rHash [32]byte
+			if cfg.DebugHTLC && len(nextPayment.PaymentHash) == 0 {
+				rHash = debugHash
+			} else {
+				copy(rHash[:], nextPayment.PaymentHash)
+			}
+
+			// We launch a new goroutine to execute the current
+			// payment so we can continue to serve requests while
+			// this payment is being dispatched.
+			go func() {
+				// Attempt to grab a free semaphore slot, using
+				// a defer to eventually release the slot
+				// regardless of payment success.
+				<-htlcSema
+				defer func() {
+					htlcSema <- struct{}{}
+				}()
+
+				// Construct a payment route request to send to the
+				// channel router. If the payment is
+				// successful, the route chosen will be
+				// returned. Otherwise, we'll get a non-nil
+				// error.
+
+				routes := make([]*routing.Route, len(nextPayment.Routes))
+				graph := r.server.chanDB.ChannelGraph()
+
+				for i, route := range nextPayment.Routes {
+					var unmarshalError error
+					routes[i], unmarshalError = unmarshalRoute(route, graph)
+					if unmarshalError != nil {
+						errChan <- unmarshalError
+						return
+					}
+				}
+
+				preImage, route, err := r.server.chanRouter.SendToRoute(routes, &routing.LightningPayment{
+					PaymentHash: rHash,
+				})
+				if err != nil {
+					errChan <- err
+					return
+				}
+
+				// Calculate the original amount of funds which has sent through routes
+				// without total fee
+				amt := route.TotalAmount - route.TotalFees
+
+				// Save the completed payment to the database
+				// for record keeping purposes.
+				if err := r.savePayment(route, amt, rHash[:]); err != nil {
+					errChan <- err
+					return
+				}
+
+				err = paymentStream.Send(&lnrpc.SendToRouteResponse{
+					PaymentPreimage: preImage[:],
+					PaymentRoute:    marshalRoute(route),
+				})
+				if err != nil {
+					errChan <- err
+					return
+				}
+			}()
+		}
+	}
+}
+
+// SendToRouteSync is the synchronous non-streaming version of SendToRoute.
+// This RPC is intended to be consumed by clients of the REST proxy.
+// Additionally, this RPC expects the destination's public key and the payment
+// hash (if any) to be encoded as hex strings.
+func (r *rpcServer) SendToRouteSync(ctx context.Context,
+	nextPayment *lnrpc.SendToRouteRequest) (*lnrpc.SendToRouteResponse, error) {
+
+	var (
+		rHash [32]byte
+	)
+
+	// If we're in debug HTLC mode, then all outgoing HTLCs will
+	// pay to the same debug rHash. Otherwise, we pay to the rHash
+	// specified within the RPC request.
+	if cfg.DebugHTLC && nextPayment.PaymentHashString == "" {
+		rHash = debugHash
+	} else {
+		paymentHash, err := hex.DecodeString(nextPayment.PaymentHashString)
+		if err != nil {
+			return nil, err
+		}
+
+		copy(rHash[:], paymentHash)
+	}
+
+	routes := make([]*routing.Route, len(nextPayment.Routes))
+	graph := r.server.chanDB.ChannelGraph()
+
+	for i, route := range nextPayment.Routes {
+		var unmarshalError error
+		routes[i], unmarshalError = unmarshalRoute(route, graph)
+		if unmarshalError != nil {
+			return nil, unmarshalError
+		}
+	}
+
+	// Finally, send a payment request to the channel router. If the
+	// payment succeeds, then the returned route will be that was used
+	// successfully within the payment.
+	preImage, route, err := r.server.chanRouter.SendToRoute(routes, &routing.LightningPayment{
+		PaymentHash: rHash,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the original amount of funds which has sent through routes
+	// without total fee
+	amt := route.TotalAmount - route.TotalFees
+
+	// With the payment completed successfully, we now ave the details of
+	// the completed payment to the database for historical record keeping.
+	if err := r.savePayment(route, amt, rHash[:]); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.SendToRouteResponse{
+		PaymentPreimage: preImage[:],
+		PaymentRoute:    marshalRoute(route),
+	}, nil
+}
+
 // AddInvoice attempts to add a new invoice to the invoice database. Any
 // duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment preimage.
@@ -2286,6 +2475,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: make([]*lnrpc.Route, len(routes)),
 	}
+
 	for i, route := range routes {
 		routeResp.Routes[i] = marshalRoute(route)
 	}
@@ -2311,6 +2501,57 @@ func marshalRoute(route *routing.Route) *lnrpc.Route {
 	}
 
 	return resp
+}
+
+func unmarshalRoute(route *lnrpc.Route, graph *channeldb.ChannelGraph) (*routing.Route, error) {
+	req := &routing.Route{
+		TotalTimeLock: route.TotalTimeLock,
+		TotalFees:     lnwire.MilliSatoshi(route.TotalFees),
+		TotalAmount:   lnwire.MilliSatoshi(route.TotalAmt),
+		Hops:          make([]*routing.Hop, len(route.Hops)),
+	}
+
+	node, err := graph.SourceNode()
+	if err != nil {
+		return nil, fmt.Errorf("unable to featch source node from the graph "+
+			"while unmarshaling routes: %v", err)
+	}
+
+	for i, hop := range route.Hops {
+		_, c1, c2, err := graph.FetchChannelEdgesByID(hop.ChanId)
+		if err != nil {
+			return nil, fmt.Errorf("unable to featch channel edges by channel ID "+
+				"for hop(%d): %v", i, err)
+		}
+
+		var channelEdgePolicy *channeldb.ChannelEdgePolicy
+
+		switch {
+		case node.PubKey.IsEqual(c1.Node.PubKey):
+			channelEdgePolicy = c2
+			node = c2.Node
+		case node.PubKey.IsEqual(c2.Node.PubKey):
+			channelEdgePolicy = c1
+			node = c1.Node
+		default:
+			return nil, fmt.Errorf("both featched edges nodes doesn't match "+
+				"current source node, hop(%d)", i)
+		}
+
+		routingHop := &routing.ChannelHop{
+			Capacity:          btcutil.Amount(hop.ChanCapacity),
+			ChannelEdgePolicy: channelEdgePolicy,
+		}
+
+		req.Hops[i] = &routing.Hop{
+			Channel:          routingHop,
+			OutgoingTimeLock: uint32(routingHop.TimeLockDelta),
+			AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForward),
+			Fee:              lnwire.MilliSatoshi(hop.Fee),
+		}
+	}
+
+	return req, nil
 }
 
 // GetNetworkInfo returns some basic stats about the known channel graph from

@@ -2,13 +2,16 @@ package main
 
 import (
 	"container/list"
+	"crypto/elliptic"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/brontide"
 
@@ -715,30 +718,38 @@ out:
 // nil. Doing this avoids printing out each of the field elements in the curve
 // parameters for secp256k1.
 func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
-	switch m := msg.(type) {
-	case *lnwire.RevokeAndAck:
-		m.NextRevocationKey.Curve = nil
-	case *lnwire.NodeAnnouncement:
-		m.NodeID.Curve = nil
-	case *lnwire.ChannelAnnouncement:
-		m.NodeID1.Curve = nil
-		m.NodeID2.Curve = nil
-		m.BitcoinKey1.Curve = nil
-		m.BitcoinKey2.Curve = nil
-	case *lnwire.AcceptChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.OpenChannel:
-		m.FundingKey.Curve = nil
-		m.RevocationPoint.Curve = nil
-		m.PaymentPoint.Curve = nil
-		m.DelayedPaymentPoint.Curve = nil
-		m.FirstCommitmentPoint.Curve = nil
-	case *lnwire.FundingLocked:
-		m.NextPerCommitmentPoint.Curve = nil
+	// If we are not trace logging, just return early.
+	if peerLog.Level() != btclog.LevelTrace {
+		return
+	}
+
+	// We will loop over all fields in this message, saving those that are
+	// public keys and the curves for these pubkeys, such that we can
+	// restore them after logging.
+	type pubCurve struct {
+		pubKey *btcec.PublicKey
+		curve  elliptic.Curve
+	}
+	var curves []pubCurve
+
+	valuePtr := reflect.ValueOf(msg)
+	value := valuePtr.Elem()
+	for i := 0; i < value.NumField(); i++ {
+		field := value.Field(i)
+
+		// Try to interpret this field as a pubkey, just skip if it is
+		// not.
+		pubkey, ok := field.Interface().(*btcec.PublicKey)
+		if !ok {
+			continue
+		}
+
+		// Save pubkey pointer and its curve for later.
+		curves = append(curves, pubCurve{pubkey, pubkey.Curve})
+
+		// Set this pubkey's curve to nil, to avoid logging the
+		// parameters.
+		pubkey.Curve = nil
 	}
 
 	prefix := "readMessage from"
@@ -749,6 +760,11 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	peerLog.Tracef(prefix+" %v: %v", p, newLogClosure(func() string {
 		return spew.Sdump(msg)
 	}))
+
+	// Now restore the curves.
+	for _, p := range curves {
+		p.pubKey.Curve = p.curve
+	}
 }
 
 // writeMessage writes the target lnwire.Message to the remote peer.

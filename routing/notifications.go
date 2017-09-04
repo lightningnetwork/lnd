@@ -1,11 +1,13 @@
 package routing
 
 import (
+	"crypto/elliptic"
 	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -110,13 +112,45 @@ type topologyClient struct {
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
 func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
-	if len(r.topologyClients) != 0 {
+
+	// Log the contents of the topology diff iff we are trace logging.
+	if len(r.topologyClients) != 0 && log.Level() == btclog.LevelTrace {
+
+		// To avoid spammy output, nil all curve parameters, saving
+		// them such that we can restore them after logging.
+		type pubCurve struct {
+			pubKey *btcec.PublicKey
+			curve  elliptic.Curve
+		}
+		var curves []pubCurve
+
+		for _, n := range topologyDiff.NodeUpdates {
+			curves = append(curves,
+				pubCurve{n.IdentityKey, n.IdentityKey.Curve})
+			n.IdentityKey.Curve = nil
+		}
+
+		for _, e := range topologyDiff.ChannelEdgeUpdates {
+			curves = append(curves,
+				pubCurve{e.AdvertisingNode, e.AdvertisingNode.Curve})
+			e.AdvertisingNode.Curve = nil
+
+			curves = append(curves,
+				pubCurve{e.ConnectingNode, e.ConnectingNode.Curve})
+			e.ConnectingNode.Curve = nil
+		}
+
 		log.Tracef("Sending topology notification to %v clients %v",
 			len(r.topologyClients),
 			newLogClosure(func() string {
 				return spew.Sdump(topologyDiff)
 			}),
 		)
+
+		// Restore curves.
+		for _, p := range curves {
+			p.pubKey.Curve = p.curve
+		}
 	}
 
 	for _, client := range r.topologyClients {
@@ -296,7 +330,6 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			IdentityKey: m.PubKey,
 			Alias:       m.Alias,
 		}
-		nodeUpdate.IdentityKey.Curve = nil
 
 		update.NodeUpdates = append(update.NodeUpdates, nodeUpdate)
 		return nil
@@ -338,8 +371,6 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			AdvertisingNode: sourceNode,
 			ConnectingNode:  connectingNode,
 		}
-		edgeUpdate.AdvertisingNode.Curve = nil
-		edgeUpdate.ConnectingNode.Curve = nil
 
 		// TODO(roasbeef): add bit to toggle
 		update.ChannelEdgeUpdates = append(update.ChannelEdgeUpdates,

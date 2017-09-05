@@ -764,7 +764,7 @@ var sendPaymentCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name:  "pay_req",
-			Usage: "a zbase32-check encoded payment request to fulfill",
+			Usage: "a bech32 encoded payment request to fulfill",
 		},
 	},
 	Action: sendPayment,
@@ -885,24 +885,48 @@ var addInvoiceCommand = cli.Command{
 	Name:  "addinvoice",
 	Usage: "add a new invoice.",
 	Description: "Add a new invoice, expressing intent for a future payment. " +
-		"The value of the invoice in satoshis and a 32 byte hash preimage are neccesary for the creation",
+		"The value of the invoice in satoshis is neccesary for the " +
+		"creation, the remaining parameters are optional.",
 	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "memo",
-			Usage: "an optional memo to attach along with the invoice",
+			Name: "memo",
+			Usage: "a description of the payment to attach along " +
+				"with the invoice (default=\"\")",
 		},
 		cli.StringFlag{
 			Name:  "receipt",
 			Usage: "an optional cryptographic receipt of payment",
 		},
 		cli.StringFlag{
-			Name:  "preimage",
-			Usage: "the hex-encoded preimage (32 byte) which will allow settling an incoming HTLC payable to this preimage",
+			Name: "preimage",
+			Usage: "the hex-encoded preimage (32 byte) which will " +
+				"allow settling an incoming HTLC payable to this " +
+				"preimage. If not set, a random preimage will be " +
+				"created.",
 		},
 		cli.Int64Flag{
 			Name:  "value",
 			Usage: "the value of this invoice in satoshis",
+		},
+		cli.StringFlag{
+			Name: "description_hash",
+			Usage: "SHA-256 hash of the description of the payment. " +
+				"Used if the purpose of payment cannot naturally " +
+				"fit within the memo. If provided this will be " +
+				"used instead of the description(memo) field in " +
+				"the encoded invoice.",
+		},
+		cli.StringFlag{
+			Name: "fallback_addr",
+			Usage: "fallback on-chain address that can be used in " +
+				"case the lightning payment fails",
+		},
+		cli.Int64Flag{
+			Name: "expiry",
+			Usage: "the invoice's expiry time in seconds. If not " +
+				"specified an expiry of 3600 seconds (1 hour) " +
+				"is implied.",
 		},
 	},
 	Action: addInvoice,
@@ -911,6 +935,7 @@ var addInvoiceCommand = cli.Command{
 func addInvoice(ctx *cli.Context) error {
 	var (
 		preimage []byte
+		descHash []byte
 		receipt  []byte
 		value    int64
 		err      error
@@ -945,16 +970,24 @@ func addInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse preimage: %v", err)
 	}
 
+	descHash, err = hex.DecodeString(ctx.String("description_hash"))
+	if err != nil {
+		return fmt.Errorf("unable to parse description_hash: %v", err)
+	}
+
 	receipt, err = hex.DecodeString(ctx.String("receipt"))
 	if err != nil {
 		return fmt.Errorf("unable to parse receipt: %v", err)
 	}
 
 	invoice := &lnrpc.Invoice{
-		Memo:      ctx.String("memo"),
-		Receipt:   receipt,
-		RPreimage: preimage,
-		Value:     value,
+		Memo:            ctx.String("memo"),
+		Receipt:         receipt,
+		RPreimage:       preimage,
+		Value:           value,
+		DescriptionHash: descHash,
+		FallbackAddr:    ctx.String("fallback_addr"),
+		Expiry:          ctx.Int64("expiry"),
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)
@@ -1490,7 +1523,7 @@ var decodePayReqComamnd = cli.Command{
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "pay_req",
-			Usage: "the zpay32 encoded payment request",
+			Usage: "the bech32 encoded payment request",
 		},
 	},
 	Action: decodePayReq,

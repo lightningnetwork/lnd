@@ -29,6 +29,19 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 	i.Memo = []byte("memo")
 	i.Receipt = []byte("recipt")
 
+	// Create a random byte slice of MaxPaymentRequestSize bytes to be used
+	// as a dummy paymentrequest, and  determine if it should be set based
+	// on one of the random bytes.
+	var r [MaxPaymentRequestSize]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		return nil, err
+	}
+	if r[0]&1 == 0 {
+		i.PaymentRequest = r[:]
+	} else {
+		i.PaymentRequest = []byte("")
+	}
+
 	return i, nil
 }
 
@@ -50,6 +63,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	}
 	fakeInvoice.Memo = []byte("memo")
 	fakeInvoice.Receipt = []byte("recipt")
+	fakeInvoice.PaymentRequest = []byte("")
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 

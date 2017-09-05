@@ -43,6 +43,12 @@ const (
 	// MaxReceiptSize is the maximum size of the payment receipt stored
 	// within the database along side incoming/outgoing invoices.
 	MaxReceiptSize = 1024
+
+	// MaxPaymentRequestSize is the max size of a a payment request for
+	// this invoice.
+	// TODO(halseth): determine the max length payment request when field
+	// lengths are final.
+	MaxPaymentRequestSize = 4096
 )
 
 // ContractTerm is a companion struct to the Invoice struct. This struct houses
@@ -86,6 +92,10 @@ type Invoice struct {
 	// TODO(roasbeef): document scheme.
 	Receipt []byte
 
+	// PaymentRequest is an optional field where a payment request created
+	// for this invoice can be stored.
+	PaymentRequest []byte
+
 	// CreationDate is the exact time the invoice was created.
 	CreationDate time.Time
 
@@ -107,6 +117,11 @@ func validateInvoice(i *Invoice) error {
 		return fmt.Errorf("max length a receipt is %v, and invoice "+
 			"of length %v was provided", MaxReceiptSize,
 			len(i.Receipt))
+	}
+	if len(i.PaymentRequest) > MaxPaymentRequestSize {
+		return fmt.Errorf("max length of payment request is %v, length "+
+			"provided was %v", MaxPaymentRequestSize,
+			len(i.PaymentRequest))
 	}
 	return nil
 }
@@ -306,6 +321,9 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 	if err := wire.WriteVarBytes(w, 0, i.Receipt[:]); err != nil {
 		return err
 	}
+	if err := wire.WriteVarBytes(w, 0, i.PaymentRequest[:]); err != nil {
+		return err
+	}
 
 	birthBytes, err := i.CreationDate.MarshalBinary()
 	if err != nil {
@@ -357,6 +375,11 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 		return nil, err
 	}
 	invoice.Receipt, err = wire.ReadVarBytes(r, 0, MaxReceiptSize, "")
+	if err != nil {
+		return nil, err
+	}
+
+	invoice.PaymentRequest, err = wire.ReadVarBytes(r, 0, MaxPaymentRequestSize, "")
 	if err != nil {
 		return nil, err
 	}

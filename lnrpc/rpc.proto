@@ -1128,7 +1128,12 @@ message SetAliasResponse {
 }
 
 message Invoice {
-    /// An optional memo to attach along with the invoice
+    /**
+    An optional memo to attach along with the invoice. Used for record keeping
+    purposes for the invoice's creator, and will also be set in the description
+    field of the encoded payment request if the description_hash field is not
+    being used.
+    */
     string memo = 1 [json_name = "memo"];
 
     /// An optional cryptographic receipt of payment
@@ -1161,6 +1166,19 @@ message Invoice {
     payment to the recipient.
     */
     string payment_request = 9 [json_name = "payment_request"];
+
+    /**
+    Hash (SHA-256) of a description of the payment. Used if the description of
+    payment (memo) is too long to naturally fit within the description field
+    of an encoded payment request.
+    */
+    bytes description_hash = 10 [json_name = "description_hash"];
+
+    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    int64 expiry = 11 [json_name = "expiry"];
+
+    /// Fallback on-chain address.
+    string fallback_addr = 12 [json_name = "fallback_addr"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1240,6 +1258,11 @@ message PayReq {
     string destination = 1 [json_name = "destination"];
     string payment_hash = 2 [json_name = "payment_hash"];
     int64 num_satoshis = 3 [json_name = "num_satoshis"];
+    int64 timestamp = 4 [json_name = "timestamp"];
+    int64 expiry = 5 [json_name = "expiry"];
+    string description = 6 [json_name = "description"];
+    string description_hash = 7 [json_name = "description_hash"];
+    string fallback_addr = 8 [json_name = "fallback_addr"];
 }
 
 message FeeReportRequest {}

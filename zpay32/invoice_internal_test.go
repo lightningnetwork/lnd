@@ -1,4 +1,4 @@
-package invoice
+package zpay32
 
 import (
 	"testing"

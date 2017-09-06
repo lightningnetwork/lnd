@@ -38,6 +38,10 @@ const (
 	// this update can't bring us something new, or because a node
 	// announcement was given for node not found in any channel.
 	ErrIgnored
+
+	// ErrFeeCutoffExceeded is returned when the fees within a route
+	// exceed a user-specified fee cutoff.
+	ErrFeeCutoffExceeded
 )
 
 // routerError is a structure that represent the error inside the routing package,

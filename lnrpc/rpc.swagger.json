@@ -1868,6 +1868,11 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "max_fee": {
+          "type": "string",
+          "format": "int64",
+          "description": "Maximum fee to pay in millisatoshis. Routes with fees greater\nthan max_fee will be abandoned during path finding."
         }
       }
     },

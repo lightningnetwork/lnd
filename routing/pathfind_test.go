@@ -321,7 +321,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight, lnwire.MaxPaymentMSat)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight, lnwire.MaxPaymentMSat)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}

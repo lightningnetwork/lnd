@@ -813,7 +813,7 @@ var sendPaymentCommand = cli.Command{
 	Name:  "sendpayment",
 	Usage: "send a payment over lightning",
 	ArgsUsage: "(destination amount payment_hash " +
-		"| --pay_req=[payment request])",
+		"| --pay_req=[payment request]) [--max_fee=[max fee]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest, d",
@@ -835,6 +835,10 @@ var sendPaymentCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "a bech32 encoded payment request to fulfill",
+		},
+		cli.Int64Flag{
+			Name:  "max_fee",
+			Usage: "Maximum fee to pay in millisatoshis.",
 		},
 	},
 	Action: sendPayment,
@@ -920,6 +924,10 @@ func sendPayment(ctx *cli.Context) error {
 			}
 			req.PaymentHash = rHash
 		}
+	}
+
+	if ctx.IsSet("max_fee") {
+		req.MaxFee = ctx.Int64("max_fee")
 	}
 
 	paymentStream, err := client.SendPayment(context.Background())

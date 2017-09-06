@@ -498,6 +498,10 @@ message SendRequest {
     payment to the recipient.
     */
     string payment_request = 6;
+
+    // Maximum fee to pay in millisatoshis. Routes with fees greater
+    // than max_fee will be abandoned during path finding.
+    int64 max_fee = 7 [json_name = "max_fee"];
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];

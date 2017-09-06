@@ -317,7 +317,7 @@ func initBreachedOutputs() error {
 				breachKeys[i])
 		}
 		sd.PubKey = pubkey
-		bo.signDesc = sd
+		bo.signDesc = *sd
 	}
 
 	return nil

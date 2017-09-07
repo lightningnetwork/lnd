@@ -322,7 +322,26 @@ func (l *channelLink) htlcManager() {
 
 	// TODO(roasbeef): fail chan in case of protocol violation
 
-	// TODO(roasbeef): resend funding locked if state zero
+	// If the number of updates on this channel has been zero, we should
+	// resend the fundingLocked message. This is because in this case we
+	// cannot be sure if the peer really received the last fundingLocked we
+	// sent, so resend now.
+	if l.channel.StateSnapshot().NumUpdates == 0 {
+		log.Debugf("Resending fundingLocked message to peer.")
+
+		nextRevocation, err := l.channel.NextRevocationKey()
+		if err != nil {
+			log.Errorf("unable to create next revocation: %v", err)
+		}
+
+		fundingLockedMsg := lnwire.NewFundingLocked(l.ChanID(),
+			nextRevocation)
+		err = l.cfg.Peer.SendMessage(fundingLockedMsg)
+		if err != nil {
+			log.Errorf("failed resending fundingLocked to peer: %v",
+				err)
+		}
+	}
 
 out:
 	for {

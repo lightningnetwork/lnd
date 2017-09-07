@@ -90,7 +90,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose up --no-recreate -d --name bob lnd_btc
+$ docker-compose run -d --name bob lnd_btc
 $ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:

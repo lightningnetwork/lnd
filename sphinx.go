@@ -64,7 +64,7 @@ const (
 	keyLen = 32
 
 	// baseVersion represent the current supported version of onion packet.
-	baseVersion = 0
+	baseVersion = 1
 )
 
 var (
@@ -417,7 +417,7 @@ func (f *OnionPacket) Decode(r io.Reader) error {
 	}
 	f.EphemeralKey, err = btcec.ParsePubKey(ephemeral[:], btcec.S256())
 	if err != nil {
-		return err
+		return ErrInvalidOnionKey
 	}
 
 	if _, err := io.ReadFull(r, f.RoutingInfo[:]); err != nil {

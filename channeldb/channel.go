@@ -793,9 +793,9 @@ const (
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it
-// was close. Once a channel is closed, all the information pertaining to that
-// channel within the openChannelBucket is deleted, and a compact summary is
-// but in place instead.
+// was closed. Once a channel is closed, all the information pertaining to
+// that channel within the openChannelBucket is deleted, and a compact
+// summary is put in place instead.
 type ChannelCloseSummary struct {
 	// ChanPoint is the outpoint for this channel's funding transaction,
 	// and is used as a unique identifier for the channel.
@@ -1001,7 +1001,7 @@ func putChannelCloseSummary(tx *bolt.Tx, chanID []byte,
 }
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
-	if err := writeBool(w, cs.IsPending); err != nil {
+	if err := binary.Write(w, byteOrder, cs.IsPending); err != nil {
 		return err
 	}
 
@@ -1055,8 +1055,8 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	c := &ChannelCloseSummary{}
 
 	var err error
-	c.IsPending, err = readBool(r)
-	if err != nil {
+
+	if err := binary.Read(r, byteOrder, &c.IsPending); err != nil {
 		return nil, err
 	}
 
@@ -1078,7 +1078,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	}
 
 	var closeType [1]byte
-	if _, err := io.ReadFull(r, closeType[:]); err != nil {
+	if err := binary.Read(r, byteOrder, closeType[:]); err != nil {
 		return nil, err
 	}
 	c.CloseType = ClosureType(closeType[0])
@@ -1878,7 +1878,8 @@ func putChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) error
 	} else {
 		boolByte[0] = 0
 	}
-	if _, err := b.Write(boolByte[:]); err != nil {
+
+	if err := binary.Write(&b, byteOrder, boolByte[:]); err != nil {
 		return err
 	}
 
@@ -1917,8 +1918,11 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 
 	infoBytes := bytes.NewReader(nodeChanBucket.Get(fundTxnKey))
 
+	var err error
 	var boolByte [1]byte
-	if _, err := io.ReadFull(infoBytes, boolByte[:]); err != nil {
+	err = binary.Read(infoBytes, byteOrder, boolByte[:])
+
+	if err != nil {
 		return err
 	}
 	if boolByte[0] == 1 {
@@ -1928,11 +1932,15 @@ func fetchChanFundingInfo(nodeChanBucket *bolt.Bucket, channel *OpenChannel) err
 	}
 
 	var chanType [1]byte
-	if _, err := io.ReadFull(infoBytes, chanType[:]); err != nil {
+	err = binary.Read(infoBytes, byteOrder, chanType[:])
+
+	if err != nil {
 		return err
 	}
 	channel.ChanType = ChannelType(chanType[0])
-	if _, err := io.ReadFull(infoBytes, channel.ChainHash[:]); err != nil {
+	err = binary.Read(infoBytes, byteOrder, channel.ChainHash[:])
+
+	if err != nil {
 		return err
 	}
 
@@ -2072,7 +2080,7 @@ func serializeHTLC(w io.Writer, h *HTLC) error {
 		boolByte[0] = 0
 	}
 
-	if _, err := w.Write(boolByte[:]); err != nil {
+	if err := binary.Write(w, byteOrder, boolByte[:]); err != nil {
 		return err
 	}
 
@@ -2103,7 +2111,7 @@ func deserializeHTLC(r io.Reader) (*HTLC, error) {
 	}
 
 	var scratch [1]byte
-	if _, err := r.Read(scratch[:]); err != nil {
+	if err := binary.Read(r, byteOrder, scratch[:]); err != nil {
 		return nil, err
 	}
 
@@ -2370,34 +2378,3 @@ func readOutpoint(r io.Reader, o *wire.OutPoint) error {
 
 	return nil
 }
-
-func writeBool(w io.Writer, b bool) error {
-	boolByte := byte(0x01)
-	if !b {
-		boolByte = byte(0x00)
-	}
-
-	if _, err := w.Write([]byte{boolByte}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// TODO(roasbeef): make sweep to use this and above everywhere
-//   * using this because binary.Write can only handle bools post go1.8
-func readBool(r io.Reader) (bool, error) {
-	var boolByte [1]byte
-	if _, err := io.ReadFull(r, boolByte[:]); err != nil {
-		return false, err
-	}
-
-	if boolByte[0] == 0x00 {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-// TODO(roasbeef): add readElement/writeElement funcs
-//  * after go1.9 can use binary.WriteBool etc?

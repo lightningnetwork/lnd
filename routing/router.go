@@ -892,13 +892,13 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	}
 
 	// Finally, we'll sort the set of validate routes to optimize for
-	// lowest total fees, using the required time-lock within the route as
-	// a tie-breaker.
+	// lowest total fees, using the required time-lock within the
+	// route as a tie-breaker.
 	sort.Slice(validRoutes, func(i, j int) bool {
 		// To make this decision we first check if the total fees
-		// required for both routes are equal. If so, then we'll let the total time
-		// lock be the tie breaker. Otherwise, we'll put the route with the lowest
-		// total fees first.
+		// required for both routes are equal. If so, then we'll let
+		// the total time lock be the tie breaker. Otherwise, we'll
+		// put the route with the lowest total fees first.
 		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
 			timeLockI := validRoutes[i].TotalTimeLock
 			timeLockJ := validRoutes[j].TotalTimeLock

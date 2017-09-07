@@ -2304,10 +2304,10 @@ func genRemoteHtlcSigJobs(commitPoint *btcec.PublicKey,
 // decrements the available revocation window by 1. After a successful method
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
-// The first return parameter is the signature for the commitment transaction
-// itself, while the second parameter is a slice of all HTLC signatures (if
-// any). The HTLC signatures are sorted according to the BIP 69 order of the
-// HTLC's on the commitment transaction.
+// The first return parameter is the signature for the commitment
+// transaction itself, while the second parameter is a slice of all
+// HTLC signatures (if any). The HTLC signatures are sorted according to
+// the BIP 69 order of the HTLC's on the commitment transaction.
 func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Signature, error) {
 	lc.Lock()
 	defer lc.Unlock()

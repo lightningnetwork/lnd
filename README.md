@@ -53,9 +53,9 @@ service. The exported API's are not yet stable, so be warned: they may change
 drastically in the near future.
 
 An automatically generated set of documentation for the RPC APIs can be found
-at [api.lightning.community](api.lightning.community). A set of developer
+at [api.lightning.community](http://api.lightning.community). A set of developer
 resources including talks, articles, and example applications can be found at:
-[dev.lightning.community](dev.lightning.community).
+[dev.lightning.community](http://dev.lightning.community).
 
 Finally, we also have an active
 [Slack](https://join.slack.com/t/lightningcommunity/shared_invite/MjI4OTg3MzQ4MjI2LTE1MDMxNzM1NTMtNjlmOGYzOTI1Ng)

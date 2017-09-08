@@ -691,7 +691,7 @@ func (f *FailIncorrectCltvExpiry) Error() string {
 // Decode decodes the failure from bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
+func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 	if err := readElement(r, &f.CltvExpiry); err != nil {
 		return err
 	}

@@ -107,12 +107,12 @@ type Config struct {
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
-// announcements validate them and apply the changes to router, syncing
-// lightning network with newly connected nodes, broadcasting announcements
+// announcements, validating them and applying the changes to router, syncing
+// the lightning network with newly connected nodes, broadcasting announcements
 // after validation, negotiating the channel announcement proofs exchange and
 // handling the premature announcements. All outgoing announcements are
 // expected to be properly signed as dictated in BOLT#7, additionally, all
-// incoming message are expected to be well formed and signed. Invalid messages
+// incoming messages are expected to be well formed and signed. Invalid messages
 // will be rejected by this struct.
 type AuthenticatedGossiper struct {
 	// Parameters which are needed to properly handle the start and stop of
@@ -335,6 +335,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	//    created
 	//    * can use mostly empty struct in db as place holder
 	var announcementBatch []lnwire.Message
+
+	// encapsulates logic to properly de-duplicate announcements that
+	// have been added to this batch
+	// TODO(flaurida): ultimately replace current announcementBatch
+	// with this struct
+	type deDupedAnnouncements struct {
+		announcementBatch []lnwire.Message
+	}
 
 	// TODO(roasbeef): parametrize the above
 	retransmitTimer := time.NewTicker(time.Minute * 30)

@@ -147,7 +147,7 @@ func (c FailCode) String() string {
 // NOTE: May be returned by any node in the payment route.
 type FailInvalidRealm struct{}
 
-func (f *FailInvalidRealm) Error() string {
+func (f FailInvalidRealm) Error() string {
 	var code = f.Code()
 	return code.String()
 }
@@ -171,9 +171,9 @@ func (f FailTemporaryNodeFailure) Code() FailCode {
 	return CodeTemporaryNodeFailure
 }
 
-func (f *FailTemporaryNodeFailure) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailTemporaryNodeFailure) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailPermanentNodeFailure is returned if an otherwise unspecified permanent
@@ -189,9 +189,9 @@ func (f FailPermanentNodeFailure) Code() FailCode {
 	return CodePermanentNodeFailure
 }
 
-func (f *FailPermanentNodeFailure) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailPermanentNodeFailure) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailRequiredNodeFeatureMissing is returned if a node has requirement
@@ -208,9 +208,9 @@ func (f FailRequiredNodeFeatureMissing) Code() FailCode {
 	return CodeRequiredNodeFeatureMissing
 }
 
-func (f *FailRequiredNodeFeatureMissing) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailRequiredNodeFeatureMissing) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailPermanentChannelFailure is return if an otherwise unspecified permanent
@@ -226,11 +226,10 @@ func (f FailPermanentChannelFailure) Code() FailCode {
 	return CodePermanentChannelFailure
 }
 
-func (f *FailPermanentChannelFailure) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailPermanentChannelFailure) Error() string {
+	var code = f.Code()
+	return code.String()
 }
-
 
 // FailRequiredChannelFeatureMissing is returned if the outgoing channel has a
 // requirement advertised in its channel announcement features which were not
@@ -246,9 +245,9 @@ func (f FailRequiredChannelFeatureMissing) Code() FailCode {
 	return CodeRequiredChannelFeatureMissing
 }
 
-func (f *FailRequiredChannelFeatureMissing) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailRequiredChannelFeatureMissing) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailUnknownNextPeer is returned if the next peer specified by the onion is
@@ -264,11 +263,10 @@ func (f FailUnknownNextPeer) Code() FailCode {
 	return CodeUnknownNextPeer
 }
 
-func (f *FailUnknownNextPeer) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailUnknownNextPeer) Error() string {
+	var code = f.Code()
+	return code.String()
 }
-
 
 // FailUnknownPaymentHash is returned If the payment hash has already been
 // paid, the final node MAY treat the payment hash as unknown, or may succeed
@@ -285,10 +283,9 @@ func (f FailUnknownPaymentHash) Code() FailCode {
 	return CodeUnknownPaymentHash
 }
 
-
-func (f *FailUnknownPaymentHash) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailUnknownPaymentHash) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailIncorrectPaymentAmount is returned if the amount paid is less than the
@@ -307,9 +304,9 @@ func (f FailIncorrectPaymentAmount) Code() FailCode {
 	return CodeIncorrectPaymentAmount
 }
 
-func (f *FailIncorrectPaymentAmount) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailIncorrectPaymentAmount) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final
@@ -325,9 +322,9 @@ func (f FailFinalExpiryTooSoon) Code() FailCode {
 	return CodeFinalExpiryTooSoon
 }
 
-func (f *FailFinalExpiryTooSoon) Error() string{
-	var code = f.Code();
-	return code.String();
+func (f FailFinalExpiryTooSoon) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailInvalidOnionVersion is returned if the onion version byte is unknown.
@@ -338,9 +335,9 @@ type FailInvalidOnionVersion struct {
 	OnionSHA256 [sha256.Size]byte
 }
 
-func (f *FailInvalidOnionVersion) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailInvalidOnionVersion) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // NewInvalidOnionVersion creates new instance of the FailInvalidOnionVersion.
@@ -403,9 +400,9 @@ func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.OnionSHA256[:])
 }
 
-func (f *FailInvalidOnionHmac) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailInvalidOnionHmac) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // FailInvalidOnionKey is return if the ephemeral key in the onion is
@@ -443,9 +440,9 @@ func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.OnionSHA256[:])
 }
 
-func (f *FailInvalidOnionKey) Error () string {
-	var failCode = f.Code();
-	return failCode.String();
+func (f FailInvalidOnionKey) Error() string {
+	var failCode = f.Code()
+	return failCode.String()
 }
 
 // FailTemporaryChannelFailure is if an otherwise unspecified transient error
@@ -473,9 +470,9 @@ func (f *FailTemporaryChannelFailure) Code() FailCode {
 	return CodeTemporaryChannelFailure
 }
 
-func (f *FailTemporaryChannelFailure) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailTemporaryChannelFailure) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // Decode decodes the failure from bytes stream.
@@ -547,9 +544,9 @@ func (f *FailAmountBelowMinimum) Code() FailCode {
 	return CodeAmountBelowMinimum
 }
 
-func (f *FailAmountBelowMinimum) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailAmountBelowMinimum) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // Decode decodes the failure from bytes stream.
@@ -615,9 +612,9 @@ func (f *FailFeeInsufficient) Code() FailCode {
 	return CodeFeeInsufficient
 }
 
-func (f *FailFeeInsufficient) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailFeeInsufficient) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // Decode decodes the failure from bytes stream.
@@ -686,15 +683,15 @@ func (f *FailIncorrectCltvExpiry) Code() FailCode {
 	return CodeIncorrectCltvExpiry
 }
 
-func (f* FailIncorrectCltvExpiry) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f *FailIncorrectCltvExpiry) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // Decode decodes the failure from bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
+func (f FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 	if err := readElement(r, &f.CltvExpiry); err != nil {
 		return err
 	}
@@ -748,9 +745,9 @@ func (f *FailExpiryTooSoon) Code() FailCode {
 	return CodeExpiryTooSoon
 }
 
-func (f* FailExpiryTooSoon) Error() string  {
-	var code = f.Code();
-	return code.String();
+func (f *FailExpiryTooSoon) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // Decode decodes the failure from l stream.
@@ -808,7 +805,7 @@ func (f *FailChannelDisabled) Code() FailCode {
 	return CodeChannelDisabled
 }
 
-func (f *FailChannelDisabled) Error() string {
+func (f FailChannelDisabled) Error() string {
 	var code = f.Code()
 	return code.String()
 }
@@ -856,9 +853,9 @@ type FailFinalIncorrectCltvExpiry struct {
 	CltvExpiry uint32
 }
 
-func (f *FailFinalIncorrectCltvExpiry) Error() string  {
-	var code = f.Code();
-	return code.String();
+func (f FailFinalIncorrectCltvExpiry) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // NewFinalIncorrectCltvExpiry creates new instance of the
@@ -899,9 +896,9 @@ type FailFinalIncorrectHtlcAmount struct {
 	IncomingHTLCAmount MilliSatoshi
 }
 
-func (f *FailFinalIncorrectHtlcAmount) Error() string {
-	var code = f.Code();
-	return code.String();
+func (f FailFinalIncorrectHtlcAmount) Error() string {
+	var code = f.Code()
+	return code.String()
 }
 
 // NewFinalIncorrectHtlcAmount creates new instance of the

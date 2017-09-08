@@ -57,7 +57,7 @@ func (n NodeAlias) String() string {
 
 // NodeAnnouncement message is used to announce the presence of a Lightning
 // node and also to signal that the node is accepting incoming connections.
-// Each NodeAnnouncement authenticating the advertised information within the
+// Each node authenticates the advertised information within the
 // announcement via a signature using the advertised node pubkey.
 type NodeAnnouncement struct {
 	// Signature is used to prove the ownership of node id.
@@ -156,4 +156,40 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	// TODO(roasbeef): also capture the excess bytes in msg padded out?
 
 	return w.Bytes(), nil
+}
+
+// CompareNodes compares the configurable fields within two NodeAnnouncement
+// objects, and returns whether they are equal or not.
+func (a *NodeAnnouncement) CompareNodes(b *NodeAnnouncement) bool {
+	if !a.NodeID.IsEqual(b.NodeID) {
+		return false
+	}
+	if a.Alias != b.Alias {
+		return false
+	}
+	if a.RGBColor != b.RGBColor {
+		return false
+	}
+
+	// When comparing Address arrays the order does not matter.
+	m := make(map[net.Addr]bool)
+	for _, addr := range a.Addresses {
+		m[addr] = true
+	}
+	for _, addr := range b.Addresses {
+		if _, eq := m[addr]; !eq {
+			return false
+		}
+	}
+
+	if len(a.Features.flags) != len(b.Features.flags) {
+		return false
+	}
+	for index, aFlag := range a.Features.flags {
+		if bFlag, exist := b.Features.flags[index]; !exist || aFlag != bFlag {
+			return false
+		}
+	}
+
+	return true
 }

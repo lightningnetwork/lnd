@@ -300,38 +300,73 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 	copy(selfNode.PubKeyBytes[:], privKey.PubKey().SerializeCompressed())
 
+	timeStamp := time.Now()
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Timestamp: uint32(timeStamp.Unix()),
+		Addresses: selfAddrs,
+		NodeID:    privKey.PubKey(),
+		Alias:     alias,
+		Features:  globalFeatures,
+	}
+
+	updateNodeAnn := true
+
+	// Try to retrieve the old source node from disk. During startup it
+	// is possible for there to be no source node, and this should not be
+	// treated as an error.
+	oldNode, err := chanGraph.SourceNode()
+	if err != nil && err != channeldb.ErrSourceNodeNotSet {
+		return nil, fmt.Errorf("unable to read old source node from disk")
+	}
+
+	if oldNode != nil {
+		oldAlias, err := lnwire.NewNodeAlias(oldNode.Alias)
+		if err != nil {
+			return nil, err
+		}
+
+		oldNodeAnn := &lnwire.NodeAnnouncement{
+			Timestamp: uint32(oldNode.LastUpdate.Unix()),
+			Addresses: oldNode.Addresses,
+			NodeID:    oldNode.PubKey,
+			Alias:     oldAlias,
+			Features:  oldNode.Features,
+		}
+
+		// If the nodes are not equal than there have been config changes
+		// and we should propagate the updated node.
+		updateNodeAnn = !nodeAnn.CompareNodes(oldNodeAnn)
+	}
+
 	// If our information has changed since our last boot, then we'll
 	// re-sign our node announcement so a fresh authenticated version of it
 	// can be propagated throughout the network upon startup.
-	//
-	// TODO(roasbeef): don't always set timestamp above to _now.
-	nodeAnn := &lnwire.NodeAnnouncement{
-		Timestamp: uint32(selfNode.LastUpdate.Unix()),
-		Addresses: selfNode.Addresses,
-		NodeID:    selfNode.PubKeyBytes,
-		Alias:     nodeAlias,
-		Features:  selfNode.Features.RawFeatureVector,
-		RGBColor:  color,
-	}
-	authSig, err := discovery.SignAnnouncement(
-		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate signature for "+
-			"self node announcement: %v", err)
+	if updateNodeAnn {
+		selfNode := &channeldb.LightningNode{
+			HaveNodeAnnouncement: true,
+			LastUpdate:           timeStamp,
+			Addresses:            selfAddrs,
+			PubKey:               privKey.PubKey(),
+			Alias:                alias.String(),
+			Features:             globalFeatures,
+		}
+		selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
+			s.identityPriv.PubKey(), nodeAnn,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to generate signature for "+
+				"self node announcement: %v", err)
+		}
+
+		if err := chanGraph.SetSourceNode(selfNode); err != nil {
+			return nil, fmt.Errorf("can't set self node: %v", err)
+		}
+
+		nodeAnn.Signature = selfNode.AuthSig
 	}
 
-	selfNode.AuthSigBytes = authSig.Serialize()
 	s.currentNodeAnn = nodeAnn
 
-	if err := chanGraph.SetSourceNode(selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %v", err)
-	}
-
-	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(selfNode.AuthSigBytes)
-	if err != nil {
-		return nil, err
-	}
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
 		Chain:     cc.chainIO,

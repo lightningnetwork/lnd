@@ -2,7 +2,6 @@ package routing
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"image/color"
 	"testing"
@@ -180,7 +179,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if ctx.aliases["luoji"].IsEqual(n) {
-			return [32]byte{}, errors.New("send error")
+			return [32]byte{}, &lnwire.FailChannelDisabled{}
 		}
 
 		return preImage, nil

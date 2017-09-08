@@ -113,8 +113,6 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 		// addresses. As we won't be able to reach them to actually
 		// open any channels.
 		if len(n.Addresses) == 0 {
-			log.Tracef("Skipping unreachable node %x",
-				n.PubKey.SerializeCompressed())
 			return nil
 		}
 

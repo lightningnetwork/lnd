@@ -123,6 +123,8 @@ type config struct {
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
+
+	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -272,6 +274,7 @@ func loadConfig() (*config, error) {
 			activeNetParams = regTestNetParams
 		}
 		if cfg.Bitcoin.SimNet {
+			numNets++
 			activeNetParams = bitcoinSimNetParams
 		}
 		if numNets > 1 {

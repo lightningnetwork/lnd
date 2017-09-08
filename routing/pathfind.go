@@ -126,7 +126,7 @@ type Route struct {
 
 	// nodeIndex is a map that allows callers to quickly look up if a node
 	// is present in this computed route or not.
-	nodeIndex map[vertex]struct{}
+	nodeIndex map[Vertex]struct{}
 
 	// chanIndex is an index that allows callers to determine if a channel
 	// is present in this route or not. Channels are identified by the
@@ -136,27 +136,27 @@ type Route struct {
 	// nextHop maps a node, to the next channel that it will pass the HTLC
 	// off to. With this map, we can easily look up the next outgoing
 	// channel or node for pruning purposes.
-	nextHopMap map[vertex]*ChannelHop
+	nextHopMap map[Vertex]*ChannelHop
 }
 
-// nextHopVertex returns the next hop (by vertex) after the target node. If the
+// nextHopVertex returns the next hop (by Vertex) after the target node. If the
 // target node is not found in the route, then false is returned.
-func (r *Route) nextHopVertex(n *btcec.PublicKey) (vertex, bool) {
-	hop, ok := r.nextHopMap[newVertex(n)]
-	return newVertex(hop.Node.PubKey), ok
+func (r *Route) nextHopVertex(n *btcec.PublicKey) (Vertex, bool) {
+	hop, ok := r.nextHopMap[NewVertex(n)]
+	return NewVertex(hop.Node.PubKey), ok
 }
 
 // nextHopChannel returns the uint64 channel ID of the next hop after the
 // target node. If the target node is not foud in the route, then false is
 // returned.
 func (r *Route) nextHopChannel(n *btcec.PublicKey) (uint64, bool) {
-	hop, ok := r.nextHopMap[newVertex(n)]
+	hop, ok := r.nextHopMap[NewVertex(n)]
 	return hop.ChannelID, ok
 }
 
 // containsNode returns true if a node is present in the target route, and
 // false otherwise.
-func (r *Route) containsNode(v vertex) bool {
+func (r *Route) containsNode(v Vertex) bool {
 	_, ok := r.nodeIndex[v]
 	return ok
 }
@@ -210,7 +210,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
+func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*ChannelHop, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
@@ -221,9 +221,9 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 	route := &Route{
 		Hops:          make([]*Hop, len(pathEdges)),
 		TotalTimeLock: currentHeight,
-		nodeIndex:     make(map[vertex]struct{}),
+		nodeIndex:     make(map[Vertex]struct{}),
 		chanIndex:     make(map[uint64]struct{}),
-		nextHopMap:    make(map[vertex]*ChannelHop),
+		nextHopMap:    make(map[Vertex]*ChannelHop),
 	}
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
@@ -243,9 +243,9 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 		edge := pathEdges[i]
 
 		// First, we'll update both the node and channel index, to
-		// indicate that this vertex, and outgoing channel link are
+		// indicate that this Vertex, and outgoing channel link are
 		// present within this route.
-		v := newVertex(edge.Node.PubKey)
+		v := NewVertex(edge.Node.PubKey)
 		route.nodeIndex[v] = struct{}{}
 		route.chanIndex[edge.ChannelID] = struct{}{}
 
@@ -349,20 +349,20 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 	return route, nil
 }
 
-// vertex is a simple alias for the serialization of a compressed Bitcoin
+// Vertex is a simple alias for the serialization of a compressed Bitcoin
 // public key.
-type vertex [33]byte
+type Vertex [33]byte
 
-// newVertex returns a new vertex given a public key.
-func newVertex(pub *btcec.PublicKey) vertex {
-	var v vertex
+// NewVertex returns a new Vertex given a public key.
+func NewVertex(pub *btcec.PublicKey) Vertex {
+	var v Vertex
 	copy(v[:], pub.SerializeCompressed())
 	return v
 }
 
-// String returns a human readable version of the vertex which is the
+// String returns a human readable version of the Vertex which is the
 // hex-encoding of the serialized compressed public key.
-func (v vertex) String() string {
+func (v Vertex) String() string {
 	return fmt.Sprintf("%x", v[:])
 }
 
@@ -393,7 +393,7 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // from the target to the source.
 func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
-	ignoredNodes map[vertex]struct{}, ignoredEdges map[uint64]struct{},
+	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
 	amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
 
 	var err error
@@ -410,14 +410,14 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// traversal.
 	var nodeHeap distanceHeap
 
-	// For each node/vertex the graph we create an entry in the distance
+	// For each node/Vertex the graph we create an entry in the distance
 	// map for the node set with a distance of "infinity".  We also mark
 	// add the node to our set of unvisited nodes.
-	distance := make(map[vertex]nodeWithDist)
+	distance := make(map[Vertex]nodeWithDist)
 	if err := graph.ForEachNode(tx, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
-		distance[newVertex(node.PubKey)] = nodeWithDist{
+		distance[NewVertex(node.PubKey)] = nodeWithDist{
 			dist: infinity,
 			node: node,
 		}
@@ -432,7 +432,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// To start, we add the source of our path finding attempt to the
 	// distance map with with a distance of 0. This indicates our starting
 	// point in the graph traversal.
-	sourceVertex := newVertex(sourceNode.PubKey)
+	sourceVertex := NewVertex(sourceNode.PubKey)
 	distance[sourceVertex] = nodeWithDist{
 		dist: 0,
 		node: sourceNode,
@@ -443,8 +443,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	heap.Push(&nodeHeap, distance[sourceVertex])
 
 	// We'll use this map as a series of "previous" hop pointers. So to get
-	// to `vertex` we'll take the edge that it's mapped to within `prev`.
-	prev := make(map[vertex]edgeWithPrev)
+	// to `Vertex` we'll take the edge that it's mapped to within `prev`.
+	prev := make(map[Vertex]edgeWithPrev)
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
 		// from the heap.
@@ -461,16 +461,16 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// Now that we've found the next potential step to take we'll
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
-		pivot := newVertex(bestNode.PubKey)
+		pivot := NewVertex(bestNode.PubKey)
 		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
 
-			v := newVertex(outEdge.Node.PubKey)
+			v := NewVertex(outEdge.Node.PubKey)
 
 			// TODO(roasbeef): skip if chan disabled
 
-			// If this vertex or edge has been black listed, then
+			// If this Vertex or edge has been black listed, then
 			// we'll skip exploring this edge during this
 			// iteration.
 			if _, ok := ignoredNodes[v]; ok {
@@ -527,7 +527,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 	// If the target node isn't found in the prev hop map, then a path
 	// doesn't exist, so we terminate in an error.
-	if _, ok := prev[newVertex(target)]; !ok {
+	if _, ok := prev[NewVertex(target)]; !ok {
 		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
 			"destination")
 	}
@@ -537,7 +537,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// in the reverse direction which we'll use to properly calculate the
 	// timelock and fee values.
 	pathEdges := make([]*ChannelHop, 0, len(prev))
-	prevNode := newVertex(target)
+	prevNode := NewVertex(target)
 	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles
 		// Add the current hop to the limit of path edges then walk
 		// backwards from this hop via the prev pointer for this hop
@@ -545,7 +545,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		pathEdges = append(pathEdges, prev[prevNode].edge)
 		prev[prevNode].edge.Node.PubKey.Curve = nil
 
-		prevNode = newVertex(prev[prevNode].prevNode)
+		prevNode = NewVertex(prev[prevNode].prevNode)
 	}
 
 	// The route is invalid if it spans more than 20 hops. The current
@@ -574,7 +574,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // This function implements a modified version of Yen's. To find each path
 // itself, we utilize our modified version of Dijkstra's found above. When
 // examining possible spur and root paths, rather than removing edges or
-// vertexes from the graph, we instead utilize a vertex+edge black-list that
+// Vertexes from the graph, we instead utilize a Vertex+edge black-list that
 // will be ignored by our modified Dijkstra's algorithm. With this approach, we
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
@@ -586,7 +586,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// TODO(roasbeef): take in db tx
 
 	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
@@ -629,12 +629,12 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// path in order to find path deviations from each node in the
 		// path.
 		for i := 0; i < len(prevShortest)-1; i++ {
-			// These two maps will mark the edges and vertexes
+			// These two maps will mark the edges and Vertexes
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
 			ignoredEdges = make(map[uint64]struct{})
-			ignoredVertexes = make(map[vertex]struct{})
+			ignoredVertexes = make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
@@ -663,11 +663,11 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 					continue
 				}
 
-				ignoredVertexes[newVertex(node)] = struct{}{}
+				ignoredVertexes[NewVertex(node)] = struct{}{}
 			}
 
 			// With the edges that are part of our root path, and
-			// the vertexes (other than the spur path) within the
+			// the Vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(tx, graph, spurNode, target,

@@ -1,6 +1,6 @@
 package lnwire
 
-// ShortChannelID represent the set of data which is needed to retrieve all
+// ShortChannelID represents the set of data which is needed to retrieve all
 // necessary data to validate the channel existence.
 type ShortChannelID struct {
 	// BlockHeight is the height of the block where funding transaction

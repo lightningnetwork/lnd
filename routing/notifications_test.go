@@ -389,7 +389,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
-	var waitingFor = map[vertex]int{
+	var waitingFor = map[Vertex]int{
 		newVertex(node1.PubKey): 1,
 		newVertex(node2.PubKey): 2,
 	}
@@ -548,7 +548,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
-	var waitingFor = map[vertex]int{
+	var waitingFor = map[Vertex]int{
 		newVertex(node1.PubKey): 1,
 		newVertex(node2.PubKey): 2,
 	}

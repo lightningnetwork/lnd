@@ -51,17 +51,13 @@ func newMockServer(t *testing.T, name string) *mockServer {
 	copy(id[:], h[:])
 
 	return &mockServer{
-		t:        t,
-		id:       id,
-		name:     name,
-		messages: make(chan lnwire.Message, 3000),
-		quit:     make(chan bool),
-		registry: newMockRegistry(),
-		htlcSwitch: New(Config{
-			UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-				return nil
-			},
-		}),
+		t:           t,
+		id:          id,
+		name:        name,
+		messages:    make(chan lnwire.Message, 3000),
+		quit:        make(chan bool),
+		registry:    newMockRegistry(),
+		htlcSwitch:  New(Config{}),
 		recordFuncs: make([]func(lnwire.Message), 0),
 	}
 }

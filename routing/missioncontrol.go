@@ -49,7 +49,7 @@ type missionControl struct {
 	// the time that it was added to the prune view. Vertexes are added to
 	// this map if a caller reports to missionControl a failure localized
 	// to that particular vertex.
-	failedVertexes map[vertex]time.Time
+	failedVertexes map[Vertex]time.Time
 
 	graph *channeldb.ChannelGraph
 
@@ -71,7 +71,7 @@ func newMissionControl(g *channeldb.ChannelGraph,
 
 	return &missionControl{
 		failedEdges:    make(map[uint64]time.Time),
-		failedVertexes: make(map[vertex]time.Time),
+		failedVertexes: make(map[Vertex]time.Time),
 		selfNode:       selfNode,
 		graph:          g,
 	}
@@ -81,7 +81,7 @@ func newMissionControl(g *channeldb.ChannelGraph,
 // reports a routing failure localized to the vertex. The time the vertex was
 // added is noted, as it'll be pruned from the view after a period of
 // vertexDecay.
-func (m *missionControl) ReportVertexFailure(v vertex) {
+func (m *missionControl) ReportVertexFailure(v Vertex) {
 	log.Debugf("Reporting vertex %v failure to Mission Control", v)
 
 	m.Lock()
@@ -130,7 +130,7 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := newVertex(m.selfNode.PubKey)
+	sourceVertex := NewVertex(m.selfNode.PubKey)
 	route, err := newRoute(payment.Amount, sourceVertex, path, height,
 		finalCltvDelta)
 	if err != nil {
@@ -157,7 +157,7 @@ func (m *missionControl) GraphPruneView() *graphPruneView {
 	// For each of the vertexes that have been added to the prune view, if
 	// it is now "stale", then we'll ignore it and avoid adding it to the
 	// view we'll return.
-	vertexes := make(map[vertex]struct{})
+	vertexes := make(map[Vertex]struct{})
 	for vertex, pruneTime := range m.failedVertexes {
 		if now.Sub(pruneTime) >= vertexDecay {
 			log.Tracef("Pruning decayed failure report for vertex %v "+
@@ -204,7 +204,7 @@ func (m *missionControl) GraphPruneView() *graphPruneView {
 type graphPruneView struct {
 	edges map[uint64]struct{}
 
-	vertexes map[vertex]struct{}
+	vertexes map[Vertex]struct{}
 }
 
 // ResetHistory resets the history of missionControl returning it to a state as
@@ -212,6 +212,6 @@ type graphPruneView struct {
 func (m *missionControl) ResetHistory() {
 	m.Lock()
 	m.failedEdges = make(map[uint64]time.Time)
-	m.failedVertexes = make(map[vertex]time.Time)
+	m.failedVertexes = make(map[Vertex]time.Time)
 	m.Unlock()
 }

@@ -303,7 +303,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	sourceVertex := newVertex(sourceNode.PubKey)
 
 	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
 
 	// With the test graph loaded, we'll test some basic path finding using
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
@@ -527,7 +527,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	}
 
 	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
@@ -568,7 +568,7 @@ func TestPathNotAvailable(t *testing.T) {
 	}
 
 	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
 
 	// With the test graph loaded, we'll test that queries for target that
 	// are either unreachable within the graph, or unknown result in an
@@ -604,7 +604,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
 	// channel graph cannot support due to insufficient capacity triggers

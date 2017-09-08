@@ -105,7 +105,7 @@ type Config struct {
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
-// announcements validate them and apply the changes to router, syncing
+// announcements, validating them and applying the changes to router, syncing
 // lightning network with newly connected nodes, broadcasting announcements
 // after validation, negotiating the channel announcement proofs exchange and
 // handling the premature announcements. All outgoing announcements are
@@ -383,6 +383,112 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	return nMsg.err
 }
 
+// ChannelUpdateID is a unique identifier for ChannelUpdate messages, as
+// channel updates can be identified by the (ShortChannelID, Flags)
+// tuple.
+type ChannelUpdateID struct {
+	// channelID represents the set of data which is needed to
+	// retrieve all necessary data to validate the channel existence.
+	channelID lnwire.ShortChannelID
+
+	// Flags least-significant bit must be set to 0 if the creating node
+	// corresponds to the first node in the previously sent channel
+	// announcement and 1 otherwise.
+	Flags uint16
+}
+
+// deDupedAnnouncements de-duplicates announcements that have been
+// added to the batch. Internally, announcements are stored in three maps
+// (one each for channel announcements, channel updates, and node
+// announcements). These maps keep track of unique announcements and
+// ensure no announcements are duplicated.
+type deDupedAnnouncements struct {
+	// channelAnnouncements are identified by the short channel id field.
+	channelAnnouncements map[lnwire.ShortChannelID]lnwire.Message
+
+	// channelUpdates are identified by the channel update id field.
+	channelUpdates map[ChannelUpdateID]lnwire.Message
+
+	// nodeAnnouncements are identified by node id field.
+	nodeAnnouncements map[*btcec.PublicKey]lnwire.Message
+}
+
+// Reset operates on deDupedAnnouncements to reset storage of announcements
+func (d *deDupedAnnouncements) Reset() {
+	// Storage of each type of announcement (channel anouncements, channel
+	// updates, node announcements) is set to an empty map where the
+	// approprate key points to the corresponding lnwire.Message.
+	d.channelAnnouncements = make(map[lnwire.ShortChannelID]lnwire.Message)
+	d.channelUpdates = make(map[ChannelUpdateID]lnwire.Message)
+	d.nodeAnnouncements = make(map[*btcec.PublicKey]lnwire.Message)
+}
+
+// AddMsg adds a new message to the current batch.
+func (d *deDupedAnnouncements) AddMsg(message lnwire.Message) {
+	// Depending on the message type (channel announcement, channel
+	// update, or node announcement), the message is added to the
+	// corresponding map in deDupedAnnouncements. Because each
+	// identifying key can have at most one value, the announcements
+	// are de-duplicated, with newer ones replacing older ones.
+	switch msg := message.(type) {
+	case *lnwire.ChannelAnnouncement:
+		// Channel announcements are identified by the short channel
+		// id field.
+		d.channelAnnouncements[msg.ShortChannelID] = msg
+	case *lnwire.ChannelUpdate:
+		// Channel updates are identified by the (short channel id,
+		// flags) tuple.
+		channelUpdateID := ChannelUpdateID{
+			msg.ShortChannelID,
+			msg.Flags,
+		}
+
+		d.channelUpdates[channelUpdateID] = msg
+	case *lnwire.NodeAnnouncement:
+		// Node announcements are identified by the node id field.
+		d.nodeAnnouncements[msg.NodeID] = msg
+	}
+}
+
+// AddMsgs is a helper method to add multiple messages to the
+// announcement batch.
+func (d *deDupedAnnouncements) AddMsgs(msgs []lnwire.Message) {
+	for _, msg := range msgs {
+		d.AddMsg(msg)
+	}
+}
+
+// Batch returns the set of de-duplicated announcements to be sent out
+// during the next announcement epoch, in the order of channel announcements,
+// channel updates, and node announcements.
+func (d *deDupedAnnouncements) Batch() []lnwire.Message {
+	// Get the total number of announcements.
+	numAnnouncements := len(d.channelAnnouncements) + len(d.channelUpdates) +
+		len(d.nodeAnnouncements)
+
+	// Create an empty array of lnwire.Messages with a length equal to
+	// the total number of announcements.
+	announcements := make([]lnwire.Message, 0, numAnnouncements)
+
+	// Add the channel announcements to the array first.
+	for _, message := range d.channelAnnouncements {
+		announcements = append(announcements, message)
+	}
+
+	// Then add the channel updates.
+	for _, message := range d.channelUpdates {
+		announcements = append(announcements, message)
+	}
+
+	// Finally add the node announcements.
+	for _, message := range d.nodeAnnouncements {
+		announcements = append(announcements, message)
+	}
+
+	// Return the array of lnwire.messages.
+	return announcements
+}
+
 // networkHandler is the primary goroutine that drives this service. The roles
 // of this goroutine includes answering queries related to the state of the
 // network, syncing up newly connected peers, and also periodically
@@ -393,12 +499,13 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	defer d.wg.Done()
 
 	// TODO(roasbeef): changes for spec compliance
-	//  * make into de-duplicated struct
-	//  * always send chan ann -> node ann -> chan update
 	//  * buffer recv'd node ann until after chan ann that includes is
 	//    created
 	//    * can use mostly empty struct in db as place holder
-	var announcementBatch []lnwire.Message
+
+	// Initialize empty deDupedAnnouncements to store announcement batch.
+	announcements := deDupedAnnouncements{}
+	announcements.Reset()
 
 	retransmitTimer := time.NewTicker(d.cfg.RetransmitDelay)
 	defer retransmitTimer.Stop()
@@ -432,8 +539,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// Finally, with the updates committed, we'll now add
 			// them to the announcement batch to be flushed at the
 			// start of the next epoch.
-			announcementBatch = append(announcementBatch,
-				newChanUpdates...)
+			announcements.AddMsgs(newChanUpdates)
 
 			feeUpdate.errResp <- nil
 
@@ -451,10 +557,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// broadcast once the trickle timer ticks gain.
 			if emittedAnnouncements != nil {
 				// TODO(roasbeef): exclude peer that sent
-				announcementBatch = append(
-					announcementBatch,
-					emittedAnnouncements...,
-				)
+				announcements.AddMsgs(emittedAnnouncements)
 			}
 
 		// A new block has arrived, so we can re-process the previously
@@ -484,10 +587,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			for _, ann := range prematureAnns {
 				emittedAnnouncements := d.processNetworkAnnouncement(ann)
 				if emittedAnnouncements != nil {
-					announcementBatch = append(
-						announcementBatch,
-						emittedAnnouncements...,
-					)
+					announcements.AddMsgs(emittedAnnouncements)
 				}
 			}
 			delete(d.prematureAnnouncements, blockHeight)
@@ -496,6 +596,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 		// flush to the network the pending batch of new announcements
 		// we've received since the last trickle tick.
 		case <-trickleTimer.C:
+			// get the batch of announcements from deDupedAnnouncements
+			announcementBatch := announcements.Batch()
+
 			// If the current announcements batch is nil, then we
 			// have no further work here.
 			if len(announcementBatch) == 0 {
@@ -517,7 +620,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// If we're able to broadcast the current batch
 			// successfully, then we reset the batch for a new
 			// round of announcements.
-			announcementBatch = nil
+			announcements.Reset()
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our

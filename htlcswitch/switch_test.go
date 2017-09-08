@@ -40,11 +40,7 @@ func TestSwitchForward(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
-	s := New(Config{
-		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			return nil
-		},
-	})
+	s := New(Config{})
 	s.Start()
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
@@ -122,11 +118,7 @@ func TestSwitchCancel(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
-	s := New(Config{
-		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			return nil
-		},
-	})
+	s := New(Config{})
 	s.Start()
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
@@ -202,11 +194,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
-	s := New(Config{
-		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			return nil
-		},
-	})
+	s := New(Config{})
 	s.Start()
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
@@ -302,11 +290,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 
-	s := New(Config{
-		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			return nil
-		},
-	})
+	s := New(Config{})
 	s.Start()
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add link: %v", err)

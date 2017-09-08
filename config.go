@@ -29,6 +29,7 @@ const (
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
+	defaultAlias              = ""
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
@@ -101,6 +102,7 @@ type config struct {
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir       string `long:"logdir" description:"Directory to log output."`
+	Alias        string `long:"alias" description:"Node's alias name (essentially a user-agent string)"`
 
 	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 9735)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
@@ -146,6 +148,7 @@ func loadConfig() (*config, error) {
 		AdminMacPath:        defaultAdminMacPath,
 		ReadMacPath:         defaultReadMacPath,
 		LogDir:              defaultLogDir,
+		Alias:               defaultAlias,
 		PeerPort:            defaultPeerPort,
 		RPCPort:             defaultRPCPort,
 		RESTPort:            defaultRESTPort,

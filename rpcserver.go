@@ -2641,9 +2641,9 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	return &lnrpc.DeleteAllPaymentsResponse{}, nil
 }
 
-// SetAlias...
+// SetAlias sets this node's alias (essentially a user-agent string), triggering an announcement to the network
 func (r *rpcServer) SetAlias(ctx context.Context,
-	_ *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
+	req *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
 
 	if r.authSvc != nil {
 		if err := macaroons.ValidateMacaroon(ctx, "setalias",
@@ -2652,7 +2652,13 @@ func (r *rpcServer) SetAlias(ctx context.Context,
 		}
 	}
 
-	return nil, nil
+	rpcsLog.Debugf("[SetAlias] Setting alias to: %v", req.NewAlias)
+
+	if err := r.server.refreshNodeAnnouncement(req.NewAlias); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.SetAliasResponse{}, nil
 }
 
 // DebugLevel allows a caller to programmatically set the logging verbosity of

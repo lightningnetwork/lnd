@@ -551,7 +551,7 @@ func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
 
 	errMsg := &lnwire.Error{
 		ChanID: tempChanID,
-		Data:   lnwire.ErrorData{byte(lnwire.ErrChanTooLarge)},
+		Data:   msg,
 	}
 
 	fndgLog.Errorf("Failing funding flow: %v", spew.Sdump(errMsg))

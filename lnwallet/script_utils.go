@@ -121,7 +121,7 @@ func SpendMultiSig(witnessScript, pubA, sigA, pubB, sigB []byte) [][]byte {
 	// public keys in descending order. So we do a quick comparison in order
 	// ensure the signatures appear on the Script Virtual Machine stack in
 	// the correct order.
-	if bytes.Compare(pubA, pubB) == -1 {
+	if bytes.Compare(pubA, pubB) == 1 {
 		witness[1] = sigB
 		witness[2] = sigA
 	} else {

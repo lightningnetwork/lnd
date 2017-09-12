@@ -428,7 +428,10 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 	// then we may be able to dispatch it immediately.
 	tx, err := b.chainConn.GetRawTransactionVerbose(msg.txid)
 	if err != nil || tx == nil || tx.BlockHash == "" {
-		if err != nil {
+		jsonErr, ok := err.(*btcjson.RPCError)
+		switch {
+		case ok && jsonErr.Code == -5:
+		default:
 			chainntnfs.Log.Warnf("unable to query for txid(%v): %v",
 				msg.txid, err)
 		}

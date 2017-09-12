@@ -26,11 +26,6 @@ type UpdateAddHTLC struct {
 	// with each offered HTLC.
 	ID uint64
 
-	// Expiry is the number of blocks after which this HTLC should expire.
-	// It is the receiver's duty to ensure that the outgoing HTLC has a
-	// sufficient expiry value to allow her to redeem the incoming HTLC.
-	Expiry uint32
-
 	// Amount is the amount of millisatoshis this HTLC is worth.
 	Amount MilliSatoshi
 
@@ -38,6 +33,11 @@ type UpdateAddHTLC struct {
 	// request creates. The pre-image to this HTLC must be revelaed by the
 	// upstream peer in order to fully settle the HTLC.
 	PaymentHash [32]byte
+
+	// Expiry is the number of blocks after which this HTLC should expire.
+	// It is the receiver's duty to ensure that the outgoing HTLC has a
+	// sufficient expiry value to allow her to redeem the incoming HTLC.
+	Expiry uint32
 
 	// OnionBlob is the raw serialized mix header used to route an HTLC in
 	// a privacy-preserving manner. The mix header is defined currently to
@@ -69,9 +69,9 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
 		&c.ChanID,
 		&c.ID,
-		&c.Expiry,
 		&c.Amount,
 		c.PaymentHash[:],
+		&c.Expiry,
 		c.OnionBlob[:],
 	)
 }
@@ -84,9 +84,9 @@ func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
 		c.ChanID,
 		c.ID,
-		c.Expiry,
 		c.Amount,
 		c.PaymentHash[:],
+		c.Expiry,
 		c.OnionBlob[:],
 	)
 }

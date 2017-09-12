@@ -1211,10 +1211,6 @@
         "expiration_height": {
           "type": "integer",
           "format": "int64"
-        },
-        "revocation_delay": {
-          "type": "integer",
-          "format": "int64"
         }
       }
     },

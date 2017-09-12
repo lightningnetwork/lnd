@@ -1097,8 +1097,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		case <-timeoutChan:
 			// We did not see the funding confirmation before
 			// timeout, so we forget the channel.
-			f.failFundingFlow(fmsg.peerAddress.IdentityKey,
-				pendingChanID, []byte(err.Error()))
 			deleteFromDatabase()
 		case <-f.quit:
 			// The fundingManager is shutting down, will resume

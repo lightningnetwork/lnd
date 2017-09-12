@@ -1002,6 +1002,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// payment amount. If no such routes can be found then an error will be
 	// returned.
 	if !ok {
+		// TODO(roasbeef): put cache handling into FindRoutes
 		freshRoutes, err := r.FindRoutes(payment.Target, payment.Amount)
 		if err != nil {
 			return preImage, nil, err

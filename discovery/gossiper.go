@@ -767,9 +767,11 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
-				log.Debug(err)
+				log.Debugf("Router rejected channel edge: %v",
+					err)
 			} else {
-				log.Error(err)
+				log.Errorf("Router rejected channel edge: %v",
+					err)
 			}
 
 			nMsg.err <- err

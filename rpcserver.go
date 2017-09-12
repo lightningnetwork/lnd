@@ -712,13 +712,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	}
 	chanPoint := wire.NewOutPoint(txid, index)
 
-	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v)",
-		chanPoint)
+	rpcsLog.Tracef("[closechannel] request for ChannelPoint(%v), force=%v",
+		chanPoint, force)
 
 	var (
 		updateChan chan *lnrpc.CloseStatusUpdate
 		errChan    chan error
 	)
+
+	// TODO(roasbeef): if force and peer online then don't force?
 
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure

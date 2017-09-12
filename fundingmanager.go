@@ -660,16 +660,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
 	if len(f.activeReservations[peerIDKey]) >= cfg.MaxPendingChannels {
-		errMsg := &lnwire.Error{
-			ChanID: fmsg.msg.PendingChannelID,
-			Data:   lnwire.ErrorData{byte(lnwire.ErrMaxPendingChannels)},
-		}
-		if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg); err != nil {
-			fndgLog.Errorf("unable to send max pending channels "+
-				"message to peer: %v", err)
-			return
-		}
-
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			lnwire.ErrorData{byte(lnwire.ErrMaxPendingChannels)},
+		)
 		return
 	}
 
@@ -682,37 +676,29 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 	if !isSynced {
-		errMsg := &lnwire.Error{
-			ChanID: fmsg.msg.PendingChannelID,
-			Data:   lnwire.ErrorData{byte(lnwire.ErrSynchronizingChain)},
-		}
-		if err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg); err != nil {
-			fndgLog.Errorf("unable to send error message to peer %v", err)
-			return
-		}
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			lnwire.ErrorData{byte(lnwire.ErrSynchronizingChain)},
+		)
 		return
 	}
 
 	// We'll reject any request to create a channel that's above the
 	// current soft-limit for channel size.
 	if msg.FundingAmount > maxFundingAmount {
-		errMsg := &lnwire.Error{
-			ChanID: fmsg.msg.PendingChannelID,
-			Data:   lnwire.ErrorData{byte(lnwire.ErrChanTooLarge)},
-		}
-		err := f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, errMsg)
-		if err != nil {
-			fndgLog.Errorf("unable to send error message to peer %v", err)
-			return
-		}
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			lnwire.ErrorData{byte(lnwire.ErrChanTooLarge)},
+		)
 		return
 	}
 
 	// TODO(roasbeef): validate sanity of all params sent
 
 	// TODO(roasbeef): error if funding flow already ongoing
-	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, pendingId=%x) "+
-		"from peer(%x)", amt, msg.PushAmount, msg.CsvDelay, msg.PendingChannelID,
+	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
+		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
+		msg.CsvDelay, msg.PendingChannelID,
 		fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
 	// Attempt to initialize a reservation within the wallet. If the wallet
@@ -729,8 +715,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash)
 	if err != nil {
-		// TODO(roasbeef): push ErrorGeneric message
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		return
 	}
 
@@ -765,14 +752,6 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	}
 	f.resMtx.Unlock()
 
-	cancelReservation := func() {
-		_, err := f.cancelReservationCtx(fmsg.peerAddress.IdentityKey,
-			msg.PendingChannelID)
-		if err != nil {
-			fndgLog.Errorf("unable to cancel reservation: %v", err)
-		}
-	}
-
 	// Using the RequiredRemoteDelay closure, we'll compute the remote CSV
 	// delay we require given the total amount of funds within the channel.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
@@ -800,7 +779,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	err = reservation.ProcessSingleContribution(remoteContribution)
 	if err != nil {
 		fndgLog.Errorf("unable to add contribution reservation: %v", err)
-		cancelReservation()
+		// TODO(roasbeef): verify only sending sane info over
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		return
 	}
 
@@ -827,7 +808,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, &fundingAccept)
 	if err != nil {
 		fndgLog.Errorf("unable to send funding response to peer: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		return
 	}
 }
@@ -854,16 +836,6 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			peerKey, pendingChanID)
 		return
 	}
-
-	cancelReservation := func() {
-		_, err := f.cancelReservationCtx(peerKey, pendingChanID)
-		if err != nil {
-			fndgLog.Errorf("unable to cancel reservation: %v", err)
-		}
-	}
-
-	// TODO(roasbeeef): perform sanity checks on all the params and
-	// constraints
 
 	fndgLog.Infof("Recv'd fundingResponse for pendingID(%x)", pendingChanID)
 
@@ -898,7 +870,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	if err != nil {
 		fndgLog.Errorf("Unable to process contribution from %v: %v",
 			fmsg.peerAddress.IdentityKey, err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		resCtx.err <- err
 		return
 	}
@@ -914,7 +887,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	commitSig, err := btcec.ParseSignature(sig, btcec.S256())
 	if err != nil {
 		fndgLog.Errorf("Unable to parse signature: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		resCtx.err <- err
 		return
 	}
@@ -948,7 +922,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, fundingCreated)
 	if err != nil {
 		fndgLog.Errorf("Unable to send funding complete message: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			msg.PendingChannelID, []byte(err.Error()))
 		resCtx.err <- err
 		return
 	}
@@ -977,13 +952,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		return
 	}
 
-	cancelReservation := func() {
-		_, err := f.cancelReservationCtx(peerKey, pendingChanID)
-		if err != nil {
-			fndgLog.Errorf("unable to cancel reservation: %v", err)
-		}
-	}
-
 	// The channel initiator has responded with the funding outpoint of the
 	// final funding transaction, as well as a signature for our version of
 	// the commitment transaction. So at this point, we can validate the
@@ -1004,7 +972,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		fndgLog.Errorf("unable to complete single reservation: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err.Error()))
 		return
 	}
 
@@ -1046,7 +1015,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	ourCommitSig, err := btcec.ParseSignature(sig, btcec.S256())
 	if err != nil {
 		fndgLog.Errorf("unable to parse signature: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err.Error()))
 		deleteFromDatabase()
 		return
 	}
@@ -1057,7 +1027,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	}
 	if err := f.cfg.SendToPeer(peerKey, fundingSigned); err != nil {
 		fndgLog.Errorf("unable to send FundingSigned message: %v", err)
-		cancelReservation()
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err.Error()))
 		deleteFromDatabase()
 		return
 	}
@@ -1093,7 +1064,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		case <-timeoutChan:
 			// We did not see the funding confirmation before
 			// timeout, so we forget the channel.
-			cancelReservation()
+			f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+				pendingChanID, []byte(err.Error()))
 			deleteFromDatabase()
 		case <-f.quit:
 			// The fundingManager is shutting down, will resume
@@ -1128,8 +1100,11 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	delete(f.signedReservations, fmsg.msg.ChanID)
 	f.resMtx.Unlock()
 	if !ok {
-		fndgLog.Warnf("Unable to find signed reservation for chan_id=%x",
-			fmsg.msg.ChanID)
+		err := fmt.Sprintf("Unable to find signed reservation for "+
+			"chan_id=%x", fmsg.msg.ChanID)
+		fndgLog.Warnf(err)
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err))
 		return
 	}
 
@@ -1139,6 +1114,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	if err != nil {
 		fndgLog.Warnf("Unable to find reservation (peerID:%v, chanID:%v)",
 			peerKey, pendingChanID)
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err.Error()))
 		return
 	}
 
@@ -1159,11 +1136,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	if err != nil {
 		fndgLog.Errorf("Unable to complete reservation sign complete: %v", err)
 		resCtx.err <- err
-
-		_, err := f.cancelReservationCtx(peerKey, pendingChanID)
-		if err != nil {
-			fndgLog.Errorf("Unable to cancel reservation: %v", err)
-		}
+		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
+			pendingChanID, []byte(err.Error()))
 		return
 	}
 
@@ -1932,7 +1906,7 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	resCtx, err := f.getReservationCtx(peerKey, chanID)
 	if err != nil {
 		fndgLog.Warnf("Received error for non-existent funding "+
-			"flow: %v", protocolErr)
+			"flow: %v", spew.Sdump(protocolErr))
 		return
 	}
 
@@ -1997,7 +1971,7 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 	f.resMtx.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %v)",
+		return nil, errors.Errorf("unknown channel (id: %x)",
 			pendingChanID)
 	}
 

@@ -539,6 +539,33 @@ func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	return <-respChan, <-errChan
 }
 
+// failFundingFlow will fail the active funding flow with the target peer,
+// identified by it's unique temporary channel ID. This method is send an error
+// to the remote peer, and also remove the reservation from our set of pending
+// reservations.
+//
+// TODO(roasbeef): if peer disconnects, and haven't yet broadcast funding
+// transaction, then all reservations should be cleared.
+func (f *fundingManager) failFundingFlow(peer *btcec.PublicKey,
+	tempChanID [32]byte, msg []byte) {
+
+	errMsg := &lnwire.Error{
+		ChanID: tempChanID,
+		Data:   lnwire.ErrorData{byte(lnwire.ErrChanTooLarge)},
+	}
+
+	fndgLog.Errorf("Failing funding flow: %v", spew.Sdump(errMsg))
+
+	err := f.cfg.SendToPeer(peer, errMsg)
+	if err != nil {
+		fndgLog.Errorf("unable to send error message to peer %v", err)
+		return
+	}
+
+	f.cancelReservationCtx(peer, tempChanID)
+	return
+}
+
 // reservationCoordinator is the primary goroutine tasked with progressing the
 // funding workflow between the wallet, and any outside peers or local callers.
 //

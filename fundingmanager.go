@@ -693,8 +693,6 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
-	// TODO(roasbeef): validate sanity of all params sent
-
 	// TODO(roasbeef): error if funding flow already ongoing
 	fndgLog.Infof("Recv'd fundingRequest(amt=%v, push=%v, delay=%v, "+
 		"pendingId=%x) from peer(%x)", amt, msg.PushAmount,
@@ -731,7 +729,18 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
-	reservation.RequireLocalDelay(msg.CsvDelay)
+	err = reservation.CommitConstraints(
+		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
+		msg.MaxValueInFlight, msg.ChannelReserve,
+	)
+	if err != nil {
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			[]byte(fmt.Sprintf("Unacceptable channel "+
+				"constraints: %v", err)),
+		)
+		return
+	}
 
 	fndgLog.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
@@ -756,6 +765,9 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// delay we require given the total amount of funds within the channel.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 
+	// We'll also generate our required constraints for the remote party,
+	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
+
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
 	remoteContribution := &lnwallet.ChannelContribution{
@@ -764,10 +776,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		ChannelConfig: &channeldb.ChannelConfig{
 			ChannelConstraints: channeldb.ChannelConstraints{
 				DustLimit:        msg.DustLimit,
-				MaxPendingAmount: msg.MaxValueInFlight,
-				ChanReserve:      msg.ChannelReserve,
+				MaxPendingAmount: maxValue,
+				ChanReserve:      chanReserve,
 				MinHTLC:          msg.HtlcMinimum,
-				MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+				MaxAcceptedHtlcs: maxHtlcs,
 			},
 			CsvDelay:            remoteCsvDelay,
 			MultiSigKey:         copyPubKey(msg.FundingKey),
@@ -787,6 +799,8 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	fndgLog.Infof("Sending fundingResp for pendingID(%x)",
 		msg.PendingChannelID)
+	fndgLog.Debugf("Remote party accepted commitment constraints: %v",
+		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
 
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
@@ -794,11 +808,12 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	fundingAccept := lnwire.AcceptChannel{
 		PendingChannelID:     msg.PendingChannelID,
 		DustLimit:            ourContribution.DustLimit,
-		MaxValueInFlight:     ourContribution.MaxPendingAmount,
-		ChannelReserve:       ourContribution.ChanReserve,
+		MaxValueInFlight:     maxValue,
+		ChannelReserve:       chanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
 		HtlcMinimum:          ourContribution.MinHTLC,
 		CsvDelay:             uint16(remoteCsvDelay),
+		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint,
 		PaymentPoint:         ourContribution.PaymentBasePoint,
@@ -840,10 +855,26 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	fndgLog.Infof("Recv'd fundingResponse for pendingID(%x)", pendingChanID)
 
 	// We'll also specify the responder's preference for the number of
-	// required confirmations, and also the CSV delay that they specify for
-	// us within the reservation itself.
+	// required confirmations, and also the set of channel constraints
+	// they've specified for commitment states we can create.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
-	resCtx.reservation.RequireLocalDelay(uint16(msg.CsvDelay))
+	err = resCtx.reservation.CommitConstraints(
+		uint16(msg.CsvDelay), msg.MaxAcceptedHTLCs,
+		msg.MaxValueInFlight, msg.ChannelReserve,
+	)
+	if err != nil {
+		f.failFundingFlow(
+			fmsg.peerAddress.IdentityKey, fmsg.msg.PendingChannelID,
+			[]byte(fmt.Sprintf("Unacceptable channel "+
+				"constraints: %v", err)),
+		)
+		return
+	}
+
+	// As they've accepted our channel constraints, we'll regenerate them
+	// here so we can properly commit their accepted constraints to the
+	// reservation.
+	chanReserve, maxValue, maxHtlcs := resCtx.reservation.RemoteChanConstraints()
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -854,10 +885,10 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		ChannelConfig: &channeldb.ChannelConfig{
 			ChannelConstraints: channeldb.ChannelConstraints{
 				DustLimit:        msg.DustLimit,
-				MaxPendingAmount: msg.MaxValueInFlight,
-				ChanReserve:      msg.ChannelReserve,
+				MaxPendingAmount: maxValue,
+				ChanReserve:      chanReserve,
 				MinHTLC:          msg.HtlcMinimum,
-				MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+				MaxAcceptedHtlcs: maxHtlcs,
 			},
 			MultiSigKey:         copyPubKey(msg.FundingKey),
 			RevocationBasePoint: copyPubKey(msg.RevocationPoint),
@@ -878,6 +909,8 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 
 	fndgLog.Infof("pendingChan(%x): remote party proposes num_confs=%v, "+
 		"csv_delay=%v", pendingChanID, msg.MinAcceptDepth, msg.CsvDelay)
+	fndgLog.Debugf("Remote party accepted commitment constraints: %v",
+		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
 
 	// Now that we have their contribution, we can extract, then send over
 	// both the funding out point and our signature for their version of
@@ -1828,11 +1861,14 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// delay we require given the total amount of funds within the channel.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(capacity)
 
-	// TODO(roasbeef): require remote delay?
-
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
 	ourContribution := reservation.OurContribution()
+
+	// Finally, we'll use the current value of the channels and our default
+	// policy to determine of required commitment constraints for the
+	// remote party.
+	chanReserve, maxValue, maxHtlcs := reservation.RemoteChanConstraints()
 
 	fndgLog.Infof("Starting funding workflow with %v for pendingID(%x)",
 		msg.peerAddress.Address, chanID)
@@ -1843,12 +1879,12 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FundingAmount:        capacity,
 		PushAmount:           msg.pushAmt,
 		DustLimit:            ourContribution.DustLimit,
-		MaxValueInFlight:     ourContribution.MaxPendingAmount,
-		ChannelReserve:       ourContribution.ChanReserve,
+		MaxValueInFlight:     maxValue,
+		ChannelReserve:       chanReserve,
 		HtlcMinimum:          ourContribution.MinHTLC,
 		FeePerKiloWeight:     uint32(feePerKw),
 		CsvDelay:             uint16(remoteCsvDelay),
-		MaxAcceptedHTLCs:     ourContribution.MaxAcceptedHtlcs,
+		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint,
 		PaymentPoint:         ourContribution.PaymentBasePoint,

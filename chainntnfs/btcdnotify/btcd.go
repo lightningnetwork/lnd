@@ -506,6 +506,8 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 		go func(ntfnChan chan *chainntnfs.BlockEpoch, cancelChan chan struct{},
 			clientWg *sync.WaitGroup) {
 
+			// TODO(roasbeef): move to goroutine per client, use sync queue
+
 			defer clientWg.Done()
 			defer b.wg.Done()
 
@@ -664,18 +666,26 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	if txout == nil {
 		transaction, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
 		if err != nil {
-			return nil, err
+			jsonErr, ok := err.(*btcjson.RPCError)
+			switch {
+			case ok && jsonErr.Code == -5:
+			default:
+				return nil, err
+			}
 		}
 
-		blockhash, err := chainhash.NewHashFromStr(transaction.BlockHash)
-		if err != nil {
-			return nil, err
-		}
+		if transaction != nil {
+			blockhash, err := chainhash.NewHashFromStr(transaction.BlockHash)
+			if err != nil {
+				return nil, err
+			}
 
-		ops := []*wire.OutPoint{outpoint}
-		if err := b.chainConn.Rescan(blockhash, nil, ops); err != nil {
-			chainntnfs.Log.Errorf("Rescan for spend notification txout failed: %v", err)
-			return nil, err
+			ops := []*wire.OutPoint{outpoint}
+			if err := b.chainConn.Rescan(blockhash, nil, ops); err != nil {
+				chainntnfs.Log.Errorf("Rescan for spend "+
+					"notification txout failed: %v", err)
+				return nil, err
+			}
 		}
 	}
 

@@ -2709,7 +2709,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 			"sent")
 	}
 
-	// For the final portion of the test, we'll ensure that once a new node
+	// For the next portion of the test, we'll ensure that once a new node
 	// appears in the network, the proper notification is dispatched. Note
 	// that a node that does not have any channels open is ignored, so first
 	// we disconnect Alice and Bob, open a channel between Bob and Carol,
@@ -2744,7 +2744,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case graphUpdate := <-graphUpdates:
 
@@ -2789,6 +2789,58 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	// Close the channel between Bob and Carol.
 	ctxt, _ = context.WithTimeout(context.Background(), timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
+
+	// Finally, we will test that when a node starts up, a new node announcement
+	// is only propagated through the network when configuration options have
+	// changed the node announcement since the last instance of the node.
+
+	// First restart Bob with no new config changes
+	if err := net.RestartNode(net.Bob, nil); err != nil {
+		t.Fatalf("unable to restart Bob's node: %v", err)
+	}
+
+	if err := net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Now restart Bob and add a new IP address to its config options
+	if err := net.RestartNode(net.Bob, func() error {
+		net.Bob.cfg.ExternalIPs = []string{"127.0.0.1"}
+		return nil
+	}); err != nil {
+		t.Fatalf("unable to restart Bob's node: %v", err)
+	}
+
+	if err := net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Even though we restarted Bob twice, we only expect one node announcement
+	// from when Bob was restarted with config changes.
+	numBobAnnRecv := 0
+	for i := 0; i < 2; i++ {
+		select {
+		case graphUpdate := <-graphUpdates:
+
+			if len(graphUpdate.NodeUpdates) > 0 {
+				nodeUpdate := graphUpdate.NodeUpdates[0]
+				switch nodeUpdate.IdentityKey {
+				case net.Bob.PubKeyStr:
+					numBobAnnRecv++
+					if numBobAnnRecv > 1 {
+						t.Fatalf("unexpected amount of node updates received from Bob")
+					}
+				default:
+					t.Fatalf("unknown node update pubey: %v",
+						nodeUpdate.IdentityKey)
+				}
+			}
+		case <-time.After(time.Second * 10):
+			if numBobAnnRecv == 0 {
+				t.Fatalf("timeout waiting for graph notification %v", i)
+			}
+		}
+	}
 
 	close(quit)
 

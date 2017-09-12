@@ -160,9 +160,17 @@ func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
 // MACs during the decoding process.
 func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterator,
 	lnwire.FailCode) {
+
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
-		return nil, lnwire.CodeTemporaryChannelFailure
+		switch err {
+		case sphinx.ErrInvalidOnionVersion:
+			return nil, lnwire.CodeInvalidOnionVersion
+		case sphinx.ErrInvalidOnionKey:
+			return nil, lnwire.CodeInvalidOnionKey
+		default:
+			return nil, lnwire.CodeTemporaryChannelFailure
+		}
 	}
 
 	// Attempt to process the Sphinx packet. We include the payment hash of
@@ -197,7 +205,14 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterat
 func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.FailCode) {
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
-		return nil, lnwire.CodeTemporaryChannelFailure
+		switch err {
+		case sphinx.ErrInvalidOnionVersion:
+			return nil, lnwire.CodeInvalidOnionVersion
+		case sphinx.ErrInvalidOnionKey:
+			return nil, lnwire.CodeInvalidOnionKey
+		default:
+			return nil, lnwire.CodeTemporaryChannelFailure
+		}
 	}
 
 	onionObfuscator, err := sphinx.NewOnionObfuscator(p.router,

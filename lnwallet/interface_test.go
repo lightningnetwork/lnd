@@ -261,7 +261,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	aliceChanReservation.RequireLocalDelay(csvDelay)
+	aliceChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmount), 10)
 
 	// The channel reservation should now be populated with a multi-sig key
 	// from our HD chain, a change output with 3 BTC, and 2 outputs
@@ -283,7 +284,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
 	}
-	bobChanReservation.RequireLocalDelay(csvDelay)
+	bobChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmount), 10)
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	assertContributionInitPopulated(t, bobChanReservation.OurContribution())
@@ -551,7 +553,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to init channel reservation: %v", err)
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	aliceChanReservation.RequireLocalDelay(csvDelay)
+	aliceChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmt), 10)
 
 	// Verify all contribution fields have been set properly.
 	aliceContribution := aliceChanReservation.OurContribution()
@@ -573,7 +576,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create bob reservation: %v", err)
 	}
-	bobChanReservation.RequireLocalDelay(csvDelay)
+	bobChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
+		lnwire.NewMSatFromSatoshis(fundingAmt), 10)
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	// We'll ensure that Bob's contribution also gets generated properly.

@@ -29,17 +29,17 @@ func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) (*macaroon.Macaroo
 // to the macaroon and adds another restriction to it. For each *Constraint,
 // the corresponding *Checker is provided.
 
-// PermissionsConstraint restricts allowed operations set to the ones
+// AllowConstraint restricts allowed operations set to the ones
 // passed to it.
-func PermissionsConstraint(ops ...string) func(*macaroon.Macaroon) error {
+func AllowConstraint(ops ...string) func(*macaroon.Macaroon) error {
 	return func(mac *macaroon.Macaroon) error {
 		caveat := checkers.AllowCaveat(ops...)
 		return mac.AddFirstPartyCaveat(caveat.Condition)
 	}
 }
 
-// PermissionsChecker wraps default checkers.OperationChecker.
-func PermissionsChecker(method string) checkers.Checker {
+// AllowChecker wraps default checkers.OperationChecker.
+func AllowChecker(method string) checkers.Checker {
 	return checkers.OperationChecker(method)
 }
 

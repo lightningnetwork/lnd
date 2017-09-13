@@ -34,7 +34,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: e4e29cf417847d7a9196d021bb333192f6dad339
+  version: 211e002c9e424984c24e7524ae9bee01f6ef9b5c
   subpackages:
   - chain
   - waddrmgr
@@ -56,7 +56,7 @@ import:
 - package: google.golang.org/grpc
   version: b3ddf786825de56a4178401b7e174ee332173b66
 - package: github.com/lightningnetwork/lightning-onion
-  version: a164ed004296342ba8412c03ed9875699b6c594b
+  version: 7625644d9f0584d63d4da902e51b1d7d921022bf
 - package: github.com/grpc-ecosystem/grpc-gateway
   version: f2862b476edcef83412c7af8687c9cd8e4097c0f
 - package: github.com/go-errors/errors
@@ -71,7 +71,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 69a3bce5c69831aa7338d51fadec1f5c3946716c
+  version: ba41cbfea86af6a02b44abe27eb4a072b462b0f1
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo

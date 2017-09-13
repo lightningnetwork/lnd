@@ -266,7 +266,9 @@ func TestOnionFailureSpecVector(t *testing.T) {
 		}
 
 		if !bytes.Equal(expectedSharedSecret, obfuscator.sharedSecret[:]) {
-			t.Fatalf("shared secret not match with spec")
+			t.Fatalf("shared secret not match with spec: expected "+
+				"%x, got %x", expectedSharedSecret,
+				obfuscator.sharedSecret[:])
 		}
 
 		if i == 0 {
@@ -287,7 +289,9 @@ func TestOnionFailureSpecVector(t *testing.T) {
 				"data: %v", err)
 		}
 		if !bytes.Equal(expectedObfuscatedData, obfuscatedData) {
-			t.Fatalf("obfuscated data not match with spec")
+			t.Fatalf("obfuscated data not match spec: expected %x, "+
+				"got %x", expectedObfuscatedData[:],
+				obfuscatedData[:])
 		}
 	}
 

@@ -865,6 +865,7 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 // NOTE: Should be used inside main goroutine only, otherwise the result might
 // not be accurate.
 func (l *channelLink) getBandwidth() lnwire.MilliSatoshi {
+	// TODO(roasbeef): factor in reserve, just grab mutex
 	return l.channel.LocalAvailableBalance() - l.overflowQueue.pendingAmount()
 }
 
@@ -1026,15 +1027,19 @@ func (l *channelLink) processLockedInHtlcs(
 			// to produce initial obfuscation of the onion
 			// failureCode.
 			onionReader := bytes.NewReader(onionBlob[:])
-			obfuscator, failureCode := l.cfg.DecodeOnionObfuscator(onionReader)
+			obfuscator, failureCode := l.cfg.DecodeOnionObfuscator(
+				onionReader,
+			)
 			if failureCode != lnwire.CodeNone {
-				// If we unable to process the onion blob than
-				// we should send the malformed htlc error to
-				// payment sender.
-				l.sendMalformedHTLCError(pd.RHash, failureCode, onionBlob[:])
+				// If we're unable to process the onion blob
+				// than we should send the malformed htlc error
+				// to payment sender.
+				l.sendMalformedHTLCError(pd.RHash, failureCode,
+					onionBlob[:])
 				needUpdate = true
 
-				log.Error("unable to decode onion obfuscator")
+				log.Errorf("unable to decode onion "+
+					"obfuscator: %v", failureCode)
 				continue
 			}
 
@@ -1054,13 +1059,15 @@ func (l *channelLink) processLockedInHtlcs(
 				onionReader, pd.RHash[:],
 			)
 			if failureCode != lnwire.CodeNone {
-				// If we unable to process the onion blob than
-				// we should send the malformed htlc error to
-				// payment sender.
-				l.sendMalformedHTLCError(pd.RHash, failureCode, onionBlob[:])
+				// If we're unable to process the onion blob
+				// than we should send the malformed htlc error
+				// to payment sender.
+				l.sendMalformedHTLCError(pd.RHash, failureCode,
+					onionBlob[:])
 				needUpdate = true
 
-				log.Error("unable to decode onion hop iterator")
+				log.Errorf("unable to decode onion hop "+
+					"iterator: %v", failureCode)
 				continue
 			}
 
@@ -1122,19 +1129,35 @@ func (l *channelLink) processLockedInHtlcs(
 
 				// We'll also ensure that our time-lock value
 				// has been computed correctly.
-				if !l.cfg.DebugHTLC &&
-					fwdInfo.OutgoingCTLV != l.cfg.FwrdingPolicy.TimeLockDelta {
+				expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
+				if !l.cfg.DebugHTLC {
+					switch {
+					case fwdInfo.OutgoingCTLV < expectedHeight:
+						log.Errorf("Onion payload of incoming "+
+							"htlc(%x) has incorrect time-lock: "+
+							"expected %v, got %v",
+							pd.RHash[:], expectedHeight,
+							fwdInfo.OutgoingCTLV)
 
-					log.Errorf("Onion payload of incoming "+
-						"htlc(%x) has incorrect time-lock: "+
-						"expected %v, got %v",
-						pd.RHash[:], l.cfg.FwrdingPolicy.TimeLockDelta,
-						fwdInfo.OutgoingCTLV)
+						failure := lnwire.NewFinalIncorrectCltvExpiry(
+							fwdInfo.OutgoingCTLV,
+						)
+						l.sendHTLCError(pd.RHash, failure, obfuscator)
+						needUpdate = true
+						continue
+					case pd.Timeout != fwdInfo.OutgoingCTLV:
+						log.Errorf("HTLC(%x) has incorrect "+
+							"time-lock: expected %v, got %v",
+							pd.RHash[:], pd.Timeout,
+							fwdInfo.OutgoingCTLV)
 
-					failure := lnwire.NewFinalIncorrectCltvExpiry(fwdInfo.OutgoingCTLV)
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
-					needUpdate = true
-					continue
+						failure := lnwire.NewFinalIncorrectCltvExpiry(
+							fwdInfo.OutgoingCTLV,
+						)
+						l.sendHTLCError(pd.RHash, failure, obfuscator)
+						needUpdate = true
+						continue
+					}
 				}
 
 				// If we're not currently in debug mode, and
@@ -1306,6 +1329,8 @@ func (l *channelLink) processLockedInHtlcs(
 					needUpdate = true
 					continue
 				}
+
+				// TODO(roasbeef): also add max timeout value
 
 				// With all our forwarding constraints met,
 				// we'll create the outgoing HTLC using the

@@ -1,5 +1,5 @@
-hash: d6377eb4c18f7526fe02a22f9f32d916bb90330949c5494b8bf5f3cec13a2e36
-updated: 2017-09-01T01:59:59.013081201-07:00
+hash: afac2728717646f3fc18872ae8c9fe25de2243dcdc30fa68a4d6cb4fcd5d344b
+updated: 2017-09-13T16:30:18.379043695+02:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -40,13 +40,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  version: a476722483882dd40b8111f0eb64e1d7f43f56e4
   subpackages:
   - spew
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: 5afd06f9d81a86d6e3bb7dc702d6bd148ea3ff23
+  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
   subpackages:
   - jsonpb
   - proto
@@ -70,12 +70,12 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 69a3bce5c69831aa7338d51fadec1f5c3946716c
+  version: ba41cbfea86af6a02b44abe27eb4a072b462b0f1
   subpackages:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: a164ed004296342ba8412c03ed9875699b6c594b
+  version: 7625644d9f0584d63d4da902e51b1d7d921022bf
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
@@ -112,7 +112,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: e4e29cf417847d7a9196d021bb333192f6dad339
+  version: 211e002c9e424984c24e7524ae9bee01f6ef9b5c
   subpackages:
   - chain
   - internal/helpers
@@ -161,7 +161,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: a07a691ac871746ae690ccf3ab217363b2144531
+  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
   subpackages:
   - unix
 - name: golang.org/x/text

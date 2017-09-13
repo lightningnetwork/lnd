@@ -361,9 +361,9 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 		}
 
 		// If this is the last, hop, then the time lock will be their
-		// specified delta policy.
-		timeLock := lastHop.cfg.FwrdingPolicy.TimeLockDelta
-		totalTimelock += timeLock
+		// specified delta policy plus our starting height.
+		totalTimelock += lastHop.cfg.FwrdingPolicy.TimeLockDelta
+		timeLock := totalTimelock
 
 		// Otherwise, the outgoing time lock should be the incoming
 		// timelock minus their specified delta.

@@ -937,7 +937,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// is a 2 byte length followed by the payload itself.
 	var failureLength uint16
 	if err := readElement(r, &failureLength); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read error len: %v", err)
 	}
 	if failureLength > failureMessageLength {
 		return nil, fmt.Errorf("failure message is too "+
@@ -945,7 +945,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	}
 	failureData := make([]byte, failureLength)
 	if _, err := io.ReadFull(r, failureData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to full read payload of "+
+			"%v: %v", failureLength, err)
 	}
 
 	dataReader := bytes.NewReader(failureData)
@@ -954,7 +955,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// the first two bytes of the buffer.
 	var codeBytes [2]byte
 	if _, err := io.ReadFull(dataReader, codeBytes[:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read failure code: %v", err)
 	}
 	failCode := FailCode(binary.BigEndian.Uint16(codeBytes[:]))
 
@@ -962,7 +963,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// additional data if needed.
 	failure, err := makeEmptyOnionError(failCode)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to make empty error: %v", err)
 	}
 
 	// Finally, if this failure has a payload, then we'll read that now as
@@ -970,7 +971,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	switch f := failure.(type) {
 	case Serializable:
 		if err := f.Decode(dataReader, pver); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to decode error "+
+				"update: %v", err)
 		}
 	}
 

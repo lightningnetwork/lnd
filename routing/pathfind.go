@@ -274,10 +274,10 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 		route.TotalTimeLock += uint32(edge.TimeLockDelta)
 
 		// If this is the last hop, then for verification purposes, the
-		// value of the outgoing time-lock should be _exactly_ the time
-		// lock delta specified within the routing information.
+		// value of the outgoing time-lock should be _exactly_ the
+		// absolute time out they'd expect in the HTLC.
 		if i == len(pathEdges)-1 {
-			nextHop.OutgoingTimeLock = uint32(edge.TimeLockDelta)
+			nextHop.OutgoingTimeLock = currentHeight + uint32(edge.TimeLockDelta)
 		} else {
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_

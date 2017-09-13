@@ -11,16 +11,18 @@ import (
 
 // Constraint type adds a layer of indirection over macaroon caveats and
 // checkers.
-type Constraint func(*macaroon.Macaroon)
+type Constraint func(*macaroon.Macaroon) error
 
 // AddConstraints returns new derived macaroon by applying every passed
 // constraint and tightening its restrictions.
-func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) *macaroon.Macaroon {
+func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) (*macaroon.Macaroon, error) {
 	newMac := mac.Clone()
 	for _, constraint := range cs {
-		constraint(newMac)
+		if err := constraint(newMac); err != nil {
+			return nil, err
+		}
 	}
-	return newMac
+	return newMac, nil
 }
 
 // Each *Constraint function is a functional option, which takes a pointer
@@ -29,10 +31,10 @@ func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) *macaroon.Macaroon
 
 // PermissionsConstraint restricts allowed operations set to the ones
 // passed to it.
-func PermissionsConstraint(ops ...string) func(*macaroon.Macaroon) {
-	return func(mac *macaroon.Macaroon) {
+func PermissionsConstraint(ops ...string) func(*macaroon.Macaroon) error {
+	return func(mac *macaroon.Macaroon) error {
 		caveat := checkers.AllowCaveat(ops...)
-		mac.AddFirstPartyCaveat(caveat.Condition)
+		return mac.AddFirstPartyCaveat(caveat.Condition)
 	}
 }
 
@@ -43,12 +45,12 @@ func PermissionsChecker(method string) checkers.Checker {
 
 // TimeoutConstraint restricts the lifetime of the macaroon
 // to the amount of seconds given.
-func TimeoutConstraint(seconds int64) func(*macaroon.Macaroon) {
-	return func(mac *macaroon.Macaroon) {
+func TimeoutConstraint(seconds int64) func(*macaroon.Macaroon) error {
+	return func(mac *macaroon.Macaroon) error {
 		macaroonTimeout := time.Duration(seconds)
 		requestTimeout := time.Now().Add(time.Second * macaroonTimeout)
 		caveat := checkers.TimeBeforeCaveat(requestTimeout)
-		mac.AddFirstPartyCaveat(caveat.Condition)
+		return mac.AddFirstPartyCaveat(caveat.Condition)
 	}
 }
 
@@ -60,13 +62,17 @@ func TimeoutChecker() checkers.Checker {
 // IPLockConstraint locks macaroon to a specific IP address.
 // If address is an empty string, this constraint does nothing to
 // accommodate default value's desired behavior.
-func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) {
-	return func(mac *macaroon.Macaroon) {
+func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
+	return func(mac *macaroon.Macaroon) error {
 		if ipAddr != "" {
 			macaroonIPAddr := net.ParseIP(ipAddr)
+			if macaroonIPAddr == nil {
+				return fmt.Errorf("incorrect macaroon IP-lock address")
+			}
 			caveat := checkers.ClientIPAddrCaveat(macaroonIPAddr)
-			mac.AddFirstPartyCaveat(caveat.Condition)
+			return mac.AddFirstPartyCaveat(caveat.Condition)
 		}
+		return nil
 	}
 }
 

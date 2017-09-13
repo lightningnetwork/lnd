@@ -568,8 +568,11 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roMacaroon := macaroons.AddConstraints(admMacaroon,
+	roMacaroon, err := macaroons.AddConstraints(admMacaroon,
 		macaroons.PermissionsConstraint(roPermissions...))
+	if err != nil {
+		return err
+	}
 	roBytes, err := roMacaroon.MarshalBinary()
 	if err != nil {
 		return err

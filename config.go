@@ -36,6 +36,7 @@ const (
 	defaultMaxPendingChannels = 1
 	defaultNumChanConfs       = 1
 	defaultNoEncryptWallet    = false
+	defaultTrickleDelay       = 30 * 1000
 )
 
 var (
@@ -130,7 +131,10 @@ type config struct {
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
+
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
+
+	TrickleDelay int `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -169,6 +173,7 @@ func loadConfig() (*config, error) {
 			MaxChannels: 5,
 			Allocation:  0.6,
 		},
+		TrickleDelay: defaultTrickleDelay,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

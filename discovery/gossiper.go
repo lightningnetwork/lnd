@@ -81,7 +81,7 @@ type Config struct {
 	// exchange the channel announcement proofs.
 	ProofMatureDelta uint32
 
-	// TrickleDelay the period of trickle timer which flushing to the
+	// TrickleDelay the period of trickle timer which flushes to the
 	// network the pending batch of new announcements we've received since
 	// the last trickle tick.
 	TrickleDelay time.Duration
@@ -383,10 +383,10 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	return nMsg.err
 }
 
-// ChannelUpdateID is a unique identifier for ChannelUpdate messages, as
+// channelUpdateID is a unique identifier for ChannelUpdate messages, as
 // channel updates can be identified by the (ShortChannelID, Flags)
 // tuple.
-type ChannelUpdateID struct {
+type channelUpdateID struct {
 	// channelID represents the set of data which is needed to
 	// retrieve all necessary data to validate the channel existence.
 	channelID lnwire.ShortChannelID
@@ -394,7 +394,7 @@ type ChannelUpdateID struct {
 	// Flags least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise.
-	Flags uint16
+	flags uint16
 }
 
 // deDupedAnnouncements de-duplicates announcements that have been
@@ -407,10 +407,10 @@ type deDupedAnnouncements struct {
 	channelAnnouncements map[lnwire.ShortChannelID]lnwire.Message
 
 	// channelUpdates are identified by the channel update id field.
-	channelUpdates map[ChannelUpdateID]lnwire.Message
+	channelUpdates map[channelUpdateID]lnwire.Message
 
-	// nodeAnnouncements are identified by node id field.
-	nodeAnnouncements map[*btcec.PublicKey]lnwire.Message
+	// nodeAnnouncements are identified by the Vertex field.
+	nodeAnnouncements map[routing.Vertex]lnwire.Message
 }
 
 // Reset operates on deDupedAnnouncements to reset storage of announcements
@@ -419,8 +419,8 @@ func (d *deDupedAnnouncements) Reset() {
 	// updates, node announcements) is set to an empty map where the
 	// approprate key points to the corresponding lnwire.Message.
 	d.channelAnnouncements = make(map[lnwire.ShortChannelID]lnwire.Message)
-	d.channelUpdates = make(map[ChannelUpdateID]lnwire.Message)
-	d.nodeAnnouncements = make(map[*btcec.PublicKey]lnwire.Message)
+	d.channelUpdates = make(map[channelUpdateID]lnwire.Message)
+	d.nodeAnnouncements = make(map[routing.Vertex]lnwire.Message)
 }
 
 // AddMsg adds a new message to the current batch.
@@ -438,15 +438,17 @@ func (d *deDupedAnnouncements) AddMsg(message lnwire.Message) {
 	case *lnwire.ChannelUpdate:
 		// Channel updates are identified by the (short channel id,
 		// flags) tuple.
-		channelUpdateID := ChannelUpdateID{
+		channelUpdateID := channelUpdateID{
 			msg.ShortChannelID,
 			msg.Flags,
 		}
 
 		d.channelUpdates[channelUpdateID] = msg
 	case *lnwire.NodeAnnouncement:
-		// Node announcements are identified by the node id field.
-		d.nodeAnnouncements[msg.NodeID] = msg
+		// Node announcements are identified by the Vertex field.
+		// Use the NodeID to create the corresponding Vertex.
+		vertex := routing.NewVertex(msg.NodeID)
+		d.nodeAnnouncements[vertex] = msg
 	}
 }
 

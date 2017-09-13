@@ -61,6 +61,10 @@ var (
 	// seed nodes to log files.
 	logOutput = flag.Bool("logoutput", false,
 		"log output from node n to file outputn.log")
+
+	// trickleDelay is the amount of time in milliseconds between each
+	// release of announcements by AuthenticatedGossiper to the network.
+	trickleDelay = 300
 )
 
 // generateListeningPorts returns two strings representing ports to listen on
@@ -187,6 +191,7 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--configfile=%v", l.cfg.DataDir))
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", l.cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", l.cfg.ReadMacPath))
+	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)

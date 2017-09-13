@@ -97,7 +97,7 @@ func ValidateMacaroon(ctx context.Context, method string,
 	//
 	// TODO(aakselrod): Add more checks as required.
 	return svc.Check(macaroon.Slice{mac}, checkers.New(
-		PermissionsChecker(method),
+		AllowChecker(method),
 		TimeoutChecker(),
 		IPLockChecker(peerAddr),
 	))

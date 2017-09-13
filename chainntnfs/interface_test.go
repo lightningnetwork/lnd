@@ -992,7 +992,7 @@ func TestInterfaces(t *testing.T) {
 				ChainParams:  *netParams,
 				ConnectPeers: []string{p2pAddr},
 			}
-			neutrino.WaitForMoreCFHeaders = time.Second * 1
+			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				t.Fatalf("unable to create neutrino: %v", err)

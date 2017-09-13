@@ -497,7 +497,7 @@ var interfaceImpls = []struct {
 				ConnectPeers: []string{p2pAddr},
 			}
 
-			neutrino.WaitForMoreCFHeaders = time.Second * 1
+			neutrino.WaitForMoreCFHeaders = 250 * time.Millisecond
 			spvNode, err := neutrino.NewChainService(spvConfig)
 			if err != nil {
 				return nil, nil, err

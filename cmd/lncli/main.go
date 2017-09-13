@@ -92,7 +92,10 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 		}
 
 		// Apply constraints to the macaroon.
-		constrainedMac := macaroons.AddConstraints(mac, macConstraints...)
+		constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)
+		if err != nil {
+			fatal(err)
+		}
 
 		// Now we append the macaroon credentials to the dial options.
 		cred := macaroons.NewMacaroonCredential(constrainedMac)

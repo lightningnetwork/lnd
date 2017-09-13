@@ -16,6 +16,7 @@ import (
 func onionObfuscation(sharedSecret [sha256.Size]byte,
 	data []byte) []byte {
 	obfuscatedData := make([]byte, len(data))
+
 	ammagKey := generateKey("ammag", sharedSecret)
 	streamBytes := generateCipherStream(ammagKey, uint(len(data)))
 	xor(obfuscatedData, data, streamBytes)
@@ -172,8 +173,8 @@ func NewOnionDeobfuscator(circuit *Circuit) *OnionDeobfuscator {
 // backward manner, starting from the node where error have occurred, so in
 // order to deobfuscate the error we need get all shared secret and apply
 // obfuscation in reverse order.
-func (o *OnionDeobfuscator) Deobfuscate(obfuscatedData []byte) (*btcec.PublicKey,
-	[]byte, error) {
+func (o *OnionDeobfuscator) Deobfuscate(obfuscatedData []byte) (*btcec.PublicKey, []byte, error) {
+
 	for i, sharedSecret := range generateSharedSecrets(o.circuit.PaymentPath,
 		o.circuit.SessionKey) {
 		obfuscatedData = onionObfuscation(sharedSecret, obfuscatedData)

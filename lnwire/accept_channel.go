@@ -33,13 +33,13 @@ type AcceptChannel struct {
 	// channel's lifetime.
 	ChannelReserve btcutil.Amount
 
-	// MinAcceptDepth is the minimum depth that the initiator of the
-	// channel should wait before considering the channel open.
-	MinAcceptDepth uint32
-
 	// HtlcMinimum is the smallest HTLC that the sender of this message
 	// will accept.
 	HtlcMinimum MilliSatoshi
+
+	// MinAcceptDepth is the minimum depth that the initiator of the
+	// channel should wait before considering the channel open.
+	MinAcceptDepth uint32
 
 	// CsvDelay is the number of blocks to use for the relative time lock
 	// in the pay-to-self output of both commitment transactions.
@@ -97,8 +97,8 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.DustLimit,
 		a.MaxValueInFlight,
 		a.ChannelReserve,
-		a.MinAcceptDepth,
 		a.HtlcMinimum,
+		a.MinAcceptDepth,
 		a.CsvDelay,
 		a.MaxAcceptedHTLCs,
 		a.FundingKey,
@@ -120,8 +120,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		&a.DustLimit,
 		&a.MaxValueInFlight,
 		&a.ChannelReserve,
-		&a.MinAcceptDepth,
 		&a.HtlcMinimum,
+		&a.MinAcceptDepth,
 		&a.CsvDelay,
 		&a.MaxAcceptedHTLCs,
 		&a.FundingKey,

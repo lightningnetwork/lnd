@@ -30,6 +30,7 @@ var onionFailures = []FailureMessage{
 	&FailUnknownPaymentHash{},
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
+	&FailFinalExpiryTooLate{},
 
 	NewInvalidOnionVersion(testOnionHash),
 	NewInvalidOnionHmac(testOnionHash),
@@ -40,6 +41,7 @@ var onionFailures = []FailureMessage{
 	NewFeeInsufficient(testAmount, testChannelUpdate),
 	NewIncorrectCltvExpiry(testCtlvExpiry, testChannelUpdate),
 	NewExpiryTooSoon(testChannelUpdate),
+	NewExpiryTooLate(testChannelUpdate),
 	NewChannelDisabled(testFlags, testChannelUpdate),
 	NewFinalIncorrectCltvExpiry(testCtlvExpiry),
 	NewFinalIncorrectHtlcAmount(testAmount),

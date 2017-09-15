@@ -63,6 +63,13 @@ type ForwardingPolicy struct {
 	//    per-hop payload of the incoming HTLC's onion packet.
 	TimeLockDelta uint32
 
+	// MaxTimeLock is the absolute maximum time-lock value, expressed in blocks,
+	// that an incoming HTLC's timelock is allowed to have. If an incoming
+	// HTLC has a timelock greater than this, it will be rejected. This is
+	// to prevent a DoS vector against our future persistent, decayed
+	// shared-secret log.
+	MaxTimeLock uint32
+
 	// TODO(roasbeef): add fee module inside of switch
 }
 
@@ -1160,6 +1167,24 @@ func (l *channelLink) processLockedInHtlcs(
 					}
 				}
 
+				// We check that the HTLC's timeout value is less
+				// than or equal to the current blockheight plus
+				// MaxTimeLock. If it's not, we reject the
+				// HTLC as it would otherwise present a DoS vector
+				// against our persistent, decayed shared-secret
+				// log.
+				if pd.Timeout > heightNow+l.cfg.FwrdingPolicy.MaxTimeLock {
+					log.Errorf("Incoming htlc(%x) has "+
+						"a time-lock value that expires"+
+						"too far in the future: %v",
+						pd.RHash[:], pd.Timeout)
+
+					failure := lnwire.FailFinalExpiryTooLate{}
+					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
 				// If we're not currently in debug mode, and
 				// the extended htlc doesn't meet the value
 				// requested, then we'll fail the htlc.
@@ -1191,6 +1216,8 @@ func (l *channelLink) processLockedInHtlcs(
 					l.fail("unable to settle invoice: %v", err)
 					return nil
 				}
+
+				// TODO(eugene) write to log?
 
 				// HTLC was successfully settled locally send
 				// notification about it remote peer.
@@ -1299,7 +1326,7 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
-				// Finally, we'll ensure that the time-lock on
+				// We'll ensure that the time-lock on
 				// the outgoing HTLC meets the following
 				// constraint: the incoming time-lock minus our
 				// time-lock delta should equal the outgoing
@@ -1330,7 +1357,31 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
-				// TODO(roasbeef): also add max timeout value
+				// Finally, we check that the HTLC's timeout
+				// value is less than or equal to the current
+				// blockheight plus MaxTimeLock. If it's not,
+				// we reject the HTLC as it would otherwise present
+				// a DoS vector against our persistent, decayed
+				// shared-secret log.
+				heightNow := l.bestHeight
+				if pd.Timeout > heightNow+l.cfg.FwrdingPolicy.MaxTimeLock {
+					log.Errorf("Incoming htlc(%x) has "+
+						"a time-lock value that expires"+
+						"too far in the future: %v",
+						pd.RHash[:], pd.Timeout)
+
+					var failure lnwire.FailureMessage
+					update, err := l.cfg.GetLastChannelUpdate()
+					if err != nil {
+						failure = lnwire.NewTemporaryChannelFailure(nil)
+					} else {
+						failure = lnwire.NewExpiryTooLate(*update)
+					}
+
+					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
 
 				// With all our forwarding constraints met,
 				// we'll create the outgoing HTLC using the
@@ -1356,6 +1407,8 @@ func (l *channelLink) processLockedInHtlcs(
 					needUpdate = true
 					continue
 				}
+
+				// TODO(eugene) write to log?
 
 				updatePacket := newAddPacket(l.ShortChanID(),
 					fwdInfo.NextHop, addMsg, obfuscator)

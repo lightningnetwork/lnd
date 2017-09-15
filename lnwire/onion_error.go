@@ -62,12 +62,14 @@ const (
 	CodeFeeInsufficient                        = FlagUpdate | 12
 	CodeIncorrectCltvExpiry                    = FlagUpdate | 13
 	CodeExpiryTooSoon                          = FlagUpdate | 14
+	CodeExpiryTooLate                          = FlagUpdate | 15
 	CodeChannelDisabled                        = FlagUpdate | 20
 	CodeUnknownPaymentHash                     = FlagPerm | 15
 	CodeIncorrectPaymentAmount                 = FlagPerm | 16
 	CodeFinalExpiryTooSoon            FailCode = 17
 	CodeFinalIncorrectCltvExpiry      FailCode = 18
 	CodeFinalIncorrectHtlcAmount      FailCode = 19
+	CodeFinalExpiryTooLate            FailCode = 20
 )
 
 // String returns the string representation of the failure code.
@@ -118,6 +120,9 @@ func (c FailCode) String() string {
 	case CodeExpiryTooSoon:
 		return "ExpiryTooSoon"
 
+	case CodeExpiryTooLate:
+		return "ExpiryTooLate"
+
 	case CodeChannelDisabled:
 		return "ChannelDisabled"
 
@@ -135,6 +140,9 @@ func (c FailCode) String() string {
 
 	case CodeFinalIncorrectHtlcAmount:
 		return "FinalIncorrectHtlcAmount"
+
+	case CodeFinalExpiryTooLate:
+		return "FinalExpiryTooLate"
 
 	default:
 		return "<unknown>"
@@ -274,6 +282,19 @@ type FailFinalExpiryTooSoon struct{}
 // NOTE: Part of the FailureMessage interface.
 func (f FailFinalExpiryTooSoon) Code() FailCode {
 	return CodeFinalExpiryTooSoon
+}
+
+// FailFinalExpiryTooLate is returned if the cltv_expiry is too far into the
+// future. The final node MUST fail the HTLC.
+//
+// NOTE: May only be returned by the final node in the path.
+type FailFinalExpiryTooLate struct{}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f FailFinalExpiryTooLate) Code() FailCode {
+	return CodeFinalExpiryTooLate
 }
 
 // FailInvalidOnionVersion is returned if the onion version byte is unknown.
@@ -684,6 +705,55 @@ func (f *FailExpiryTooSoon) Encode(w io.Writer, pver uint32) error {
 	return f.Update.Encode(w, pver)
 }
 
+// FailExpiryTooLate is returned if the cltv_expiry is too far into the future,
+// we tell them the current channel setting for the outgoing channel.
+//
+// NOTE: May only be returned by intermediate nodes.
+type FailExpiryTooLate struct {
+	// Update is used to update information about state of the channel
+	// which caused the failure.
+	Update ChannelUpdate
+}
+
+// NewExpiryTooLate creates new instance of the FailExpiryTooLate
+func NewExpiryTooLate(update ChannelUpdate) *FailExpiryTooLate {
+	return &FailExpiryTooLate{
+		Update: update,
+	}
+}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f *FailExpiryTooLate) Code() FailCode {
+	return CodeExpiryTooLate
+}
+
+// Decode decodes the failure from bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailExpiryTooLate) Decode(r io.Reader, pver uint32) error {
+	var length uint16
+	if err := readElement(r, &length); err != nil {
+		return err
+	}
+
+	f.Update = ChannelUpdate{}
+	return f.Update.Decode(r, pver)
+}
+
+// Encode writes the failure in bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailExpiryTooLate) Encode(w io.Writer, pver uint32) error {
+	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	if err != nil {
+		return err
+	}
+
+	return f.Update.Encode(w, pver)
+}
+
 // FailChannelDisabled is returned if the channel is disabled, we tell them the
 // current channel setting for the outgoing channel.
 //
@@ -952,6 +1022,9 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 	case CodeFinalExpiryTooSoon:
 		return &FailFinalExpiryTooSoon{}, nil
 
+	case CodeFinalExpiryTooLate:
+		return &FailFinalExpiryTooLate{}, nil
+
 	case CodeInvalidOnionVersion:
 		return &FailInvalidOnionVersion{}, nil
 
@@ -975,6 +1048,9 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 
 	case CodeExpiryTooSoon:
 		return &FailExpiryTooSoon{}, nil
+
+	case CodeExpiryTooLate:
+		return &FailExpiryTooLate{}, nil
 
 	case CodeChannelDisabled:
 		return &FailChannelDisabled{}, nil

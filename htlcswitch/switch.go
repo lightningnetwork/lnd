@@ -412,6 +412,8 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				update = &failure.Update
 			case *lnwire.FailExpiryTooSoon:
 				update = &failure.Update
+			case *lnwire.FailExpiryTooLate:
+				update = &failure.Update
 			case *lnwire.FailChannelDisabled:
 				update = &failure.Update
 			}

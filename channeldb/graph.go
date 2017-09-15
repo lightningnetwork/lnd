@@ -1224,6 +1224,11 @@ type ChannelEdgePolicy struct {
 	// HTLCs for each millionth of a satoshi forwarded.
 	FeeProportionalMillionths lnwire.MilliSatoshi
 
+	// MaxTimeLock is the maximum number of blocks an incoming HTLC's time-lock
+	// value can have. If an incoming HTLC has a time-lock value greater
+	// than MaxTimeLock, it will be rejected.
+	MaxTimeLock uint16
+
 	// Node is the LightningNode that this directed edge leads to. Using
 	// this pointer the channel graph can further be traversed.
 	Node *LightningNode

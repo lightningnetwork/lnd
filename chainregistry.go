@@ -33,6 +33,7 @@ var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	BaseFee:       lnwire.NewMSatFromSatoshis(1),
 	FeeRate:       1,
 	TimeLockDelta: 144,
+	MaxTimeLock:   21600,
 }
 
 // defaultLitecoinForwardingPolicy is the default forwarding policy used for
@@ -42,6 +43,7 @@ var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	BaseFee:       1,
 	FeeRate:       1,
 	TimeLockDelta: 576,
+	MaxTimeLock:   86400,
 }
 
 // defaultChannelConstraints is the default set of channel constraints that are

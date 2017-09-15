@@ -350,6 +350,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				BaseFee:       selfPolicy.FeeBaseMSat,
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+				MaxTimeLock:   uint32(selfPolicy.MaxTimeLock),
 			}
 		} else {
 			forwardingPolicy = &p.server.cc.routingPolicy

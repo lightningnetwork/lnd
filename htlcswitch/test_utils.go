@@ -546,6 +546,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: 6,
+		MaxTimeLock:   21600,
 	}
 	obfuscator := newMockObfuscator()
 	aliceChannelLink := NewChannelLink(

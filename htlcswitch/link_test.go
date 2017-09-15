@@ -974,7 +974,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 }
 
-// TestChannelLinkExpiryTooSoonExitNode tests that if we send a multi-hop HTLC,
+// TestChannelLinkExpiryTooSoonMidNode tests that if we send a multi-hop HTLC,
 // and the time lock is too early for an intermediate node, then they cancel
 // the HTLC back to the sender.
 func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
@@ -1013,6 +1013,87 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	} else if err.Error() != lnwire.CodeExpiryTooSoon.String() {
 		t.Fatalf("incorrect error, expected final time lock too "+
 			"early, instead have: %v", err)
+	}
+}
+
+// TestChannelLinkExpiryTooLateExitNode tests that if we send an HTLC to a node
+// with an expiry that is too late according to expiryMaxTimeout, then it will
+// cancel the HTLC.
+func TestChannelLinkExpiryTooLateExitNode(t *testing.T) {
+	t.Parallel()
+
+	// The starting height for this test will be 200. So we'll base all
+	// HTLC starting points off of that.
+	const startingHeight = 200
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+		startingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("Unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	// We'll craft an HTLC packet, but set the starting height to 21600
+	// blocks before the current true height.
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		startingHeight+21600, n.firstBobChannelLink)
+
+	// Now we'll send out the payment from Alice to Bob.
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+
+	// The payment should've failed as the time lock is 21600 blocks
+	// in the future.
+	if err == nil {
+		t.Fatalf("payment should have failed due to a too late " +
+			"time lock value")
+	} else if err.Error() != lnwire.CodeFinalExpiryTooLate.String() {
+		t.Fatalf("incorrect error, expected final time lock too"+
+			"late, instead have: %v", err)
+	}
+}
+
+// TestChannelLinkExpiryTooLateMidNode tests that if we send a mult-hop HTLC,
+// and the time lock is too late for an intermediate node, then they cancel
+// the HTLC back to the sender.
+func TestChannelLinkExpiryTooLateMidNode(t *testing.T) {
+	t.Parallel()
+
+	// The starting height for this test will be 200. So we'll base all
+	// HTLC starting points off of that.
+	const startingHeight = 200
+	n := newThreeHopNetwork(t,
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+		startingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	// We'll craft an HTLC packet, but set the starting height to 21600 blocks
+	// after the current true height. The final route will be three hops, so
+	// the middle hop should detect the issue.
+	htlcAmt, totalTimelock, hops := generateHops(amount,
+		startingHeight+21600, n.firstBobChannelLink, n.carolChannelLink)
+
+	// Now we'll send out the payment from Alice to Bob
+	_, err := n.makePayment(n.aliceServer, n.bobServer,
+		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
+
+	// The payment should've failed as the time lock value was too far in
+	// the future.
+	if err == nil {
+		t.Fatalf("payment should have failed due to a too late" +
+			"time lock value")
+	} else if err.Error() != lnwire.CodeExpiryTooLate.String() {
+		t.Fatalf("incorrect error, expected final time lock too"+
+			"late, instead have: %v", err)
 	}
 }
 

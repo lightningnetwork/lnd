@@ -113,7 +113,19 @@ func (f *FeatureVector) SetFeatureFlag(name featureName, flag featureFlag) error
 // serializedSize returns the number of bytes which is needed to represent
 // feature vector in byte format.
 func (f *FeatureVector) serializedSize() uint16 {
-	return uint16(math.Ceil(float64(flagBitsSize*len(f.flags)) / 8))
+	// Find the largest index in f.flags
+	max := -1
+	for index := range f.flags {
+		if index > max {
+			max = index
+		}
+	}
+	if max == -1 {
+		return 0
+	}
+	// We calculate length via the largest index in f.flags so as to not
+	// get an index out of bounds in Encode's setFlag function.
+	return uint16(math.Ceil(float64(flagBitsSize*(max+1)) / 8))
 }
 
 // NewFeatureVectorFromReader decodes the feature vector from binary

@@ -382,7 +382,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 		t.Fatalf("expected outgoing time-lock of %v, instead have %v",
 			1, route.Hops[0].OutgoingTimeLock)
 	}
-	if route.Hops[1].OutgoingTimeLock != 1 {
+	if route.Hops[1].OutgoingTimeLock != 101 {
 		t.Fatalf("outgoing time-lock for final hop is incorrect: "+
 			"expected %v, got %v", 1, route.Hops[1].OutgoingTimeLock)
 	}

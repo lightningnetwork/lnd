@@ -90,7 +90,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose up --no-recreate -d --name bob lnd_btc
+$ docker-compose run -d --name bob lnd_btc
 $ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:
@@ -157,7 +157,7 @@ bob$ lncli listpeers
 Create the `Alice<->Bob` channel.
 ```bash
 # Open the channel with "Bob":
-alice$ lncli openchannel --node_key=<bob_identity_pubkey> --num_confs=1 --local_amt=1000000
+alice$ lncli openchannel --node_key=<bob_identity_pubkey> --local_amt=1000000
 
 # Include funding transaction in block thereby open the channel:
 $ docker-compose run btcctl generate 1

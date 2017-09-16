@@ -390,7 +390,7 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		failure, err := payment.deobfuscator.Deobfuscate(htlc.Reason)
 		if err != nil {
 			userErr = errors.Errorf("unable to de-obfuscate "+
-				"onion failure, htlc with hash(%v): %v",
+				"onion failure, htlc with hash(%x): %v",
 				payment.paymentHash[:], err)
 			log.Error(userErr)
 		} else {

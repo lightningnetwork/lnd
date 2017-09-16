@@ -1347,7 +1347,7 @@ func (l *LightningWallet) deriveMasterRevocationRoot() (*btcec.PrivateKey, error
 // state hints from the root to be used for a new channel. The obsfucsator is
 // generated via the following computation:
 //
-//   * sha256(initiatorKey || responderKey)[:6]
+//   * sha256(initiatorKey || responderKey)[26:]
 //     * where both keys are the multi-sig keys of the respective parties
 //
 // The first 6 bytes of the resulting hash are used as the state hint.
@@ -1359,7 +1359,7 @@ func deriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte 
 	sha := h.Sum(nil)
 
 	var obfuscator [StateHintSize]byte
-	copy(obfuscator[:], sha[:])
+	copy(obfuscator[:], sha[26:])
 
 	return obfuscator
 }

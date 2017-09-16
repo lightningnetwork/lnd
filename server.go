@@ -395,13 +395,15 @@ func (s *server) Start() error {
 	// If network bootstrapping hasn't been disabled, then we'll configure
 	// the set of active bootstrappers, and launch a dedicated goroutine to
 	// maintain a set of persistent connections.
-	if !cfg.NoNetBootstrap {
+	if !cfg.NoNetBootstrap && !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
 		networkBootStrappers, err := initNetworkBootstrappers(s)
 		if err != nil {
 			return err
 		}
 		s.wg.Add(1)
 		go s.peerBootstrapper(3, networkBootStrappers)
+	} else {
+		srvrLog.Infof("Auto peer bootstrapping is disabled")
 	}
 
 	return nil

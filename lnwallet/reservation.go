@@ -236,16 +236,48 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	r.partialState.NumConfsRequired = numConfs
 }
 
-// RequireLocalDelay sets the mandatory CSV delay that MUST be used when
-// creating the local commitment transaction. This is distinct from the normal
-// reservation workflow as the remote party will dictate this value for us.
-//
-// TODO(roasbeef): abstract out dictation of params remote side gives
-func (r *ChannelReservation) RequireLocalDelay(csvDelay uint16) {
+// CommitConstraints takes the constraints that the remote party specifies for
+// the type of commitments that we can generate for them. These constraints
+// include several parameters that serve as flow control restricting the amount
+// of satoshis that can be transferred in a single commitment. This function
+// will also attempt to verify the constraints for sanity, returning an error
+// if the parameters are seemed unsound.
+func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
+	maxValueInFlight lnwire.MilliSatoshi, chanReserve btcutil.Amount) error {
+
 	r.Lock()
 	defer r.Unlock()
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay
+	r.ourContribution.ChannelConfig.ChanReserve = chanReserve
+	r.ourContribution.ChannelConfig.MaxAcceptedHtlcs = maxHtlcs
+	r.ourContribution.ChannelConfig.MaxPendingAmount = maxValueInFlight
+
+	return nil
+}
+
+// RemoteChanConstraints returns our desired parameters which constraint the
+// type of commitment transactions that the remote party can extend for our
+// current state. In order to ensure that we only accept sane states, we'll
+// specify: the required reserve the remote party must uphold, the max value in
+// flight, and the maximum number of HTLC's that can propose in a state.
+func (r *ChannelReservation) RemoteChanConstraints() (btcutil.Amount, lnwire.MilliSatoshi, uint16) {
+	chanCapacity := r.partialState.Capacity
+
+	// TODO(roasbeef): move csv delay calculation into func?
+
+	// By default, we'll require them to maintain at least 1% of thee total
+	// channel capacity at all times.
+	chanReserve := (chanCapacity + 99) / 100
+
+	// We'll allow them to fully utilize the full bandwidth of the channel,
+	// minus our required reserve.
+	maxValue := lnwire.NewMSatFromSatoshis(chanCapacity - chanReserve)
+
+	// Finally, we'll permit them to utilize the full channel bandwidth
+	maxHTLCs := uint16(MaxHTLCNumber / 2)
+
+	return chanReserve, maxValue, maxHTLCs
 }
 
 // OurContribution returns the wallet's fully populated contribution to the

@@ -587,6 +587,9 @@ func readElement(r io.Reader, element interface{}) error {
 		length := binary.BigEndian.Uint16(addrLen[:])
 
 		var addrBytes [34]byte
+		if length > 34 {
+			return fmt.Errorf("Cannot read %d bytes into addrBytes", length)
+		}
 		if _, err = io.ReadFull(r, addrBytes[:length]); err != nil {
 			return err
 		}

@@ -585,7 +585,6 @@ message HTLC {
     int64 amount = 2 [json_name = "amount"];
     bytes hash_lock = 3 [json_name = "hash_lock"];
     uint32 expiration_height = 4 [json_name = "expiration_height"];
-    uint32 revocation_delay = 5 [json_name = "revocation_delay"];
 }
 
 message ActiveChannel {

@@ -171,8 +171,12 @@ func (a *NodeAnnouncement) CompareNodes(b *NodeAnnouncement) bool {
 		return false
 	}
 
+	if len(a.Addresses) != len(b.Addresses) {
+		return false
+	}
 	// When comparing Address arrays the order does not matter.
 	m := make(map[net.Addr]bool)
+
 	for _, addr := range a.Addresses {
 		m[addr] = true
 	}

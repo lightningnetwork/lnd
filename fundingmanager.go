@@ -1132,7 +1132,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	f.resMtx.Unlock()
 	if !ok {
 		err := fmt.Sprintf("Unable to find signed reservation for "+
-			"chan_id=%x", fmsg.msg.ChanID)
+			"chan_id=%s", fmsg.msg.ChanID)
 		fndgLog.Warnf(err)
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			pendingChanID, []byte(err))
@@ -1345,8 +1345,8 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	fundingPoint := completeChan.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
 
-	fndgLog.Infof("ChannelPoint(%v) is now active: ChannelID(%x)",
-		fundingPoint, chanID[:])
+	fndgLog.Infof("ChannelPoint(%v) is now active: ChannelID(%s)",
+		fundingPoint, chanID)
 
 	// With the block height and the transaction index known, we can
 	// construct the compact chanID which is used on the network to unique

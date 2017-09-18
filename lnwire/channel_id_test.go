@@ -11,6 +11,7 @@ func TestChannelIDOutPointConversion(t *testing.T) {
 
 	// For a given OutPoint, we'll run through all the possible output
 	// index values, mutating our test outpoint to match that output index.
+	var prevChanID ChannelID
 	for i := uint32(0); i < MaxFundingTxOutputs; i++ {
 		testChanPoint.Index = i
 
@@ -24,6 +25,16 @@ func TestChannelIDOutPointConversion(t *testing.T) {
 			t.Fatalf("channelID not recognized as seed channel "+
 				"point: cid=%v, op=%v", cid, testChanPoint)
 		}
+
+		// We also ensure that the channel ID itself have changed
+		// between iterations. This case is meant to catch an issue
+		// where the transformation function itself is a no-op.
+		if prevChanID == cid {
+			t.Fatalf("#%v: channelID not modified: old=%v, new=%v",
+				i, prevChanID, cid)
+		}
+
+		prevChanID = cid
 	}
 }
 
@@ -36,6 +47,7 @@ func TestGenPossibleOutPoints(t *testing.T) {
 
 	// We'll first convert out test outpoint into a ChannelID.
 	testChanPoint := *outpoint1
+	testChanPoint.Index = 24
 	chanID := NewChanIDFromOutPoint(&testChanPoint)
 
 	// With the chan ID created, we'll generate all possible root outpoints

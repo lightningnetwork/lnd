@@ -38,8 +38,8 @@ func TestChannelIDOutPointConversion(t *testing.T) {
 	}
 }
 
-// TestGenPossibleOutPoints ensures taht the GenPossibleOutPoints generates a
-// vali set of outpoints for a channelID. A set of outpoints is valid iff, the
+// TestGenPossibleOutPoints ensures that the GenPossibleOutPoints generates a
+// valid set of outpoints for a channelID. A set of outpoints is valid iff, the
 // root outpoint (the outpoint that generated the ChannelID) is included in the
 // returned set of outpoints.
 func TestGenPossibleOutPoints(t *testing.T) {

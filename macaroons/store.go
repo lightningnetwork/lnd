@@ -2,6 +2,7 @@ package macaroons
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 
@@ -11,17 +12,13 @@ import (
 const (
 	// RootKeyLen is the length of a root key.
 	RootKeyLen = 32
+	// RootKeyIDLen is the length of a root key ID.
+	RootKeyIDLen = 4
 )
 
 var (
 	// rootKeyBucketName is the name of the root key store bucket.
 	rootKeyBucketName = []byte("macrootkeys")
-
-	// defaultRootKeyID is the ID of the default root key. The first is
-	// just 0, to emulate the memory storage that comes with bakery.
-	//
-	// TODO(aakselrod): Add support for key rotation.
-	defaultRootKeyID = "0"
 
 	// macaroonBucketName is the name of the macaroon store bucket.
 	macaroonBucketName = []byte("macaroons")
@@ -52,7 +49,11 @@ func NewRootKeyStorage(db *bolt.DB) (*RootKeyStorage, error) {
 func (r *RootKeyStorage) Get(id string) ([]byte, error) {
 	var rootKey []byte
 	err := r.View(func(tx *bolt.Tx) error {
-		dbKey := tx.Bucket(rootKeyBucketName).Get([]byte(id))
+		idBytes, err := hex.DecodeString(id)
+		if err != nil {
+			return fmt.Errorf("unable to decode root key ID %s", id)
+		}
+		dbKey := tx.Bucket(rootKeyBucketName).Get(idBytes)
 		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",
 				id)
@@ -71,31 +72,26 @@ func (r *RootKeyStorage) Get(id string) ([]byte, error) {
 
 // RootKey implements the RootKey method for the bakery.RootKeyStorage
 // interface.
-// TODO(aakselrod): Add support for key rotation.
 func (r *RootKeyStorage) RootKey() ([]byte, string, error) {
-	var rootKey []byte
-	id := defaultRootKeyID
+	var rootKey, id []byte
 	err := r.Update(func(tx *bolt.Tx) error {
-		ns := tx.Bucket(rootKeyBucketName)
-		rootKey = ns.Get([]byte(id))
-
-		// If there's no root key stored in the bucket yet, create one.
-		if len(rootKey) != 0 {
-			return nil
-		}
-
 		// Create a RootKeyLen-byte root key.
 		rootKey = make([]byte, RootKeyLen)
 		if _, err := io.ReadFull(rand.Reader, rootKey[:]); err != nil {
 			return err
 		}
-		return ns.Put([]byte(id), rootKey)
+		id = make([]byte, RootKeyIDLen)
+		if _, err := io.ReadFull(rand.Reader, id[:]); err != nil {
+			return err
+		}
+		ns := tx.Bucket(rootKeyBucketName)
+		return ns.Put(id, rootKey)
 	})
 	if err != nil {
 		return nil, "", err
 	}
 
-	return rootKey, id, nil
+	return rootKey, hex.EncodeToString(id), nil
 }
 
 // Storage implements the bakery.Storage interface.

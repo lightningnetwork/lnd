@@ -26,6 +26,7 @@ const (
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
 	defaultReadMacFilename    = "readonly.macaroon"
+	defaultMacTimeout         = 7 * 24 * 3600
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
@@ -100,8 +101,9 @@ type config struct {
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication"`
 	AdminMacPath string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
 	ReadMacPath  string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir       string `long:"logdir" description:"Directory to log output."`
+	MacTimeout   int64  `long:"macaroontimeout" description:"Timeout for the macaroon rotation in seconds"`
 
+	LogDir      string   `long:"logdir" description:"Directory to log output."`
 	Listeners   []string `long:"listen" description:"Add an interface/port to listen for connections (default all interfaces port: 9735)"`
 	ExternalIPs []string `long:"externalip" description:"Add an ip to the list of local addresses we claim to listen on to peers"`
 
@@ -145,6 +147,7 @@ func loadConfig() (*config, error) {
 		TLSKeyPath:          defaultTLSKeyPath,
 		AdminMacPath:        defaultAdminMacPath,
 		ReadMacPath:         defaultReadMacPath,
+		MacTimeout:          defaultMacTimeout,
 		LogDir:              defaultLogDir,
 		PeerPort:            defaultPeerPort,
 		RPCPort:             defaultRPCPort,

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"gopkg.in/macaroon-bakery.v1/bakery"
+	macaroon "gopkg.in/macaroon.v1"
 
 	"golang.org/x/net/context"
 
@@ -107,10 +108,10 @@ func lndMain() error {
 			return err
 		}
 
-		// Create macaroon files for lncli to use if they don't exist.
-		if !fileExists(cfg.AdminMacPath) && !fileExists(cfg.ReadMacPath) {
+		// Create macaroon files for lncli to use if they don't exist or expired.
+		if !checkMacaroonFiles(macaroonService, cfg.AdminMacPath, cfg.ReadMacPath) {
 			err = genMacaroons(macaroonService, cfg.AdminMacPath,
-				cfg.ReadMacPath)
+				cfg.ReadMacPath, cfg.MacTimeout)
 			if err != nil {
 				ltndLog.Errorf("unable to create macaroon "+
 					"files: %v", err)
@@ -553,12 +554,20 @@ func genCertPair(certFile, keyFile string) error {
 
 // genMacaroons generates a pair of macaroon files; one admin-level and one
 // read-only. These can also be used to generate more granular macaroons.
-func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
+func genMacaroons(svc *bakery.Service, admFile, roFile string, macTimeout int64) error {
 	// Generate the admin macaroon and write it to a file.
-	admMacaroon, err := svc.NewMacaroon("", nil, nil)
+	baseMacaroon, err := svc.NewMacaroon("", nil, nil)
 	if err != nil {
 		return err
 	}
+
+	// Add a rotation timeout constraint
+	admMacaroon, err := macaroons.AddConstraints(baseMacaroon,
+		macaroons.TimeoutConstraint(macTimeout))
+	if err != nil {
+		return err
+	}
+
 	admBytes, err := admMacaroon.MarshalBinary()
 	if err != nil {
 		return err
@@ -583,4 +592,25 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 	}
 
 	return nil
+}
+
+func checkMacaroonFiles(svc *bakery.Service, macFiles ...string) bool {
+	checker := macaroons.DefaultChecker
+	for _, file := range macFiles {
+		if !fileExists(file) {
+			return false
+		}
+		macBytes, err := ioutil.ReadFile(file)
+		if err != nil {
+			return false
+		}
+		mac := &macaroon.Macaroon{}
+		if err := mac.UnmarshalBinary(macBytes); err != nil {
+			return false
+		}
+		if err := svc.Check(macaroon.Slice{mac}, checker); err != nil {
+			return false
+		}
+	}
+	return true
 }

@@ -14,6 +14,9 @@ import (
 	macaroon "gopkg.in/macaroon.v1"
 )
 
+// DefaultChecker is used by the lndMain to check macaroon files at startup.
+var DefaultChecker = checkers.New(TimeoutChecker())
+
 // MacaroonCredential wraps a macaroon to implement the
 // credentials.PerRPCCredentials interface.
 type MacaroonCredential struct {

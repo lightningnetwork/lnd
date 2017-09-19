@@ -64,7 +64,7 @@ const (
 	keyLen = 32
 
 	// baseVersion represent the current supported version of onion packet.
-	baseVersion = 1
+	baseVersion = 0
 )
 
 var (

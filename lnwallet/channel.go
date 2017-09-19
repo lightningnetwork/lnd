@@ -1063,7 +1063,9 @@ type BreachRetribution struct {
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
 	// BreachTransaction that pays directly us.
-	LocalOutputSignDesc SignDescriptor
+	// NOTE: A nil value indicates that the local output is considered dust
+	// according to the remote party's dust limit.
+	LocalOutputSignDesc *SignDescriptor
 
 	// LocalOutpoint is the outpoint of the output paying to us (the local
 	// party) within the breach transaction.
@@ -1073,7 +1075,9 @@ type BreachRetribution struct {
 	// generating the signature required to claim the funds as described
 	// within the revocation clause of the remote party's commitment
 	// output.
-	RemoteOutputSignDesc SignDescriptor
+	// NOTE: A nil value indicates that the local output is considered dust
+	// according to the remote party's dust limit.
+	RemoteOutputSignDesc *SignDescriptor
 
 	// RemoteOutpoint is the output of the output paying to the remote
 	// party within the breach transaction.
@@ -1165,6 +1169,53 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		}
 	}
 
+	// Conditionally instantiate a sign descriptor for each of the
+	// commitment outputs. If either is considered dust using the remote
+	// party's dust limit, the respective sign descriptor will be nil.
+	var (
+		localSignDesc  *SignDescriptor
+		remoteSignDesc *SignDescriptor
+	)
+
+	// Compute the local and remote balances in satoshis.
+	localAmt := revokedSnapshot.LocalBalance.ToSatoshis()
+	remoteAmt := revokedSnapshot.RemoteBalance.ToSatoshis()
+
+	// If the local balance exceeds the remote party's dust limit,
+	// instantiate the local sign descriptor.
+	if localAmt >= chanState.RemoteChanCfg.DustLimit {
+		// We'll need to reconstruct the single tweak so we can sweep
+		// our non-delayed pay-to-self output self.
+		singleTweak := SingleTweakBytes(commitmentPoint,
+			chanState.LocalChanCfg.PaymentBasePoint)
+
+		localSignDesc = &SignDescriptor{
+			SingleTweak:   singleTweak,
+			PubKey:        chanState.LocalChanCfg.PaymentBasePoint,
+			WitnessScript: localPkScript,
+			Output: &wire.TxOut{
+				PkScript: localWitnessHash,
+				Value:    int64(localAmt),
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
+	// Similarly, if the remote balance exceeds the remote party's dust
+	// limit, assemble the remote sign descriptor.
+	if remoteAmt >= chanState.RemoteChanCfg.DustLimit {
+		remoteSignDesc = &SignDescriptor{
+			PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
+			DoubleTweak:   commitmentSecret,
+			WitnessScript: remotePkScript,
+			Output: &wire.TxOut{
+				PkScript: remoteWitnessHash,
+				Value:    int64(remoteAmt),
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
 	// With the commitment outputs located, we'll now generate all the
 	// retribution structs for each of the HTLC transactions active on the
 	// remote commitment transaction.
@@ -1216,41 +1267,18 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		}
 	}
 
-	// We'll need to reconstruct the single tweak so we can sweep our
-	// non-delayed pay-to-self output self.
-	singleTweak := SingleTweakBytes(commitmentPoint,
-		chanState.LocalChanCfg.PaymentBasePoint)
-
 	// Finally, with all the necessary data constructed, we can create the
 	// BreachRetribution struct which houses all the data necessary to
 	// swiftly bring justice to the cheating remote party.
 	return &BreachRetribution{
-		BreachTransaction: broadcastCommitment,
-		RevokedStateNum:   stateNum,
-		PendingHTLCs:      revokedSnapshot.Htlcs,
-		LocalOutpoint:     localOutpoint,
-		LocalOutputSignDesc: SignDescriptor{
-			SingleTweak:   singleTweak,
-			PubKey:        chanState.LocalChanCfg.PaymentBasePoint,
-			WitnessScript: localPkScript,
-			Output: &wire.TxOut{
-				PkScript: localWitnessHash,
-				Value:    int64(revokedSnapshot.LocalBalance.ToSatoshis()),
-			},
-			HashType: txscript.SigHashAll,
-		},
-		RemoteOutpoint: remoteOutpoint,
-		RemoteOutputSignDesc: SignDescriptor{
-			PubKey:        chanState.LocalChanCfg.RevocationBasePoint,
-			DoubleTweak:   commitmentSecret,
-			WitnessScript: remotePkScript,
-			Output: &wire.TxOut{
-				PkScript: remoteWitnessHash,
-				Value:    int64(revokedSnapshot.RemoteBalance.ToSatoshis()),
-			},
-			HashType: txscript.SigHashAll,
-		},
-		HtlcRetributions: htlcRetributions,
+		BreachTransaction:    broadcastCommitment,
+		RevokedStateNum:      stateNum,
+		PendingHTLCs:         revokedSnapshot.Htlcs,
+		LocalOutpoint:        localOutpoint,
+		LocalOutputSignDesc:  localSignDesc,
+		RemoteOutpoint:       remoteOutpoint,
+		RemoteOutputSignDesc: remoteSignDesc,
+		HtlcRetributions:     htlcRetributions,
 	}, nil
 }
 

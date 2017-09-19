@@ -607,7 +607,7 @@ func readElement(r io.Reader, element interface{}) error {
 				return err
 			}
 
-			addrBytesRead += 1
+			addrBytesRead++
 
 			address := &net.TCPAddr{}
 			aType := addressType(descriptor[0])

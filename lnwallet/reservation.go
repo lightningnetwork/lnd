@@ -69,7 +69,7 @@ type InputScript struct {
 // The reservation workflow consists of the following three steps:
 //  1. lnwallet.InitChannelReservation
 //     * One requests the wallet to allocate the necessary resources for a
-//      channel reservation. These resources a put in limbo for the lifetime
+//      channel reservation. These resources are put in limbo for the lifetime
 //      of a reservation.
 //    * Once completed the reservation will have the wallet's contribution
 //      accessible via the .OurContribution() method. This contribution

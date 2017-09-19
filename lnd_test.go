@@ -1145,9 +1145,12 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 	// Wait for Alice to recognize and advertise the new channel generated
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
+	if err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
 		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	if err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint); err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
 			"timeout: %v", err)
 	}
 

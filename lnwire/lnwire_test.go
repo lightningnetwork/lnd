@@ -404,6 +404,7 @@ func TestLightningWireProtocol(t *testing.T) {
 					green: uint8(r.Int31()),
 					blue:  uint8(r.Int31()),
 				},
+				// TODO(roasbeef): proper gen rand addrs
 				Addresses: testAddrs,
 			}
 			req.Features.featuresMap = nil

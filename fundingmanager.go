@@ -852,7 +852,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		return
 	}
 
-	fndgLog.Infof("Recv'd fundingResponse for pendingID(%x)", pendingChanID)
+	fndgLog.Infof("Recv'd fundingResponse for pendingID(%x)", pendingChanID[:])
 
 	// We'll also specify the responder's preference for the number of
 	// required confirmations, and also the set of channel constraints
@@ -908,7 +908,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	}
 
 	fndgLog.Infof("pendingChan(%x): remote party proposes num_confs=%v, "+
-		"csv_delay=%v", pendingChanID, msg.MinAcceptDepth, msg.CsvDelay)
+		"csv_delay=%v", pendingChanID[:], msg.MinAcceptDepth, msg.CsvDelay)
 	fndgLog.Debugf("Remote party accepted commitment constraints: %v",
 		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
 
@@ -945,7 +945,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 	f.resMtx.Unlock()
 
 	fndgLog.Infof("Generated ChannelPoint(%v) for pendingID(%x)", outPoint,
-		pendingChanID)
+		pendingChanID[:])
 
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
@@ -980,8 +980,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 
 	resCtx, err := f.getReservationCtx(peerKey, pendingChanID)
 	if err != nil {
-		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%v)",
-			peerKey, pendingChanID)
+		fndgLog.Warnf("can't find reservation (peerID:%v, chanID:%x)",
+			peerKey, pendingChanID[:])
 		return
 	}
 
@@ -992,7 +992,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := fmsg.msg.FundingPoint
 	fndgLog.Infof("completing pendingID(%x) with ChannelPoint(%v)",
-		pendingChanID, fundingOut)
+		pendingChanID[:], fundingOut)
 
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
@@ -1037,7 +1037,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	f.barrierMtx.Unlock()
 
 	fndgLog.Infof("sending signComplete for pendingID(%x) over ChannelPoint(%v)",
-		pendingChanID, fundingOut)
+		pendingChanID[:], fundingOut)
 
 	// With their signature for our version of the commitment transaction
 	// verified, we can now send over our signature to the remote peer.
@@ -1143,8 +1143,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	resCtx, err := f.getReservationCtx(fmsg.peerAddress.IdentityKey,
 		pendingChanID)
 	if err != nil {
-		fndgLog.Warnf("Unable to find reservation (peerID:%v, chanID:%v)",
-			peerKey, pendingChanID)
+		fndgLog.Warnf("Unable to find reservation (peerID:%v, chanID:%x)",
+			peerKey, pendingChanID[:])
 		f.failFundingFlow(fmsg.peerAddress.IdentityKey,
 			pendingChanID, []byte(err.Error()))
 		return
@@ -1173,7 +1173,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	}
 
 	fndgLog.Infof("Finalizing pendingID(%x) over ChannelPoint(%v), "+
-		"waiting for channel open on-chain", pendingChanID, fundingPoint)
+		"waiting for channel open on-chain", pendingChanID[:], fundingPoint)
 
 	// Send an update to the upstream client that the negotiation process
 	// is over.
@@ -1964,7 +1964,7 @@ func (f *fundingManager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	pendingChanID [32]byte) (*reservationWithCtx, error) {
 
 	fndgLog.Infof("Cancelling funding reservation for node_key=%x, "+
-		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID)
+		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID[:])
 
 	ctx, err := f.getReservationCtx(peerKey, pendingChanID)
 	if err != nil {
@@ -2006,7 +2006,7 @@ func (f *fundingManager) getReservationCtx(peerKey *btcec.PublicKey,
 
 	if !ok {
 		return nil, errors.Errorf("unknown channel (id: %x)",
-			pendingChanID)
+			pendingChanID[:])
 	}
 
 	return resCtx, nil

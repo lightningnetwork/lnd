@@ -79,7 +79,7 @@ func ValidateMacaroon(ctx context.Context, method string,
 	}
 	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
 	if err != nil {
-		return fmt.Errorf("unable to parse peer address")
+		return fmt.Errorf("unable to parse peer address: %s", peerAddr)
 	}
 
 	// With the macaroon obtained, we'll now decode the hex-string

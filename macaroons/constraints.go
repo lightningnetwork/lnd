@@ -67,7 +67,8 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 		if ipAddr != "" {
 			macaroonIPAddr := net.ParseIP(ipAddr)
 			if macaroonIPAddr == nil {
-				return fmt.Errorf("incorrect macaroon IP-lock address")
+				msg := "incorrect macaroon IP-lock address: %s"
+				return fmt.Errorf(msg, ipAddr)
 			}
 			caveat := checkers.ClientIPAddrCaveat(macaroonIPAddr)
 			return mac.AddFirstPartyCaveat(caveat.Condition)

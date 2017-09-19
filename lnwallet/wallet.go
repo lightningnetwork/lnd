@@ -42,6 +42,11 @@ const (
 
 	commitWeight int64 = 724
 	htlcWeight   int64 = 172
+
+	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
+	// for the funding transaction to be confirmed before forgetting about
+	// the channel. 288 blocks is ~48 hrs
+	maxWaitNumBlocksFundingConf = 288
 )
 
 var (
@@ -361,6 +366,30 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	}
 
 	return outPoints
+}
+
+// CancelIdleReservations manually cancels channel reservations that
+// are started but not ultimately completed after 288 blocks (~48 hours)
+func (l *LightningWallet) CancelIdleReservations() error {
+	// get the current block height
+	_, currentHeight, err := l.Cfg.ChainIO.GetBestBlock()
+
+	if err != nil {
+		return err
+	}
+
+	// loop through the reservations in the wallet's pending requests
+	for _, reservation := range l.fundingLimbo {
+		// calculate how many blocks since the reservation was started
+		numBlocksSinceChannelOpen := currentHeight - int32(reservation.partialState.FundingBroadcastHeight)
+
+		// if the number of blocks is greater than the cutoff, cancel reservation
+		if numBlocksSinceChannelOpen > maxWaitNumBlocksFundingConf {
+			reservation.Cancel()
+		}
+	}
+
+	return nil
 }
 
 // ResetReservations reset the volatile wallet state which trakcs all currently

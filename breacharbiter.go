@@ -33,33 +33,10 @@ var retributionBucket = []byte("retribution")
 // BreachConfig bundles the required subsystems used by the breach arbiter. An
 // instance of BreachConfig is passed to newBreachArbiter during instantiation.
 type BreachConfig struct {
-	// Signer is used by the breach arbiter to generate sweep transactions,
-	// which move coins from previously open channels back to the user's
-	// wallet.
-	Signer lnwallet.Signer
-
-	// DB provides access to the user's channels, allowing the breach
-	// arbiter to determine the current state of a user's channels, and how
-	// it should respond to channel closure.
-	DB *channeldb.DB
-
-	// PublishTransaction facilitates the process of broadcasting a
-	// transaction to the network.
-	PublishTransaction func(*wire.MsgTx) error
-
-	// Notifier provides a publish/subscribe interface for event driven
-	// notifications regarding the confirmation of txids.
-	Notifier chainntnfs.ChainNotifier
-
 	// ChainIO is used by the breach arbiter to determine the current height
 	// of the blockchain, which is required to subscribe for spend
 	// notifications from Notifier.
 	ChainIO lnwallet.BlockChainIO
-
-	// Estimator is used by the breach arbiter to determine an appropriate
-	// fee level when generating, signing, and broadcasting sweep
-	// transactions.
-	Estimator lnwallet.FeeEstimator
 
 	// CloseLink allows the breach arbiter to shutdown any channel links for
 	// which it detects a breach, ensuring now further activity will
@@ -67,13 +44,36 @@ type BreachConfig struct {
 	// close type to be included in the channel close summary.
 	CloseLink func(*wire.OutPoint, htlcswitch.ChannelCloseType)
 
+	// DB provides access to the user's channels, allowing the breach
+	// arbiter to determine the current state of a user's channels, and how
+	// it should respond to channel closure.
+	DB *channeldb.DB
+
+	// Estimator is used by the breach arbiter to determine an appropriate
+	// fee level when generating, signing, and broadcasting sweep
+	// transactions.
+	Estimator lnwallet.FeeEstimator
+
+	// GenSweepScript generates the receiving scripts for swept outputs.
+	GenSweepScript func() ([]byte, error)
+
+	// Notifier provides a publish/subscribe interface for event driven
+	// notifications regarding the confirmation of txids.
+	Notifier chainntnfs.ChainNotifier
+
+	// PublishTransaction facilitates the process of broadcasting a
+	// transaction to the network.
+	PublishTransaction func(*wire.MsgTx) error
+
+	// Signer is used by the breach arbiter to generate sweep transactions,
+	// which move coins from previously open channels back to the user's
+	// wallet.
+	Signer lnwallet.Signer
+
 	// Store is a persistent resource that maintains information regarding
 	// breached channels. This is used in conjunction with DB to recover
 	// from crashes, restarts, or other failures.
 	Store RetributionStore
-
-	// GenSweepScript generates the receiving scripts for swept outputs.
-	GenSweepScript func() ([]byte, error)
 }
 
 // breachArbiter is a special subsystem which is responsible for watching and
@@ -212,9 +212,8 @@ func (b *breachArbiter) Start() error {
 	channelsToWatch := make([]*lnwallet.LightningChannel, 0, nActive)
 	for _, chanState := range activeChannels {
 		// Initialize active channel from persisted channel state.
-		channel, err := lnwallet.NewLightningChannel(
-			nil, b.cfg.Notifier, b.cfg.Estimator, chanState,
-		)
+		channel, err := lnwallet.NewLightningChannel(nil,
+			b.cfg.Notifier, b.cfg.Estimator, chanState)
 		if err != nil {
 			brarLog.Errorf("unable to load channel from "+
 				"disk: %v", err)
@@ -320,8 +319,7 @@ func (b *breachArbiter) watchForPendingCloseConfs(currentHeight int32) error {
 
 		closeTXID := pendingClose.ClosingTXID
 		confNtfn, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-			&closeTXID, 1, uint32(currentHeight),
-		)
+			&closeTXID, 1, uint32(currentHeight))
 		if err != nil {
 			return err
 		}
@@ -424,8 +422,7 @@ out:
 			// ensure we're not dealing with a moving target.
 			breachTXID := &breachInfo.commitHash
 			cfChan, err := b.cfg.Notifier.RegisterConfirmationsNtfn(
-				breachTXID, 1, uint32(currentHeight),
-			)
+				breachTXID, 1, uint32(currentHeight))
 			if err != nil {
 				brarLog.Errorf("unable to register for conf "+
 					"updates for txid: %v, err: %v",
@@ -806,8 +803,7 @@ type SpendableOutput interface {
 	// BuildWitness returns a valid witness allowing this output to be
 	// spent, the witness should be attached to the transaction at the
 	// location determined by the given `txinIdx`.
-	BuildWitness(signer lnwallet.Signer,
-		txn *wire.MsgTx,
+	BuildWitness(signer lnwallet.Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
 		txinIdx int) ([][]byte, error)
 }
@@ -865,8 +861,7 @@ func (bo *breachedOutput) BuildWitness(signer lnwallet.Signer,
 	// been initialized for this breached output.
 	if bo.witnessFunc == nil {
 		bo.witnessFunc = bo.witnessType.GenWitnessFunc(
-			signer, &bo.signDesc,
-		)
+			signer, &bo.signDesc)
 	}
 
 	// Now that we have ensured that the witness generation function has
@@ -921,22 +916,16 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// witness in the event of failures, as it will be persisted in the
 	// retribution store.  Here we use CommitmentNoDelay since this output
 	// belongs to us and has no time-based constraints on spending.
-	selfOutput := newBreachedOutput(
-		&breachInfo.LocalOutpoint,
-		lnwallet.CommitmentNoDelay,
-		&breachInfo.LocalOutputSignDesc,
-	)
+	selfOutput := newBreachedOutput(&breachInfo.LocalOutpoint,
+		lnwallet.CommitmentNoDelay, &breachInfo.LocalOutputSignDesc)
 
 	// Second, record the same information and witness type regarding the
 	// remote outpoint, which belongs to the party who tried to steal our
 	// money! Here we set witnessType of the breachedOutput to
 	// CommitmentRevoke, since we will be using a revoke key, withdrawing
 	// the funds from the commitment transaction immediately.
-	revokedOutput := newBreachedOutput(
-		&breachInfo.RemoteOutpoint,
-		lnwallet.CommitmentRevoke,
-		&breachInfo.RemoteOutputSignDesc,
-	)
+	revokedOutput := newBreachedOutput(&breachInfo.RemoteOutpoint,
+		lnwallet.CommitmentRevoke, &breachInfo.RemoteOutputSignDesc)
 
 	// Determine the number of second layer HTLCs we will attempt to sweep.
 	nHtlcs := len(breachInfo.HtlcRetributions)
@@ -1115,9 +1104,8 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight uint64,
 		// First, we construct a valid witness for this outpoint and
 		// transaction using the SpendableOutput's witness generation
 		// function.
-		witness, err := so.BuildWitness(
-			b.cfg.Signer, txn, hashCache, idx,
-		)
+		witness, err := so.BuildWitness(b.cfg.Signer, txn, hashCache,
+			idx)
 		if err != nil {
 			return err
 		}

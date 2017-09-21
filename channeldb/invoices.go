@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"time"
@@ -343,11 +344,7 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 		return err
 	}
 
-	var settleByte [1]byte
-	if i.Terms.Settled {
-		settleByte[0] = 1
-	}
-	if _, err := w.Write(settleByte[:]); err != nil {
+	if err := binary.Write(w, byteOrder, i.Terms.Settled); err != nil {
 		return err
 	}
 
@@ -401,12 +398,8 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 	}
 	invoice.Terms.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
 
-	var settleByte [1]byte
-	if _, err := io.ReadFull(r, settleByte[:]); err != nil {
+	if err := binary.Read(r, byteOrder, &invoice.Terms.Settled); err != nil {
 		return nil, err
-	}
-	if settleByte[0] == 1 {
-		invoice.Terms.Settled = true
 	}
 
 	return invoice, nil

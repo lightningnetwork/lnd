@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/lightningnetwork/lightning-onion/persistlog"
 )
 
 var (
@@ -55,7 +56,14 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 
 func BenchmarkProcessPacket(b *testing.B) {
 	b.StopTimer()
-	path, _, sphinxPacket, err := newTestRoute(1)
+
+	// Create the DecayedLog object
+	d := persistlog.DecayedLog{}
+	if err := d.Start(); err != nil {
+		b.Fatalf("unable to start channeldb")
+	}
+
+	path, _, sphinxPacket, err := newTestRoute(1, d)
 	if err != nil {
 		b.Fatalf("unable to create test route: %v", err)
 	}
@@ -65,15 +73,10 @@ func BenchmarkProcessPacket(b *testing.B) {
 	var (
 		pkt *ProcessedPacket
 	)
-	for i := 0; i < b.N; i++ {
-		pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil)
-		if err != nil {
-			b.Fatalf("unable to process packet: %v", err)
-		}
 
-		b.StopTimer()
-		path[0].seenSecrets = make(map[[sharedSecretSize]byte]struct{})
-		b.StartTimer()
+	pkt, err = path[0].ProcessOnionPacket(sphinxPacket, nil)
+	if err != nil {
+		b.Fatalf("unable to process packet: %v", err)
 	}
 
 	p = pkt

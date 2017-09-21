@@ -9,9 +9,10 @@ import (
 	"io"
 	"io/ioutil"
 	"math/big"
-	"sync"
 
 	"github.com/aead/chacha20"
+	"github.com/lightningnetwork/lightning-onion/persistlog"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcutil"
@@ -620,19 +621,22 @@ type Router struct {
 
 	onionKey *btcec.PrivateKey
 
-	sync.RWMutex
-
-	seenSecrets map[[sharedSecretSize]byte]struct{}
+	d persistlog.DecayedLog
 }
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
 // currently advertised onion private key, and the target Bitcoin network.
-func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
+func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params,
+	chainNotifier chainntnfs.ChainNotifier) *Router {
 	var nodeID [addressSize]byte
 	copy(nodeID[:], btcutil.Hash160(nodeKey.PubKey().SerializeCompressed()))
 
 	// Safe to ignore the error here, nodeID is 20 bytes.
 	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
+
+	d := persistlog.DecayedLog{
+		Notifier: chainNotifier,
+	}
 
 	return &Router{
 		nodeID:   nodeID,
@@ -647,8 +651,20 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params) *Router {
 		},
 		// TODO(roasbeef): replace instead with bloom filter?
 		// * https://moderncrypto.org/mail-archive/messaging/2015/001911.html
-		seenSecrets: make(map[[sharedSecretSize]byte]struct{}),
+		d: d,
 	}
+}
+
+// Start starts / opens the DecayedLog's channeldb and its accompanying
+// garbage collector goroutine.
+func (r *Router) Start() error {
+	return r.d.Start()
+}
+
+// Stop stops / closes the DecayedLog's channeldb and its accompanying
+// garbage collector goroutine.
+func (r *Router) Stop() {
+	r.d.Stop()
 }
 
 // ProcessOnionPacket processes an incoming onion packet which has been forward
@@ -673,12 +689,14 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	// In order to mitigate replay attacks, if we've seen this particular
 	// shared secret before, cease processing and just drop this forwarding
 	// message.
-	r.RLock()
-	if _, ok := r.seenSecrets[sharedSecret]; ok {
-		r.RUnlock()
+	hashedSecret := persistlog.HashSharedSecret(sharedSecret)
+	cltv, err := r.d.Get(hashedSecret[:])
+	if err != nil {
+		return nil, err
+	}
+	if cltv != 0 {
 		return nil, ErrReplayedPacket
 	}
-	r.RUnlock()
 
 	// Using the derived shared secret, ensure the integrity of the routing
 	// information by checking the attached MAC without leaking timing
@@ -688,18 +706,6 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
 		return nil, ErrInvalidOnionHMAC
 	}
-
-	// The MAC checks out, mark this current shared secret as processed in
-	// order to mitigate future replay attacks. We need to check to see if
-	// we already know the secret again since a replay might have happened
-	// while we were checking the MAC.
-	r.Lock()
-	if _, ok := r.seenSecrets[sharedSecret]; ok {
-		r.RUnlock()
-		return nil, ErrReplayedPacket
-	}
-	r.seenSecrets[sharedSecret] = struct{}{}
-	r.Unlock()
 
 	// Attach the padding zeroes in order to properly strip an encryption
 	// layer off the routing info revealing the routing information for the
@@ -719,6 +725,23 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket, assocData []byte) (*P
 	// instructions.
 	var hopData HopData
 	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+		return nil, err
+	}
+
+	// The MAC checks out, mark this current shared secret as processed in
+	// order to mitigate future replay attacks. We need to check to see if
+	// we already know the secret again since a replay might have happened
+	// while we were checking the MAC and decoding the HopData.
+	cltv, err = r.d.Get(hashedSecret[:])
+	if err != nil {
+		return nil, err
+	}
+	if cltv != 0 {
+		return nil, ErrReplayedPacket
+	}
+
+	err = r.d.Put(hashedSecret[:], hopData.OutgoingCltv)
+	if err != nil {
 		return nil, err
 	}
 

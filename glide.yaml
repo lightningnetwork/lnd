@@ -1,11 +1,18 @@
 package: github.com/lightningnetwork/lightning-onion
 import:
+- package: github.com/boltdb/bolt
+  version: ^1.2.1
 - package: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
+- package: github.com/lightningnetwork/lnd
+  subpackages:
+  - chainntnfs
+  - channeldb
 - package: github.com/roasbeef/btcd
   subpackages:
   - btcec
   - chaincfg
+  - wire
 - package: github.com/roasbeef/btcutil
 - package: golang.org/x/crypto
   subpackages:

@@ -207,12 +207,7 @@ func (p *WaitingProof) Key() WaitingProofKey {
 
 // Encode writes the internal representation of waiting proof in byte stream.
 func (p *WaitingProof) Encode(w io.Writer) error {
-	var b [1]byte
-	if p.isRemote {
-		b[0] = 1
-	}
-
-	if _, err := w.Write(b[:]); err != nil {
+	if err := binary.Write(w, byteOrder, p.isRemote); err != nil {
 		return err
 	}
 
@@ -223,16 +218,11 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode reads the data from the byte stream and initialize the
+// Decode reads the data from the byte stream and initializes the
 // waiting proof object with it.
 func (p *WaitingProof) Decode(r io.Reader) error {
-	var b [1]byte
-	if _, err := r.Read(b[:]); err != nil {
+	if err := binary.Read(r, byteOrder, &p.isRemote); err != nil {
 		return err
-	}
-
-	if b[0] == 1 {
-		(*p).isRemote = true
 	}
 
 	msg := &lnwire.AnnounceSignatures{}

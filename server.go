@@ -23,6 +23,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/go-errors/errors"
@@ -288,8 +289,27 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	s.breachArbiter = newBreachArbiter(cc.wallet, chanDB, cc.chainNotifier,
-		s.htlcSwitch, s.cc.chainIO, s.cc.feeEstimator)
+	// Construct a closure that wraps the htlcswitch's CloseLink method.
+	closeLink := func(chanPoint *wire.OutPoint,
+		closureType htlcswitch.ChannelCloseType) {
+		// TODO(conner): Properly respect the update and error channels
+		// returned by CloseLink.
+		s.htlcSwitch.CloseLink(chanPoint, closureType)
+	}
+
+	s.breachArbiter = newBreachArbiter(&BreachConfig{
+		Signer:             cc.wallet.Cfg.Signer,
+		DB:                 chanDB,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		Notifier:           cc.chainNotifier,
+		ChainIO:            s.cc.chainIO,
+		Estimator:          s.cc.feeEstimator,
+		CloseLink:          closeLink,
+		Store:              newRetributionStore(chanDB),
+		GenSweepScript: func() ([]byte, error) {
+			return newSweepPkScript(cc.wallet)
+		},
+	})
 
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new

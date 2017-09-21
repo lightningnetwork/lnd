@@ -1032,6 +1032,12 @@ type HtlcRetribution struct {
 	// OutPoint is the target outpoint of this HTLC pointing to the
 	// breached commitment transaction.
 	OutPoint wire.OutPoint
+
+	// IsIncoming is a boolean flag that indicates whether or not this
+	// HTLC was accepted from the counterparty. A false value indicates that
+	// this HTLC was offered by us. This flag is used determine the exact
+	// witness type should be used to sweep the output.
+	IsIncoming bool
 }
 
 // BreachRetribution contains all the data necessary to bring a channel
@@ -1162,7 +1168,7 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// With the commitment outputs located, we'll now generate all the
 	// retribution structs for each of the HTLC transactions active on the
 	// remote commitment transaction.
-	htlcRetributions := make([]HtlcRetribution, len(chanState.Htlcs))
+	htlcRetributions := make([]HtlcRetribution, len(revokedSnapshot.Htlcs))
 	for i, htlc := range revokedSnapshot.Htlcs {
 		var (
 			htlcScript []byte
@@ -1206,6 +1212,7 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				Hash:  commitHash,
 				Index: uint32(htlc.OutputIndex),
 			},
+			IsIncoming: htlc.Incoming,
 		}
 	}
 

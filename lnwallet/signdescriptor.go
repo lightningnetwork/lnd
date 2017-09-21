@@ -166,7 +166,7 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return ErrTweakOverdose
 	}
 
-	witnessScript, err := wire.ReadVarBytes(r, 0, 100, "witnessScript")
+	witnessScript, err := wire.ReadVarBytes(r, 0, 500, "witnessScript")
 	if err != nil {
 		return err
 	}

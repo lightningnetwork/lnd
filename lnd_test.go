@@ -2847,6 +2847,10 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 		}
 	}
 
+	// Close the channel between Bob and Carol
+	ctxt, _ = context.WithTimeout(context.Background(), timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
+
 	close(quit)
 
 	// Finally, shutdown carol as our test has concluded successfully.

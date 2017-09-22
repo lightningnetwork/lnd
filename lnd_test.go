@@ -2744,7 +2744,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 3; i++ {
 		select {
 		case graphUpdate := <-graphUpdates:
 
@@ -2786,10 +2786,6 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 		}
 	}
 
-	// Close the channel between Bob and Carol.
-	ctxt, _ = context.WithTimeout(context.Background(), timeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
-
 	// Finally, we will test that when a node starts up, a new node announcement
 	// is only propagated through the network when configuration options have
 	// changed the node announcement since the last instance of the node.
@@ -2801,6 +2797,15 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 
 	if err := net.ConnectNodes(ctxb, net.Alice, net.Bob); err != nil {
 		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Wait a second and make sure we did not receive a node announcement
+	select {
+	case graphUpdate := <-graphUpdates:
+		if len(graphUpdate.NodeUpdates) > 0 {
+			fmt.Println("unexpected node announcement received: %v", graphUpdate.NodeUpdates[0])
+		}
+	case <-time.After(time.Second * 1):
 	}
 
 	// Now restart Bob and add a new IP address to its config options
@@ -2831,11 +2836,11 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 						t.Fatalf("unexpected amount of node updates received from Bob")
 					}
 				default:
-					t.Fatalf("unknown node update pubey: %v",
+					t.Fatalf("unknown node update pubkey: %v",
 						nodeUpdate.IdentityKey)
 				}
 			}
-		case <-time.After(time.Second * 10):
+		case <-time.After(time.Second * 1):
 			if numBobAnnRecv == 0 {
 				t.Fatalf("timeout waiting for graph notification %v", i)
 			}

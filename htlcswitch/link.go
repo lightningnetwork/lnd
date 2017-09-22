@@ -234,7 +234,7 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		linkControl:       make(chan interface{}),
 		cancelReasons:     make(map[uint64]lnwire.OpaqueReason),
 		logCommitTimer:    time.NewTimer(300 * time.Millisecond),
-		overflowQueue:     newWaitingQueue(),
+		overflowQueue:     newPacketQueue(),
 		bestHeight:        currentHeight,
 		quit:              make(chan struct{}),
 	}
@@ -256,6 +256,8 @@ func (l *channelLink) Start() error {
 
 	log.Infof("ChannelLink(%v) is starting", l)
 
+	l.overflowQueue.Start()
+
 	l.wg.Add(1)
 	go l.htlcManager()
 
@@ -273,6 +275,8 @@ func (l *channelLink) Stop() {
 	}
 
 	log.Infof("ChannelLink(%v) is stopping", l)
+
+	l.overflowQueue.Stop()
 
 	close(l.quit)
 	l.wg.Wait()
@@ -390,7 +394,7 @@ out:
 		// transaction is now eligible for processing once again. So
 		// we'll attempt to re-process the packet in order to allow it
 		// to continue propagating within the network.
-		case packet := <-l.overflowQueue.pending:
+		case packet := <-l.overflowQueue.outgoingPkts:
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
 			log.Tracef("Reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
@@ -406,14 +410,14 @@ out:
 			// directly. Once an active HTLC is either settled or
 			// failed, then we'll free up a new slot.
 			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
-			if ok && l.overflowQueue.length() != 0 {
+			if ok && l.overflowQueue.Length() != 0 {
 				log.Infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
 					l.batchCounter)
 
-				l.overflowQueue.consume(pkt)
+				l.overflowQueue.AddPkt(pkt)
 				continue
 			}
 			l.handleDownStreamPkt(pkt)
@@ -483,7 +487,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
 					l.batchCounter)
-				l.overflowQueue.consume(pkt)
+				l.overflowQueue.AddPkt(pkt)
 				return
 
 			// The HTLC was unable to be added to the state
@@ -872,7 +876,7 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 // not be accurate.
 func (l *channelLink) getBandwidth() lnwire.MilliSatoshi {
 	// TODO(roasbeef): factor in reserve, just grab mutex
-	return l.channel.LocalAvailableBalance() - l.overflowQueue.pendingAmount()
+	return l.channel.LocalAvailableBalance() - l.overflowQueue.PendingAmount()
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system
@@ -994,7 +998,6 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, settlePacket)
-			l.overflowQueue.release()
 
 		// A failureCode message for a previously forwarded HTLC has been
 		// received. As a result a new slot will be freed up in our
@@ -1016,7 +1019,6 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, failPacket)
-			l.overflowQueue.release()
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can no examine the forwarding details of the HTLC, and the

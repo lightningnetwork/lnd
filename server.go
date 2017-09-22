@@ -309,16 +309,16 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Features:  globalFeatures,
 	}
 
-	updateNodeAnn := true
-
 	// Try to retrieve the old source node from disk. During startup it
 	// is possible for there to be no source node, and this should not be
 	// treated as an error.
+	chanGraph := chanDB.ChannelGraph()
 	oldNode, err := chanGraph.SourceNode()
 	if err != nil && err != channeldb.ErrSourceNodeNotSet {
 		return nil, fmt.Errorf("unable to read old source node from disk")
 	}
 
+	updateNodeAnn := true
 	if oldNode != nil {
 		oldAlias, err := lnwire.NewNodeAlias(oldNode.Alias)
 		if err != nil {
@@ -335,7 +335,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		// If the nodes are not equal than there have been config changes
 		// and we should propagate the updated node.
-		updateNodeAnn = !nodeAnn.CompareNodes(oldNodeAnn)
+		updateNodeAnn = !nodeAnn.IsEqual(oldNodeAnn)
 	}
 
 	// If our information has changed since our last boot, then we'll

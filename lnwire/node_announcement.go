@@ -158,9 +158,9 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	return w.Bytes(), nil
 }
 
-// CompareNodes compares the configurable fields within two NodeAnnouncement
+// IsEqual compares the configurable fields within two NodeAnnouncement
 // objects, and returns whether they are equal or not.
-func (a *NodeAnnouncement) CompareNodes(b *NodeAnnouncement) bool {
+func (a *NodeAnnouncement) IsEqual(b *NodeAnnouncement) bool {
 	if !a.NodeID.IsEqual(b.NodeID) {
 		return false
 	}

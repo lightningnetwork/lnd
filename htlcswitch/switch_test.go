@@ -75,7 +75,7 @@ func TestSwitchForward(t *testing.T) {
 	case <-bobChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to destination")
+		t.Fatal("request was not propagated to destination")
 	}
 
 	if s.circuits.pending() != 1 {
@@ -157,7 +157,7 @@ func TestSwitchCancel(t *testing.T) {
 	case <-bobChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to destination")
+		t.Fatal("request was not propagated to destination")
 	}
 
 	if s.circuits.pending() != 1 {
@@ -237,7 +237,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	case <-bobChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to destination")
+		t.Fatal("request was not propagated to destination")
 	}
 
 	if s.circuits.pending() != 1 {
@@ -270,7 +270,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	case <-aliceChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to channelPoint")
+		t.Fatal("request was not propagated to channelPoint")
 	}
 
 	if s.circuits.pending() != 1 {
@@ -286,7 +286,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	case <-aliceChannelLink.packets:
 		break
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to channelPoint")
+		t.Fatal("request was not propagated to channelPoint")
 	}
 
 	if s.circuits.pending() != 0 {
@@ -343,7 +343,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	case err := <-errChan:
 		t.Fatalf("unable to send payment: %v", err)
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to destination")
+		t.Fatal("request was not propagated to destination")
 	}
 
 	select {
@@ -352,7 +352,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	case err := <-errChan:
 		t.Fatalf("unable to send payment: %v", err)
 	case <-time.After(time.Second):
-		t.Fatal("request was not propogated to destination")
+		t.Fatal("request was not propagated to destination")
 	}
 
 	if s.numPendingPayments() != 2 {

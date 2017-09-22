@@ -2803,7 +2803,7 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	select {
 	case graphUpdate := <-graphUpdates:
 		if len(graphUpdate.NodeUpdates) > 0 {
-			fmt.Println("unexpected node announcement received: %v", graphUpdate.NodeUpdates[0])
+			t.Fatalf("unexpected node announcement received: %v", graphUpdate.NodeUpdates[0])
 		}
 	case <-time.After(time.Second * 1):
 	}

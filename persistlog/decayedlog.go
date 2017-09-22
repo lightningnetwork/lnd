@@ -176,17 +176,18 @@ func (d *DecayedLog) Get(hash []byte) (
 // sharedHashBucket.
 func (d *DecayedLog) Put(hash []byte,
 	value uint32) error {
-	return d.db.Batch(func(tx *bolt.Tx) error {
-		var scratch [4]byte
 
+	var scratch [4]byte
+
+	// Store value into scratch
+	binary.BigEndian.PutUint32(scratch[:], value)
+
+	return d.db.Batch(func(tx *bolt.Tx) error {
 		sharedHashes, err := tx.CreateBucketIfNotExists(sharedHashBucket)
 		if err != nil {
 			return fmt.Errorf("Unable to create bucket sharedHashes:"+
 				" %v", err)
 		}
-
-		// Store value into scratch
-		binary.BigEndian.PutUint32(scratch[:], value)
 
 		return sharedHashes.Put(hash, scratch[:])
 	})

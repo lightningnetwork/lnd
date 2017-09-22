@@ -621,7 +621,7 @@ type Router struct {
 
 	onionKey *btcec.PrivateKey
 
-	d persistlog.DecayedLog
+	d *persistlog.DecayedLog
 }
 
 // NewRouter creates a new instance of a Sphinx onion Router given the node's
@@ -634,7 +634,7 @@ func NewRouter(nodeKey *btcec.PrivateKey, net *chaincfg.Params,
 	// Safe to ignore the error here, nodeID is 20 bytes.
 	nodeAddr, _ := btcutil.NewAddressPubKeyHash(nodeID[:], net)
 
-	d := persistlog.DecayedLog{
+	d := &persistlog.DecayedLog{
 		Notifier: chainNotifier,
 	}
 

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/roasbeef/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion/persistlog"
+	"github.com/roasbeef/btcd/btcec"
 )
 
 var (
@@ -58,7 +58,7 @@ func BenchmarkProcessPacket(b *testing.B) {
 	b.StopTimer()
 
 	// Create the DecayedLog object
-	d := persistlog.DecayedLog{}
+	d := &persistlog.DecayedLog{}
 	if err := d.Start(); err != nil {
 		b.Fatalf("unable to start channeldb")
 	}

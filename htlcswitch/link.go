@@ -276,6 +276,9 @@ func (l *channelLink) Stop() {
 
 	log.Infof("ChannelLink(%v) is stopping", l)
 
+	// TODO(roasbeef): need to stop channel?
+	l.channel.Stop()
+
 	l.overflowQueue.Stop()
 
 	close(l.quit)

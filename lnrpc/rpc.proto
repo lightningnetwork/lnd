@@ -794,6 +794,12 @@ message OpenChannelRequest {
 
     /// The number of satoshis to push to the remote side as part of the initial commitment state
     int64 push_sat = 5 [json_name = "push_sat"];
+
+    /**
+    Whether this channel is private and if so, should not be announced to the
+    greater network
+    */
+    bool private = 6 [json_name = "private"];
 }
 message OpenStatusUpdate {
     oneof update {

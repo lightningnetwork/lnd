@@ -327,6 +327,10 @@ var openChannelCommand = cli.Command{
 			Name:  "block",
 			Usage: "block and wait until the channel is fully open",
 		},
+		cli.BoolFlag{
+			Name:  "private",
+			Usage: "don't announce channel to the greater network",
+		},
 	},
 	Action: openChannel,
 }
@@ -394,6 +398,8 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode push amt: %v", err)
 		}
 	}
+
+	req.Private = ctx.Bool("private")
 
 	stream, err := client.OpenChannel(ctxb, req)
 	if err != nil {

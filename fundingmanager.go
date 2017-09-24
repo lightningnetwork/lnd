@@ -190,6 +190,12 @@ type fundingConfig struct {
 	// channel's funding transaction and initial commitment transaction.
 	SendToPeer func(target *btcec.PublicKey, msgs ...lnwire.Message) error
 
+	// NotifyWhenOnline allows the FundingManager to register with a
+	// subsystem that will notify it when the peer comes online.
+	// This is used when sending the fundingLocked message, since it MUST be
+	// delivered after the funding transaction is confirmed.
+	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
+
 	// FindPeer searches the list of peers connected to the node so that
 	// the FundingManager can notify other daemon subsystems as necessary
 	// during the funding process.
@@ -1453,18 +1459,46 @@ func (f *fundingManager) sendFundingLockedAndAnnounceChannel(
 	}
 	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
 
-	err = f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
-	if err != nil {
-		fndgLog.Errorf("unable to send fundingLocked to peer: %v", err)
-		return
+	// If the peer has disconnected before we reach this point, we will need
+	// to wait for him to come back online before sending the fundingLocked
+	// message. This is special for fundingLocked, since failing to send any
+	// of the previous messages in the funding flow just cancels the flow.
+	// But now the funding transaction is confirmed, the channel is open
+	// and we have to make sure the peer gets the fundingLocked message when
+	// it comes back online. This is also crucial during restart of lnd,
+	// where we might try to resend the fundingLocked message before the
+	// server has had the time to connect to the peer. We keep trying to
+	// send fundingLocked until we succeed, or the fundingManager is shut
+	// down.
+	for {
+		err = f.cfg.SendToPeer(completeChan.IdentityPub,
+			fundingLockedMsg)
+		if err == nil {
+			// Sending succeeded, we can break out and continue
+			// the funding flow.
+			break
+		}
+
+		fndgLog.Warnf("unable to send fundingLocked to peer %x: "+
+			"%v. Will retry when online",
+			completeChan.IdentityPub.SerializeCompressed(), err)
+
+		connected := make(chan struct{})
+		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, connected)
+		select {
+		case <-connected:
+			// Retry sending.
+		case <-f.quit:
+			return
+		}
 	}
 
 	// As the fundingLocked message is now sent to the peer, the channel is
 	// moved to the next state of the state machine. It will be moved to the
 	// last state (actually deleted from the database) after the channel is
 	// finally announced.
-	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint, fundingLockedSent,
-		shortChanID)
+	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint,
+		fundingLockedSent, shortChanID)
 	if err != nil {
 		fndgLog.Errorf("error setting channel state to "+
 			"fundingLockedSent: %v", err)

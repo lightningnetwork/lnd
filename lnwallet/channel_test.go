@@ -999,6 +999,8 @@ func TestForceClose(t *testing.T) {
 // below the nodes' dust limit. In these cases, the amount of the dust HTLCs
 // should be applied to the commitment transaction fee.
 func TestDustHTLCFees(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1157,6 +1159,8 @@ func TestHTLCDustLimit(t *testing.T) {
 //
 // TODO(roasbeef): test needs to be fixed after reserve limits are done
 func TestChannelBalanceDustLimit(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1751,6 +1755,8 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 // TestUpdateFeeFail tests that the signature verification will fail if they
 // fee updates are out of sync.
 func TestUpdateFeeFail(t *testing.T) {
+	t.Parallel()
+
 	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
@@ -1782,6 +1788,8 @@ func TestUpdateFeeFail(t *testing.T) {
 // expected if we send a fee update, and then the sender of the fee update
 // sends a commitment signature.
 func TestUpdateFeeSenderCommits(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -1892,6 +1900,8 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 // expected if we send a fee update, and then the receiver of the fee update
 // sends a commitment signature.
 func TestUpdateFeeReceiverCommits(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -2028,6 +2038,8 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 // initiator fails, and that trying to initiate fee update as non-initiation
 // fails.
 func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -2055,6 +2067,8 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 // Test that if multiple update fee messages are sent consecutively, then the
 // last one is the one that is being committed to.
 func TestUpdateFeeMultipleUpdates(t *testing.T) {
+	t.Parallel()
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.

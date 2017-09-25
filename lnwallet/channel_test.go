@@ -506,7 +506,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// also be able to forward an HTLC now that the HTLC has been locked
 	// into both commitment transactions.
 	if htlcs, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
-		t.Fatalf("bob unable to process alive's revocation: %v", err)
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	} else if len(htlcs) != 1 {
 		t.Fatalf("bob should be able to forward an HTLC, instead can "+
 			"forward %v", len(htlcs))
@@ -1538,7 +1538,7 @@ func TestCancelHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to cancel HTLC: %v", err)
 	}
-	if err := aliceChannel.ReceiveFailHTLC(htlcCancelIndex); err != nil {
+	if _, err := aliceChannel.ReceiveFailHTLC(htlcCancelIndex); err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 
@@ -1891,7 +1891,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 
 	// Bob receives revocation from Alice.
 	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
-		t.Fatalf("bob unable to process alive's revocation: %v", err)
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
 
 }
@@ -2003,7 +2003,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	// Alice receives revokation from Bob, and can now be sure that Bob
 	// received the two updates, and they are considered locked in.
 	if _, err := aliceChannel.ReceiveRevocation(bobRevocation); err != nil {
-		t.Fatalf("bob unable to process alive's revocation: %v", err)
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
 
 	// Alice will receive the signature from Bob, which will cover what was
@@ -2030,7 +2030,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 
 	// Bob receives revocation from Alice.
 	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
-		t.Fatalf("bob unable to process alive's revocation: %v", err)
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
 }
 
@@ -2170,7 +2170,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 
 	// Bob receives revocation from Alice.
 	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
-		t.Fatalf("bob unable to process alive's revocation: %v", err)
+		t.Fatalf("bob unable to process alice's revocation: %v", err)
+	}
+}
 
 // TestAddHTLCNegativeBalance tests that if enough HTLC's are added to the
 // state machine to drive the balance to zero, then the next HTLC attempted to

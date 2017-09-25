@@ -3152,14 +3152,15 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 // ReceiveFailHTLC attempts to cancel a targeted HTLC by its log index,
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method should be called in response to the upstream
-// party cancelling an outgoing HTLC.
-func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
+// party cancelling an outgoing HTLC. The value of the failed HTLC is returned
+// along with an error indicating success.
+func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) (lnwire.MilliSatoshi, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
 	htlc := lc.localUpdateLog.lookup(logIndex)
 	if htlc == nil {
-		return fmt.Errorf("unable to find HTLC to fail")
+		return 0, fmt.Errorf("unable to find HTLC to fail")
 	}
 
 	pd := &PaymentDescriptor{
@@ -3172,7 +3173,8 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) error {
 
 	lc.remoteUpdateLog.appendUpdate(pd)
 	lc.availableLocalBalance += pd.Amount
-	return nil
+
+	return htlc.Amount, nil
 }
 
 // ChannelPoint returns the outpoint of the original funding transaction which

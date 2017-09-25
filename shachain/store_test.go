@@ -13,6 +13,8 @@ type testInsert struct {
 	successful bool
 }
 
+// tests encodes the test vectors specified in BOLT-03, Appendix D,
+// Storage Tests.
 var tests = []struct {
 	name    string
 	inserts []testInsert

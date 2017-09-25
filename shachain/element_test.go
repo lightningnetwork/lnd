@@ -187,6 +187,8 @@ func TestDeriveIndex(t *testing.T) {
 	}
 }
 
+// deriveElementTests encodes the test vectors specified in BOLT-03,
+// Appendix D, Generation Tests.
 var deriveElementTests = []struct {
 	name       string
 	index      index
@@ -194,6 +196,20 @@ var deriveElementTests = []struct {
 	seed       string
 	shouldFail bool
 }{
+	{
+		name:       "generate_from_seed 0 final node",
+		seed:       "0000000000000000000000000000000000000000000000000000000000000000",
+		index:      0xffffffffffff,
+		output:     "02a40c85b6f28da08dfdbe0926c53fab2de6d28c10301f8f7c4073d5e42e3148",
+		shouldFail: false,
+	},
+	{
+		name:       "generate_from_seed FF final node",
+		seed:       "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+		index:      0xffffffffffff,
+		output:     "7cc854b54e3e0dcdb010d7a3fee464a9687be6e8db3be6854c475621e007a5dc",
+		shouldFail: false,
+	},
 	{
 		name:       "generate_from_seed FF alternate bits 1",
 		index:      0xaaaaaaaaaaa,

@@ -260,6 +260,10 @@ func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
 	builder.AddData(ripemd160H(paymentHash))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 
+	// This checks the receiver's signature so that a third party with
+	// knowledge of the payment preimage still cannot steal the output.
+	builder.AddOp(txscript.OP_CHECKSIG)
+
 	// Close out the OP_IF statement above.
 	builder.AddOp(txscript.OP_ENDIF)
 

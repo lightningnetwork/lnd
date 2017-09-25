@@ -413,12 +413,12 @@ type contractMaturityReport struct {
 	// confirmed at.
 	confirmationHeight uint32
 
-	// maturityHeight is the input age required for this output to reach
-	// maturity.
+	// maturityRequirement is the input age required for this output to
+	// reach maturity.
 	maturityRequirement uint32
 
-	// maturityHeight is the absolute block height that this output will mature
-	// at.
+	// maturityHeight is the absolute block height that this output will
+	// mature at.
 	maturityHeight uint32
 }
 

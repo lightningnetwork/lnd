@@ -178,7 +178,7 @@ type PaymentDescriptor struct {
 	// chain, then this value will be -1.
 	localOutputIndex int32
 
-	// remoteOutputIndex is the output index of this HTLc output in the
+	// remoteOutputIndex is the output index of this HTLC output in the
 	// commitment transaction of the remote node.
 	//
 	// NOTE: If the output is dust from the PoV of the remote commitment
@@ -306,7 +306,7 @@ type commitment struct {
 	// the local commitment state. We use this map in order to locate the
 	// details needed to validate an HTLC signature while iterating of the
 	// outputs int he local commitment view.
-	outgoignHTLCIndex map[int32]*PaymentDescriptor
+	outgoingHTLCIndex map[int32]*PaymentDescriptor
 	incomingHTLCIndex map[int32]*PaymentDescriptor
 }
 
@@ -406,7 +406,7 @@ func (c *commitment) populateHtlcIndexes(ourCommitTx bool,
 	// must keep this index so we can validate the HTLC signatures sent to
 	// us.
 	dups := make(map[PaymentHash][]int32)
-	c.outgoignHTLCIndex = make(map[int32]*PaymentDescriptor)
+	c.outgoingHTLCIndex = make(map[int32]*PaymentDescriptor)
 	c.incomingHTLCIndex = make(map[int32]*PaymentDescriptor)
 
 	// populateIndex is a helper function that populates the necessary
@@ -446,7 +446,7 @@ func (c *commitment) populateHtlcIndexes(ourCommitTx bool,
 			if incoming {
 				c.incomingHTLCIndex[htlc.localOutputIndex] = htlc
 			} else {
-				c.outgoignHTLCIndex[htlc.localOutputIndex] = htlc
+				c.outgoingHTLCIndex[htlc.localOutputIndex] = htlc
 			}
 
 		// Otherwise, this is there remote party's commitment
@@ -797,9 +797,9 @@ type LightningChannel struct {
 	// Capcity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
-	// stateHintObsfucator is a 48-bit state hint that's used to obfsucate
+	// stateHintObfuscator is a 48-bit state hint that's used to obfsucate
 	// the current state number on the commitment transactions.
-	stateHintObsfucator [StateHintSize]byte
+	stateHintObfuscator [StateHintSize]byte
 
 	// currentHeight is the current height of our local commitment chain.
 	// This is also the same as the number of updates to the channel we've
@@ -929,7 +929,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		signer:                signer,
 		channelEvents:         events,
 		feeEstimator:          fe,
-		stateHintObsfucator:   stateHint,
+		stateHintObfuscator:   stateHint,
 		currentHeight:         state.NumUpdates,
 		remoteCommitChain:     newCommitmentChain(state.NumUpdates),
 		localCommitChain:      newCommitmentChain(state.NumUpdates),
@@ -1142,7 +1142,7 @@ type BreachRetribution struct {
 	// according to the remote party's dust limit.
 	RemoteOutputSignDesc *SignDescriptor
 
-	// RemoteOutpoint is the output of the output paying to the remote
+	// RemoteOutpoint is the outpoint of the output paying to the remote
 	// party within the breach transaction.
 	RemoteOutpoint wire.OutPoint
 
@@ -1394,8 +1394,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 
 	// Decode the state hint encoded within the commitment transaction to
 	// determine if this is a revoked state or not.
-	obsfucator := lc.stateHintObsfucator
-	broadcastStateNum := GetStateNumHint(commitTxBroadcast, obsfucator)
+	obfuscator := lc.stateHintObfuscator
+	broadcastStateNum := GetStateNumHint(commitTxBroadcast, obfuscator)
 
 	currentStateNum := lc.currentHeight
 
@@ -1975,7 +1975,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// Set the state hint of the commitment transaction to facilitate
 	// quickly recovering the necessary penalty state in the case of an
 	// uncooperative broadcast.
-	err = SetStateNumHint(commitTx, c.height, lc.stateHintObsfucator)
+	err = SetStateNumHint(commitTx, c.height, lc.stateHintObfuscator)
 	if err != nil {
 		return err
 	}
@@ -2017,8 +2017,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			continue
 		}
 
-		// If we're settling in inbound HTLC, and it hasn't been
-		// processed, yet, the increment our state tracking the total
+		// If we're settling an inbound HTLC, and it hasn't been
+		// processed yet, then increment our state tracking the total
 		// number of satoshis we've received within the channel.
 		if entry.EntryType == Settle && !remoteChain &&
 			entry.removeCommitHeightLocal == 0 {
@@ -2573,8 +2573,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
 		// generate a timeout transaction so we can verify the
 		// signature presented.
-		case localCommitmentView.outgoignHTLCIndex[outputIndex] != nil:
-			htlc := localCommitmentView.outgoignHTLCIndex[outputIndex]
+		case localCommitmentView.outgoingHTLCIndex[outputIndex] != nil:
+			htlc := localCommitmentView.outgoingHTLCIndex[outputIndex]
 
 			sigHash = func() ([]byte, error) {
 				op := wire.OutPoint{
@@ -2972,7 +2972,7 @@ func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 }
 
 // InitNextRevocation inserts the passed commitment point as the _next_
-// revocation to be used when created a new commitment state for the remote
+// revocation to be used when creating a new commitment state for the remote
 // party. This function MUST be called before the channel can accept or propose
 // any new states.
 func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
@@ -3089,7 +3089,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 	paymentHash := sha256.Sum256(preimage[:])
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return fmt.Errorf("non existant log entry")
+		return fmt.Errorf("non-existent log entry")
 	}
 
 	if !bytes.Equal(htlc.RHash[:], paymentHash[:]) {

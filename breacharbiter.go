@@ -262,7 +262,7 @@ func (b *breachArbiter) Start() error {
 	}
 
 	// Additionally, we'll also want to watch any pending close or force
-	// close transactions to we can properly mark them as resolved in the
+	// close transactions so we can properly mark them as resolved in the
 	// database.
 	if err := b.watchForPendingCloseConfs(currentHeight); err != nil {
 		return err

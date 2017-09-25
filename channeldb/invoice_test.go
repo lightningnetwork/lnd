@@ -107,7 +107,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 			"instead %v", err)
 	}
 
-	// Attempt to look up a non-existant invoice, this should also fail but
+	// Attempt to look up a non-existent invoice, this should also fail but
 	// with a "not found" error.
 	var fakeHash [32]byte
 	if _, err := db.LookupInvoice(fakeHash); err != ErrInvoiceNotFound {

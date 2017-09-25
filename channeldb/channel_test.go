@@ -125,9 +125,6 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		}
 	}
 
-	var obsfucator [6]byte
-	copy(obsfucator[:], key[:])
-
 	localCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
 			DustLimit:        btcutil.Amount(rand.Int63()),

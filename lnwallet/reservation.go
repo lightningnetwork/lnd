@@ -438,7 +438,7 @@ func (r *ChannelReservation) FinalFundingTx() *wire.MsgTx {
 
 // FundingOutpoint returns the outpoint of the funding transaction.
 //
-// NOTE: The pointer returned will only be set once the .ProcesContribution()
+// NOTE: The pointer returned will only be set once the .ProcessContribution()
 // method is called in the case of the initiator of a single funder workflow,
 // and after the .CompleteReservationSingle() method is called in the case of
 // a responder to a single funder workflow.

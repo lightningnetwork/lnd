@@ -3049,15 +3049,17 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // SettleHTLC attempts to settle an existing outstanding received HTLC. The
 // remote log index of the HTLC settled is returned in order to facilitate
 // creating the corresponding wire message. In the case the supplied preimage
-// is invalid, an error is returned.
-func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
+// is invalid, an error is returned. Additionally, the value of the settled
+// HTLC is also returned.
+func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64,
+	lnwire.MilliSatoshi, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
 	paymentHash := sha256.Sum256(preimage[:])
 	targetHTLCs, ok := lc.rHashMap[paymentHash]
 	if !ok {
-		return 0, fmt.Errorf("invalid payment hash(%v)",
+		return 0, 0, fmt.Errorf("invalid payment hash(%v)",
 			hex.EncodeToString(paymentHash[:]))
 	}
 	targetHTLC := targetHTLCs[0]
@@ -3079,7 +3081,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64, error) {
 	}
 
 	lc.availableLocalBalance += pd.Amount
-	return targetHTLC.Index, nil
+	return targetHTLC.Index, targetHTLC.Amount, nil
 }
 
 // ReceiveHTLCSettle attempts to settle an existing outgoing HTLC indexed by an

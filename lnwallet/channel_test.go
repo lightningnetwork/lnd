@@ -562,7 +562,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// HTLC once he learns of the preimage.
 	var preimage [32]byte
 	copy(preimage[:], paymentPreimage)
-	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	settleIndex, _, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
@@ -730,7 +730,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	for i := 10; i >= 1; i-- {
 		_, preimage := createHTLC(i, lnwire.MilliSatoshi(1e7))
 
-		settleIndex, err := bobChannel.SettleHTLC(preimage)
+		settleIndex, _, err := bobChannel.SettleHTLC(preimage)
 		if err != nil {
 			t.Fatalf("bob unable to settle inbound htlc: %v", err)
 		}
@@ -924,7 +924,7 @@ func TestForceClose(t *testing.T) {
 	}
 
 	// Settle HTLC and sign new commitment.
-	settleIndex, err := aliceChannel.SettleHTLC(preimage)
+	settleIndex, _, err := aliceChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
@@ -1126,7 +1126,7 @@ func TestHTLCDustLimit(t *testing.T) {
 	}
 
 	// Settle HTLC and create a new commitment state.
-	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	settleIndex, _, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
@@ -1190,7 +1190,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
 		t.Fatalf("state transition error: %v", err)
 	}
-	settleIndex, err := bobChannel.SettleHTLC(preimage)
+	settleIndex, _, err := bobChannel.SettleHTLC(preimage)
 	if err != nil {
 		t.Fatalf("bob unable to settle inbound htlc: %v", err)
 	}
@@ -1438,7 +1438,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// Now settle all the HTLCs, then force a state update. The state
 	// update should succeed as both sides have identical.
 	for i := 0; i < 3; i++ {
-		settleIndex, err := bobChannelNew.SettleHTLC(alicePreimage)
+		settleIndex, _, err := bobChannelNew.SettleHTLC(alicePreimage)
 		if err != nil {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
@@ -1447,7 +1447,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
 	}
-	settleIndex, err := aliceChannelNew.SettleHTLC(bobPreimage)
+	settleIndex, _, err := aliceChannelNew.SettleHTLC(bobPreimage)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}

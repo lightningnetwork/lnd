@@ -3,6 +3,8 @@ package htlcswitch
 import (
 	"bytes"
 	"fmt"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -134,7 +137,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 
 	if aliceBandwidthBefore-amount != n.aliceChannelLink.Bandwidth() {
-		t.Fatal("alice bandwidth should have descreased on payment " +
+		t.Fatal("alice bandwidth should have decrease on payment " +
 			"amount")
 	}
 
@@ -1112,4 +1115,226 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
+}
+
+type mockPeer struct {
+	sync.Mutex
+	sentMsgs []lnwire.Message
+}
+
+func (m *mockPeer) SendMessage(msg lnwire.Message) error {
+	m.Lock()
+	m.sentMsgs = append(m.sentMsgs, msg)
+	m.Unlock()
+	return nil
+}
+func (m *mockPeer) WipeChannel(*lnwallet.LightningChannel) error {
+	return nil
+}
+func (m *mockPeer) PubKey() [33]byte {
+	return [33]byte{}
+}
+func (m *mockPeer) Disconnect(reason error) {
+}
+func (m *mockPeer) popSentMsg() lnwire.Message {
+	m.Lock()
+	msg := m.sentMsgs[0]
+	m.sentMsgs[0] = nil
+	m.sentMsgs = m.sentMsgs[1:]
+	m.Unlock()
+
+	return msg
+}
+
+var _ Peer = (*mockPeer)(nil)
+
+func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), error) {
+	globalEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: make(chan *chainntnfs.BlockEpoch),
+		Cancel: func() {
+		},
+	}
+
+	chanID := lnwire.NewShortChanIDFromInt(4)
+	aliceChannel, _, fCleanUp, err := createTestChannel(
+		alicePrivKey, bobPrivKey, chanAmt, chanAmt, chanID,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		invoiveRegistry = newMockRegistry()
+		decoder         = &mockIteratorDecoder{}
+		obfuscator      = newMockObfuscator()
+		alicePeer       mockPeer
+
+		globalPolicy = ForwardingPolicy{
+			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+			BaseFee:       lnwire.NewMSatFromSatoshis(1),
+			TimeLockDelta: 6,
+		}
+	)
+
+	aliceCfg := ChannelLinkConfig{
+		FwrdingPolicy:     globalPolicy,
+		Peer:              &alicePeer,
+		Switch:            nil,
+		DecodeHopIterator: decoder.DecodeHopIterator,
+		DecodeOnionObfuscator: func(io.Reader) (Obfuscator, lnwire.FailCode) {
+			return obfuscator, lnwire.CodeNone
+		},
+		GetLastChannelUpdate: mockGetChanUpdateMessage,
+		Registry:             invoiveRegistry,
+		BlockEpochs:          globalEpoch,
+	}
+
+	const startingHeight = 100
+	aliceLink := NewChannelLink(aliceCfg, aliceChannel, startingHeight)
+	if err := aliceLink.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		defer fCleanUp()
+		defer aliceLink.Stop()
+	}
+
+	return aliceLink, cleanUp, nil
+}
+
+func assertLinkBandwidth(t *testing.T, link ChannelLink,
+	expected lnwire.MilliSatoshi) {
+
+	currentBandwidth := link.Bandwidth()
+	_, _, line, _ := runtime.Caller(1)
+	if currentBandwidth != expected {
+		t.Fatalf("line %v: alice's link bandwidth is incorrect: "+
+			"expected %v, got %v", line, expected, currentBandwidth)
+	}
+}
+
+// TestChannelLinkBandwidthConsistency ensures that the reported bandwidth of a
+// given ChannelLink is properly updated in response to downstream messages
+// from the switch, and upstream messages from its channel peer.
+//
+// TODO(roasbeef): add sync hook into packet processing so can eliminate all
+// sleep in this test and the one below
+func TestChannelLinkBandwidthConsistency(t *testing.T) {
+	t.Parallel()
+
+	// We'll start the test by creating a single instance of
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	aliceLink, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		mockBlob               [lnwire.OnionPacketSize]byte
+		coreChan               = aliceLink.(*channelLink).channel
+		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
+		aliceStartingBandwidth = aliceLink.Bandwidth()
+	)
+
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob.
+	expectedBandwidth := lnwire.NewMSatFromSatoshis(chanAmt - defaultCommitFee)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	// Next, we'll create an HTLC worth 1 BTC, and send it into the link as
+	// a switch initiated payment.  The resulting bandwidth should
+	// now be decremented to reflect the new HTLC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+	addPkt := htlcPacket{
+		htlc: htlc,
+	}
+	aliceLink.HandleSwitchPacket(&addPkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// If we now send in a valid HTLC settle for the prior HTLC we added,
+	// then the bandwidth should remain unchanged as the remote party will
+	// gain additional channel balance.
+	htlcSettle := &lnwire.UpdateFufillHTLC{
+		ID:              0,
+		PaymentPreimage: invoice.Terms.PaymentPreimage,
+	}
+	aliceLink.HandleChannelUpdate(htlcSettle)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Next, we'll add another HTLC initiated by the switch (of the same
+	// amount as the prior one).
+	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	if err != nil {
+		t.Fatalf("unable to create payment: %v", err)
+	}
+	addPkt = htlcPacket{
+		htlc: htlc,
+	}
+	aliceLink.HandleSwitchPacket(&addPkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2)
+
+	// With that processed, we'll now generate an HTLC fail (sent by the
+	// remote peer) to cancel the HTLC we just added. This should return us
+	// back to the bandwidth of the link right before the HTLC was sent.
+	failMsg := &lnwire.UpdateFailHTLC{
+		ID:     1, // As this is the second HTLC.
+		Reason: lnwire.OpaqueReason([]byte("nop")),
+	}
+	aliceLink.HandleChannelUpdate(failMsg)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Moving along, we'll now receive a new HTLC from the remote peer,
+	// with an ID of 0 as this is their first HTLC. The bandwidth should
+	// remain unchanged.
+	updateMsg := &lnwire.UpdateAddHTLC{
+		Amount:      htlcAmt,
+		Expiry:      9,
+		PaymentHash: htlc.PaymentHash, // Re-using the same payment hash.
+	}
+	aliceLink.HandleChannelUpdate(updateMsg)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+
+	// Next, we'll settle the HTLC with our knowledge of the pre-image that
+	// we eventually learn (simulating a multi-hop payment). The bandwidth
+	// of the channel should now be re-balanced to the starting point.
+	settlePkt := htlcPacket{
+		htlc: &lnwire.UpdateFufillHTLC{
+			ID:              2,
+			PaymentPreimage: invoice.Terms.PaymentPreimage,
+		},
+	}
+	aliceLink.HandleSwitchPacket(&settlePkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+
+	// Finally, we'll test the scenario of failing an HTLC received by the
+	// remote node. This should result in no perceived bandwidth changes.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      htlcAmt,
+		Expiry:      9,
+		PaymentHash: htlc.PaymentHash,
+	}
+	aliceLink.HandleChannelUpdate(htlcAdd)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	failPkt := htlcPacket{
+		htlc: &lnwire.UpdateFailHTLC{
+			ID: 3,
+		},
+		payHash: htlc.PaymentHash,
+	}
+	aliceLink.HandleSwitchPacket(&failPkt)
+	time.Sleep(time.Millisecond * 100)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 }

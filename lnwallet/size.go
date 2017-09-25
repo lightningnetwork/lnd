@@ -2,9 +2,16 @@ package lnwallet
 
 import (
 	"github.com/roasbeef/btcd/blockchain"
+	"github.com/roasbeef/btcd/wire"
 )
 
 const (
+	// witnessScaleFactor determines the level of "discount" witness data
+	// receives compared to "base" data. A scale factor of 4, denotes that
+	// witness data is 1/4 as cheap as regular non-witness data. Value copied
+	// here for convenience.
+	witnessScaleFactor = blockchain.WitnessScaleFactor
+
 	// The weight(weight), which is different from the !size! (see BIP-141),
 	// is calculated as:
 	// Weight = 4 * BaseSize + WitnessSize (weight).
@@ -17,6 +24,12 @@ const (
 	//	- OP_DATA: 1 byte (WitnessScriptSHA256 length)
 	//	- WitnessScriptSHA256: 32 bytes
 	P2WSHSize = 1 + 1 + 32
+
+	// P2PKHOutputSize 34 bytes
+	//      - value: 8 bytes
+	//      - var_int: 1 byte (pkscript_length)
+	//      - pkscript (p2pkh): 25 bytes
+	P2PKHOutputSize = 8 + 1 + 25
 
 	// P2WKHOutputSize 31 bytes
 	//      - value: 8 bytes
@@ -36,12 +49,20 @@ const (
 	//	- PublicKeyHASH160: 20 bytes
 	P2WPKHSize = 1 + 1 + 20
 
-	// P2WKHWitnessSize 108 bytes
+	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
 	//      - signature
 	//      - OP_DATA: 1 byte (pubkey length)
 	//      - pubkey
-	P2WKHWitnessSize = 1 + 73 + 1 + 33
+	P2PKHScriptSigSize = 1 + 73 + 1 + 33
+
+	// P2WKHWitnessSize 109 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - signature_length: 1 byte
+	//      - signature
+	//      - pubkey_length: 1 byte
+	//      - pubkey
+	P2WKHWitnessSize = 1 + 1 + 73 + 1 + 33
 
 	// MultiSigSize 71 bytes
 	//	- OP_2: 1 byte
@@ -106,6 +127,11 @@ const (
 	//	- Marker: 1 byte
 	WitnessHeaderSize = 1 + 1
 
+	// BaseTxSize 8 bytes
+	// - Version: 4 bytes
+	// - LockTime: 4 bytes
+	BaseTxSize = 4 + 4
+
 	// BaseSweepTxSize 42 + 41 * num-swept-inputs bytes
 	//	- Version: 4 bytes
 	//	- WitnessHeader <---- part of the witness data
@@ -134,13 +160,13 @@ const (
 		CommitmentDelayOutput + CommitmentKeyHashOutput + 4
 
 	// BaseCommitmentTxWeight 500 weight
-	BaseCommitmentTxWeight = blockchain.WitnessScaleFactor * BaseCommitmentTxSize
+	BaseCommitmentTxWeight = witnessScaleFactor * BaseCommitmentTxSize
 
 	// WitnessCommitmentTxWeight 224 weight
 	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
 
 	// HTLCWeight 172 weight
-	HTLCWeight = blockchain.WitnessScaleFactor * HTLCSize
+	HTLCWeight = witnessScaleFactor * HTLCSize
 
 	// HtlcTimeoutWeight is the weight of the HTLC timeout transaction
 	// which will transition an outgoing HTLC to the delay-and-claim state.
@@ -300,4 +326,66 @@ func estimateCommitTxWeight(count int, prediction bool) int64 {
 	witnessWeight := int64(WitnessCommitmentTxWeight)
 
 	return htlcWeight + baseWeight + witnessWeight
+}
+
+// TxWeightEstimator is able to calculate weight estimates for transactions
+// based on the input and output types. For purposes of estimation, all
+// signatures are assumed to be of the maximum possible size, 73 bytes.
+type TxWeightEstimator struct {
+	hasWitness       bool
+	inputCount       uint32
+	outputCount      uint32
+	inputSize        int
+	inputWitnessSize int
+	outputSize       int
+}
+
+// AddP2PKHInput updates the weight estimate to account for an additional input
+// spending a P2PKH output.
+func (twe *TxWeightEstimator) AddP2PKHInput() {
+	twe.inputSize += InputSize + P2PKHScriptSigSize
+	twe.inputWitnessSize++
+	twe.inputCount++
+}
+
+// AddP2WKHInput updates the weight estimate to account for an additional input
+// spending a P2PWKH output.
+func (twe *TxWeightEstimator) AddP2WKHInput() {
+	twe.inputSize += InputSize
+	twe.inputWitnessSize += P2WKHWitnessSize
+	twe.inputCount++
+	twe.hasWitness = true
+}
+
+// AddP2PKHOutput updates the weight estimate to account for an additional P2PKH
+// output.
+func (twe *TxWeightEstimator) AddP2PKHOutput() {
+	twe.outputSize += P2PKHOutputSize
+	twe.outputCount++
+}
+
+// AddP2WKHOutput updates the weight estimate to account for an additional P2WKH
+// output.
+func (twe *TxWeightEstimator) AddP2WKHOutput() {
+	twe.outputSize += P2WKHOutputSize
+	twe.outputCount++
+}
+
+// AddP2WSHOutput updates the weight estimate to account for an additional P2WSH
+// output.
+func (twe *TxWeightEstimator) AddP2WSHOutput() {
+	twe.outputSize += P2WSHOutputSize
+	twe.outputCount++
+}
+
+// Weight gets the estimated weight of the transaction.
+func (twe *TxWeightEstimator) Weight() int {
+	txSizeStripped := BaseTxSize +
+		wire.VarIntSerializeSize(uint64(twe.inputCount)) + twe.inputSize +
+		wire.VarIntSerializeSize(uint64(twe.outputCount)) + twe.outputSize
+	weight := txSizeStripped * witnessScaleFactor
+	if twe.hasWitness {
+		weight += WitnessHeaderSize + twe.inputWitnessSize
+	}
+	return weight
 }

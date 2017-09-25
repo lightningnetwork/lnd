@@ -2157,5 +2157,37 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// Bob receives revocation from Alice.
 	if _, err := bobChannel.ReceiveRevocation(aliceRevocation); err != nil {
 		t.Fatalf("bob unable to process alive's revocation: %v", err)
+
+// TestAddHTLCNegativeBalance tests that if enough HTLC's are added to the
+// state machine to drive the balance to zero, then the next HTLC attempted to
+// be added will result in an error being returned.
+func TestAddHTLCNegativeBalance(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// First, we'll add 5 HTLCs of 1 BTC each to Alice's commitment.
+	const numHTLCs = 4
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	for i := 0; i < numHTLCs; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+			t.Fatalf("unable to add htlc: %v", err)
+		}
+	}
+
+	// We'll then craft another HTLC with 2 BTC to add to Alice's channel.
+	// This attempt should put Alice in the negative, meaning she should
+	// reject the HTLC.
+	htlc, _ := createHTLC(numHTLCs+1, htlcAmt*2)
+	_, err = aliceChannel.AddHTLC(htlc)
+	if err != ErrInsufficientBalance {
+		t.Fatalf("expected insufficient balance, instead got: %v", err)
 	}
 }

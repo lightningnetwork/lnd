@@ -14,11 +14,12 @@ import (
 func TestWaitingQueueThreadSafety(t *testing.T) {
 	t.Parallel()
 
-	q := newPacketQueue()
+	const numPkts = 1000
+
+	q := newPacketQueue(numPkts)
 	q.Start()
 	defer q.Stop()
 
-	const numPkts = 1000
 	a := make([]lnwire.MilliSatoshi, numPkts)
 	for i := 0; i < numPkts; i++ {
 		a[i] = lnwire.MilliSatoshi(i)
@@ -30,6 +31,8 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 
 	var b []lnwire.MilliSatoshi
 	for i := 0; i < numPkts; i++ {
+		q.SignalFreeSlot()
+
 		select {
 		case packet := <-q.outgoingPkts:
 			b = append(b, packet.amount)

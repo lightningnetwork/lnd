@@ -240,13 +240,13 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		upstream:          make(chan lnwire.Message),
 		downstream:        make(chan *htlcPacket),
 		linkControl:       make(chan interface{}),
-		cancelReasons:     make(map[uint64]lnwire.OpaqueReason),
-		logCommitTimer:    time.NewTimer(300 * time.Millisecond),
-		overflowQueue:     newPacketQueue(),
-		bestHeight:        currentHeight,
-		quit:              make(chan struct{}),
 		// TODO(roasbeef): just do reserve here?
 		availableBandwidth: uint64(channel.StateSnapshot().LocalBalance),
+		cancelReasons:      make(map[uint64]lnwire.OpaqueReason),
+		logCommitTimer:     time.NewTimer(300 * time.Millisecond),
+		overflowQueue:      newPacketQueue(lnwallet.MaxHTLCNumber / 2),
+		bestHeight:         currentHeight,
+		quit:               make(chan struct{}),
 	}
 }
 
@@ -1032,6 +1032,7 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, settlePacket)
+			l.overflowQueue.SignalFreeSlot()
 
 		// A failureCode message for a previously forwarded HTLC has been
 		// received. As a result a new slot will be freed up in our
@@ -1053,6 +1054,7 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, failPacket)
+			l.overflowQueue.SignalFreeSlot()
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can no examine the forwarding details of the HTLC, and the

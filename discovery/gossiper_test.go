@@ -56,6 +56,7 @@ var (
 	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
 	trickleDelay     = time.Millisecond * 100
+	retransmitDelay  = time.Hour * 1
 	proofMatureDelta uint32
 )
 
@@ -442,6 +443,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		},
 		Router:           router,
 		TrickleDelay:     trickleDelay,
+		RetransmitDelay:  retransmitDelay,
 		ProofMatureDelta: proofMatureDelta,
 		DB:               db,
 	}, nodeKeyPub1)

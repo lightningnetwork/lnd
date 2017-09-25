@@ -917,19 +917,41 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 // snapshot is detached from the original channel that generated it, providing
 // read-only access to the current or prior state of an active channel.
 type ChannelSnapshot struct {
+	// RemoteIdentity is the identity public key of the remote node that we
+	// are maintaining the open channel with.
 	RemoteIdentity btcec.PublicKey
 
-	ChannelPoint *wire.OutPoint
+	// ChannelPoint is the channel point that uniquly identifies the
+	// channel whose delta this is.
+	ChannelPoint wire.OutPoint
 
-	Capacity      btcutil.Amount
-	LocalBalance  lnwire.MilliSatoshi
+	// Capacity is the total capacity of the channel in satoshis.
+	Capacity btcutil.Amount
+
+	// LocalBalance is the amount of mSAT allocated to the local party.
+	LocalBalance lnwire.MilliSatoshi
+
+	// RemoteBalance is the amount of mSAT allocated to the remote party.
 	RemoteBalance lnwire.MilliSatoshi
 
+	// NumUpdates is the number of updates that have taken place within the
+	// commitment transaction itself.
 	NumUpdates uint64
 
-	TotalMilliSatoshisSent     lnwire.MilliSatoshi
+	// CommitFee is the total fee paid on the commitment transaction at
+	// this current commitment state.
+	CommitFee btcutil.Amount
+
+	// TotalMilliSatoshisSent is the total number of mSAT sent by the local
+	// party at this current commitment instance.
+	TotalMilliSatoshisSent lnwire.MilliSatoshi
+
+	// TotalMilliSatoshisReceived is the total number of mSAT received by
+	// the local party current commitment instance.
 	TotalMilliSatoshisReceived lnwire.MilliSatoshi
 
+	// Htlcs is the current set of outstanding HTLC's live on the
+	// commitment transaction at this instance.
 	Htlcs []HTLC
 }
 
@@ -942,11 +964,12 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 
 	snapshot := &ChannelSnapshot{
 		RemoteIdentity:             *c.IdentityPub,
-		ChannelPoint:               &c.FundingOutpoint,
+		ChannelPoint:               c.FundingOutpoint,
 		Capacity:                   c.Capacity,
 		LocalBalance:               c.LocalBalance,
 		RemoteBalance:              c.RemoteBalance,
 		NumUpdates:                 c.NumUpdates,
+		CommitFee:                  c.CommitFee,
 		TotalMilliSatoshisSent:     c.TotalMSatSent,
 		TotalMilliSatoshisReceived: c.TotalMSatReceived,
 	}

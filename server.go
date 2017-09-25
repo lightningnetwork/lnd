@@ -548,9 +548,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		// The ticker has just woken us up, so we'll need to check if
 		// we need to attempt to connect our to any more peers.
 		case <-sampleTicker.C:
-			srvrLog.Infof("e=%v, a=%v",
-				atomic.LoadUint32(&epochErrors), epochAttempts)
-
 			// If all of our attempts failed during this last back
 			// off period, then will increase our backoff to 5
 			// minute ceiling to avoid an excessive number of

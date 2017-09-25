@@ -133,6 +133,8 @@ func (m *mockNotfier) Stop() error {
 func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
+		Cancel: func() {
+		},
 	}, nil
 }
 
@@ -330,11 +332,6 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		Db:                      dbBob,
 	}
 
-	cleanUpFunc := func() {
-		os.RemoveAll(bobPath)
-		os.RemoveAll(alicePath)
-	}
-
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
@@ -349,6 +346,14 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		estimator, bobChannelState)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+
+	cleanUpFunc := func() {
+		os.RemoveAll(bobPath)
+		os.RemoveAll(alicePath)
+
+		channelAlice.Stop()
+		channelBob.Stop()
 	}
 
 	// Now that the channel are open, simulate the start of a session by

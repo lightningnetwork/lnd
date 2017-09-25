@@ -3120,6 +3120,8 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 // entry which will remove the target log entry within the next commitment
 // update. This method is intended to be called in order to cancel in
 // _incoming_ HTLC.
+//
+// TODO(roasbeef): add value as well?
 func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 	lc.Lock()
 	defer lc.Unlock()

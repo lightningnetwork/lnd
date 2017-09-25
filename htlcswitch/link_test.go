@@ -1338,3 +1338,115 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	time.Sleep(time.Millisecond * 100)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 }
+
+// TestChannelLinkBandwidthConsistencyOverflow tests that in the case of a
+// commitment overflow (no more space for new HTLC's), the bandwidth is updated
+// properly as items are being added and removed from the overflow queue.
+func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
+	t.Parallel()
+
+	var mockBlob [lnwire.OnionPacketSize]byte
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	aliceLink, cleanUp, err := newSingleLinkTestHarness(chanAmt)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	var (
+		coreLink               = aliceLink.(*channelLink)
+		aliceStartingBandwidth = aliceLink.Bandwidth()
+	)
+
+	addLinkHTLC := func(amt lnwire.MilliSatoshi) [32]byte {
+		invoice, htlc, err := generatePayment(amt, amt, 5, mockBlob)
+		if err != nil {
+			t.Fatalf("unable to create payment: %v", err)
+		}
+		addPkt := htlcPacket{
+			htlc: htlc,
+		}
+		aliceLink.HandleSwitchPacket(&addPkt)
+
+		return invoice.Terms.PaymentPreimage
+	}
+
+	// We'll first start by adding enough HTLC's to overflow the commitment
+	// transaction, checking the reported link bandwidth for proper
+	// consistency along the way
+	htlcAmt := lnwire.NewMSatFromSatoshis(100000)
+	totalHtlcAmt := lnwire.MilliSatoshi(0)
+	const numHTLCs = lnwallet.MaxHTLCNumber / 2
+	var preImages [][32]byte
+	for i := 0; i < numHTLCs; i++ {
+		preImage := addLinkHTLC(htlcAmt)
+		preImages = append(preImages, preImage)
+
+		totalHtlcAmt += htlcAmt
+	}
+
+	time.Sleep(time.Millisecond * 100)
+	expectedBandwidth := aliceStartingBandwidth - totalHtlcAmt
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	// The overflow queue should be empty at this point, as the commitment
+	// transaction should be full, but not yet overflown.
+	if coreLink.overflowQueue.Length() != 0 {
+		t.Fatalf("wrong overflow queue length: expected %v, got %v", 0,
+			coreLink.overflowQueue.Length())
+	}
+
+	// At this point, the commitment transaction should now be fully
+	// saturated. We'll continue adding HTLC's, and asserting that the
+	// bandwidth account is done properly.
+	const numOverFlowHTLCs = 20
+	for i := 0; i < numOverFlowHTLCs; i++ {
+		preImage := addLinkHTLC(htlcAmt)
+		preImages = append(preImages, preImage)
+
+		totalHtlcAmt += htlcAmt
+	}
+
+	time.Sleep(time.Millisecond * 100)
+	expectedBandwidth = aliceStartingBandwidth - totalHtlcAmt
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
+
+	aliceEndBandwidth := aliceLink.Bandwidth()
+
+	// With the extra HTLC's added, the overflow queue should now be
+	// populated with our 10 additional HTLC's.
+	if coreLink.overflowQueue.Length() != numOverFlowHTLCs {
+		t.Fatalf("wrong overflow queue length: expected %v, got %v",
+			numOverFlowHTLCs,
+			coreLink.overflowQueue.Length())
+	}
+
+	// At this point, we'll now settle one of the HTLC's that were added.
+	// The resulting bandwidth change should be non-existent as this will
+	// simply transfer over funds to the remote party. However, the size of
+	// the overflow queue should be decreasing
+	for i := 0; i < numOverFlowHTLCs; i++ {
+		htlcSettle := &lnwire.UpdateFufillHTLC{
+			ID:              uint64(i),
+			PaymentPreimage: preImages[i],
+		}
+
+		aliceLink.HandleChannelUpdate(htlcSettle)
+		time.Sleep(time.Millisecond * 50)
+		assertLinkBandwidth(t, aliceLink, aliceEndBandwidth)
+
+		// As we're not actually initiating a full state update, we'll
+		// trigger a free-slot signal manually here.
+		coreLink.overflowQueue.SignalFreeSlot()
+	}
+
+	// Finally, at this point, the queue itself should be fully empty. As
+	// enough slots have been drained from the commitment transaction to
+	// allocate the queue items to.
+	time.Sleep(time.Millisecond * 100)
+	if coreLink.overflowQueue.Length() != 0 {
+		t.Fatalf("wrong overflow queue length: expected %v, got %v", 0,
+			coreLink.overflowQueue.Length())
+	}
+}

@@ -134,6 +134,11 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 	return nil
 }
 
+func (r *mockGraphSource) DeleteEdge(info *channeldb.ChannelEdgeInfo) error {
+	delete(r.infos, info.ChannelID)
+	return nil
+}
+
 func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
 	r.edges[edge.ChannelID] = append(
 		r.edges[edge.ChannelID],

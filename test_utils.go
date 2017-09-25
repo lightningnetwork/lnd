@@ -134,9 +134,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		return nil, nil, nil, nil, err
 	}
 
-	var obsfucator [lnwallet.StateHintSize]byte
-	copy(obsfucator[:], aliceFirstRevoke[:])
-
 	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
 	aliceChannelState := &channeldb.OpenChannel{

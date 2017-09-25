@@ -287,9 +287,6 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		return nil, nil, nil, err
 	}
 
-	var obsfucator [StateHintSize]byte
-	copy(obsfucator[:], aliceFirstRevoke[:])
-
 	estimator := &StaticFeeEstimator{24, 6}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
 	commitFee := calcStaticFee(0)

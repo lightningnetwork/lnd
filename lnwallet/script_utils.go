@@ -347,7 +347,7 @@ func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 // HTLC to activate the time locked covenant clause of a soon to be expired
 // HTLC.  This script simply spends the multi-sig output using the
 // pre-generated HTLC timeout transaction.
-func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
+func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(htlcTimeoutTx, signDesc)
@@ -361,7 +361,7 @@ func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
 	// original OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(reciverSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(receiverSig, byte(txscript.SigHashAll))
 	witnessStack[2] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[3] = nil
 	witnessStack[4] = signDesc.WitnessScript
@@ -1026,7 +1026,7 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 //
 //   tweakPub := basePoint + sha256(commitPoint || basePoint) * G
 //            := G*k + sha256(commitPoint || basePoint)*G
-//            := G*(k + sha256(commitPoint || basePoint)
+//            := G*(k + sha256(commitPoint || basePoint))
 //
 // Therefore, if a party possess the value k, the private key of the base
 // point, then they are able to derive the private key by computing: compute
@@ -1036,8 +1036,8 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 //
 // Where N is the order of the sub-group.
 //
-// The rational for tweaking all public keys used within the commitment
-// contracts are to ensure that all keys are properly delinearized to avoid any
+// The rationale for tweaking all public keys used within the commitment
+// contracts is to ensure that all keys are properly delinearized to avoid any
 // funny business when jointly collaborating to compute public and private
 // keys. Additionally, the use of the per commitment point ensures that each
 // commitment state houses a unique set of keys which is useful when creating
@@ -1214,7 +1214,7 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 // obfuscater is XOR'd against the state number in order to hide the exact
 // state number from the PoV of outside parties.
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
-	obsfucator [StateHintSize]byte) error {
+	obfuscator [StateHintSize]byte) error {
 
 	// With the current schema we are only able able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
@@ -1234,7 +1234,7 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	// commitment transaction in the case that either commitment
 	// transaction is broadcast directly on chain.
 	var obfs [8]byte
-	copy(obfs[2:], obsfucator[:])
+	copy(obfs[2:], obfuscator[:])
 	xorInt := binary.BigEndian.Uint64(obfs[:])
 
 	stateNum = stateNum ^ xorInt
@@ -1249,15 +1249,15 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 
 // GetStateNumHint recovers the current state number given a commitment
 // transaction which has previously had the state number encoded within it via
-// setStateNumHint and a shared obsfucator.
+// setStateNumHint and a shared obfuscator.
 //
 // See setStateNumHint for further details w.r.t exactly how the state-hints
 // are encoded.
-func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint64 {
+func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint64 {
 	// Convert the obfuscater into a uint64, this will be used to
 	// de-obfuscate the final recovered state number.
 	var obfs [8]byte
-	copy(obfs[2:], obsfucator[:])
+	copy(obfs[2:], obfuscator[:])
 	xorInt := binary.BigEndian.Uint64(obfs[:])
 
 	// Retrieve the state hint from the sequence number and locktime

@@ -614,7 +614,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	if !ok {
 		// TODO(roasbeef): make new error, "unkown funding state" or something
-		req.err <- fmt.Errorf("attempted to cancel non-existant funding state")
+		req.err <- fmt.Errorf("attempted to cancel non-existent funding state")
 		return
 	}
 
@@ -692,7 +692,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.Unlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existant funding state")
+		req.err <- fmt.Errorf("attempted to update non-existent funding state")
 		return
 	}
 
@@ -822,11 +822,11 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	}
 
 	// With both commitment transactions constructed, generate the state
-	// obsfucator then use it to encode the current state number within
+	// obfuscator then use it to encode the current state number within
 	// both commitment transactions.
-	var stateObsfucator [StateHintSize]byte
+	var stateObfuscator [StateHintSize]byte
 	if chanState.ChanType == channeldb.SingleFunder {
-		stateObsfucator = deriveStateHintObfuscator(
+		stateObfuscator = deriveStateHintObfuscator(
 			ourContribution.PaymentBasePoint,
 			theirContribution.PaymentBasePoint,
 		)
@@ -835,18 +835,18 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		theirSer := theirContribution.PaymentBasePoint.SerializeCompressed()
 		switch bytes.Compare(ourSer, theirSer) {
 		case -1:
-			stateObsfucator = deriveStateHintObfuscator(
+			stateObfuscator = deriveStateHintObfuscator(
 				ourContribution.PaymentBasePoint,
 				theirContribution.PaymentBasePoint,
 			)
 		default:
-			stateObsfucator = deriveStateHintObfuscator(
+			stateObfuscator = deriveStateHintObfuscator(
 				theirContribution.PaymentBasePoint,
 				ourContribution.PaymentBasePoint,
 			)
 		}
 	}
-	err = initStateHints(ourCommitTx, theirCommitTx, stateObsfucator)
+	err = initStateHints(ourCommitTx, theirCommitTx, stateObfuscator)
 	if err != nil {
 		req.err <- err
 		return
@@ -1106,7 +1106,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	l.limboMtx.RUnlock()
 	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existant funding state")
+		req.err <- fmt.Errorf("attempted to update non-existent funding state")
 		req.completeChan <- nil
 		return
 	}
@@ -1136,10 +1136,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within
 	// both commitment transactions.
-	stateObsfucator := deriveStateHintObfuscator(
+	stateObfuscator := deriveStateHintObfuscator(
 		pendingReservation.theirContribution.PaymentBasePoint,
 		pendingReservation.ourContribution.PaymentBasePoint)
-	err = initStateHints(ourCommitTx, theirCommitTx, stateObsfucator)
+	err = initStateHints(ourCommitTx, theirCommitTx, stateObfuscator)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
@@ -1345,7 +1345,7 @@ func deriveStateHintObfuscator(key1, key2 *btcec.PublicKey) [StateHintSize]byte 
 }
 
 // initStateHints properly sets the obsfucated state hints on both commitment
-// transactions using the passed obsfucator.
+// transactions using the passed obfuscator.
 func initStateHints(commit1, commit2 *wire.MsgTx,
 	obfuscator [StateHintSize]byte) error {
 

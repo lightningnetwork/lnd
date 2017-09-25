@@ -164,9 +164,6 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		return nil, nil, nil, err
 	}
 
-	var obsfucator [lnwallet.StateHintSize]byte
-	copy(obsfucator[:], aliceFirstRevoke[:])
-
 	estimator := &lnwallet.StaticFeeEstimator{
 		FeeRate:      24,
 		Confirmation: 6,

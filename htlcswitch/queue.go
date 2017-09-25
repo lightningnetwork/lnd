@@ -107,12 +107,15 @@ func (p *packetQueue) packetCoordinator() {
 
 		nextPkt := p.queue[0]
 
+		p.queueCond.L.Unlock()
+
 		// If there aren't any further messages to sent (or the link
 		// didn't immediately read our message), then we'll block and
 		// wait for a new message to be sent into the overflow queue,
 		// or for the link's htlcForwarder to wake up.
 		select {
 		case <-p.freeSlots:
+
 			select {
 			case p.outgoingPkts <- nextPkt:
 				// Pop the item off the front of the queue and
@@ -120,22 +123,20 @@ func (p *packetQueue) packetCoordinator() {
 				// the head pointer. This will set us up for
 				// the next iteration.  If the queue is empty
 				// at this point, then we'll block at the top.
+				p.queueCond.L.Lock()
 				p.queue[0] = nil
 				p.queue = p.queue[1:]
+				p.queueCond.L.Unlock()
 				atomic.AddInt32(&p.queueLen, -1)
 			case <-p.quit:
-				p.queueCond.L.Unlock()
 				return
 			}
 
 		case <-p.quit:
-			p.queueCond.L.Unlock()
 			return
 
 		default:
 		}
-
-		p.queueCond.L.Unlock()
 	}
 }
 

@@ -237,6 +237,10 @@ type commitment struct {
 	// update number of this commitment.
 	height uint64
 
+	// isOurs indicates whether this is the local or remote node's version of
+	// the commitment.
+	isOurs bool
+
 	// [our|their]MessageIndex are indexes into the HTLC log, up to which
 	// this commitment transaction includes. These indexes allow both sides
 	// to independently, and concurrent send create new commitments. Each
@@ -271,6 +275,10 @@ type commitment struct {
 	// feePerKw is the fee per kw used to calculate this commitment
 	// transaction's fee.
 	feePerKw btcutil.Amount
+
+	// dustLimit is the limit on the commitment transaction such that no output
+	// values should be below this amount.
+	dustLimit btcutil.Amount
 
 	// outgoingHTLCs is a slice of all the outgoing HTLC's (from our PoV)
 	// on this commitment transaction.
@@ -1810,122 +1818,21 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	} else {
 		dustLimit = lc.localChanCfg.DustLimit
 	}
-	numHTLCs := int64(0)
-	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, ourCommitTx, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
 
-			continue
-		}
-
-		numHTLCs++
-	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, ourCommitTx, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-
-			continue
-		}
-
-		numHTLCs++
-	}
-
-	// Next, we'll calculate the fee for the commitment transaction based
-	// on its total weight. Once we have the total weight, we'll multiply
-	// by the current fee-per-kw, then divide by 1000 to get the proper
-	// fee.
-	totalCommitWeight := commitWeight + (htlcWeight * numHTLCs)
-
-	// With the weight known, we can now calculate the commitment fee,
-	// ensuring that we account for any dust outputs trimmed above.
-	commitFee := btcutil.Amount((int64(feePerKw) * totalCommitWeight) / 1000)
-
-	// Currently, within the protocol, the initiator always pays the fees.
-	// So we'll subtract the fee amount from the balance of the current
-	// initiator.
-	if lc.channelState.IsInitiator {
-		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
-	} else if !lc.channelState.IsInitiator {
-		theirBalance -= lnwire.NewMSatFromSatoshis(commitFee)
-	}
-
-	var (
-		delay                      uint32
-		delayBalance, p2wkhBalance btcutil.Amount
-	)
-
-	// We'll now compute the delay, payment and revocation key based on the
-	// current commitment point. All keys are tweaked each state in order
-	// to ensure the keys from each state are unlinkable. TO create the
-	// revocation key, we take the opposite party's revocation base point
-	// and combine that with the current commitment point.
-	if remoteChain {
-		delay = uint32(lc.remoteChanCfg.CsvDelay)
-		delayBalance = theirBalance.ToSatoshis()
-		p2wkhBalance = ourBalance.ToSatoshis()
-	} else {
-		delay = uint32(lc.localChanCfg.CsvDelay)
-		delayBalance = ourBalance.ToSatoshis()
-		p2wkhBalance = theirBalance.ToSatoshis()
-	}
-
-	// Generate a new commitment transaction with all the latest
-	// unsettled/un-timed out HTLCs.
-	commitTx, err := CreateCommitTx(lc.fundingTxIn, keyRing, delay,
-		delayBalance, p2wkhBalance, dustLimit)
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll now add all the HTLC outputs to the commitment transaction.
-	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
-	// need the objective local/remote keys for this particular commitment
-	// as well.
-	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, !remoteChain, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-			continue
-		}
-
-		err := lc.addHTLC(commitTx, ourCommitTx, false, htlc, keyRing)
-		if err != nil {
-			return nil, err
-		}
-	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, !remoteChain, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-			continue
-		}
-
-		err := lc.addHTLC(commitTx, ourCommitTx, true, htlc, keyRing)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Set the state hint of the commitment transaction to facilitate
-	// quickly recovering the necessary penalty state in the case of an
-	// uncooperative broadcast.
-	obsfucator := lc.stateHintObsfucator
-	stateNum := nextHeight
-	if err := SetStateNumHint(commitTx, stateNum, obsfucator); err != nil {
-		return nil, err
-	}
-
-	// Sort the transactions according to the agreed upon canonical
-	// ordering. This lets us skip sending the entire transaction over,
-	// instead we'll just send signatures.
-	txsort.InPlaceSort(commitTx)
 	c := &commitment{
-		txn:               commitTx,
 		height:            nextHeight,
 		ourBalance:        ourBalance,
 		ourMessageIndex:   ourLogIndex,
 		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
-		fee:               commitFee,
 		feePerKw:          feePerKw,
+		dustLimit:         dustLimit,
+		isOurs:            !remoteChain,
+	}
+
+	// Actually generate unsigned commitment transaction for this view.
+	if err := lc.createCommitmentTx(c, filteredHTLCView, keyRing); err != nil {
+		return nil, err
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new
@@ -1947,6 +1854,122 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	return c, nil
+}
+
+// createCommitmentTx generates the unsigned commitment transaction for a
+// commitment view and assigns to txn field.
+func (lc *LightningChannel) createCommitmentTx(c *commitment,
+	filteredHTLCView *htlcView, keyRing *commitmentKeyRing) error {
+
+	ourBalance := c.ourBalance
+	theirBalance := c.theirBalance
+
+	numHTLCs := int64(0)
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(false, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+
+			continue
+		}
+
+		numHTLCs++
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(true, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+
+			continue
+		}
+
+		numHTLCs++
+	}
+
+	// Next, we'll calculate the fee for the commitment transaction based
+	// on its total weight. Once we have the total weight, we'll multiply
+	// by the current fee-per-kw, then divide by 1000 to get the proper
+	// fee.
+	totalCommitWeight := commitWeight + (htlcWeight * numHTLCs)
+
+	// With the weight known, we can now calculate the commitment fee,
+	// ensuring that we account for any dust outputs trimmed above.
+	commitFee := btcutil.Amount((int64(c.feePerKw) * totalCommitWeight) / 1000)
+
+	// Currently, within the protocol, the initiator always pays the fees.
+	// So we'll subtract the fee amount from the balance of the current
+	// initiator.
+	if lc.channelState.IsInitiator {
+		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+	} else if !lc.channelState.IsInitiator {
+		theirBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+	}
+
+	var (
+		delay                      uint32
+		delayBalance, p2wkhBalance btcutil.Amount
+	)
+	if c.isOurs {
+		delay = uint32(lc.localChanCfg.CsvDelay)
+		delayBalance = ourBalance.ToSatoshis()
+		p2wkhBalance = theirBalance.ToSatoshis()
+	} else {
+		delay = uint32(lc.remoteChanCfg.CsvDelay)
+		delayBalance = theirBalance.ToSatoshis()
+		p2wkhBalance = ourBalance.ToSatoshis()
+	}
+
+	// Generate a new commitment transaction with all the latest
+	// unsettled/un-timed out HTLCs.
+	commitTx, err := CreateCommitTx(lc.fundingTxIn, keyRing, delay,
+		delayBalance, p2wkhBalance, c.dustLimit)
+	if err != nil {
+		return err
+	}
+
+	// We'll now add all the HTLC outputs to the commitment transaction.
+	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
+	// need the objective local/remote keys for this particular commitment
+	// as well.
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(false, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+			continue
+		}
+
+		err := lc.addHTLC(commitTx, c.isOurs, false, htlc, keyRing)
+		if err != nil {
+			return err
+		}
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(true, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+			continue
+		}
+
+		err := lc.addHTLC(commitTx, c.isOurs, true, htlc, keyRing)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Set the state hint of the commitment transaction to facilitate
+	// quickly recovering the necessary penalty state in the case of an
+	// uncooperative broadcast.
+	err = SetStateNumHint(commitTx, c.height, lc.stateHintObsfucator)
+	if err != nil {
+		return err
+	}
+
+	// Sort the transactions according to the agreed upon canonical
+	// ordering. This lets us skip sending the entire transaction over,
+	// instead we'll just send signatures.
+	txsort.InPlaceSort(commitTx)
+
+	c.txn = commitTx
+	c.fee = commitFee
+	c.ourBalance = ourBalance
+	c.theirBalance = theirBalance
+	return nil
 }
 
 // evaluateHTLCView processes all update entries in both HTLC update logs,

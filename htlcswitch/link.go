@@ -483,6 +483,8 @@ out:
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
 // cleared HTLCs with the upstream peer.
+//
+// TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
@@ -497,8 +499,6 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 			// The channels spare bandwidth is fully allocated, so
 			// we'll put this HTLC into the overflow queue.
-			case lnwallet.ErrInsufficientBalance:
-				fallthrough
 			case lnwallet.ErrMaxHTLCNumber:
 				log.Infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+

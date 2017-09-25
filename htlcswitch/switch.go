@@ -389,6 +389,8 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		// we're unable to then we'll bail early.
 		failure, err := payment.deobfuscator.Deobfuscate(htlc.Reason)
 		if err != nil {
+			// TODO(roasbeef): can happen in case of local error in
+			// link pkt handling
 			userErr = errors.Errorf("unable to de-obfuscate "+
 				"onion failure, htlc with hash(%x): %v",
 				payment.paymentHash[:], err)

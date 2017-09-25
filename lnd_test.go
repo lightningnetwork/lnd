@@ -3133,25 +3133,21 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 		}
 	}
 
-	// We should receive one insufficient capacity error, because we are
-	// sending on one invoice bigger.
+	// We should receive one insufficient capacity error, because we sent
+	// one more payment than we can actually handle with the current
+	// channel capacity.
 	errorReceived := false
 	for i := 0; i < numInvoices; i++ {
 		if resp, err := alicePayStream.Recv(); err != nil {
 			t.Fatalf("payment stream have been closed: %v", err)
 		} else if resp.PaymentError != "" {
-			if strings.Contains(resp.PaymentError,
-				lnwire.CodeTemporaryChannelFailure.String()) {
-				if errorReceived {
-					t.Fatalf("redundant payment "+
-						"error: %v", resp.PaymentError)
-				}
-
-				errorReceived = true
-				continue
+			if errorReceived {
+				t.Fatalf("redundant payment error: %v",
+					resp.PaymentError)
 			}
 
-			t.Fatalf("unable to send payment: %v", resp.PaymentError)
+			errorReceived = true
+			continue
 		}
 	}
 

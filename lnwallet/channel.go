@@ -2846,15 +2846,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 	return revocationMsg, nil
 }
 
-// LocalAvailableBalance returns the amount of available money which might be
-// proceed by this channel at the specific point of time.
-func (lc *LightningChannel) LocalAvailableBalance() lnwire.MilliSatoshi {
-	lc.Lock()
-	defer lc.Unlock()
-
-	return lc.availableLocalBalance
-}
-
 // ReceiveRevocation processes a revocation sent by the remote party for the
 // lowest unrevoked commitment within their commitment chain. We receive a
 // revocation either during the initial session negotiation wherein revocation

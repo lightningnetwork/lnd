@@ -67,8 +67,6 @@ func (p *packetQueue) Stop() {
 	close(p.quit)
 
 	p.queueCond.Signal()
-
-	p.wg.Wait()
 }
 
 // packetCoordinator is a goroutine that handles the packet overflow queue.
@@ -126,8 +124,8 @@ func (p *packetQueue) packetCoordinator() {
 				p.queueCond.L.Lock()
 				p.queue[0] = nil
 				p.queue = p.queue[1:]
-				p.queueCond.L.Unlock()
 				atomic.AddInt32(&p.queueLen, -1)
+				p.queueCond.L.Unlock()
 			case <-p.quit:
 				return
 			}

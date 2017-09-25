@@ -29,6 +29,14 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 		})
 	}
 
+	// The reported length of the queue should be the exact number of
+	// packets we added above.
+	queueLength := q.Length()
+	if queueLength != numPkts {
+		t.Fatalf("queue has wrong length: expected %v, got %v", numPkts,
+			queueLength)
+	}
+
 	var b []lnwire.MilliSatoshi
 	for i := 0; i < numPkts; i++ {
 		q.SignalFreeSlot()
@@ -40,6 +48,14 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout")
 		}
+	}
+
+	// The length of the queue should be zero at this point.
+	time.Sleep(time.Millisecond * 50)
+	queueLength = q.Length()
+	if queueLength != 0 {
+		t.Fatalf("queue has wrong length: expected %v, got %v", 0,
+			queueLength)
 	}
 
 	if !reflect.DeepEqual(b, a) {

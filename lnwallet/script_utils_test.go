@@ -1170,33 +1170,3 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 			actualRevocationPrivKeyHex)
 	}
 }
-
-// pubkeyFromHex parses a Bitcoin public key from a hex encoded string.
-func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
-	bytes, err := hex.DecodeString(keyHex)
-	if err != nil {
-		return nil, err
-	}
-	return btcec.ParsePubKey(bytes, btcec.S256())
-}
-
-// privkeyFromHex parses a Bitcoin private key from a hex encoded string.
-func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
-	bytes, err := hex.DecodeString(keyHex)
-	if err != nil {
-		return nil, err
-	}
-	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
-	return key, nil
-
-}
-
-// pubkeyToHex serializes a Bitcoin public key to a hex encoded string.
-func pubkeyToHex(key *btcec.PublicKey) string {
-	return hex.EncodeToString(key.SerializeCompressed())
-}
-
-// privkeyFromHex serializes a Bitcoin private key to a hex encoded string.
-func privkeyToHex(key *btcec.PrivateKey) string {
-	return hex.EncodeToString(key.Serialize())
-}

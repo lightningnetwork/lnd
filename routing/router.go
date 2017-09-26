@@ -1080,9 +1080,14 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
 
 	select {
 	case r.networkUpdates <- rMsg:
-		return <-rMsg.err
+		select {
+		case err := <-rMsg.err:
+			return err
+		case <-r.quit:
+			return errors.New("router has been shut down")
+		}
 	case <-r.quit:
-		return errors.New("router has been shutted down")
+		return errors.New("router has been shut down")
 	}
 }
 
@@ -1099,9 +1104,14 @@ func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
 
 	select {
 	case r.networkUpdates <- rMsg:
-		return <-rMsg.err
+		select {
+		case err := <-rMsg.err:
+			return err
+		case <-r.quit:
+			return errors.New("router has been shut down")
+		}
 	case <-r.quit:
-		return errors.New("router has been shutted down")
+		return errors.New("router has been shut down")
 	}
 }
 
@@ -1117,9 +1127,14 @@ func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy) error {
 
 	select {
 	case r.networkUpdates <- rMsg:
-		return <-rMsg.err
+		select {
+		case err := <-rMsg.err:
+			return err
+		case <-r.quit:
+			return errors.New("router has been shut down")
+		}
 	case <-r.quit:
-		return errors.New("router has been shutted down")
+		return errors.New("router has been shut down")
 	}
 }
 

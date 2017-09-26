@@ -1027,7 +1027,7 @@ func (b *breachArbiter) createJusticeTx(
 	// transaction.
 	var (
 		spendableOutputs []SpendableOutput
-		txWeight         uint64
+		weightEstimate   lnwallet.TxWeightEstimator
 	)
 
 	// Allocate enough space to potentially hold each of the breached
@@ -1036,10 +1036,8 @@ func (b *breachArbiter) createJusticeTx(
 
 	// The justice transaction we construct will be a segwit transaction
 	// that pays to a p2wkh output. Components such as the version,
-	// nLockTime, and output are included in the BaseSweepTxSize, while the
-	// WitnessHeaderSize accounts for the two bytes that signal this as a
-	// segwit transaction.
-	txWeight += 4*lnwallet.BaseSweepTxSize + lnwallet.WitnessHeaderSize
+	// nLockTime, and output are already included in the TxWeightEstimator.
+	weightEstimate.AddP2WKHOutput()
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such
@@ -1052,7 +1050,7 @@ func (b *breachArbiter) createJusticeTx(
 		// First, select the appropriate estimated witness weight for
 		// the give witness type of this breached output. If the witness
 		// type is unrecognized, we will omit it from the transaction.
-		var witnessWeight uint64
+		var witnessWeight int
 		switch input.WitnessType() {
 		case lnwallet.CommitmentNoDelay:
 			witnessWeight = lnwallet.ToLocalPenaltyWitnessSize
@@ -1072,20 +1070,13 @@ func (b *breachArbiter) createJusticeTx(
 				input.WitnessType())
 			continue
 		}
-
-		// Next, each of the outputs in the retribution info will be
-		// used as inputs to the justice transaction. An input is
-		// considered non-witness data, so it is scaled accordingly.
-		txWeight += 4 * lnwallet.InputSize
-
-		// Additionally, we contribute the weight of the witness
-		// directly to the total transaction weight.
-		txWeight += witnessWeight
+		weightEstimate.AddWitnessInput(witnessWeight)
 
 		// Finally, append this input to our list of spendable outputs.
 		spendableOutputs = append(spendableOutputs, input)
 	}
 
+	txWeight := uint64(weightEstimate.Weight())
 	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
 }
 
@@ -1108,12 +1099,13 @@ func (b *breachArbiter) craftCommitSweepTx(
 
 	// Compute the transaction weight of the commit sweep transaction, which
 	// includes a single input and output.
-	var txWeight uint64
-	// Begin with a base txn weight, e.g. version, nLockTime, etc.
-	txWeight += 4*lnwallet.BaseSweepTxSize + lnwallet.WitnessHeaderSize
-	// Add to_local p2wpkh witness and tx input.
-	txWeight += 4*lnwallet.InputSize + lnwallet.P2WKHWitnessSize
+	var weightEstimate lnwallet.TxWeightEstimator
+	weightEstimate.AddP2WKHOutput()
 
+	// Add to_local p2wpkh witness and tx input.
+	weightEstimate.AddP2WKHInput()
+
+	txWeight := uint64(weightEstimate.Weight())
 	return b.sweepSpendableOutputsTxn(txWeight, &selfOutput)
 }
 

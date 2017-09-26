@@ -62,7 +62,9 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
 	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &mockSigner{aliceKeyPriv}
+	aliceSelfOutputSigner := &mockSigner{
+		privkeys: []*btcec.PrivateKey{aliceKeyPriv},
+	}
 
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
@@ -135,7 +137,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	bobSigner := &mockSigner{bobKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -385,8 +387,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that'll act as Bob's signature to Alice for the second level HTLC
@@ -630,8 +632,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that'll act as Alice's signature to Bob for the second level HTLC
@@ -866,8 +868,8 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{bobKeyPriv}
-	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	testCases := []struct {
 		witness func() wire.TxWitness

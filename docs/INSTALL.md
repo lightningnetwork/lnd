@@ -75,15 +75,14 @@ go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
 
 ### Installing btcd
 
-`lnd` currently requires `btcd` with segwit support, which is not yet merged
-into the master branch. Instead, [roasbeef](https://github.com/roasbeef/btcd)
-maintains a fork with his segwit implementation applied. To install, run the
+`lnd` currently requires `btcd` with segwit support, which is now [merged](https://github.com/btcsuite/btcd/pull/656)
+into the master branch. To install, run the
 following commands:
 
-Install **btcd**: (must be from roasbeef fork, not from btcsuite)
+Install **btcd**:
 ```
-git clone https://github.com/roasbeef/btcd $GOPATH/src/github.com/roasbeef/btcd
-cd $GOPATH/src/github.com/roasbeef/btcd
+git clone https://github.com/btcsuite/btcd $GOPATH/src/github.com/btcsuite/btcd
+cd $GOPATH/src/github.com/btcsuite/btcd
 glide install
 go install . ./cmd/...
 ```

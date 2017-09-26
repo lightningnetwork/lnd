@@ -132,18 +132,6 @@ const (
 	// - LockTime: 4 bytes
 	BaseTxSize = 4 + 4
 
-	// BaseSweepTxSize 42 + 41 * num-swept-inputs bytes
-	//	- Version: 4 bytes
-	//	- WitnessHeader <---- part of the witness data
-	//	- CountTxIn: 2 byte
-	//	- TxIn: 41 * num-swept-inputs bytes
-	//		....SweptInputs....
-	//	- CountTxOut: 1 byte
-	//	- TxOut: 31 bytes
-	//		P2WPKHOutput: 31 bytes
-	//	- LockTime: 4 bytes
-	BaseSweepTxSize = 4 + 2 + 1 + P2WKHOutputSize + 4
-
 	// BaseCommitmentTxSize 125 + 43 * num-htlc-outputs bytes
 	//	- Version: 4 bytes
 	//	- WitnessHeader <---- part of the witness data
@@ -351,8 +339,15 @@ func (twe *TxWeightEstimator) AddP2PKHInput() {
 // AddP2WKHInput updates the weight estimate to account for an additional input
 // spending a P2PWKH output.
 func (twe *TxWeightEstimator) AddP2WKHInput() {
+	twe.AddWitnessInput(P2WKHWitnessSize)
+}
+
+// AddWitnessInput updates the weight estimate to account for an additional
+// input spending a pay-to-witness output. This accepts the total size of the
+// witness as a parameter.
+func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) {
 	twe.inputSize += InputSize
-	twe.inputWitnessSize += P2WKHWitnessSize
+	twe.inputWitnessSize += witnessSize
 	twe.inputCount++
 	twe.hasWitness = true
 }

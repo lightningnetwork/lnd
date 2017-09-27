@@ -15,7 +15,6 @@ import (
 // failure code.
 type FailureMessage interface {
 	Code() FailCode
-	Error() string
 }
 
 // failureMessageLength is the size of the failure message plus the size of

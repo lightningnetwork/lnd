@@ -734,7 +734,7 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 			return ErrGraphNoEdgesFound
 		}
 		chanIndex := edges.Bucket(channelPointBucket)
-		if edges == nil {
+		if chanIndex == nil {
 			return ErrGraphNoEdgesFound
 		}
 

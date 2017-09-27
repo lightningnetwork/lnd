@@ -413,12 +413,12 @@ type contractMaturityReport struct {
 	// confirmed at.
 	confirmationHeight uint32
 
-	// maturityHeight is the input age required for this output to reach
-	// maturity.
+	// maturityRequirement is the input age required for this output to
+	// reach maturity.
 	maturityRequirement uint32
 
-	// maturityHeight is the absolute block height that this output will mature
-	// at.
+	// maturityHeight is the absolute block height that this output will
+	// mature at.
 	maturityHeight uint32
 }
 
@@ -786,8 +786,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
 		kgtnOutput.witnessFunc = kgtnOutput.witnessType.GenWitnessFunc(
-			&wallet.Cfg.Signer, kgtnOutput.signDescriptor,
-		)
+			wallet.Cfg.Signer, kgtnOutput.signDescriptor)
 	}
 
 	utxnLog.Infof("New block: height=%v, sweeping %v mature outputs",

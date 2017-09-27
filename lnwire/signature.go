@@ -6,9 +6,9 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 )
 
-// serializeSigToWire serializes a *Signature to [64]byte in the format
+// SerializeSigToWire serializes a *Signature to [64]byte in the format
 // specified by the Lightning RFC.
-func serializeSigToWire(b *[64]byte, e *btcec.Signature) error {
+func SerializeSigToWire(b *[64]byte, e *btcec.Signature) error {
 
 	// Serialize the signature with all the checks that entails.
 	sig := e.Serialize()
@@ -53,9 +53,9 @@ func serializeSigToWire(b *[64]byte, e *btcec.Signature) error {
 	return nil
 }
 
-// deserializeSigFromWire deserializes a *Signature from [64]byte in the format
+// DeserializeSigFromWire deserializes a *Signature from [64]byte in the format
 // specified by the Lightning RFC.
-func deserializeSigFromWire(e **btcec.Signature, b [64]byte) error {
+func DeserializeSigFromWire(e **btcec.Signature, b [64]byte) error {
 
 	// Extract canonically-padded bigint representations from buffer
 	r := extractCanonicalPadding(b[0:32])

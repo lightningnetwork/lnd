@@ -23,6 +23,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
 	"github.com/go-errors/errors"
@@ -284,8 +285,27 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	s.breachArbiter = newBreachArbiter(cc.wallet, chanDB, cc.chainNotifier,
-		s.htlcSwitch, s.cc.chainIO, s.cc.feeEstimator)
+	// Construct a closure that wraps the htlcswitch's CloseLink method.
+	closeLink := func(chanPoint *wire.OutPoint,
+		closureType htlcswitch.ChannelCloseType) {
+		// TODO(conner): Properly respect the update and error channels
+		// returned by CloseLink.
+		s.htlcSwitch.CloseLink(chanPoint, closureType)
+	}
+
+	s.breachArbiter = newBreachArbiter(&BreachConfig{
+		Signer:             cc.wallet.Cfg.Signer,
+		DB:                 chanDB,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		Notifier:           cc.chainNotifier,
+		ChainIO:            s.cc.chainIO,
+		Estimator:          s.cc.feeEstimator,
+		CloseLink:          closeLink,
+		Store:              newRetributionStore(chanDB),
+		GenSweepScript: func() ([]byte, error) {
+			return newSweepPkScript(cc.wallet)
+		},
+	})
 
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
@@ -524,9 +544,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		// The ticker has just woken us up, so we'll need to check if
 		// we need to attempt to connect our to any more peers.
 		case <-sampleTicker.C:
-			srvrLog.Infof("e=%v, a=%v",
-				atomic.LoadUint32(&epochErrors), epochAttempts)
-
 			// If all of our attempts failed during this last back
 			// off period, then will increase our backoff to 5
 			// minute ceiling to avoid an excessive number of

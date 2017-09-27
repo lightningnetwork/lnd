@@ -92,6 +92,8 @@ type ChannelLinkConfig struct {
 	// Switch is a subsystem which is used to forward the incoming HTLC
 	// packets according to the encoded hop forwarding information
 	// contained in the forwarding blob within each HTLC.
+	//
+	// TODO(roasbeef): remove in favor of simple ForwardPacket closure func
 	Switch *Switch
 
 	// DecodeHopIterator function is responsible for decoding HTLC Sphinx
@@ -132,6 +134,12 @@ type ChannelLinkConfig struct {
 	// with the debug htlc R-Hash are immediately settled in the next
 	// available state transition.
 	DebugHTLC bool
+
+	// HodlHTLC should be active if you want this node to refrain from
+	// settling all incoming HTLCs with the sender if it finds itself to be
+	// the exit node.
+	// NOTE: HodlHTLC should be active in conjunction with DebugHTLC.
+	HodlHTLC bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -188,6 +196,12 @@ type channelLink struct {
 	// been processed because of the commitment transaction overflow.
 	overflowQueue *packetQueue
 
+	// availableBandwidth is an integer with units of millisatoshi which
+	// indicates the total available bandwidth of a link, taking into
+	// account any pending (uncommitted) HLTC's, and any HTLC's that are
+	// within the overflow queue.
+	availableBandwidth uint64
+
 	// upstream is a channel that new messages sent from the remote peer to
 	// the local peer will be sent across.
 	upstream chan lnwire.Message
@@ -226,11 +240,13 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 		upstream:          make(chan lnwire.Message),
 		downstream:        make(chan *htlcPacket),
 		linkControl:       make(chan interface{}),
-		cancelReasons:     make(map[uint64]lnwire.OpaqueReason),
-		logCommitTimer:    time.NewTimer(300 * time.Millisecond),
-		overflowQueue:     newWaitingQueue(),
-		bestHeight:        currentHeight,
-		quit:              make(chan struct{}),
+		// TODO(roasbeef): just do reserve here?
+		availableBandwidth: uint64(channel.StateSnapshot().LocalBalance),
+		cancelReasons:      make(map[uint64]lnwire.OpaqueReason),
+		logCommitTimer:     time.NewTimer(300 * time.Millisecond),
+		overflowQueue:      newPacketQueue(lnwallet.MaxHTLCNumber / 2),
+		bestHeight:         currentHeight,
+		quit:               make(chan struct{}),
 	}
 }
 
@@ -250,6 +266,8 @@ func (l *channelLink) Start() error {
 
 	log.Infof("ChannelLink(%v) is starting", l)
 
+	l.overflowQueue.Start()
+
 	l.wg.Add(1)
 	go l.htlcManager()
 
@@ -267,6 +285,10 @@ func (l *channelLink) Stop() {
 	}
 
 	log.Infof("ChannelLink(%v) is stopping", l)
+
+	l.channel.Stop()
+
+	l.overflowQueue.Stop()
 
 	close(l.quit)
 	l.wg.Wait()
@@ -288,7 +310,7 @@ func (l *channelLink) htlcManager() {
 	defer l.wg.Done()
 
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
-		"bandwidth=%v", l.channel.ChannelPoint(), l.getBandwidth())
+		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
 
 	// TODO(roasbeef): check to see if able to settle any currently pending
 	// HTLCs
@@ -384,12 +406,12 @@ out:
 		// transaction is now eligible for processing once again. So
 		// we'll attempt to re-process the packet in order to allow it
 		// to continue propagating within the network.
-		case packet := <-l.overflowQueue.pending:
+		case packet := <-l.overflowQueue.outgoingPkts:
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
 			log.Tracef("Reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
 
-			l.handleDownStreamPkt(packet)
+			l.handleDownStreamPkt(packet, true)
 
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
@@ -400,17 +422,23 @@ out:
 			// directly. Once an active HTLC is either settled or
 			// failed, then we'll free up a new slot.
 			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
-			if ok && l.overflowQueue.length() != 0 {
+			if ok && l.overflowQueue.Length() != 0 {
 				log.Infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
-					"reprocessing queue, batch: %v",
+					"reprocessing queue, batch_size=%v",
 					htlc.PaymentHash[:],
 					l.batchCounter)
 
-				l.overflowQueue.consume(pkt)
+				// As we're adding a new pkt to the overflow
+				// queue, decrement the available bandwidth.
+				atomic.AddUint64(
+					&l.availableBandwidth,
+					-uint64(htlc.Amount),
+				)
+				l.overflowQueue.AddPkt(pkt)
 				continue
 			}
-			l.handleDownStreamPkt(pkt)
+			l.handleDownStreamPkt(pkt, false)
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
@@ -420,8 +448,6 @@ out:
 
 		case cmd := <-l.linkControl:
 			switch req := cmd.(type) {
-			case *getBandwidthCmd:
-				req.resp <- l.getBandwidth()
 			case *policyUpdate:
 				// In order to avoid overriding a valid policy
 				// with a "null" field in the new policy, we'll
@@ -457,7 +483,9 @@ out:
 // Switch. Possible messages sent by the switch include requests to forward new
 // HTLCs, timeout previously cleared HTLCs, and finally to settle currently
 // cleared HTLCs with the upstream peer.
-func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
+//
+// TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
+func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	var isSettle bool
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
@@ -477,7 +505,18 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
 					l.batchCounter)
-				l.overflowQueue.consume(pkt)
+
+				// If we're processing this HTLC for the first
+				// time, then we'll decrement the available
+				// bandwidth. As otherwise, we'd double count
+				// the effect of the HTLC.
+				if !isReProcess {
+					atomic.AddUint64(
+						&l.availableBandwidth, -uint64(htlc.Amount),
+					)
+				}
+
+				l.overflowQueue.AddPkt(pkt)
 				return
 
 			// The HTLC was unable to be added to the state
@@ -535,6 +574,14 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 			}
 		}
 
+		// If we're processing this HTLC for the first time, then we'll
+		// decrement the available bandwidth.
+		if !isReProcess {
+			// Subtract the available bandwidth as we have a new
+			// HTLC in limbo.
+			atomic.AddUint64(&l.availableBandwidth, -uint64(htlc.Amount))
+		}
+
 		log.Tracef("Received downstream htlc: payment_hash=%x, "+
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
@@ -547,12 +594,16 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket) {
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
 		pre := htlc.PaymentPreimage
-		logIndex, err := l.channel.SettleHTLC(pre)
+		logIndex, amt, err := l.channel.SettleHTLC(pre)
 		if err != nil {
 			// TODO(roasbeef): broadcast on-chain
 			l.fail("unable to settle incoming HTLC: %v", err)
 			return
 		}
+
+		// Increment the available bandwidth as we've settled an HTLC
+		// extended by tbe remote party.
+		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
 
 		// With the HTLC settled, we'll need to populate the wire
 		// message to target the specific channel and HTLC to be
@@ -638,10 +689,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// have sent to it, than we should transform the malformed HTLC
 		// message to the usual HTLC fail message.
 		idx := msg.ID
-		if err := l.channel.ReceiveFailHTLC(idx); err != nil {
+		amt, err := l.channel.ReceiveFailHTLC(idx)
+		if err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
 		}
+
+		// Increment the available bandwidth as they've removed our
+		// HTLC.
+		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
 
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
@@ -679,10 +735,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 	case *lnwire.UpdateFailHTLC:
 		idx := msg.ID
-		if err := l.channel.ReceiveFailHTLC(idx); err != nil {
+		amt, err := l.channel.ReceiveFailHTLC(idx)
+		if err != nil {
 			l.fail("unable to handle upstream fail HTLC: %v", err)
 			return
 		}
+
+		// Increment the available bandwidth as they've removed our
+		// HTLC.
+		atomic.AddUint64(&l.availableBandwidth, uint64(amt))
 
 		l.cancelReasons[idx] = msg.Reason
 
@@ -841,32 +902,15 @@ type getBandwidthCmd struct {
 	resp chan lnwire.MilliSatoshi
 }
 
-// Bandwidth returns the amount which current link might pass through channel
-// link. Execution through control channel gives as confidence that bandwidth
-// will not be changed during function execution.
+// Bandwidth returns the total amount that can flow through the channel link at
+// this given instance. The value returned is expressed in millatoshi and
+// can be used by callers when making forwarding decisions to determine if a
+// link can accept an HTLC.
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
-	command := &getBandwidthCmd{
-		resp: make(chan lnwire.MilliSatoshi, 1),
-	}
-
-	select {
-	case l.linkControl <- command:
-		return <-command.resp
-	case <-l.quit:
-		return 0
-	}
-}
-
-// getBandwidth returns the amount which current link might pass through
-// channel link.
-//
-// NOTE: Should be used inside main goroutine only, otherwise the result might
-// not be accurate.
-func (l *channelLink) getBandwidth() lnwire.MilliSatoshi {
-	// TODO(roasbeef): factor in reserve, just grab mutex
-	return l.channel.LocalAvailableBalance() - l.overflowQueue.pendingAmount()
+	// TODO(roasbeef): subtract reserverj
+	return lnwire.MilliSatoshi(atomic.LoadUint64(&l.availableBandwidth))
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system
@@ -988,7 +1032,7 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, settlePacket)
-			l.overflowQueue.release()
+			l.overflowQueue.SignalFreeSlot()
 
 		// A failureCode message for a previously forwarded HTLC has been
 		// received. As a result a new slot will be freed up in our
@@ -1010,7 +1054,7 @@ func (l *channelLink) processLockedInHtlcs(
 			// notify the overflow queue that a spare spot has been
 			// freed up within the commitment state.
 			packetsToForward = append(packetsToForward, failPacket)
-			l.overflowQueue.release()
+			l.overflowQueue.SignalFreeSlot()
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can no examine the forwarding details of the HTLC, and the
@@ -1176,12 +1220,26 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
+				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
+					log.Warnf("hodl HTLC mode enabled, " +
+						"will not attempt to settle " +
+						"HTLC with sender")
+					continue
+				}
+
 				preimage := invoice.Terms.PaymentPreimage
-				logIndex, err := l.channel.SettleHTLC(preimage)
+				logIndex, amt, err := l.channel.SettleHTLC(preimage)
 				if err != nil {
 					l.fail("unable to settle htlc: %v", err)
 					return nil
 				}
+
+				// Increment the available bandwidth as we've
+				// settled an HTLC extended by tbe remote
+				// party.
+				atomic.AddUint64(
+					&l.availableBandwidth, uint64(amt),
+				)
 
 				// Notify the invoiceRegistry of the invoices
 				// we just settled with this latest commitment

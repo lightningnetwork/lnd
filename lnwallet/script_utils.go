@@ -297,6 +297,24 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
+// SenderHtlcSpendRevoke constructs a valid witness allowing the receiver of an
+// HTLC to claim the output with knowledge of the revocation private key in the
+// scenario that the sender of the HTLC broadcasts a previously revoked
+// commitment transaction.  This method first derives the appropriate revocation
+// key, and requires that the provided SignDescriptor has a local revocation
+// basepoint and commitment secret in the PubKey and DoubleTweak fields,
+// respectively.
+func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// Derive the revocation key using the local revocation base point and
+	// commitment point.
+	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
+		signDesc.DoubleTweak.PubKey())
+
+	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
+}
+
 // senderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
 // HTLC to redeem the pending output in the scenario that the sender broadcasts
 // their version of the commitment transaction. A valid spend requires
@@ -526,6 +544,24 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	witnessStack[2] = signDesc.WitnessScript
 
 	return witnessStack, nil
+}
+
+// ReceiverHtlcSpendRevoke constructs a valid witness allowing the sender of an
+// HTLC within a previously revoked commitment transaction to re-claim the
+// pending funds in the case that the receiver broadcasts this revoked
+// commitment transaction. This method first derives the appropriate revocation
+// key, and requires that the provided SignDescriptor has a local revocation
+// basepoint and commitment secret in the PubKey and DoubleTweak fields,
+// respectively.
+func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// Derive the revocation key using the local revocation base point and
+	// commitment point.
+	revokeKey := DeriveRevocationPubkey(signDesc.PubKey,
+		signDesc.DoubleTweak.PubKey())
+
+	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
 }
 
 // receiverHtlcSpendTimeout constructs a valid witness allowing the sender of

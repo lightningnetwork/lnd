@@ -368,6 +368,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 				p.PubKey(), lnChan.ShortChanID()),
 			SettledContracts: p.server.breachArbiter.settledContracts,
 			DebugHTLC:        cfg.DebugHTLC,
+			HodlHTLC:         cfg.HodlHTLC,
 			Registry:         p.server.invoices,
 			Switch:           p.server.htlcSwitch,
 			FwrdingPolicy:    *forwardingPolicy,
@@ -536,6 +537,7 @@ func (c *chanMsgStream) msgConsumer() {
 		// slice's reference down one in order to remove the message
 		// from the queue.
 		msg := c.msgs[0]
+		c.msgs[0] = nil // Set to nil to prevent GC leak.
 		c.msgs = c.msgs[1:]
 
 		// We'll send a message to the funding manager and wait iff an
@@ -858,6 +860,9 @@ func (p *peer) queueHandler() {
 		// If there weren't any messages to send, or the writehandler
 		// is still blocked, then we'll accept a new message into the
 		// queue from outside sub-systems.
+		//
+		// TODO(roasbeef): need send clause here as well to account for
+		// writeHandler blocking?
 		select {
 		case <-p.quit:
 			return
@@ -1018,6 +1023,7 @@ out:
 					p.PubKey(), newChanReq.channel.ShortChanID()),
 				SettledContracts: p.server.breachArbiter.settledContracts,
 				DebugHTLC:        cfg.DebugHTLC,
+				HodlHTLC:         cfg.HodlHTLC,
 				Registry:         p.server.invoices,
 				Switch:           p.server.htlcSwitch,
 				FwrdingPolicy:    p.server.cc.routingPolicy,

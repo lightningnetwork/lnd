@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"gopkg.in/macaroon-bakery.v1/bakery"
-	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
 
 	"golang.org/x/net/context"
 
@@ -262,15 +261,18 @@ func lndMain() error {
 		 * primitives, but the client's preference order has more
 		 * effect during negotiation.
 		**/
-		// TODO(aakselrod): add more cipher suites when 1.7 isn't
-		// supported.
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 		},
 		MinVersion: tls.VersionTLS12,
 	}
@@ -566,9 +568,9 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	caveat := checkers.AllowCaveat(roPermissions...)
-	roMacaroon := admMacaroon.Clone()
-	if err = svc.AddCaveat(roMacaroon, caveat); err != nil {
+	roMacaroon, err := macaroons.AddConstraints(admMacaroon,
+		macaroons.AllowConstraint(roPermissions...))
+	if err != nil {
 		return err
 	}
 	roBytes, err := roMacaroon.MarshalBinary()

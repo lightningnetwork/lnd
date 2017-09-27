@@ -1147,10 +1147,6 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
-	localWitnessHash, err := witnessScriptHash(localPkScript)
-	if err != nil {
-		return nil, err
-	}
 
 	// In order to fully populate the breach retribution struct, we'll need
 	// to find the exact index of the local+remote commitment outputs.
@@ -1194,7 +1190,7 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			PubKey:        chanState.LocalChanCfg.PaymentBasePoint,
 			WitnessScript: localPkScript,
 			Output: &wire.TxOut{
-				PkScript: localWitnessHash,
+				PkScript: localPkScript,
 				Value:    int64(localAmt),
 			},
 			HashType: txscript.SigHashAll,

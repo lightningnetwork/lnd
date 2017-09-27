@@ -1466,6 +1466,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			ChannelCloseSummary: closeSummary,
 			SelfOutPoint:        selfPoint,
 			SelfOutputSignDesc:  selfSignDesc,
+			MaturityDelay:       uint32(lc.remoteChanCfg.CsvDelay),
 			HtlcResolutions:     htlcResolutions,
 		}
 
@@ -3373,6 +3374,11 @@ type UnilateralCloseSummary struct {
 	// SelfOutputSignDesc is a fully populated sign descriptor capable of
 	// generating a valid signature to sweep the output paying to us
 	SelfOutputSignDesc *SignDescriptor
+
+	// MaturityDelay is the relative time-lock, in blocks for all outputs
+	// that pay to the local party within the broadcast commitment
+	// transaction.
+	MaturityDelay uint32
 
 	// HtlcResolutions is a slice of HTLC resolutions which allows the
 	// local node to sweep any outgoing HTLC"s after the timeout period has

@@ -60,7 +60,7 @@ var newAddressCommand = cli.Command{
 	Description: "Generate a wallet new address. Address-types has to be one of:\n" +
 		"   - p2wkh:  Push to witness key hash\n" +
 		"   - np2wkh: Push to nested witness key hash\n" +
-		"   - p2pkh:  Push to public key hash",
+		"   - p2pkh:  Push to public key hash (can't be used to fund channels)",
 	Action: newAddress,
 }
 

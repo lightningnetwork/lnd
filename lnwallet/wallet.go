@@ -60,7 +60,7 @@ type ErrInsufficientFunds struct {
 }
 
 func (e *ErrInsufficientFunds) Error() string {
-	return fmt.Sprintf("not enough outputs to create funding transaction,"+
+	return fmt.Sprintf("not enough witness outputs to create funding transaction,"+
 		" need %v only have %v  available", e.amountAvailable,
 		e.amountSelected)
 }

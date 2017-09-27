@@ -3414,7 +3414,7 @@ type OutgoingHtlcResolution struct {
 func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 	commitHash chainhash.Hash, htlc *channeldb.HTLC, commitTweak []byte,
 	delayKey, localKey, remoteKey *btcec.PublicKey, revokeKey *btcec.PublicKey,
-	feePewKw, dustLimit btcutil.Amount) (*OutgoingHtlcResolution, error) {
+	feePewKw, dustLimit btcutil.Amount, csvDelay uint32) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitHash,
@@ -3429,8 +3429,8 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 
 	// With the fee calculated, re-construct the second level timeout
 	// transaction.
-	timeoutTx, err := createHtlcTimeoutTx(op, secondLevelOutputAmt,
-		htlc.RefundTimeout, uint32(localChanCfg.CsvDelay),
+	timeoutTx, err := createHtlcTimeoutTx(
+		op, secondLevelOutputAmt, htlc.RefundTimeout, csvDelay,
 		revokeKey, delayKey,
 	)
 	if err != nil {
@@ -3469,8 +3469,9 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 	// Finally, we'll generate the script output that the timeout
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
-	htlcSweepScript, err := secondLevelHtlcScript(revokeKey,
-		delayKey, uint32(localChanCfg.CsvDelay))
+	htlcSweepScript, err := secondLevelHtlcScript(
+		revokeKey, delayKey, csvDelay,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -3509,8 +3510,10 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 	remoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
 
 	dustLimit := remoteChanCfg.DustLimit
+	csvDelay := remoteChanCfg.CsvDelay
 	if ourCommit {
 		dustLimit = localChanCfg.DustLimit
+		csvDelay = localChanCfg.CsvDelay
 	}
 
 	htlcResolutions := make([]OutgoingHtlcResolution, len(htlcs))
@@ -3530,9 +3533,11 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 			continue
 		}
 
-		ohr, err := newHtlcResolution(signer, localChanCfg, commitHash,
-			htlc, commitTweak, delayKey, localKey, remoteKey,
-			revokeKey, feePerKw, dustLimit)
+		ohr, err := newHtlcResolution(
+			signer, localChanCfg, commitHash, htlc, commitTweak,
+			delayKey, localKey, remoteKey, revokeKey, feePerKw,
+			dustLimit, uint32(csvDelay),
+		)
 		if err != nil {
 			return nil, nil, err
 		}

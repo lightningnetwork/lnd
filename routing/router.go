@@ -1021,7 +1021,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// target payment using the multi-hop route. We'll try each route
 	// serially until either once succeeds, or we've exhausted our set of
 	// available paths.
-Routes:
+routes:
 	for _, route := range routes {
 		log.Tracef("Attempting to send payment %x, using route: %v",
 			payment.PaymentHash, newLogClosure(func() string {
@@ -1060,29 +1060,29 @@ Routes:
 
 			switch sendError.(type) {
 			case *lnwire.FailTemporaryNodeFailure:
-				break Routes
+				break routes
 			case *lnwire.FailPermanentNodeFailure:
-				break Routes
+				break routes
 			case *lnwire.FailRequiredNodeFeatureMissing:
-				break Routes
+				break routes
 			case *lnwire.FailPermanentChannelFailure:
-				break Routes
+				break routes
 			case *lnwire.FailRequiredChannelFeatureMissing:
-				break Routes
+				break routes
 			case *lnwire.FailUnknownNextPeer:
-				break Routes
+				break routes
 			case *lnwire.FailUnknownPaymentHash:
-				break Routes
+				break routes
 			case *lnwire.FailIncorrectPaymentAmount:
-				break Routes
+				break routes
 			case *lnwire.FailFinalExpiryTooSoon:
-				break Routes
+				break routes
 			case *lnwire.FailInvalidOnionVersion:
-				break Routes
+				break routes
 			case *lnwire.FailInvalidOnionHmac:
-				break Routes
+				break routes
 			case *lnwire.FailInvalidOnionKey:
-				break Routes
+				break routes
 			case *lnwire.FailTemporaryChannelFailure:
 				continue
 			case *lnwire.FailAmountBelowMinimum:
@@ -1090,14 +1090,13 @@ Routes:
 			case *lnwire.FailFeeInsufficient:
 				continue
 			case *lnwire.FailExpiryTooSoon:
-				break Routes
+				break routes
 			case *lnwire.FailChannelDisabled:
 				continue
 			case *lnwire.FailFinalIncorrectCltvExpiry:
-				break Routes
+				break routes
 			case *lnwire.FailFinalIncorrectHtlcAmount:
-				break Routes
-
+				break routes
 			}
 		}
 

@@ -1060,17 +1060,17 @@ routes:
 
 			switch sendError.(type) {
 			case *lnwire.FailTemporaryNodeFailure:
-				break routes
+				continue
 			case *lnwire.FailPermanentNodeFailure:
-				break routes
+				continue
 			case *lnwire.FailRequiredNodeFeatureMissing:
-				break routes
+				continue
 			case *lnwire.FailPermanentChannelFailure:
-				break routes
+				continue
 			case *lnwire.FailRequiredChannelFeatureMissing:
 				break routes
 			case *lnwire.FailUnknownNextPeer:
-				break routes
+				continue
 			case *lnwire.FailUnknownPaymentHash:
 				break routes
 			case *lnwire.FailIncorrectPaymentAmount:
@@ -1086,9 +1086,9 @@ routes:
 			case *lnwire.FailTemporaryChannelFailure:
 				continue
 			case *lnwire.FailAmountBelowMinimum:
-				continue
+				break routes
 			case *lnwire.FailFeeInsufficient:
-				continue
+				break routes
 			case *lnwire.FailExpiryTooSoon:
 				break routes
 			case *lnwire.FailChannelDisabled:
@@ -1096,6 +1096,8 @@ routes:
 			case *lnwire.FailFinalIncorrectCltvExpiry:
 				break routes
 			case *lnwire.FailFinalIncorrectHtlcAmount:
+				break routes
+			case *lnwire.FailInvalidRealm:
 				break routes
 			}
 		}

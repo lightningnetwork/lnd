@@ -109,9 +109,13 @@ type Invoice struct {
 	// Optional. Non-nil iff Description is nil.
 	DescriptionHash *[32]byte
 
-	// Expiry specifies the timespan this invoice will be valid.
+	// expiry specifies the timespan this invoice will be valid.
 	// Optional. If not set, a default expiry of 60 min will be implied.
-	Expiry *time.Time
+	//
+	// This field is unexported and can be read by the Expiry() method. This
+	// method makes sure the default expiry time is returned in case the
+	// field is not set.
+	expiry *time.Duration
 
 	// FallbackAddr is an on-chain address that can be used for payment in
 	// case the Lightning payment fails.
@@ -177,9 +181,9 @@ func DescriptionHash(descriptionHash [32]byte) func(*Invoice) {
 // Expiry is a functional option that allows callers of NewInvoice to set the
 // expiry of the created Invoice. If not set, a default expiry of 60 min will
 // be implied.
-func Expiry(expiry time.Time) func(*Invoice) {
+func Expiry(expiry time.Duration) func(*Invoice) {
 	return func(i *Invoice) {
-		i.Expiry = &expiry
+		i.expiry = &expiry
 	}
 }
 
@@ -444,6 +448,17 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	return b32, nil
 }
 
+// Expiry returns the expiry time for this invoice. If expiry time is not set
+// explicitly, the default 3600 second expiry will be returned.
+func (invoice *Invoice) Expiry() time.Duration {
+	if invoice.expiry != nil {
+		return *invoice.expiry
+	}
+
+	// If no expiry is set for this invoice, default is 3600 seconds.
+	return 3600 * time.Second
+}
+
 // validateInvoice does a sanity check of the provided Invoice, making sure it
 // has all the necessary fields set for it to be considered valid by BOLT-0011.
 func validateInvoice(invoice *Invoice) error {
@@ -624,7 +639,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			copy(dHash[:], hash[:])
 			invoice.DescriptionHash = &dHash
 		case fieldTypeX:
-			if invoice.Expiry != nil {
+			if invoice.expiry != nil {
 				// We skip the field if we have already seen a
 				// supported one.
 				continue
@@ -634,8 +649,8 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			if err != nil {
 				return err
 			}
-			unix := time.Unix(int64(exp), 0)
-			invoice.Expiry = &unix
+			dur := time.Duration(exp) * time.Second
+			invoice.expiry = &dur
 		case fieldTypeF:
 			if invoice.FallbackAddr != nil {
 				// We skip the field if we have already seen a
@@ -783,9 +798,9 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 	}
 
-	if invoice.Expiry != nil {
-		unix := invoice.Expiry.Unix()
-		expiry := uint64ToBase32(uint64(unix))
+	if invoice.expiry != nil {
+		seconds := invoice.expiry.Seconds()
+		expiry := uint64ToBase32(uint64(seconds))
 		err := writeTaggedField(bufferBase32, fieldTypeX, expiry)
 		if err != nil {
 			return err

@@ -3431,7 +3431,7 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 	// transaction.
 	timeoutTx, err := createHtlcTimeoutTx(op, secondLevelOutputAmt,
 		htlc.RefundTimeout, uint32(localChanCfg.CsvDelay),
-		revokeKey, localKey,
+		revokeKey, delayKey,
 	)
 	if err != nil {
 		return nil, err

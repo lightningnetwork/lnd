@@ -7,7 +7,7 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
   
-    **Note**: The minimum version of Go supported is Go 1.7.
+    **Note**: The minimum version of Go supported is Go 1.8.
 
     
     On Linux:

@@ -171,6 +171,7 @@ func main() {
 		getInfoCommand,
 		pendingChannelsCommand,
 		sendPaymentCommand,
+		payInvoiceCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,

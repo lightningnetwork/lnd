@@ -771,9 +771,6 @@ var sendPaymentCommand = cli.Command{
 }
 
 func sendPayment(ctx *cli.Context) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
 	// Show command help if no arguments provieded
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		cli.ShowCommandHelp(ctx, "sendpayment")
@@ -852,6 +849,13 @@ func sendPayment(ctx *cli.Context) error {
 		}
 	}
 
+	return sendPaymentRequest(ctx, req)
+}
+
+func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
 	paymentStream, err := client.SendPayment(context.Background())
 	if err != nil {
 		return err
@@ -879,6 +883,40 @@ func sendPayment(ctx *cli.Context) error {
 	})
 
 	return nil
+}
+
+var payInvoiceCommand = cli.Command{
+	Name:      "payinvoice",
+	Usage:     "pay an invoice over lightning",
+	ArgsUsage: "pay_req",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "pay_req",
+			Usage: "a zbase32-check encoded payment request to fulfill",
+		},
+	},
+	Action: payInvoice,
+}
+
+func payInvoice(ctx *cli.Context) error {
+	args := ctx.Args()
+
+	var payReq string
+
+	switch {
+	case ctx.IsSet("pay_req"):
+		payReq = ctx.String("pay_req")
+	case args.Present():
+		payReq = args.First()
+	default:
+		return fmt.Errorf("pay_req argument missing")
+	}
+
+	req := &lnrpc.SendRequest{
+		PaymentRequest: payReq,
+	}
+
+	return sendPaymentRequest(ctx, req)
 }
 
 var addInvoiceCommand = cli.Command{

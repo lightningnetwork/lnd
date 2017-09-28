@@ -584,7 +584,6 @@ func (c *chanMsgStream) AddMsg(msg lnwire.Message) {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) readHandler() {
-	defer p.wg.Done()
 
 	chanMsgStreams := make(map[lnwire.ChannelID]*chanMsgStream)
 out:
@@ -708,6 +707,8 @@ out:
 		}
 	}
 
+	p.wg.Done()
+
 	p.Disconnect(errors.New("read handler closed"))
 
 	for cid, chanStream := range chanMsgStreams {
@@ -793,11 +794,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
-	defer func() {
-		p.wg.Done()
-		peerLog.Tracef("writeHandler for peer %v done", p)
-	}()
-
+	var exitErr error
+out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
@@ -823,15 +821,21 @@ func (p *peer) writeHandler() {
 			}
 
 			if err != nil {
-				p.Disconnect(errors.Errorf("unable to write message: %v",
-					err))
-				return
+				exitErr = errors.Errorf("unable to write message: %v", err)
+				break out
 			}
 
 		case <-p.quit:
-			return
+			exitErr = errors.Errorf("peer exiting")
+			break out
 		}
 	}
+
+	p.wg.Done()
+
+	p.Disconnect(exitErr)
+
+	peerLog.Tracef("writeHandler for peer %v done", p)
 }
 
 // queueHandler is responsible for accepting messages from outside subsystems

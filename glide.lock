@@ -1,5 +1,5 @@
-hash: 4ad2d57e3948c928a894a627266d5548a18f5105439c0cfe6212c3441cb2f7ff
-updated: 2017-09-19T16:15:53.745859629-07:00
+hash: 0cd85bc72c2c5183088681a5631e047b91a571c89ea4f5ada6ce022dc5b0a12c
+updated: 2017-09-27T19:32:56.026486883-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 13f87f69d8c75f7d27f568338b67ad4a5ffc5099
+  version: 5627b4b693a1c4e7656222a2e5747a15adf45a75
   subpackages:
   - filterdb
   - headerfs

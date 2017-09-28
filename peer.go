@@ -641,9 +641,17 @@ out:
 			p.server.fundingMgr.processFundingLocked(msg, p.addr)
 
 		case *lnwire.Shutdown:
-			p.shutdownChanReqs <- msg
+			select {
+			case p.shutdownChanReqs <- msg:
+			case <-p.quit:
+				break out
+			}
 		case *lnwire.ClosingSigned:
-			p.closingSignedChanReqs <- msg
+			select {
+			case p.closingSignedChanReqs <- msg:
+			case <-p.quit:
+				break out
+			}
 
 		case *lnwire.Error:
 			p.server.fundingMgr.processFundingError(msg, p.addr)

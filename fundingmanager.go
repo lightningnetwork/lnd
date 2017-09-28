@@ -639,7 +639,11 @@ func (f *fundingManager) handlePendingChannels(msg *pendingChansReq) {
 func (f *fundingManager) processFundingOpen(msg *lnwire.OpenChannel,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingOpenMsg{msg, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingOpenMsg{msg, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleFundingOpen creates an initial 'ChannelReservation' within the wallet,
@@ -834,7 +838,11 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 func (f *fundingManager) processFundingAccept(msg *lnwire.AcceptChannel,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingAcceptMsg{msg, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingAcceptMsg{msg, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleFundingAceept processes a response to the workflow initiation sent by
@@ -967,7 +975,11 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 func (f *fundingManager) processFundingCreated(msg *lnwire.FundingCreated,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingCreatedMsg{msg, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingCreatedMsg{msg, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleFundingCreated progresses the funding workflow when the daemon is on
@@ -1114,7 +1126,11 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 func (f *fundingManager) processFundingSigned(msg *lnwire.FundingSigned,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingSignedMsg{msg, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingSignedMsg{msg, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleFundingSigned processes the final message received in a single funder
@@ -1494,7 +1510,11 @@ func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenCha
 func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingLockedMsg{msg, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleFundingLocked finalizes the channel funding process and enables the
@@ -1922,7 +1942,11 @@ func (f *fundingManager) waitUntilChannelOpen(targetChan lnwire.ChannelID) {
 func (f *fundingManager) processFundingError(err *lnwire.Error,
 	peerAddress *lnwire.NetAddress) {
 
-	f.fundingMsgs <- &fundingErrorMsg{err, peerAddress}
+	select {
+	case f.fundingMsgs <- &fundingErrorMsg{err, peerAddress}:
+	case <-f.quit:
+		return
+	}
 }
 
 // handleErrorGenericMsg process the error which was received from remote peer,

@@ -100,13 +100,8 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan *chainntnfs.TxConfirmation)
-	go func() {
-		confSent <- <-confIntent.Confirmed
-	}()
-
 	select {
-	case confInfo := <-confSent:
+	case confInfo := <-confIntent.Confirmed:
 		// Finally, we'll verify that the tx index returned is the exact same
 		// as the tx index of the transaction within the block itself.
 		msgBlock, err := miner.Node.GetBlock(blockHash[0])
@@ -160,16 +155,11 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	confSent := make(chan *chainntnfs.TxConfirmation)
-	go func() {
-		confSent <- <-confIntent.Confirmed
-	}()
-
 	// TODO(roasbeef): reduce all timeouts after neutrino sync tightended
 	// up
 
 	select {
-	case <-confSent:
+	case <-confIntent.Confirmed:
 		break
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
@@ -229,13 +219,8 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 			t.Fatalf("unable to generate single block: %v", err)
 		}
 
-		confSent := make(chan *chainntnfs.TxConfirmation)
-		go func() {
-			confSent <- <-confIntents[i].Confirmed
-		}()
-
 		select {
-		case conf := <-confSent:
+		case conf := <-confIntents[i].Confirmed:
 			// All of the notifications above were originally
 			// confirmed in the same block. The returned
 			// notification should list the initial confirmation
@@ -529,7 +514,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	// notification will never be sent.
 	blockHash, err := miner.Node.Generate(1)
 	if err != nil {
-		t.Fatalf("unable to generate two blocks: %v", err)
+		t.Fatalf("unable to generate block: %v", err)
 	}
 
 	_, currentHeight, err := miner.Node.GetBestBlock()
@@ -546,13 +531,8 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	confSent := make(chan *chainntnfs.TxConfirmation)
-	go func() {
-		confSent <- <-confIntent.Confirmed
-	}()
-
 	select {
-	case confInfo := <-confSent:
+	case confInfo := <-confIntent.Confirmed:
 		// Finally, we'll verify that the tx index returned is the exact same
 		// as the tx index of the transaction within the block itself.
 		msgBlock, err := miner.Node.GetBlock(blockHash[0])
@@ -616,13 +596,8 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
-	confSent = make(chan *chainntnfs.TxConfirmation)
-	go func() {
-		confSent <- <-confIntent.Confirmed
-	}()
-
 	select {
-	case <-confSent:
+	case <-confIntent.Confirmed:
 		break
 	case <-time.After(30 * time.Second):
 		t.Fatalf("confirmation notification never received")

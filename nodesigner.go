@@ -53,18 +53,24 @@ func (n *nodeSigner) SignMessage(pubKey *btcec.PublicKey,
 // resident node's private key. The returned signature is a pubkey-recoverable
 // signature.
 func (n *nodeSigner) SignCompact(msg []byte) ([]byte, error) {
-
-	// Otherwise, we'll sign the dsha256 of the target message.
+	// We'll sign the dsha256 of the target message.
 	digest := chainhash.DoubleHashB(msg)
+
+	return n.SignDigestCompact(digest)
+}
+
+// SignDigestCompact signs the provided message digest under the resident
+// node's private key. The returned signature is a pubkey-recoverable signature.
+func (n *nodeSigner) SignDigestCompact(hash []byte) ([]byte, error) {
 
 	// Should the signature reference a compressed public key or not.
 	isCompressedKey := true
 
 	// btcec.SignCompact returns a pubkey-recoverable signature
-	sig, err := btcec.SignCompact(btcec.S256(), n.privKey, digest,
+	sig, err := btcec.SignCompact(btcec.S256(), n.privKey, hash,
 		isCompressedKey)
 	if err != nil {
-		return nil, fmt.Errorf("can't sign the message: %v", err)
+		return nil, fmt.Errorf("can't sign the hash: %v", err)
 	}
 
 	return sig, nil

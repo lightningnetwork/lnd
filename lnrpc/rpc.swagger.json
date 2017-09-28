@@ -1245,7 +1245,7 @@
       "properties": {
         "memo": {
           "type": "string",
-          "title": "/ An optional memo to attach along with the invoice"
+          "description": "*\nAn optional memo to attach along with the invoice. Used for record keeping\npurposes for the invoice's creator, and will also be set in the description\nfield of the encoded payment request if the description_hash field is not\nbeing used."
         },
         "receipt": {
           "type": "string",
@@ -1285,6 +1285,20 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "description_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nHash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ Payment request expiry time in seconds. Default is 3600 (1 hour)."
+        },
+        "fallback_addr": {
+          "type": "string",
+          "description": "/ Fallback on-chain address."
         }
       }
     },
@@ -1524,6 +1538,23 @@
         "num_satoshis": {
           "type": "string",
           "format": "int64"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64"
+        },
+        "description": {
+          "type": "string"
+        },
+        "description_hash": {
+          "type": "string"
+        },
+        "fallback_addr": {
+          "type": "string"
         }
       }
     },

@@ -1372,6 +1372,18 @@ func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi
 	return r.server.chanDB.AddPayment(payment)
 }
 
+// validatePayReqExpiry checks if the passed payment request has expired. In
+// the case it has expired, an error will be returned.
+func validatePayReqExpiry(payReq *zpay32.Invoice) error {
+	expiry := payReq.Expiry()
+	validUntil := payReq.Timestamp.Add(expiry)
+	if time.Now().After(validUntil) {
+		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
+	}
+
+	return nil
+}
+
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
@@ -1385,8 +1397,15 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		}
 	}
 
+	// For each payment we need to know the msat amount, the destination
+	// public key, and the payment hash.
+	type payment struct {
+		msat  lnwire.MilliSatoshi
+		dest  []byte
+		pHash []byte
+	}
+	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
-	payChan := make(chan *lnrpc.SendRequest)
 
 	// TODO(roasbeef): enforce fee limits, pass into router, ditch if exceed limit
 	//  * limit either a %, or absolute, or iff more than sending
@@ -1443,31 +1462,67 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					return
 				}
 
+				// Populate the next payment, either from the
+				// payment request, or from the explicitly set
+				// fields.
+				p := &payment{}
+
 				// If the payment request field isn't blank,
 				// then the details of the invoice are encoded
-				// entirely within the encode payReq. So we'll
+				// entirely within the encoded payReq. So we'll
 				// attempt to decode it, populating the
-				// nextPayment accordingly.
+				// payment accordingly.
 				if nextPayment.PaymentRequest != "" {
 					payReq, err := zpay32.Decode(nextPayment.PaymentRequest)
 					if err != nil {
 						select {
 						case errChan <- err:
 						case <-reqQuit:
-							return
 						}
 						return
 					}
 
 					// TODO(roasbeef): eliminate necessary
 					// encode/decode
-					nextPayment.Dest = payReq.Destination.SerializeCompressed()
-					nextPayment.Amt = int64(payReq.Amount)
-					nextPayment.PaymentHash = payReq.PaymentHash[:]
+
+					// We first check that this payment
+					// request has not expired.
+					err = validatePayReqExpiry(payReq)
+					if err != nil {
+						select {
+						case errChan <- err:
+						case <-reqQuit:
+						}
+						return
+					}
+					p.dest = payReq.Destination.SerializeCompressed()
+
+					if payReq.MilliSat == nil {
+						err := fmt.Errorf("only payment" +
+							" requests specifying" +
+							" the amount are" +
+							" currently supported")
+						select {
+						case errChan <- err:
+						case <-reqQuit:
+						}
+						return
+					}
+					p.msat = *payReq.MilliSat
+					p.pHash = payReq.PaymentHash[:]
+				} else {
+					// If the payment request field was not
+					// specified, construct the payment from
+					// the other fields.
+					p.msat = lnwire.NewMSatFromSatoshis(
+						btcutil.Amount(nextPayment.Amt),
+					)
+					p.dest = nextPayment.Dest
+					p.pHash = nextPayment.PaymentHash
 				}
 
 				select {
-				case payChan <- nextPayment:
+				case payChan <- p:
 				case <-reqQuit:
 					return
 				}
@@ -1479,20 +1534,17 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 		select {
 		case err := <-errChan:
 			return err
-		case nextPayment := <-payChan:
+		case p := <-payChan:
 			// Currently, within the bootstrap phase of the
 			// network, we limit the largest payment size allotted
 			// to (2^32) - 1 mSAT or 4.29 million satoshis.
-			amt := btcutil.Amount(nextPayment.Amt)
-			amtMSat := lnwire.NewMSatFromSatoshis(amt)
-			if amtMSat > maxPaymentMSat {
+			if p.msat > maxPaymentMSat {
 				// In this case, we'll send an error to the
 				// caller, but continue our loop for the next
 				// payment.
 				pErr := fmt.Errorf("payment of %v is too "+
 					"large, max payment allowed is %v",
-					nextPayment.Amt,
-					maxPaymentMSat.ToSatoshis())
+					p.msat, maxPaymentMSat)
 
 				if err := paymentStream.Send(&lnrpc.SendResponse{
 					PaymentError: pErr.Error(),
@@ -1504,8 +1556,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 			// Parse the details of the payment which include the
 			// pubkey of the destination and the payment amount.
-			dest := nextPayment.Dest
-			destNode, err := btcec.ParsePubKey(dest, btcec.S256())
+			destNode, err := btcec.ParsePubKey(p.dest, btcec.S256())
 			if err != nil {
 				return err
 			}
@@ -1514,10 +1565,10 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 			// will pay to the same debug rHash. Otherwise, we pay
 			// to the rHash specified within the RPC request.
 			var rHash [32]byte
-			if cfg.DebugHTLC && len(nextPayment.PaymentHash) == 0 {
+			if cfg.DebugHTLC && len(p.pHash) == 0 {
 				rHash = debugHash
 			} else {
-				copy(rHash[:], nextPayment.PaymentHash)
+				copy(rHash[:], p.pHash)
 			}
 
 			// We launch a new goroutine to execute the current
@@ -1539,7 +1590,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 				// error.
 				payment := &routing.LightningPayment{
 					Target:      destNode,
-					Amount:      amtMSat,
+					Amount:      p.msat,
 					PaymentHash: rHash,
 				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment)
@@ -1558,7 +1609,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				if err := r.savePayment(route, amtMSat, rHash[:]); err != nil {
+				if err := r.savePayment(route, p.msat, rHash[:]); err != nil {
 					errChan <- err
 					return
 				}
@@ -1604,7 +1655,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 	var (
 		destPub *btcec.PublicKey
-		amt     btcutil.Amount
+		amtMSat lnwire.MilliSatoshi
 		rHash   [32]byte
 	)
 
@@ -1615,9 +1666,20 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+
+		// We first check that this payment request has not expired.
+		if err := validatePayReqExpiry(payReq); err != nil {
+			return nil, err
+		}
+
 		destPub = payReq.Destination
-		amt = payReq.Amount
-		rHash = payReq.PaymentHash
+
+		if payReq.MilliSat == nil {
+			return nil, fmt.Errorf("payment requests with no " +
+				"amount specified not currently supported")
+		}
+		amtMSat = *payReq.MilliSat
+		rHash = *payReq.PaymentHash
 
 		// Otherwise, the payment conditions have been manually
 		// specified in the proto.
@@ -1645,13 +1707,14 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 			return nil, err
 		}
 
-		amt = btcutil.Amount(nextPayment.Amt)
+		amtMSat = lnwire.NewMSatFromSatoshis(
+			btcutil.Amount(nextPayment.Amt),
+		)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	amtMSat := lnwire.NewMSatFromSatoshis(amt)
 	if amtMSat > maxPaymentMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max payment "+
 			"allowed is %v", nextPayment.Amt,
@@ -1718,8 +1781,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		copy(paymentPreimage[:], invoice.RPreimage[:])
 	}
 
-	// The size of the memo and receipt attached must not exceed the
-	// maximum values for either of the fields.
+	// The size of the memo, receipt and description hash attached must not
+	// exceed the maximum values for either of the fields.
 	if len(invoice.Memo) > channeldb.MaxMemoSize {
 		return nil, fmt.Errorf("memo too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
@@ -1727,6 +1790,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	if len(invoice.Receipt) > channeldb.MaxReceiptSize {
 		return nil, fmt.Errorf("receipt too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Receipt), channeldb.MaxReceiptSize)
+	}
+	if len(invoice.DescriptionHash) > 0 && len(invoice.DescriptionHash) != 32 {
+		return nil, fmt.Errorf("description hash is %v bytes, must be %v",
+			len(invoice.DescriptionHash), channeldb.MaxPaymentRequestSize)
 	}
 
 	amt := btcutil.Amount(invoice.Value)
@@ -1743,10 +1810,78 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			"payment allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
 
+	// Next, generate the payment hash itself from the preimage. This will
+	// be used by clients to query for the state of a particular invoice.
+	rHash := sha256.Sum256(paymentPreimage[:])
+
+	// We also create an encoded payment request which allows the
+	// caller to compactly send the invoice to the payer. We'll create a
+	// list of options to be added to the encoded payment request. For now
+	// we only support the required fields description/description_hash,
+	// expiry, fallback address, and the amount field.
+	var options []func(*zpay32.Invoice)
+
+	// Add the amount. This field is optional by the BOLT-11 format, but
+	// we require it for now.
+	options = append(options, zpay32.Amount(amtMSat))
+
+	// If specified, add a fallback address to the payment request.
+	if len(invoice.FallbackAddr) > 0 {
+		addr, err := btcutil.DecodeAddress(invoice.FallbackAddr,
+			activeNetParams.Params)
+		if err != nil {
+			return nil, fmt.Errorf("invalid fallback address: %v",
+				err)
+		}
+		options = append(options, zpay32.FallbackAddr(addr))
+	}
+
+	// If expiry is set, specify it. If it is not provided, no expiry time
+	// will be explicitly added to this payment request, which will imply
+	// the default 3600 seconds.
+	if invoice.Expiry > 0 {
+		exp := time.Duration(invoice.Expiry) * time.Second
+		options = append(options, zpay32.Expiry(exp))
+	}
+
+	// If the description hash is set, then we add it do the list of options.
+	// If not, use the memo field as the payment request description.
+	if len(invoice.DescriptionHash) > 0 {
+		var descHash [32]byte
+		copy(descHash[:], invoice.DescriptionHash[:])
+		options = append(options, zpay32.DescriptionHash(descHash))
+	} else {
+		// Use the memo field as the description. If this is not set
+		// this will just be an empty string.
+		options = append(options, zpay32.Description(invoice.Memo))
+	}
+
+	// Create and encode the payment request as a bech32 (zpay32) string.
+	creationDate := time.Now()
+	payReq, err := zpay32.NewInvoice(
+		activeNetParams.Params,
+		rHash,
+		creationDate,
+		options...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	payReqString, err := payReq.Encode(
+		zpay32.MessageSigner{
+			SignCompact: r.server.nodeSigner.SignDigestCompact,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	i := &channeldb.Invoice{
-		CreationDate: time.Now(),
-		Memo:         []byte(invoice.Memo),
-		Receipt:      invoice.Receipt,
+		CreationDate:   creationDate,
+		Memo:           []byte(invoice.Memo),
+		Receipt:        invoice.Receipt,
+		PaymentRequest: []byte(payReqString),
 		Terms: channeldb.ContractTerm{
 			Value: amtMSat,
 		},
@@ -1763,21 +1898,50 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	// Next, generate the payment hash itself from the preimage. This will
-	// be used by clients to query for the state of a particular invoice.
-	rHash := sha256.Sum256(paymentPreimage[:])
-
-	// Finally we also create an encoded payment request which allows the
-	// caller to compactly send the invoice to the payer.
-	payReqString := zpay32.Encode(&zpay32.PaymentRequest{
-		Destination: r.server.identityPriv.PubKey(),
-		PaymentHash: rHash,
-		Amount:      amt,
-	})
-
 	return &lnrpc.AddInvoiceResponse{
 		RHash:          rHash[:],
 		PaymentRequest: payReqString,
+	}, nil
+}
+
+// createRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
+func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
+	paymentRequest := string(invoice.PaymentRequest)
+	decoded, err := zpay32.Decode(paymentRequest)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode payment request: %v",
+			err)
+	}
+
+	descHash := []byte("")
+	if decoded.DescriptionHash != nil {
+		descHash = decoded.DescriptionHash[:]
+	}
+
+	fallbackAddr := ""
+	if decoded.FallbackAddr != nil {
+		fallbackAddr = decoded.FallbackAddr.String()
+	}
+
+	// Expiry time will default to 3600 seconds if not specified
+	// explicitly.
+	expiry := int64(decoded.Expiry().Seconds())
+
+	preimage := invoice.Terms.PaymentPreimage
+	satAmt := invoice.Terms.Value.ToSatoshis()
+
+	return &lnrpc.Invoice{
+		Memo:            string(invoice.Memo[:]),
+		Receipt:         invoice.Receipt[:],
+		RHash:           decoded.PaymentHash[:],
+		RPreimage:       preimage[:],
+		Value:           int64(satAmt),
+		CreationDate:    invoice.CreationDate.Unix(),
+		Settled:         invoice.Terms.Settled,
+		PaymentRequest:  paymentRequest,
+		DescriptionHash: descHash,
+		Expiry:          expiry,
+		FallbackAddr:    fallbackAddr,
 	}, nil
 }
 
@@ -1831,22 +1995,12 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 			return spew.Sdump(invoice)
 		}))
 
-	preimage := invoice.Terms.PaymentPreimage
-	satAmt := invoice.Terms.Value.ToSatoshis()
-	return &lnrpc.Invoice{
-		Memo:         string(invoice.Memo[:]),
-		Receipt:      invoice.Receipt[:],
-		RHash:        rHash,
-		RPreimage:    preimage[:],
-		Value:        int64(satAmt),
-		CreationDate: invoice.CreationDate.Unix(),
-		Settled:      invoice.Terms.Settled,
-		PaymentRequest: zpay32.Encode(&zpay32.PaymentRequest{
-			Destination: r.server.identityPriv.PubKey(),
-			PaymentHash: sha256.Sum256(preimage[:]),
-			Amount:      satAmt,
-		}),
-	}, nil
+	rpcInvoice, err := createRPCInvoice(invoice)
+	if err != nil {
+		return nil, err
+	}
+
+	return rpcInvoice, nil
 }
 
 // ListInvoices returns a list of all the invoices currently stored within the
@@ -1869,26 +2023,13 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 
 	invoices := make([]*lnrpc.Invoice, len(dbInvoices))
 	for i, dbInvoice := range dbInvoices {
-		invoiceAmount := dbInvoice.Terms.Value.ToSatoshis()
-		paymentPreimge := dbInvoice.Terms.PaymentPreimage[:]
-		rHash := sha256.Sum256(paymentPreimge)
 
-		invoice := &lnrpc.Invoice{
-			Memo:         string(dbInvoice.Memo[:]),
-			Receipt:      dbInvoice.Receipt[:],
-			RHash:        rHash[:],
-			RPreimage:    paymentPreimge,
-			Value:        int64(invoiceAmount),
-			Settled:      dbInvoice.Terms.Settled,
-			CreationDate: dbInvoice.CreationDate.Unix(),
-			PaymentRequest: zpay32.Encode(&zpay32.PaymentRequest{
-				Destination: r.server.identityPriv.PubKey(),
-				PaymentHash: sha256.Sum256(paymentPreimge),
-				Amount:      invoiceAmount,
-			}),
+		rpcInvoice, err := createRPCInvoice(dbInvoice)
+		if err != nil {
+			return nil, err
 		}
 
-		invoices[i] = invoice
+		invoices[i] = rpcInvoice
 	}
 
 	return &lnrpc.ListInvoiceResponse{
@@ -1916,17 +2057,13 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 		select {
 		// TODO(roasbeef): include newly added invoices?
 		case settledInvoice := <-invoiceClient.SettledInvoices:
-			preImage := settledInvoice.Terms.PaymentPreimage[:]
-			rHash := sha256.Sum256(preImage)
-			invoice := &lnrpc.Invoice{
-				Memo:      string(settledInvoice.Memo[:]),
-				Receipt:   settledInvoice.Receipt[:],
-				RHash:     rHash[:],
-				RPreimage: preImage,
-				Value:     int64(settledInvoice.Terms.Value.ToSatoshis()),
-				Settled:   settledInvoice.Terms.Settled,
+
+			rpcInvoice, err := createRPCInvoice(settledInvoice)
+			if err != nil {
+				return err
 			}
-			if err := updateStream.Send(invoice); err != nil {
+
+			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
 		case <-r.quit:
@@ -2713,11 +2850,41 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		return nil, err
 	}
 
+	// Let the fields default to empty strings.
+	desc := ""
+	if payReq.Description != nil {
+		desc = *payReq.Description
+	}
+
+	descHash := []byte("")
+	if payReq.DescriptionHash != nil {
+		descHash = payReq.DescriptionHash[:]
+	}
+
+	fallbackAddr := ""
+	if payReq.FallbackAddr != nil {
+		fallbackAddr = payReq.FallbackAddr.String()
+	}
+
+	// Expiry time will default to 3600 seconds if not specified
+	// explicitly.
+	expiry := int64(payReq.Expiry().Seconds())
+
+	amt := int64(0)
+	if payReq.MilliSat != nil {
+		amt = int64(payReq.MilliSat.ToSatoshis())
+	}
+
 	dest := payReq.Destination.SerializeCompressed()
 	return &lnrpc.PayReq{
-		Destination: hex.EncodeToString(dest),
-		PaymentHash: hex.EncodeToString(payReq.PaymentHash[:]),
-		NumSatoshis: int64(payReq.Amount),
+		Destination:     hex.EncodeToString(dest),
+		PaymentHash:     hex.EncodeToString(payReq.PaymentHash[:]),
+		NumSatoshis:     amt,
+		Timestamp:       payReq.Timestamp.Unix(),
+		Description:     desc,
+		DescriptionHash: hex.EncodeToString(descHash[:]),
+		FallbackAddr:    fallbackAddr,
+		Expiry:          expiry,
 	}, nil
 }
 

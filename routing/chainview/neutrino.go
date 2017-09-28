@@ -178,11 +178,13 @@ func (c *CfFilteredChainView) onFilteredBlockConnected(height int32,
 func (c *CfFilteredChainView) onFilteredBlockDisconnected(height int32,
 	header *wire.BlockHeader) {
 
+	filteredBlock := &FilteredBlock{
+		Hash:   header.BlockHash(),
+		Height: uint32(height),
+	}
+
 	go func() {
-		c.staleBlocks <- &FilteredBlock{
-			Hash:   header.BlockHash(),
-			Height: uint32(height),
-		}
+		c.staleBlocks <- filteredBlock
 	}()
 }
 

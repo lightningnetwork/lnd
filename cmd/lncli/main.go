@@ -177,6 +177,7 @@ func main() {
 		verifyMessageCommand,
 		feeReportCommand,
 		updateFeesCommand,
+		payInvoiceCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

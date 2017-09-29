@@ -3475,6 +3475,10 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 	if err != nil {
 		return nil, err
 	}
+	htlcScriptHash, err := witnessScriptHash(htlcSweepScript)
+	if err != nil {
+		return nil, err
+	}
 
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
@@ -3484,7 +3488,8 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 			SingleTweak:   commitTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
-				Value: int64(secondLevelOutputAmt),
+				PkScript: htlcScriptHash,
+				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType: txscript.SigHashAll,
 		},

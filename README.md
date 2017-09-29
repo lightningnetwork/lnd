@@ -6,6 +6,8 @@
 [![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
 [![Coverage Status](https://coveralls.io/repos/github/lightningnetwork/lnd/badge.svg?branch=master)](https://coveralls.io/github/lightningnetwork/lnd?branch=master)
 
+<img src="logo.png">
+
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a
 [Lightning Network](https://lightning.network) node and currently deployed on
 `testnet3` - the Bitcoin Test Network.  `lnd` has several pluggable back-end

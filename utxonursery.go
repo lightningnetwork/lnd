@@ -176,13 +176,13 @@ func (u *utxoNursery) reloadPreschool(heightHint uint32) error {
 		}
 
 		return psclBucket.ForEach(func(outputBytes, kidBytes []byte) error {
-			psclOutput, err := deserializeKidOutput(bytes.NewBuffer(kidBytes))
+			var psclOutput kidOutput
+			err := psclOutput.Decode(bytes.NewBuffer(kidBytes))
 			if err != nil {
 				return err
 			}
 
-			outpoint := psclOutput.outPoint
-			sourceTxid := outpoint.Hash
+			sourceTxid := psclOutput.OutPoint().Hash
 
 			confChan, err := u.notifier.RegisterConfirmationsNtfn(
 				&sourceTxid, 1, heightHint,
@@ -192,7 +192,7 @@ func (u *utxoNursery) reloadPreschool(heightHint uint32) error {
 			}
 
 			utxnLog.Infof("Preschool outpoint %v re-registered for confirmation "+
-				"notification.", psclOutput.outPoint)
+				"notification.", psclOutput.OutPoint())
 			go psclOutput.waitForPromotion(u.db, confChan)
 			return nil
 		})
@@ -250,28 +250,6 @@ func (u *utxoNursery) Stop() error {
 	return nil
 }
 
-// kidOutput represents an output that's waiting for a required blockheight
-// before its funds will be available to be moved into the user's wallet.  The
-// struct includes a WitnessGenerator closure which will be used to generate
-// the witness required to sweep the output once it's mature.
-//
-// TODO(roasbeef): rename to immatureOutput?
-type kidOutput struct {
-	originChanPoint wire.OutPoint
-
-	amt      btcutil.Amount
-	outPoint wire.OutPoint
-
-	// TODO(roasbeef): using block timeouts everywhere currently, will need
-	// to modify logic later to account for MTP based timeouts.
-	blocksToMaturity uint32
-	confHeight       uint32
-
-	signDescriptor *lnwallet.SignDescriptor
-	witnessType    lnwallet.WitnessType
-	witnessFunc    lnwallet.WitnessGenerator
-}
-
 // incubationRequest is a request to the utxoNursery to incubate a set of
 // outputs until their mature, finally sweeping them into the wallet once
 // available.
@@ -289,17 +267,15 @@ func (u *utxoNursery) IncubateOutputs(closeSummary *lnwallet.ForceCloseSummary) 
 	// that case the SignDescriptor would be nil and we would not have that
 	// output to incubate.
 	if closeSummary.SelfOutputSignDesc != nil {
-		outputAmt := btcutil.Amount(closeSummary.SelfOutputSignDesc.Output.Value)
-		selfOutput := &kidOutput{
-			originChanPoint:  closeSummary.ChanPoint,
-			amt:              outputAmt,
-			outPoint:         closeSummary.SelfOutpoint,
-			blocksToMaturity: closeSummary.SelfOutputMaturity,
-			signDescriptor:   closeSummary.SelfOutputSignDesc,
-			witnessType:      lnwallet.CommitmentTimeLock,
-		}
+		selfOutput := makeKidOutput(
+			&closeSummary.SelfOutpoint,
+			&closeSummary.ChanPoint,
+			closeSummary.SelfOutputMaturity,
+			lnwallet.CommitmentTimeLock,
+			closeSummary.SelfOutputSignDesc,
+		)
 
-		incReq.outputs = append(incReq.outputs, selfOutput)
+		incReq.outputs = append(incReq.outputs, &selfOutput)
 	}
 
 	// If there are no outputs to incubate, there is nothing to send to the
@@ -336,11 +312,11 @@ out:
 				// We'll skip any zero value'd outputs as this
 				// indicates we don't have a settled balance
 				// within the commitment transaction.
-				if output.amt == 0 {
+				if output.Amount() == 0 {
 					continue
 				}
 
-				sourceTxid := output.outPoint.Hash
+				sourceTxid := output.OutPoint().Hash
 
 				if err := output.enterPreschool(u.db); err != nil {
 					utxnLog.Errorf("unable to add kidOutput to preschool: %v, %v ",
@@ -500,25 +476,25 @@ func (u *utxoNursery) NurseryReport(chanPoint *wire.OutPoint) (*contractMaturity
 
 		// With the proper set of bytes received, we'll deserialize the
 		// information for this immature output.
-		immatureOutput, err := deserializeKidOutput(outputReader)
-		if err != nil {
+		var immatureOutput kidOutput
+		if err := immatureOutput.Decode(outputReader); err != nil {
 			return err
 		}
 
 		// TODO(roasbeef): should actually be list of outputs
 		report = &contractMaturityReport{
 			chanPoint:           *chanPoint,
-			limboBalance:        immatureOutput.amt,
-			maturityRequirement: immatureOutput.blocksToMaturity,
+			limboBalance:        immatureOutput.Amount(),
+			maturityRequirement: immatureOutput.BlocksToMaturity(),
 		}
 
 		// If the confirmation height is set, then this means the
 		// contract has been confirmed, and we know the final maturity
 		// height.
-		if immatureOutput.confHeight != 0 {
-			report.confirmationHeight = immatureOutput.confHeight
-			report.maturityHeight = (immatureOutput.blocksToMaturity +
-				immatureOutput.confHeight)
+		if immatureOutput.ConfHeight() != 0 {
+			report.confirmationHeight = immatureOutput.ConfHeight()
+			report.maturityHeight = (immatureOutput.BlocksToMaturity() +
+				immatureOutput.ConfHeight())
 		}
 
 		return nil
@@ -547,11 +523,11 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// Once we have the buckets we can insert the raw bytes of the
 		// immature outpoint into the preschool bucket.
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := writeOutpoint(&outpointBytes, k.OutPoint()); err != nil {
 			return err
 		}
 		var kidBytes bytes.Buffer
-		if err := serializeKidOutput(&kidBytes, k); err != nil {
+		if err := k.Encode(&kidBytes); err != nil {
 			return err
 		}
 		err = psclBucket.Put(outpointBytes.Bytes(), kidBytes.Bytes())
@@ -563,7 +539,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		// track all the immature outpoints for a particular channel's
 		// chanPoint.
 		var b bytes.Buffer
-		err = writeOutpoint(&b, &k.originChanPoint)
+		err = writeOutpoint(&b, k.OriginChanPoint())
 		if err != nil {
 			return err
 		}
@@ -573,7 +549,7 @@ func (k *kidOutput) enterPreschool(db *channeldb.DB) error {
 		}
 
 		utxnLog.Infof("Outpoint %v now in preschool, waiting for "+
-			"initial confirmation", k.outPoint)
+			"initial confirmation", k.OutPoint())
 
 		return nil
 	})
@@ -589,14 +565,14 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	txConfirmation, ok := <-confChan.Confirmed
 	if !ok {
 		utxnLog.Errorf("notification chan "+
-			"closed, can't advance output %v", k.outPoint)
+			"closed, can't advance output %v", k.OutPoint())
 		return
 	}
 
 	utxnLog.Infof("Outpoint %v confirmed in block %v moving to kindergarten",
-		k.outPoint, txConfirmation.BlockHeight)
+		k.OutPoint(), txConfirmation.BlockHeight)
 
-	k.confHeight = txConfirmation.BlockHeight
+	k.SetConfHeight(txConfirmation.BlockHeight)
 
 	// The following block deletes a kidOutput from the preschool database
 	// bucket and adds it to the kindergarten database bucket which is
@@ -604,7 +580,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 	// array form prior to database insertion.
 	err := db.Update(func(tx *bolt.Tx) error {
 		var originPoint bytes.Buffer
-		if err := writeOutpoint(&originPoint, &k.originChanPoint); err != nil {
+		if err := writeOutpoint(&originPoint, k.OriginChanPoint()); err != nil {
 			return err
 		}
 
@@ -621,17 +597,17 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		// along in the maturity pipeline we first delete the entry
 		// from the preschool bucket, as well as the secondary index.
 		var outpointBytes bytes.Buffer
-		if err := writeOutpoint(&outpointBytes, &k.outPoint); err != nil {
+		if err := writeOutpoint(&outpointBytes, k.OutPoint()); err != nil {
 			return err
 		}
 		if err := psclBucket.Delete(outpointBytes.Bytes()); err != nil {
 			utxnLog.Errorf("unable to delete kindergarten output from "+
-				"preschool bucket: %v", k.outPoint)
+				"preschool bucket: %v", k.OutPoint())
 			return err
 		}
 		if err := psclIndex.Delete(originPoint.Bytes()); err != nil {
 			utxnLog.Errorf("unable to delete kindergarten output from "+
-				"preschool index: %v", k.outPoint)
+				"preschool index: %v", k.OutPoint())
 			return err
 		}
 
@@ -642,7 +618,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 			return err
 		}
 
-		maturityHeight := k.confHeight + k.blocksToMaturity
+		maturityHeight := k.ConfHeight() + k.BlocksToMaturity()
 
 		heightBytes := make([]byte, 4)
 		byteOrder.PutUint32(heightBytes, maturityHeight)
@@ -660,7 +636,7 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		outputOffset := len(existingOutputs)
 
 		b := bytes.NewBuffer(existingOutputs)
-		if err := serializeKidOutput(b, k); err != nil {
+		if err := k.Encode(b); err != nil {
 			return err
 		}
 		if err := kgtnBucket.Put(heightBytes, b.Bytes()); err != nil {
@@ -684,8 +660,8 @@ func (k *kidOutput) waitForPromotion(db *channeldb.DB, confChan *chainntnfs.Conf
 		}
 
 		utxnLog.Infof("Outpoint %v now in kindergarten, will mature "+
-			"at height %v (delay of %v)", k.outPoint,
-			maturityHeight, k.blocksToMaturity)
+			"at height %v (delay of %v)", k.OutPoint(),
+			maturityHeight, k.BlocksToMaturity())
 		return nil
 	})
 	if err != nil {
@@ -722,7 +698,7 @@ func (u *utxoNursery) graduateKindergarten(blockHeight uint32) error {
 		// each of the immature outputs, we'll mark them as being fully
 		// closed within the database.
 		for _, closedChan := range kgtnOutputs {
-			err := u.db.MarkChanFullyClosed(&closedChan.originChanPoint)
+			err := u.db.MarkChanFullyClosed(closedChan.OriginChanPoint())
 			if err != nil {
 				return err
 			}
@@ -786,7 +762,7 @@ func fetchGraduatingOutputs(db *channeldb.DB, wallet *lnwallet.LightningWallet,
 	// output or not.
 	for _, kgtnOutput := range kgtnOutputs {
 		kgtnOutput.witnessFunc = kgtnOutput.witnessType.GenWitnessFunc(
-			wallet.Cfg.Signer, kgtnOutput.signDescriptor)
+			wallet.Cfg.Signer, kgtnOutput.SignDesc())
 	}
 
 	utxnLog.Infof("New block: height=%v, sweeping %v mature outputs",
@@ -842,7 +818,7 @@ func createSweepTx(wallet *lnwallet.LightningWallet,
 
 	var totalSum btcutil.Amount
 	for _, o := range matureOutputs {
-		totalSum += o.amt
+		totalSum += o.Amount()
 	}
 
 	sweepTx := wire.NewMsgTx(2)
@@ -852,9 +828,9 @@ func createSweepTx(wallet *lnwallet.LightningWallet,
 	})
 	for _, utxo := range matureOutputs {
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: utxo.outPoint,
+			PreviousOutPoint: *utxo.OutPoint(),
 			// TODO(roasbeef): assumes pure block delays
-			Sequence: utxo.blocksToMaturity,
+			Sequence: utxo.BlocksToMaturity(),
 		})
 	}
 
@@ -915,7 +891,7 @@ func deleteGraduatedOutputs(db *channeldb.DB, deleteHeight uint32) error {
 		}
 		for _, sweptOutput := range sweptOutputs {
 			var chanPoint bytes.Buffer
-			err := writeOutpoint(&chanPoint, &sweptOutput.originChanPoint)
+			err := writeOutpoint(&chanPoint, sweptOutput.OriginChanPoint())
 			if err != nil {
 				return err
 			}
@@ -964,101 +940,223 @@ func deserializeKidList(r io.Reader) ([]*kidOutput, error) {
 	var kidOutputs []*kidOutput
 
 	for {
-		kidOutput, err := deserializeKidOutput(r)
-		if err != nil {
+		var kid = &kidOutput{}
+		if err := kid.Decode(r); err != nil {
 			if err == io.EOF {
 				break
 			} else {
 				return nil, err
 			}
 		}
-		kidOutputs = append(kidOutputs, kidOutput)
+		kidOutputs = append(kidOutputs, kid)
 	}
 
 	return kidOutputs, nil
 }
 
-// serializeKidOutput converts a KidOutput struct into a form
-// suitable for on-disk database storage. Note that the signDescriptor
-// struct field is included so that the output's witness can be generated
-// by createSweepTx() when the output becomes spendable.
-func serializeKidOutput(w io.Writer, kid *kidOutput) error {
-	var scratch [8]byte
-	byteOrder.PutUint64(scratch[:], uint64(kid.amt))
+// CsvSpendableOutput is a SpendableOutput that contains all of the information
+// necessary to construct, sign, and sweep an output locked with a CSV delay.
+type CsvSpendableOutput interface {
+	SpendableOutput
+
+	// ConfHeight returns the height at which this output was confirmed.
+	// A zero value indicates that the output has not been confirmed.
+	ConfHeight() uint32
+
+	// SetConfHeight marks the height at which the output is confirmed in
+	// the chain.
+	SetConfHeight(height uint32)
+
+	// BlocksToMaturity returns the relative timelock, as a number of
+	// blocks, that must be built on top of the confirmation height before
+	// the output can be spent.
+	BlocksToMaturity() uint32
+
+	// OriginChanPoint returns the outpoint of the channel from which this
+	// output is derived.
+	OriginChanPoint() *wire.OutPoint
+}
+
+// babyOutput is an HTLC output that is in the earliest stage of upbringing.
+// Each babyOutput carries a presigned timeout transction, which should be
+// broadcast at the appropriate CLTV expiry, and its future kidOutput self. If
+// all goes well, and the timeout transaction is successfully confirmed, the
+// the now-mature kidOutput will be unwrapped and continue its journey through
+// the nursery.
+type babyOutput struct {
+	kidOutput
+
+	expiry    uint32
+	timeoutTx *wire.MsgTx
+}
+
+// makeBabyOutput constructs baby output the wraps a future kidOutput. The
+// provided sign descriptors and witness types will be used once the output
+// reaches the delay and claim stage.
+func makeBabyOutput(outpoint, originChanPoint *wire.OutPoint,
+	blocksToMaturity uint32, witnessType lnwallet.WitnessType,
+	htlcResolution *lnwallet.OutgoingHtlcResolution) babyOutput {
+
+	kid := makeKidOutput(outpoint, originChanPoint,
+		blocksToMaturity, witnessType,
+		&htlcResolution.SweepSignDesc)
+
+	return babyOutput{
+		kidOutput: kid,
+		expiry:    htlcResolution.Expiry,
+		timeoutTx: htlcResolution.SignedTimeoutTx,
+	}
+}
+
+// Encode writes the baby output to the given io.Writer.
+func (bo *babyOutput) Encode(w io.Writer) error {
+	var scratch [4]byte
+	byteOrder.PutUint32(scratch[:], bo.expiry)
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
 
-	if err := writeOutpoint(w, &kid.outPoint); err != nil {
-		return err
-	}
-	if err := writeOutpoint(w, &kid.originChanPoint); err != nil {
+	if err := bo.timeoutTx.Serialize(w); err != nil {
 		return err
 	}
 
-	byteOrder.PutUint32(scratch[:4], kid.blocksToMaturity)
+	return bo.kidOutput.Encode(w)
+}
+
+// Decode reconstructs a baby output using the provide io.Reader.
+func (bo *babyOutput) Decode(r io.Reader) error {
+	var scratch [4]byte
+	if _, err := r.Read(scratch[:]); err != nil {
+		return err
+	}
+	bo.expiry = byteOrder.Uint32(scratch[:])
+
+	bo.timeoutTx = new(wire.MsgTx)
+	if err := bo.timeoutTx.Deserialize(r); err != nil {
+		return err
+	}
+
+	return bo.kidOutput.Decode(r)
+}
+
+// kidOutput represents an output that's waiting for a required blockheight
+// before its funds will be available to be moved into the user's wallet.  The
+// struct includes a WitnessGenerator closure which will be used to generate
+// the witness required to sweep the output once it's mature.
+//
+// TODO(roasbeef): rename to immatureOutput?
+type kidOutput struct {
+	breachedOutput
+
+	originChanPoint wire.OutPoint
+
+	// TODO(roasbeef): using block timeouts everywhere currently, will need
+	// to modify logic later to account for MTP based timeouts.
+	blocksToMaturity uint32
+	confHeight       uint32
+}
+
+func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
+	blocksToMaturity uint32, witnessType lnwallet.WitnessType,
+	signDescriptor *lnwallet.SignDescriptor) kidOutput {
+
+	return kidOutput{
+		breachedOutput: makeBreachedOutput(
+			outpoint, witnessType, signDescriptor,
+		),
+		originChanPoint:  *originChanPoint,
+		blocksToMaturity: blocksToMaturity,
+	}
+}
+
+func (k *kidOutput) OriginChanPoint() *wire.OutPoint {
+	return &k.originChanPoint
+}
+
+func (k *kidOutput) BlocksToMaturity() uint32 {
+	return k.blocksToMaturity
+}
+
+func (k *kidOutput) SetConfHeight(height uint32) {
+	k.confHeight = height
+}
+
+func (k *kidOutput) ConfHeight() uint32 {
+	return k.confHeight
+}
+
+// Encode converts a KidOutput struct into a form suitable for on-disk database
+// storage. Note that the signDescriptor struct field is included so that the
+// output's witness can be generated by createSweepTx() when the output becomes
+// spendable.
+func (k *kidOutput) Encode(w io.Writer) error {
+	var scratch [8]byte
+	byteOrder.PutUint64(scratch[:], uint64(k.Amount()))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	if err := writeOutpoint(w, k.OutPoint()); err != nil {
+		return err
+	}
+	if err := writeOutpoint(w, k.OriginChanPoint()); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], k.BlocksToMaturity())
 	if _, err := w.Write(scratch[:4]); err != nil {
 		return err
 	}
 
-	byteOrder.PutUint32(scratch[:4], kid.confHeight)
+	byteOrder.PutUint32(scratch[:4], k.ConfHeight())
 	if _, err := w.Write(scratch[:4]); err != nil {
 		return err
 	}
 
-	byteOrder.PutUint16(scratch[:2], uint16(kid.witnessType))
+	byteOrder.PutUint16(scratch[:2], uint16(k.WitnessType()))
 	if _, err := w.Write(scratch[:2]); err != nil {
 		return err
 	}
 
-	return lnwallet.WriteSignDescriptor(w, kid.signDescriptor)
+	return lnwallet.WriteSignDescriptor(w, k.SignDesc())
 }
 
-// deserializeKidOutput takes a byte array representation of a kidOutput
-// and converts it to an struct. Note that the witnessFunc method isn't added
-// during deserialization and must be added later based on the value of the
-// witnessType field.
-func deserializeKidOutput(r io.Reader) (*kidOutput, error) {
-	scratch := make([]byte, 8)
-
-	kid := &kidOutput{}
+// Decode takes a byte array representation of a kidOutput and converts it to an
+// struct. Note that the witnessFunc method isn't added during deserialization
+// and must be added later based on the value of the witnessType field.
+func (k *kidOutput) Decode(r io.Reader) error {
+	var scratch [8]byte
 
 	if _, err := r.Read(scratch[:]); err != nil {
-		return nil, err
+		return err
 	}
-	kid.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	err := readOutpoint(io.LimitReader(r, 40), &kid.outPoint)
-	if err != nil {
-		return nil, err
+	if err := readOutpoint(io.LimitReader(r, 40), &k.outpoint); err != nil {
+		return err
 	}
 
-	err = readOutpoint(io.LimitReader(r, 40), &kid.originChanPoint)
+	err := readOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if _, err := r.Read(scratch[:4]); err != nil {
-		return nil, err
+		return err
 	}
-	kid.blocksToMaturity = byteOrder.Uint32(scratch[:4])
+	k.blocksToMaturity = byteOrder.Uint32(scratch[:4])
 
 	if _, err := r.Read(scratch[:4]); err != nil {
-		return nil, err
+		return err
 	}
-	kid.confHeight = byteOrder.Uint32(scratch[:4])
+	k.confHeight = byteOrder.Uint32(scratch[:4])
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return nil, err
+		return err
 	}
-	kid.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
+	k.witnessType = lnwallet.WitnessType(byteOrder.Uint16(scratch[:2]))
 
-	kid.signDescriptor = &lnwallet.SignDescriptor{}
-	if err := lnwallet.ReadSignDescriptor(r, kid.signDescriptor); err != nil {
-		return nil, err
-	}
-
-	return kid, nil
+	return lnwallet.ReadSignDescriptor(r, &k.signDesc)
 }
 
 // TODO(bvu): copied from channeldb, remove repetition

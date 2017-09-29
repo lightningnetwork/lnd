@@ -886,8 +886,7 @@ func TestForceClose(t *testing.T) {
 	if !closeSummary.SelfOutputSignDesc.PubKey.IsEqual(bobDelayPoint) {
 		t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 	}
-	if closeSummary.SelfOutputSignDesc.Output.Value !=
-		int64(bobAmount.ToSatoshis()) {
+	if closeSummary.SelfOutputSignDesc.Output.Value != int64(bobAmount.ToSatoshis()) {
 
 		t.Fatalf("bob incorrect output value in SelfOutputSignDesc, "+
 			"expected %v, got %v",
@@ -896,6 +895,7 @@ func TestForceClose(t *testing.T) {
 	}
 	if closeSummary.SelfOutputMaturity !=
 		uint32(bobChannel.channelState.LocalChanCfg.CsvDelay) {
+
 		t.Fatalf("bob: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
 			bobChannel.channelState.LocalChanCfg.CsvDelay,
@@ -907,13 +907,27 @@ func TestForceClose(t *testing.T) {
 	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
 		t.Fatalf("bob: incorrect close transaction txid")
 	}
+}
 
-	// Re-open the channels by clearing the channel's status back to "open,
-	// and also resetting some internal state.
-	aliceChannel.status = channelOpen
-	bobChannel.status = channelOpen
-	aliceChannel.ForceCloseSignal = make(chan struct{})
-	bobChannel.ForceCloseSignal = make(chan struct{})
+// TestForceCloseDustOutput tests that if either side force closes with an
+// active dust output (for only a single party due to asymmetric dust values),
+// then the force close summary is well crafted.
+func TestForceCloseDustOutput(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	htlcAmount := lnwire.NewMSatFromSatoshis(500)
+
+	aliceAmount := aliceChannel.channelState.LocalBalance
+	bobAmount := bobChannel.channelState.LocalBalance
 
 	// Have Bobs' to-self output be below her dust limit and check
 	// ForceCloseSummary again on both peers.
@@ -944,7 +958,7 @@ func TestForceClose(t *testing.T) {
 	aliceAmount = aliceChannel.channelState.LocalBalance
 	bobAmount = bobChannel.channelState.RemoteBalance
 
-	closeSummary, err = aliceChannel.ForceClose()
+	closeSummary, err := aliceChannel.ForceClose()
 	if err != nil {
 		t.Fatalf("unable to force close channel: %v", err)
 	}
@@ -975,8 +989,8 @@ func TestForceClose(t *testing.T) {
 			closeSummary.SelfOutputMaturity)
 	}
 
-	closeTxHash = closeSummary.CloseTx.TxHash()
-	commitTxHash = aliceChannel.channelState.CommitTx.TxHash()
+	closeTxHash := closeSummary.CloseTx.TxHash()
+	commitTxHash := aliceChannel.channelState.CommitTx.TxHash()
 	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
 		t.Fatalf("alice: incorrect close transaction txid")
 	}

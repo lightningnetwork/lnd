@@ -3521,8 +3521,8 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 		csvDelay = localChanCfg.CsvDelay
 	}
 
-	htlcResolutions := make([]OutgoingHtlcResolution, len(htlcs))
-	for i, htlc := range htlcs {
+	htlcResolutions := make([]OutgoingHtlcResolution, 0, len(htlcs))
+	for _, htlc := range htlcs {
 		// Skip any incoming HTLC's, as unless we have the pre-image to
 		// spend them, they'll eventually be swept by the party that
 		// offered the HTLC after the timeout.
@@ -3548,7 +3548,7 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 		}
 
 		// TODO(roasbeef): needs to point to proper amount including
-		htlcResolutions[i] = *ohr
+		htlcResolutions = append(htlcResolutions, *ohr)
 	}
 
 	return htlcResolutions, localKey, nil

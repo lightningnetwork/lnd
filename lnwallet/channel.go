@@ -3412,7 +3412,7 @@ type OutgoingHtlcResolution struct {
 // caller to sweep an outgoing HTLC present on either their, or the remote
 // party's commitment transaction.
 func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
-	commitHash chainhash.Hash, htlc *channeldb.HTLC, commitTweak []byte,
+	commitHash chainhash.Hash, htlc *channeldb.HTLC, commitPoint,
 	delayKey, localKey, remoteKey *btcec.PublicKey, revokeKey *btcec.PublicKey,
 	feePewKw, dustLimit btcutil.Amount, csvDelay uint32) (*OutgoingHtlcResolution, error) {
 
@@ -3445,9 +3445,11 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 	if err != nil {
 		return nil, err
 	}
+	timeoutTweak := SingleTweakBytes(commitPoint,
+		localChanCfg.PaymentBasePoint)
 	timeoutSignDesc := SignDescriptor{
 		PubKey:        localChanCfg.PaymentBasePoint,
-		SingleTweak:   commitTweak,
+		SingleTweak:   timeoutTweak,
 		WitnessScript: htlcCreationScript,
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
@@ -3480,12 +3482,14 @@ func newHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelConfig,
 		return nil, err
 	}
 
+	delayTweak := SingleTweakBytes(commitPoint,
+		localChanCfg.DelayBasePoint)
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
 		SweepSignDesc: SignDescriptor{
 			PubKey:        localChanCfg.DelayBasePoint,
-			SingleTweak:   commitTweak,
+			SingleTweak:   delayTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
 				PkScript: htlcScriptHash,
@@ -3508,8 +3512,6 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 	// As uusal, we start by re-generating the key-ring required to
 	// reconstruct the pkScripts used, and sign any transactions or inputs
 	// required to sweep all funds.
-	commitTweak := SingleTweakBytes(commitPoint,
-		localChanCfg.PaymentBasePoint)
 	localKey := TweakPubKey(localChanCfg.PaymentBasePoint, commitPoint)
 	delayKey := TweakPubKey(localChanCfg.DelayBasePoint, commitPoint)
 	remoteKey := TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
@@ -3539,7 +3541,7 @@ func extractHtlcResolutions(feePerKw btcutil.Amount, ourCommit bool,
 		}
 
 		ohr, err := newHtlcResolution(
-			signer, localChanCfg, commitHash, htlc, commitTweak,
+			signer, localChanCfg, commitHash, htlc, commitPoint,
 			delayKey, localKey, remoteKey, revokeKey, feePerKw,
 			dustLimit, uint32(csvDelay),
 		)

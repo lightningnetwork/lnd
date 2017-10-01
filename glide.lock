@@ -1,5 +1,5 @@
-hash: 0cd85bc72c2c5183088681a5631e047b91a571c89ea4f5ada6ce022dc5b0a12c
-updated: 2017-09-27T19:32:56.026486883-07:00
+hash: 51c542f20a78b27084dc52c7f6f8234d8ebb8539165700957a565ac866b65b6d
+updated: 2017-10-01T14:43:37.338697057-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 5627b4b693a1c4e7656222a2e5747a15adf45a75
+  version: c11a86339f7e53170b0ef38fcf495e172d792e02
   subpackages:
   - filterdb
   - headerfs
@@ -112,7 +112,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 211e002c9e424984c24e7524ae9bee01f6ef9b5c
+  version: 30ed6c8e49c45be04e9a9af0518245f27f2f6686
   subpackages:
   - chain
   - internal/helpers
@@ -165,14 +165,14 @@ imports:
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 79ab41e967c76b94c55d37134c51fc306609cffc
+  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: ee236bd376b077c7a89f260c026c4735b195e459
+  version: 1e559d0a00eef8a9a43151db4665280bd8dd5886
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status

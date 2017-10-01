@@ -34,7 +34,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 211e002c9e424984c24e7524ae9bee01f6ef9b5c
+  version: 30ed6c8e49c45be04e9a9af0518245f27f2f6686
   subpackages:
   - chain
   - waddrmgr
@@ -71,7 +71,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 5627b4b693a1c4e7656222a2e5747a15adf45a75
+  version: c11a86339f7e53170b0ef38fcf495e172d792e02
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo

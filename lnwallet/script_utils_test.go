@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -1093,4 +1094,103 @@ func TestCommitTxStateHint(t *testing.T) {
 		}
 		t.Logf("Passed: %v", test.name)
 	}
+}
+
+// TestSpecificationKeyDerivation implements the test vectors provided in
+// BOLT-03, Appendix E.
+func TestSpecificationKeyDerivation(t *testing.T) {
+	const (
+		baseSecretHex          = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+		perCommitmentSecretHex = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100"
+		basePointHex           = "036d6caac248af96f6afa7f904f550253a0f3ef3f5aa2fe6838a95b216691468e2"
+		perCommitmentPointHex  = "025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486"
+	)
+
+	baseSecret, err := privkeyFromHex(baseSecretHex)
+	if err != nil {
+		t.Fatalf("Failed to parse serialized privkey: %v", err)
+	}
+	perCommitmentSecret, err := privkeyFromHex(perCommitmentSecretHex)
+	if err != nil {
+		t.Fatalf("Failed to parse serialized privkey: %v", err)
+	}
+	basePoint, err := pubkeyFromHex(basePointHex)
+	if err != nil {
+		t.Fatalf("Failed to parse serialized pubkey: %v", err)
+	}
+	perCommitmentPoint, err := pubkeyFromHex(perCommitmentPointHex)
+	if err != nil {
+		t.Fatalf("Failed to parse serialized pubkey: %v", err)
+	}
+
+	// name: derivation of key from basepoint and per_commitment_point
+	const expectedLocalKeyHex = "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5"
+	actualLocalKey := TweakPubKey(basePoint, perCommitmentPoint)
+	actualLocalKeyHex := pubkeyToHex(actualLocalKey)
+	if actualLocalKeyHex != expectedLocalKeyHex {
+		t.Errorf("Incorrect derivation of local public key: "+
+			"expected %v, got %v", expectedLocalKeyHex, actualLocalKeyHex)
+	}
+
+	// name: derivation of secret key from basepoint secret and per_commitment_secret
+	const expectedLocalPrivKeyHex = "cbced912d3b21bf196a766651e436aff192362621ce317704ea2f75d87e7be0f"
+	tweak := SingleTweakBytes(perCommitmentPoint, basePoint)
+	actualLocalPrivKey := TweakPrivKey(baseSecret, tweak)
+	actualLocalPrivKeyHex := privkeyToHex(actualLocalPrivKey)
+	if actualLocalPrivKeyHex != expectedLocalPrivKeyHex {
+		t.Errorf("Incorrect derivation of local private key: "+
+			"expected %v, got %v, %v", expectedLocalPrivKeyHex,
+			actualLocalPrivKeyHex, hex.EncodeToString(tweak))
+	}
+
+	// name: derivation of revocation key from basepoint and per_commitment_point
+	const expectedRevocationKeyHex = "02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0"
+	actualRevocationKey := DeriveRevocationPubkey(basePoint, perCommitmentPoint)
+	actualRevocationKeyHex := pubkeyToHex(actualRevocationKey)
+	if actualRevocationKeyHex != expectedRevocationKeyHex {
+		t.Errorf("Incorrect derivation of revocation public key: "+
+			"expected %v, got %v", expectedRevocationKeyHex,
+			actualRevocationKeyHex)
+	}
+
+	// name: derivation of revocation secret from basepoint_secret and per_commitment_secret
+	const expectedRevocationPrivKeyHex = "d09ffff62ddb2297ab000cc85bcb4283fdeb6aa052affbc9dddcf33b61078110"
+	actualRevocationPrivKey := DeriveRevocationPrivKey(baseSecret,
+		perCommitmentSecret)
+	actualRevocationPrivKeyHex := privkeyToHex(actualRevocationPrivKey)
+	if actualRevocationPrivKeyHex != expectedRevocationPrivKeyHex {
+		t.Errorf("Incorrect derivation of revocation private key: "+
+			"expected %v, got %v", expectedRevocationPrivKeyHex,
+			actualRevocationPrivKeyHex)
+	}
+}
+
+// pubkeyFromHex parses a Bitcoin public key from a hex encoded string.
+func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
+	bytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
+	}
+	return btcec.ParsePubKey(bytes, btcec.S256())
+}
+
+// privkeyFromHex parses a Bitcoin private key from a hex encoded string.
+func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
+	bytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
+	}
+	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
+	return key, nil
+
+}
+
+// pubkeyToHex serializes a Bitcoin public key to a hex encoded string.
+func pubkeyToHex(key *btcec.PublicKey) string {
+	return hex.EncodeToString(key.SerializeCompressed())
+}
+
+// privkeyFromHex serializes a Bitcoin private key to a hex encoded string.
+func privkeyToHex(key *btcec.PrivateKey) string {
+	return hex.EncodeToString(key.Serialize())
 }

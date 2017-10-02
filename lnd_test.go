@@ -410,6 +410,186 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// testOpenChannelAfterReorg tests that in the case where we have an open
+// channel where the funding tx gets reorged out, the channel will no
+// longer be present in the node's routing table.
+func testOpenChannelAfterReorg(net *networkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// Set up a new miner that we can use to cause a reorg.
+	args := []string{"--rejectnonstd"}
+	miner, err := rpctest.New(harnessNetParams,
+		&rpcclient.NotificationHandlers{}, args)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	if err := miner.SetUp(true, 50); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer miner.TearDown()
+
+	if err := miner.Node.NotifyNewTransactions(false); err != nil {
+		t.Fatalf("unable to request transaction notifications: %v", err)
+	}
+
+	// We start by connecting the new miner to our original miner,
+	// such that it will sync to our original chain.
+	if err := rpctest.ConnectNode(net.Miner, miner); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice := []*rpctest.Harness{net.Miner, miner}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	// The two should be on the same blockheight.
+	_, newNodeHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, orgNodeHeight, err := net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if newNodeHeight != orgNodeHeight {
+		t.Fatalf("expected new miner(%d) and original miner(%d) to "+
+			"be on the same height", newNodeHeight, orgNodeHeight)
+	}
+
+	// We disconnect the two nodes, such that we can start mining on them
+	// individually without the other one learning about the new blocks.
+	err = net.Miner.Node.AddNode(miner.P2PAddress(), rpcclient.ANRemove)
+	if err != nil {
+		t.Fatalf("unable to remove node: %v", err)
+	}
+
+	// Create a new channel that requires 1 confs before it's considered
+	// open, then broadcast the funding transaction
+	chanAmt := maxFundingAmount
+	pushAmt := btcutil.Amount(0)
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
+		chanAmt, pushAmt)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// At this point, the channel's funding transaction will have been
+	// broadcast, but not confirmed, and the channel should be pending.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+
+	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
+	if err != nil {
+		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
+			" %v", err)
+	}
+
+	// We now cause a fork, by letting our original miner mine 10 blocks,
+	// and our new miner mine 15. This will also confirm our pending
+	// channel, which should be considered open.
+	block := mineBlocks(t, net, 10)[0]
+	assertTxInBlock(t, block, fundingTxID)
+	miner.Node.Generate(15)
+
+	// Ensure the chain lengths are what we expect.
+	_, newNodeHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, orgNodeHeight, err = net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if newNodeHeight != orgNodeHeight+5 {
+		t.Fatalf("expected new miner(%d) to be 5 blocks ahead of "+
+			"original miner(%d)", newNodeHeight, orgNodeHeight)
+	}
+
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: pendingUpdate.Txid,
+		OutputIndex: pendingUpdate.OutputIndex,
+	}
+
+	// Ensure channel is no longer pending.
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+
+	// Wait for Alice and Bob to recognize and advertise the new channel
+	// generated above.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't advertise channel before "+
+			"timeout: %v", err)
+	}
+
+	// Alice should now have 1 edge in her graph.
+	req := &lnrpc.ChannelGraphRequest{}
+	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to query for alice's routing table: %v", err)
+	}
+
+	numEdges := len(chanGraph.Edges)
+	if numEdges != 1 {
+		t.Fatalf("expected to find one edge in the graph, found %d",
+			numEdges)
+	}
+
+	// Connecting the two miners should now cause our original one to sync
+	// to the new, and longer chain.
+	if err := rpctest.ConnectNode(net.Miner, miner); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	// Once again they should be on the same chain.
+	_, newNodeHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, orgNodeHeight, err = net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if newNodeHeight != orgNodeHeight {
+		t.Fatalf("expected new miner(%d) and original miner(%d) to "+
+			"be on the same height", newNodeHeight, orgNodeHeight)
+	}
+
+	// Since the fundingtx was reorged out, Alice should now have no edges
+	// in her graph.
+	req = &lnrpc.ChannelGraphRequest{}
+	chanGraph, err = net.Alice.DescribeGraph(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to query for alice's routing table: %v", err)
+	}
+
+	numEdges = len(chanGraph.Edges)
+	if numEdges != 0 {
+		t.Fatalf("expected to find no edge in the graph, found %d",
+			numEdges)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
 // testDisconnectingTargetPeer performs a test which
 // disconnects Alice-peer from Bob-peer and then re-connects them again
 func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
@@ -3750,6 +3930,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "open channel reorg test",
+		test: testOpenChannelAfterReorg,
 	},
 	{
 		name: "disconnecting target peer",

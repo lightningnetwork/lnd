@@ -809,6 +809,34 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
+// HtlcSpendSuccess exposes the public witness generation function for spending
+// an HTLC success transaction, either due to an expiring time lock or having
+// had the payment preimage.
+// NOTE: The caller MUST set the txn version, sequence number, and sign
+// descriptor's sig hash cache before invocation.
+func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// With the proper sequence an version set, we'll now sign the timeout
+	// transaction using the passed signed descriptor. In order to generate
+	// a valid signature, then signDesc should be using the base delay
+	// public key, and the proper single tweak bytes.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// We set a zero as the first element the witness stack (ignoring the
+	// witness script), in order to force execution to the second portion
+	// of the if clause.
+	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = nil
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
 // htlcTimeoutRevoke spends a second-level HTLC output. This function is to be
 // used by the sender or receiver of an HTLC to claim the HTLC after a revoked
 // commitment transaction was broadcast.

@@ -181,10 +181,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 					pubKey[:], err)
 			}
 		},
-		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
-			s.authGossiper.ProcessRemoteAnnouncement(msg, nil)
-			return nil
-		},
 	})
 
 	// If external IP addresses have been specified, add those to the list

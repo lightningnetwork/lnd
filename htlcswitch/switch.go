@@ -89,12 +89,6 @@ type Config struct {
 	// or forced unilateral closure of the channel initiated by a local
 	// subsystem.
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
-
-	// UpdateTopology sends the onion error failure topology update to router
-	// subsystem.
-	//
-	// TODO(roasbeef): remove
-	UpdateTopology func(msg *lnwire.ChannelUpdate) error
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -395,51 +389,10 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				"onion failure, htlc with hash(%x): %v",
 				payment.paymentHash[:], err)
 			log.Error(userErr)
-		} else {
-			// Process payment failure by updating the lightning
-			// network topology by using router subsystem handler.
-			var update *lnwire.ChannelUpdate
-
-			// Only a few error message actually contain a channel
-			// update message, so we'll filter out for those that
-			// do.
-			switch failure := failure.(type) {
-			case *lnwire.FailTemporaryChannelFailure:
-				update = failure.Update
-			case *lnwire.FailAmountBelowMinimum:
-				update = &failure.Update
-			case *lnwire.FailFeeInsufficient:
-				update = &failure.Update
-			case *lnwire.FailIncorrectCltvExpiry:
-				update = &failure.Update
-			case *lnwire.FailExpiryTooSoon:
-				update = &failure.Update
-			case *lnwire.FailChannelDisabled:
-				update = &failure.Update
-			}
-
-			// If we've been sent an error that includes an update,
-			// then we'll apply it to the local graph.
-			//
-			// TODO(roasbeef): instead, make all onion errors the
-			// error interface, and handle this within the router.
-			// Will allow us more flexibility w.r.t how we handle
-			// the error.
-			if update != nil {
-				log.Infof("Received payment failure(%v), "+
-					"applying lightning network topology update",
-					failure.Code())
-
-				if err := s.cfg.UpdateTopology(update); err != nil {
-					log.Errorf("unable to update topology: %v", err)
-				}
-			}
-
-			userErr = errors.New(failure.Code())
 		}
 
 		// Notify user that his payment was discarded.
-		payment.err <- userErr
+		payment.err <- failure
 		payment.preimage <- zeroPreimage
 		s.removePendingPayment(payment.amount, payment.paymentHash)
 

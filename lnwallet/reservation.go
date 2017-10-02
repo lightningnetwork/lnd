@@ -173,7 +173,7 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 			// slides split the amount funded and the commitment
 			// fee.
 			ourBalance = fundingMSat - (feeMSat / 2)
-			theirBalance = capacityMSat - fundingMSat - (feeMSat / 2) + pushMSat
+			theirBalance = capacityMSat - fundingMSat - (feeMSat / 2)
 		}
 
 		initiator = true

@@ -1652,7 +1652,11 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	// With the channel retrieved, we'll send the breach arbiter the new
 	// channel so it can watch for attempts to breach the channel's
 	// contract by the remote party.
-	f.cfg.ArbiterChan <- channel
+	select {
+	case f.cfg.ArbiterChan <- channel:
+	case <-f.quit:
+		return
+	}
 
 	// Launch a defer so we _ensure_ that the channel barrier is properly
 	// closed even if the target peer is not longer online at this point.
@@ -1683,7 +1687,12 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		channel: channel,
 		done:    newChanDone,
 	}
-	peer.newChannels <- newChanMsg
+
+	select {
+	case peer.newChannels <- newChanMsg:
+	case <-f.quit:
+		return
+	}
 
 	// We pause here to wait for the peer to recognize the new channel
 	// before we close the channel barrier corresponding to the channel.

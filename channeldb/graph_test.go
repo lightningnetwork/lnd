@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"image/color"
+	"math"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -351,6 +352,168 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	err = graph.DeleteChannelEdge(&outpoint)
 	if err != ErrEdgeNotFound {
 		t.Fatalf("deleting a non-existent edge should fail!")
+	}
+}
+
+// TestDisconnecteBlockAtHeight checks that the pruned state of the channel
+// database is what we expect after calling DisconnectBlockAtHeight.
+func TestDisconnecteBlockAtHeight(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'd like to test the insertion/deletion of edges, so we create two
+	// vertexes to connect.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	// In addition to the fake vertexes we create some fake channel
+	// identifiers.
+	var spendOutputs []*wire.OutPoint
+	var blockHash chainhash.Hash
+	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
+
+	// Prune the graph a few times to make sure we have entries in the
+	// prune log.
+	_, err = graph.PruneGraph(spendOutputs, &blockHash, 155)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+	var blockHash2 chainhash.Hash
+	copy(blockHash2[:], bytes.Repeat([]byte{2}, 32))
+
+	_, err = graph.PruneGraph(spendOutputs, &blockHash2, 156)
+	if err != nil {
+		t.Fatalf("unable to prune graph: %v", err)
+	}
+
+	// We'll create 3 almost identical edges, so first create a helper
+	// method containing all logic for doing so.
+	createEdge := func(height uint32, txIndex uint32, txPosition uint16,
+		outPointIndex uint32) ChannelEdgeInfo {
+		shortChanID := lnwire.ShortChannelID{
+			BlockHeight: height,
+			TxIndex:     txIndex,
+			TxPosition:  txPosition,
+		}
+		outpoint := wire.OutPoint{
+			Hash:  rev,
+			Index: outPointIndex,
+		}
+
+		edgeInfo := ChannelEdgeInfo{
+			ChannelID:   shortChanID.ToUint64(),
+			ChainHash:   key,
+			NodeKey1:    node1.PubKey,
+			NodeKey2:    node2.PubKey,
+			BitcoinKey1: node1.PubKey,
+			BitcoinKey2: node2.PubKey,
+			AuthProof: &ChannelAuthProof{
+				NodeSig1:    testSig,
+				NodeSig2:    testSig,
+				BitcoinSig1: testSig,
+				BitcoinSig2: testSig,
+			},
+			ChannelPoint: outpoint,
+			Capacity:     9000,
+		}
+		return edgeInfo
+	}
+
+	// Create an edge which has its block height at 156.
+	height := uint32(156)
+	edgeInfo := createEdge(height, 0, 0, 0)
+
+	// Create an edge with block height 157. We give it
+	// maximum values for tx index and position, to make
+	// sure our database range scan get edges from the
+	// entire range.
+	edgeInfo2 := createEdge(height+1, math.MaxUint32&0x00ffffff,
+		math.MaxUint16, 1)
+
+	// Create a third edge, this with a block height of 155.
+	edgeInfo3 := createEdge(height-1, 0, 0, 2)
+
+	// Now add all these new edges to the database.
+	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	if err := graph.AddChannelEdge(&edgeInfo2); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	if err := graph.AddChannelEdge(&edgeInfo3); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	// Call DisconnectBlockAtHeight, which should prune every channel
+	// that has an funding height of 'height' or greater.
+	removed, err := graph.DisconnectBlockAtHeight(uint32(height))
+	if err != nil {
+		t.Fatalf("unable to prune %v", err)
+	}
+
+	// The two edges should have been removed.
+	if len(removed) != 2 {
+		t.Fatalf("expected two edges to be removed from graph, "+
+			"only %d were", len(removed))
+	}
+	if removed[0].ChannelID != edgeInfo.ChannelID {
+		t.Fatalf("expected edge to be removed from graph")
+	}
+	if removed[1].ChannelID != edgeInfo2.ChannelID {
+		t.Fatalf("expected edge to be removed from graph")
+	}
+
+	// The two first edges should be removed from the db.
+	_, _, has, err := graph.HasChannelEdge(edgeInfo.ChannelID)
+	if err != nil {
+		t.Fatalf("unable to query for edge: %v", err)
+	}
+	if has {
+		t.Fatalf("edge1 was not pruned from the graph")
+	}
+	_, _, has, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
+	if err != nil {
+		t.Fatalf("unable to query for edge: %v", err)
+	}
+	if has {
+		t.Fatalf("edge2 was not pruned from the graph")
+	}
+
+	// Edge 3 should not be removed.
+	_, _, has, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
+	if err != nil {
+		t.Fatalf("unable to query for edge: %v", err)
+	}
+	if !has {
+		t.Fatalf("edge3 was pruned from the graph")
+	}
+
+	// PruneTip should be set to the blockHash we specified for the block
+	// at height 155.
+	hash, h, err := graph.PruneTip()
+	if err != nil {
+		t.Fatalf("unable to get prune tip: %v", err)
+	}
+	if !blockHash.IsEqual(hash) {
+		t.Fatalf("expected best block to be %x, was %x", blockHash, hash)
+	}
+	if h != height-1 {
+		t.Fatalf("expected best block height to be %d, was %d", height-1, h)
 	}
 }
 

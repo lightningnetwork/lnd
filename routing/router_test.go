@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -400,7 +401,7 @@ func TestAddProof(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// After utxo was recreated adding the edge without the proof.
 	edge := &channeldb.ChannelEdgeInfo{
@@ -502,7 +503,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
@@ -600,7 +601,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	fundingBlock = &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge = &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
@@ -717,4 +718,398 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	if copy2.Alias != n2.Alias {
 		t.Fatalf("fetched node not equal to original")
 	}
+}
+
+// TestWakeUpOnStaleBranch tests that upon startup of the ChannelRouter, if the
+// the chain previously reflected in the channel graph is stale (overtaken by a
+// longer chain), the channel router will prune the graph for any channels
+// confirmed on the stale chain, and resync to the main chain.
+func TestWakeUpOnStaleBranch(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	const chanValue = 10000
+
+	// chanID1 will not be reorged out.
+	var chanID1 uint64
+
+	// chanID2 will be reorged out.
+	var chanID2 uint64
+
+	// Create 10 common blocks, confirming chanID1.
+	for i := uint32(1); i <= 10; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := startingBlockHeight + i
+		if i == 5 {
+			fundingTx, _, chanID, err := createChannelEdge(ctx,
+				bitcoinKey1.SerializeCompressed(),
+				bitcoinKey2.SerializeCompressed(),
+				chanValue, height)
+			if err != nil {
+				t.Fatalf("unable create channel edge: %v", err)
+			}
+			block.Transactions = append(block.Transactions,
+				fundingTx)
+			chanID1 = chanID.ToUint64()
+
+		}
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+		ctx.chainView.notifyBlock(block.BlockHash(), height,
+			[]*wire.MsgTx{})
+	}
+
+	// Give time to process new blocks
+	time.Sleep(time.Millisecond * 500)
+
+	_, forkHeight, err := ctx.chain.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to ge best block: %v", err)
+	}
+
+	// Create 10 blocks on the minority chain, confirming chanID2.
+	for i := uint32(1); i <= 10; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := uint32(forkHeight) + i
+		if i == 5 {
+			fundingTx, _, chanID, err := createChannelEdge(ctx,
+				bitcoinKey1.SerializeCompressed(),
+				bitcoinKey2.SerializeCompressed(),
+				chanValue, height)
+			if err != nil {
+				t.Fatalf("unable create channel edge: %v", err)
+			}
+			block.Transactions = append(block.Transactions,
+				fundingTx)
+			chanID2 = chanID.ToUint64()
+		}
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+		ctx.chainView.notifyBlock(block.BlockHash(), height,
+			[]*wire.MsgTx{})
+	}
+	// Give time to process new blocks
+	time.Sleep(time.Millisecond * 500)
+
+	// Now add the two edges to the channel graph, and check that they
+	// correctly show up in the database.
+	node1, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	node2, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	edge1 := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID1,
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+	}
+
+	if err := ctx.router.AddEdge(edge1); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	edge2 := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID2,
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+	}
+
+	if err := ctx.router.AddEdge(edge2); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Check that the fundingTxs are in the graph db.
+	_, _, has, err := ctx.graph.HasChannelEdge(chanID1)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if !has {
+		t.Fatalf("could not find edge in graph")
+	}
+
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID2)
+	}
+	if !has {
+		t.Fatalf("could not find edge in graph")
+	}
+
+	// Stop the router, so we can reorg the chain while its offline.
+	if err := ctx.router.Stop(); err != nil {
+		t.Fatalf("unable to stop router: %v", err)
+	}
+
+	// Create a 15 block fork.
+	for i := uint32(1); i <= 15; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := uint32(forkHeight) + i
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+	}
+
+	// Give time to process new blocks.
+	time.Sleep(time.Millisecond * 500)
+
+	// Create new router with same graph database.
+	router, err := New(Config{
+		Graph:     ctx.graph,
+		Chain:     ctx.chain,
+		ChainView: ctx.chainView,
+		SendToSwitch: func(_ *btcec.PublicKey,
+			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+			return [32]byte{}, nil
+		},
+		ChannelPruneExpiry: time.Hour * 24,
+		GraphPruneInterval: time.Hour * 2,
+	})
+	if err != nil {
+		t.Fatalf("unable to create router %v", err)
+	}
+
+	// It should resync to the longer chain on startup.
+	if err := router.Start(); err != nil {
+		t.Fatalf("unable to start router: %v", err)
+	}
+
+	// The channel with chanID2 should not be in the database anymore,
+	// since it is not confirmed on the longest chain. chanID1 should
+	// still be.
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID1)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if !has {
+		t.Fatalf("did not find edge in graph")
+	}
+
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID2)
+	}
+	if has {
+		t.Fatalf("found edge in graph")
+	}
+
+}
+
+// TestDisconnectedBlocks checks that the router handles a reorg happening
+// when it is active.
+func TestDisconnectedBlocks(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	const chanValue = 10000
+
+	// chanID1 will not be reorged out.
+	var chanID1 uint64
+
+	// chanID2 will be reorged out.
+	var chanID2 uint64
+
+	// Create 10 common blocks, confirming chanID1.
+	for i := uint32(1); i <= 10; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := startingBlockHeight + i
+		if i == 5 {
+			fundingTx, _, chanID, err := createChannelEdge(ctx,
+				bitcoinKey1.SerializeCompressed(),
+				bitcoinKey2.SerializeCompressed(),
+				chanValue, height)
+			if err != nil {
+				t.Fatalf("unable create channel edge: %v", err)
+			}
+			block.Transactions = append(block.Transactions,
+				fundingTx)
+			chanID1 = chanID.ToUint64()
+
+		}
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+		ctx.chainView.notifyBlock(block.BlockHash(), height,
+			[]*wire.MsgTx{})
+	}
+
+	// Give time to process new blocks
+	time.Sleep(time.Millisecond * 500)
+
+	_, forkHeight, err := ctx.chain.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get best block: %v", err)
+	}
+
+	// Create 10 blocks on the minority chain, confirming chanID2.
+	var minorityChain []*wire.MsgBlock
+	for i := uint32(1); i <= 10; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := uint32(forkHeight) + i
+		if i == 5 {
+			fundingTx, _, chanID, err := createChannelEdge(ctx,
+				bitcoinKey1.SerializeCompressed(),
+				bitcoinKey2.SerializeCompressed(),
+				chanValue, height)
+			if err != nil {
+				t.Fatalf("unable create channel edge: %v", err)
+			}
+			block.Transactions = append(block.Transactions,
+				fundingTx)
+			chanID2 = chanID.ToUint64()
+		}
+		minorityChain = append(minorityChain, block)
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+		ctx.chainView.notifyBlock(block.BlockHash(), height,
+			[]*wire.MsgTx{})
+	}
+	// Give time to process new blocks
+	time.Sleep(time.Millisecond * 500)
+
+	// Now add the two edges to the channel graph, and check that they
+	// correctly show up in the database.
+	node1, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	node2, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	edge1 := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID1,
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+	}
+
+	if err := ctx.router.AddEdge(edge1); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	edge2 := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID2,
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+	}
+
+	if err := ctx.router.AddEdge(edge2); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// Check that the fundingTxs are in the graph db.
+	_, _, has, err := ctx.graph.HasChannelEdge(chanID1)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if !has {
+		t.Fatalf("could not find edge in graph")
+	}
+
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID2)
+	}
+	if !has {
+		t.Fatalf("could not find edge in graph")
+	}
+
+	// Create a 15 block fork. We first let the chainView notify the
+	// router about stale blocks, before sending the now connected
+	// blocks. We do this because we expect this order from the
+	// chainview.
+	for i := len(minorityChain) - 1; i >= 0; i-- {
+		block := minorityChain[i]
+		height := uint32(forkHeight) + uint32(i) + 1
+		ctx.chainView.notifyStaleBlock(block.BlockHash(), height,
+			block.Transactions)
+	}
+	for i := uint32(1); i <= 15; i++ {
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		height := uint32(forkHeight) + i
+		ctx.chain.addBlock(block, height, rand.Uint32())
+		ctx.chain.setBestBlock(int32(height))
+		ctx.chainView.notifyBlock(block.BlockHash(), height,
+			block.Transactions)
+	}
+
+	// Give time to process new blocks
+	time.Sleep(time.Millisecond * 500)
+
+	// The  with chanID2 should not be in the database anymore, since it is
+	// not confirmed on the longest chain. chanID1 should still be.
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID1)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if !has {
+		t.Fatalf("did not find edge in graph")
+	}
+
+	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID2)
+	}
+	if has {
+		t.Fatalf("found edge in graph")
+	}
+
 }

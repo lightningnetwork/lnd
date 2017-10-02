@@ -186,10 +186,11 @@ func lndMain() error {
 				idPrivKey.PubKey())
 			return <-errChan
 		},
-		ArbiterChan:    server.breachArbiter.newContracts,
-		SendToPeer:     server.SendToPeer,
-		FindPeer:       server.FindPeer,
-		TempChanIDSeed: chanIDSeed,
+		ArbiterChan:      server.breachArbiter.newContracts,
+		SendToPeer:       server.SendToPeer,
+		NotifyWhenOnline: server.NotifyWhenOnline,
+		FindPeer:         server.FindPeer,
+		TempChanIDSeed:   chanIDSeed,
 		FindChannel: func(chanID lnwire.ChannelID) (*lnwallet.LightningChannel, error) {
 			dbChannels, err := chanDB.FetchAllChannels()
 			if err != nil {

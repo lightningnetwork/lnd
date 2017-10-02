@@ -1003,10 +1003,19 @@ out:
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			newChan := newChanReq.channel
 
-			// First, we'll add this channel to the set of active
+			// Make sure this channel is not already active.
+			p.activeChanMtx.Lock()
+			if _, ok := p.activeChannels[chanID]; ok {
+				peerLog.Infof("Already have ChannelPoint(%v), ignoring.", chanPoint)
+				p.activeChanMtx.Unlock()
+				close(newChanReq.done)
+				newChanReq.channel.Stop()
+				continue
+			}
+
+			// If not already active, we'll add this channel to the set of active
 			// channels, so we can look it up later easily
 			// according to its channel ID.
-			p.activeChanMtx.Lock()
 			p.activeChannels[chanID] = newChan
 			p.activeChanMtx.Unlock()
 

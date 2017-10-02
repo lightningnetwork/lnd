@@ -4000,3 +4000,11 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 func (lc *LightningChannel) CalcFee(feeRate uint64) uint64 {
 	return (feeRate * uint64(commitWeight)) / 1000
 }
+
+// RemoteNextRevocation returns the channelState's RemoteNextRevocation.
+func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.RemoteNextRevocation
+}

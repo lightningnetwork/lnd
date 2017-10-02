@@ -190,6 +190,12 @@ type fundingConfig struct {
 	// channel's funding transaction and initial commitment transaction.
 	SendToPeer func(target *btcec.PublicKey, msgs ...lnwire.Message) error
 
+	// NotifyWhenOnline allows the FundingManager to register with a
+	// subsystem that will notify it when the peer comes online.
+	// This is used when sending the fundingLocked message, since it MUST be
+	// delivered after the funding transaction is confirmed.
+	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
+
 	// FindPeer searches the list of peers connected to the node so that
 	// the FundingManager can notify other daemon subsystems as necessary
 	// during the funding process.
@@ -286,6 +292,9 @@ type fundingManager struct {
 	localDiscoveryMtx     sync.Mutex
 	localDiscoverySignals map[lnwire.ChannelID]chan struct{}
 
+	handleFundingLockedMtx      sync.RWMutex
+	handleFundingLockedBarriers map[lnwire.ChannelID]struct{}
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -323,16 +332,17 @@ var (
 // fundingManager.
 func newFundingManager(cfg fundingConfig) (*fundingManager, error) {
 	return &fundingManager{
-		cfg:                   &cfg,
-		chanIDKey:             cfg.TempChanIDSeed,
-		activeReservations:    make(map[serializedPubKey]pendingChannels),
-		signedReservations:    make(map[lnwire.ChannelID][32]byte),
-		newChanBarriers:       make(map[lnwire.ChannelID]chan struct{}),
-		fundingMsgs:           make(chan interface{}, msgBufferSize),
-		fundingRequests:       make(chan *initFundingMsg, msgBufferSize),
-		localDiscoverySignals: make(map[lnwire.ChannelID]chan struct{}),
-		queries:               make(chan interface{}, 1),
-		quit:                  make(chan struct{}),
+		cfg:                         &cfg,
+		chanIDKey:                   cfg.TempChanIDSeed,
+		activeReservations:          make(map[serializedPubKey]pendingChannels),
+		signedReservations:          make(map[lnwire.ChannelID][32]byte),
+		newChanBarriers:             make(map[lnwire.ChannelID]chan struct{}),
+		fundingMsgs:                 make(chan interface{}, msgBufferSize),
+		fundingRequests:             make(chan *initFundingMsg, msgBufferSize),
+		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
+		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
+		queries:                     make(chan interface{}, 1),
+		quit:                        make(chan struct{}),
 	}, nil
 }
 
@@ -420,10 +430,22 @@ func (f *fundingManager) Start() error {
 			return err
 		}
 
-		fndgLog.Debugf("channel with opening state %v found",
-			channelState)
-
 		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		fndgLog.Debugf("channel (%v) with opening state %v found",
+			chanID, channelState)
+
+		// Set up the channel barriers again, to make sure
+		// waitUntilChannelOpen correctly waits until the opening
+		// process is completely over.
+		f.barrierMtx.Lock()
+		fndgLog.Tracef("Loading pending ChannelPoint(%v), "+
+			"creating chan barrier", channel.FundingOutpoint)
+		f.newChanBarriers[chanID] = make(chan struct{})
+		f.barrierMtx.Unlock()
+
+		// Set up a localDiscoverySignals to make sure we finish sending
+		// our own fundingLocked and channel announcements before
+		// processing a received fundingLocked.
 		f.localDiscoverySignals[chanID] = make(chan struct{})
 
 		// If we did find the channel in the opening state database, we
@@ -587,6 +609,7 @@ func (f *fundingManager) reservationCoordinator() {
 			case *fundingSignedMsg:
 				f.handleFundingSigned(fmsg)
 			case *fundingLockedMsg:
+				f.wg.Add(1)
 				go f.handleFundingLocked(fmsg)
 			case *fundingErrorMsg:
 				f.handleErrorMsg(fmsg)
@@ -1436,18 +1459,46 @@ func (f *fundingManager) sendFundingLockedAndAnnounceChannel(
 	}
 	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
 
-	err = f.cfg.SendToPeer(completeChan.IdentityPub, fundingLockedMsg)
-	if err != nil {
-		fndgLog.Errorf("unable to send fundingLocked to peer: %v", err)
-		return
+	// If the peer has disconnected before we reach this point, we will need
+	// to wait for him to come back online before sending the fundingLocked
+	// message. This is special for fundingLocked, since failing to send any
+	// of the previous messages in the funding flow just cancels the flow.
+	// But now the funding transaction is confirmed, the channel is open
+	// and we have to make sure the peer gets the fundingLocked message when
+	// it comes back online. This is also crucial during restart of lnd,
+	// where we might try to resend the fundingLocked message before the
+	// server has had the time to connect to the peer. We keep trying to
+	// send fundingLocked until we succeed, or the fundingManager is shut
+	// down.
+	for {
+		err = f.cfg.SendToPeer(completeChan.IdentityPub,
+			fundingLockedMsg)
+		if err == nil {
+			// Sending succeeded, we can break out and continue
+			// the funding flow.
+			break
+		}
+
+		fndgLog.Warnf("unable to send fundingLocked to peer %x: "+
+			"%v. Will retry when online",
+			completeChan.IdentityPub.SerializeCompressed(), err)
+
+		connected := make(chan struct{})
+		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, connected)
+		select {
+		case <-connected:
+			// Retry sending.
+		case <-f.quit:
+			return
+		}
 	}
 
 	// As the fundingLocked message is now sent to the peer, the channel is
 	// moved to the next state of the state machine. It will be moved to the
 	// last state (actually deleted from the database) after the channel is
 	// finally announced.
-	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint, fundingLockedSent,
-		shortChanID)
+	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint,
+		fundingLockedSent, shortChanID)
 	if err != nil {
 		fndgLog.Errorf("error setting channel state to "+
 			"fundingLockedSent: %v", err)
@@ -1520,17 +1571,46 @@ func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 // handleFundingLocked finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
 func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
+	defer f.wg.Done()
+
+	// If we are currently in the process of handling a funding locked
+	// message for this channel, ignore.
+	f.handleFundingLockedMtx.Lock()
+	_, ok := f.handleFundingLockedBarriers[fmsg.msg.ChanID]
+	if ok {
+		fndgLog.Infof("Already handling fundingLocked for "+
+			"ChannelID(%v), ignoring.", fmsg.msg.ChanID)
+		f.handleFundingLockedMtx.Unlock()
+		return
+	}
+
+	// If not already handling fundingLocked for this channel, set up
+	// barrier, and move on.
+	f.handleFundingLockedBarriers[fmsg.msg.ChanID] = struct{}{}
+	f.handleFundingLockedMtx.Unlock()
+
+	defer func() {
+		f.handleFundingLockedMtx.Lock()
+		delete(f.handleFundingLockedBarriers, fmsg.msg.ChanID)
+		f.handleFundingLockedMtx.Unlock()
+	}()
+
 	f.localDiscoveryMtx.Lock()
 	localDiscoverySignal, ok := f.localDiscoverySignals[fmsg.msg.ChanID]
 	f.localDiscoveryMtx.Unlock()
 
 	if ok {
 		// Before we proceed with processing the funding locked
-		// message, we'll wait for the lcoal waitForFundingConfirmation
+		// message, we'll wait for the local waitForFundingConfirmation
 		// goroutine to signal that it has the necessary state in
 		// place. Otherwise, we may be missing critical information
 		// required to handle forwarded HTLC's.
-		<-localDiscoverySignal
+		select {
+		case <-localDiscoverySignal:
+			// Fallthrough
+		case <-f.quit:
+			return
+		}
 
 		// With the signal received, we can now safely delete the entry
 		// from the map.
@@ -1550,7 +1630,14 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		return
 	}
 
-	// TODO(roasbeef): done nothing if repeat message sent
+	// If the RemoteNextRevocation is non-nil, it means that we have
+	// already processed fundingLocked for this channel, so ignore.
+	if channel.RemoteNextRevocation() != nil {
+		fndgLog.Infof("Received duplicate fundingLocked for "+
+			"ChannelID(%v), ignoring.", chanID)
+		channel.Stop()
+		return
+	}
 
 	// The funding locked message contains the next commitment point we'll
 	// need to create the next commitment state for the remote party. So
@@ -1565,7 +1652,11 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	// With the channel retrieved, we'll send the breach arbiter the new
 	// channel so it can watch for attempts to breach the channel's
 	// contract by the remote party.
-	f.cfg.ArbiterChan <- channel
+	select {
+	case f.cfg.ArbiterChan <- channel:
+	case <-f.quit:
+		return
+	}
 
 	// Launch a defer so we _ensure_ that the channel barrier is properly
 	// closed even if the target peer is not longer online at this point.
@@ -1574,9 +1665,13 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		// that commitment related modifications to this channel can
 		// now proceed.
 		f.barrierMtx.Lock()
-		fndgLog.Tracef("Closing chan barrier for ChanID(%v)", chanID)
-		close(f.newChanBarriers[chanID])
-		delete(f.newChanBarriers, chanID)
+		chanBarrier, ok := f.newChanBarriers[chanID]
+		if ok {
+			fndgLog.Tracef("Closing chan barrier for ChanID(%v)",
+				chanID)
+			close(chanBarrier)
+			delete(f.newChanBarriers, chanID)
+		}
 		f.barrierMtx.Unlock()
 	}()
 
@@ -1592,7 +1687,12 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		channel: channel,
 		done:    newChanDone,
 	}
-	peer.newChannels <- newChanMsg
+
+	select {
+	case peer.newChannels <- newChanMsg:
+	case <-f.quit:
+		return
+	}
 
 	// We pause here to wait for the peer to recognize the new channel
 	// before we close the channel barrier corresponding to the channel.

@@ -280,6 +280,9 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 		targetChan = msg.ChanID
 	case *lnwire.CommitSig:
 		targetChan = msg.ChanID
+	case *lnwire.FundingLocked:
+		// Ignore
+		return nil
 	default:
 		return errors.New("unknown message type")
 	}

@@ -649,31 +649,12 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn *wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	remoteRevocation := DeriveRevocationPubkey(
-		ourChanCfg.RevocationBasePoint,
-		remoteCommitPoint,
-	)
-	localRevocation := DeriveRevocationPubkey(
-		theirChanCfg.RevocationBasePoint,
-		localCommitPoint,
-	)
+	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
+		ourChanCfg, theirChanCfg)
+	remoteCommitmentKeys := deriveCommitmentKeys(remoteCommitPoint, false,
+		ourChanCfg, theirChanCfg)
 
-	remoteDelayKey := TweakPubKey(theirChanCfg.DelayBasePoint,
-		remoteCommitPoint)
-	localDelayKey := TweakPubKey(ourChanCfg.DelayBasePoint,
-		localCommitPoint)
-
-	// The payment keys go on the opposite commitment transaction, so we'll
-	// swap the commitment points we use. As in the remote payment key will
-	// be used within our commitment transaction, and the local payment key
-	// used within the remote commitment transaction.
-	remotePaymentKey := TweakPubKey(theirChanCfg.PaymentBasePoint,
-		localCommitPoint)
-	localPaymentKey := TweakPubKey(ourChanCfg.PaymentBasePoint,
-		remoteCommitPoint)
-
-	ourCommitTx, err := CreateCommitTx(fundingTxIn,
-		localDelayKey, remotePaymentKey, localRevocation,
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, localCommitmentKeys,
 		uint32(ourChanCfg.CsvDelay), localBalance, remoteBalance,
 		ourChanCfg.DustLimit)
 	if err != nil {
@@ -685,8 +666,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 		return nil, nil, err
 	}
 
-	theirCommitTx, err := CreateCommitTx(fundingTxIn,
-		remoteDelayKey, localPaymentKey, remoteRevocation,
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, remoteCommitmentKeys,
 		uint32(theirChanCfg.CsvDelay), remoteBalance, localBalance,
 		theirChanCfg.DustLimit)
 	if err != nil {

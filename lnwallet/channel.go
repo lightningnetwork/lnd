@@ -1638,8 +1638,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		if !isDustLocal {
 			ourP2WSH, ourWitnessScript, err = lc.genHtlcScript(
 				htlc.Incoming, true, htlc.RefundTimeout, htlc.RHash,
-				localCommitKeys.localKey, localCommitKeys.remoteKey,
-				localCommitKeys.revocationKey)
+				localCommitKeys)
 			if err != nil {
 				return err
 			}
@@ -1647,8 +1646,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		if !isDustRemote {
 			theirP2WSH, theirWitnessScript, err = lc.genHtlcScript(
 				htlc.Incoming, false, htlc.RefundTimeout, htlc.RHash,
-				remoteCommitKeys.localKey, remoteCommitKeys.remoteKey,
-				remoteCommitKeys.revocationKey)
+				remoteCommitKeys)
 			if err != nil {
 				return err
 			}
@@ -1873,9 +1871,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
-	commitTx, err := CreateCommitTx(lc.fundingTxIn, keyRing.delayKey,
-		keyRing.paymentKey, keyRing.revocationKey, delay, delayBalance,
-		p2wkhBalance, dustLimit)
+	commitTx, err := CreateCommitTx(lc.fundingTxIn, keyRing, delay,
+		delayBalance, p2wkhBalance, dustLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -1890,8 +1887,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 			continue
 		}
 
-		err := lc.addHTLC(commitTx, ourCommitTx, false, htlc, keyRing.localKey,
-			keyRing.remoteKey, keyRing.revocationKey)
+		err := lc.addHTLC(commitTx, ourCommitTx, false, htlc, keyRing)
 		if err != nil {
 			return nil, err
 		}
@@ -1902,8 +1898,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 			continue
 		}
 
-		err := lc.addHTLC(commitTx, ourCommitTx, true, htlc, keyRing.localKey,
-			keyRing.remoteKey, keyRing.revocationKey)
+		err := lc.addHTLC(commitTx, ourCommitTx, true, htlc, keyRing)
 		if err != nil {
 			return nil, err
 		}
@@ -3179,8 +3174,8 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 // HTLC output modified by two-bits denoting if this is an incoming HTLC, and
 // if the HTLC is being applied to their commitment transaction or ours.
 func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
-	timeout uint32, rHash [32]byte, localKey, remoteKey *btcec.PublicKey,
-	revocationKey *btcec.PublicKey) ([]byte, []byte, error) {
+	timeout uint32, rHash [32]byte, keyRing *commitmentKeyRing,
+) ([]byte, []byte, error) {
 
 	var (
 		witnessScript []byte
@@ -3195,29 +3190,29 @@ func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
 	// transaction. So we need to use the receiver's version of HTLC the
 	// script.
 	case isIncoming && ourCommit:
-		witnessScript, err = receiverHTLCScript(timeout, remoteKey,
-			localKey, revocationKey, rHash[:])
+		witnessScript, err = receiverHTLCScript(timeout, keyRing.remoteKey,
+			keyRing.localKey, keyRing.revocationKey, rHash[:])
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
 	// being added to their commitment transaction, so we use the sender's
 	// version of the HTLC script.
 	case isIncoming && !ourCommit:
-		witnessScript, err = senderHTLCScript(remoteKey, localKey,
-			revocationKey, rHash[:])
+		witnessScript, err = senderHTLCScript(keyRing.remoteKey,
+			keyRing.localKey, keyRing.revocationKey, rHash[:])
 
 	// We're sending an HTLC which is being added to our commitment
 	// transaction. Therefore, we need to use the sender's version of the
 	// HTLC script.
 	case !isIncoming && ourCommit:
-		witnessScript, err = senderHTLCScript(localKey, remoteKey,
-			revocationKey, rHash[:])
+		witnessScript, err = senderHTLCScript(keyRing.localKey,
+			keyRing.remoteKey, keyRing.revocationKey, rHash[:])
 
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
 	// receiver's version of the HTLC script.
 	case !isIncoming && !ourCommit:
-		witnessScript, err = receiverHTLCScript(timeout, localKey,
-			remoteKey, revocationKey, rHash[:])
+		witnessScript, err = receiverHTLCScript(timeout, keyRing.localKey,
+			keyRing.remoteKey, keyRing.revocationKey, rHash[:])
 	}
 	if err != nil {
 		return nil, nil, err
@@ -3241,14 +3236,14 @@ func (lc *LightningChannel) genHtlcScript(isIncoming, ourCommit bool,
 // PaymentDescriptor that generated it, the generated script is stored within
 // the descriptor itself.
 func (lc *LightningChannel) addHTLC(commitTx *wire.MsgTx, ourCommit bool,
-	isIncoming bool, paymentDesc *PaymentDescriptor,
-	localKey, remoteKey, revocationKey *btcec.PublicKey) error {
+	isIncoming bool, paymentDesc *PaymentDescriptor, keyRing *commitmentKeyRing,
+) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	p2wsh, witnessScript, err := lc.genHtlcScript(isIncoming,
-		ourCommit, timeout, rHash, localKey, remoteKey, revocationKey)
+	p2wsh, witnessScript, err := lc.genHtlcScript(isIncoming, ourCommit,
+		timeout, rHash, keyRing)
 	if err != nil {
 		return err
 	}
@@ -3847,17 +3842,17 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
 // to the "owner" of the commitment transaction which can be spent after a
 // relative block delay or revocation event, and the other paying the
 // counterparty within the channel, which can be spent immediately.
-func CreateCommitTx(fundingOutput *wire.TxIn, delayKey, paymentKey *btcec.PublicKey,
-	revokeKey *btcec.PublicKey, csvTimeout uint32, amountToSelf,
-	amountToThem, dustLimit btcutil.Amount) (*wire.MsgTx, error) {
+func CreateCommitTx(fundingOutput *wire.TxIn, keyRing *commitmentKeyRing,
+	csvTimeout uint32, amountToSelf, amountToThem, dustLimit btcutil.Amount,
+) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	ourRedeemScript, err := commitScriptToSelf(csvTimeout, delayKey,
-		revokeKey)
+	ourRedeemScript, err := commitScriptToSelf(csvTimeout, keyRing.delayKey,
+		keyRing.revocationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -3868,7 +3863,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn, delayKey, paymentKey *btcec.Public
 
 	// Next, we create the script paying to them. This is just a regular
 	// P2WPKH output, without any added CSV delay.
-	theirWitnessKeyHash, err := commitScriptUnencumbered(paymentKey)
+	theirWitnessKeyHash, err := commitScriptUnencumbered(keyRing.paymentKey)
 	if err != nil {
 		return nil, err
 	}

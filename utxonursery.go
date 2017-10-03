@@ -984,13 +984,20 @@ type CsvSpendableOutput interface {
 // the now-mature kidOutput will be unwrapped and continue its journey through
 // the nursery.
 type babyOutput struct {
-	kidOutput
+	// expiry is the absolute block height at which the timeoutTx should be
+	// broadcast to the network.
+	expiry uint32
 
-	expiry    uint32
+	// timeoutTx is a fully-signed transaction that, upon confirmation,
+	// transitions the htlc into the delay+claim stage.
 	timeoutTx *wire.MsgTx
+
+	// kidOutput represents the CSV output to be swept after the timeoutTx has
+	// been broadcast and confirmed.
+	kidOutput
 }
 
-// makeBabyOutput constructs baby output the wraps a future kidOutput. The
+// makeBabyOutput constructs a baby output the wraps a future kidOutput. The
 // provided sign descriptors and witness types will be used once the output
 // reaches the delay and claim stage.
 func makeBabyOutput(outpoint, originChanPoint *wire.OutPoint,
@@ -1023,7 +1030,7 @@ func (bo *babyOutput) Encode(w io.Writer) error {
 	return bo.kidOutput.Encode(w)
 }
 
-// Decode reconstructs a baby output using the provide io.Reader.
+// Decode reconstructs a baby output using the provided io.Reader.
 func (bo *babyOutput) Decode(r io.Reader) error {
 	var scratch [4]byte
 	if _, err := r.Read(scratch[:]); err != nil {

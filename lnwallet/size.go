@@ -19,6 +19,12 @@ const (
 	// WitnessSize - witness size (bytes).
 	// Weight - the metric for determining the weight of the transaction.
 
+	// P2WPKHSize 22 bytes
+	//	- OP_0: 1 byte
+	//	- OP_DATA: 1 byte (PublicKeyHASH160 length)
+	//	- PublicKeyHASH160: 20 bytes
+	P2WPKHSize = 1 + 1 + 20
+
 	// P2WSHSize 34 bytes
 	//	- OP_0: 1 byte
 	//	- OP_DATA: 1 byte (WitnessScriptSHA256 length)
@@ -35,19 +41,19 @@ const (
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2wpkh): 22 bytes
-	P2WKHOutputSize = 8 + 1 + 22
+	P2WKHOutputSize = 8 + 1 + P2WPKHSize
 
 	// P2WSHOutputSize 43 bytes
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2wsh): 34 bytes
-	P2WSHOutputSize = 8 + 1 + 34
+	P2WSHOutputSize = 8 + 1 + P2WSHSize
 
-	// P2WPKHSize 22 bytes
-	//	- OP_0: 1 byte
-	//	- OP_DATA: 1 byte (PublicKeyHASH160 length)
-	//	- PublicKeyHASH160: 20 bytes
-	P2WPKHSize = 1 + 1 + 20
+	// P2SHOutputSize 32 bytes
+	//      - value: 8 bytes
+	//      - var_int: 1 byte (pkscript_length)
+	//      - pkscript (p2sh): 23 bytes
+	P2SHOutputSize = 8 + 1 + 23
 
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
@@ -337,18 +343,36 @@ func (twe *TxWeightEstimator) AddP2PKHInput() {
 }
 
 // AddP2WKHInput updates the weight estimate to account for an additional input
-// spending a P2PWKH output.
+// spending a native P2PWKH output.
 func (twe *TxWeightEstimator) AddP2WKHInput() {
 	twe.AddWitnessInput(P2WKHWitnessSize)
 }
 
 // AddWitnessInput updates the weight estimate to account for an additional
-// input spending a pay-to-witness output. This accepts the total size of the
-// witness as a parameter.
+// input spending a native pay-to-witness output. This accepts the total size
+// of the witness as a parameter.
 func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) {
 	twe.inputSize += InputSize
 	twe.inputWitnessSize += witnessSize
 	twe.inputCount++
+	twe.hasWitness = true
+}
+
+// AddNestedP2WKHInput updates the weight estimate to account for an additional
+// input spending a P2SH output with a nested P2WKH redeem script.
+func (twe *TxWeightEstimator) AddNestedP2WKHInput() {
+	twe.inputSize += InputSize + P2WPKHSize
+	twe.inputWitnessSize += P2WKHWitnessSize
+	twe.inputSize++
+	twe.hasWitness = true
+}
+
+// AddNestedP2WSHInput updates the weight estimate to account for an additional
+// input spending a P2SH output with a nested P2WSH redeem script.
+func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) {
+	twe.inputSize += InputSize + P2WSHSize
+	twe.inputWitnessSize += witnessSize
+	twe.inputSize++
 	twe.hasWitness = true
 }
 
@@ -359,17 +383,24 @@ func (twe *TxWeightEstimator) AddP2PKHOutput() {
 	twe.outputCount++
 }
 
-// AddP2WKHOutput updates the weight estimate to account for an additional P2WKH
-// output.
+// AddP2WKHOutput updates the weight estimate to account for an additional
+// native P2WKH output.
 func (twe *TxWeightEstimator) AddP2WKHOutput() {
 	twe.outputSize += P2WKHOutputSize
 	twe.outputCount++
 }
 
-// AddP2WSHOutput updates the weight estimate to account for an additional P2WSH
-// output.
+// AddP2WSHOutput updates the weight estimate to account for an additional
+// native P2WSH output.
 func (twe *TxWeightEstimator) AddP2WSHOutput() {
 	twe.outputSize += P2WSHOutputSize
+	twe.outputCount++
+}
+
+// AddP2SHOutput updates the weight estimate to account for an additional P2SH
+// output.
+func (twe *TxWeightEstimator) AddP2SHOutput() {
+	twe.outputSize += P2SHOutputSize
 	twe.outputCount++
 }
 

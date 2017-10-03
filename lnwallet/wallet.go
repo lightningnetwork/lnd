@@ -1300,12 +1300,13 @@ func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight uint64,
 	// double-spending the same set of coins.
 	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
 	for i, coin := range selectedCoins {
-		l.lockedOutPoints[*coin] = struct{}{}
-		l.LockOutpoint(*coin)
+		outpoint := &coin.OutPoint
+		l.lockedOutPoints[*outpoint] = struct{}{}
+		l.LockOutpoint(*outpoint)
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
-		contribution.Inputs[i] = wire.NewTxIn(coin, nil, nil)
+		contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
 	}
 
 	// Record any change output(s) generated as a result of the coin
@@ -1383,35 +1384,15 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.OutPoint, error) {
-	var (
-		selectedUtxos []*wire.OutPoint
-		satSelected   btcutil.Amount
-	)
-
-	i := 0
-	for satSelected < amt {
-		// If we're about to go past the number of available coins,
-		// then exit with an error.
-		if i > len(coins)-1 {
-			return 0, nil, &ErrInsufficientFunds{amt, satSelected}
-		}
-
-		// Otherwise, collect this new coin as it may be used for final
-		// coin selection.
-		coin := coins[i]
-		utxo := &wire.OutPoint{
-			Hash:  coin.Hash,
-			Index: coin.Index,
-		}
-
-		selectedUtxos = append(selectedUtxos, utxo)
+func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, error) {
+	satSelected := btcutil.Amount(0)
+	for i, coin := range coins {
 		satSelected += coin.Value
-
-		i++
+		if satSelected >= amt {
+			return satSelected, coins[:i+1], nil
+		}
 	}
-
-	return satSelected, selectedUtxos, nil
+	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
 }
 
 // coinSelect attempts to select a sufficient amount of coins, including a
@@ -1419,7 +1400,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.Ou
 // specified fee rate should be expressed in sat/byte for coin selection to
 // function properly.
 func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
-	coins []*Utxo) ([]*wire.OutPoint, btcutil.Amount, error) {
+	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -1432,10 +1413,18 @@ func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
 
 		var weightEstimate TxWeightEstimator
 
-		for range selectedUtxos {
-			// Assume all selected inputs are P2WKH inputs.
-			// TODO: Handle wallets that have non-witness UTXOs.
-			weightEstimate.AddP2WKHInput()
+		for _, utxo := range selectedUtxos {
+			switch utxo.AddressType {
+			case WitnessPubKey:
+				weightEstimate.AddP2WKHInput()
+			case NestedWitnessPubKey:
+				weightEstimate.AddNestedP2WKHInput()
+			case PubKeyHash:
+				weightEstimate.AddP2PKHInput()
+			default:
+				return nil, 0, fmt.Errorf("Unsupported address type: %v",
+					utxo.AddressType)
+			}
 		}
 
 		// Channel funding multisig output is P2WSH.

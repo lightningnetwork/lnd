@@ -179,7 +179,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if ctx.aliases["luoji"].IsEqual(n) {
-			return [32]byte{}, &lnwire.FailChannelDisabled{}
+			return [32]byte{}, &lnwire.FailUnknownNextPeer{}
 		}
 
 		return preImage, nil

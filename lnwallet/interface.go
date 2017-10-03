@@ -20,8 +20,12 @@ var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 type AddressType uint8
 
 const (
+	// UnknownAddressType represents an output with an unknown or non-standard
+	// script.
+	UnknownAddressType AddressType = iota
+
 	// WitnessPubKey represents a p2wkh address.
-	WitnessPubKey AddressType = iota
+	WitnessPubKey
 
 	// NestedWitnessPubKey represents a p2sh output which is itself a
 	// nested p2wkh output.
@@ -34,7 +38,11 @@ const (
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
 type Utxo struct {
-	Value btcutil.Amount
+	AddressType   AddressType
+	Value         btcutil.Amount
+	PkScript      []byte
+	RedeemScript  []byte
+	WitnessScript []byte
 	wire.OutPoint
 }
 

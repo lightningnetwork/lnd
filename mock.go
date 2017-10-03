@@ -149,7 +149,9 @@ func (*mockWalletController) SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash
 // need one unspent for the funding transaction.
 func (*mockWalletController) ListUnspentWitness(confirms int32) ([]*lnwallet.Utxo, error) {
 	utxo := &lnwallet.Utxo{
-		Value: btcutil.Amount(10 * btcutil.SatoshiPerBitcoin),
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       btcutil.Amount(10 * btcutil.SatoshiPerBitcoin),
+		PkScript:    make([]byte, 22),
 		OutPoint: wire.OutPoint{
 			Hash:  chainhash.Hash{},
 			Index: 0,

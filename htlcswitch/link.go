@@ -587,6 +587,10 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					isObfuscated,
 				)
 
+				atomic.AddUint64(&l.availableBandwidth, uint64(htlc.Amount))
+
+				// TODO(roasbeef): need to identify if sent
+				// from switch so don't need to obfuscate
 				go l.cfg.Switch.forward(failPkt)
 				log.Infof("Unable to handle downstream add HTLC: %v", err)
 				return

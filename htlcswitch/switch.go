@@ -402,7 +402,12 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		}
 
 		// Notify user that his payment was discarded.
-		payment.err <- failure
+		if userErr != nil {
+			payment.err <- userErr
+		} else {
+			payment.err <- failure
+		}
+
 		payment.preimage <- zeroPreimage
 		s.removePendingPayment(payment.amount, payment.paymentHash)
 

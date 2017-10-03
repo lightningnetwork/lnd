@@ -395,9 +395,11 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeFinalIncorrectCltvExpiry.String() {
-		// TODO(roasbeef): use proper error after error propagation is
-		// in
+	}
+
+	switch err.(type) {
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+	default:
 		t.Fatalf("incorrect error, expected incorrect cltv expiry, "+
 			"instead have: %v", err)
 	}
@@ -477,7 +479,11 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// should be rejected due to a policy violation.
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeIncorrectCltvExpiry.String() {
+	}
+
+	switch err.(type) {
+	case *lnwire.FailIncorrectCltvExpiry:
+	default:
 		t.Fatalf("incorrect error, expected incorrect cltv expiry, "+
 			"instead have: %v", err)
 	}
@@ -519,11 +525,14 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	// should be rejected due to a policy violation.
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeFeeInsufficient.String() {
-		// TODO(roasbeef): use proper error after error propagation is
-		// in
+	}
+
+	switch err.(type) {
+	// TODO(roasbeef): assert get proper fee back
+	case *lnwire.FailFeeInsufficient:
+	default:
 		t.Fatalf("incorrect error, expected fee insufficient, "+
-			"instead have: %v", err)
+			"instead have: %T", err)
 	}
 }
 
@@ -563,9 +572,11 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	// should be rejected due to a policy violation (below min HTLC).
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeAmountBelowMinimum.String() {
-		// TODO(roasbeef): use proper error after error propagation is
-		// in
+	}
+
+	switch err.(type) {
+	case *lnwire.FailAmountBelowMinimum:
+	default:
 		t.Fatalf("incorrect error, expected amount below minimum, "+
 			"instead have: %v", err)
 	}
@@ -902,7 +913,10 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
 	if err == nil {
 		t.Fatal("error haven't been received")
-	} else if err.Error() != lnwire.CodeInvalidOnionVersion.String() {
+	}
+	switch err.(type) {
+	case *lnwire.FailInvalidOnionVersion:
+	default:
 		t.Fatalf("wrong error have been received: %v", err)
 	}
 
@@ -971,7 +985,11 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	if err == nil {
 		t.Fatalf("payment should have failed due to a too early " +
 			"time lock value")
-	} else if err.Error() != lnwire.CodeFinalIncorrectCltvExpiry.String() {
+	}
+
+	switch err.(type) {
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+	default:
 		t.Fatalf("incorrect error, expected final time lock too "+
 			"early, instead have: %v", err)
 	}
@@ -1013,7 +1031,11 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	if err == nil {
 		t.Fatalf("payment should have failed due to a too early " +
 			"time lock value")
-	} else if err.Error() != lnwire.CodeExpiryTooSoon.String() {
+	}
+
+	switch err.(type) {
+	case *lnwire.FailExpiryTooSoon:
+	default:
 		t.Fatalf("incorrect error, expected final time lock too "+
 			"early, instead have: %v", err)
 	}

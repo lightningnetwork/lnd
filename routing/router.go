@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
@@ -1007,8 +1008,8 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	)
 
 	var (
-		sendError error
 		preImage  [32]byte
+		sendError error
 	)
 
 	// First, we'll kick off the payment attempt by attempting to query the
@@ -1022,7 +1023,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// target payment using the multi-hop route. We'll try each route
 	// serially until either once succeeds, or we've exhausted our set of
 	// available paths.
-routes:
 	for _, route := range routes {
 		log.Tracef("Attempting to send payment %x, using route: %v",
 			payment.PaymentHash, newLogClosure(func() string {
@@ -1056,50 +1056,146 @@ routes:
 		preImage, sendError = r.cfg.SendToSwitch(firstHop, htlcAdd,
 			circuit)
 		if sendError != nil {
+			// An error occurred when attempting to send the
+			// payment, depending on the error type, we'll either
+			// continue to send using alternative routes, or simply
+			// terminate this attempt.
 			log.Errorf("Attempt to send payment %x failed: %v",
 				payment.PaymentHash, sendError)
 
-			switch sendError.(type) {
-			case *lnwire.FailTemporaryNodeFailure:
+			switch onionErr := sendError.(type) {
+			// If the end destination didn't know they payment
+			// hash, then we'll terminate immediately.
+			case *lnwire.FailUnknownPaymentHash:
+				return preImage, nil, sendError
+
+			// If we sent the wrong amount to the destination, then
+			// we'll exit early.
+			case *lnwire.FailIncorrectPaymentAmount:
+				return preImage, nil, sendError
+
+			// If the time-lock that was extended to the final node
+			// was incorrect, then we can't proceed.
+			case *lnwire.FailFinalIncorrectCltvExpiry:
+				return preImage, nil, sendError
+
+			// If we crafted an invalid onion payload for the final
+			// node, then we'll exit early.
+			case *lnwire.FailFinalIncorrectHtlcAmount:
+				return preImage, nil, sendError
+
+			// Similarly, if the HTLC expiry that we extended to
+			// the final hop expires too soon, then will fail the
+			// payment.
+			//
+			// TODO(roasbeef): can happen to to race condition, try
+			// again with recent block height
+			case *lnwire.FailFinalExpiryTooSoon:
+				return preImage, nil, sendError
+
+			// If we erroneously attempted to cross a chain border,
+			// then we'll cancel the payment.
+			case *lnwire.FailInvalidRealm:
+				return preImage, nil, sendError
+
+			// If we get a notice that the expiry was too soon for
+			// an intermediate node, then we'll exit early as the
+			// expected block height as shifted from underneath us.
+			case *lnwire.FailExpiryTooSoon:
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(&update); err != nil {
+					return preImage, nil, err
+				}
+				return preImage, nil, sendError
+
+			// If we hit an instance of onion payload corruption or
+			// an invalid version, then we'll exit early as this
+			// shouldn't happen in the typical case.
+			case *lnwire.FailInvalidOnionVersion:
+				return preImage, nil, sendError
+			case *lnwire.FailInvalidOnionHmac:
+				return preImage, nil, sendError
+			case *lnwire.FailInvalidOnionKey:
+				return preImage, nil, sendError
+
+			// If the onion error includes a channel update, and
+			// isn't necessarily fatal, then we'll apply the update
+			// an continue with the rest of the routes.
+			//
+			// TODO(roasbeef): should re-query for routes with new updates
+			case *lnwire.FailAmountBelowMinimum:
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(&update); err != nil {
+					return preImage, nil, err
+				}
 				continue
-			case *lnwire.FailPermanentNodeFailure:
+			case *lnwire.FailFeeInsufficient:
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(&update); err != nil {
+					return preImage, nil, err
+				}
 				continue
+			case *lnwire.FailIncorrectCltvExpiry:
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(&update); err != nil {
+					return preImage, nil, err
+				}
+				continue
+			case *lnwire.FailChannelDisabled:
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(&update); err != nil {
+					return preImage, nil, err
+				}
+				continue
+			case *lnwire.FailTemporaryChannelFailure:
+				// TODO(roasbeef): remove channel from timeout period
+				update := onionErr.Update
+				if err := r.applyChannelUpdate(update); err != nil {
+					return preImage, nil, err
+				}
+				continue
+
+			// If the send fail due to a node not having the
+			// required features, then we'll note this error and
+			// continue
+			// TODO(roasbeef): remove node from path
 			case *lnwire.FailRequiredNodeFeatureMissing:
 				continue
-			case *lnwire.FailPermanentChannelFailure:
-				continue
+
+			// If the send fail due to a node not having the
+			// required features, then we'll note this error and
+			// continue
+			//
+			// TODO(roasbeef): remove channel from path
 			case *lnwire.FailRequiredChannelFeatureMissing:
-				break routes
+				continue
+
+			// If the next hop in the route wasn't known or
+			// offline, we'll note this and continue with the rest
+			// of the routes.
+			//
+			// TODO(roasbeef): remove unknown vertex
 			case *lnwire.FailUnknownNextPeer:
 				continue
-			case *lnwire.FailUnknownPaymentHash:
-				break routes
-			case *lnwire.FailIncorrectPaymentAmount:
-				break routes
-			case *lnwire.FailFinalExpiryTooSoon:
-				break routes
-			case *lnwire.FailInvalidOnionVersion:
-				break routes
-			case *lnwire.FailInvalidOnionHmac:
-				break routes
-			case *lnwire.FailInvalidOnionKey:
-				break routes
-			case *lnwire.FailTemporaryChannelFailure:
+
+			// If the node wasn't able to forward for which ever
+			// reason, then we'll note this and continue with the
+			// routes.
+			case *lnwire.FailTemporaryNodeFailure:
 				continue
-			case *lnwire.FailAmountBelowMinimum:
-				break routes
-			case *lnwire.FailFeeInsufficient:
-				break routes
-			case *lnwire.FailExpiryTooSoon:
-				break routes
-			case *lnwire.FailChannelDisabled:
+
+			// If we get a permanent channel or node failure, then
+			// we'll note this (exclude the vertex/edge), and
+			// continue with the rest of the routes.
+			case *lnwire.FailPermanentChannelFailure:
+				// TODO(roasbeef): remove channel from path
 				continue
-			case *lnwire.FailFinalIncorrectCltvExpiry:
-				break routes
-			case *lnwire.FailFinalIncorrectHtlcAmount:
-				break routes
-			case *lnwire.FailInvalidRealm:
-				break routes
+			case *lnwire.FailPermanentNodeFailure:
+				// TODO(rosabeef): remove node from path
+				continue
+
+			default:
+				return preImage, nil, sendError
 			}
 		}
 
@@ -1108,7 +1204,34 @@ routes:
 
 	// If we're unable to successfully make a payment using any of the
 	// routes we've found, then return an error.
-	return [32]byte{}, nil, sendError
+	return [32]byte{}, nil, fmt.Errorf("unable to route payment to "+
+		"destination: %v", sendError)
+}
+
+// applyChannelUpdate applies a channel update directly to the database,
+// skipping preliminary validation.
+func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
+	// If we get passed a nil channel update (as it's optional with some
+	// onion errors), then we'll exit early with a nil error.
+	if msg == nil {
+		return nil
+	}
+
+	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
+		Signature:                 msg.Signature,
+		ChannelID:                 msg.ShortChannelID.ToUint64(),
+		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
+		Flags:                     msg.Flags,
+		TimeLockDelta:             msg.TimeLockDelta,
+		MinHTLC:                   msg.HtlcMinimumMsat,
+		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+	})
+	if err != nil {
+		return fmt.Errorf("Unable to apply channel update: %v", err)
+	}
+
+	return nil
 }
 
 // AddNode is used to add information about a node to the router database. If

@@ -353,17 +353,28 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 			return nil, err
 		}
 
-		// TODO(roasbeef): this assumes all p2sh outputs returned by
-		// the wallet are nested p2sh...
-		if txscript.IsPayToWitnessPubKeyHash(pkScript) ||
-			txscript.IsPayToScriptHash(pkScript) {
+		var addressType lnwallet.AddressType
+		if txscript.IsPayToWitnessPubKeyHash(pkScript) {
+			addressType = lnwallet.WitnessPubKey
+		} else if txscript.IsPayToScriptHash(pkScript) {
+			// TODO(roasbeef): This assumes all p2sh outputs returned by the
+			// wallet are nested p2pkh. We can't check the redeem script because
+			// the btcwallet service does not include it.
+			addressType = lnwallet.NestedWitnessPubKey
+		}
+
+		if addressType == lnwallet.WitnessPubKey ||
+			addressType == lnwallet.NestedWitnessPubKey {
+
 			txid, err := chainhash.NewHashFromStr(output.TxID)
 			if err != nil {
 				return nil, err
 			}
 
 			utxo := &lnwallet.Utxo{
-				Value: btcutil.Amount(output.Amount * 1e8),
+				AddressType: addressType,
+				Value:       btcutil.Amount(output.Amount * 1e8),
+				PkScript:    pkScript,
 				OutPoint: wire.OutPoint{
 					Hash:  *txid,
 					Index: output.Vout,

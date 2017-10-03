@@ -343,9 +343,17 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 
 		// Try to find destination channel link with appropriate
 		// bandwidth.
-		var destination ChannelLink
+		var (
+			destination      ChannelLink
+			largestBandwidth lnwire.MilliSatoshi
+		)
 		for _, link := range links {
-			if link.Bandwidth() >= htlc.Amount {
+			bandwidth := link.Bandwidth()
+			if bandwidth > largestBandwidth {
+				largestBandwidth = bandwidth
+			}
+
+			if bandwidth >= htlc.Amount {
 				destination = link
 				break
 			}
@@ -355,9 +363,11 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		// over has insufficient capacity, then we'll cancel the HTLC
 		// as the payment cannot succeed.
 		if destination == nil {
-			log.Errorf("unable to find appropriate channel link "+
-				"insufficient capacity, need %v", htlc.Amount)
-			return errors.New(lnwire.CodeTemporaryChannelFailure)
+			err := fmt.Errorf("insufficient capacity in available "+
+				"outgoing links: need %v, max available is %v",
+				htlc.Amount, largestBandwidth)
+			log.Error(err)
+			return err
 		}
 
 		// Send the packet to the destination channel link which

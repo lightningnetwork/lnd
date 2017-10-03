@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"math"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -694,8 +694,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 		n.bobServer.PubKey(), hops, amount, htlcAmt, totalTimelock)
 	if err == nil {
 		t.Fatal("error haven't been received")
-	} else if err.Error() != errors.New(lnwire.CodeTemporaryChannelFailure).Error() {
-		t.Fatalf("wrong error have been received: %v", err)
+	} else if !strings.Contains(err.Error(), "insufficient capacity") {
+		t.Fatalf("wrong error has been received: %v", err)
 	}
 
 	// Wait for Alice to receive the revocation.

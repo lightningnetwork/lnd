@@ -121,11 +121,11 @@ type routeTuple struct {
 }
 
 // newRouteTuple creates a new route tuple from the target and amount.
-func newRouteTuple(amt lnwire.MilliSatoshi, dest *btcec.PublicKey) routeTuple {
+func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	r := routeTuple{
 		amt: amt,
 	}
-	copy(r.dest[:], dest.SerializeCompressed())
+	copy(r.dest[:], dest)
 
 	return r
 }
@@ -820,6 +820,25 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	dest := target.SerializeCompressed()
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
 
+	// Before attempting to perform a series of graph traversals to find
+	// the k-shortest paths to the destination, we'll first consult our
+	// path cache
+	rt := newRouteTuple(amt, dest)
+	r.routeCacheMtx.RLock()
+	routes, ok := r.routeCache[rt]
+	r.routeCacheMtx.RUnlock()
+
+	// If we already have a cached route, then we'll return it directly as
+	// there's no need to repeat the computation.
+	if ok {
+		return routes, nil
+	}
+
+	// If we don't have a set of routes cached, we'll query the graph for a
+	// set of potential routes to the destination node that can support our
+	// payment amount. If no such routes can be found then an error will be
+	// returned.
+
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
 	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
@@ -881,6 +900,12 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 			return spew.Sdump(validRoutes)
 		}),
 	)
+
+	// Populate the cache with this set of fresh routes so we can
+	// reuse them in the future.
+	r.routeCacheMtx.Lock()
+	r.routeCache[rt] = validRoutes
+	r.routeCacheMtx.Unlock()
 
 	return validRoutes, nil
 }
@@ -986,35 +1011,11 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		preImage  [32]byte
 	)
 
-	// TODO(roasbeef): consult KSP cache before dispatching
-
-	// Before attempting to perform a series of graph traversals to find
-	// the k-shortest paths to the destination, we'll first consult our
-	// path cache
-	rt := newRouteTuple(payment.Amount, payment.Target)
-
-	r.routeCacheMtx.RLock()
-	routes, ok := r.routeCache[rt]
-	r.routeCacheMtx.RUnlock()
-
-	// If we don't have a set of routes cached, we'll query the graph for a
-	// set of potential routes to the destination node that can support our
-	// payment amount. If no such routes can be found then an error will be
-	// returned.
-	if !ok {
-		// TODO(roasbeef): put cache handling into FindRoutes
-		freshRoutes, err := r.FindRoutes(payment.Target, payment.Amount)
-		if err != nil {
-			return preImage, nil, err
-		}
-
-		// Populate the cache with this set of fresh routes so we can
-		// reuse them in the future.
-		r.routeCacheMtx.Lock()
-		r.routeCache[rt] = freshRoutes
-		r.routeCacheMtx.Unlock()
-
-		routes = freshRoutes
+	// First, we'll kick off the payment attempt by attempting to query the
+	// known channel graph for a route to the destination.
+	routes, err := r.FindRoutes(payment.Target, payment.Amount)
+	if err != nil {
+		return preImage, nil, err
 	}
 
 	// For each eligible path, we'll attempt to successfully send our

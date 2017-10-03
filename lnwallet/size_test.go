@@ -47,12 +47,25 @@ func TestTxWeightEstimator(t *testing.T) {
 		t.Fatalf("Failed to generate scriptPubKey: %v", err)
 	}
 
+	p2shAddr, err := btcutil.NewAddressScriptHash([]byte{0}, netParams)
+	if err != nil {
+		t.Fatalf("Failed to generate address: %v", err)
+	}
+	p2shScript, err := txscript.PayToAddrScript(p2shAddr)
+	if err != nil {
+		t.Fatalf("Failed to generate scriptPubKey: %v", err)
+	}
+
 	testCases := []struct {
-		numP2PKHInputs  int
-		numP2WKHInputs  int
-		numP2PKHOutputs int
-		numP2WKHOutputs int
-		numP2WSHOutputs int
+		numP2PKHInputs       int
+		numP2WKHInputs       int
+		numP2WSHInputs       int
+		numNestedP2WKHInputs int
+		numNestedP2WSHInputs int
+		numP2PKHOutputs      int
+		numP2WKHOutputs      int
+		numP2WSHOutputs      int
+		numP2SHOutputs       int
 	}{
 		{
 			numP2PKHInputs:  1,
@@ -73,6 +86,22 @@ func TestTxWeightEstimator(t *testing.T) {
 			numP2WKHInputs:  2,
 			numP2WKHOutputs: 1,
 			numP2WSHOutputs: 1,
+		},
+		{
+			numP2WSHInputs:  1,
+			numP2WKHOutputs: 1,
+		},
+		{
+			numP2PKHInputs: 1,
+			numP2SHOutputs: 1,
+		},
+		{
+			numNestedP2WKHInputs: 1,
+			numP2WKHOutputs:      1,
+		},
+		{
+			numNestedP2WSHInputs: 1,
+			numP2WKHOutputs:      1,
 		},
 	}
 
@@ -101,6 +130,40 @@ func TestTxWeightEstimator(t *testing.T) {
 			witness := wire.TxWitness{signature, compressedPubKey}
 			tx.AddTxIn(&wire.TxIn{Witness: witness})
 		}
+		for j := 0; j < test.numP2WSHInputs; j++ {
+			weightEstimate.AddWitnessInput(42)
+
+			witnessScript := make([]byte, 40)
+			witness := wire.TxWitness{witnessScript}
+			tx.AddTxIn(&wire.TxIn{Witness: witness})
+		}
+		for j := 0; j < test.numNestedP2WKHInputs; j++ {
+			weightEstimate.AddNestedP2WKHInput()
+
+			signature := make([]byte, 73)
+			compressedPubKey := make([]byte, 33)
+			witness := wire.TxWitness{signature, compressedPubKey}
+			scriptSig, err := txscript.NewScriptBuilder().AddData(p2wkhScript).
+				Script()
+			if err != nil {
+				t.Fatalf("Failed to generate scriptSig: %v", err)
+			}
+
+			tx.AddTxIn(&wire.TxIn{SignatureScript: scriptSig, Witness: witness})
+		}
+		for j := 0; j < test.numNestedP2WSHInputs; j++ {
+			weightEstimate.AddNestedP2WSHInput(42)
+
+			witnessScript := make([]byte, 40)
+			witness := wire.TxWitness{witnessScript}
+			scriptSig, err := txscript.NewScriptBuilder().AddData(p2wshScript).
+				Script()
+			if err != nil {
+				t.Fatalf("Failed to generate scriptSig: %v", err)
+			}
+
+			tx.AddTxIn(&wire.TxIn{SignatureScript: scriptSig, Witness: witness})
+		}
 		for j := 0; j < test.numP2PKHOutputs; j++ {
 			weightEstimate.AddP2PKHOutput()
 			tx.AddTxOut(&wire.TxOut{PkScript: p2pkhScript})
@@ -112,6 +175,10 @@ func TestTxWeightEstimator(t *testing.T) {
 		for j := 0; j < test.numP2WSHOutputs; j++ {
 			weightEstimate.AddP2WSHOutput()
 			tx.AddTxOut(&wire.TxOut{PkScript: p2wshScript})
+		}
+		for j := 0; j < test.numP2SHOutputs; j++ {
+			weightEstimate.AddP2SHOutput()
+			tx.AddTxOut(&wire.TxOut{PkScript: p2shScript})
 		}
 
 		expectedWeight := blockchain.GetTransactionWeight(btcutil.NewTx(tx))

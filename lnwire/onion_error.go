@@ -506,10 +506,10 @@ func (f *FailTemporaryChannelFailure) Code() FailCode {
 func (f FailTemporaryChannelFailure) Error() string {
 	if f.Update == nil {
 		return f.Code().String()
-	} else {
-		return fmt.Sprintf("TemporaryChannelFailure(update=%v)",
-			spew.Sdump(f.Update))
 	}
+
+	return fmt.Sprintf("TemporaryChannelFailure(update=%v)",
+		spew.Sdump(f.Update))
 }
 
 // Decode decodes the failure from bytes stream.

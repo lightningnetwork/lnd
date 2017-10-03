@@ -767,8 +767,10 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	// Send payment and expose err channel.
 	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
 		newMockDeobfuscator())
-	if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
-		t.Fatal("error haven't been received")
+	if err == nil {
+		t.Fatalf("error haven't been received: %v", err)
+	} else if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
+		t.Fatalf("wrong error have been received: %v", err)
 	}
 
 	// Wait for Alice to receive the revocation.

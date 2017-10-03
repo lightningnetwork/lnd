@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -95,6 +96,10 @@ type Config struct {
 	//
 	// TODO(roasbeef): remove
 	UpdateTopology func(msg *lnwire.ChannelUpdate) error
+
+	// DB is used to persist the inner state of the switch, survive the node
+	// restart and be able to propagate the settle/fail messages back.
+	DB *channeldb.DB
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -123,7 +128,7 @@ type Switch struct {
 
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
-	circuits *circuitMap
+	circuits *circuitStorage
 
 	// links is a map of channel id and channel link which manages
 	// this channel.
@@ -161,7 +166,7 @@ type Switch struct {
 func New(cfg Config) *Switch {
 	return &Switch{
 		cfg:               &cfg,
-		circuits:          newCircuitMap(),
+		circuits:          newCircuitMap(cfg.DB),
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),

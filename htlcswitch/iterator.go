@@ -231,6 +231,6 @@ func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.
 	}
 
 	return &FailureObfuscator{
-		OnionObfuscator: onionObfuscator,
+		OnionObfuscator: *onionObfuscator,
 	}, lnwire.CodeNone
 }

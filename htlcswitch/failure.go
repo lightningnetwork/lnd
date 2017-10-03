@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"io"
 )
 
 // Deobfuscator is an interface that is used to decrypt the onion encrypted
@@ -33,11 +34,17 @@ type Obfuscator interface {
 	// an additional layer of onion encryption. This process repeats until
 	// the error arrives at the source of the payment.
 	BackwardObfuscate(lnwire.OpaqueReason) lnwire.OpaqueReason
+
+	// Decode reads the bytes stream and converts it to the object.
+	Decode(io.Reader) error
+
+	// Encode converts object to the bytes stream and write it in th writer.
+	Encode(io.Writer) error
 }
 
 // FailureObfuscator is used to obfuscate the onion failure.
 type FailureObfuscator struct {
-	*sphinx.OnionObfuscator
+	sphinx.OnionObfuscator
 }
 
 // InitialObfuscate transforms a concrete failure message into an encrypted
@@ -75,7 +82,7 @@ var _ Obfuscator = (*FailureObfuscator)(nil)
 // FailureDeobfuscator wraps the sphinx data obfuscator and adds awareness of
 // the lnwire onion failure messages to it.
 type FailureDeobfuscator struct {
-	*sphinx.OnionDeobfuscator
+	sphinx.OnionDeobfuscator
 }
 
 // Deobfuscate peels off each layer of onion encryption from the first hop, to

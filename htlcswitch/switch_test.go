@@ -40,7 +40,14 @@ func TestSwitchForward(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
+	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
 	s := New(Config{
+		DB: cdb,
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 			return nil
 		},
@@ -122,7 +129,14 @@ func TestSwitchCancel(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
+	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
 	s := New(Config{
+		DB: cdb,
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 			return nil
 		},
@@ -202,7 +216,14 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
 
+	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
 	s := New(Config{
+		DB: cdb,
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 			return nil
 		},
@@ -302,7 +323,14 @@ func TestSwitchSendPayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 
+	cdb, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
 	s := New(Config{
+		DB: cdb,
 		UpdateTopology: func(msg *lnwire.ChannelUpdate) error {
 			return nil
 		},

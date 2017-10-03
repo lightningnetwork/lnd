@@ -159,6 +159,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
+		DB: chanDB,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -262,7 +263,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			// decryptor so we can parse+decode any failures
 			// incurred by this payment within the switch.
 			errorDecryptor := &htlcswitch.FailureDeobfuscator{
-				OnionDeobfuscator: sphinx.NewOnionDeobfuscator(circuit),
+				OnionDeobfuscator: *sphinx.NewOnionDeobfuscator(circuit),
 			}
 
 			var firstHopPub [33]byte

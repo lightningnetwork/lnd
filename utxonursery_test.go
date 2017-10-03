@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -273,11 +274,12 @@ var (
 )
 
 func init() {
+	// Finish initializing our test vectors by parsing the desired public keys and
+	// properly populating the sign descriptors of all baby and kid outputs.
 	for i := range signDescriptors {
-
 		pk, err := btcec.ParsePubKey(keys[i], btcec.S256())
 		if err != nil {
-			panic("unable to parse pub key: %v")
+			panic(fmt.Sprintf("unable to parse pub key during init: %v", err))
 		}
 		signDescriptors[i].PubKey = pk
 

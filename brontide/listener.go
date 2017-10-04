@@ -3,6 +3,7 @@ package brontide
 import (
 	"io"
 	"net"
+	"time"
 
 	"github.com/roasbeef/btcd/btcec"
 )
@@ -59,6 +60,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 		noise: NewBrontideMachine(false, l.localStatic, nil),
 	}
 
+	// We'll ensure that we get ActOne from the remote peer in a timely
+	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// connection.
+	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+
 	// Attempt to carry out the first act of the handshake protocol. If the
 	// connecting node doesn't know our long-term static public key, then
 	// this portion will fail with a non-nil error.
@@ -84,6 +90,11 @@ func (l *Listener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 
+	// We'll ensure that we get ActTwo from the remote peer in a timely
+	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// connection.
+	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+
 	// Finally, finish the handshake processes by reading and decrypting
 	// the connection peer's static public key. If this succeeds then both
 	// sides have mutually authenticated each other.
@@ -96,6 +107,10 @@ func (l *Listener) Accept() (net.Conn, error) {
 		brontideConn.conn.Close()
 		return nil, err
 	}
+
+	// We'll reset the deadline as it's no longer critical beyond the
+	// initial handshake.
+	conn.SetReadDeadline(time.Time{})
 
 	return brontideConn, nil
 }

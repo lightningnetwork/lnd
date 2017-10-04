@@ -55,6 +55,11 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 		return nil, err
 	}
 
+	// We'll ensure that we get ActTwo from the remote peer in a timely
+	// manner. If they don't respond within 15 seconds, then we'll kill the
+	// connection.
+	conn.SetReadDeadline(time.Now().Add(time.Second * 15))
+
 	// If the first act was successful (we know that address is actually
 	// remotePub), then read the second act after which we'll be able to
 	// send our static public key to the remote peer with strong forward
@@ -80,6 +85,10 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error
 		b.conn.Close()
 		return nil, err
 	}
+
+	// We'll reset the deadline as it's no longer critical beyond the
+	// initial handshake.
+	conn.SetReadDeadline(time.Time{})
 
 	return b, nil
 }

@@ -509,7 +509,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		return
 	}
 
-	srvrLog.Debug("Attempting to bootstrap connectivity with %v initial "+
+	srvrLog.Debugf("Attempting to bootstrap connectivity with %v initial "+
 		"peers", len(bootStrapAddrs))
 
 	// With our initial set of peers obtained, we'll launch a goroutine to

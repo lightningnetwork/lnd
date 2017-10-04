@@ -588,7 +588,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			// exact number we need to reach our threshold.
 			numNeeded := numTargetPeers - numActivePeers
 
-			srvrLog.Debug("Attempting to obtain %v more network "+
+			srvrLog.Debugf("Attempting to obtain %v more network "+
 				"peers", numNeeded)
 
 			// With the number of peers we need calculated, we'll

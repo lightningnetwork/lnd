@@ -33,11 +33,11 @@ import (
 var (
 	// ErrPeerNotFound signals that the server has no connection to the
 	// given peer.
-	ErrPeerNotFound = errors.New("server: peer not found")
+	ErrPeerNotFound = errors.New("unable to find peer")
 
 	// ErrServerShuttingDown indicates that the server is in the process of
 	// gracefully exiting.
-	ErrServerShuttingDown = errors.New("server: shutting down")
+	ErrServerShuttingDown = errors.New("server is shutting down")
 )
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -918,7 +918,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 	// here to ensure we consider the exact set of peers present at the
 	// time of invocation.
 	targetPeer, err := s.findPeerByPubStr(string(targetPubBytes))
-	if err != nil {
+	if err == ErrPeerNotFound {
 		srvrLog.Errorf("unable to send message to %x, "+
 			"peer not found", targetPubBytes)
 		return err
@@ -1160,20 +1160,22 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	localPub := s.identityPriv.PubKey()
 
-	// Check to see if we should drop our connection, if not, then we'll
-	// close out this connection with the remote peer. This
-	// prevents us from having duplicate connections, or none.
+	// Check to see if we already have a connection with this peer. If so,
+	// we may need to drop our existing connection. This prevents us from
+	// having duplicate connections to the same peer. We forgo adding a
+	// default case as we expect these to be the only error values returned
+	// from findPeerByPubStr.
 	connectedPeer, err := s.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotFound:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		break
 
 	case nil:
-		// If the connection we've already established should be kept,
-		// then we'll close out this connection s.t there's only a
-		// single connection between us.
+		// We already have a connection with the incoming peer. If the
+		// connection we've already established should be kept, then
+		// we'll close out this connection s.t there's only a single
+		// connection between us.
 		if !shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Received inbound connection from "+
 				"peer %x, but already connected, dropping conn",
@@ -1183,8 +1185,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		}
 
 		// Otherwise, if we should drop the connection, then we'll
-		// disconnect our already connected peer, and also send the
-		// peer to the peer garbage collection goroutine.
+		// disconnect our already connected peer.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
@@ -1254,14 +1255,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		delete(s.persistentConnReqs, pubStr)
 	}
 
-	// If we already have an inbound connection from this peer, then we'll
-	// check to see _which_ of our connections should be dropped.
+	// If we already have a connection with this peer, decide whether or not
+	// we need to drop the stale connection. We forgo adding a default case
+	// as we expect these to be the only error values returned from
+	// findPeerByPubStr.
 	connectedPeer, err := s.findPeerByPubStr(pubStr)
 	switch err {
 	case ErrPeerNotFound:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		break
 
 	case nil:
 		// We already have a connection open with the target peer.
@@ -1417,15 +1419,12 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 
 	// Ensure we're not already connected to this peer.
 	peer, err := s.findPeerByPubStr(targetPub)
-	switch err {
-	case ErrPeerNotFound:
-		// Peer was not found, continue to pursue connection with peer.
-		break
-
-	case nil:
+	if err == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("already connected to peer: %v", peer)
 	}
+
+	// Peer was not found, continue to pursue connection with peer.
 
 	// If there's already a pending connection request for this pubkey,
 	// then we ignore this request to ensure we don't create a redundant
@@ -1486,12 +1485,10 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 
 	// Check that were actually connected to this peer. If not, then we'll
 	// exit in an error as we can't disconnect from a peer that we're not
-	// currently connected to. This will also return an error if we already
-	// have a pending disconnect request for this peer, ensuring the
-	// operation only happens once.
+	// currently connected to.
 	peer, err := s.findPeerByPubStr(pubStr)
-	if err != nil {
-		return err
+	if err == ErrPeerNotFound {
+		return fmt.Errorf("unable to find peer %x", pubBytes)
 	}
 
 	srvrLog.Infof("Disconnecting from %v", peer)

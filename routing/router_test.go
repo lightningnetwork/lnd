@@ -84,6 +84,8 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
+		ChannelPruneExpiry: time.Hour * 24,
+		GraphPruneInterval: time.Hour * 2,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)

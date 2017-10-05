@@ -266,6 +266,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 			return s.htlcSwitch.SendHTLC(firstHopPub, htlcAdd, errorDecryptor)
 		},
+		ChannelPruneExpiry: time.Duration(time.Hour * 24 * 14),
+		GraphPruneInterval: time.Duration(time.Hour),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)

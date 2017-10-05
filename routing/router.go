@@ -110,6 +110,16 @@ type Config struct {
 	// payment was unsuccessful.
 	SendToSwitch func(firstHop *btcec.PublicKey, htlcAdd *lnwire.UpdateAddHTLC,
 		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
+
+	// ChannelPruneExpiry is the duration used to determine if a channel
+	// should be pruned or not. If the delta between now and when the
+	// channel was last updated is greater than ChannelPruneExpiry, then
+	// the channel is marked as a zombie channel eligible for pruning.
+	ChannelPruneExpiry time.Duration
+
+	// GraphPruneInterval is used as an interval to determine how often we
+	// should examine the channel graph to garbage collect zombie channels.
+	GraphPruneInterval time.Duration
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -382,7 +392,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 func (r *ChannelRouter) networkHandler() {
 	defer r.wg.Done()
 
-	// TODO(roasbeef): ticker to check if should prune in two weeks or not
+	graphPruneTicker := time.NewTicker(r.cfg.GraphPruneInterval)
+	defer graphPruneTicker.Stop()
 
 	for {
 		select {
@@ -506,6 +517,75 @@ func (r *ChannelRouter) networkHandler() {
 			r.topologyClients[ntfnUpdate.clientID] = &topologyClient{
 				ntfnChan: ntfnUpdate.ntfnChan,
 				exit:     make(chan struct{}),
+			}
+
+		// The graph prune ticker has ticked, so we'll examine the
+		// state of the known graph to filter out any zombie channels
+		// for pruning.
+		case <-graphPruneTicker.C:
+
+			var chansToPrune []wire.OutPoint
+			chanExpiry := r.cfg.ChannelPruneExpiry
+
+			log.Infof("Examining Channel Graph for zombie channels")
+
+			// First, we'll collect all the channels which are
+			// eligible for garbage collection due to being
+			// zombies.
+			filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
+				e1, e2 *channeldb.ChannelEdgePolicy) error {
+
+				// If *both* edges haven't been updated for a
+				// period of chanExpiry, then we'll mark the
+				// channel itself as eligible for graph
+				// pruning.
+				e1Zombie, e2Zombie := true, true
+				if e1 != nil {
+					e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
+					log.Tracef("Edge #1 of ChannelPoint(%v) "+
+						"last update: %v",
+						info.ChannelPoint, e1.LastUpdate)
+				}
+				if e2 != nil {
+					e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
+					log.Tracef("Edge #2 of ChannelPoint(%v) "+
+						"last update: %v",
+						info.ChannelPoint, e2.LastUpdate)
+				}
+				if e1Zombie && e2Zombie {
+					log.Infof("ChannelPoint(%v) is a "+
+						"zombie, collecting to prune",
+						info.ChannelPoint)
+
+					// TODO(roasbeef): add ability to
+					// delete single directional edge
+					chansToPrune = append(chansToPrune,
+						info.ChannelPoint)
+				}
+
+				return nil
+			}
+			err := r.cfg.Graph.ForEachChannel(filterPruneChans)
+			if err != nil {
+				log.Errorf("Unable to local zombie chans: %v", err)
+				continue
+			}
+
+			log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
+
+			// With the set zombie-like channels obtained, we'll do
+			// another pass to delete al zombie channels from the
+			// channel graph.
+			for _, chanToPrune := range chansToPrune {
+				log.Tracef("Pruning zombie chan ChannelPoint(%v)",
+					chanToPrune)
+
+				err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
+				if err != nil {
+					log.Errorf("Unable to prune zombie "+
+						"chans: %v", err)
+					continue
+				}
 			}
 
 		// The router has been signalled to exit, to we exit our main

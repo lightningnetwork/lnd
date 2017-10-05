@@ -354,7 +354,7 @@ out:
 				break out
 			}
 
-			log.Debugf("ChannelPoint(%v): new block(height=%v, "+
+			log.Tracef("ChannelPoint(%v): new block(height=%v, "+
 				"hash=%v) examining active HTLC's",
 				l.channel.ChannelPoint(), blockEpoch.Height,
 				blockEpoch.Hash)

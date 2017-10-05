@@ -39,9 +39,6 @@ type ChannelGraphSource interface {
 	// edge/channel might be used in construction of payment path.
 	AddEdge(edge *channeldb.ChannelEdgeInfo) error
 
-	// DeleteEdge is used to delete an edge from the router database.
-	DeleteEdge(edge *channeldb.ChannelEdgeInfo) error
-
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
 	AddProof(chanID lnwire.ShortChannelID, proof *channeldb.ChannelAuthProof) error
@@ -1295,13 +1292,6 @@ func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {
 	case <-r.quit:
 		return errors.New("router has been shut down")
 	}
-}
-
-// DeleteEdge is used to delete an edge from the router database.
-//
-// NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) DeleteEdge(edge *channeldb.ChannelEdgeInfo) error {
-	return r.cfg.Graph.DeleteChannelEdge(&edge.ChannelPoint)
 }
 
 // UpdateEdge is used to update edge information, without this message edge

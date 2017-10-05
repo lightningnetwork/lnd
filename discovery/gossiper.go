@@ -1195,7 +1195,7 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
-	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
+	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement, *lnwire.ChannelUpdate, error) {
 
 	edge.LastUpdate = time.Now()
 	chanUpdate := &lnwire.ChannelUpdate{
@@ -1214,7 +1214,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	// digest of the channel announcement itself.
 	sig, err := SignAnnouncement(d.cfg.AnnSigner, d.selfKey, chanUpdate)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Next, we'll set the new signature in place, and update the reference
@@ -1226,15 +1226,36 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	// before committing it to the slice returned.
 	err = d.validateChannelUpdateAnn(d.selfKey, chanUpdate)
 	if err != nil {
-		return nil, fmt.Errorf("generated invalid channel update "+
-			"sig: %v", err)
+		return nil, nil, fmt.Errorf("generated invalid channel "+
+			"update sig: %v", err)
 	}
 
 	// Finally, we'll write the new edge policy to disk.
 	edge.Node.PubKey.Curve = nil
 	if err := d.cfg.Router.UpdateEdge(edge); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return chanUpdate, err
+	// We'll also create the original channel announcement so the two can
+	// be broadcast along side each other (if necessary), but only if we
+	// have a full channel announcement for this channel.
+	var chanAnn *lnwire.ChannelAnnouncement
+	if info.AuthProof != nil {
+		chanID := lnwire.NewShortChanIDFromInt(info.ChannelID)
+		chanAnn = &lnwire.ChannelAnnouncement{
+			NodeSig1:       info.AuthProof.NodeSig1,
+			NodeSig2:       info.AuthProof.NodeSig2,
+			ShortChannelID: chanID,
+			BitcoinSig1:    info.AuthProof.BitcoinSig1,
+			BitcoinSig2:    info.AuthProof.BitcoinSig2,
+			NodeID1:        info.NodeKey1,
+			NodeID2:        info.NodeKey2,
+			ChainHash:      info.ChainHash,
+			BitcoinKey1:    info.BitcoinKey1,
+			Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+			BitcoinKey2:    info.BitcoinKey2,
+		}
+	}
+
+	return chanAnn, chanUpdate, err
 }

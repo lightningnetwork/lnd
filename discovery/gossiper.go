@@ -93,10 +93,7 @@ type Config struct {
 	TrickleDelay time.Duration
 
 	// RetransmitDelay is the period of a timer which indicates that we
-	// should check if we need to prune or re-broadcast any of our
-	// personal channels. This addresses the case of "zombie" channels and
-	// channel advertisements that have been dropped, or not properly
-	// propagated through the network.
+	// should check if we need re-broadcast any of our personal channels.
 	RetransmitDelay time.Duration
 
 	// DB is a global boltdb instance which is needed to pass it in waiting
@@ -461,27 +458,24 @@ func (d *AuthenticatedGossiper) networkHandler() {
 		case <-retransmitTimer.C:
 			var selfChans []lnwire.Message
 
-			// Iterate over all of our channels and check if any of them fall within
-			// the prune interval or re-broadcast interval.
-			err := d.cfg.Router.ForAllOutgoingChannels(func(info *channeldb.ChannelEdgeInfo,
+			// Iterate over all of our channels and check if any of
+			// them fall within the prune interval or re-broadcast
+			// interval.
+			err := d.cfg.Router.ForAllOutgoingChannels(func(
+				info *channeldb.ChannelEdgeInfo,
 				edge *channeldb.ChannelEdgePolicy) error {
 
-				const pruneInterval = time.Hour * 24 * 14
-				const broadcastInterval = time.Hour * 24 * 13
+				const broadcastInterval = time.Hour * 24
 
 				timeElapsed := time.Since(edge.LastUpdate)
 
-				// Prune the edge if it is has not been updated for the past 2 weeks.
-				// Rebroadcast edge if its last update is close to the 2-week interval.
-				if timeElapsed >= pruneInterval {
-					err := d.cfg.Router.DeleteEdge(info)
-					if err != nil {
-						log.Errorf("unable to prune stale edge: %v", err)
-						return err
-					}
-				} else if timeElapsed >= broadcastInterval {
-					// Re-sign and update the channel on disk and retrieve our
-					// ChannelUpdate to broadcast.
+				// If it's been a full day since we've
+				// re-broadcasted the channel, then we'll
+				// re-sign it with an updated time stamp.
+				if timeElapsed >= broadcastInterval {
+					// Re-sign and update the channel on
+					// disk and retrieve our ChannelUpdate
+					// to broadcast.
 					chanUpdate, err := d.updateChannel(info, edge)
 					if err != nil {
 						log.Errorf("unable to update channel: %v", err)
@@ -493,17 +487,21 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				return nil
 			})
 			if err != nil {
-				log.Errorf("error while retrieving outgoing channels: %v", err)
+				log.Errorf("error while retrieving outgoing "+
+					"channels: %v", err)
 				continue
 			}
 
-			// If we don't have any channels to re-broadcast, then continue.
+			// If we don't have any channels to re-broadcast, then
+			// continue.
 			if len(selfChans) == 0 {
 				continue
 			}
 
 			log.Debugf("Retransmitting %v outgoing channels",
 				len(selfChans))
+
+			// TODO(roasbeef): also send the channel ann?
 
 			// With all the wire announcements properly crafted,
 			// we'll broadcast our known outgoing channels to all
@@ -537,8 +535,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 // schema applied for each specified channel identified by its channel point.
 // In the case that no channel points are specified, then the fee update will
 // be applied to all channels. Finally, the backing ChannelGraphSource is
-// updated with the latest information reflecting the
-// applied fee updates.
+// updated with the latest information reflecting the applied fee updates.
 //
 // TODO(roasbeef): generalize into generic for any channel update
 func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest) ([]lnwire.Message, error) {
@@ -551,7 +548,8 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 
 	haveChanFilter := len(chansToUpdate) != 0
 
-	var signedAnns []lnwire.Message
+	var chanUpdates []lnwire.Message
+
 	// Next, we'll loop over all the outgoing channels the router knows of.
 	// If we have a filter then we'll only collected those channels,
 	// otherwise we'll collect them all.
@@ -570,14 +568,14 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 			feeUpdate.newSchema.FeeRate,
 		)
 
-		// Re-sign and update the backing ChannelGraphSource, and retrieve our
-		// ChannelUpdate to broadcast.
+		// Re-sign and update the backing ChannelGraphSource, and
+		// retrieve our ChannelUpdate to broadcast.
 		chanUpdate, err := d.updateChannel(info, edge)
 		if err != nil {
 			return err
 		}
 
-		signedAnns = append(signedAnns, chanUpdate)
+		chanUpdates = append(chanUpdates, chanUpdate)
 
 		return nil
 	})
@@ -585,7 +583,7 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 		return nil, err
 	}
 
-	return signedAnns, nil
+	return chanUpdates, nil
 }
 
 // processNetworkAnnouncement processes a new network relate authenticated
@@ -1169,10 +1167,9 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 	return d.cfg.SendToPeer(targetNode, announceMessages...)
 }
 
-// updateChannel creates a new fully signed update for the channel,
-// and updates the underlying graph with the new state.
-func (d *AuthenticatedGossiper) updateChannel(
-	info *channeldb.ChannelEdgeInfo,
+// updateChannel creates a new fully signed update for the channel, and updates
+// the underlying graph with the new state.
+func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
 
 	edge.LastUpdate = time.Now()
@@ -1188,20 +1185,20 @@ func (d *AuthenticatedGossiper) updateChannel(
 		FeeRate:         uint32(edge.FeeProportionalMillionths),
 	}
 
-	// With the update applied, we'll generate a new signature over
-	// a digest of the channel announcement itself.
+	// With the update applied, we'll generate a new signature over a
+	// digest of the channel announcement itself.
 	sig, err := SignAnnouncement(d.cfg.AnnSigner, d.selfKey, chanUpdate)
 	if err != nil {
 		return nil, err
 	}
 
-	// Next, we'll set the new signature in place, and update the
-	// reference in the backing slice.
+	// Next, we'll set the new signature in place, and update the reference
+	// in the backing slice.
 	edge.Signature = sig
 	chanUpdate.Signature = sig
 
-	// To ensure that our signature is valid, we'll verify it
-	// ourself before committing it to the slice returned.
+	// To ensure that our signature is valid, we'll verify it ourself
+	// before committing it to the slice returned.
 	err = d.validateChannelUpdateAnn(d.selfKey, chanUpdate)
 	if err != nil {
 		return nil, fmt.Errorf("generated invalid channel update "+

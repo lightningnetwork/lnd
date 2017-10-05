@@ -690,7 +690,8 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 }
 
 // DeleteChannelEdge removes an edge from the database as identified by it's
-// funding outpoint. If the edge does not exist within the database, then this
+// funding outpoint. If the edge does not exist within the database, then
+// ErrEdgeNotFound will be returned.
 func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	// TODO(roasbeef): possibly delete from node bucket if node has no more
 	// channels

@@ -529,11 +529,18 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 	for _, chanToUpdate := range edgesToUpdate {
 		// Re-sign and update the channel on disk and retrieve our
 		// ChannelUpdate to broadcast.
-		chanUpdate, err := d.updateChannel(chanToUpdate.info,
+		chanAnn, chanUpdate, err := d.updateChannel(chanToUpdate.info,
 			chanToUpdate.edge)
 		if err != nil {
 			return fmt.Errorf("unable to update channel: %v", err)
 		}
+
+		// If we have a valid announcement to transmit, then we'll send
+		// that along with the update.
+		if chanAnn != nil {
+			signedUpdates = append(signedUpdates, chanAnn)
+		}
+
 		signedUpdates = append(signedUpdates, chanUpdate)
 	}
 
@@ -543,9 +550,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		return nil
 	}
 
-	log.Infof("Retransmitting %v outgoing channels", len(signedUpdates))
-
-	// TODO(roasbeef): also send the channel ann?
+	log.Infof("Retransmitting %v outgoing channels", len(edgesToUpdate))
 
 	// With all the wire announcements properly crafted, we'll broadcast
 	// our known outgoing channels to all our immediate peers.
@@ -595,13 +600,12 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 
 		// Re-sign and update the backing ChannelGraphSource, and
 		// retrieve our ChannelUpdate to broadcast.
-		chanUpdate, err := d.updateChannel(info, edge)
+		_, chanUpdate, err := d.updateChannel(info, edge)
 		if err != nil {
 			return err
 		}
 
 		chanUpdates = append(chanUpdates, chanUpdate)
-
 		return nil
 	})
 	if err != nil {

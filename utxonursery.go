@@ -1231,3 +1231,8 @@ func readTxOut(r io.Reader, txo *wire.TxOut) error {
 
 	return nil
 }
+
+// Compile-time constraint to ensure kidOutput and babyOutpt implement the
+// CsvSpendableOutput interface.
+var _ CsvSpendableOutput = (*kidOutput)(nil)
+var _ CsvSpendableOutput = (*babyOutput)(nil)

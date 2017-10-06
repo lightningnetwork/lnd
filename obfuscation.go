@@ -1,6 +1,7 @@
 package sphinx
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
@@ -175,26 +176,65 @@ func NewOnionDeobfuscator(circuit *Circuit) *OnionDeobfuscator {
 // obfuscation in reverse order.
 func (o *OnionDeobfuscator) Deobfuscate(obfuscatedData []byte) (*btcec.PublicKey, []byte, error) {
 
-	for i, sharedSecret := range generateSharedSecrets(o.circuit.PaymentPath,
-		o.circuit.SessionKey) {
-		obfuscatedData = onionObfuscation(sharedSecret, obfuscatedData)
-		umKey := generateKey("um", sharedSecret)
+	sharedSecrets := generateSharedSecrets(
+		o.circuit.PaymentPath,
+		o.circuit.SessionKey,
+	)
 
-		// Split the data and hmac.
+	var (
+		sender      *btcec.PublicKey
+		msg         []byte
+		dummySecret [sha256.Size]byte
+	)
+	copy(dummySecret[:], bytes.Repeat([]byte{1}, 32))
+
+	// We'll iterate a constant amount of hops to ensure that we don't give
+	// away an timing information pertaining to the position in the route
+	// that the error emanated from.
+	for i := 0; i < NumMaxHops; i++ {
+		var sharedSecret [sha256.Size]byte
+
+		// If we've already found the sender, then we'll use our dummy
+		// secret to continue decryption attempts to fill out the rest
+		// of the loop. Otherwise, we'll use the next shared secret in
+		// line.
+		if sender != nil {
+			sharedSecret = dummySecret
+		} else {
+			sharedSecret = sharedSecrets[i]
+		}
+
+		// With the shared secret, we'll now strip off a layer of
+		// encryption from the encrypted error payload.
+		obfuscatedData = onionObfuscation(sharedSecret, obfuscatedData)
+
+		// Next, we'll need to separate the data, from the MAC itself
+		// so we can reconstruct and verify it.
 		expectedMac := obfuscatedData[:sha256.Size]
 		data := obfuscatedData[sha256.Size:]
 
-		// Calculate the real hmac.
+		// With the data split, we'll now re-generate the MAC using its
+		// specified key.
+		umKey := generateKey("um", sharedSecret)
 		h := hmac.New(sha256.New, umKey[:])
 		h.Write(data)
-		realMac := h.Sum(nil)
 
-		if hmac.Equal(realMac, expectedMac) {
-			return o.circuit.PaymentPath[i], data, nil
+		// If the MAC matches up, then we've found the sender of the
+		// error and have also obtained the fully decrypted message.
+		realMac := h.Sum(nil)
+		if hmac.Equal(realMac, expectedMac) && sender == nil {
+			sender = o.circuit.PaymentPath[i]
+			msg = data
 		}
 	}
 
-	return nil, nil, errors.New("unable to retrieve onion failure")
+	// If the sender pointer is still nil, then we haven't found the
+	// sender, meaning we've failed to decrypt.
+	if sender == nil {
+		return nil, nil, errors.New("unable to retrieve onion failure")
+	}
+
+	return sender, msg, nil
 }
 
 // Decode writes converted deobfucator in the byte stream.

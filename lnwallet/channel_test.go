@@ -1289,10 +1289,10 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 
 	// This amount should leave an amount larger than Alice's dust limit
 	// once fees have been subtracted, but smaller than Bob's dust limit.
-	defaultFee := calcStaticFee(0)
-	dustLimit := aliceChannel.channelState.LocalChanCfg.DustLimit
+	// We account in fees for the HTLC we will be adding.
+	defaultFee := calcStaticFee(1)
 	aliceBalance := aliceChannel.channelState.LocalBalance.ToSatoshis()
-	htlcSat := aliceBalance - (defaultFee + dustLimit + 100)
+	htlcSat := aliceBalance - defaultFee
 	htlcSat += htlcSuccessFee(aliceChannel.channelState.FeePerKw)
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)

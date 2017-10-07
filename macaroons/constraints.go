@@ -1,8 +1,12 @@
 package macaroons
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
@@ -88,5 +92,60 @@ func IPLockChecker(clientIP string) checkers.Checker {
 			}
 			return nil
 		},
+	}
+}
+
+// PaymentPahtConstraint limits some parts of the payment path to certain nodes
+func PaymentPathConstraint(predicate string) func(*macaroon.Macaroon) error {
+	return func(macaroon *macaroon.Macaroon) error {
+		if _, err := parseRouteConstraint(predicate); err != nil {
+			return err
+		}
+		caveat := routeCaveat(predicate)
+		return macaroon.AddFirstPartyCaveat(caveat.Condition)
+	}
+}
+
+const routeConstraintID = "payment-path-constraint"
+
+type routeConstraint struct {
+	index   int
+	negate  bool
+	nodeSet []string
+}
+
+// Route constraint
+// path[index]     in {node1, node2, node3}
+// path[index] not in {node1, node2}
+func parseRouteConstraint(predicate string) (*routeConstraint, error) {
+	constraintRegex := `path\[(-?[0-9]+)\]\s+(not)?\s*in\s+{(.*)}`
+	constraintMatcher, err := regexp.Compile(constraintRegex)
+	if err != nil {
+		return nil, err
+	}
+	match := constraintMatcher.FindStringSubmatch(predicate)
+	if match == nil {
+		return nil, errors.New("Path constraint syntax error")
+	}
+	ind, err := strconv.Atoi(match[1])
+	if err != nil {
+		return nil, errors.New("Unable to parse path index")
+	}
+	var neg bool
+	if match[2] == "not" {
+		neg = true
+	} else if match[2] != "" {
+		return nil, errors.New("Incorrect path constraint negation")
+	}
+	nodes := make([]string, 0)
+	for _, node := range strings.Split(match[3], ",") {
+		nodes = append(nodes, strings.Trim(node, " "))
+	}
+	return &routeConstraint{index: ind, negate: neg, nodeSet: nodes}, nil
+}
+
+func routeCaveat(predicate string) checkers.Caveat {
+	return checkers.Caveat{
+		Condition: routeConstraintID + " " + predicate,
 	}
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/base58"
 	"github.com/roasbeef/btcwallet/waddrmgr"
 	"github.com/tv42/zbase32"
 	"golang.org/x/net/context"
@@ -1384,6 +1385,25 @@ func validatePayReqExpiry(payReq *zpay32.Invoice) error {
 	return nil
 }
 
+// routeFilter creates a filter closure for discarding routes.
+func routeFilter(ctx context.Context, svc *bakery.Service) func(*routing.Route) error {
+	return func(route *routing.Route) error {
+		nodes := make([]string, 0)
+		for _, hop := range route.Hops {
+			// TODO(mrwhythat): base58 encoding is kind of a kludge
+			node := base58.Encode(hop.Channel.Node.PubKey.SerializeCompressed())
+			nodes = append(nodes, node)
+		}
+		if svc != nil {
+			if err := macaroons.ValidateMacaroonWithCheckers(ctx, svc,
+				macaroons.PaymentPathChecker(nodes)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
@@ -1593,7 +1613,8 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Amount:      p.msat,
 					PaymentHash: rHash,
 				}
-				preImage, route, err := r.server.chanRouter.SendPayment(payment)
+				preImage, route, err := r.server.chanRouter.SendPayment(payment,
+					routeFilter(paymentStream.Context(), r.authSvc))
 				if err != nil {
 					// If we receive payment error than,
 					// instead of terminating the stream,
@@ -1728,7 +1749,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
-	})
+	}, routeFilter(ctx, r.authSvc))
 	if err != nil {
 		return nil, err
 	}

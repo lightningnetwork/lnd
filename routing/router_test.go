@@ -189,7 +189,10 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Send off the payment request to the router, route through satoshi
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	filter := func(_ *Route) error {
+		return nil
+	}
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment, filter)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}

@@ -1091,7 +1091,8 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+func (r *ChannelRouter) SendPayment(payment *LightningPayment,
+	routeFilter func(*Route) error) ([32]byte, *Route, error) {
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
 			payment.Target.Curve = nil
@@ -1116,6 +1117,11 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// serially until either once succeeds, or we've exhausted our set of
 	// available paths.
 	for _, route := range routes {
+		// If route is discarded by a filter, continue to the next one.
+		if err := routeFilter(route); err != nil {
+			continue
+		}
+
 		log.Tracef("Attempting to send payment %x, using route: %v",
 			payment.PaymentHash, newLogClosure(func() string {
 				return spew.Sdump(route)

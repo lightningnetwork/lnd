@@ -96,13 +96,16 @@ func IPLockChecker(clientIP string) checkers.Checker {
 }
 
 // PaymentPathConstraint limits some parts of the payment path to certain nodes
-func PaymentPathConstraint(predicate string) func(*macaroon.Macaroon) error {
+func PaymentPathConstraint(pred string) func(*macaroon.Macaroon) error {
 	return func(macaroon *macaroon.Macaroon) error {
-		if _, err := parseRouteConstraint(predicate); err != nil {
-			return err
+		if pred != "" {
+			if _, err := parseRouteConstraint(pred); err != nil {
+				return err
+			}
+			caveat := routeCaveat(pred)
+			return macaroon.AddFirstPartyCaveat(caveat.Condition)
 		}
-		caveat := routeCaveat(predicate)
-		return macaroon.AddFirstPartyCaveat(caveat.Condition)
+		return nil
 	}
 }
 

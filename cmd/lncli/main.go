@@ -88,6 +88,9 @@ func getClientConn(ctx *cli.Context) *grpc.ClientConn {
 			// Lock macaroon down to a specific IP address.
 			macaroons.IPLockConstraint(ctx.GlobalString("macaroonip")),
 
+			// Limit payment path selection to a specified predicate.
+			macaroons.PaymentPathConstraint(ctx.GlobalString("paymentpathconstraint")),
+
 			// ... Add more constraints if needed.
 		}
 
@@ -143,6 +146,10 @@ func main() {
 		cli.StringFlag{
 			Name:  "macaroonip",
 			Usage: "if set, lock macaroon to specific IP address",
+		},
+		cli.StringFlag{
+			Name:  "paymentpathconstraint",
+			Usage: "macaroon constraint for payment path control",
 		},
 	}
 	app.Commands = []cli.Command{

@@ -95,7 +95,7 @@ func IPLockChecker(clientIP string) checkers.Checker {
 	}
 }
 
-// PaymentPahtConstraint limits some parts of the payment path to certain nodes
+// PaymentPathConstraint limits some parts of the payment path to certain nodes
 func PaymentPathConstraint(predicate string) func(*macaroon.Macaroon) error {
 	return func(macaroon *macaroon.Macaroon) error {
 		if _, err := parseRouteConstraint(predicate); err != nil {
@@ -106,6 +106,7 @@ func PaymentPathConstraint(predicate string) func(*macaroon.Macaroon) error {
 	}
 }
 
+// routeConstraintID is a caveat identifier for the payment path constraint.
 const routeConstraintID = "payment-path-constraint"
 
 type routeConstraint struct {
@@ -114,9 +115,12 @@ type routeConstraint struct {
 	nodeSet []string
 }
 
-// Route constraint
-// path[index]     in {node1, node2, node3}
-// path[index] not in {node1, node2}
+// parseRouteConstraint checks the validity of the route constraint and
+// returns struct representing this constraint.
+//
+// Example of route constraint strings:
+//          "path[index]     in {node1, node2, node3}"
+//          "path[index] not in {node1, node2}"
 func parseRouteConstraint(predicate string) (*routeConstraint, error) {
 	constraintRegex := `path\[(-?[0-9]+)\]\s+(not)?\s*in\s+{(.*)}`
 	constraintMatcher, err := regexp.Compile(constraintRegex)
@@ -147,5 +151,50 @@ func parseRouteConstraint(predicate string) (*routeConstraint, error) {
 func routeCaveat(predicate string) checkers.Caveat {
 	return checkers.Caveat{
 		Condition: routeConstraintID + " " + predicate,
+	}
+}
+
+// PaymentPathChecker receives slice of base58-encoded node pubkeys and
+// checks if it satisfies the payment path constraint in the macaroon.
+func PaymentPathChecker(path []string) checkers.Checker {
+	checkerFunc := func(_, cav string) error {
+		// Check if constraint is valid.
+		routeConstraint, err := parseRouteConstraint(cav)
+		if err != nil {
+			return err
+		}
+
+		// Sanitize index value.
+		index := routeConstraint.index
+		if index >= len(path) || index < -len(path) {
+			msg := "path constraint index exceeds path length"
+			return errors.New(msg)
+		}
+		if index < 0 {
+			index += len(path)
+		}
+
+		// Check whether path element is [not] in constraint node set.
+		var ok bool
+		nodeID := path[index]
+		for _, constraintNode := range routeConstraint.nodeSet {
+			if nodeID == constraintNode {
+				ok = true
+				break
+			}
+		}
+		if routeConstraint.negate {
+			ok = !ok
+		}
+		if !ok {
+			msg := "path does not satisfy constraint \"%s\""
+			return fmt.Errorf(msg, cav)
+		}
+
+		return nil
+	}
+	return checkers.CheckerFunc{
+		Condition_: routeConstraintID,
+		Check_:     checkerFunc,
 	}
 }

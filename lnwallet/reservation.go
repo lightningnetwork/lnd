@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync"
 
+	"fmt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -128,6 +129,22 @@ type ChannelReservation struct {
 	chanOpenErr chan error
 
 	wallet *LightningWallet
+
+	// RequiredRemoteChanReserve is a function closure that, given the
+	// channel capacity, will return an appropriate amount for the remote
+	// peer's required channel reserve that is to be adhered to at all
+	// times.
+	RequiredRemoteChanReserve func(btcutil.Amount) btcutil.Amount
+
+	// RequiredRemoteMaxValue is a function closure that, given the
+	// channel capacity, returns the amount of MilliSatoshis that our remote
+	// peer can have in total outstanding HTLCs with us.
+	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
+
+	// RequiredRemoteMaxHTLCs is a function closure that, given the
+	// channel capacity, returns the number of maximum HTLCs the remote peer
+	// can offer us.
+	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -221,6 +238,23 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 		chanOpen:      make(chan *openChanDetails, 1),
 		chanOpenErr:   make(chan error, 1),
 		wallet:        wallet,
+		RequiredRemoteChanReserve: func(cap btcutil.Amount) btcutil.Amount {
+			// By default, we'll require the remote peer to maintain
+			// at least 1% of the total channel capacity at all
+			// times.
+			return (cap + 99) / 100
+		},
+		RequiredRemoteMaxValue: func(cap btcutil.Amount) lnwire.MilliSatoshi {
+			// By default, we'll allow the remote peer to fully
+			// utilize the full bandwidth of the channel, minus our
+			// required reserve.
+			return lnwire.NewMSatFromSatoshis(cap - (cap+99)/100)
+		},
+		RequiredRemoteMaxHTLCs: func(cap btcutil.Amount) uint16 {
+			// By default, we'll permit them to utilize the full
+			// channel bandwidth.
+			return uint16(MaxHTLCNumber / 2)
+		},
 	}
 }
 
@@ -248,6 +282,54 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	r.Lock()
 	defer r.Unlock()
 
+	// Fail if csvDelay is excessively large.
+	if csvDelay > 10000 {
+		return fmt.Errorf("csvDelay is too large: %d", csvDelay)
+	}
+
+	// Fail if the channel reserve is set to greater than 20% of the
+	// channel capacity.
+	maxChanReserve := (r.partialState.Capacity + 4) / 5
+	if chanReserve > maxChanReserve {
+		return fmt.Errorf("chanReserve is too large: %g",
+			chanReserve.ToBTC())
+	}
+
+	// Fail if the dust limit is lower than the DefaultDustLimit()
+	if r.ourContribution.DustLimit < DefaultDustLimit() {
+		return fmt.Errorf("dust limit is too small: %g",
+			r.ourContribution.DustLimit.ToBTC())
+	}
+
+	// Fail if maxHtlcs is above the maximum allowed number of 483.
+	if maxHtlcs > uint16(MaxHTLCNumber/2) {
+		return fmt.Errorf("maxHtlcs is too large: %d", maxHtlcs)
+	}
+
+	// Fail if maxHtlcs is too small.
+	if maxHtlcs < 5 {
+		return fmt.Errorf("maxHtlcs is too small: %d", maxHtlcs)
+	}
+
+	// Fail if maxValueInFlight is too large.
+	if maxValueInFlight > lnwire.NewMSatFromSatoshis(
+		r.partialState.Capacity-chanReserve) {
+		return fmt.Errorf("maxValueInFlight is too large: %g",
+			maxValueInFlight.ToBTC())
+	}
+
+	// Fail if maxValueInFlight is too small.
+	if maxValueInFlight < r.ourContribution.MinHTLC {
+		return fmt.Errorf("maxValueInFlight is too small: %g",
+			maxValueInFlight.ToBTC())
+	}
+
+	// Fail if the minimum HTLC value is too large
+	if r.ourContribution.MinHTLC > maxValueInFlight {
+		return fmt.Errorf("minimum HTLC value is too large: %g",
+			r.ourContribution.MinHTLC.ToBTC())
+	}
+
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay
 	r.ourContribution.ChannelConfig.ChanReserve = chanReserve
 	r.ourContribution.ChannelConfig.MaxAcceptedHtlcs = maxHtlcs
@@ -266,16 +348,11 @@ func (r *ChannelReservation) RemoteChanConstraints() (btcutil.Amount, lnwire.Mil
 
 	// TODO(roasbeef): move csv delay calculation into func?
 
-	// By default, we'll require them to maintain at least 1% of thee total
-	// channel capacity at all times.
-	chanReserve := (chanCapacity + 99) / 100
+	chanReserve := r.RequiredRemoteChanReserve(chanCapacity)
 
-	// We'll allow them to fully utilize the full bandwidth of the channel,
-	// minus our required reserve.
-	maxValue := lnwire.NewMSatFromSatoshis(chanCapacity - chanReserve)
+	maxValue := r.RequiredRemoteMaxValue(chanCapacity)
 
-	// Finally, we'll permit them to utilize the full channel bandwidth
-	maxHTLCs := uint16(MaxHTLCNumber / 2)
+	maxHTLCs := r.RequiredRemoteMaxHTLCs(chanCapacity)
 
 	return chanReserve, maxValue, maxHTLCs
 }

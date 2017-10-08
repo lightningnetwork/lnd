@@ -234,13 +234,12 @@ func NewChannelLink(cfg ChannelLinkConfig, channel *lnwallet.LightningChannel,
 	currentHeight uint32) ChannelLink {
 
 	return &channelLink{
-		cfg:               cfg,
-		channel:           channel,
-		clearedOnionBlobs: make(map[uint64][lnwire.OnionPacketSize]byte),
-		upstream:          make(chan lnwire.Message),
-		downstream:        make(chan *htlcPacket),
-		linkControl:       make(chan interface{}),
-		// TODO(roasbeef): just do reserve here?
+		cfg:                cfg,
+		channel:            channel,
+		clearedOnionBlobs:  make(map[uint64][lnwire.OnionPacketSize]byte),
+		upstream:           make(chan lnwire.Message),
+		downstream:         make(chan *htlcPacket),
+		linkControl:        make(chan interface{}),
 		availableBandwidth: uint64(channel.StateSnapshot().LocalBalance),
 		cancelReasons:      make(map[uint64]lnwire.OpaqueReason),
 		logCommitTimer:     time.NewTimer(300 * time.Millisecond),
@@ -932,8 +931,8 @@ type getBandwidthCmd struct {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
-	// TODO(roasbeef): subtract reserverj
-	return lnwire.MilliSatoshi(atomic.LoadUint64(&l.availableBandwidth))
+	return lnwire.MilliSatoshi(atomic.LoadUint64(
+		&l.availableBandwidth) - uint64(l.channel.GetReserve()*1000))
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system

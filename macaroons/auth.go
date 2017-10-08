@@ -50,13 +50,38 @@ func NewMacaroonCredential(m *macaroon.Macaroon) MacaroonCredential {
 	return ms
 }
 
-// ValidateMacaroon validates the capabilities of a given request given a
-// bakery service, context, and uri. Within the passed context.Context, we
-// expect a macaroon to be encoded as request metadata using the key
-// "macaroon".
+// ValidateMacaroon constructs checkers needed for request authentication and
+// delegates validation to ValidateMacaroonWithCheckers.
 func ValidateMacaroon(ctx context.Context, method string,
 	svc *bakery.Service) error {
 
+	// Get peer info and extract IP address from it for macaroon check
+	pr, ok := peer.FromContext(ctx)
+	if !ok {
+		return fmt.Errorf("unable to get peer info from context")
+	}
+	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
+	if err != nil {
+		return fmt.Errorf("unable to parse peer address")
+	}
+
+	// TODO(aakselrod): Add more checks as required.
+	return ValidateMacaroonWithCheckers(ctx, svc,
+		// Check if method is permitted.
+		AllowChecker(method),
+		// Check for macaroon expiration.
+		TimeoutChecker(),
+		// Check for iP lock.
+		IPLockChecker(peerAddr),
+	)
+}
+
+// ValidateMacaroonWithCheckers validates the capabilities of a given request
+// given a bakery service, context, and a list of checkers. Within the passed
+// context.Context, we expect a macaroon to be encoded as request metadata
+// using the key "macaroon".
+func ValidateMacaroonWithCheckers(ctx context.Context,
+	svc *bakery.Service, checkersList ...checkers.Checker) error {
 	// Get macaroon bytes from context and unmarshal into macaroon.
 	//
 	// TODO(aakselrod): use FromIncomingContext after grpc update in glide.
@@ -67,16 +92,6 @@ func ValidateMacaroon(ctx context.Context, method string,
 	if len(md["macaroon"]) != 1 {
 		return fmt.Errorf("expected 1 macaroon, got %d",
 			len(md["macaroon"]))
-	}
-
-	// Get peer info and extract IP address from it for macaroon check
-	pr, ok := peer.FromContext(ctx)
-	if !ok {
-		return fmt.Errorf("unable to get peer info from context")
-	}
-	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
-	if err != nil {
-		return fmt.Errorf("unable to parse peer address")
 	}
 
 	// With the macaroon obtained, we'll now decode the hex-string
@@ -92,13 +107,5 @@ func ValidateMacaroon(ctx context.Context, method string,
 		return err
 	}
 
-	// Check the method being called against the permitted operation and
-	// the expiration time and return the result.
-	//
-	// TODO(aakselrod): Add more checks as required.
-	return svc.Check(macaroon.Slice{mac}, checkers.New(
-		AllowChecker(method),
-		TimeoutChecker(),
-		IPLockChecker(peerAddr),
-	))
+	return svc.Check(macaroon.Slice{mac}, checkers.New(checkersList...))
 }

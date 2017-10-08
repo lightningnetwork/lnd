@@ -2563,7 +2563,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// with the new commitment transaction. This step verifies ChanReserve
 	// of ChannelConstraints.
 	if remote {
-		theirRemoteBalance := lc.remoteCommitChain.tail().theirBalance
+		theirRemoteBalance := lc.remoteCommitChain.tip().theirBalance
 
 		for _, entry := range view.theirUpdates {
 			if entry.EntryType == Add &&
@@ -2587,7 +2587,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	}
 
 	if local {
-		ourLocalBalance := lc.localCommitChain.tail().ourBalance
+		ourLocalBalance := lc.localCommitChain.tip().ourBalance
 
 		for _, entry := range view.ourUpdates {
 			if entry.EntryType == Add &&

@@ -203,40 +203,18 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 
 // createTestChannels creates two test channels funded with 10 BTC, with 5 BTC
 // allocated to each side. Within the channel, Alice is the initiator.
-func createTestChannels(revocationWindow int, capacity btcutil.Amount,
-	balance btcutil.Amount, csvTimeoutAlice uint32, csvTimeoutBob uint32,
-	aliceConstraints *channeldb.ChannelConstraints,
-	bobConstraints *channeldb.ChannelConstraints) (*LightningChannel, *LightningChannel, func(), error) {
-
-	var aConstraints, bConstraints *channeldb.ChannelConstraints
-	if aliceConstraints == nil {
-		aConstraints = &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}
-	} else {
-		aConstraints = aliceConstraints
-	}
-
-	if bobConstraints == nil {
-		bConstraints = &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}
-	} else {
-		bConstraints = bobConstraints
-	}
-
+func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChannel, func(), error) {
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		bobsPrivKey)
+
+	channelCapacity := btcutil.Amount(10 * 1e8)
+	channelBal := channelCapacity / 2
+	aliceDustLimit := btcutil.Amount(200)
+	bobDustLimit := btcutil.Amount(1300)
+	csvTimeoutAlice := uint32(5)
+	csvTimeoutBob := uint32(4)
 
 	prevOut := &wire.OutPoint{
 		Hash:  chainhash.Hash(testHdSeed),
@@ -246,11 +224,11 @@ func createTestChannels(revocationWindow int, capacity btcutil.Amount,
 
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aConstraints.DustLimit,
-			MaxPendingAmount: aConstraints.MaxPendingAmount,
-			ChanReserve:      aConstraints.ChanReserve,
-			MinHTLC:          aConstraints.MinHTLC,
-			MaxAcceptedHtlcs: aConstraints.MaxAcceptedHtlcs,
+			DustLimit:        aliceDustLimit,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
 		CsvDelay:            uint16(csvTimeoutAlice),
 		MultiSigKey:         aliceKeyPub,
@@ -260,11 +238,11 @@ func createTestChannels(revocationWindow int, capacity btcutil.Amount,
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bConstraints.DustLimit,
-			MaxPendingAmount: bConstraints.MaxPendingAmount,
-			ChanReserve:      bConstraints.ChanReserve,
-			MinHTLC:          bConstraints.MinHTLC,
-			MaxAcceptedHtlcs: bConstraints.MaxAcceptedHtlcs,
+			DustLimit:        bobDustLimit,
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
 		},
 		CsvDelay:            uint16(csvTimeoutBob),
 		MultiSigKey:         bobKeyPub,
@@ -289,8 +267,8 @@ func createTestChannels(revocationWindow int, capacity btcutil.Amount,
 	}
 	aliceCommitPoint := ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(balance,
-		balance, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
+	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(channelBal,
+		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
 		fundingTxIn)
 	if err != nil {
 		return nil, nil, nil, err
@@ -323,9 +301,9 @@ func createTestChannels(revocationWindow int, capacity btcutil.Amount,
 		ChanType:                channeldb.SingleFunder,
 		FeePerKw:                feePerKw,
 		IsInitiator:             true,
-		Capacity:                capacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(balance - commitFee),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(balance),
+		Capacity:                channelCapacity,
+		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
 		CommitTx:                *aliceCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -342,9 +320,9 @@ func createTestChannels(revocationWindow int, capacity btcutil.Amount,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
-		Capacity:                capacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(balance),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(balance - commitFee),
+		Capacity:                channelCapacity,
+		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal - commitFee),
 		CommitTx:                *bobCommitTx,
 		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
@@ -446,8 +424,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -722,20 +699,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e3),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e3),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -793,8 +757,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -861,20 +824,7 @@ func TestForceClose(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(200),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(200),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1065,20 +1015,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 400),
-			ChanReserve:      btcutil.Amount(400),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 400),
-			ChanReserve:      btcutil.Amount(400),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1183,20 +1120,7 @@ func TestDustHTLCFees(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(5000),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(20),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(5000),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(20),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1205,7 +1129,7 @@ func TestDustHTLCFees(t *testing.T) {
 	aliceStartingBalance := aliceChannel.channelState.LocalBalance
 
 	// This HTLC amount should be lower than the dust limits of both nodes.
-	htlcAmount := lnwire.NewMSatFromSatoshis(4900)
+	htlcAmount := lnwire.NewMSatFromSatoshis(100)
 	htlc, _ := createHTLC(0, htlcAmount)
 	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 		t.Fatalf("alice unable to add htlc: %v", err)
@@ -1273,20 +1197,7 @@ func TestHTLCDustLimit(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(40),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1e4),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(260),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1369,20 +1280,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9),
-			ChanReserve:      btcutil.Amount(0),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9),
-			ChanReserve:      btcutil.Amount(0),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(3)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1440,8 +1338,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1711,8 +1608,7 @@ func TestCancelHTLC(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1819,8 +1715,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(5)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -1977,8 +1872,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 func TestUpdateFeeFail(t *testing.T) {
 	t.Parallel()
 
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2014,8 +1908,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2127,8 +2020,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2266,8 +2158,7 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2296,8 +2187,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2407,8 +2297,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
-	aliceChannel, _, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -2416,9 +2305,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 
 	// First, we'll add 5 HTLCs of 1 BTC each to Alice's commitment.
 	const numHTLCs = 4
-	// We subtract 2e6 so that we are above the ChanReserve value until
-	// the final AddHTLC call.
-	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin - 2e6)
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 	for i := 0; i < numHTLCs; i++ {
 		htlc, _ := createHTLC(i, htlcAmt)
 		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
@@ -2442,34 +2329,23 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 	t.Parallel()
 
 	// We'll kick off the test by creating our channels which both are
-	// loaded with 500BTC each. A high amount was chosen so that we can send
-	// one-sidedly send > 483 1 BTC HTLC's and not worry about the channel
-	// reserve limit being met.
-	aliceChannel, _, cleanUp, err := createTestChannels(1, 1e11,
-		5e10, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e11 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e11 - 1e7),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	// loaded with 5 BTC each.
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
 
 	// One over the maximum number of HTLC's that either can accept.
-	const numHTLCs = MaxHTLCNumber/2 + 1
-	// Each HTLC amount is 1 BTC
-	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	const numHTLCs = 20
+
+	// Set the remote required MaxAcceptedHtlcs.
+	aliceChannel.remoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+
+	// Each HTLC amount is 0.1 BTC
+	htlcAmt := lnwire.NewMSatFromSatoshis(1e7)
 	// Send the maximum allowed number of HTLC's.
-	for i := 0; i < numHTLCs-1; i++ {
+	for i := 0; i < numHTLCs; i++ {
 		htlc, _ := createHTLC(i, htlcAmt)
 		if _, err := aliceChannel.AddHTLC(htlc); err != nil {
 			t.Fatalf("unable to add htlc: %v", err)
@@ -2477,7 +2353,7 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 	}
 
 	// The next HTLC should fail with ErrMaxHTLCNumber
-	htlc, _ := createHTLC(numHTLCs-1, htlcAmt)
+	htlc, _ := createHTLC(numHTLCs, htlcAmt)
 	_, err = aliceChannel.AddHTLC(htlc)
 	if err != ErrMaxHTLCNumber {
 		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
@@ -2492,28 +2368,18 @@ func TestMaxPendingAmount(t *testing.T) {
 
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 1e8),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(4e8),
-			ChanReserve:      btcutil.Amount(1e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
 
-	// Bob's required MaxPendingAmount is 4e8, or 4 BTC. We will attempt to
-	// overflow this value and see if it gives us the ErrMaxPendingAmount
-	// error.
+	// We set the remote required MaxPendingAmount to 4e8, or 4 BTC. We will
+	// attempt to overflow this value and see if it gives us the
+	// ErrMaxPendingAmount error.
+	aliceChannel.remoteChanCfg.MaxPendingAmount = lnwire.NewMSatFromSatoshis(
+		btcutil.SatoshiPerBitcoin * 4,
+	)
 
 	// First, we'll add 3 HTLC's of 1.5 BTC each to Alice's commitment.
 	// This won't trigger Alice's ErrMaxPendingAmount error.
@@ -2546,28 +2412,16 @@ func TestChanReserve(t *testing.T) {
 
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
-	aliceChannel, _, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(200),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 5e7),
-			ChanReserve:      btcutil.Amount(5e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		}, &channeldb.ChannelConstraints{
-			DustLimit:        btcutil.Amount(1300),
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(1e9 - 5e7),
-			ChanReserve:      btcutil.Amount(5e7),
-			MinHTLC:          lnwire.NewMSatFromSatoshis(1e7),
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
-		})
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
 
-	// Alice's ChanReserve is 5e7 or 0.5 BTC. We will attempt to cause her
-	// balance to dip below this amount and test whether it triggers the
-	// ErrBelowChanReserve error.
+	// We set the remote required ChanReserve to 5e7 or 0.5 BTC. We will
+	// attempt to cause Alice's balance to dip below this amount and test
+	// whether it triggers the ErrBelowChanReserve error.
+	aliceChannel.remoteChanCfg.ChanReserve = btcutil.Amount(5e7)
 
 	// First, we'll add 2 HTLC's of 2 BTC each to Alice's commitment.
 	const numHTLCs = 2
@@ -2604,15 +2458,17 @@ func TestMinHTLC(t *testing.T) {
 
 	// We'll kick off the test by creating our channels which both are
 	// loaded with 5 BTC each.
-	aliceChannel, _, cleanUp, err := createTestChannels(1, 1e9,
-		5e8, uint32(5), uint32(4), nil, nil)
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 	defer cleanUp()
 
-	// Alice's MinHTLC is 1e7 or 0.1 BTC. We will attempt to send an HTLC
-	// BELOW this value to trigger the ErrBelowMinHTLC error.
+	// We set Alice's MinHTLC to 1e7 or 0.1 BTC. We will attempt to send an
+	// HTLC BELOW this value to trigger the ErrBelowMinHTLC error.
+	aliceChannel.remoteChanCfg.MinHTLC = lnwire.NewMSatFromSatoshis(
+		btcutil.Amount(1e7),
+	)
 
 	// First, we will add an HTLC of 0.05 BTC or 5e6. This will not trigger
 	// ErrBelowMinHTLC.

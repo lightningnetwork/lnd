@@ -71,16 +71,6 @@ func (o *OnionObfuscator) Obfuscate(initial bool, data []byte) []byte {
 	return onionObfuscation(o.sharedSecret, data)
 }
 
-// Decode initializes the obfuscator from the byte stream.
-func (o *OnionObfuscator) Decode(r io.Reader) error {
-	_, err := r.Read(o.sharedSecret[:])
-	return err
-}
-
-// Encode writes converted obfuscator in the byte stream.
-func (o *OnionObfuscator) Encode(w io.Writer) error {
-	_, err := w.Write(o.sharedSecret[:])
-	return err
 }
 
 // Circuit is used encapsulate the data which is needed for data deobfuscation.
@@ -235,14 +225,4 @@ func (o *OnionDeobfuscator) Deobfuscate(obfuscatedData []byte) (*btcec.PublicKey
 	}
 
 	return sender, msg, nil
-}
-
-// Decode writes converted deobfucator in the byte stream.
-func (o *OnionDeobfuscator) Decode(r io.Reader) error {
-	return o.circuit.Decode(r)
-}
-
-// Encode writes converted deobfucator in the byte stream.
-func (o *OnionDeobfuscator) Encode(w io.Writer) error {
-	return o.circuit.Encode(w)
 }

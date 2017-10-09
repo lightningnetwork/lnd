@@ -31,33 +31,33 @@ func TestOnionFailure(t *testing.T) {
 	sharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
 
 	// Emulate creation of the obfuscator on node where error have occurred.
-	obfuscator := &OnionObfuscator{
+	obfuscator := &OnionErrorEncrypter{
 		sharedSecret: sharedSecrets[len(errorPath)-1],
 	}
 
 	// Emulate the situation when last hop creates the onion failure
 	// message and send it back.
-	obfuscatedData := obfuscator.Obfuscate(true, failureData)
+	obfuscatedData := obfuscator.EncryptError(true, failureData)
 
 	// Emulate that failure message is backward obfuscated on every hop.
 	for i := len(errorPath) - 2; i >= 0; i-- {
 		// Emulate creation of the obfuscator on forwarding node which
 		// propagates the onion failure.
-		obfuscator = &OnionObfuscator{
+		obfuscator = &OnionErrorEncrypter{
 			sharedSecret: sharedSecrets[i],
 		}
-		obfuscatedData = obfuscator.Obfuscate(false, obfuscatedData)
+		obfuscatedData = obfuscator.EncryptError(false, obfuscatedData)
 	}
 
 	// Emulate creation of the deobfuscator on the receiving onion error side.
-	deobfuscator := NewOnionDeobfuscator(&Circuit{
+	deobfuscator := NewOnionErrorDecrypter(&Circuit{
 		SessionKey:  sessionKey,
 		PaymentPath: paymentPath,
 	})
 
 	// Emulate that sender node receive the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	pubKey, deobfuscatedData, err := deobfuscator.Deobfuscate(obfuscatedData)
+	pubKey, deobfuscatedData, err := deobfuscator.DecryptError(obfuscatedData)
 	if err != nil {
 		t.Fatalf("unable to de-obfuscate the onion failure: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestOnionFailureSpecVector(t *testing.T) {
 			t.Fatalf("unable to decode spec shared secret: %v",
 				err)
 		}
-		obfuscator := &OnionObfuscator{
+		obfuscator := &OnionErrorEncrypter{
 			sharedSecret: sharedSecrets[len(sharedSecrets)-1-i],
 		}
 
@@ -210,35 +210,35 @@ func TestOnionFailureSpecVector(t *testing.T) {
 		if i == 0 {
 			// Emulate the situation when last hop creates the onion failure
 			// message and send it back.
-			obfuscatedData = obfuscator.Obfuscate(true, failureData)
+			obfuscatedData = obfuscator.EncryptError(true, failureData)
 		} else {
 			// Emulate the situation when forward node obfuscates
 			// the onion failure.
-			obfuscatedData = obfuscator.Obfuscate(false, obfuscatedData)
+			obfuscatedData = obfuscator.EncryptError(false, obfuscatedData)
 		}
 
 		// Decode the obfuscated data and check that it matches the
 		// specification.
-		expectedObfuscatedData, err := hex.DecodeString(test.obfuscatedData)
+		expectedEncryptErrordData, err := hex.DecodeString(test.obfuscatedData)
 		if err != nil {
 			t.Fatalf("unable to decode spec obfusacted "+
 				"data: %v", err)
 		}
-		if !bytes.Equal(expectedObfuscatedData, obfuscatedData) {
+		if !bytes.Equal(expectedEncryptErrordData, obfuscatedData) {
 			t.Fatalf("obfuscated data not match spec: expected %x, "+
-				"got %x", expectedObfuscatedData[:],
+				"got %x", expectedEncryptErrordData[:],
 				obfuscatedData[:])
 		}
 	}
 
-	deobfuscator := NewOnionDeobfuscator(&Circuit{
+	deobfuscator := NewOnionErrorDecrypter(&Circuit{
 		SessionKey:  sessionKey,
 		PaymentPath: paymentPath,
 	})
 
 	// Emulate that sender node receives the failure message and trying to
 	// unwrap it, by applying obfuscation and checking the hmac.
-	pubKey, deobfuscatedData, err := deobfuscator.Deobfuscate(obfuscatedData)
+	pubKey, deobfuscatedData, err := deobfuscator.DecryptError(obfuscatedData)
 	if err != nil {
 		t.Fatalf("unable to de-obfuscate the onion failure: %v", err)
 	}

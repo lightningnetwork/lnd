@@ -40,10 +40,37 @@ var (
 			Hash: [chainhash.HashSize]byte{
 				0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 				0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
-				0xd, 0xe7, 0x95, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+				0x0d, 0xe7, 0x95, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
 				0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
 			},
 			Index: 23,
+		},
+		{
+			Hash: [chainhash.HashSize]byte{
+				0x1e, 0xb, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
+				0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+				0x0d, 0xe7, 0x95, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+				0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+			},
+			Index: 30,
+		},
+		{
+			Hash: [chainhash.HashSize]byte{
+				0x0d, 0xe7, 0x95, 0xe4, 0xfc, 0xd2, 0xc6, 0xda,
+				0xb7, 0x25, 0xb8, 0x4d, 0x63, 0x59, 0xe6, 0x96,
+				0x31, 0x13, 0xa1, 0x17, 0x81, 0xb6, 0x37, 0xd8,
+				0x1e, 0x0b, 0x4c, 0xfd, 0x9e, 0xc5, 0x8c, 0xe9,
+			},
+			Index: 2,
+		},
+		{
+			Hash: [chainhash.HashSize]byte{
+				0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+				0x51, 0xb6, 0x37, 0xd8, 0x1f, 0x0b, 0x4c, 0xf9,
+				0x9e, 0xc5, 0x8c, 0xe9, 0xfc, 0xd2, 0xc6, 0xda,
+				0x2d, 0xe7, 0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+			},
+			Index: 9,
 		},
 	}
 
@@ -170,50 +197,61 @@ var (
 		{
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(13e7),
-				outpoint:    outPoints[0],
+				outpoint:    outPoints[1],
 				witnessType: lnwallet.CommitmentTimeLock,
 			},
-			originChanPoint:  outPoints[1],
-			blocksToMaturity: uint32(100),
-			confHeight:       uint32(1770001),
+			originChanPoint:  outPoints[0],
+			blocksToMaturity: uint32(42),
+			confHeight:       uint32(1000),
 		},
 
 		{
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(24e7),
-				outpoint:    outPoints[1],
+				outpoint:    outPoints[2],
 				witnessType: lnwallet.CommitmentTimeLock,
 			},
 			originChanPoint:  outPoints[0],
-			blocksToMaturity: uint32(50),
-			confHeight:       uint32(22342321),
+			blocksToMaturity: uint32(42),
+			confHeight:       uint32(1000),
 		},
 
 		{
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(2e5),
-				outpoint:    outPoints[2],
+				outpoint:    outPoints[3],
 				witnessType: lnwallet.CommitmentTimeLock,
 			},
-			originChanPoint:  outPoints[2],
-			blocksToMaturity: uint32(12),
-			confHeight:       uint32(34241),
+			originChanPoint:  outPoints[0],
+			blocksToMaturity: uint32(28),
+			confHeight:       uint32(500),
+		},
+
+		{
+			breachedOutput: breachedOutput{
+				amt:         btcutil.Amount(10e6),
+				outpoint:    outPoints[4],
+				witnessType: lnwallet.CommitmentTimeLock,
+			},
+			originChanPoint:  outPoints[0],
+			blocksToMaturity: uint32(28),
+			confHeight:       uint32(500),
 		},
 	}
 
 	babyOutputs = []babyOutput{
 		{
-			kidOutput: kidOutputs[0],
+			kidOutput: kidOutputs[1],
 			expiry:    3829,
 			timeoutTx: timeoutTx,
 		},
 		{
-			kidOutput: kidOutputs[1],
-			expiry:    85903,
+			kidOutput: kidOutputs[2],
+			expiry:    4,
 			timeoutTx: timeoutTx,
 		},
 		{
-			kidOutput: kidOutputs[2],
+			kidOutput: kidOutputs[3],
 			expiry:    4,
 			timeoutTx: timeoutTx,
 		},
@@ -283,32 +321,18 @@ func init() {
 		}
 		signDescriptors[i].PubKey = pk
 
-		kidOutputs[i].signDesc = signDescriptors[i]
-		babyOutputs[i].kidOutput.signDesc = signDescriptors[i]
-
 	}
-}
-
-func TestDeserializeKidsList(t *testing.T) {
-	var b bytes.Buffer
-	for _, kid := range kidOutputs {
-		if err := kid.Encode(&b); err != nil {
-			t.Fatalf("unable to serialize and add kid output to "+
-				"list: %v", err)
-		}
-	}
-
-	kidList, err := deserializeKidList(&b)
-	if err != nil {
-		t.Fatalf("unable to deserialize kid output list: %v", err)
-	}
-
 	for i := range kidOutputs {
-		if !reflect.DeepEqual(&kidOutputs[i], kidList[i]) {
-			t.Fatalf("kidOutputs don't match \n%+v\n%+v",
-				&kidOutputs[i], kidList[i])
-		}
+		isd := i % len(signDescriptors)
+		kidOutputs[i].signDesc = signDescriptors[isd]
 	}
+
+	for i := range babyOutputs {
+		isd := i % len(signDescriptors)
+		babyOutputs[i].kidOutput.signDesc = signDescriptors[isd]
+	}
+
+	initIncubateTests()
 }
 
 func TestKidOutputSerialization(t *testing.T) {

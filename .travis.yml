@@ -17,8 +17,11 @@ install:
   - popd
   - popd
 env:
-  - RACE=false
-  - RACE=true
+  global:
+    - LOGS=true
+  matrix:
+    - RACE=false
+    - RACE=true
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - ./gotest.sh

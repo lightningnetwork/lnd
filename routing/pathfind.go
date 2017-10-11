@@ -273,6 +273,12 @@ func newVertex(pub *btcec.PublicKey) vertex {
 	return v
 }
 
+// String returns a human readable version of the vertex which is the
+// hex-encoding of the serialized compressed public key.
+func (v vertex) String() string {
+	return fmt.Sprintf("%x", v[:])
+}
+
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {

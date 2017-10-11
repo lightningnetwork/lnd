@@ -1,5 +1,5 @@
-hash: 51c542f20a78b27084dc52c7f6f8234d8ebb8539165700957a565ac866b65b6d
-updated: 2017-10-01T14:43:37.338697057-07:00
+hash: d79221e747ea4741144920dc51b98a772945fa8a840f9967b202512b4839d8a4
+updated: 2017-10-10T21:45:43.954237373-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -40,13 +40,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: a476722483882dd40b8111f0eb64e1d7f43f56e4
+  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
   subpackages:
   - spew
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+  version: 130e6b02ab059e7b717a096f397c5b60111cae74
   subpackages:
   - jsonpb
   - proto
@@ -70,12 +70,12 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: c11a86339f7e53170b0ef38fcf495e172d792e02
+  version: 931d977b023e7543b74599e9d7b8623dbba8507a
   subpackages:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: 1d52214c016402c9cb78d479895afb370597b488
+  version: 306f18b2be610e7f683b57614dbf147673ce8dac
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
@@ -112,7 +112,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 30ed6c8e49c45be04e9a9af0518245f27f2f6686
+  version: fbd5b82e8efe29729e2c7ebed5900a210e931df2
   subpackages:
   - chain
   - internal/helpers
@@ -136,7 +136,7 @@ imports:
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
 - name: golang.org/x/crypto
-  version: 81e90905daefcd6fd217b62423c0908922eadb30
+  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -151,7 +151,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
+  version: a04bdaca5b32abe1c069418fb7088ae607de5bd0
   subpackages:
   - context
   - http2
@@ -161,18 +161,18 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
+  version: ebfc5b4631820b793c9010c87fd8fef0f39eb082
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
+  version: 825fc78a2fd6fa0a5447e300189e3219e05e1f25
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: 1e559d0a00eef8a9a43151db4665280bd8dd5886
+  version: f676e0f3ac6395ff1a529ae59a6670878a8371a6
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status

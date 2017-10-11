@@ -1341,10 +1341,12 @@ func (s *server) addPeer(p *peer) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p)
 
-	// Once the peer has been added to our indexes, send a message to the
-	// channel router so we can synchronize our view of the channel graph
-	// with this new peer.
-	go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+	if p.theirLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
+		// Once the peer has been added to our indexes, send a message to the
+		// channel router so we can synchronize our view of the channel graph
+		// with this new peer.
+		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+	}
 
 	// Check if there are listeners waiting for this peer to come online.
 	for _, con := range s.peerConnectedListeners[pubStr] {

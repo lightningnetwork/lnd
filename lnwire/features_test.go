@@ -3,152 +3,260 @@ package lnwire
 import (
 	"bytes"
 	"reflect"
+	"sort"
 	"testing"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
-// TestFeaturesRemoteRequireError checks that we throw an error if remote peer
-// has required feature which we don't support.
-func TestFeaturesRemoteRequireError(t *testing.T) {
+var testFeatureNames = map[FeatureBit]string{
+	0: "feature1",
+	3: "feature2",
+	4: "feature3",
+	5: "feature3",
+}
+
+func TestFeatureVectorSetUnset(t *testing.T) {
 	t.Parallel()
 
-	const (
-		first  = "first"
-		second = "second"
-	)
+	tests := []struct {
+		bits             []FeatureBit
+		expectedFeatures []bool
+	}{
+		// No features are enabled if no bits are set.
+		{
+			bits:             nil,
+			expectedFeatures: []bool{false, false, false, false, false, false, false, false},
+		},
+		// Test setting an even bit for an even-only bit feature. The
+		// corresponding odd bit should not be seen as set.
+		{
+			bits:             []FeatureBit{0},
+			expectedFeatures: []bool{true, false, false, false, false, false, false, false},
+		},
+		// Test setting an odd bit for an even-only bit feature. The
+		// corresponding even bit should not be seen as set.
+		{
+			bits:             []FeatureBit{1},
+			expectedFeatures: []bool{false, true, false, false, false, false, false, false},
+		},
+		// Test setting an even bit for an odd-only bit feature. The bit should
+		// be seen as set and the odd bit should not.
+		{
+			bits:             []FeatureBit{2},
+			expectedFeatures: []bool{false, false, true, false, false, false, false, false},
+		},
+		// Test setting an odd bit for an odd-only bit feature. The bit should
+		// be seen as set and the even bit should not.
+		{
+			bits:             []FeatureBit{3},
+			expectedFeatures: []bool{false, false, false, true, false, false, false, false},
+		},
+		// Test setting an even bit for even-odd pair feature. Both bits in the
+		// pair should be seen as set.
+		{
+			bits:             []FeatureBit{4},
+			expectedFeatures: []bool{false, false, false, false, true, true, false, false},
+		},
+		// Test setting an odd bit for even-odd pair feature. Both bits in the
+		// pair should be seen as set.
+		{
+			bits:             []FeatureBit{5},
+			expectedFeatures: []bool{false, false, false, false, true, true, false, false},
+		},
+		// Test setting an even bit for an unknown feature. The bit should be
+		// seen as set and the odd bit should not.
+		{
+			bits:             []FeatureBit{6},
+			expectedFeatures: []bool{false, false, false, false, false, false, true, false},
+		},
+		// Test setting an odd bit for an unknown feature. The bit should be
+		// seen as set and the odd bit should not.
+		{
+			bits:             []FeatureBit{7},
+			expectedFeatures: []bool{false, false, false, false, false, false, false, true},
+		},
+	}
 
-	localFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-	})
+	fv := NewFeatureVector(nil, testFeatureNames)
+	for i, test := range tests {
+		for _, bit := range test.bits {
+			fv.Set(bit)
+		}
 
-	remoteFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-		{second, RequiredFlag},
-	})
+		for j, expectedSet := range test.expectedFeatures {
+			if fv.HasFeature(FeatureBit(j)) != expectedSet {
+				t.Errorf("Expection failed in case %d, bit %d", i, j)
+				break
+			}
+		}
 
-	if _, err := localFeatures.Compare(remoteFeatures); err == nil {
-		t.Fatal("error wasn't received")
+		for _, bit := range test.bits {
+			fv.Unset(bit)
+		}
 	}
 }
 
-// TestFeaturesLocalRequireError checks that we throw an error if local peer has
-// required feature which remote peer don't support.
-func TestFeaturesLocalRequireError(t *testing.T) {
+func TestFeatureVectorEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	const (
-		first  = "first"
-		second = "second"
-	)
+	tests := []struct {
+		bits            []FeatureBit
+		expectedEncoded []byte
+	}{
+		{
+			bits:            nil,
+			expectedEncoded: []byte{0x00, 0x00},
+		},
+		{
+			bits:            []FeatureBit{2, 3, 7},
+			expectedEncoded: []byte{0x00, 0x01, 0x8C},
+		},
+		{
+			bits:            []FeatureBit{2, 3, 8},
+			expectedEncoded: []byte{0x00, 0x02, 0x01, 0x0C},
+		},
+	}
 
-	localFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-		{second, RequiredFlag},
-	})
+	for i, test := range tests {
+		fv := NewRawFeatureVector(test.bits...)
 
-	remoteFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-	})
+		// Test that Encode produces the correct serialization.
+		buffer := new(bytes.Buffer)
+		err := fv.Encode(buffer)
+		if err != nil {
+			t.Errorf("Failed to encode feature vector in case %d: %v", i, err)
+			continue
+		}
 
-	if _, err := localFeatures.Compare(remoteFeatures); err == nil {
-		t.Fatal("error wasn't received")
+		encoded := buffer.Bytes()
+		if !bytes.Equal(encoded, test.expectedEncoded) {
+			t.Errorf("Wrong encoding in case %d: got %v, expected %v",
+				i, encoded, test.expectedEncoded)
+			continue
+		}
+
+		// Test that decoding then re-encoding produces the same result.
+		fv2 := NewRawFeatureVector()
+		err = fv2.Decode(bytes.NewReader(encoded))
+		if err != nil {
+			t.Errorf("Failed to decode feature vector in case %d: %v", i, err)
+			continue
+		}
+
+		buffer2 := new(bytes.Buffer)
+		err = fv2.Encode(buffer2)
+		if err != nil {
+			t.Errorf("Failed to re-encode feature vector in case %d: %v",
+				i, err)
+			continue
+		}
+
+		reencoded := buffer2.Bytes()
+		if !bytes.Equal(reencoded, test.expectedEncoded) {
+			t.Errorf("Wrong re-encoding in case %d: got %v, expected %v",
+				i, reencoded, test.expectedEncoded)
+		}
 	}
 }
 
-// TestOptionalFeature checks that if remote peer don't have the feature but
-// on our side this feature is optional than we mark this feature as disabled.
-func TestOptionalFeature(t *testing.T) {
+func TestFeatureVectorUnknownFeatures(t *testing.T) {
 	t.Parallel()
 
-	const first = "first"
-
-	localFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-	})
-
-	remoteFeatures := NewFeatureVector([]Feature{})
-
-	shared, err := localFeatures.Compare(remoteFeatures)
-	if err != nil {
-		t.Fatalf("error while feature vector compare: %v", err)
+	tests := []struct {
+		bits            []FeatureBit
+		expectedUnknown []FeatureBit
+	}{
+		{
+			bits:            nil,
+			expectedUnknown: nil,
+		},
+		// Since bits {0, 3, 4, 5} are known, and only even bits are considered
+		// required (according to the "it's OK to be odd rule"), that leaves
+		// {2, 6} as both unknown and required.
+		{
+			bits:            []FeatureBit{0, 1, 2, 3, 4, 5, 6, 7},
+			expectedUnknown: []FeatureBit{2, 6},
+		},
 	}
 
-	if shared.IsActive(first) {
-		t.Fatal("locally feature was set but remote peer notified us" +
-			" that it don't have it")
-	}
+	for i, test := range tests {
+		rawVector := NewRawFeatureVector(test.bits...)
+		fv := NewFeatureVector(rawVector, testFeatureNames)
 
-	// A feature with a non-existent name shouldn't be active.
-	if shared.IsActive("nothere") {
-		t.Fatal("non-existent feature shouldn't be active")
+		unknown := fv.UnknownRequiredFeatures()
+
+		// Sort to make comparison independent of order
+		sort.Slice(unknown, func(i, j int) bool {
+			return unknown[i] < unknown[j]
+		})
+		if !reflect.DeepEqual(unknown, test.expectedUnknown) {
+			t.Errorf("Wrong unknown features in case %d: got %v, expected %v",
+				i, unknown, test.expectedUnknown)
+		}
 	}
 }
 
-// TestSetRequireAfterInit checks that we can change the feature flag after
-// initialization.
-func TestSetRequireAfterInit(t *testing.T) {
+func TestFeatureNames(t *testing.T) {
 	t.Parallel()
 
-	const first = "first"
-
-	localFeatures := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-	})
-	localFeatures.SetFeatureFlag(first, RequiredFlag)
-	remoteFeatures := NewFeatureVector([]Feature{})
-
-	_, err := localFeatures.Compare(remoteFeatures)
-	if err == nil {
-		t.Fatalf("feature was set as required but error wasn't "+
-			"returned: %v", err)
-	}
-}
-
-// TestDecodeEncodeFeaturesVector checks that feature vector might be
-// successfully encoded and decoded.
-func TestDecodeEncodeFeaturesVector(t *testing.T) {
-	t.Parallel()
-
-	const first = "first"
-
-	f := NewFeatureVector([]Feature{
-		{first, OptionalFlag},
-	})
-
-	var b bytes.Buffer
-	if err := f.Encode(&b); err != nil {
-		t.Fatalf("error while encoding feature vector: %v", err)
-	}
-
-	nf, err := NewFeatureVectorFromReader(&b)
-	if err != nil {
-		t.Fatalf("error while decoding feature vector: %v", err)
-	}
-
-	// Assert equality of the two instances.
-	if !reflect.DeepEqual(f.flags, nf.flags) {
-		t.Fatalf("encode/decode feature vector don't match %v vs "+
-			"%v", spew.Sdump(f), spew.Sdump(nf))
-	}
-}
-
-func TestFeatureFlagString(t *testing.T) {
-	t.Parallel()
-
-	if OptionalFlag.String() != "optional" {
-		t.Fatalf("incorrect string, expected optional got %v",
-			OptionalFlag.String())
+	tests := []struct {
+		bit           FeatureBit
+		expectedName  string
+		expectedKnown bool
+	}{
+		{
+			bit:           0,
+			expectedName:  "feature1(0)",
+			expectedKnown: true,
+		},
+		{
+			bit:           1,
+			expectedName:  "unknown(1)",
+			expectedKnown: false,
+		},
+		{
+			bit:           2,
+			expectedName:  "unknown(2)",
+			expectedKnown: false,
+		},
+		{
+			bit:           3,
+			expectedName:  "feature2(3)",
+			expectedKnown: true,
+		},
+		{
+			bit:           4,
+			expectedName:  "feature3(4)",
+			expectedKnown: true,
+		},
+		{
+			bit:           5,
+			expectedName:  "feature3(5)",
+			expectedKnown: true,
+		},
+		{
+			bit:           6,
+			expectedName:  "unknown(6)",
+			expectedKnown: false,
+		},
+		{
+			bit:           7,
+			expectedName:  "unknown(7)",
+			expectedKnown: false,
+		},
 	}
 
-	if RequiredFlag.String() != "required" {
-		t.Fatalf("incorrect string, expected required got %v",
-			OptionalFlag.String())
-	}
+	fv := NewFeatureVector(nil, testFeatureNames)
+	for _, test := range tests {
+		name := fv.Name(test.bit)
+		if name != test.expectedName {
+			t.Errorf("Name for feature bit %d is incorrect: "+
+				"expected %s, got %s", test.bit, name, test.expectedName)
+		}
 
-	fakeFlag := featureFlag(9)
-	if fakeFlag.String() != "<unknown>" {
-		t.Fatalf("incorrect string, expected <unknown> got %v",
-			fakeFlag.String())
+		known := fv.IsKnown(test.bit)
+		if known != test.expectedKnown {
+			t.Errorf("IsKnown for feature bit %d is incorrect: "+
+				"expected %v, got %v", test.bit, known, test.expectedKnown)
+		}
 	}
 }

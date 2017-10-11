@@ -2,7 +2,6 @@ package lnwire
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/roasbeef/btcutil"
 )
@@ -18,12 +17,6 @@ const mSatScale int64 = 1000
 // blockchain, before settling to broadcasting, the values are rounded down to
 // the nearest satoshi.
 type MilliSatoshi int64
-
-const (
-	// MaxPaymentMSat is the maximum allowed payment permitted currently as
-	// defined in BOLT-0002.
-	MaxPaymentMSat = MilliSatoshi(math.MaxUint32)
-)
 
 // NewMSatFromSatoshis creates a new MilliSatoshi instance from a target amount
 // of satoshis.

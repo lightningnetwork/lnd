@@ -130,7 +130,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	// Execute a query for all possible routes between roasbeef and luo ji.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
-	routes, err := ctx.router.FindRoutes(target, paymentAmt, lnwire.MaxPaymentMSat)
+	routes, err := ctx.router.FindRoutes(target, paymentAmt, nil)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -166,12 +166,12 @@ func TestFindRoutesFeeCutoff(t *testing.T) {
 	target := ctx.aliases["luoji"]
 
 	// There are two possible paths from roasbeef to luo ji, with fees of
-	// 0 and 10 millisatoshis, respectively
+	// 0 and 10 millisatoshis, respectively.
 
 	// First, we check that both paths to luo ji are returned
-	// when maxFee is greater than required by each path
+	// when maxFee is greater than required by each path.
 	maxFee = 15
-	routes, err := ctx.router.FindRoutes(target, paymentAmt, maxFee)
+	routes, err := ctx.router.FindRoutes(target, paymentAmt, &maxFee)
 
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -184,9 +184,9 @@ func TestFindRoutesFeeCutoff(t *testing.T) {
 	}
 
 	// Next, we check that only one path to luo ji is returned
-	// when maxFee is between the fees for each path
+	// when maxFee is between the fees for each path.
 	maxFee = 5
-	routes, err = ctx.router.FindRoutes(target, paymentAmt, maxFee)
+	routes, err = ctx.router.FindRoutes(target, paymentAmt, &maxFee)
 
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -199,9 +199,9 @@ func TestFindRoutesFeeCutoff(t *testing.T) {
 	}
 
 	// To test the case when the route fee equals maxFee,
-	// we check that one path is returned with a maxFee of 0
+	// we check that one path is returned with a maxFee of 0.
 	maxFee = 0
-	routes, err = ctx.router.FindRoutes(target, paymentAmt, maxFee)
+	routes, err = ctx.router.FindRoutes(target, paymentAmt, &maxFee)
 
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -214,11 +214,11 @@ func TestFindRoutesFeeCutoff(t *testing.T) {
 	}
 
 	// Finally, we test the case of a negative maxFee, in which case
-	// we should get an error that no valid routes were found
+	// we should get an error that no valid routes were found.
 	maxFee = -1
-	routes, err = ctx.router.FindRoutes(target, paymentAmt, maxFee)
+	routes, err = ctx.router.FindRoutes(target, paymentAmt, &maxFee)
 
-	// This time there is something wrong if we do find a route
+	// This time there is something wrong if we do find a route.
 	if err == nil {
 		t.Fatalf("0 routes should be selected, instead %v were: %v",
 			len(routes), spew.Sdump(routes))
@@ -246,7 +246,6 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 		Target:      ctx.aliases["luoji"],
 		Amount:      lnwire.NewMSatFromSatoshis(1000),
 		PaymentHash: payHash,
-		MaxFee:      lnwire.MaxPaymentMSat,
 	}
 
 	var preImage [32]byte
@@ -726,7 +725,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We should now be able to find one route to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
-	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt, lnwire.MaxPaymentMSat)
+	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt, nil)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -768,7 +767,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the route, and the info should be
 	// updated.
-	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt, lnwire.MaxPaymentMSat)
+	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt, nil)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}

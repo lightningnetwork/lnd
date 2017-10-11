@@ -958,7 +958,7 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route. Routes with fees greater than maxFee will be abandoned.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, maxFee lnwire.MilliSatoshi) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, maxFee *lnwire.MilliSatoshi) ([]*Route, error) {
 
 	// TODO(roasbeef): make num routes a param
 
@@ -1158,7 +1158,7 @@ type LightningPayment struct {
 	PaymentHash [32]byte
 
 	// MaxFee is the maximum fee the user is willing to pay in fees.
-	MaxFee lnwire.MilliSatoshi
+	MaxFee *lnwire.MilliSatoshi
 
 	// TODO(roasbeef): add e2e message?
 }

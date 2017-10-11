@@ -1033,7 +1033,6 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 		PaymentHash: invoiceResp.RHash,
 		Dest:        net.Bob.PubKey[:],
 		Amt:         paymentAmt,
-		MaxFee:      int64(lnwire.MaxPaymentMSat),
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -1083,7 +1082,6 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	// invoice rather than manually specifying the payment details.
 	if err := sendStream.Send(&lnrpc.SendRequest{
 		PaymentRequest: invoiceResp.PaymentRequest,
-		MaxFee:         int64(lnwire.MaxPaymentMSat),
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -1170,7 +1168,6 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 		PaymentHash: invoiceResp.RHash,
 		Dest:        net.Bob.PubKey[:],
 		Amt:         paymentAmt,
-		MaxFee:      int64(lnwire.MaxPaymentMSat),
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -1346,7 +1343,6 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 			PaymentHash: rHash,
 			Dest:        net.Bob.PubKey[:],
 			Amt:         paymentAmt,
-			MaxFee:      int64(lnwire.MaxPaymentMSat),
 		}
 
 		if err := carolPayStream.Send(sendReq); err != nil {
@@ -1472,13 +1468,21 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 }
 
+// testMaxFee tests that the SendPayment RPC returns no
+// routes with fees greater than the MaxFee cutoff,
+// and returns routes with fees less than the MaxFee cutoff.
 func testMaxFee(net *networkHarness, t *harnessTest) {
 	type testCase struct {
 		maxFee        int64
+		sendAsRatio   bool
 		expectSuccess bool
 		hash          []byte
 	}
+
+	// The path from Carol->Alice->Bob requires 1001 msat in fees,
+	// which corresponds to TotalFees=1.001 satoshis.
 	testCases := []testCase{
+		// Cases to test MaxFeeSatoshis.
 		{
 			// maxFee < 0
 			maxFee:        -1,
@@ -1490,14 +1494,39 @@ func testMaxFee(net *networkHarness, t *harnessTest) {
 			expectSuccess: false,
 		},
 		{
-			// maxFee == TotalFees
-			maxFee:        1001,
-			expectSuccess: true,
+			// maxFee < TotalFees && maxFee != 0
+			maxFee:        1,
+			expectSuccess: false,
 		},
 		{
 			// maxFee > TotalFees
-			maxFee:        2000,
+			maxFee:        2,
 			expectSuccess: true,
+		},
+		// Cases to test MaxFeeRatio.
+		{
+			// maxFee < 0
+			maxFee:        -1,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee < TotalFees
+			maxFee:        0,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee < TotalFees && maxFee != 0
+			maxFee:        1,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee > TotalFees
+			maxFee:        2,
+			expectSuccess: true,
+			sendAsRatio:   true,
 		},
 	}
 	const chanAmt = btcutil.Amount(100000)
@@ -1564,21 +1593,34 @@ func testMaxFee(net *networkHarness, t *harnessTest) {
 		t.Fatalf("carol didn't see the alice->bob channel before timeout: %v", err)
 	}
 
-	// Using Carol as the source, pay to the 5 invoices from Bob created above.
+	// Create payment stream for Carol to use in order to pay Bob.
 	carolPayStream, err := carol.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for carol: %v", err)
 	}
 
-	// Concurrently pay off all 5 of Bob's invoices. Each of the goroutines
-	// will unblock on the recv once the HTLC it sent has been fully
-	// settled.
+	// Pay off each of Bob's invoices, testing that payments succeed when
+	// fee < MaxFee and fail when fee > MaxFee.
 	for _, test := range testCases {
-		sendReq := &lnrpc.SendRequest{
-			PaymentHash: test.hash,
-			Dest:        net.Bob.PubKey[:],
-			Amt:         paymentAmt,
-			MaxFee:      test.maxFee,
+		var sendReq *lnrpc.SendRequest
+		maxFeeRatio := float64(test.maxFee) / float64(paymentAmt)
+		if test.sendAsRatio {
+			// Test MaxFee set as a ratio.
+			sendReq = &lnrpc.SendRequest{
+				PaymentHash: test.hash,
+				Dest:        net.Bob.PubKey[:],
+				Amt:         paymentAmt,
+				MaxFee:      &lnrpc.SendRequest_MaxFeeRatio{MaxFeeRatio: maxFeeRatio},
+			}
+		} else {
+			// Test MaxFee set as a limit in satoshis.
+			sendReq = &lnrpc.SendRequest{
+				PaymentHash: test.hash,
+				Dest:        net.Bob.PubKey[:],
+				Amt:         paymentAmt,
+				MaxFee:      &lnrpc.SendRequest_MaxFeeSatoshis{MaxFeeSatoshis: test.maxFee},
+			}
+
 		}
 
 		if err := carolPayStream.Send(sendReq); err != nil {
@@ -1587,19 +1629,15 @@ func testMaxFee(net *networkHarness, t *harnessTest) {
 
 		if resp, err := carolPayStream.Recv(); err != nil {
 			t.Fatalf("payment stream has been closed: %v", err)
-		} else if resp.PaymentError != "" {
-			// Payment failed. Check if this was expected to succeed.
-			// If so, fail the test.
-			if test.expectSuccess {
+		} else {
+			switch {
+			case resp.PaymentError != "" && test.expectSuccess:
 				t.Fatalf("Payment with maxFee %v failed when it should have succeeded: %v",
 					test.maxFee, resp.PaymentError)
-			}
-		} else {
-			// Payment succeeded. Check if this was expected to fail.
-			// If so, fail the test.
-			if !test.expectSuccess {
+			case resp.PaymentError == "" && !test.expectSuccess:
 				t.Fatalf("Payment with maxFee %v succeeded when it should have failed", test.maxFee)
 			}
+
 		}
 	}
 
@@ -1690,7 +1728,6 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 		PaymentHash: invoiceResp.RHash,
 		Dest:        net.Bob.PubKey[:],
 		Amt:         paymentAmt,
-		MaxFee:      int64(lnwire.MaxPaymentMSat),
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -1981,7 +2018,6 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 				PaymentHash: bobPaymentHashes[i],
 				Dest:        net.Bob.PubKey[:],
 				Amt:         paymentAmt,
-				MaxFee:      int64(lnwire.MaxPaymentMSat),
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
@@ -2254,7 +2290,6 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(
 				PaymentHash: carolPaymentHashes[i],
 				Dest:        carol.PubKey[:],
 				Amt:         paymentAmt,
-				MaxFee:      int64(lnwire.MaxPaymentMSat),
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
@@ -2870,7 +2905,6 @@ out:
 		PaymentHash: bytes.Repeat([]byte("Z"), 32), // Wrong hash.
 		Dest:        carol.PubKey[:],
 		Amt:         payAmt,
-		MaxFee:      int64(lnwire.MaxPaymentMSat),
 	}
 	if err := alicePayStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -2908,7 +2942,6 @@ out:
 		PaymentHash: carolInvoice.RHash,
 		Dest:        carol.PubKey[:],
 		Amt:         1000, // 10k satoshis are expected.
-		MaxFee:      int64(lnwire.MaxPaymentMSat),
 	}
 	if err := alicePayStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -2950,7 +2983,7 @@ out:
 		// We'll send in chunks of the max payment amount. If we're
 		// about to send too much, then we'll only send the amount
 		// remaining.
-		toSend := int64(lnwire.MaxPaymentMSat.ToSatoshis())
+		toSend := int64(maxPaymentMSat.ToSatoshis())
 		if toSend+amtSent > amtToSend {
 			toSend = amtToSend - amtSent
 		}
@@ -2964,7 +2997,6 @@ out:
 		}
 		if err := bobPayStream.Send(&lnrpc.SendRequest{
 			PaymentRequest: carolInvoice2.PaymentRequest,
-			MaxFee:         int64(lnwire.MaxPaymentMSat),
 		}); err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
@@ -2994,7 +3026,6 @@ out:
 	}
 	if err := alicePayStream.Send(&lnrpc.SendRequest{
 		PaymentRequest: carolInvoice3.PaymentRequest,
-		MaxFee:         int64(lnwire.MaxPaymentMSat),
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -3027,7 +3058,6 @@ out:
 	}
 	if err := alicePayStream.Send(&lnrpc.SendRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		MaxFee:         int64(lnwire.MaxPaymentMSat),
 	}); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -3538,7 +3568,6 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 			PaymentHash: bobPaymentHashes[i],
 			Dest:        net.Bob.PubKey[:],
 			Amt:         paymentAmt,
-			MaxFee:      int64(lnwire.MaxPaymentMSat),
 		}
 
 		if err := alicePayStream.Send(sendReq); err != nil {
@@ -3747,14 +3776,12 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 			PaymentHash: bobPaymentHashes[i],
 			Dest:        net.Bob.PubKey[:],
 			Amt:         paymentAmt,
-			MaxFee:      int64(lnwire.MaxPaymentMSat),
 		}
 
 		bobSendReq := &lnrpc.SendRequest{
 			PaymentHash: alicePaymentHashes[i],
 			Dest:        net.Alice.PubKey[:],
 			Amt:         paymentAmt,
-			MaxFee:      int64(lnwire.MaxPaymentMSat),
 		}
 
 		if err := alicePayStream.Send(aliceSendReq); err != nil {

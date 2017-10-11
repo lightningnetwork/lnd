@@ -212,7 +212,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
-	pathEdges []*ChannelHop, currentHeight uint32, maxFee lnwire.MilliSatoshi) (*Route, error) {
+	pathEdges []*ChannelHop, currentHeight uint32, maxFee *lnwire.MilliSatoshi) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -305,7 +305,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 		// After we calculate the total fees in the route, we must check
 		// if we have exceeded the user-specified fee threshold.
 		// If we have, we should abandon this route and return an error.
-		if route.TotalFees > maxFee {
+		if maxFee != nil && route.TotalFees > *maxFee {
 			err := fmt.Sprintf("route fee of %v exceeds threshold of %v",
 				route.TotalFees, maxFee)
 			return nil, newErrf(ErrFeeCutoffExceeded, err)

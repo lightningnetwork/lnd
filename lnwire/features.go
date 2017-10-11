@@ -170,10 +170,14 @@ type FeatureVector struct {
 }
 
 // NewFeatureVector constructs a new FeatureVector from a raw feature vector and
-// mapping of feature definitions.
+// mapping of feature definitions. If the feature vector argument is nil, a new
+// one will be constructed with no enabled features.
 func NewFeatureVector(featureVector *RawFeatureVector,
 	featureNames map[FeatureBit]string) *FeatureVector {
 
+	if featureVector == nil {
+		featureVector = NewRawFeatureVector()
+	}
 	return &FeatureVector{
 		RawFeatureVector: featureVector,
 		featureNames:     featureNames,

@@ -645,6 +645,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			}
 		}
 
+		features := lnwire.NewFeatureVector(msg.Features, lnwire.GlobalFeatures)
 		node := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			LastUpdate:           time.Unix(int64(msg.Timestamp), 0),
@@ -652,7 +653,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			PubKey:               msg.NodeID,
 			Alias:                msg.Alias.String(),
 			AuthSig:              msg.Signature,
-			Features:             msg.Features,
+			Features:             features,
 		}
 
 		if err := d.cfg.Router.AddNode(node); err != nil {
@@ -1176,7 +1177,7 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 			Addresses: node.Addresses,
 			NodeID:    node.PubKey,
 			Alias:     alias,
-			Features:  node.Features,
+			Features:  node.Features.RawFeatureVector,
 		}
 		announceMessages = append(announceMessages, ann)
 
@@ -1256,7 +1257,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 			NodeID2:        info.NodeKey2,
 			ChainHash:      info.ChainHash,
 			BitcoinKey1:    info.BitcoinKey1,
-			Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+			Features:       lnwire.NewRawFeatureVector(),
 			BitcoinKey2:    info.BitcoinKey2,
 		}
 	}

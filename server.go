@@ -115,6 +115,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		}
 	}
 
+	globalFeatures := lnwire.NewRawFeatureVector()
+	localFeatures := lnwire.NewRawFeatureVector(lnwire.InitialRoutingSync)
+
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
 		chanDB: chanDB,
@@ -142,8 +145,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
 
-		globalFeatures: globalFeatures,
-		localFeatures:  localFeatures,
+		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
+			lnwire.GlobalFeatures),
+		localFeatures: lnwire.NewFeatureVector(localFeatures,
+			lnwire.LocalFeatures),
 
 		quit: make(chan struct{}),
 	}
@@ -216,7 +221,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Addresses:            selfAddrs,
 		PubKey:               privKey.PubKey(),
 		Alias:                alias.String(),
-		Features:             globalFeatures,
+		Features:             s.globalFeatures,
 	}
 
 	// If our information has changed since our last boot, then we'll
@@ -229,7 +234,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Addresses: selfNode.Addresses,
 		NodeID:    selfNode.PubKey,
 		Alias:     alias,
-		Features:  selfNode.Features,
+		Features:  selfNode.Features.RawFeatureVector,
 	}
 	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
 		s.identityPriv.PubKey(), nodeAnn,

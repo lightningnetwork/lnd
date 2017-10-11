@@ -29,7 +29,7 @@ type ChannelAnnouncement struct {
 	// by the target node. This field can be used to signal the type of the
 	// channel, or modifications to the fields that would normally follow
 	// this vector.
-	Features *FeatureVector
+	Features *RawFeatureVector
 
 	// ChainHash denotes the target chain that this channel was opened
 	// within. This value should be the genesis hash of the target chain.

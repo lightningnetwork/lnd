@@ -31,7 +31,7 @@ var (
 	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
 		Port: 9000}
 	testAddrs    = []net.Addr{testAddr}
-	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
+	testFeatures = lnwire.NewRawFeatureVector()
 	testSig      = &btcec.Signature{
 		R: new(big.Int),
 		S: new(big.Int),

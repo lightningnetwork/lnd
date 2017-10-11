@@ -9,15 +9,15 @@ import "io"
 type Init struct {
 	// GlobalFeatures is feature vector which affects HTLCs and thus are
 	// also advertised to other nodes.
-	GlobalFeatures *FeatureVector
+	GlobalFeatures *RawFeatureVector
 
 	// LocalFeatures is feature vector which only affect the protocol
 	// between two nodes.
-	LocalFeatures *FeatureVector
+	LocalFeatures *RawFeatureVector
 }
 
 // NewInitMessage creates new instance of init message object.
-func NewInitMessage(gf, lf *FeatureVector) *Init {
+func NewInitMessage(gf *RawFeatureVector, lf *RawFeatureVector) *Init {
 	return &Init{
 		GlobalFeatures: gf,
 		LocalFeatures:  lf,

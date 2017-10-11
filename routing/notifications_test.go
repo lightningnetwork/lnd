@@ -26,7 +26,7 @@ var (
 		Port: 9000}
 	testAddrs = []net.Addr{testAddr}
 
-	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
+	testFeatures = lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures)
 
 	testHash = [32]byte{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,

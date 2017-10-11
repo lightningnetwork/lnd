@@ -123,6 +123,50 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
+
+	// nodeIndex is a map that allows callers to quickly look up if a node
+	// is present in this computed route or not.
+	nodeIndex map[vertex]struct{}
+
+	// chanIndex is an index that allows callers to determine if a channel
+	// is present in this route or not. Channels are identified by the
+	// uint64 version of the short channel ID.
+	chanIndex map[uint64]struct{}
+
+	// nextHop maps a node, to the next channel that it will pass the HTLC
+	// off to. With this map, we can easily look up the next outgoing
+	// channel or node for pruning purposes.
+	nextHopMap map[vertex]*ChannelHop
+}
+
+// nextHopVertex returns the next hop (by vertex) after the target node. If the
+// target node is not found in the route, then false is returned.
+func (r *Route) nextHopVertex(n *btcec.PublicKey) (vertex, bool) {
+	hop, ok := r.nextHopMap[newVertex(n)]
+	return newVertex(hop.Node.PubKey), ok
+}
+
+// nextHopChannel returns the uint64 channel ID of the next hop after the
+// target node. If the target node is not foud in the route, then false is
+// returned.
+func (r *Route) nextHopChannel(n *btcec.PublicKey) (uint64, bool) {
+	hop, ok := r.nextHopMap[newVertex(n)]
+	return hop.ChannelID, ok
+}
+
+// containsNode returns true if a node is present in the target route, and
+// false otherwise.
+func (r *Route) containsNode(v vertex) bool {
+	_, ok := r.nodeIndex[v]
+	return ok
+}
+
+// containsChannel returns true if a channel is present in the target route,
+// and false otherwise. The passed chanID should be the converted uint64 form
+// of lnwire.ShortChannelID.
+func (r *Route) containsChannel(chanID uint64) bool {
+	_, ok := r.chanIndex[chanID]
+	return ok
 }
 
 // ToHopPayloads converts a complete route into the series of per-hop payloads
@@ -176,6 +220,9 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 	route := &Route{
 		Hops:          make([]*Hop, len(pathEdges)),
 		TotalTimeLock: currentHeight,
+		nodeIndex:     make(map[vertex]struct{}),
+		chanIndex:     make(map[uint64]struct{}),
+		nextHopMap:    make(map[vertex]*ChannelHop),
 	}
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
@@ -199,6 +246,20 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 			Fee:          computeFee(runningAmt, edge),
 		}
 		edge.Node.PubKey.Curve = nil
+
+		// Next, we'll update both the node and channel index, to
+		// indicate that this vertex, and outgoing channel link are
+		// present within this route.
+		v := newVertex(edge.Node.PubKey)
+		route.nodeIndex[v] = struct{}{}
+		route.chanIndex[edge.ChannelID] = struct{}{}
+
+		// If this isn't a direct payment, and this isn't the last hop
+		// in the route, then we'll also populate the nextHop map to
+		// allow easy route traversal by callers.
+		if len(pathEdges) > 1 && i != len(pathEdges)-1 {
+			route.nextHopMap[v] = route.Hops[i+1].Channel
+		}
 
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which

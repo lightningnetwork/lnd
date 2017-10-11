@@ -886,6 +886,46 @@ type routingMsg struct {
 	err chan error
 }
 
+// pruneNodeFromRoutes accepts set of routes, and returns a new set of routes
+// with the target node filtered out.
+func pruneNodeFromRoutes(routes []*Route, skipNode vertex) []*Route {
+
+	// TODO(roasbeef): pass in slice index?
+
+	prunedRoutes := make([]*Route, 0, len(routes))
+	for _, route := range routes {
+		if route.containsNode(skipNode) {
+			continue
+		}
+
+		prunedRoutes = append(prunedRoutes, route)
+	}
+
+	log.Tracef("Filtered out %v routes with node %x",
+		len(routes)-len(prunedRoutes), skipNode[:])
+
+	return prunedRoutes
+}
+
+// pruneChannelFromRoutes accepts a set of routes, and returns a new set of
+// routes with the target channel filtered out.
+func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
+
+	prunedRoutes := make([]*Route, 0, len(routes))
+	for _, route := range routes {
+		if route.containsChannel(skipChan) {
+			continue
+		}
+
+		prunedRoutes = append(prunedRoutes, route)
+	}
+
+	log.Tracef("Filtered out %v routes with channel %v",
+		len(routes)-len(prunedRoutes), skipChan)
+
+	return prunedRoutes
+}
+
 // FindRoutes attempts to query the ChannelRouter for the all available paths
 // to a particular target destination which is able to send `amt` after
 // factoring in channel capacities and cumulative fees along each route route.

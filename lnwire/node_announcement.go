@@ -59,7 +59,7 @@ type NodeAnnouncement struct {
 	Signature *btcec.Signature
 
 	// Features is the list of protocol features this node supports.
-	Features *FeatureVector
+	Features *RawFeatureVector
 
 	// Timestamp allows ordering in the case of multiple announcements.
 	Timestamp uint32

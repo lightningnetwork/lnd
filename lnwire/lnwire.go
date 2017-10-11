@@ -215,7 +215,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err := wire.WriteVarBytes(w, 0, e); err != nil {
 			return err
 		}
-	case *FeatureVector:
+	case *RawFeatureVector:
 		if e == nil {
 			return fmt.Errorf("cannot write nil feature vector")
 		}
@@ -435,8 +435,9 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = pubKey
-	case **FeatureVector:
-		f, err := NewFeatureVectorFromReader(r)
+	case **RawFeatureVector:
+		f := NewRawFeatureVector()
+		err = f.Decode(r)
 		if err != nil {
 			return err
 		}

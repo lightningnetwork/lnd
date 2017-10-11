@@ -1738,7 +1738,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// within the blockchain.
 	chanAnn := &lnwire.ChannelAnnouncement{
 		ShortChannelID: shortChanID,
-		Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
 	}
 

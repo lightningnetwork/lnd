@@ -40,7 +40,7 @@ type pendingPayment struct {
 	// deobfuscator is an serializable entity which is used if we received
 	// an error, it deobfuscates the onion failure blob, and extracts the
 	// exact error from it.
-	deobfuscator Deobfuscator
+	deobfuscator ErrorDecrypter
 }
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -170,7 +170,7 @@ func New(cfg Config) *Switch {
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update.
 func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
-	deobfuscator Deobfuscator) ([sha256.Size]byte, error) {
+	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 
 	// Create payment and add to the map of payment in order later to be
 	// able to retrieve it and return response to the user.
@@ -391,7 +391,7 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 
 		// We'll attempt to fully decrypt the onion encrypted error. If
 		// we're unable to then we'll bail early.
-		failure, err := payment.deobfuscator.Deobfuscate(htlc.Reason)
+		failure, err := payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
 			// TODO(roasbeef): can happen in case of local error in
 			// link pkt handling
@@ -442,7 +442,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// than we should notify this link that some error
 			// occurred.
 			failure := lnwire.FailUnknownNextPeer{}
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -482,7 +482,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// channel link than we should notify this
 			// link that some error occurred.
 			failure := lnwire.NewTemporaryChannelFailure(nil)
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -516,7 +516,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			packet.obfuscator,
 		)); err != nil {
 			failure := lnwire.NewTemporaryChannelFailure(nil)
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -558,7 +558,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 		// If this is failure than we need to obfuscate the error.
 		if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
-			htlc.Reason = circuit.Obfuscator.BackwardObfuscate(
+			htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
 				htlc.Reason,
 			)
 		}

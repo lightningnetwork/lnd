@@ -103,7 +103,7 @@ type ChannelLinkConfig struct {
 
 	// DecodeOnionObfuscator function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	DecodeOnionObfuscator func(r io.Reader) (Obfuscator, lnwire.FailCode)
+	DecodeOnionObfuscator func(r io.Reader) (ErrorEncrypter, lnwire.FailCode)
 
 	// GetLastChannelUpdate retrieves the latest routing policy for this
 	// particular channel. This will be used to provide payment senders our
@@ -570,7 +570,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				// Otherwise, we'll send back a proper failure
 				// message.
 				default:
-					reason, err = obfuscator.InitialObfuscate(failure)
+					reason, err = obfuscator.EncryptFirstHop(failure)
 					if err != nil {
 						log.Errorf("unable to obfuscate error: %v", err)
 						return
@@ -1461,8 +1461,9 @@ func (l *channelLink) processLockedInHtlcs(
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
 func (l *channelLink) sendHTLCError(rHash [32]byte, failure lnwire.FailureMessage,
-	obfuscator Obfuscator) {
-	reason, err := obfuscator.InitialObfuscate(failure)
+	e ErrorEncrypter) {
+
+	reason, err := e.EncryptFirstHop(failure)
 	if err != nil {
 		log.Errorf("unable to obfuscate error: %v", err)
 		return

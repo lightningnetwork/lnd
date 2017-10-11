@@ -950,11 +950,13 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
 	validRoutes := make([]*Route, 0, len(shortestPaths))
+	sourceVertex := newVertex(r.selfNode.PubKey)
 	for _, path := range shortestPaths {
 		// Attempt to make the path into a route. We snip off the first
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
-		route, err := newRoute(amt, path[1:], uint32(currentHeight))
+		route, err := newRoute(amt, sourceVertex, path[1:],
+			uint32(currentHeight))
 		if err != nil {
 			continue
 		}

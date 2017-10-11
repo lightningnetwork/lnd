@@ -303,6 +303,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := newVertex(sourceNode.PubKey)
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})
@@ -320,7 +321,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, path, startingHeight)
+	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -416,7 +417,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, path, startingHeight)
+	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}

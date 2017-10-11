@@ -210,8 +210,8 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
-	currentHeight uint32) (*Route, error) {
+func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
+	pathEdges []*ChannelHop, currentHeight uint32) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -227,6 +227,10 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
 	// "dust" payment: over x% of money sending to fees
+
+	// We'll populate the next hop map for the _source_ node with the
+	// information for the first hop so the mapping is sound.
+	route.nextHopMap[sourceVertex] = pathEdges[0]
 
 	// The running amount is the total amount of satoshis required at this
 	// point in the route. We start this value at the amount we want to

@@ -471,11 +471,12 @@ chainScan:
 		}
 		blockHash := header.BlockHash()
 
-		// With the hash computed, we can now fetch the extended filter
+		// With the hash computed, we can now fetch the basic filter
 		// for this height.
-		extFilter, err := n.p2pNode.GetCFilter(blockHash, true)
+		regFilter, err := n.p2pNode.GetCFilter(blockHash,
+			wire.GCSFilterRegular)
 		if err != nil {
-			chainntnfs.Log.Errorf("unable to retrieve extended "+
+			chainntnfs.Log.Errorf("unable to retrieve regular "+
 				"filter for height=%v: %v", scanHeight, err)
 			return false
 		}
@@ -483,14 +484,14 @@ chainScan:
 		// If the block has no transactions other than the coinbase
 		// transaction, then the filter may be nil, so we'll continue
 		// forward int that case.
-		if extFilter == nil {
+		if regFilter == nil {
 			continue
 		}
 
 		// In the case that the filter exists, we'll attempt to see if
 		// any element in it match our target txid.
 		key := builder.DeriveKey(&blockHash)
-		match, err := extFilter.Match(key, targetHash[:])
+		match, err := regFilter.Match(key, targetHash[:])
 		if err != nil {
 			chainntnfs.Log.Errorf("unable to query filter: %v", err)
 			return false

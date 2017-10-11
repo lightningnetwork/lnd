@@ -1213,7 +1213,7 @@ sendLoop:
 
 			fErr, ok := sendError.(*htlcswitch.ForwardingError)
 			if !ok {
-				return preImage, nil, err
+				return preImage, nil, sendError
 			}
 
 			errSource := fErr.ErrorSource

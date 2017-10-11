@@ -59,7 +59,7 @@ type SphinxErrorEncrypter struct {
 // proper MAC over the error.
 //
 // NOTE: Part of the ErrorEncrypter interface.
-func (o *SphinxErrorEncrypter) EncryptFirstHop(failure lnwire.FailureMessage) (lnwire.OpaqueReason, error) {
+func (s *SphinxErrorEncrypter) EncryptFirstHop(failure lnwire.FailureMessage) (lnwire.OpaqueReason, error) {
 	var b bytes.Buffer
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func (o *SphinxErrorEncrypter) EncryptFirstHop(failure lnwire.FailureMessage) (l
 
 	// We pass a true as the first parameter to indicate that a MAC should
 	// be added.
-	return o.EncryptError(true, b.Bytes()), nil
+	return s.EncryptError(true, b.Bytes()), nil
 }
 
 // IntermediateEncrypt wraps an already encrypted opaque reason error in an

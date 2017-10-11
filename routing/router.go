@@ -978,13 +978,23 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return nil, err
 	}
 
+	tx, err := r.cfg.Graph.Database().Begin(false)
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
 	// Now that we know the destination is reachable within the graph,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
-	shortestPaths, err := findPaths(r.cfg.Graph, r.selfNode, target, amt)
+	shortestPaths, err := findPaths(tx, r.cfg.Graph, r.selfNode, target,
+		amt)
 	if err != nil {
+		tx.Rollback()
 		return nil, err
 	}
+
+	tx.Rollback()
 
 	// Now that we have a set of paths, we'll need to turn them into
 	// *routes* by computing the required time-lock and fee information for
@@ -1032,7 +1042,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
 	})
 
-	log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
+	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
 		amt, dest, newLogClosure(func() string {
 			return spew.Sdump(validRoutes)
 		}),

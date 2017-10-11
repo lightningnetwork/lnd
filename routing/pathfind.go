@@ -369,9 +369,19 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // time-lock+fee costs along a particular edge. If a path is found, this
 // function returns a slice of ChannelHop structs which encoded the chosen path
 // from the target to the source.
-func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
-	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
-	ignoredEdges map[uint64]struct{}, amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
+	ignoredNodes map[vertex]struct{}, ignoredEdges map[uint64]struct{},
+	amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+
+	var err error
+	if tx == nil {
+		tx, err = graph.Database().Begin(false)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+	}
 
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
@@ -393,6 +403,9 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	}); err != nil {
 		return nil, err
 	}
+
+	// TODO(roasbeef): also add path caching
+	//  * similar to route caching, but doesn't factor in the amount
 
 	// To start, we add the source of our path finding attempt to the
 	// distance map with with a distance of 0. This indicates our starting
@@ -428,13 +441,13 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
 		pivot := newVertex(bestNode.PubKey)
-		err := bestNode.ForEachChannel(nil, func(tx *bolt.Tx,
+		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
 
 			v := newVertex(outEdge.Node.PubKey)
 
-			// TODO(roasbeef): skip if disabled
+			// TODO(roasbeef): skip if chan disabled
 
 			// If this vertex or edge has been black listed, then
 			// we'll skip exploring this edge during this
@@ -494,6 +507,7 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 				// to further explore down this edge.
 				heap.Push(&nodeHeap, distance[v])
 			}
+
 			return nil
 		})
 		if err != nil {
@@ -555,8 +569,11 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
-	target *btcec.PublicKey, amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
+func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+	source *channeldb.LightningNode, target *btcec.PublicKey,
+	amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
+
+	// TODO(roasbeef): take in db tx
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})
@@ -571,7 +588,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 	// First we'll find a single shortest path from the source (our
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(graph, source, target,
+	startingPath, err := findPath(tx, graph, source, target,
 		ignoredVertexes, ignoredEdges, amt)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -643,7 +660,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 			// the vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
-			spurPath, err := findPath(graph, spurNode, target,
+			spurPath, err := findPath(tx, graph, spurNode, target,
 				ignoredVertexes, ignoredEdges, amt)
 
 			// If we weren't able to find a path, we'll continue to

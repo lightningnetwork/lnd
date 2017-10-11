@@ -71,7 +71,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 931d977b023e7543b74599e9d7b8623dbba8507a
+  version: 01dcf832a5783e57ca6bc8d7f06c3456d2e00d88
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo

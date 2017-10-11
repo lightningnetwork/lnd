@@ -7,7 +7,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// Deobfuscator is an interface that is used to decrypt the onion encrypted
+// ForwardingError wraps an lnwire.FailureMessage in a struct that also
+// includes the source of the error.
+type ForwardingError struct {
+	// ErrorSource is the public key of the node that sent the error. With
+	// this information, the dispatcher of a payment can modify their set
+	// of candidate routes in response to the type of error extracted.
+	ErrorSource *btcec.PublicKey
+
+	lnwire.FailureMessage
+}
 // failure reason an extra out a well formed error.
 type Deobfuscator interface {
 	// Deobfuscate peels off each layer of onion encryption from the first

@@ -550,12 +550,25 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		// The ticker has just woken us up, so we'll need to check if
 		// we need to attempt to connect our to any more peers.
 		case <-sampleTicker.C:
+			// Obtain the current number of peers, so we can gauge
+			// if we need to sample more peers or not.
+			s.mu.Lock()
+			numActivePeers := uint32(len(s.peersByPub))
+			s.mu.Unlock()
+
+			// If we have enough peers, then we can loop back
+			// around to the next round as we're done here.
+			if numActivePeers >= numTargetPeers {
+				continue
+			}
+
 			// If all of our attempts failed during this last back
 			// off period, then will increase our backoff to 5
 			// minute ceiling to avoid an excessive number of
 			// queries
 			//
 			// TODO(roasbeef): add reverse policy too?
+
 			if epochAttempts > 0 &&
 				atomic.LoadUint32(&epochErrors) >= epochAttempts {
 
@@ -574,18 +587,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 			atomic.StoreUint32(&epochErrors, 0)
 			epochAttempts = 0
-
-			// Obtain the current number of peers, so we can gauge
-			// if we need to sample more peers or not.
-			s.mu.Lock()
-			numActivePeers := uint32(len(s.peersByPub))
-			s.mu.Unlock()
-
-			// If we have enough peers, then we can loop back
-			// around to the next round as we're done here.
-			if numActivePeers >= numTargetPeers {
-				continue
-			}
 
 			// Since we know need more peers, we'll compute the
 			// exact number we need to reach our threshold.

@@ -147,15 +147,13 @@ type peer struct {
 
 	server *server
 
-	// localSharedFeatures is a product of comparison of our and their
-	// local features vectors which consist of features which are present
-	// on both sides.
-	localSharedFeatures *lnwire.SharedFeatures
+	// theirLocalFeatures is the local feature vector received from the peer
+	// during the connection handshake.
+	theirLocalFeatures *lnwire.FeatureVector
 
-	// globalSharedFeatures is a product of comparison of our and their
-	// global features vectors which consist of features which are present
-	// on both sides.
-	globalSharedFeatures *lnwire.SharedFeatures
+	// theirGlobalFeatures is the global feature vector received from the peer
+	// during the connection handshake.
+	theirGlobalFeatures *lnwire.FeatureVector
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -189,9 +187,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		localCloseChanReqs:    make(chan *htlcswitch.ChanClose),
 		shutdownChanReqs:      make(chan *lnwire.Shutdown),
 		closingSignedChanReqs: make(chan *lnwire.ClosingSigned),
-
-		localSharedFeatures:  nil,
-		globalSharedFeatures: nil,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -1942,23 +1937,26 @@ func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
 // handleInitMsg handles the incoming init message which contains global and
 // local features vectors. If feature vectors are incompatible then disconnect.
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
-	localSharedFeatures, err := p.server.localFeatures.Compare(msg.LocalFeatures)
-	if err != nil {
-		err := errors.Errorf("can't compare remote and local feature "+
-			"vectors: %v", err)
-		peerLog.Error(err)
-		return err
-	}
-	p.localSharedFeatures = localSharedFeatures
+	p.theirLocalFeatures = lnwire.NewFeatureVector(msg.LocalFeatures,
+		lnwire.LocalFeatures)
+	p.theirGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
+		lnwire.GlobalFeatures)
 
-	globalSharedFeatures, err := p.server.globalFeatures.Compare(msg.GlobalFeatures)
-	if err != nil {
-		err := errors.Errorf("can't compare remote and global feature "+
-			"vectors: %v", err)
+	unknownLocalFeatures := p.theirLocalFeatures.UnknownRequiredFeatures()
+	if len(unknownLocalFeatures) > 0 {
+		err := errors.Errorf("Peer set unknown local feature bits: %v",
+			unknownLocalFeatures)
 		peerLog.Error(err)
 		return err
 	}
-	p.globalSharedFeatures = globalSharedFeatures
+
+	unknownGlobalFeatures := p.theirGlobalFeatures.UnknownRequiredFeatures()
+	if len(unknownGlobalFeatures) > 0 {
+		err := errors.Errorf("Peer set unknown global feature bits: %v",
+			unknownGlobalFeatures)
+		peerLog.Error(err)
+		return err
+	}
 
 	return nil
 }
@@ -1967,8 +1965,8 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 // supported local and global features.
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
-		p.server.globalFeatures,
-		p.server.localFeatures,
+		p.server.globalFeatures.RawFeatureVector,
+		p.server.localFeatures.RawFeatureVector,
 	)
 
 	return p.writeMessage(msg)

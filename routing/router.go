@@ -11,6 +11,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -202,7 +203,8 @@ type ChannelRouter struct {
 	wg   sync.WaitGroup
 }
 
-// A compile time check to ensure ChannelRouter implements the ChannelGraphSource interface.
+// A compile time check to ensure ChannelRouter implements the
+// ChannelGraphSource interface.
 var _ ChannelGraphSource = (*ChannelRouter)(nil)
 
 // New creates a new instance of the ChannelRouter with the specified
@@ -845,7 +847,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 // fetchChanPoint retrieves the original outpoint which is encoded within the
 // channelID.
 //
-// TODO(roasbeef): replace iwth call to GetBlockTransaction? (woudl allow to
+// TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
 // later use getblocktxn)
 func (r *ChannelRouter) fetchChanPoint(chanID *lnwire.ShortChannelID) (*wire.OutPoint, error) {
 	// First fetch the block hash by the block number encoded, then use
@@ -1030,7 +1032,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
 	})
 
-	log.Debugf("Obtained %v paths sending %v to %x: %v", len(validRoutes),
+	log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
 		amt, dest, newLogClosure(func() string {
 			return spew.Sdump(validRoutes)
 		}),
@@ -1157,7 +1159,9 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	// target payment using the multi-hop route. We'll try each route
 	// serially until either once succeeds, or we've exhausted our set of
 	// available paths.
-	for _, route := range routes {
+sendLoop:
+	for i := 0; i < len(routes); i++ {
+		route := routes[i]
 		log.Tracef("Attempting to send payment %x, using route: %v",
 			payment.PaymentHash, newLogClosure(func() string {
 				return spew.Sdump(route)
@@ -1197,7 +1201,14 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 			log.Errorf("Attempt to send payment %x failed: %v",
 				payment.PaymentHash, sendError)
 
-			switch onionErr := sendError.(type) {
+			fErr, ok := sendError.(*htlcswitch.ForwardingError)
+			if !ok {
+				return preImage, nil, err
+			}
+
+			errSource := fErr.ErrorSource
+
+			switch onionErr := fErr.FailureMessage.(type) {
 			// If the end destination didn't know they payment
 			// hash, then we'll terminate immediately.
 			case *lnwire.FailUnknownPaymentHash:
@@ -1282,12 +1293,31 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				}
 				continue
 			case *lnwire.FailTemporaryChannelFailure:
-				// TODO(roasbeef): remove channel from timeout period
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(update); err != nil {
 					return preImage, nil, err
 				}
-				continue
+
+				// As this error indicates that the target
+				// channel was unable to carry this HTLC (for
+				// w/e reason), we'll query the index to find
+				// the _outgoign_ channel the source of the
+				// error was meant to pass the HTLC along to.
+				badChan, ok := route.nextHopChannel(errSource)
+				if !ok {
+					continue
+				}
+
+				// If the channel was found, then we'll filter
+				// the rest of the routes to exclude any path
+				// that includes this channel, and restart the
+				// loop.
+				//
+				// TODO(roasbeef): should actually be
+				// directional?
+				routes = pruneChannelFromRoutes(routes,
+					badChan)
+				goto sendLoop
 
 			// If the send fail due to a node not having the
 			// required features, then we'll note this error and
@@ -1305,12 +1335,24 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				continue
 
 			// If the next hop in the route wasn't known or
-			// offline, we'll note this and continue with the rest
-			// of the routes.
-			//
-			// TODO(roasbeef): remove unknown vertex
+			// offline, we'll prune the _next_ hop from the set of
+			// routes and retry.
 			case *lnwire.FailUnknownNextPeer:
-				continue
+				// This failure indicates that the node _after_
+				// the source of the error was not found. As a
+				// result, we'll locate the vertex for that
+				// node itself.
+				missingNode, ok := route.nextHopVertex(errSource)
+				if !ok {
+					continue
+				}
+
+				// Once we've located the vertex, we'll prune
+				// it out fromthe rest of the routes, and
+				// restart path finding.
+				routes = pruneNodeFromRoutes(routes,
+					missingNode)
+				goto sendLoop
 
 			// If the node wasn't able to forward for which ever
 			// reason, then we'll note this and continue with the
@@ -1393,8 +1435,8 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode) error {
 }
 
 // AddEdge is used to add edge/channel to the topology of the router, after all
-// information about channel will be gathered this
-// edge/channel might be used in construction of payment path.
+// information about channel will be gathered this edge/channel might be used
+// in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo) error {

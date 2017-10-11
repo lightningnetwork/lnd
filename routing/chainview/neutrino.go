@@ -236,7 +236,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// Next, using the block, hash, we'll fetch the compact filter for this
 	// block. We only require the regular filter as we're just looking for
 	// outpoint that have been spent.
-	filter, err := c.p2pNode.GetCFilter(*blockHash, false)
+	filter, err := c.p2pNode.GetCFilter(*blockHash, wire.GCSFilterRegular)
 	if err != nil {
 		return nil, err
 	}

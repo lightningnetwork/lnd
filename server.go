@@ -255,10 +255,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			circuit *sphinx.Circuit) ([32]byte, error) {
 
 			// Using the created circuit, initialize the error
-			// decryptor so we can parse+decode any failures
+			// decrypter so we can parse+decode any failures
 			// incurred by this payment within the switch.
-			errorDecryptor := &htlcswitch.FailureDeobfuscator{
-				OnionDeobfuscator: sphinx.NewOnionDeobfuscator(circuit),
+			errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+				OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
 			}
 
 			var firstHopPub [33]byte

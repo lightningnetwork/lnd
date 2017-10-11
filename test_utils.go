@@ -252,9 +252,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		shutdownChanReqs:      make(chan *lnwire.Shutdown),
 		closingSignedChanReqs: make(chan *lnwire.ClosingSigned),
 
-		localSharedFeatures:  nil,
-		globalSharedFeatures: nil,
-
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
 	}

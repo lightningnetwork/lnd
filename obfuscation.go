@@ -182,7 +182,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 		// secret to continue decryption attempts to fill out the rest
 		// of the loop. Otherwise, we'll use the next shared secret in
 		// line.
-		if sender != nil {
+		if sender != nil || i > len(sharedSecrets)-1 {
 			sharedSecret = dummySecret
 		} else {
 			sharedSecret = sharedSecrets[i]

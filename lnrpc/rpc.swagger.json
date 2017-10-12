@@ -178,6 +178,33 @@
         ]
       }
     },
+    "/v1/createwallet": {
+      "post": {
+        "summary": "* lncli: `create`\nCreateWallet is used at lnd startup to set the encryption password for\nthe wallet database.",
+        "operationId": "CreateWallet",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcCreateWalletResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcCreateWalletRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
     "/v1/fees": {
       "get": {
         "summary": "* lncli: `feereport`\nFeeReport allows the caller to obtain a report detailing the current fee\nschedule enforced by the node globally for each channel.",
@@ -639,6 +666,33 @@
           "Lightning"
         ]
       }
+    },
+    "/v1/unlockwallet": {
+      "post": {
+        "summary": "* lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
+        "operationId": "UnlockWallet",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcUnlockWalletResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcUnlockWalletRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
     }
   },
   "definitions": {
@@ -1062,6 +1116,18 @@
           "title": "/ The id of the newly connected peer"
         }
       }
+    },
+    "lnrpcCreateWalletRequest": {
+      "type": "object",
+      "properties": {
+        "password": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcCreateWalletResponse": {
+      "type": "object"
     },
     "lnrpcDebugLevelResponse": {
       "type": "object",
@@ -1884,6 +1950,18 @@
           "description": "/ The list of transactions relevant to the wallet."
         }
       }
+    },
+    "lnrpcUnlockWalletRequest": {
+      "type": "object",
+      "properties": {
+        "password": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "lnrpcUnlockWalletResponse": {
+      "type": "object"
     },
     "lnrpcVerifyMessageResponse": {
       "type": "object",

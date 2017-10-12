@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -56,6 +57,33 @@ var (
 
 	// Max serial number.
 	serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
+
+	/*
+	 * These cipher suites fit the following criteria:
+	 * - Don't use outdated algorithms like SHA-1 and 3DES
+	 * - Don't use ECB mode or other insecure symmetric methods
+	 * - Included in the TLS v1.2 suite
+	 * - Are available in the Go 1.7.6 standard library (more are
+	 *   available in 1.8.3 and will be added after lnd no longer
+	 *   supports 1.7, including suites that support CBC mode)
+	 *
+	 * The cipher suites are ordered from strongest to weakest
+	 * primitives, but the client's preference order has more
+	 * effect during negotiation.
+	**/
+	tlsCipherSuites = []uint16{
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+		tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+	}
 )
 
 // lndMain is the true entry point for lnd. This function is required since
@@ -132,10 +160,50 @@ func lndMain() error {
 		}
 	}
 
+	// Ensure we create TLS key and certificate if they don't exist
+	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
+		if err := genCertPair(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil {
+			return err
+		}
+	}
+
+	cert, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
+	if err != nil {
+		return err
+	}
+	tlsConf := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		CipherSuites: tlsCipherSuites,
+		MinVersion:   tls.VersionTLS12,
+	}
+	sCreds := credentials.NewTLS(tlsConf)
+	serverOpts := []grpc.ServerOption{grpc.Creds(sCreds)}
+	grpcEndpoint := fmt.Sprintf("localhost:%d", loadedConfig.RPCPort)
+	restEndpoint := fmt.Sprintf(":%d", loadedConfig.RESTPort)
+	cCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath,
+		"")
+	if err != nil {
+		return err
+	}
+	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
+
+	// We wait until the user provides a password over RPC. In case lnd is
+	// started with the --noencryptwallet flag, we use the default password
+	// "hello" for wallet encryption.
+	walletPw := []byte("hello")
+	if !cfg.NoEncryptWallet {
+		walletPw, err = waitForWalletPassword(grpcEndpoint, restEndpoint,
+			serverOpts, proxyOpts, tlsConf, macaroonService)
+		if err != nil {
+			return err
+		}
+	}
+
 	// With the information parsed from the configuration, create valid
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
-	activeChainControl, chainCleanUp, err := newChainControlFromConfig(cfg, chanDB)
+	activeChainControl, chainCleanUp, err := newChainControlFromConfig(cfg,
+		chanDB, walletPw)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
 		return err
@@ -243,60 +311,17 @@ func lndMain() error {
 	}
 	server.fundingMgr = fundingMgr
 
-	// Ensure we create TLS key and certificate if they don't exist
-	if !fileExists(cfg.TLSCertPath) && !fileExists(cfg.TLSKeyPath) {
-		if err := genCertPair(cfg.TLSCertPath, cfg.TLSKeyPath); err != nil {
-			return err
-		}
-	}
-
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
 	rpcServer := newRPCServer(server, macaroonService)
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
-	cert, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
-	if err != nil {
-		return err
-	}
-	tlsConf := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		/*
-		 * These cipher suites fit the following criteria:
-		 * - Don't use outdated algorithms like SHA-1 and 3DES
-		 * - Don't use ECB mode or other insecure symmetric methods
-		 * - Included in the TLS v1.2 suite
-		 * - Are available in the Go 1.7.6 standard library (more are
-		 *   available in 1.8.3 and will be added after lnd no longer
-		 *   supports 1.7, including suites that support CBC mode)
-		 *
-		 * The cipher suites are ordered from strongest to weakest
-		 * primitives, but the client's preference order has more
-		 * effect during negotiation.
-		**/
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
-			tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-		},
-		MinVersion: tls.VersionTLS12,
-	}
-	sCreds := credentials.NewTLS(tlsConf)
-	opts := []grpc.ServerOption{grpc.Creds(sCreds)}
-	grpcServer := grpc.NewServer(opts...)
+
+	grpcServer := grpc.NewServer(serverOpts...)
 	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
 
 	// Next, Start the gRPC server listening for HTTP/2 connections.
-	grpcEndpoint := fmt.Sprintf("localhost:%d", loadedConfig.RPCPort)
 	lis, err := net.Listen("tcp", grpcEndpoint)
 	if err != nil {
 		fmt.Printf("failed to listen: %v", err)
@@ -307,24 +332,18 @@ func lndMain() error {
 		rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 		grpcServer.Serve(lis)
 	}()
-	cCreds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
-	if err != nil {
-		return err
-	}
 	// Finally, start the REST proxy for our gRPC server above.
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	mux := proxy.NewServeMux()
-	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 	err = lnrpc.RegisterLightningHandlerFromEndpoint(ctx, mux, grpcEndpoint,
 		proxyOpts)
 	if err != nil {
 		return err
 	}
 	go func() {
-		restEndpoint := fmt.Sprintf(":%d", loadedConfig.RESTPort)
 		listener, err := tls.Listen("tcp", restEndpoint, tlsConf)
 		if err != nil {
 			ltndLog.Errorf("gRPC proxy unable to listen on "+
@@ -597,4 +616,100 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 	}
 
 	return nil
+}
+
+// waitForWalletPassword will spin up gRPC and REST endpoints for the
+// WalletUnlocker server, and block until a password is provided by
+// the user to this RPC server.
+func waitForWalletPassword(grpcEndpoint, restEndpoint string,
+	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
+	tlsConf *tls.Config, macaroonService *bakery.Service) ([]byte, error) {
+	// Set up a new PasswordService, which will listen
+	// for passwords provided over RPC.
+	grpcServer := grpc.NewServer(serverOpts...)
+
+	chainConfig := cfg.Bitcoin
+	if registeredChains.PrimaryChain() == litecoinChain {
+		chainConfig = cfg.Litecoin
+	}
+	pwService := walletunlocker.New(macaroonService,
+		chainConfig.ChainDir, activeNetParams.Params)
+	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
+
+	// Start a gRPC server listening for HTTP/2 connections, solely
+	// used for getting the encryption password from the client.
+	lis, err := net.Listen("tcp", grpcEndpoint)
+	if err != nil {
+		fmt.Printf("failed to listen: %v", err)
+		return nil, err
+	}
+	defer lis.Close()
+
+	// Use a two channels to synchronize on, so we can be sure the
+	// instructions on how to input the password is the last
+	// thing to be printed to the console.
+	grpcServing := make(chan struct{})
+	restServing := make(chan struct{})
+
+	go func(c chan struct{}) {
+		rpcsLog.Infof("password RPC server listening on %s",
+			lis.Addr())
+		close(c)
+		grpcServer.Serve(lis)
+	}(grpcServing)
+
+	// Start a REST proxy for our gRPC server above.
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	mux := proxy.NewServeMux()
+	err = lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(ctx, mux,
+		grpcEndpoint, proxyOpts)
+	if err != nil {
+		return nil, err
+	}
+	srv := &http.Server{Handler: mux}
+	defer func() {
+		// We must shut down this server, since we'll let
+		// the regular rpcServer listen on the same address.
+		if err := srv.Shutdown(ctx); err != nil {
+			ltndLog.Errorf("unable to shutdown gPRC proxy: %v", err)
+		}
+	}()
+
+	go func(c chan struct{}) {
+		listener, err := tls.Listen("tcp", restEndpoint,
+			tlsConf)
+		if err != nil {
+			ltndLog.Errorf("gRPC proxy unable to listen "+
+				"on localhost%s", restEndpoint)
+			return
+		}
+		rpcsLog.Infof("password gRPC proxy started at "+
+			"localhost%s", restEndpoint)
+		close(c)
+		srv.Serve(listener)
+	}(restServing)
+
+	// Wait for gRPC and REST server to be up running.
+	<-grpcServing
+	<-restServing
+
+	// Wait for user to provide the password.
+	ltndLog.Infof("Waiting for wallet encryption password. " +
+		"Use `lncli create` to create wallet, or " +
+		"`lncli unlock` to unlock already created wallet.")
+
+	// We currently don't distinguish between getting a password to
+	// be used for creation or unlocking, as a new wallet db will be
+	// created if none exists when creating the chain control.
+	select {
+	case walletPw := <-pwService.CreatePasswords:
+		return walletPw, nil
+	case walletPw := <-pwService.UnlockPasswords:
+		return walletPw, nil
+	case <-shutdownChannel:
+		return nil, fmt.Errorf("shutting down")
+	}
 }

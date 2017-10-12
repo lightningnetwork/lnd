@@ -4,17 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"sync"
+
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"math"
-	"sync"
 )
 
 const (
 	// defaultDbDirectory is the default directory where our decayed log
-	// will store our (sharedHash, CLTV expiry height) key-value pairs.
-	defaultDbDirectory = "sharedsecret"
+	// will store our (sharedHash, CLTV) key-value pairs.
+	defaultDbDirectory = "sharedhashes"
 
 	// sharedHashSize is the size in bytes of the keys we will be storing
 	// in the DecayedLog. It represents the first 20 bytes of a truncated
@@ -26,9 +27,9 @@ const (
 )
 
 var (
-	// sharedHashBucket is a bucket which houses all the first sharedHashSize
-	// bytes of a received HTLC's hashed shared secret and the HTLC's
-	// expiry block height.
+	// sharedHashBucket is a bucket which houses the first sharedHashSize
+	// bytes of a received HTLC's hashed shared secret as the key and the HTLC's
+	// CLTV expiry as the value.
 	sharedHashBucket = []byte("shared-hash")
 )
 
@@ -36,8 +37,8 @@ var (
 // sharedHashSize bytes of a sha256-hashed shared secret along with a node's
 // CLTV value. It is a decaying log meaning there will be a garbage collector
 // to collect entries which are expired according to their stored CLTV value
-// and the current block height. DecayedLog wraps channeldb for simplicity, but
-// must batch writes to the database to decrease write contention.
+// and the current block height. DecayedLog wraps channeldb for simplicity and
+// batches writes to the database to decrease write contention.
 type DecayedLog struct {
 	db       *channeldb.DB
 	wg       sync.WaitGroup
@@ -60,15 +61,13 @@ func (d *DecayedLog) garbageCollector() error {
 outer:
 	for {
 		select {
-		case _, ok := <-epochClient.Epochs:
+		case epoch, ok := <-epochClient.Epochs:
 			if !ok {
 				return fmt.Errorf("Epoch client shutting " +
 					"down")
 			}
 
-			var expiredCltv [][]byte
-			validCltv := make(map[string]uint32)
-			err := d.db.View(func(tx *bolt.Tx) error {
+			err := d.db.Batch(func(tx *bolt.Tx) error {
 				// Grab the shared hash bucket
 				sharedHashes := tx.Bucket(sharedHashBucket)
 				if sharedHashes == nil {
@@ -77,15 +76,53 @@ outer:
 				}
 
 				sharedHashes.ForEach(func(k, v []byte) error {
-					cltv := uint32(binary.BigEndian.Uint32(v))
+					// The CLTV value in question.
+					cltv := uint32(binary.BigEndian.Uint32(v[:4]))
+					// The last recorded block height that
+					// the garbage collector received.
+					lastHeight := uint32(binary.BigEndian.Uint32(v[4:8]))
+
 					if cltv == 0 {
-						// Store expired hash in array
-						expiredCltv = append(expiredCltv, k)
+						// This CLTV just expired. We
+						// must delete it from the db.
+						err := sharedHashes.Delete(k)
+						if err != nil {
+							return err
+						}
+					} else if lastHeight != 0 && uint32(epoch.Height) - lastHeight > cltv {
+						// This CLTV just expired or
+						// expired in the past but the
+						// garbage collector was not
+						// running and therefore could
+						// not handle it. We delete it
+						// from the db now.
+						err := sharedHashes.Delete(k)
+						if err != nil {
+							return err
+						}
 					} else {
+						// The CLTV is still valid. We
+						// decrement the CLTV value and
+						// store the new CLTV value along
+						// with the current block height.
+						var scratch [8]byte
+
+						// Store decremented CLTV in
+						// scratch[:4]
 						cltv--
-						// Store valid <hash, cltv> in map
-						validCltv[string(k)] = cltv
+						binary.BigEndian.PutUint32(scratch[:4], cltv)
+
+						// Store current blockheight in
+						// scratch[4:8]
+						binary.BigEndian.PutUint32(scratch[4:8], uint32(epoch.Height))
+
+						// Store <hash, CLTV + blockheight>
+						err := sharedHashes.Put(k, scratch[:])
+						if err != nil {
+							return err
+						}
 					}
+
 					return nil
 				})
 
@@ -94,24 +131,6 @@ outer:
 			if err != nil {
 				return fmt.Errorf("Error viewing channeldb: "+
 					"%v", err)
-			}
-
-			// Delete every item in array
-			for _, hash := range expiredCltv {
-				err = d.Delete(hash)
-				if err != nil {
-					return fmt.Errorf("Unable to delete "+
-						"expired secret: %v", err)
-				}
-			}
-
-			// Update decremented CLTV's via validCltv
-			for hash, cltv := range validCltv {
-				err = d.Put([]byte(hash), cltv)
-				if err != nil {
-					return fmt.Errorf("Unable to decrement "+
-						"cltv value: %v", err)
-				}
 			}
 
 		case <-d.quit:
@@ -140,10 +159,10 @@ func HashSharedSecret(sharedSecret [sharedSecretSize]byte) [sharedHashSize]byte 
 	return sharedHash
 }
 
-// Delete removes a <shared secret hash, CLTV value> key-pair from the
+// Delete removes a <shared secret hash, CLTV> key-pair from the
 // sharedHashBucket.
 func (d *DecayedLog) Delete(hash []byte) error {
-	return d.db.Update(func(tx *bolt.Tx) error {
+	return d.db.Batch(func(tx *bolt.Tx) error {
 		sharedHashes, err := tx.CreateBucketIfNotExists(sharedHashBucket)
 		if err != nil {
 			return fmt.Errorf("Unable to created sharedHashes bucket:"+
@@ -154,29 +173,30 @@ func (d *DecayedLog) Delete(hash []byte) error {
 	})
 }
 
-// Get retrieves the CLTV value of a processed HTLC given the first 20 bytes
-// of the Sha-256 hash of the shared secret used during sphinx processing.
+// Get retrieves the CLTV of a processed HTLC given the first 20 bytes of the
+// Sha-256 hash of the shared secret.
 func (d *DecayedLog) Get(hash []byte) (uint32, error) {
 	// math.MaxUint32 is returned when Get did not retrieve a value.
+	// This was chosen because it's not feasible for a CLTV to be this high.
 	var value uint32 = math.MaxUint32
 
 	err := d.db.View(func(tx *bolt.Tx) error {
 		// Grab the shared hash bucket which stores the mapping from
-		// truncated sha-256 hashes of shared secrets to CLTV values.
+		// truncated sha-256 hashes of shared secrets to CLTV's.
 		sharedHashes := tx.Bucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return fmt.Errorf("sharedHashes is nil, could " +
 				"not retrieve CLTV value")
 		}
 
-		// If the sharedHash is found, we use it to find the associated
-		// CLTV in the sharedHashBucket.
+		// Retrieve the bytes which represents the CLTV + blockheight.
 		valueBytes := sharedHashes.Get(hash)
 		if valueBytes == nil {
 			return nil
 		}
 
-		value = uint32(binary.BigEndian.Uint32(valueBytes))
+		// The first 4 bytes represent the CLTV, store it in value.
+		value = uint32(binary.BigEndian.Uint32(valueBytes[:4]))
 
 		return nil
 	})
@@ -187,14 +207,14 @@ func (d *DecayedLog) Get(hash []byte) (uint32, error) {
 	return value, nil
 }
 
-// Put stores a shared secret hash as the key and a slice consisting of the
-// current blockheight and the outgoing CLTV value
-func (d *DecayedLog) Put(hash []byte, value uint32) error {
-
-	var scratch [4]byte
+// Put stores a shared secret hash as the key and the CLTV as the value.
+func (d *DecayedLog) Put(hash []byte, cltv uint32) error {
+	// The CLTV will be stored into scratch and then stored into the
+	// sharedHashBucket.
+	var scratch [8]byte
 
 	// Store value into scratch
-	binary.BigEndian.PutUint32(scratch[:], value)
+	binary.BigEndian.PutUint32(scratch[:4], cltv)
 
 	return d.db.Batch(func(tx *bolt.Tx) error {
 		sharedHashes, err := tx.CreateBucketIfNotExists(sharedHashBucket)
@@ -236,7 +256,7 @@ func (d *DecayedLog) Start(dbDir string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("Could not create sharedHashes")
+		return err
 	}
 
 	// Start garbage collector.

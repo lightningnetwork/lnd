@@ -78,11 +78,11 @@ outer:
 
 				sharedHashes.ForEach(func(k, v []byte) error {
 					cltv := uint32(binary.BigEndian.Uint32(v))
-					cltv--
 					if cltv == 0 {
 						// Store expired hash in array
 						expiredCltv = append(expiredCltv, k)
 					} else {
+						cltv--
 						// Store valid <hash, cltv> in map
 						validCltv[string(k)] = cltv
 					}

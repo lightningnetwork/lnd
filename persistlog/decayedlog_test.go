@@ -6,6 +6,8 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
+	"math"
+	"os"
 	"testing"
 	"time"
 )
@@ -61,12 +63,19 @@ func generateSharedSecret(pub *btcec.PublicKey, priv *btcec.PrivateKey) [32]byte
 	return sha256.Sum256(s.SerializeCompressed())
 }
 
+// shutdown stops the DecayedLog and deletes the folder enclosing the
+// temporary channel database.
+func shutdown(d *DecayedLog) {
+	os.RemoveAll("tempdir")
+	d.Stop()
+}
+
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector
 // to delete expired cltv values every time a block is received. Expired cltv
 // values are cltv values that are <= current block height.
 func TestDecayedLogGarbageCollector(t *testing.T) {
-	// Random (EXPIRED) cltv value
-	cltv := uint32(200390)
+	// Random (TO-BE-EXPIRED) cltv value
+	cltv := uint32(2)
 
 	// Create the MockNotifier which triggers the garbage collector
 	MockNotifier := &mockNotifier{
@@ -77,11 +86,11 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	d := DecayedLog{Notifier: MockNotifier}
 
 	// Open the channeldb (start the garbage collector)
-	err := d.Start()
+	err := d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
-	defer d.Stop()
+	defer shutdown(&d)
 
 	// Create a new private key on elliptic curve secp256k1
 	priv, err := btcec.NewPrivateKey(btcec.S256())
@@ -110,7 +119,10 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	// should remove the entry we just added to sharedHashBucket as it is
 	// now expired.
 	MockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: int32(cltv + 1),
+		Height: int32(101),
+	}
+	MockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height: int32(102),
 	}
 
 	// Wait for database write (GC is in a goroutine)
@@ -122,7 +134,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 		t.Fatalf("Delete failed - received an error upon Get")
 	}
 
-	if val != 0 {
+	if val != math.MaxUint32 {
 		t.Fatalf("cltv was not deleted")
 	}
 }
@@ -132,17 +144,17 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 // longer retrieve it.
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 	// Random cltv value
-	cltv := uint32(503928)
+	cltv := uint32(5)
 
 	// Create a DecayedLog object
 	d := DecayedLog{}
 
 	// Open the channeldb
-	err := d.Start()
+	err := d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
-	defer d.Stop()
+	defer shutdown(&d)
 
 	// Create a new private key on elliptic curve secp256k1
 	priv, err := btcec.NewPrivateKey(btcec.S256())
@@ -179,7 +191,7 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 		t.Fatalf("Delete failed - received the wrong error message")
 	}
 
-	if val != 0 {
+	if val != math.MaxUint32 {
 		t.Fatalf("cltv was not deleted")
 	}
 
@@ -192,17 +204,17 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 // the cltv value and check that it persists upon startup.
 func TestDecayedLogStartAndStop(t *testing.T) {
 	// Random cltv value
-	cltv := uint32(909020)
+	cltv := uint32(6)
 
 	// Create a DecayedLog object
 	d := DecayedLog{}
 
 	// Open the channeldb
-	err := d.Start()
+	err := d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
-	defer d.Stop()
+	defer shutdown(&d)
 
 	// Create a new private key on elliptic curve secp256k1
 	priv, err := btcec.NewPrivateKey(btcec.S256())
@@ -231,7 +243,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	d.Stop()
 
 	// Startup the DecayedLog's channeldb
-	err = d.Start()
+	err = d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
@@ -258,7 +270,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	d.Stop()
 
 	// Startup the DecayedLog's channeldb
-	err = d.Start()
+	err = d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
@@ -266,10 +278,10 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Assert that hashedSecret is not in the sharedHashBucket
 	val, err := d.Get(hashedSecret[:])
 	if err != nil {
-		t.Fatalf("Delete failed - received the wrong error message")
+		t.Fatalf("Delete failed")
 	}
 
-	if val != 0 {
+	if val != math.MaxUint32 {
 		t.Fatalf("cltv was not deleted")
 	}
 
@@ -280,17 +292,17 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 // and retrieved cltv values are equal.
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 	// Random cltv value
-	cltv := uint32(302930)
+	cltv := uint32(7)
 
 	// Create a DecayedLog object
 	d := DecayedLog{}
 
 	// Open the channeldb
-	err := d.Start()
+	err := d.Start("tempdir")
 	if err != nil {
 		t.Fatalf("Unable to start / open DecayedLog")
 	}
-	defer d.Stop()
+	defer shutdown(&d)
 
 	// Create a new private key on elliptic curve secp256k1
 	priv, err := btcec.NewPrivateKey(btcec.S256())

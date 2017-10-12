@@ -7,6 +7,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"math"
 	"sync"
 )
 
@@ -59,13 +60,14 @@ func (d *DecayedLog) garbageCollector() error {
 outer:
 	for {
 		select {
-		case epoch, ok := <-epochClient.Epochs:
+		case _, ok := <-epochClient.Epochs:
 			if !ok {
 				return fmt.Errorf("Epoch client shutting " +
 					"down")
 			}
 
 			var expiredCltv [][]byte
+			validCltv := make(map[string]uint32)
 			err := d.db.View(func(tx *bolt.Tx) error {
 				// Grab the shared hash bucket
 				sharedHashes := tx.Bucket(sharedHashBucket)
@@ -76,9 +78,13 @@ outer:
 
 				sharedHashes.ForEach(func(k, v []byte) error {
 					cltv := uint32(binary.BigEndian.Uint32(v))
-					if uint32(epoch.Height) > cltv {
+					cltv--
+					if cltv == 0 {
 						// Store expired hash in array
 						expiredCltv = append(expiredCltv, k)
+					} else {
+						// Store valid <hash, cltv> in map
+						validCltv[string(k)] = cltv
 					}
 					return nil
 				})
@@ -94,8 +100,17 @@ outer:
 			for _, hash := range expiredCltv {
 				err = d.Delete(hash)
 				if err != nil {
-					return fmt.Errorf("Unable to delete"+
+					return fmt.Errorf("Unable to delete "+
 						"expired secret: %v", err)
+				}
+			}
+
+			// Update decremented CLTV's via validCltv
+			for hash, cltv := range validCltv {
+				err = d.Put([]byte(hash), cltv)
+				if err != nil {
+					return fmt.Errorf("Unable to decrement "+
+						"cltv value: %v", err)
 				}
 			}
 
@@ -141,9 +156,9 @@ func (d *DecayedLog) Delete(hash []byte) error {
 
 // Get retrieves the CLTV value of a processed HTLC given the first 20 bytes
 // of the Sha-256 hash of the shared secret used during sphinx processing.
-func (d *DecayedLog) Get(hash []byte) (
-	uint32, error) {
-	var value uint32
+func (d *DecayedLog) Get(hash []byte) (uint32, error) {
+	// math.MaxUint32 is returned when Get did not retrieve a value.
+	var value uint32 = math.MaxUint32
 
 	err := d.db.View(func(tx *bolt.Tx) error {
 		// Grab the shared hash bucket which stores the mapping from
@@ -172,10 +187,9 @@ func (d *DecayedLog) Get(hash []byte) (
 	return value, nil
 }
 
-// Put stores a <shared secret hash, CLTV value> key-pair into the
-// sharedHashBucket.
-func (d *DecayedLog) Put(hash []byte,
-	value uint32) error {
+// Put stores a shared secret hash as the key and a slice consisting of the
+// current blockheight and the outgoing CLTV value
+func (d *DecayedLog) Put(hash []byte, value uint32) error {
 
 	var scratch [4]byte
 
@@ -196,13 +210,20 @@ func (d *DecayedLog) Put(hash []byte,
 // Start opens the database we will be using to store hashed shared secrets.
 // It also starts the garbage collector in a goroutine to remove stale
 // database entries.
-func (d *DecayedLog) Start() error {
+func (d *DecayedLog) Start(dbDir string) error {
 	// Create the quit channel
 	d.quit = make(chan struct{})
 
+	var directory string
+	if dbDir == "" {
+		directory = defaultDbDirectory
+	} else {
+		directory = dbDir
+	}
+
 	// Open the channeldb for use.
 	var err error
-	if d.db, err = channeldb.Open(defaultDbDirectory); err != nil {
+	if d.db, err = channeldb.Open(directory); err != nil {
 		return fmt.Errorf("Could not open channeldb: %v", err)
 	}
 

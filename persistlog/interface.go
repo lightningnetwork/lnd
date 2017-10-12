@@ -19,7 +19,7 @@ type PersistLog interface {
 
 	// Start starts up the on-disk persistent log. It returns an error if
 	// one occurs.
-	Start() error
+	Start(string) error
 
 	// Stop safely stops the on-disk persistent log.
 	Stop()

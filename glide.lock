@@ -1,5 +1,5 @@
-hash: e37d8986cb181b5a89c7cd46611858aa1edd67e52f16f521d92a479c2f1841c9
-updated: 2017-09-21T01:35:04.66549614-04:00
+hash: 02ca2623123671074881b4e61e5b0bc0805530e1a68ae23bf7a5d67e04b7b326
+updated: 2017-10-11T17:39:22.162242846-04:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -7,6 +7,8 @@ imports:
   - chacha
 - name: github.com/boltdb/bolt
   version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
+- name: github.com/btcsuite/btclog
+  version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/golangcrypto
   version: 53f62d9b43e87a6c56975cf862af7edf33a8d0df
   subpackages:
@@ -18,6 +20,8 @@ imports:
   subpackages:
   - chainntnfs
   - channeldb
+  - lnwire
+  - shachain
 - name: github.com/roasbeef/btcd
   version: 4b411f0e78f1faa96ae650d886170d018c1835bf
   subpackages:
@@ -34,6 +38,14 @@ imports:
   version: 459e26527287adbc2adcc5d0d49abff9a5f315a7
   subpackages:
   - ripemd160
+- name: golang.org/x/sys
+  version: b6e1ae21643682ce023deb8d152024597b0e9bb4
+  subpackages:
+  - unix
+- name: google.golang.org/grpc
+  version: b3ddf786825de56a4178401b7e174ee332173b66
+  subpackages:
+  - codes
 testImports:
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76

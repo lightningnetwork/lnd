@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 
+	"github.com/Crypt-iQ/lightning-onion/persistlog"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lightning-onion/persistlog"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
+	"os"
 )
 
 // BOLT 4 Test Vectors
@@ -87,7 +89,7 @@ var (
 		"baaa7d63ad64199f4664813b955cff954949076dcf"
 )
 
-func newTestRoute(numHops int, d *persistlog.DecayedLog) ([]*Router, *[]HopData, *OnionPacket, error) {
+func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numHops random sphinx nodes.
@@ -99,7 +101,6 @@ func newTestRoute(numHops int, d *persistlog.DecayedLog) ([]*Router, *[]HopData,
 		}
 
 		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams, nil)
-		nodes[i].d = d
 	}
 
 	// Gather all the pub keys in the path.
@@ -113,9 +114,7 @@ func newTestRoute(numHops int, d *persistlog.DecayedLog) ([]*Router, *[]HopData,
 		hopsData = append(hopsData, HopData{
 			Realm:         0x00,
 			ForwardAmount: uint64(i),
-			OutgoingCltv:  uint32(i + 1),
-			// This is used to avoid a CLTV of 0, which is
-			// considered a non-CLTV value by DecayedLog.
+			OutgoingCltv:  uint32(i),
 		})
 		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 	}
@@ -181,12 +180,15 @@ func TestBolt4Packet(t *testing.T) {
 	}
 }
 
+// shutdown deletes the temporary directory that the test database uses
+// and handles closing the database.
+func shutdown(dir string, d *persistlog.DecayedLog) {
+	os.RemoveAll(dir)
+	d.Stop()
+}
+
 func TestSphinxCorrectness(t *testing.T) {
-	d := &persistlog.DecayedLog{}
-	if err := d.Start(); err != nil {
-		t.Fatalf("unable to start channeldb")
-	}
-	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops, d)
+	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -194,6 +196,11 @@ func TestSphinxCorrectness(t *testing.T) {
 	// Now simulate the message propagating through the mix net eventually
 	// reaching the final destination.
 	for i := 0; i < len(nodes); i++ {
+		// Start each node's DecayedLog and defer shutdown
+		var tempDir = strconv.Itoa(i)
+		nodes[i].d.Start(tempDir)
+		defer shutdown(tempDir, nodes[i].d)
+
 		hop := nodes[i]
 
 		t.Logf("Processing at hop: %v \n", i)
@@ -248,14 +255,15 @@ func TestSphinxSingleHop(t *testing.T) {
 	// We'd like to test the proper behavior of the correctness of onion
 	// packet processing for "single-hop" payments which bare a full onion
 	// packet.
-	d := &persistlog.DecayedLog{}
-	if err := d.Start(); err != nil {
-		t.Fatalf("unable to start channeldb")
-	}
-	nodes, _, fwdMsg, err := newTestRoute(1, d)
+
+	nodes, _, fwdMsg, err := newTestRoute(1)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
 
 	// Simulating a direct single-hop payment, send the sphinx packet to
 	// the destination node, making it process the packet fully.
@@ -275,15 +283,14 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	d := &persistlog.DecayedLog{}
-	if err := d.Start(); err != nil {
-		t.Fatalf("unable to start channeldb")
-	}
-
-	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops, d)
+	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
 
 	// Allow the node to process the initial packet, this should proceed
 	// without any failures.
@@ -301,14 +308,14 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxAssocData(t *testing.T) {
 	// We want to make sure that the associated data is considered in the
 	// HMAC creation
-	d := &persistlog.DecayedLog{}
-	if err := d.Start(); err != nil {
-		t.Fatalf("unable to start channeldb")
-	}
-	nodes, _, fwdMsg, err := newTestRoute(5, d)
+	nodes, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
+
+	// Start the DecayedLog and defer shutdown
+	nodes[0].d.Start("0")
+	defer shutdown("0", nodes[0].d)
 
 	if _, err := nodes[0].ProcessOnionPacket(fwdMsg, []byte("somethingelse")); err == nil {
 		t.Fatalf("we should fail when associated data changes")
@@ -319,11 +326,7 @@ func TestSphinxAssocData(t *testing.T) {
 func TestSphinxEncodeDecode(t *testing.T) {
 	// Create some test data with a randomly populated, yet valid onion
 	// forwarding message.
-	d := &persistlog.DecayedLog{}
-	if err := d.Start(); err != nil {
-		t.Fatalf("unable to start channeldb")
-	}
-	_, _, fwdMsg, err := newTestRoute(5, d)
+	_, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}

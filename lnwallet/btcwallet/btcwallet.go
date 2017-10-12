@@ -61,7 +61,7 @@ var _ lnwallet.WalletController = (*BtcWallet)(nil)
 // configuration struct.
 func New(cfg Config) (*BtcWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(cfg.DataDir, cfg.NetParams)
+	netDir := NetworkDir(cfg.DataDir, cfg.NetParams)
 
 	var pubPass []byte
 	if cfg.PublicPass == nil {

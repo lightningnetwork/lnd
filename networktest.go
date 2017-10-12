@@ -149,6 +149,7 @@ func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*li
 
 	lndArgs = append(lndArgs, "--externalip=127.0.0.1:"+
 		strconv.Itoa(cfg.PeerPort))
+	lndArgs = append(lndArgs, "--noencryptwallet")
 
 	return &lightningNode{
 		cfg:               cfg,

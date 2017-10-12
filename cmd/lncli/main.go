@@ -34,6 +34,16 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
+func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func()) {
+	conn := getClientConn(ctx)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return lnrpc.NewWalletUnlockerClient(conn), cleanUp
+}
+
 func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	conn := getClientConn(ctx)
 
@@ -146,6 +156,8 @@ func main() {
 		},
 	}
 	app.Commands = []cli.Command{
+		createCommand,
+		unlockCommand,
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,

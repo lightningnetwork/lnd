@@ -124,6 +124,9 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	MockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: int32(102),
 	}
+	MockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height: int32(103),
+	}
 
 	// Wait for database write (GC is in a goroutine)
 	time.Sleep(500 * time.Millisecond)

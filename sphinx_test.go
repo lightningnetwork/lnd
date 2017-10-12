@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"testing"
@@ -12,7 +13,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
-	"os"
 )
 
 // BOLT 4 Test Vectors

@@ -89,7 +89,7 @@ outer:
 						if err != nil {
 							return err
 						}
-					} else if lastHeight != 0 && uint32(epoch.Height) - lastHeight > cltv {
+					} else if lastHeight != 0 && uint32(epoch.Height)-lastHeight > cltv {
 						// This CLTV just expired or
 						// expired in the past but the
 						// garbage collector was not

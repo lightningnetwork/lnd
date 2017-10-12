@@ -35,6 +35,7 @@ const (
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNumChanConfs       = 1
+	defaultNoEncryptWallet    = false
 )
 
 var (
@@ -126,6 +127,8 @@ type config struct {
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
+
+	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -151,6 +154,7 @@ func loadConfig() (*config, error) {
 		RESTPort:            defaultRESTPort,
 		MaxPendingChannels:  defaultMaxPendingChannels,
 		DefaultNumChanConfs: defaultNumChanConfs,
+		NoEncryptWallet:     defaultNoEncryptWallet,
 		Bitcoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/roasbeef/btcd/wire"
 
 	"github.com/davecgh/go-spew/spew"
@@ -181,7 +183,9 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if ctx.aliases["luoji"].IsEqual(n) {
-			return [32]byte{}, &lnwire.FailUnknownNextPeer{}
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				FailureMessage: &lnwire.FailTemporaryNodeFailure{},
+			}
 		}
 
 		return preImage, nil
@@ -195,6 +199,147 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// The route selected should have two hops
+	if len(route.Hops) != 2 {
+		t.Fatalf("incorrect route length: expected %v got %v", 2,
+			len(route.Hops))
+	}
+
+	// The preimage should match up with the once created above.
+	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
+		t.Fatalf("incorrect preimage used: expected %x got %x",
+			preImage[:], paymentPreImage[:])
+	}
+
+	// The route should have satoshi as the first hop.
+	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+		t.Fatalf("route should go through satoshi as first hop, "+
+			"instead passes through: %v",
+			route.Hops[0].Channel.Node.Alias)
+	}
+}
+
+// TestSendPaymentErrorPathPruning tests that the send of candidate routes
+// properly gets pruned in response to ForwardingError response from the
+// underlying SendToSwitch function.
+func TestSendPaymentErrorPathPruning(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to luo ji for 100 satoshis.
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases["luoji"],
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	sourceNode := ctx.router.selfNode
+
+	// First, we'll modify the SendToSwitch method to return an error
+	// indicating that the channel from roasbeef to luoji is not operable
+	// with an UnknownNextPeer.
+	//
+	// TODO(roasbeef): filtering should be intelligent enough so just not
+	// go through satoshi at all at this point.
+	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if ctx.aliases["luoji"].IsEqual(n) {
+			// We'll first simulate an error from the first
+			// outgoing link to simulate the channel from luo ji to
+			// roasbeef not having enough capacity.
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource:    sourceNode.PubKey,
+				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+			}
+		}
+
+		// Next, we'll create an error from satoshi to indicate
+		// that the luoji node is not longer online, which should
+		// prune out the rest of the routes.
+		if ctx.aliases["satoshi"].IsEqual(n) {
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource:    ctx.aliases["satoshi"],
+				FailureMessage: &lnwire.FailUnknownNextPeer{},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// When we try to dispatch that payment, we should receive an error as
+	// both attempts should fail and cause both routes to be pruned.
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err == nil {
+		t.Fatalf("payment didn't return error")
+	}
+
+	// The final error returned should also indicate that the peer wasn't
+	// online (the last error we returned).
+	if !strings.Contains(err.Error(), "UnknownNextPeer") {
+		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
+	}
+
+	// Next, we'll modify the SendToSwitch method to indicate that luo ji
+	// wasn't originally online. This should also halt the send all
+	// together as all paths contain luoji and he can't be reached.
+	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if ctx.aliases["luoji"].IsEqual(n) {
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource:    sourceNode.PubKey,
+				FailureMessage: &lnwire.FailUnknownNextPeer{},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// The final error returned should also indicate that the peer wasn't
+	// online (the last error we returned).
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err == nil {
+		t.Fatalf("payment didn't return error")
+	}
+	if !strings.Contains(err.Error(), "UnknownNextPeer") {
+		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
+	}
+
+	// Finally, we'll modify the SendToSwitch function to indicate that the
+	// roasbeef -> luoji channel has insufficient capacity.
+	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+		if ctx.aliases["luoji"].IsEqual(n) {
+			// We'll first simulate an error from the first
+			// outgoing link to simulate the channel from luo ji to
+			// roasbeef not having enough capacity.
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource:    sourceNode.PubKey,
+				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+			}
+		}
+		return preImage, nil
+	}
+
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// This should succeed finally.
+	// The route selected should have two hops
+	//
 	if len(route.Hops) != 2 {
 		t.Fatalf("incorrect route length: expected %v got %v", 2,
 			len(route.Hops))

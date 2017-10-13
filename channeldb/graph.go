@@ -115,6 +115,11 @@ type ChannelGraph struct {
 	//  * LRU cache for edges?
 }
 
+// Database returns a pointer to the underlying database.
+func (c *ChannelGraph) Database() *DB {
+	return c.db
+}
+
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.
 type addressType uint8

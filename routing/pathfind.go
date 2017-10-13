@@ -123,6 +123,50 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
+
+	// nodeIndex is a map that allows callers to quickly look up if a node
+	// is present in this computed route or not.
+	nodeIndex map[vertex]struct{}
+
+	// chanIndex is an index that allows callers to determine if a channel
+	// is present in this route or not. Channels are identified by the
+	// uint64 version of the short channel ID.
+	chanIndex map[uint64]struct{}
+
+	// nextHop maps a node, to the next channel that it will pass the HTLC
+	// off to. With this map, we can easily look up the next outgoing
+	// channel or node for pruning purposes.
+	nextHopMap map[vertex]*ChannelHop
+}
+
+// nextHopVertex returns the next hop (by vertex) after the target node. If the
+// target node is not found in the route, then false is returned.
+func (r *Route) nextHopVertex(n *btcec.PublicKey) (vertex, bool) {
+	hop, ok := r.nextHopMap[newVertex(n)]
+	return newVertex(hop.Node.PubKey), ok
+}
+
+// nextHopChannel returns the uint64 channel ID of the next hop after the
+// target node. If the target node is not foud in the route, then false is
+// returned.
+func (r *Route) nextHopChannel(n *btcec.PublicKey) (uint64, bool) {
+	hop, ok := r.nextHopMap[newVertex(n)]
+	return hop.ChannelID, ok
+}
+
+// containsNode returns true if a node is present in the target route, and
+// false otherwise.
+func (r *Route) containsNode(v vertex) bool {
+	_, ok := r.nodeIndex[v]
+	return ok
+}
+
+// containsChannel returns true if a channel is present in the target route,
+// and false otherwise. The passed chanID should be the converted uint64 form
+// of lnwire.ShortChannelID.
+func (r *Route) containsChannel(chanID uint64) bool {
+	_, ok := r.chanIndex[chanID]
+	return ok
 }
 
 // ToHopPayloads converts a complete route into the series of per-hop payloads
@@ -166,8 +210,8 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
-	currentHeight uint32) (*Route, error) {
+func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
+	pathEdges []*ChannelHop, currentHeight uint32) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -176,10 +220,17 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 	route := &Route{
 		Hops:          make([]*Hop, len(pathEdges)),
 		TotalTimeLock: currentHeight,
+		nodeIndex:     make(map[vertex]struct{}),
+		chanIndex:     make(map[uint64]struct{}),
+		nextHopMap:    make(map[vertex]*ChannelHop),
 	}
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
 	// "dust" payment: over x% of money sending to fees
+
+	// We'll populate the next hop map for the _source_ node with the
+	// information for the first hop so the mapping is sound.
+	route.nextHopMap[sourceVertex] = pathEdges[0]
 
 	// The running amount is the total amount of satoshis required at this
 	// point in the route. We start this value at the amount we want to
@@ -199,6 +250,20 @@ func newRoute(amtToSend lnwire.MilliSatoshi, pathEdges []*ChannelHop,
 			Fee:          computeFee(runningAmt, edge),
 		}
 		edge.Node.PubKey.Curve = nil
+
+		// Next, we'll update both the node and channel index, to
+		// indicate that this vertex, and outgoing channel link are
+		// present within this route.
+		v := newVertex(edge.Node.PubKey)
+		route.nodeIndex[v] = struct{}{}
+		route.chanIndex[edge.ChannelID] = struct{}{}
+
+		// If this isn't a direct payment, and this isn't the last hop
+		// in the route, then we'll also populate the nextHop map to
+		// allow easy route traversal by callers.
+		if len(pathEdges) > 1 && i != len(pathEdges)-1 {
+			route.nextHopMap[v] = route.Hops[i+1].Channel
+		}
 
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which
@@ -273,6 +338,12 @@ func newVertex(pub *btcec.PublicKey) vertex {
 	return v
 }
 
+// String returns a human readable version of the vertex which is the
+// hex-encoding of the serialized compressed public key.
+func (v vertex) String() string {
+	return fmt.Sprintf("%x", v[:])
+}
+
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {
@@ -298,9 +369,19 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // time-lock+fee costs along a particular edge. If a path is found, this
 // function returns a slice of ChannelHop structs which encoded the chosen path
 // from the target to the source.
-func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode,
-	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
-	ignoredEdges map[uint64]struct{}, amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
+	ignoredNodes map[vertex]struct{}, ignoredEdges map[uint64]struct{},
+	amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+
+	var err error
+	if tx == nil {
+		tx, err = graph.Database().Begin(false)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+	}
 
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
@@ -322,6 +403,9 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 	}); err != nil {
 		return nil, err
 	}
+
+	// TODO(roasbeef): also add path caching
+	//  * similar to route caching, but doesn't factor in the amount
 
 	// To start, we add the source of our path finding attempt to the
 	// distance map with with a distance of 0. This indicates our starting
@@ -357,13 +441,13 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
 		pivot := newVertex(bestNode.PubKey)
-		err := bestNode.ForEachChannel(nil, func(tx *bolt.Tx,
+		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
 
 			v := newVertex(outEdge.Node.PubKey)
 
-			// TODO(roasbeef): skip if disabled
+			// TODO(roasbeef): skip if chan disabled
 
 			// If this vertex or edge has been black listed, then
 			// we'll skip exploring this edge during this
@@ -423,6 +507,7 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 				// to further explore down this edge.
 				heap.Push(&nodeHeap, distance[v])
 			}
+
 			return nil
 		})
 		if err != nil {
@@ -484,8 +569,11 @@ func findPath(graph *channeldb.ChannelGraph, sourceNode *channeldb.LightningNode
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
-	target *btcec.PublicKey, amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
+func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+	source *channeldb.LightningNode, target *btcec.PublicKey,
+	amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
+
+	// TODO(roasbeef): take in db tx
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})
@@ -500,7 +588,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 	// First we'll find a single shortest path from the source (our
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(graph, source, target,
+	startingPath, err := findPath(tx, graph, source, target,
 		ignoredVertexes, ignoredEdges, amt)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -572,7 +660,7 @@ func findPaths(graph *channeldb.ChannelGraph, source *channeldb.LightningNode,
 			// the vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
-			spurPath, err := findPath(graph, spurNode, target,
+			spurPath, err := findPath(tx, graph, spurNode, target,
 				ignoredVertexes, ignoredEdges, amt)
 
 			// If we weren't able to find a path, we'll continue to

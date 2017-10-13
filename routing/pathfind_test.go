@@ -303,6 +303,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
+	sourceVertex := newVertex(sourceNode.PubKey)
 
 	ignoredEdges := make(map[uint64]struct{})
 	ignoredVertexes := make(map[vertex]struct{})
@@ -315,12 +316,12 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["sophon"]
-	path, err := findPath(graph, sourceNode, target, ignoredVertexes,
+	path, err := findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, path, startingHeight)
+	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -411,12 +412,12 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
 	target = aliases["luoji"]
-	path, err = findPath(graph, sourceNode, target, ignoredVertexes,
+	path, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, path, startingHeight)
+	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -468,7 +469,7 @@ func TestKShortestPathFinding(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["luoji"]
-	paths, err := findPaths(graph, sourceNode, target, paymentAmt)
+	paths, err := findPaths(nil, graph, sourceNode, target, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
 			"luo ji: %v", err)
@@ -529,7 +530,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
-	_, err = findPath(graph, sourceNode, target, ignoredVertexes,
+	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -538,7 +539,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
 	target = aliases["vincent"]
-	path, err := findPath(graph, sourceNode, target, ignoredVertexes,
+	path, err := findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -578,7 +579,7 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
 
-	_, err = findPath(graph, sourceNode, unknownNode, ignoredVertexes,
+	_, err = findPath(nil, graph, sourceNode, unknownNode, ignoredVertexes,
 		ignoredEdges, 100)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -612,7 +613,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	target := aliases["sophon"]
 
 	const payAmt = btcutil.SatoshiPerBitcoin
-	_, err = findPath(graph, sourceNode, target, ignoredVertexes,
+	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)

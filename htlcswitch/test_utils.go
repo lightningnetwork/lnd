@@ -556,7 +556,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			Peer:              bobServer,
 			Switch:            aliceServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -577,7 +577,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			Peer:              aliceServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -598,7 +598,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			Peer:              carolServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
@@ -619,7 +619,7 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 			Peer:              bobServer,
 			Switch:            carolServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},

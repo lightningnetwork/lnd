@@ -15,7 +15,13 @@ import (
 // FailureMessage represents the onion failure object identified by its unique
 // failure code.
 type FailureMessage interface {
+	// Code returns a failure code describing the exact nature of the
+	// error.
 	Code() FailCode
+
+	// Error returns a human readable string describing the error. With
+	// this method, the FailureMessage interface meets the built-in error
+	// interface.
 	Error() string
 }
 

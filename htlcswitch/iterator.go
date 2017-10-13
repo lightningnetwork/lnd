@@ -198,11 +198,13 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterat
 	}, lnwire.CodeNone
 }
 
-// DecodeOnionObfuscator takes an io.Reader which should contain the onion
-// packet as original received by a forwarding node and creates an Obfuscator
-// instance using the derived shared secret. In the case that en error occurs,
-// a lnwire failure code detailing the parsing failure will be returned.
-func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.FailCode) {
+// ExtractErrorEncrypter takes an io.Reader which should contain the onion
+// packet as original received by a forwarding node and creates an
+// ErrorEncrypter instance using the derived shared secret. In the case that en
+// error occurs, a lnwire failure code detailing the parsing failure will be
+// returned.
+func (p *OnionProcessor) ExtractErrorEncrypter(r io.Reader) (ErrorEncrypter, lnwire.FailCode) {
+
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
 		switch err {
@@ -215,7 +217,7 @@ func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.
 		}
 	}
 
-	onionObfuscator, err := sphinx.NewOnionObfuscator(p.router,
+	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(p.router,
 		onionPkt.EphemeralKey)
 	if err != nil {
 		switch err {
@@ -230,7 +232,7 @@ func (p *OnionProcessor) DecodeOnionObfuscator(r io.Reader) (Obfuscator, lnwire.
 		}
 	}
 
-	return &FailureObfuscator{
-		OnionObfuscator: onionObfuscator,
+	return &SphinxErrorEncrypter{
+		OnionErrorEncrypter: onionObfuscator,
 	}, lnwire.CodeNone
 }

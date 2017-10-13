@@ -942,7 +942,9 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 
 	// Send the closed channel summary over to the utxoNursery in order to
 	// have its outputs swept back into the wallet once they're mature.
-	r.server.utxoNursery.IncubateOutputs(closeSummary)
+	if err := r.server.utxoNursery.IncubateOutputs(closeSummary); err != nil {
+		return nil, nil, err
+	}
 
 	return &txid, closeSummary, nil
 }

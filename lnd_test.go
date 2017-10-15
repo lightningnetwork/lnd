@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -107,6 +108,25 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 	}
 
 	t.Fatalf("funding tx was not included in block")
+}
+
+// lncli runs 'lncli' tool with specified arguments on the test lightning
+// node and returns stdout/stderr output from the invocation. 'args' list can be
+// any sequence of arguments expected by 'lncli', except node address which is
+// extracted from the 'node' argument.
+func lncli(node *lightningNode, args ...string) ([]byte, []byte, error) {
+	addr := fmt.Sprintf("\"%s\"", node.rpcAddr)
+	completeArgs := append([]string{"--rpcserver", addr}, args...)
+	cmd := exec.Command("lncli", completeArgs...)
+
+	var stderrb, stdoutb bytes.Buffer
+	cmd.Stderr, cmd.Stdout = &stderrb, &stdoutb
+
+	if err := cmd.Run(); err != nil {
+		return stdoutb.Bytes(), stderrb.Bytes(), err
+	}
+
+	return stdoutb.Bytes(), stderrb.Bytes(), nil
 }
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in

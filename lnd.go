@@ -16,6 +16,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"time"
 
@@ -86,6 +87,18 @@ func lndMain() error {
 			http.Handle("/", profileRedirect)
 			fmt.Println(http.ListenAndServe(listenAddr, nil))
 		}()
+	}
+
+	// Write cpu profile if requested.
+	if cfg.CPUProfile != "" {
+		f, err := os.Create(cfg.CPUProfile)
+		if err != nil {
+			ltndLog.Errorf("Unable to create cpu profile: %v", err)
+			return err
+		}
+		pprof.StartCPUProfile(f)
+		defer f.Close()
+		defer pprof.StopCPUProfile()
 	}
 
 	// Open the channeldb, which is dedicated to storing channel, and

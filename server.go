@@ -908,7 +908,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey, msgs []lnwire.Message) erro
 		return err
 	}
 
-	s.sendPeerMessages(targetPeer, msgs)
+	go s.sendPeerMessages(targetPeer, msgs)
 
 	return nil
 }

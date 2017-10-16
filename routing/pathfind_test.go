@@ -6,14 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -35,6 +38,11 @@ const (
 	// hops error. The error has since been fixed, but a test case
 	// exercising it is kept around to guard against regressions.
 	excessiveHopsGraphFilePath = "testdata/excessive_hops.json"
+
+	// testNetGraphFilePath is file storing the JSON dump from
+	// 'lncli describegraph' on 2017-10-13. This is used for benchmarking
+	// findPaths scenario on a graph with nodes having high in-degree.
+	testNetGraphFilePath = "testdata/testnet.json"
 )
 
 var (
@@ -290,6 +298,236 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 	return graph, cleanUp, aliasMap, nil
 }
 
+// parseDescribeGraph parses a JSON file created by using 'lncli describegraph',
+// and populates a ChannelGraph with this graph info.
+func parseDescribeGraph(path string, sourceNodeAlias string) (
+	*channeldb.ChannelGraph, func(), aliasMap, error) {
+	graphJSON, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	var topObj map[string]interface{}
+	if err := json.Unmarshal(graphJSON, &topObj); err != nil {
+		panic(err)
+	}
+
+	nodes := topObj["nodes"].([]interface{})
+
+	// We'll use this fake address for the IP address of all the nodes in
+	// our tests. This value isn't needed for path finding so it doesn't
+	// need to be unique.
+	var testAddrs []net.Addr
+	testAddr, err := net.ResolveTCPAddr("tcp", "192.0.0.1:8888")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	testAddrs = append(testAddrs, testAddr)
+
+	// Next, create a temporary graph database for usage within the test.
+	graph, cleanUp, err := makeTestGraph()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	aliasMap := make(map[string]*btcec.PublicKey)
+	var source *channeldb.LightningNode
+
+	// First we insert all the nodes within the graph as vertexes.
+	for _, n := range nodes {
+		node := n.(map[string]interface{})
+		pubKey := node["pub_key"].(string)
+		pubBytes, err := hex.DecodeString(pubKey)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		pub, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		alias := hex.EncodeToString(pubBytes[:10])
+		dbNode := &channeldb.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSig:              testSig,
+			LastUpdate:           time.Now(),
+			Addresses:            testAddrs,
+			PubKey:               pub,
+			Alias:                alias,
+			Features:             testFeatures,
+		}
+
+		// We require all aliases within the graph to be unique for our
+		// tests.
+		if _, ok := aliasMap[alias]; ok {
+			return nil, nil, nil, errors.New("aliases for nodes " +
+				"must be unique! " + alias)
+		}
+
+		// If the alias is unique, then add the node to the
+		// alias map for easy lookup.
+		aliasMap[alias] = pub
+
+		// If this node's alias is set as the source's alias,
+		// then we create a pointer to is so we can mark the
+		// source in the graph properly.
+		if alias == sourceNodeAlias {
+			source = dbNode
+		}
+
+		// With the node fully parsed, add it as a vertex within the
+		// graph.
+		if err := graph.AddLightningNode(dbNode); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// Set the selected source node
+	if err := graph.SetSourceNode(source); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// With all the vertexes inserted, we can now insert the edges into the
+	// test graph.
+	edges := topObj["edges"].([]interface{})
+	for _, e := range edges {
+		edge := e.(map[string]interface{})
+		node1Bytes, err := hex.DecodeString(edge["node1_pub"].(string))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		node1Pub, err := btcec.ParsePubKey(node1Bytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		node2Bytes, err := hex.DecodeString(edge["node2_pub"].(string))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		node2Pub, err := btcec.ParsePubKey(node2Bytes, btcec.S256())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		fundingTXID := strings.Split(edge["chan_point"].(string), ":")[0]
+		txidBytes, err := chainhash.NewHashFromStr(fundingTXID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		fundingPoint := wire.OutPoint{
+			Hash:  *txidBytes,
+			Index: 0,
+		}
+
+		// We first insert the existence of the edge between the two
+		// nodes.
+		chanID, err := strconv.ParseUint(edge["channel_id"].(string), 10, 64)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cap, err := strconv.ParseUint(edge["capacity"].(string), 10, 64)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		edgeInfo := channeldb.ChannelEdgeInfo{
+			ChannelID:    chanID,
+			NodeKey1:     node1Pub,
+			NodeKey2:     node2Pub,
+			BitcoinKey1:  node1Pub,
+			BitcoinKey2:  node2Pub,
+			AuthProof:    &testAuthProof,
+			ChannelPoint: fundingPoint,
+			Capacity:     btcutil.Amount(cap),
+		}
+		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+			return nil, nil, nil, err
+		}
+
+		parseEdgePolicy := func(edgePolicy map[string]interface{}) (
+			*channeldb.ChannelEdgePolicy, error) {
+
+			minHtlc, err := strconv.ParseUint(edgePolicy["min_htlc"].(string), 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			feeBase, err := strconv.ParseUint(edgePolicy["fee_base_msat"].(string), 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			feeRate, err := strconv.ParseUint(edgePolicy["fee_rate_milli_msat"].(string), 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			return &channeldb.ChannelEdgePolicy{
+				Signature:                 testSig,
+				ChannelID:                 chanID,
+				LastUpdate:                time.Unix(int64(edge["last_update"].(float64)), 0),
+				TimeLockDelta:             uint16(edgePolicy["time_lock_delta"].(float64)),
+				MinHTLC:                   lnwire.MilliSatoshi(minHtlc),
+				FeeBaseMSat:               lnwire.MilliSatoshi(feeBase),
+				FeeProportionalMillionths: lnwire.MilliSatoshi(feeRate),
+			}, nil
+		}
+
+		// As the graph itself is directed, we need to insert two edges
+		// into the graph: one from node1->node2 and one from
+		// node2->node1. A flag of 0 indicates this is the routing
+		// policy for the first node, and a flag of 1 indicates its the
+		// information for the second node.
+		node1Policy, ok := edge["node1_policy"].(map[string]interface{})
+		if ok {
+			edge1Policy, err := parseEdgePolicy(node1Policy)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			edge1Policy.Flags = 0
+			if err := graph.UpdateEdgePolicy(edge1Policy); err != nil {
+				return nil, nil, nil, err
+			}
+
+		}
+
+		node2Policy, ok := edge["node2_policy"].(map[string]interface{})
+		if ok {
+			edge2Policy, err := parseEdgePolicy(node2Policy)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			edge2Policy.Flags = 1
+			if err := graph.UpdateEdgePolicy(edge2Policy); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+
+	return graph, cleanUp, aliasMap, nil
+}
+
+// graphSourceFromChannelGraph is a helper method for creating a graphSource
+// backed by a channeldb.ChannelGraph.
+func graphSourceFromChannelGraph(c *channeldb.ChannelGraph) *graphSource {
+
+	return &graphSource{
+		ForEachNode: func(cb func(*channeldb.LightningNode) error) error {
+			return c.ForEachNode(nil, func(_ *bolt.Tx,
+				node *channeldb.LightningNode) error {
+				return cb(node)
+			})
+		},
+		ForEachChannel: func(node *channeldb.LightningNode,
+			cb func(*channeldb.ChannelEdgeInfo,
+				*channeldb.ChannelEdgePolicy,
+				*channeldb.ChannelEdgePolicy) error) error {
+			return node.ForEachChannel(nil, func(_ *bolt.Tx,
+				edgeInfo *channeldb.ChannelEdgeInfo,
+				outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
+				return cb(edgeInfo, outEdge, inEdge)
+			})
+		},
+	}
+}
+
 func TestBasicGraphPathFinding(t *testing.T) {
 	t.Parallel()
 
@@ -298,6 +536,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	g := graphSourceFromChannelGraph(graph)
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -316,7 +555,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["sophon"]
-	path, err := findPath(nil, graph, sourceNode, target, ignoredVertexes,
+	path, err := findPath(g, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -412,7 +651,7 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// exist two possible paths in the graph, but the shorter (1 hop) path
 	// should be selected.
 	target = aliases["luoji"]
-	path, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+	path, err = findPath(g, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
@@ -516,6 +755,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	g := graphSourceFromChannelGraph(graph)
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -530,7 +770,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// We start by confirminig that routing a payment 20 hops away is possible.
 	// Alice should be able to find a valid route to ursula.
 	target := aliases["ursula"]
-	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+	_, err = findPath(g, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -539,7 +779,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Vincent is 21 hops away from Alice, and thus no valid route should be
 	// presented to Alice.
 	target = aliases["vincent"]
-	path, err := findPath(nil, graph, sourceNode, target, ignoredVertexes,
+	path, err := findPath(g, sourceNode, target, ignoredVertexes,
 		ignoredEdges, paymentAmt)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -557,6 +797,7 @@ func TestPathNotAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	g := graphSourceFromChannelGraph(graph)
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -579,7 +820,7 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to parse pubkey: %v", err)
 	}
 
-	_, err = findPath(nil, graph, sourceNode, unknownNode, ignoredVertexes,
+	_, err = findPath(g, sourceNode, unknownNode, ignoredVertexes,
 		ignoredEdges, 100)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -594,6 +835,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	g := graphSourceFromChannelGraph(graph)
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -613,7 +855,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	target := aliases["sophon"]
 
 	const payAmt = btcutil.SatoshiPerBitcoin
-	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+	_, err = findPath(g, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)
 	if !IsError(err, ErrNoPathFound) {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -631,3 +873,51 @@ func TestPathInsufficientCapacityWithFee(t *testing.T) {
 }
 
 // TODO(roasbeef): more time-lock calvulation tests
+
+// TestBenchmarkPathFinding makes sure a call to findPaths on the testnet graph
+// does not take longer than we expect.
+func TestBenchmarkPathFinding(t *testing.T) {
+	t.Parallel()
+
+	sourceNodeAlias := "0249d462ab448027d51a"
+	targetNodeAlias := "0228f9e8a63bfe260934"
+	const maxDurationMs = 500
+
+	graph, cleanUp, aliases, err := parseDescribeGraph(
+		testNetGraphFilePath, sourceNodeAlias)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target, ok := aliases[targetNodeAlias]
+	if !ok {
+		t.Fatalf("target %s not found in graph", targetNodeAlias)
+	}
+
+	start := time.Now()
+	paths, err := findPaths(nil, graph, sourceNode, target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find paths between roasbeef and "+
+			"luo ji: %v", err)
+	}
+	dur := time.Since(start)
+	fmt.Println("TestBenchMarkPathFinding duration:", dur)
+	if dur > maxDurationMs*time.Millisecond {
+		t.Fatalf("expected findPaths to use less than %d ms",
+			maxDurationMs)
+	}
+
+	// This graph contains thousands of unique paths from the source to
+	// the target, but is currently capped at returning 100.
+	if len(paths) != 100 {
+		t.Fatalf("100 paths should be found, instead %v were",
+			len(paths))
+	}
+}

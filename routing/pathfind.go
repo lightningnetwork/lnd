@@ -344,6 +344,14 @@ func (v vertex) String() string {
 	return fmt.Sprintf("%x", v[:])
 }
 
+// edge is a struct holding the edge info we need when performing path
+// finding using an in-memory graphSource.
+type edge struct {
+	edgeInfo *channeldb.ChannelEdgeInfo
+	outEdge  *channeldb.ChannelEdgePolicy
+	inEdge   *channeldb.ChannelEdgePolicy
+}
+
 // edgeWithPrev is a helper struct used in path finding that couples an
 // directional edge with the node's ID in the opposite direction.
 type edgeWithPrev struct {
@@ -361,6 +369,15 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 	return float64(1 + e.TimeLockDelta)
 }
 
+// graphSource is a wrapper around a graph that can either be in memory or
+// on disk, like the regular channeldb.ChannelGraph.
+type graphSource struct {
+	ForEachNode    func(func(*channeldb.LightningNode) error) error
+	ForEachChannel func(*channeldb.LightningNode,
+		func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+			*channeldb.ChannelEdgePolicy) error) error
+}
+
 // findPath attempts to find a path from the source node within the
 // ChannelGraph to the target node that's capable of supporting a payment of
 // `amt` value. The current approach implemented is modified version of
@@ -369,19 +386,10 @@ func edgeWeight(e *channeldb.ChannelEdgePolicy) float64 {
 // time-lock+fee costs along a particular edge. If a path is found, this
 // function returns a slice of ChannelHop structs which encoded the chosen path
 // from the target to the source.
-func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
-	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
-	ignoredNodes map[vertex]struct{}, ignoredEdges map[uint64]struct{},
+func findPath(graph *graphSource, sourceNode *channeldb.LightningNode,
+	target *btcec.PublicKey, ignoredNodes map[vertex]struct{},
+	ignoredEdges map[uint64]struct{},
 	amt lnwire.MilliSatoshi) ([]*ChannelHop, error) {
-
-	var err error
-	if tx == nil {
-		tx, err = graph.Database().Begin(false)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback()
-	}
 
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
@@ -392,9 +400,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// map for the node set with a distance of "infinity".  We also mark
 	// add the node to our set of unvisited nodes.
 	distance := make(map[vertex]nodeWithDist)
-	if err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
-		// TODO(roasbeef): with larger graph can just use disk seeks
-		// with a visited map
+	if err := graph.ForEachNode(func(node *channeldb.LightningNode) error {
 		distance[newVertex(node.PubKey)] = nodeWithDist{
 			dist: infinity,
 			node: node,
@@ -441,8 +447,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// examine all the outgoing edge (channels) from this node to
 		// further our graph traversal.
 		pivot := newVertex(bestNode.PubKey)
-		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
-			edgeInfo *channeldb.ChannelEdgeInfo,
+		err := graph.ForEachChannel(bestNode, func(edgeInfo *channeldb.ChannelEdgeInfo,
 			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
 
 			v := newVertex(outEdge.Node.PubKey)
@@ -585,10 +590,79 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		candidatePaths pathHeap
 	)
 
+	var err error
+	if tx == nil {
+		tx, err = graph.Database().Begin(false)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+	}
+
+	// Iterate over all nodes in the graph database, and add them to an
+	// array which can back an in-memory graphSource. We do this to avoid
+	// having to read from the database during each call, speeding up the
+	// execution significantly.
+	var nodes []*channeldb.LightningNode
+	if err := graph.ForEachNode(nil,
+		func(_ *bolt.Tx, node *channeldb.LightningNode) error {
+			nodes = append(nodes, node)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+
+	// To the same for the edges, mapping each vertex to a list of its
+	// edges.
+	edges := make(map[vertex][]edge)
+	for _, node := range nodes {
+		err := node.ForEachChannel(tx, func(tx *bolt.Tx,
+			edgeInfo *channeldb.ChannelEdgeInfo,
+			outEdge, inEdge *channeldb.ChannelEdgePolicy) error {
+			v := newVertex(node.PubKey)
+			e := edge{
+				edgeInfo: edgeInfo,
+				outEdge:  outEdge,
+				inEdge:   inEdge,
+			}
+			edges[v] = append(edges[v], e)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Now let nodes and edges back an in-memory graphSource, for quickly
+	// iterating through this graph for the repeated calls to its methods.
+	g := &graphSource{
+		ForEachNode: func(cb func(*channeldb.LightningNode) error) error {
+			for _, n := range nodes {
+				if err := cb(n); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		ForEachChannel: func(node *channeldb.LightningNode,
+			cb func(*channeldb.ChannelEdgeInfo,
+				*channeldb.ChannelEdgePolicy,
+				*channeldb.ChannelEdgePolicy) error) error {
+			v := newVertex(node.PubKey)
+			for _, e := range edges[v] {
+				err := cb(e.edgeInfo, e.outEdge, e.inEdge)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+
 	// First we'll find a single shortest path from the source (our
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(tx, graph, source, target,
+	startingPath, err := findPath(g, source, target,
 		ignoredVertexes, ignoredEdges, amt)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -660,7 +734,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// the vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
-			spurPath, err := findPath(tx, graph, spurNode, target,
+			spurPath, err := findPath(g, spurNode, target,
 				ignoredVertexes, ignoredEdges, amt)
 
 			// If we weren't able to find a path, we'll continue to

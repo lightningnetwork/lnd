@@ -717,8 +717,8 @@ out:
 			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
 		default:
-			peerLog.Errorf("unknown message received from peer "+
-				"%v", p)
+			peerLog.Errorf("unknown message %v received from peer "+
+				"%v", uint16(msg.MsgType()), p)
 		}
 
 		if isChanUpdate {

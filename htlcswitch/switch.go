@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/roasbeef/btcd/btcec"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -85,8 +86,13 @@ type ChanClose struct {
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
-	// LocalChannelClose kicks-off the workflow to execute a cooperative
-	// or forced unilateral closure of the channel initiated by a local
+	// SelfKey is the key of the backing Lightning node. This key is used
+	// to properly craft failure messages, such that the Layer 3 router can
+	// properly route around link./vertex failures.
+	SelfKey *btcec.PublicKey
+
+	// LocalChannelClose kicks-off the workflow to execute a cooperative or
+	// forced unilateral closure of the channel initiated by a local
 	// subsystem.
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
 }

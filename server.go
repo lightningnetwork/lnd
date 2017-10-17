@@ -176,6 +176,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
+		SelfKey: s.identityPriv.PubKey(),
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 

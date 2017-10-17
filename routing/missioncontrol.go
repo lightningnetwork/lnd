@@ -109,7 +109,7 @@ func (m *missionControl) GraphPruneView() *graphPruneView {
 	// view we'll return.
 	vertexes := make(map[vertex]struct{})
 	for vertex, pruneTime := range m.failedVertexes {
-		if now.Sub(pruneTime) >= edgeDecay {
+		if now.Sub(pruneTime) >= vertexDecay {
 			log.Tracef("Pruning decayed failure report for vertex %v "+
 				"from Mission Control", vertex)
 

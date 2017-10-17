@@ -1293,25 +1293,29 @@ sendLoop:
 				if err := r.applyChannelUpdate(&update); err != nil {
 					return preImage, nil, err
 				}
-				continue
+
+				return preImage, nil, sendError
 			case *lnwire.FailFeeInsufficient:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
 					return preImage, nil, err
 				}
-				continue
+
+				return preImage, nil, sendError
 			case *lnwire.FailIncorrectCltvExpiry:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
 					return preImage, nil, err
 				}
-				continue
+
+				return preImage, nil, sendError
 			case *lnwire.FailChannelDisabled:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(&update); err != nil {
 					return preImage, nil, err
 				}
-				continue
+
+				return preImage, nil, sendError
 			case *lnwire.FailTemporaryChannelFailure:
 				update := onionErr.Update
 				if err := r.applyChannelUpdate(update); err != nil {

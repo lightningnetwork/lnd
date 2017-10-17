@@ -17,8 +17,13 @@ install:
   - popd
   - popd
 env:
-  - RACE=false
-  - RACE=true
+  global:
+    - LOGS=true
+  matrix:
+    - RACE=false
+    - RACE=true
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - ./gotest.sh
+after_script:
+  - find *.log | xargs -I{} sh -c "cat {} | nc termbin.com 9999 | xargs -r0 printf '{} uploaded to %s'"

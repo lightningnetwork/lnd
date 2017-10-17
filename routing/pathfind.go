@@ -392,7 +392,7 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// map for the node set with a distance of "infinity".  We also mark
 	// add the node to our set of unvisited nodes.
 	distance := make(map[vertex]nodeWithDist)
-	if err := graph.ForEachNode(nil, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
+	if err := graph.ForEachNode(tx, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
 		distance[newVertex(node.PubKey)] = nodeWithDist{
@@ -423,7 +423,6 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// We'll use this map as a series of "previous" hop pointers. So to get
 	// to `vertex` we'll take the edge that it's mapped to within `prev`.
 	prev := make(map[vertex]edgeWithPrev)
-
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
 		// from the heap.

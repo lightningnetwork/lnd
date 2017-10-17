@@ -2860,7 +2860,8 @@ out:
 	if err := carol.Shutdown(); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
-	time.Sleep(time.Second * 2)
+	// TODO(roasbeef): mission control
+	time.Sleep(time.Second * 5)
 	alicePayStream, err = net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream: %v", err)

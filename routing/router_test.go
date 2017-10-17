@@ -175,6 +175,8 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
+	sourceNode := ctx.router.selfNode
+
 	// We'll modify the SendToSwitch method that's been set within the
 	// router's configuration to ignore the path that has luo ji as the
 	// first hop. This should force the router to instead take the
@@ -184,7 +186,9 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 		if ctx.aliases["luoji"].IsEqual(n) {
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				FailureMessage: &lnwire.FailTemporaryNodeFailure{},
+				ErrorSource: sourceNode.PubKey,
+				// TODO(roasbeef): temp node failure should be?
+				FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 			}
 		}
 
@@ -277,6 +281,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		return preImage, nil
 	}
 
+	ctx.router.missionControl.ResetHistory()
+
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
 	_, _, err = ctx.router.SendPayment(&payment)
@@ -289,6 +295,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	if !strings.Contains(err.Error(), "UnknownNextPeer") {
 		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
 	}
+
+	ctx.router.missionControl.ResetHistory()
 
 	// Next, we'll modify the SendToSwitch method to indicate that luo ji
 	// wasn't originally online. This should also halt the send all
@@ -316,6 +324,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("expected UnknownNextPeer instead got: %v", err)
 	}
 
+	ctx.router.missionControl.ResetHistory()
+
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity.
 	ctx.router.cfg.SendToSwitch = func(n *btcec.PublicKey,
@@ -337,9 +347,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	// This should succeed finally.
-	// The route selected should have two hops
-	//
+	// This should succeed finally.  The route selected should have two
+	// hops.
 	if len(route.Hops) != 2 {
 		t.Fatalf("incorrect route length: expected %v got %v", 2,
 			len(route.Hops))

@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -16,7 +17,22 @@ type ForwardingError struct {
 	// of candidate routes in response to the type of error extracted.
 	ErrorSource *btcec.PublicKey
 
+	// ExtraMsg is an additional error message that callers can provide in
+	// order to provide context specific error details.
+	ExtraMsg string
+
 	lnwire.FailureMessage
+}
+
+// Error implements the built-in error interface. We use this method to allow
+// the switch or any callers to insert additional context to the error message
+// returned.
+func (f *ForwardingError) Error() string {
+	if f.ExtraMsg == "" {
+		return f.FailureMessage.Error()
+	}
+
+	return fmt.Sprintf("%v: %v", f.FailureMessage.Error(), f.ExtraMsg)
 }
 
 // ErrorDecrypter is an interface that is used to decrypt the onion encrypted

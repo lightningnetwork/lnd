@@ -1,5 +1,5 @@
-hash: 3b4995c8dc0e657c9d4999124682986dad91a006eaeb317d5915ddbb84f2dae8
-updated: 2017-10-10T22:36:52.703799249-07:00
+hash: c34fae15752800433c31a9eac25ad8b5f71b70654db63886f9678a062b47d6cb
+updated: 2017-10-16T20:17:38.675070237-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -83,7 +83,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: github.com/roasbeef/btcd
-  version: 4b411f0e78f1faa96ae650d886170d018c1835bf
+  version: a64d018fd91151b842522d64771610712565d30a
   subpackages:
   - addrmgr
   - blockchain
@@ -151,7 +151,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: a04bdaca5b32abe1c069418fb7088ae607de5bd0
+  version: 1087133bc4af3073e18add999345c6ae75918503
   subpackages:
   - context
   - http2
@@ -161,11 +161,11 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: ebfc5b4631820b793c9010c87fd8fef0f39eb082
+  version: 686000749eaec0b8855b8eef5336cf63899fe51d
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 825fc78a2fd6fa0a5447e300189e3219e05e1f25
+  version: c01e4764d870b77f8abe5096ee19ad20d80e8075
   subpackages:
   - secure/bidirule
   - transform

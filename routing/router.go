@@ -198,6 +198,15 @@ type ChannelRouter struct {
 	// existing client.
 	ntfnClientUpdates chan *topologyClientUpdate
 
+	// missionControl is a shared memory of sorts that executions of
+	// payment path finding use in order to remember which vertexes/edges
+	// were pruned from prior attempts. During SendPayment execution,
+	// errors sent by nodes are mapped into a vertex or edge to be pruned.
+	// Each run will then take into account this set of pruned
+	// vertexes/edges to reduce route failure and pass on graph information
+	// gained to the next execution.
+	missionControl *missionControl
+
 	sync.RWMutex
 
 	quit chan struct{}
@@ -225,6 +234,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
+		missionControl:    newMissionControl(),
 		routeCache:        make(map[routeTuple][]*Route),
 		quit:              make(chan struct{}),
 	}, nil
@@ -950,6 +960,8 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	amt lnwire.MilliSatoshi) ([]*Route, error) {
 
+	// TODO(roasbeef): make num routes a param
+
 	dest := target.SerializeCompressed()
 	log.Debugf("Searching for path to %x, sending %v", dest, amt)
 
@@ -1168,20 +1180,51 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		sendError error
 	)
 
-	// First, we'll kick off the payment attempt by attempting to query the
-	// known channel graph for a route to the destination.
-	routes, err := r.FindRoutes(payment.Target, payment.Amount)
+	// We'll also fetch the current block height so we can properly
+	// calculate the required HTLC time locks within the route.
+	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return preImage, nil, err
 	}
 
-	// For each eligible path, we'll attempt to successfully send our
-	// target payment using the multi-hop route. We'll try each route
-	// serially until either once succeeds, or we've exhausted our set of
-	// available paths.
-sendLoop:
-	for i := 0; i < len(routes); i++ {
-		route := routes[i]
+	// We'll continue until either our payment succeeds, or we encounter a
+	// critical error during path finding.
+	sourceVertex := newVertex(r.selfNode.PubKey)
+	for {
+		// First, we'll query mission control for it's current
+		// recommendation on the edges/vertexes to ignore during path
+		// finding.
+		pruneView := r.missionControl.GraphPruneView()
+
+		// Taking into account this prune view, we'll attempt to locate
+		// a path to our destination, respecting the recommendations
+		// from missionControl.
+		path, err := findPath(nil, r.cfg.Graph, r.selfNode,
+			payment.Target, pruneView.vertexes, pruneView.edges,
+			payment.Amount)
+		if err != nil {
+			// If we're unable to successfully make a payment using
+			// any of the routes we've found, then return an error.
+			if sendError != nil {
+				return [32]byte{}, nil, fmt.Errorf("unable to "+
+					"route payment to destination: %v",
+					sendError)
+			}
+
+			return preImage, nil, err
+		}
+
+		// With the next candiate path found, we'll attempt to turn
+		// this into a route by applying the time-lock and fee
+		// requirements.
+		route, err := newRoute(payment.Amount, sourceVertex, path,
+			uint32(currentHeight))
+		if err != nil {
+			// TODO(roasbeef): return which edge/vertex didn't work
+			// out
+			return preImage, nil, err
+		}
+
 		log.Tracef("Attempting to send payment %x, using route: %v",
 			payment.PaymentHash, newLogClosure(func() string {
 				return spew.Sdump(route)
@@ -1332,27 +1375,23 @@ sendLoop:
 					continue
 				}
 
-				// If the channel was found, then we'll filter
-				// the rest of the routes to exclude any path
-				// that includes this channel, and restart the
-				// loop.
-				//
-				// TODO(roasbeef): should actually be
-				// directional?
-				routes = pruneChannelFromRoutes(routes,
-					badChan)
-				goto sendLoop
+				// If the channel was found, then we'll inform
+				// mission control of this failure so future
+				// attempts avoid this link temporarily.
+				r.missionControl.ReportChannelFailure(badChan)
+				continue
 
 			// If the send fail due to a node not having the
 			// required features, then we'll note this error and
-			// continue
+			// continue.
+			//
 			// TODO(roasbeef): remove node from path
 			case *lnwire.FailRequiredNodeFeatureMissing:
 				continue
 
 			// If the send fail due to a node not having the
 			// required features, then we'll note this error and
-			// continue
+			// continue.
 			//
 			// TODO(roasbeef): remove channel from path
 			case *lnwire.FailRequiredChannelFeatureMissing:
@@ -1371,17 +1410,22 @@ sendLoop:
 					continue
 				}
 
-				// Once we've located the vertex, we'll prune
-				// it out fromthe rest of the routes, and
-				// restart path finding.
-				routes = pruneNodeFromRoutes(routes,
-					missingNode)
-				goto sendLoop
+				// Once we've located the vertex, we'll report
+				// this failure to missionControl and restart
+				// path finding.
+				r.missionControl.ReportVertexFailure(missingNode)
+				continue
 
 			// If the node wasn't able to forward for which ever
 			// reason, then we'll note this and continue with the
 			// routes.
 			case *lnwire.FailTemporaryNodeFailure:
+				missingNode, ok := route.nextHopVertex(errSource)
+				if !ok {
+					continue
+				}
+
+				r.missionControl.ReportVertexFailure(missingNode)
 				continue
 
 			// If we get a permanent channel or node failure, then
@@ -1401,11 +1445,6 @@ sendLoop:
 
 		return preImage, route, nil
 	}
-
-	// If we're unable to successfully make a payment using any of the
-	// routes we've found, then return an error.
-	return [32]byte{}, nil, fmt.Errorf("unable to route payment to "+
-		"destination: %v", sendError)
 }
 
 // applyChannelUpdate applies a channel update directly to the database,

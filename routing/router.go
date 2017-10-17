@@ -81,8 +81,9 @@ type FeeSchema struct {
 
 	// FeeRate is the rate that will be charged for forwarding payments.
 	// This value should be interpreted as the numerator for a fraction
-	// whose denominator is 1 million. As a result the effective fee rate
-	// charged per mSAT will be: (amount * FeeRate/1,000,000)
+	// (fixed point arithmetic) whose denominator is 1 million. As a result
+	// the effective fee rate charged per mSAT will be: (amount *
+	// FeeRate/1,000,000).
 	FeeRate uint32
 }
 
@@ -146,9 +147,9 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 // ChannelRouter is the HtlcSwitch, and below that is the Bitcoin blockchain
 // itself. The primary role of the ChannelRouter is to respond to queries for
 // potential routes that can support a payment amount, and also general graph
-// reachability questions. The router will prune the channel graph automatically
-// as new blocks are discovered which spend certain known funding outpoints,
-// thereby closing their respective channels.
+// reachability questions. The router will prune the channel graph
+// automatically as new blocks are discovered which spend certain known funding
+// outpoints, thereby closing their respective channels.
 type ChannelRouter struct {
 	ntfnClientCounter uint64
 
@@ -405,16 +406,15 @@ func (r *ChannelRouter) networkHandler() {
 		case updateMsg := <-r.networkUpdates:
 			// Process the routing update to determine if this is
 			// either a new update from our PoV or an update to a
-			// prior vertex/edge we previously
-			// accepted.
+			// prior vertex/edge we previously accepted.
 			err := r.processUpdate(updateMsg.msg)
 			updateMsg.err <- err
 			if err != nil {
 				continue
 			}
 
-			// Send off a new notification for the newly
-			// accepted update.
+			// Send off a new notification for the newly accepted
+			// update.
 			topChange := &TopologyChange{}
 			err = addToTopologyChange(r.cfg.Graph, topChange,
 				updateMsg.msg)
@@ -536,6 +536,16 @@ func (r *ChannelRouter) networkHandler() {
 			// zombies.
 			filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
 				e1, e2 *channeldb.ChannelEdgePolicy) error {
+
+				// We'll ensure that we don't attempt to prune
+				// our *own* channels from the graph, as in any
+				// case this shuold be re-advertised by the
+				// sub-system above us.
+				if info.NodeKey1.IsEqual(r.selfNode.PubKey) ||
+					info.NodeKey2.IsEqual(r.selfNode.PubKey) {
+
+					return nil
+				}
 
 				// If *both* edges haven't been updated for a
 				// period of chanExpiry, then we'll mark the

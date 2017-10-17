@@ -320,10 +320,10 @@ func (s *Switch) forward(packet *htlcPacket) error {
 	}
 }
 
-// handleLocalDispatch is used at the start/end of the htlc update life
-// cycle. At the start (1) it is used to send the htlc to the channel link
-// without creation of circuit. At the end (2) it is used to notify the user
-// about the result of his payment is it was successful or not.
+// handleLocalDispatch is used at the start/end of the htlc update life cycle.
+// At the start (1) it is used to send the htlc to the channel link without
+// creation of circuit. At the end (2) it is used to notify the user about the
+// result of his payment is it was successful or not.
 //
 //   Alice         Bob          Carol
 //     o --add----> o ---add----> o
@@ -342,9 +342,11 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		// Try to find links by node destination.
 		links, err := s.getLinks(packet.destNode)
 		if err != nil {
-			log.Errorf("unable to find links by "+
-				"destination %v", err)
-			return errors.New(lnwire.CodeUnknownNextPeer)
+			log.Errorf("unable to find links by destination %v", err)
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				FailureMessage: &lnwire.FailUnknownNextPeer{},
+			}
 		}
 
 		// Try to find destination channel link with appropriate
@@ -373,19 +375,26 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				"outgoing links: need %v, max available is %v",
 				htlc.Amount, largestBandwidth)
 			log.Error(err)
-			return err
+
+			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       err.Error(),
+				FailureMessage: htlcErr,
+			}
 		}
 
 		// Send the packet to the destination channel link which
 		// manages then channel.
+		//
+		// TODO(roasbeef): should return with an error
 		destination.HandleSwitchPacket(packet)
 		return nil
 
-	// We've just received a settle update which means we can finalize
-	// the user payment and return successful response.
+	// We've just received a settle update which means we can finalize the
+	// user payment and return successful response.
 	case *lnwire.UpdateFufillHTLC:
-		// Notify the user that his payment was
-		// successfully proceed.
+		// Notify the user that his payment was successfully proceed.
 		payment.err <- nil
 		payment.preimage <- htlc.PaymentPreimage
 		s.removePendingPayment(payment.amount, payment.paymentHash)
@@ -393,23 +402,19 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 	// We've just received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		var userErr error
-
 		// We'll attempt to fully decrypt the onion encrypted error. If
 		// we're unable to then we'll bail early.
 		failure, err := payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			// TODO(roasbeef): can happen in case of local error in
-			// link pkt handling
-			userErr = errors.Errorf("unable to de-obfuscate "+
+			userErr := fmt.Sprintf("unable to de-obfuscate "+
 				"onion failure, htlc with hash(%x): %v",
 				payment.paymentHash[:], err)
 			log.Error(userErr)
-		}
-
-		// Notify user that his payment was discarded.
-		if userErr != nil {
-			payment.err <- userErr
+			payment.err <- &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       userErr,
+				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+			}
 		} else {
 			payment.err <- failure
 		}

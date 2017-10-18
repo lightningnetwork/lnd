@@ -382,7 +382,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// this is either a new announcement from our PoV or an
 			// edges to a prior vertex/edge we previously
 			// proceeded.
-			emittedAnnouncements := d.processNetworkAnnouncement(announcement)
+			emittedAnnouncements := d.processNetworkAnnouncement(
+				announcement,
+			)
 
 			// If the announcement was accepted, then add the
 			// emitted announcements to our announce batch to be
@@ -693,7 +695,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is premature: "+
 				"advertises height %v, only height %v is known",
@@ -800,7 +802,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			log.Infof("Update announcement for "+
 				"short_chan_id(%v), is premature: advertises "+
 				"height %v, only height %v is known",

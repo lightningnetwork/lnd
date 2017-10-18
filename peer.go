@@ -147,13 +147,14 @@ type peer struct {
 
 	server *server
 
-	// theirLocalFeatures is the local feature vector received from the peer
-	// during the connection handshake.
-	theirLocalFeatures *lnwire.FeatureVector
 
-	// theirGlobalFeatures is the global feature vector received from the peer
-	// during the connection handshake.
-	theirGlobalFeatures *lnwire.FeatureVector
+	// remoteLocalFeatures is the local feature vector received from the
+	// peer during the connection handshake.
+	remoteLocalFeatures *lnwire.FeatureVector
+
+	// remoteGlobalFeatures is the global feature vector received from the
+	// peer during the connection handshake.
+	remoteGlobalFeatures *lnwire.FeatureVector
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -1937,12 +1938,12 @@ func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
 // handleInitMsg handles the incoming init message which contains global and
 // local features vectors. If feature vectors are incompatible then disconnect.
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
-	p.theirLocalFeatures = lnwire.NewFeatureVector(msg.LocalFeatures,
+	p.remoteLocalFeatures = lnwire.NewFeatureVector(msg.LocalFeatures,
 		lnwire.LocalFeatures)
-	p.theirGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
+	p.remoteGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
 		lnwire.GlobalFeatures)
 
-	unknownLocalFeatures := p.theirLocalFeatures.UnknownRequiredFeatures()
+	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
 	if len(unknownLocalFeatures) > 0 {
 		err := errors.Errorf("Peer set unknown local feature bits: %v",
 			unknownLocalFeatures)
@@ -1950,7 +1951,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 		return err
 	}
 
-	unknownGlobalFeatures := p.theirGlobalFeatures.UnknownRequiredFeatures()
+	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
 	if len(unknownGlobalFeatures) > 0 {
 		err := errors.Errorf("Peer set unknown global feature bits: %v",
 			unknownGlobalFeatures)

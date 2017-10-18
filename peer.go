@@ -756,12 +756,129 @@ out:
 	peerLog.Tracef("readHandler for peer %v done", p)
 }
 
+// messageSummary returns a human-readable string that summarizes a
+// incoming/outgoing message. Not all messages will have a summary, only those
+// which have additional data that can be informative at a glance.
+func messageSummary(msg lnwire.Message) string {
+	switch msg := msg.(type) {
+	case *lnwire.Init:
+		// No summary.
+		return ""
+
+	case *lnwire.OpenChannel:
+		return fmt.Sprintf("temp_chan_id=%x, chain=%x, csv=%v, amt=%v, "+
+			"push_amt=%v, reserve=%v, flags=%v",
+			msg.ChainHash[:], msg.PendingChannelID[:],
+			msg.CsvDelay, msg.FundingAmount, msg.PushAmount,
+			msg.ChannelReserve, msg.ChannelFlags)
+
+	case *lnwire.AcceptChannel:
+		return fmt.Sprintf("temp_chan_id=%x, reserve=%v, csv=%v",
+			msg.PendingChannelID[:], msg.ChannelReserve, msg.CsvDelay)
+
+	case *lnwire.FundingCreated:
+		return fmt.Sprintf("temp_chan_id=%x, chan_point=%v",
+			msg.PendingChannelID[:], msg.FundingPoint)
+
+	case *lnwire.FundingSigned:
+		return fmt.Sprintf("chan_id=%v", msg.ChanID)
+
+	case *lnwire.FundingLocked:
+		return fmt.Sprintf("chan_id=%v, next_point=%x",
+			msg.ChanID, msg.NextPerCommitmentPoint.SerializeCompressed())
+
+	case *lnwire.Shutdown:
+		return fmt.Sprintf("chan_id=%v, script=%x", msg.ChannelID,
+			msg.Address[:])
+
+	case *lnwire.ClosingSigned:
+		return fmt.Sprintf("chan_id=%v, fee_sat=%v", msg.ChannelID,
+			msg.FeeSatoshis)
+
+	case *lnwire.UpdateAddHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, hash=%x",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry, msg.PaymentHash[:])
+
+	case *lnwire.UpdateFailHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, reason=%v", msg.ChanID,
+			msg.ID, msg.Reason)
+
+	case *lnwire.UpdateFufillHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
+			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
+
+	case *lnwire.CommitSig:
+		return fmt.Sprintf("chan_id=%v, num_htlcs=%v", msg.ChanID,
+			len(msg.HtlcSigs))
+
+	case *lnwire.RevokeAndAck:
+		return fmt.Sprintf("chan_id=%v, rev=%x, next_point=%x",
+			msg.ChanID, msg.Revocation[:],
+			msg.NextRevocationKey.SerializeCompressed())
+
+	case *lnwire.UpdateFailMalformedHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, fail_code=%v",
+			msg.ChanID, msg.ID, msg.FailureCode)
+
+	case *lnwire.Error:
+		return fmt.Sprintf("chan_id=%v, err=%v", msg.ChanID, msg.Data)
+
+	case *lnwire.AnnounceSignatures:
+		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
+			msg.ShortChannelID.ToUint64())
+
+	case *lnwire.ChannelAnnouncement:
+		return fmt.Sprintf("chain_hash=%x, short_chan_id=%v",
+			msg.ChainHash[:], msg.ShortChannelID.ToUint64())
+
+	case *lnwire.ChannelUpdate:
+		return fmt.Sprintf("chain_hash=%x, short_chan_id=%v, update_time=%v",
+			msg.ChainHash[:], msg.ShortChannelID.ToUint64(),
+			time.Unix(int64(msg.Timestamp), 0))
+
+	case *lnwire.NodeAnnouncement:
+		return fmt.Sprintf("node=%x, update_time=%v",
+			msg.NodeID.SerializeCompressed(),
+			time.Unix(int64(msg.Timestamp), 0))
+
+	case *lnwire.Ping:
+		// No summary.
+		return ""
+
+	case *lnwire.Pong:
+		// No summary.
+		return ""
+
+	case *lnwire.UpdateFee:
+		return fmt.Sprintf("chan_id=%v, fee_update_sat=%v",
+			msg.ChanID, int64(msg.FeePerKw))
+	}
+
+	return ""
+}
+
 // logWireMessage logs the receipt or sending of particular wire message. This
 // function is used rather than just logging the message in order to produce
 // less spammy log messages in trace mode by setting the 'Curve" parameter to
 // nil. Doing this avoids printing out each of the field elements in the curve
 // parameters for secp256k1.
 func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
+	summaryPrefix := "Received"
+	if !read {
+		summaryPrefix = "Sending"
+	}
+
+	peerLog.Debugf("%v", newLogClosure(func() string {
+		// Debug summary of message.
+		summary := messageSummary(msg)
+		if len(summary) > 0 {
+			summary = "(" + summary + ")"
+		}
+
+		return fmt.Sprintf("%v %v%s from %s", summaryPrefix,
+			msg.MsgType(), summary, p)
+	}))
+
 	switch m := msg.(type) {
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil

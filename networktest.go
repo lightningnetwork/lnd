@@ -186,6 +186,7 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--configfile=%v", l.cfg.DataDir))
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", l.cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", l.cfg.ReadMacPath))
+	args = append(args, fmt.Sprintf("--alias=%v", l.cfg.Alias))
 
 	if l.extraArgs != nil {
 		args = append(args, l.extraArgs...)

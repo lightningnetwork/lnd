@@ -111,6 +111,8 @@ type server struct {
 	// changed since last start.
 	currentNodeAnn *lnwire.NodeAnnouncement
 
+	selfAddrs []net.Addr
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -203,7 +205,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
-	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
+	s.selfAddrs = make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
 		var addr string
 		_, _, err = net.SplitHostPort(ip)
@@ -218,51 +220,16 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			return nil, err
 		}
 
-		selfAddrs = append(selfAddrs, lnAddr)
+		s.selfAddrs = append(s.selfAddrs, lnAddr)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
 
-	// TODO(roasbeef): make alias configurable
-	alias, err := lnwire.NewNodeAlias(hex.EncodeToString(serializedPubKey[:10]))
+	err = s.refreshNodeAnnouncement(cfg.Alias)
+
 	if err != nil {
 		return nil, err
 	}
-	selfNode := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Now(),
-		Addresses:            selfAddrs,
-		PubKey:               privKey.PubKey(),
-		Alias:                alias.String(),
-		Features:             globalFeatures,
-	}
-
-	// If our information has changed since our last boot, then we'll
-	// re-sign our node announcement so a fresh authenticated version of it
-	// can be propagated throughout the network upon startup.
-	//
-	// TODO(roasbeef): don't always set timestamp above to _now.
-	nodeAnn := &lnwire.NodeAnnouncement{
-		Timestamp: uint32(selfNode.LastUpdate.Unix()),
-		Addresses: selfNode.Addresses,
-		NodeID:    selfNode.PubKey,
-		Alias:     alias,
-		Features:  selfNode.Features,
-	}
-	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
-		s.identityPriv.PubKey(), nodeAnn,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate signature for "+
-			"self node announcement: %v", err)
-	}
-
-	if err := chanGraph.SetSourceNode(selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %v", err)
-	}
-
-	nodeAnn.Signature = selfNode.AuthSig
-	s.currentNodeAnn = nodeAnn
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
@@ -349,6 +316,64 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	s.connMgr = cmgr
 
 	return s, nil
+}
+
+// Announces our node using 'aliasName'. If 'aliasName' is empty then
+// we use the first 10 digits of our public key instead.
+//
+// NOTE: This function is safe for concurrent access.
+func (s *server) refreshNodeAnnouncement(aliasName string) error {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if aliasName == "" {
+		aliasName = hex.EncodeToString(s.identityPriv.PubKey().SerializeCompressed()[:10])
+	}
+
+	chanGraph := s.chanDB.ChannelGraph()
+
+	alias, err := lnwire.NewNodeAlias(aliasName)
+	if err != nil {
+		return err
+	}
+	selfNode := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Now(),
+		Addresses:            s.selfAddrs,
+		PubKey:               s.identityPriv.PubKey(),
+		Alias:                alias.String(),
+		Features:             globalFeatures,
+	}
+
+	// If our information has changed since our last boot, then we'll
+	// re-sign our node announcement so a fresh authenticated version of it
+	// can be propagated throughout the network upon startup.
+	//
+	// TODO(roasbeef): don't always set timestamp above to _now.
+	nodeAnn := &lnwire.NodeAnnouncement{
+		Timestamp: uint32(selfNode.LastUpdate.Unix()),
+		Addresses: selfNode.Addresses,
+		NodeID:    selfNode.PubKey,
+		Alias:     alias,
+		Features:  selfNode.Features,
+	}
+	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
+		s.identityPriv.PubKey(), nodeAnn,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to generate signature for "+
+			"self node announcement: %v", err)
+	}
+
+	if err := chanGraph.SetSourceNode(selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %v", err)
+	}
+
+	nodeAnn.Signature = selfNode.AuthSig
+	s.currentNodeAnn = nodeAnn
+
+	return nil
 }
 
 // Started returns true if the server has been started, and false otherwise.

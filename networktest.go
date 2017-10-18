@@ -172,6 +172,7 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, "--bitcoin.active")
 	args = append(args, "--bitcoin.simnet")
 	args = append(args, "--nobootstrap")
+	args = append(args, "--debuglevel=debug")
 	args = append(args, fmt.Sprintf("--bitcoin.rpchost=%v", l.cfg.Bitcoin.RPCHost))
 	args = append(args, fmt.Sprintf("--bitcoin.rpcuser=%v", l.cfg.Bitcoin.RPCUser))
 	args = append(args, fmt.Sprintf("--bitcoin.rpcpass=%v", l.cfg.Bitcoin.RPCPass))

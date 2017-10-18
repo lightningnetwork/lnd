@@ -766,9 +766,9 @@ func messageSummary(msg lnwire.Message) string {
 		return ""
 
 	case *lnwire.OpenChannel:
-		return fmt.Sprintf("temp_chan_id=%x, chain=%x, csv=%v, amt=%v, "+
+		return fmt.Sprintf("temp_chan_id=%x, chain=%v, csv=%v, amt=%v, "+
 			"push_amt=%v, reserve=%v, flags=%v",
-			msg.ChainHash[:], msg.PendingChannelID[:],
+			msg.PendingChannelID[:], msg.ChainHash,
 			msg.CsvDelay, msg.FundingAmount, msg.PushAmount,
 			msg.ChannelReserve, msg.ChannelFlags)
 
@@ -828,12 +828,12 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ShortChannelID.ToUint64())
 
 	case *lnwire.ChannelAnnouncement:
-		return fmt.Sprintf("chain_hash=%x, short_chan_id=%v",
-			msg.ChainHash[:], msg.ShortChannelID.ToUint64())
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
+			msg.ChainHash, msg.ShortChannelID.ToUint64())
 
 	case *lnwire.ChannelUpdate:
-		return fmt.Sprintf("chain_hash=%x, short_chan_id=%v, update_time=%v",
-			msg.ChainHash[:], msg.ShortChannelID.ToUint64(),
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, update_time=%v",
+			msg.ChainHash, msg.ShortChannelID.ToUint64(),
 			time.Unix(int64(msg.Timestamp), 0))
 
 	case *lnwire.NodeAnnouncement:

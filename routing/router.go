@@ -234,7 +234,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		missionControl:    newMissionControl(),
+		missionControl:    newMissionControl(cfg.Graph, selfNode),
 		routeCache:        make(map[routeTuple][]*Route),
 		quit:              make(chan struct{}),
 	}, nil
@@ -1189,19 +1189,13 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
-	sourceVertex := newVertex(r.selfNode.PubKey)
 	for {
-		// First, we'll query mission control for it's current
-		// recommendation on the edges/vertexes to ignore during path
-		// finding.
-		pruneView := r.missionControl.GraphPruneView()
-
-		// Taking into account this prune view, we'll attempt to locate
-		// a path to our destination, respecting the recommendations
-		// from missionControl.
-		path, err := findPath(nil, r.cfg.Graph, r.selfNode,
-			payment.Target, pruneView.vertexes, pruneView.edges,
-			payment.Amount)
+		// We'll kick things off by requesting a new route from mission
+		// control, which will incoroporate the current best known
+		// state of the channel graph and our past HTLC routing
+		// successes/failures.
+		route, err := r.missionControl.RequestRoute(payment,
+			uint32(currentHeight))
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.
@@ -1211,17 +1205,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 					sendError)
 			}
 
-			return preImage, nil, err
-		}
-
-		// With the next candiate path found, we'll attempt to turn
-		// this into a route by applying the time-lock and fee
-		// requirements.
-		route, err := newRoute(payment.Amount, sourceVertex, path,
-			uint32(currentHeight))
-		if err != nil {
-			// TODO(roasbeef): return which edge/vertex didn't work
-			// out
 			return preImage, nil, err
 		}
 

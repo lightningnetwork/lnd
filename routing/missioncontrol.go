@@ -3,6 +3,8 @@ package routing
 import (
 	"sync"
 	"time"
+
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 const (
@@ -49,6 +51,10 @@ type missionControl struct {
 	// to that particular vertex.
 	failedVertexes map[vertex]time.Time
 
+	graph *channeldb.ChannelGraph
+
+	selfNode *channeldb.LightningNode
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -60,8 +66,12 @@ type missionControl struct {
 // newMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func newMissionControl() *missionControl {
+func newMissionControl(g *channeldb.ChannelGraph,
+	s *channeldb.LightningNode) *missionControl {
+
 	return &missionControl{
+		graph:          g,
+		selfNode:       s,
 		failedEdges:    make(map[uint64]time.Time),
 		failedVertexes: make(map[vertex]time.Time),
 	}
@@ -90,6 +100,45 @@ func (m *missionControl) ReportChannelFailure(e uint64) {
 	m.Lock()
 	m.failedEdges[e] = time.Now()
 	m.Unlock()
+}
+
+// RequestRoute returns a route which is likely to be capable for successfully
+// routing the specified HTLC payment to the target node. Initially the first
+// set of paths returned from this method may encounter routing failure along
+// the way, however as more payments are sent, mission control will start to
+// build an up to date view of the network itself. With each payment a new area
+// will be explored, which feeds into the recommendations made for routing.
+//
+// NOTE: This function is safe for concurrent access.
+func (m *missionControl) RequestRoute(payment *LightningPayment,
+	height uint32) (*Route, error) {
+
+	// First, we'll query mission control for it's current recommendation
+	// on the edges/vertexes to ignore during path finding.
+	pruneView := m.GraphPruneView()
+
+	// TODO(roasbeef): sync logic amongst dist sys
+
+	// Taking into account this prune view, we'll attempt to locate a path
+	// to our destination, respecting the recommendations from
+	// missionControl.
+	path, err := findPath(nil, m.graph, m.selfNode, payment.Target,
+		pruneView.vertexes, pruneView.edges, payment.Amount)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the next candidate path found, we'll attempt to turn this into
+	// a route by applying the time-lock and fee requirements.
+	sourceVertex := newVertex(m.selfNode.PubKey)
+	route, err := newRoute(payment.Amount, sourceVertex, path, height)
+	if err != nil {
+		// TODO(roasbeef): return which edge/vertex didn't work
+		// out
+		return nil, err
+	}
+
+	return route, err
 }
 
 // GraphPruneView returns a new graphPruneView instance which is to be

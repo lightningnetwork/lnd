@@ -223,25 +223,31 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
+	switch {
 	// The SPV mode implemented currently doesn't support Litecoin, so the
 	// two modes are incompatible.
-	if cfg.NeutrinoMode.Active && cfg.Litecoin.Active {
+	case cfg.NeutrinoMode.Active && cfg.Litecoin.Active:
 		str := "%s: The light client mode currently supported does " +
 			"not yet support execution on the Litecoin network"
 		err := fmt.Errorf(str, funcName)
 		return nil, err
-	}
 
-	if cfg.Litecoin.Active {
+	// Either Bitcoin must be active, or Litecoin must be active.
+	// Otherwise, we don't know which chain we're on.
+	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active:
+		return nil, fmt.Errorf("either bitcoin.active or " +
+			"litecoin.active must be set to 1 (true)")
+
+	case cfg.Litecoin.Active:
 		if cfg.Litecoin.SimNet {
 			str := "%s: simnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
 		}
 
 		// The litecoin chain is the current active chain. However
-		// throuhgout the codebase we required chiancfg.Params. So as a
+		// throughout the codebase we required chiancfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
-		// bitcoin with the litecoin specific informat.ion
+		// bitcoin with the litecoin specific information.
 		paramCopy := bitcoinTestNetParams
 		applyLitecoinParams(&paramCopy)
 		activeNetParams = paramCopy
@@ -262,8 +268,8 @@ func loadConfig() (*config, error) {
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(litecoinChain)
-	}
-	if cfg.Bitcoin.Active {
+
+	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
 		// number of network flags passed; assign active network params
 		// while we're at it.

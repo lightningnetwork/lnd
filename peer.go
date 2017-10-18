@@ -1638,11 +1638,15 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 		if strings.Contains(err.Error(), "already exists") ||
 			strings.Contains(err.Error(), "already have") {
 			peerLog.Infof("channel close tx from ChannelPoint(%v) "+
-				" already exist, probably broadcasted by peer: %v",
+				" already exist, probably broadcast by peer: %v",
 				chanPoint, err)
 		} else {
 			peerLog.Errorf("channel close tx from ChannelPoint(%v) "+
 				" rejected: %v", chanPoint, err)
+
+			if localReq != nil {
+				localReq.Err <- err
+			}
 
 			// TODO(roasbeef): send ErrorGeneric to other side
 			return nil, 0

@@ -102,10 +102,6 @@ type server struct {
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
 
-	// localFeatures is an feature vector which represent the features
-	// which only affect the protocol between these two nodes.
-	localFeatures *lnwire.FeatureVector
-
 	// currentNodeAnn is the node announcement that has been broadcast to
 	// the network upon startup, if the attributes of the node (us) has
 	// changed since last start.
@@ -132,7 +128,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	globalFeatures := lnwire.NewRawFeatureVector()
-	localFeatures := lnwire.NewRawFeatureVector(lnwire.InitialRoutingSync)
 
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
@@ -164,9 +159,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
-		localFeatures: lnwire.NewFeatureVector(localFeatures,
-			lnwire.LocalFeatures),
-
 		quit: make(chan struct{}),
 	}
 
@@ -1100,9 +1092,12 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChainNet:    activeNetParams.Net,
 	}
 
-	// Now that we've established a connection, create a peer, and
-	// it to the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
+	// With the brontide connection established, we'll now craft the local
+	// feature vector to advertise to the remote node.
+	localFeatures := lnwire.NewRawFeatureVector()
+	// Now that we've established a connection, create a peer, and it to
+	// the set of currently active peers.
+	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return
@@ -1335,16 +1330,16 @@ func (s *server) addPeer(p *peer) {
 	// Launch a goroutine to watch for the unexpected termination of this
 	// peer, which will ensure all resources are properly cleaned up, and
 	// re-establish persistent connections when necessary. The peer
-	// termination watcher will be short circuited if the peer is ever added
-	// to the ignorePeerTermination map, indicating that the server has
-	// already handled the removal of this peer.
+	// termination watcher will be short circuited if the peer is ever
+	// added to the ignorePeerTermination map, indicating that the server
+	// has already handled the removal of this peer.
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p)
 
-	if p.theirLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
-		// Once the peer has been added to our indexes, send a message to the
-		// channel router so we can synchronize our view of the channel graph
-		// with this new peer.
+	// If the remote peer has the initial sync feature bit set, then we'll
+	// being the synchronization protocol to exchange authenticated channel
+	// graph edges/vertexes
+	if p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
 		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
 	}
 

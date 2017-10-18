@@ -147,6 +147,9 @@ type peer struct {
 
 	server *server
 
+	// localFeatures is the set of local features that we advertised to the
+	// remote node.
+	localFeatures *lnwire.RawFeatureVector
 
 	// remoteLocalFeatures is the local feature vector received from the
 	// peer during the connection handshake.
@@ -164,7 +167,8 @@ type peer struct {
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
-	addr *lnwire.NetAddress, inbound bool) (*peer, error) {
+	addr *lnwire.NetAddress, inbound bool,
+	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
 
 	nodePub := addr.IdentityKey
 
@@ -177,6 +181,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		connReq: connReq,
 
 		server: server,
+
+		localFeatures: localFeatures,
 
 		sendQueue:     make(chan outgoinMsg),
 		sendQueueSync: make(chan struct{}),
@@ -1967,7 +1973,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
 		p.server.globalFeatures.RawFeatureVector,
-		p.server.localFeatures.RawFeatureVector,
+		p.localFeatures,
 	)
 
 	return p.writeMessage(msg)

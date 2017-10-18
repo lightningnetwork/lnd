@@ -11,10 +11,90 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
+//	              Overview of Nursery Store Storage Hierarchy
+//
+//   CHAIN SEGMENTATION
+//
+//   The root directory of a nursery store is bucketed by the chain hash and
+//   the 'utxn' prefix. This allows multiple utxo nurseries for distinct chains
+//   to simultaneously use the same channel.DB instance. This is critical for
+//   providing replay protection and more to isolate chain-specific data in the
+//   multichain setting.
+//
+//   utxn<chain-hash>/
+//   |
+//   |   LAST PURGED + FINALIZED HEIGHTS
+//   |
+//   |   Each nursery store tracks a "last purged height", which records the
+//   |   most recent block height for which the nursery store has purged all
+//   |   state. This value lags behind the best block height for reorg safety,
+//   |   and serves as a starting height for rescans after a restart. It also
+//   |   tracks a "last finalized height", which records the last block height
+//   |   that the nursery attempted to graduate. If a finalized height has
+//   |   kindergarten outputs, the sweep txn for these outputs will be stored in
+//   |   the height bucket. This ensure that the same txid will be used after
+//   |   restarts.  Otherwise, the nursery will be unable to recover the txid
+//   |   of kindergarten sweep transaction it has already broadcast.
+//   |
+//   ├── last-purged-height-key: <last-purged-height>
+//   ├── last-finalized-height-key: <last-finalized-height>
+//   |
+//   |   CHANNEL INDEX
+//   |
+//   |   The channel index contains a directory for each channel that has a
+//   |   non-zero number of outputs being tracked by the nursery store.
+//   |   Inside each channel directory are files containing serialized spendable
+//   |   outputs that are awaiting some state transition. The name of each file
+//   |   contains the outpoint of the spendable output in the file, and is
+//   |   prefixed with 4-byte state prefix, indicating whether the spendable
+//   |   output is a crib, preschool, or kindergarten, or graduated output. The
+//   |   nursery store supports the ability to enumerate all outputs for a
+//   |   particular channel, which is useful in constructing nursery reports.
+//   |
+//   ├── channel-index-key/
+//   │   ├── <chan-point-1>/                      <- CHANNEL BUCKET
+//   |   |   ├── <state-prefix><outpoint-1>: <spendable-output-1>
+//   |   |   └── <state-prefix><outpoint-2>: <spendable-output-2>
+//   │   ├── <chan-point-2>/
+//   |   |   └── <state-prefix><outpoint-3>: <spendable-output-3>
+//   │   └── <chan-point-3>/
+//   |       ├── <state-prefix><outpoint-4>: <spendable-output-4>
+//   |       └── <state-prefix><outpoint-5>: <spendable-output-5>
+//   |
+//   |   HEIGHT INDEX
+//   |
+//   |   The height index contains a directory for each height at which the
+//   |   nursery still has scheduled actions. If an output is a crib or
+//   |   kindergarten output, it will have an associated entry in the height
+//   |   index. Inside a particular height directory, the structure is similar
+//   |   to that of the channel index, containing multiple channel directories,
+//   |   each of which contains subdirectories named with a prefixed outpoint
+//   |   belonging to the channel. Enumerating these combinations yields a
+//   |   relative file path:
+//   |     e.g. <chan-point-3>/<prefix><outpoint-2>/
+//   |   that can be queried in the channel index to retrieve the serialized
+//   |   output. If a height bucket is less than or equal to the current last
+//   |   finalized height and has a non-zero number of kindergarten outputs, a
+//   |   height bucket will also contain the finalized kindergarten sweep txn
+//   |   under the "finalized-kndr-txn" key.
+//   |
+//   └── height-index-key/
+//       ├── <height-1>/                             <- HEIGHT BUCKET
+//       |   ├── <chan-point-3>/                     <- HEIGHT-CHANNEL BUCKET
+//       |   |    ├── <state-prefix><outpoint-4>: "" <- PREFIXED OUTPOINT
+//       |   |    └── <state-prefix><outpoint-5>: ""
+//       |   ├── <chan-point-2>/
+//       |   |    └── <state-prefix><outpoint-3>: ""
+//       |   └── finalized-kndr-txn:              "" | <kndr-sweep-tnx>
+//       └── <height-2>/
+//           └── <chan-point-1>/
+//                └── <state-prefix><outpoint-1>: ""
+//                └── <state-prefix><outpoint-2>: ""
+
 // NurseryStore abstracts the persistent storage layer for the utxo nursery.
-// Concretely, it stores commitment and htlc outputs that until any time-bounded
-// constraints have fully matured. The store exposes methods for enumerating
-// its contents, and persisting state transitions detected by the utxo nursery.
+// Concretely, it stores commitment and htlc outputs until any time-bounded
+// constraints have fully matured. The store exposes methods for enumerating its
+// contents, and persisting state transitions detected by the utxo nursery.
 type NurseryStore interface {
 
 	// Incubate registers a commitment output and a slice of htlc outputs to
@@ -35,31 +115,38 @@ type NurseryStore interface {
 	PreschoolToKinder(*kidOutput) error
 
 	// GraduateKinder accepts a slice of kidOutputs from the kindergarten
-	// bucket, and removes their corresponding entries from the height and
-	// channel indexes. If this method detects that all outputs for a
-	// particular contract have been incubated, it returns the channel
-	// points that are ready to be marked as fully closed.
-	GraduateKinder([]kidOutput) error
-
-	// FinalizeHeight accepts a block height as a parameter and purges its
-	// persistent state for all outputs at that height. During a restart,
-	// the utxo nursery will begin it's recovery procedure from the next
-	// height that has yet to be finalized. This block height should lag
-	// beyond the best height for this chain as a measure of reorg
-	// protection.
-	FinalizeHeight(height uint32) error
-
-	// LastFinalizedHeight returns the last block height for which the
-	// nursery store has purged all persistent state.
-	LastFinalizedHeight() (uint32, error)
-
-	// FetchClass returns a list of babyOutputs in the crib bucket whose
-	// CLTV delay expires at the provided block height.
-	FetchClass(height uint32) ([]kidOutput, []babyOutput, error)
+	// bucket and marks them graduated. It also removes their corresponding
+	// entries from the height and channel indexes, pruning any intermediate
+	// buckets that become empty.
+	GraduateKinder(height uint32, kndrOutputs []kidOutput) error
 
 	// FetchPreschools returns a list of all outputs currently stored in the
 	// preschool bucket.
 	FetchPreschools() ([]kidOutput, error)
+
+	// FetchClass returns a list of kindergarten and crib outputs whose
+	// timelocks expire at the given height. If the kindergarten class at
+	// this height hash been finalized previously, via FinalizeKinder, it
+	// will also returns the finalized kindergarten sweep txn.
+	FetchClass(height uint32) (*wire.MsgTx, []kidOutput, []babyOutput, error)
+
+	// FinalizeKinder accepts a block height and the kindergarten sweep txn
+	// computed for this height. Upon startup, we will rebroadcast any
+	// finalized kindergarten txns instead of signing a new txn, as this
+	// result in a different txid from a preceding broadcast.
+	FinalizeKinder(height uint32, tx *wire.MsgTx) error
+
+	// LastFinalizedHeight returns the last block height for which the
+	// nursery store finalized a kindergarten class.
+	LastFinalizedHeight() (uint32, error)
+
+	// PurgeHeight deletes specified the height bucket if it exists, and
+	// records it as that last purged height.
+	PurgeHeight(height uint32) error
+
+	// LastPurgedHeight returns the last block height for which the nursery
+	// store has purged all persistent state.
+	LastPurgedHeight() (uint32, error)
 
 	// ForChanOutputs iterates over all outputs being incubated for a
 	// particular channel point. This method accepts a callback that allows
@@ -73,9 +160,67 @@ type NurseryStore interface {
 	IsMatureChannel(*wire.OutPoint) (bool, error)
 
 	// RemoveChannel channel erases all entries from the channel bucket for
-	// the provided channel point.
+	// the provided channel point, this method should only be called if
+	// IsMatureChannel indicates the channel is ready for removal.
 	RemoveChannel(*wire.OutPoint) error
 }
+
+var (
+	// utxnChainPrefix is used to prefix a particular chain hash and create
+	// the root-level, chain-segmented bucket for each nursery store.
+	utxnChainPrefix = []byte("utxn")
+
+	// lastFinalizedHeightKey is a static key used to locate nursery store's
+	// last finalized height.
+	lastFinalizedHeightKey = []byte("last-finalized-height")
+
+	// lastPurgedHeightKey is a static key used to retrieve the height of
+	// the last bucket that was purged.
+	lastPurgedHeightKey = []byte("last-purged-height")
+
+	// channelIndexKey is a static key used to lookup the bucket containing
+	// all of the nursery's active channels.
+	channelIndexKey = []byte("channel-index")
+
+	// channelIndexKey is a static key used to retrieve a directory
+	// containing all heights for which the nursery will need to take
+	// action.
+	heightIndexKey = []byte("height-index")
+
+	// finalizedKndrTxnKey is a static key that can be used to locate a
+	// finalized kindergarten sweep txn.
+	finalizedKndrTxnKey = []byte("finalized-kndr-txn")
+)
+
+// Defines the state prefixes that will be used to persistently track an
+// output's progress through the nursery.
+// NOTE: Each state prefix MUST be exactly 4 bytes in length, the nursery logic
+// depends on the ability to create keys for a different state by overwriting
+// an existing state prefix.
+var (
+	// cribPrefix is the state prefix given to htlc outputs waiting for
+	// their first-stage, absolute locktime to elapse.
+	cribPrefix = []byte("crib")
+
+	// psclPrefix is the state prefix given to commitment outputs awaiting
+	// the confirmation of the commitment transaction, as this solidifies
+	// the absolute height at which they can be spent.
+	psclPrefix = []byte("pscl")
+
+	// kndrPrefix is the state prefix given to all CSV delayed outputs,
+	// either from the commitment transaction, or a stage-one htlc
+	// transaction, whose maturity height has solidified. Outputs marked in
+	// this state are in their final stage of incubation withn the nursery,
+	// and will be swept into the wallet after waiting out the relative
+	// timelock.
+	kndrPrefix = []byte("kndr")
+
+	// gradPrefix is the state prefix given to all outputs that have been
+	// completely incubated. Once all outputs have been marked as graduated,
+	// this serves as a persistent marker that the nursery should mark the
+	// channel fully closed in the channeldb.
+	gradPrefix = []byte("grad")
+)
 
 // prefixChainKey creates the root level keys for the nursery store. The keys
 // are comprised of a nursery-specific prefix and the intended chain hash that
@@ -117,117 +262,6 @@ func prefixOutputKey(statePrefix []byte,
 	return pfxOutputBuffer.Bytes(), nil
 }
 
-var (
-	// utxnChainPrefix is used to prefix a particular chain hash and create
-	// the root-level, chain-segmented bucket for each nursery store.
-	utxnChainPrefix = []byte("utxn")
-
-	// lastFinalizedHeightKey is a static key used to locate nursery store's
-	// last finalized height.
-	lastFinalizedHeightKey = []byte("last-finalized-height")
-
-	// channelIndexKey is a static key used to lookup the bucket containing
-	// all of the nursery's active channels.
-	channelIndexKey = []byte("channel-index")
-
-	// channelIndexKey is a static key used to retrieve a directory
-	// containing all heights for which the nursery will need to take
-	// action.
-	heightIndexKey = []byte("height-index")
-
-	// cribPrefix is the state prefix given to htlc outputs waiting for
-	// their first-stage, absolute locktime to elapse.
-	cribPrefix = []byte("crib")
-
-	// psclPrefix is the state prefix given to commitment outputs awaiting
-	// the // confirmation of the commitment transaction, as this solidifies
-	// the absolute height at which they can be spent.
-	psclPrefix = []byte("pscl")
-
-	// kndrPrefix is the state prefix given to all CSV delayed outputs,
-	// either from the commitment transaction, or a stage-one htlc
-	// transaction, whose maturity height has solidified. Outputs marked in
-	// this state are in their final stage of incubation withn the nursery,
-	// and will be swept into the wallet after waiting out the relative
-	// timelock.
-	kndrPrefix = []byte("kndr")
-
-	// gradPrefix is the state prefix given to all outputs that have been
-	// completely incubated. Once all outputs have been marked as graduated,
-	// this serves as a persistent marker that the nursery should mark the
-	// channel fully closed in the channeldb.
-	gradPrefix = []byte("grad")
-)
-
-//	              Overview of Nursery Store Storage Hierarchy
-//
-//   CHAIN SEGMENTATION
-//
-//   The root directory of a nursery store is bucketed by the chain hash and
-//   the 'utxn' prefix. This allows multiple utxo nurseries for distinct chains
-//   to simultaneously use the same channel.DB instance. This is critical for
-//   providing replay protection and more to isolate chain-specific data in the
-//   multichain setting.
-//
-//   utxn<chain-hash>/
-//   |
-//   |   LAST FINALIZED HEIGHT
-//   |
-//   |   Each nursery store tracks a "last finalized height", which records the
-//   |   most recent block height for which the nursery store has purged all
-//   |   state. This value lags behind the best block height for reorg safety,
-//   |   and serves as a starting height for rescans after a restart.
-//   |
-//   ├── last-finalized-height-key: <last-finalized-height>
-//   |
-//   |   CHANNEL INDEX
-//   |
-//   |   The channel index contains a directory for each channel that has a
-//   |   non-zero number of outputs being tracked by the nursery store.
-//   |   Inside each channel directory are files containing serialized spendable
-//   |   outputs that are awaiting some state transition. The name of each file
-//   |   contains the outpoint of the spendable output in the file, and is
-//   |   prefixed with 4-byte state prefix, indicating whether the spendable
-//   |   output is a crib, preschool, or kindergarten output. The nursery store
-//   |   supports the ability to enumerate all outputs for a particular channel,
-//   |   which is useful in constructing nursery reports.
-//   |
-//   ├── channel-index-key/
-//   │   ├── <chan-point-1>/                      <- CHANNEL BUCKET
-//   |   |   ├── <state-prefix><outpoint-1>: <spendable-output-1>
-//   |   |   └── <state-prefix><outpoint-2>: <spendable-output-2>
-//   │   ├── <chan-point-2>/
-//   |   |   └── <state-prefix><outpoint-3>: <spendable-output-3>
-//   │   └── <chan-point-3>/
-//   |       ├── <state-prefix><outpoint-4>: <spendable-output-4>
-//   |       └── <state-prefix><outpoint-5>: <spendable-output-5>
-//   |
-//   |   HEIGHT INDEX
-//   |
-//   |   The height index contains a directory for each height at which the
-//   |   nursery still has uncompleted actions. If an output is a crib or
-//   |   kindergarten output, it will have an associated entry in the height
-//   |   index. Inside a particular height directory, the structure is similar
-//   |   to that of the channel index, containing multiple channel directories,
-//   |   each of which contains subdirectories named with a prefixed outpoint
-//   | 	 belonging to the channel. Enumerating these combinations yields a
-//   |   relative file path:
-//   |     e.g. <chan-point-3>/<prefix><outpoint-2>/
-//   |   that can be queried in the channel index to retrieve the serialized
-//   |   output.
-//   |
-//   └── height-index-key/
-//       ├── <height-1>/                             <- HEIGHT BUCKET
-//       |   └── <chan-point-3>/                     <- HEIGHT-CHANNEL BUCKET
-//       |   |    ├── <state-prefix><outpoint-4>: "" <- PREFIXED OUTPOINT
-//       |   |    └── <state-prefix><outpoint-5>: ""
-//       |   └── <chan-point-2>/
-//       |        └── <state-prefix><outpoint-3>: ""
-//       └── <height-2>/
-//           └── <chan-point-1>/
-//                └── <state-prefix><outpoint-1>: ""
-//                └── <state-prefix><outpoint-2>: ""
-
 // nurseryStore is a concrete instantiation of a NurseryStore that is backed by
 // a channeldb.DB instance.
 type nurseryStore struct {
@@ -258,8 +292,8 @@ func newNurseryStore(chainHash *chainhash.Hash,
 	}, nil
 }
 
-// Incubate initiates the incubation process for the CSV-delayed commitment
-// output and any number of CLTV-delayed htlc outputs.
+// Incubate persists the beginning of the incubation process for the CSV-delayed
+// commitment output and a list of two-stage htlc outputs.
 func (ns *nurseryStore) Incubate(kid *kidOutput, babies []babyOutput) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		// Store commitment output in preschool bucket if not nil.
@@ -436,12 +470,12 @@ func (ns *nurseryStore) PreschoolToKinder(kid *kidOutput) error {
 // GraduateKinder accepts a list of kidOutputs in the kindergarten bucket and
 // marks them as graduated. This method also removes their corresponding entries
 // from the height and channel indexes corresponding to their kindergarten
-// status.
-func (ns *nurseryStore) GraduateKinder(kids []kidOutput) error {
+// status. It also ensures that the finalized kindergarten sweep txn is removed
+// for this height.
+func (ns *nurseryStore) GraduateKinder(height uint32, kids []kidOutput) error {
 	if err := ns.db.Update(func(tx *bolt.Tx) error {
 		for _, kid := range kids {
 
-			confHeight := kid.ConfHeight()
 			outpoint := kid.OutPoint()
 			chanPoint := kid.OriginChanPoint()
 
@@ -454,7 +488,7 @@ func (ns *nurseryStore) GraduateKinder(kids []kidOutput) error {
 			}
 
 			// Remove the grad output's entry in the height index.
-			err = ns.removeOutputFromHeight(tx, confHeight, chanPoint,
+			err = ns.removeOutputFromHeight(tx, height, chanPoint,
 				pfxOutputKey)
 			if err != nil {
 				return err
@@ -479,14 +513,23 @@ func (ns *nurseryStore) GraduateKinder(kids []kidOutput) error {
 			}
 
 			// Insert serialized output into channel bucket using
-			// kindergarten-prefixed key.
+			// graduate-prefixed key.
 			err = chanBucket.Put(pfxOutputKey, gradBuffer.Bytes())
 			if err != nil {
 				return err
 			}
 		}
 
-		return nil
+		hghtBucket := ns.getHeightBucket(tx, height)
+		if hghtBucket == nil {
+			return nil
+		}
+
+		// Since all kindergarten outputs at a particular height are
+		// swept in a single txn, we can now safely delete the finalized
+		// txn, since it has already been broadcast and confirmed.
+		return hghtBucket.Delete(finalizedKndrTxnKey)
+
 	}); err != nil {
 		return err
 	}
@@ -494,32 +537,54 @@ func (ns *nurseryStore) GraduateKinder(kids []kidOutput) error {
 	return nil
 }
 
-// FinalizeHeight accepts a block height as a parameter and purges its
+// FinalizeKinder accepts a block height as a parameter and purges its
 // persistent state for all outputs at that height. During a restart, the utxo
 // nursery will begin it's recovery procedure from the next height that has
 // yet to be finalized.
-func (ns *nurseryStore) FinalizeHeight(height uint32) error {
+func (ns *nurseryStore) FinalizeKinder(height uint32,
+	finalTx *wire.MsgTx) error {
+
+	return ns.db.Update(func(tx *bolt.Tx) error {
+		return ns.finalizeKinder(tx, height, finalTx)
+	})
+}
+
+// PurgeHeight accepts a block height as a parameter and purges its persistent
+// state for all outputs at that height. During a restart, the utxo nursery will
+// begin it's recovery procedure from the next height that has yet to be
+// finalized.
+func (ns *nurseryStore) PurgeHeight(height uint32) error {
 	return ns.db.Update(func(tx *bolt.Tx) error {
 		if err := ns.deleteHeightBucket(tx, height); err != nil {
 			return err
 		}
 
-		return ns.putLastFinalizedHeight(tx, height)
+		return ns.putLastPurgedHeight(tx, height)
 	})
 }
 
 // FetchClass returns a list of babyOutputs in the crib bucket whose CLTV
 // delay expires at the provided block height.
+// FetchClass returns a list of the kindergarten and crib outputs whose timeouts
+// are expiring
 func (ns *nurseryStore) FetchClass(
-	height uint32) ([]kidOutput, []babyOutput, error) {
+	height uint32) (*wire.MsgTx, []kidOutput, []babyOutput, error) {
 
-	// Construct list of all crib and kindergarten outputs that need TLC at
-	// the provided block height.
+	// Construct list of all crib and kindergarten outputs that need to be
+	// processed at the provided block height.
+	var finalTx *wire.MsgTx
 	var kids []kidOutput
 	var babies []babyOutput
 	if err := ns.db.View(func(tx *bolt.Tx) error {
+
+		var err error
+		finalTx, err = ns.getFinalizedTxn(tx, height)
+		if err != nil {
+			return err
+		}
+
 		// Append each crib output to our list of babyOutputs.
-		if err := ns.forEachHeightPrefix(tx, cribPrefix, height,
+		if err = ns.forEachHeightPrefix(tx, cribPrefix, height,
 			func(buf []byte) error {
 
 				// We will attempt to deserialize all outputs
@@ -560,10 +625,10 @@ func (ns *nurseryStore) FetchClass(
 			})
 
 	}); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return kids, babies, nil
+	return finalTx, kids, babies, nil
 }
 
 // FetchPreschools returns a list of all outputs currently stored in the
@@ -649,7 +714,7 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 // process each key-value pair. The key will be a prefixed outpoint, and the
 // value will be the serialized bytes for an output, whose type should be
 // inferred from the key's prefix.
-// NOTE: The callback should be not modify the provided byte slices and is
+// NOTE: The callback should not modify the provided byte slices and is
 // preferably non-blocking.
 func (ns *nurseryStore) ForChanOutputs(chanPoint *wire.OutPoint,
 	callback func([]byte, []byte) error) error {
@@ -672,9 +737,7 @@ func (ns *nurseryStore) IsMatureChannel(chanPoint *wire.OutPoint) (bool, error) 
 		// prefix.
 		return ns.forChanOutputs(tx, chanPoint,
 			func(pfxKey, _ []byte) error {
-				if string(pfxKey[:4]) != string(gradPrefix) {
-					utxnLog.Infof("Found non-graduated "+
-						"output: %x", pfxKey)
+				if !bytes.HasPrefix(pfxKey, gradPrefix) {
 					return errImmatureChannel
 				}
 				return nil
@@ -713,10 +776,8 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 		}
 		chanBytes := chanBuffer.Bytes()
 
-		utxnLog.Infof("Pruning and removing channel: %v", chanPoint)
-
 		err := ns.forChanOutputs(tx, chanPoint, func(k, v []byte) error {
-			if string(k[:4]) != string(gradPrefix) {
+			if !bytes.HasPrefix(k, gradPrefix) {
 				return errors.New("expected grad output")
 			}
 
@@ -764,12 +825,26 @@ func (ns *nurseryStore) LastFinalizedHeight() (uint32, error) {
 	return lastFinalizedHeight, err
 }
 
+// LastPurgedHeight returns the last block height for which the nursery store
+// has purged all persistent state. This occurs after a fixed interval for reorg
+// safety.
+func (ns *nurseryStore) LastPurgedHeight() (uint32, error) {
+	var lastPurgedHeight uint32
+	err := ns.db.View(func(tx *bolt.Tx) error {
+		var err error
+		lastPurgedHeight, err = ns.getLastPurgedHeight(tx)
+		return err
+	})
+
+	return lastPurgedHeight, err
+}
+
 // Helper Methods
 
 // enterCrib accepts a new htlc output that the nursery will incubate through
 // its two-stage process of sweeping funds back to the user's wallet. These
-// outputs are persisted in the nursery store's crib bucket, and will be
-// revisited after the output's CLTV has expired.
+// outputs are persisted in the nursery store in the crib state, and will be
+// revisited after the first-stage output's CLTV has expired.
 func (ns *nurseryStore) enterCrib(tx *bolt.Tx, baby *babyOutput) error {
 	// First, retrieve or create the channel bucket corresponding to the
 	// baby output's origin channel point.
@@ -828,7 +903,7 @@ func (ns *nurseryStore) enterPreschool(tx *bolt.Tx, kid *kidOutput) error {
 		return err
 	}
 
-	// Since the babyOutput is being inserted into the preschool bucket, we
+	// Since the kidOutput is being inserted into the preschool bucket, we
 	// create a key that prefixes its outpoint with the preschool prefix.
 	pfxOutputKey, err := prefixOutputKey(psclPrefix, kid.OutPoint())
 	if err != nil {
@@ -965,16 +1040,14 @@ func (ns *nurseryStore) getHeightBucket(tx *bolt.Tx,
 	return hghtBucket
 }
 
-// deleteHeightBucket ensures that the height bucket at the provided index is
+// purgeHeightBucket ensures that the height bucket at the provided index is
 // purged from the nursery store.
-func (ns *nurseryStore) deleteHeightBucket(tx *bolt.Tx, height uint32) error {
+func (ns *nurseryStore) purgeHeightBucket(tx *bolt.Tx, height uint32) error {
 	// Ensure that the height bucket already exists.
 	_, hghtIndex, hghtBucket := ns.getHeightBucketPath(tx, height)
 	if hghtBucket == nil {
 		return nil
 	}
-
-	utxnLog.Infof("Deleting height bucket %d", height)
 
 	// Serialize the provided height, as this will form the name of the
 	// bucket.
@@ -1057,8 +1130,10 @@ func (ns *nurseryStore) forEachHeightPrefix(tx *bolt.Tx, prefix []byte,
 	// buckets identified by a channel point, thus we first create list of
 	// channels contained in this height bucket.
 	var channelsAtHeight [][]byte
-	if err := hghtBucket.ForEach(func(chanBytes, _ []byte) error {
-		channelsAtHeight = append(channelsAtHeight, chanBytes)
+	if err := hghtBucket.ForEach(func(chanBytes, v []byte) error {
+		if v == nil {
+			channelsAtHeight = append(channelsAtHeight, chanBytes)
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -1166,10 +1241,19 @@ func (ns *nurseryStore) getLastFinalizedHeight(tx *bolt.Tx) (uint32, error) {
 	return byteOrder.Uint32(heightBytes), nil
 }
 
-// pubLastFinalizedHeight is a helper method that writes the provided height
-// under the last finalized height key.
-func (ns *nurseryStore) putLastFinalizedHeight(tx *bolt.Tx,
-	height uint32) error {
+// finalizeKinder records a finalized kingergarten sweep txn to the given height
+// bucket. It also updates the nursery store's last finalized height, so that we
+// do not finalize the same height twice. If the finalized txn is nil, i.e. if
+// the height has no kindergarten outputs, the height will be marked as
+// finalized, and we skip the process of writing the txn. When the class is
+// loaded, a nil value will be returned if no txn has been written to a
+// finalized height bucket.
+func (ns *nurseryStore) finalizeKinder(tx *bolt.Tx, height uint32,
+	finalTx *wire.MsgTx) error {
+
+	// TODO(conner) ensure height is greater that current finalized height.
+
+	// 1. Write the last finalized height to the chain bucket.
 
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
@@ -1182,18 +1266,102 @@ func (ns *nurseryStore) putLastFinalizedHeight(tx *bolt.Tx,
 	var lastHeightBytes [4]byte
 	byteOrder.PutUint32(lastHeightBytes[:], height)
 
-	return chainBucket.Put(lastFinalizedHeightKey, lastHeightBytes[:])
+	err = chainBucket.Put(lastFinalizedHeightKey, lastHeightBytes[:])
+	if err != nil {
+		return err
+	}
+
+	// 2. Write the finalized txn in the appropriate height bucket.
+
+	// If there is no finalized txn, we have nothing to do.
+	if finalTx == nil {
+		return nil
+	}
+
+	// Otherwise serialize the finalized txn and write it to the height
+	// bucket.
+	hghtBucket := ns.getHeightBucket(tx, height)
+	if hghtBucket == nil {
+		return nil
+	}
+
+	var finalTxnBuf bytes.Buffer
+	if err := finalTx.Serialize(&finalTxnBuf); err != nil {
+		return err
+	}
+
+	return hghtBucket.Put(finalizedKndrTxnKey, finalTxnBuf.Bytes())
 }
 
-var (
-	// ErrBucketDoesNotExist signals that a bucket has already been removed,
-	// or was never created.
-	ErrBucketDoesNotExist = errors.New("bucket does not exist")
+// getFinalizedTxn retrieves the finalized kindergarten sweep txn at the given
+// height, returning nil if one was not found.
+func (ns *nurseryStore) getFinalizedTxn(tx *bolt.Tx,
+	height uint32) (*wire.MsgTx, error) {
 
-	// ErrBucketNotEmpty signals that an attempt to prune a particular
-	// bucket failed because it still has active outputs.
-	ErrBucketNotEmpty = errors.New("bucket is not empty, cannot be pruned")
-)
+	hghtBucket := ns.getHeightBucket(tx, height)
+	if hghtBucket == nil {
+		// No class to finalize.
+		return nil, nil
+	}
+
+	finalTxBytes := hghtBucket.Get(finalizedKndrTxnKey)
+	if finalTxBytes == nil {
+		// No finalized txn for this height.
+		return nil, nil
+	}
+
+	// Otherwise, deserialize and return the finalized transaction.
+	txn := &wire.MsgTx{}
+	if err := txn.Deserialize(bytes.NewReader(finalTxBytes)); err != nil {
+		return nil, err
+	}
+
+	return txn, nil
+}
+
+// getLastPurgedHeight is a helper method that retrieves the last height for
+// which the database purged its persistent state.
+func (ns *nurseryStore) getLastPurgedHeight(tx *bolt.Tx) (uint32, error) {
+	// Retrieve the chain bucket associated with the given nursery store.
+	chainBucket := tx.Bucket(ns.pfxChainKey)
+	if chainBucket == nil {
+		return 0, nil
+	}
+
+	// Lookup the last finalized height in the top-level chain bucket.
+	heightBytes := chainBucket.Get(lastPurgedHeightKey)
+
+	// If the resulting bytes are not sized like a uint32, then we have
+	// never finalized, so we return 0.
+	if len(heightBytes) != 4 {
+		return 0, nil
+	}
+
+	// Otherwise, parse the bytes and return the last finalized height.
+	return byteOrder.Uint32(heightBytes), nil
+}
+
+// pubLastPurgedHeight is a helper method that writes the provided height under
+// the last purged height key.
+func (ns *nurseryStore) putLastPurgedHeight(tx *bolt.Tx, height uint32) error {
+
+	// Ensure that the chain bucket for this nursery store exists.
+	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
+	if err != nil {
+		return err
+	}
+
+	// Serialize the provided last-finalized height, and store it in the
+	// top-level chain bucket for this nursery store.
+	var lastHeightBytes [4]byte
+	byteOrder.PutUint32(lastHeightBytes[:], height)
+
+	return chainBucket.Put(lastPurgedHeightKey, lastHeightBytes[:])
+}
+
+// ErrBucketNotEmpty signals that an attempt to prune a particular
+// bucket failed because it still has active outputs.
+var ErrBucketNotEmpty = errors.New("bucket is not empty, cannot be pruned")
 
 // removeOutputFromHeight will delete the given output from the specified
 // height-channel bucket, and attempt to prune the upstream directories if they
@@ -1208,13 +1376,10 @@ func (ns *nurseryStore) removeOutputFromHeight(tx *bolt.Tx, height uint32,
 		return nil
 	}
 
-	// Try to delete the prefixed output key if it still exists. The output
-	// may have already been removed after confirmation, but a final pass is
-	// done when removing a channel as well.
-	if hghtChanBucket.Get(pfxKey) != nil {
-		if err := hghtChanBucket.Delete(pfxKey); err != nil {
-			return err
-		}
+	// Try to delete the prefixed output from the target height-channel
+	// bucket.
+	if err := hghtChanBucket.Delete(pfxKey); err != nil {
+		return err
 	}
 
 	// Retrieve the height bucket that contains the height-channel bucket.
@@ -1251,22 +1416,26 @@ func (ns *nurseryStore) removeOutputFromHeight(tx *bolt.Tx, height uint32,
 
 // pruneHeight removes the height bucket at the provided height if and only if
 // all active outputs at this height have been removed from their respective
-// height-channel buckets.
+// height-channel buckets. The returned boolean value indicated whether or not
+// this invocation successfully pruned the height bucket.
 func (ns *nurseryStore) pruneHeight(tx *bolt.Tx, height uint32) (bool, error) {
 	// Fetch the existing height index and height bucket.
 	_, hghtIndex, hghtBucket := ns.getHeightBucketPath(tx, height)
 	if hghtBucket == nil {
 		return false, nil
 	}
-	utxnLog.Infof("pruning height %d", height)
 
 	// Iterate over all channels stored at this block height. We will
 	// attempt to remove each one if they are empty, keeping track of the
 	// number of height-channel buckets that still have active outputs.
-	if err := hghtBucket.ForEach(func(chanBytes, _ []byte) error {
+	if err := hghtBucket.ForEach(func(chanBytes, v []byte) error {
+		// Skip the finalized txn key.
+		if v != nil {
+			return nil
+		}
+
 		// Attempt to each height-channel bucket from the height bucket
 		// located above.
-
 		hghtChanBucket := hghtBucket.Bucket(chanBytes)
 		if hghtChanBucket == nil {
 			return errors.New("unable to find height-channel bucket")

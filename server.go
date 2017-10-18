@@ -1079,6 +1079,17 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	}
 }
 
+// shouldRequestGraphSync returns true if the servers deems it necessary that
+// we sync channel graph state with the remote peer. This method is used to
+// avoid _always_ syncing channel graph state with each peer that connects.
+//
+// NOTE: This MUST be called with the server's mutex held.
+func (s *server) shouldRequestGraphSync() bool {
+	// Initially, we'll only request a graph sync iff we have less than two
+	// peers.
+	return len(s.peersByPub) <= 2
+}
+
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly.
@@ -1095,6 +1106,13 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// With the brontide connection established, we'll now craft the local
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
+
+	// We'll only request a full channel graph sync if we detect that that
+	// we aren't fully synced yet.
+	if s.shouldRequestGraphSync() {
+		localFeatures.Set(lnwire.InitialRoutingSync)
+	}
+
 	// Now that we've established a connection, create a peer, and it to
 	// the set of currently active peers.
 	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)

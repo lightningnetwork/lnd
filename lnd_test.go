@@ -359,6 +359,10 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
 
 	// With then channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.

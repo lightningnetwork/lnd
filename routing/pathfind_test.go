@@ -257,12 +257,14 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			ChannelPoint: fundingPoint,
 			Capacity:     btcutil.Amount(edge.Capacity),
 		}
-		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		err = graph.AddChannelEdge(&edgeInfo)
+		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
 			return nil, nil, nil, err
 		}
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			Signature:                 testSig,
+			Flags:                     edge.Flags,
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
 			TimeLockDelta:             edge.Expiry,

@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"encoding/hex"
+	"encoding/json"
 	"reflect"
 
 	"crypto/rand"
@@ -34,6 +35,7 @@ import (
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
+	"github.com/roasbeef/btcutil/base58"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -115,9 +117,12 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 // any sequence of arguments expected by 'lncli', except node address which is
 // extracted from the 'node' argument.
 func lncli(node *lightningNode, args ...string) ([]byte, []byte, error) {
-	addr := fmt.Sprintf("\"%s\"", node.rpcAddr)
-	completeArgs := append([]string{"--rpcserver", addr}, args...)
-	cmd := exec.Command("lncli", completeArgs...)
+	globalArgs := []string{
+		fmt.Sprintf("--rpcserver=%s", node.rpcAddr),
+		fmt.Sprintf("--tlscertpath=%s", node.cfg.TLSCertPath),
+		fmt.Sprintf("--macaroonpath=%s", node.cfg.AdminMacPath),
+	}
+	cmd := exec.Command("lncli", append(globalArgs, args...)...)
 
 	var stderrb, stdoutb bytes.Buffer
 	cmd.Stderr, cmd.Stdout = &stderrb, &stdoutb
@@ -1722,6 +1727,215 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// network.
 	if err := carol.Shutdown(); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
+func testPaymentPathConstraints(net *networkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+	fAmt := maxFundingAmount
+	const paymentAmt = 1000
+
+	getChannelBetweenNodes := func(from, to *lightningNode) *lnrpc.ActiveChannel {
+		req := &lnrpc.ListChannelsRequest{}
+		channelInfo, err := from.ListChannels(ctxb, req)
+		if err != nil {
+			return nil
+		}
+		for _, ch := range channelInfo.Channels {
+			if ch.RemotePubkey == to.PubKeyStr {
+				return ch
+			}
+		}
+		return nil
+	}
+
+	// Create additional nodes and open required channels to create
+	// the following graph:
+	//
+	//        Carol - Ethan
+	//       /             \
+	//  Alice               Bob
+	//       \             /
+	//        David ------/
+
+	// Carol
+	Carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new carol node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Alice, Carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+	if err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, Carol); err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanAC := openChannelAndAssert(ctxt, t, net, net.Alice, Carol, fAmt, 0)
+
+	// David
+	David, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new david node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, net.Alice, David); err != nil {
+		t.Fatalf("unable to connect alice to david: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, David, net.Bob); err != nil {
+		t.Fatalf("unable to connect david to bob: %v", err)
+	}
+	if err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, David); err != nil {
+		t.Fatalf("unable to send coins to david: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanAD := openChannelAndAssert(ctxt, t, net, net.Alice, David, fAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanDB := openChannelAndAssert(ctxt, t, net, David, net.Bob, fAmt, 0)
+
+	// Ethan
+	Ethan, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new ethan node: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, Carol, Ethan); err != nil {
+		t.Fatalf("unable to connect carol to ethan: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, Ethan, net.Bob); err != nil {
+		t.Fatalf("unable to connect ethan to bob: %v", err)
+	}
+	if err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, Ethan); err != nil {
+		t.Fatalf("unable to send coins to ethan: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanCE := openChannelAndAssert(ctxt, t, net, Carol, Ethan, fAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanEB := openChannelAndAssert(ctxt, t, net, Ethan, net.Bob, fAmt, 0)
+
+	// Ensure Alice is aware of all open channels.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanAC); err != nil {
+		t.Fatalf("alice didn't advertise her channel with carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanAD); err != nil {
+		t.Fatalf("alice didn't advertise her channel with david: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanCE); err != nil {
+		t.Fatalf("alice didn't see carol->ethan channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanEB); err != nil {
+		t.Fatalf("alice didn't see ethan->bob channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	if err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanDB); err != nil {
+		t.Fatalf("alice didn't see david->bob channel: %v", err)
+	}
+
+	// Pay to the invoice.
+	// 1. Carol should be the first one.
+	invoice := &lnrpc.Invoice{Memo: "testing", Value: paymentAmt}
+	resp, err := net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	carolID := base58.Encode(Carol.PubKey[:])
+	pathConstraint := fmt.Sprintf("path[0] in {%s}", carolID)
+	lncliOpts := []string{
+		"--paymentpathconstraint", pathConstraint,
+		"sendpayment",
+		"--pay_req", resp.GetPaymentRequest(),
+	}
+	stdout, _, err := lncli(net.Alice, lncliOpts...)
+	if err != nil {
+		t.Fatalf("unable to send payment through carol: %v", err)
+	}
+	var sendResp lnrpc.SendResponse
+	err = json.Unmarshal(stdout, &sendResp)
+	if err != nil {
+		t.Fatalf("unable to decode carol sendpayment response: %v", err)
+	}
+	var hops []uint64
+	for _, hop := range sendResp.GetPaymentRoute().GetHops() {
+		hops = append(hops, hop.GetChanId())
+	}
+	expectedHops := []uint64{
+		getChannelBetweenNodes(net.Alice, Carol).ChanId,
+		getChannelBetweenNodes(Carol, Ethan).ChanId,
+		getChannelBetweenNodes(Ethan, net.Bob).ChanId,
+	}
+	if !reflect.DeepEqual(hops, expectedHops) {
+		t.Fatalf("incorrect route was chosen: %v", hops)
+	}
+
+	// 2. Carol should not be the first one.
+	invoice = &lnrpc.Invoice{Memo: "testing", Value: paymentAmt}
+	resp, err = net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	pathConstraint = fmt.Sprintf("path[0] not in {%s}", carolID)
+	lncliOpts = []string{
+		"--paymentpathconstraint", pathConstraint,
+		"sendpayment",
+		"--pay_req", resp.GetPaymentRequest(),
+	}
+	stdout, _, err = lncli(net.Alice, lncliOpts...)
+	if err != nil {
+		t.Fatalf("unable to send payment through david: %v", err)
+	}
+	err = json.Unmarshal(stdout, &sendResp)
+	if err != nil {
+		t.Fatalf("unable to decode david sendpayment response: %v", err)
+	}
+	hops = []uint64{}
+	for _, hop := range sendResp.GetPaymentRoute().GetHops() {
+		hops = append(hops, hop.GetChanId())
+	}
+	expectedHops = []uint64{
+		getChannelBetweenNodes(net.Alice, David).ChanId,
+		getChannelBetweenNodes(David, net.Bob).ChanId,
+	}
+	if !reflect.DeepEqual(hops, expectedHops) {
+		t.Fatalf("incorrect route was chosen: %v", hops)
+	}
+
+	// 3. David should not be the second to last one.
+	invoice = &lnrpc.Invoice{Memo: "testing", Value: paymentAmt}
+	resp, err = net.Bob.AddInvoice(ctxb, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	davidID := base58.Encode(David.PubKey[:])
+	pathConstraint = fmt.Sprintf("path[-2] not in {%s}", davidID)
+	lncliOpts = []string{
+		"--paymentpathconstraint", pathConstraint,
+		"sendpayment",
+		"--pay_req", resp.GetPaymentRequest(),
+	}
+	stdout, _, err = lncli(net.Alice, lncliOpts...)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	err = json.Unmarshal(stdout, &sendResp)
+	if err != nil {
+		t.Fatalf("unable to decode sendpayment response: %v", err)
+	}
+	hops = []uint64{}
+	for _, hop := range sendResp.GetPaymentRoute().GetHops() {
+		hops = append(hops, hop.GetChanId())
+	}
+	expectedHops = []uint64{
+		getChannelBetweenNodes(net.Alice, Carol).ChanId,
+		getChannelBetweenNodes(Carol, Ethan).ChanId,
+		getChannelBetweenNodes(Ethan, net.Bob).ChanId,
+	}
+	if !reflect.DeepEqual(hops, expectedHops) {
+		t.Fatalf("incorrect route was chosen: %v", hops)
 	}
 }
 
@@ -3757,6 +3971,10 @@ var testsCases = []*testCase{
 	{
 		name: "max pending channel",
 		test: testMaxPendingChannels,
+	},
+	{
+		name: "payment path constraints",
+		test: testPaymentPathConstraints,
 	},
 	{
 		name: "multi-hop payments",

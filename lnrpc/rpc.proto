@@ -1216,6 +1216,9 @@ message Invoice {
 
     /// Fallback on-chain address.
     string fallback_addr = 12 [json_name = "fallback_addr"];
+
+    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    uint64 cltv_expiry = 13 [json_name = "cltv_expiry"];
 }
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
@@ -1300,6 +1303,7 @@ message PayReq {
     string description = 6 [json_name = "description"];
     string description_hash = 7 [json_name = "description_hash"];
     string fallback_addr = 8 [json_name = "fallback_addr"];
+    int64 cltv_expiry = 9 [json_name = "cltv_expiry"];
 }
 
 message FeeReportRequest {}

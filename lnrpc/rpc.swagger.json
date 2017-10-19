@@ -1365,6 +1365,11 @@
         "fallback_addr": {
           "type": "string",
           "description": "/ Fallback on-chain address."
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ Delta to use for the time-lock of the CLTV extended to the final hop."
         }
       }
     },
@@ -1621,6 +1626,10 @@
         },
         "fallback_addr": {
           "type": "string"
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },

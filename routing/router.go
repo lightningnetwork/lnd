@@ -162,11 +162,6 @@ type ChannelRouter struct {
 	// initialized with.
 	cfg *Config
 
-	// selfNode is the center of the star-graph centered around the
-	// ChannelRouter. The ChannelRouter uses this node as a starting point
-	// when doing any path finding.
-	selfNode *channeldb.LightningNode
-
 	// routeCache is a map that caches the k-shortest paths from ourselves
 	// to a given target destination for a particular payment amount. This
 	// map is used as an optimization to speed up subsequent payments to a
@@ -223,14 +218,9 @@ var _ ChannelGraphSource = (*ChannelRouter)(nil)
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
-	selfNode, err := cfg.Graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
 
 	return &ChannelRouter{
 		cfg:               &cfg,
-		selfNode:          selfNode,
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
@@ -1006,11 +996,15 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		return nil, err
 	}
 
+	selfNode, err := r.cfg.Graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we know the destination is reachable within the graph,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
-	shortestPaths, err := findPaths(tx, r.cfg.Graph, r.selfNode, target,
-		amt)
+	shortestPaths, err := findPaths(tx, r.cfg.Graph, selfNode, target, amt)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1024,7 +1018,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// aren't able to support the total satoshis flow once fees have been
 	// factored in.
 	validRoutes := make([]*Route, 0, len(shortestPaths))
-	sourceVertex := newVertex(r.selfNode.PubKey)
+	sourceVertex := newVertex(selfNode.PubKey)
 	for _, path := range shortestPaths {
 		// Attempt to make the path into a route. We snip off the first
 		// hop in the path as it contains a "self-hop" that is inserted
@@ -1562,7 +1556,11 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(*channeldb.ChannelEdgeInfo,
 	*channeldb.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(_ *bolt.Tx, c *channeldb.ChannelEdgeInfo,
+	selfNode, err := r.cfg.Graph.SourceNode()
+	if err != nil {
+		return err
+	}
+	return selfNode.ForEachChannel(nil, func(_ *bolt.Tx, c *channeldb.ChannelEdgeInfo,
 		e, _ *channeldb.ChannelEdgePolicy) error {
 
 		return cb(c, e)

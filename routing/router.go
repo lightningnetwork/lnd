@@ -1164,6 +1164,13 @@ type LightningPayment struct {
 	// the first hop.
 	PaymentHash [32]byte
 
+	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
+	// in the route. This means that the final hop will have a CLTV delta
+	// of at least: currentHeight + FinalCLTVDelta. If this value is
+	// unspcified, then a default value of DefaultFinalCLTVDelta will be
+	// used.
+	FinalCLTVDelta *uint16
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1192,6 +1199,13 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return preImage, nil, err
+	}
+
+	var finalCLTVDelta uint16
+	if payment.FinalCLTVDelta == nil {
+		finalCLTVDelta = DefaultFinalCLTVDelta
+	} else {
+		finalCLTVDelta = *payment.FinalCLTVDelta
 	}
 
 	// We'll continue until either our payment succeeds, or we encounter a

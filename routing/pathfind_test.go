@@ -304,7 +304,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
 	// to follow along with the assumptions we'll use to test the path
 	// finding.
-	const startingHeight = 100
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["sophon"]
@@ -313,7 +316,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
+		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -382,22 +386,24 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	// Additionally, we'll ensure that the amount to forward, and fees
 	// computed for each hop are correct.
-	firstHopFee := route.Hops[0].Channel.FeeBaseMSat
+	if route.Hops[0].Fee != 0 {
+		t.Fatalf("first hop fee incorrect: expected %v, got %v",
+			0, route.Hops[1].Fee)
+	}
+
+	firstHopFee := computeFee(paymentAmt, route.Hops[1].Channel)
 	if route.TotalAmount != paymentAmt+firstHopFee {
 		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
+			paymentAmt+firstHopFee, route.TotalAmount)
 	}
-	if route.Hops[0].Fee != firstHopFee {
+	if route.Hops[1].Fee != firstHopFee {
 		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, route.Hops[0].Fee)
+			firstHopFee, route.Hops[1].Fee)
 	}
+
 	if route.Hops[1].AmtToForward != paymentAmt {
 		t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
-	}
-	if route.Hops[1].Fee != 0 {
-		t.Fatalf("second hop fee incorrect: expected %v, got %v",
-			0, route.Hops[1].Fee)
+			paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
 	}
 
 	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
@@ -409,7 +415,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
+		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -499,7 +506,6 @@ func TestKShortestPathFinding(t *testing.T) {
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Parallel()
 
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.

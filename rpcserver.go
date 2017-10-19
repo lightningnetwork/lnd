@@ -1856,6 +1856,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		options = append(options, zpay32.Description(invoice.Memo))
 	}
 
+	// We'll use our current default CLTV value unless one was specified as
+	// an option on the command line when creating an invoice.
+	switch {
+	case invoice.CltvExpiry > math.MaxUint16:
+		return nil, fmt.Errorf("CLTV delta of %v is too large, max "+
+			"accepted is: %v", invoice.CltvExpiry, math.MaxUint16)
+	case invoice.CltvExpiry != 0:
+		options = append(options,
+			zpay32.CLTVExpiry(invoice.CltvExpiry))
+	default:
+		// TODO(roasbeef): assumes set delta between versions
+		defaultDelta := defaultBitcoinForwardingPolicy.TimeLockDelta
+		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
+	}
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
@@ -1891,7 +1906,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
 			return spew.Sdump(i)
-		}))
+		}),
+	)
 
 	// With all sanity checks passed, write the invoice to the database.
 	if err := r.server.invoices.AddInvoice(i); err != nil {

@@ -432,6 +432,25 @@ func TestDecodeEncode(t *testing.T) {
 				i.Destination = nil
 			},
 		},
+		{
+			// Send 2500uBTC for a cup of coffee with a custom CLTV
+			// expiry value.
+			encodedInvoice: "lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jscqzysnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66ysxkvnxhcvhz48sn72lp77h4fxcur27z0he48u5qvk3sxse9mr9jhkltt962s8arjnzk8rk59yj5nw4p495747gksj30gza0crhzwjcpgxzy00",
+			valid:          true,
+			decodedInvoice: func() *zpay32.Invoice {
+				i, _ := zpay32.NewInvoice(
+					&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					zpay32.Amount(testMillisat2500uBTC),
+					zpay32.Description(testCupOfCoffee),
+					zpay32.Destination(testPubKey),
+					zpay32.CLTVExpiry(144),
+				)
+
+				return i
+			},
+		},
 	}
 
 	for i, test := range tests {

@@ -77,16 +77,16 @@ type testNode struct {
 // testChan represents the JSON version of a payment channel. This struct
 // matches the Json that's encoded under the "edges" key within the test graph.
 type testChan struct {
-	Node1        string  `json:"node_1"`
-	Node2        string  `json:"node_2"`
-	ChannelID    uint64  `json:"channel_id"`
-	ChannelPoint string  `json:"channel_point"`
-	Flags        uint16  `json:"flags"`
-	Expiry       uint16  `json:"expiry"`
-	MinHTLC      int64   `json:"min_htlc"`
-	FeeBaseMsat  int64   `json:"fee_base_msat"`
-	FeeRate      float64 `json:"fee_rate"`
-	Capacity     int64   `json:"capacity"`
+	Node1        string `json:"node_1"`
+	Node2        string `json:"node_2"`
+	ChannelID    uint64 `json:"channel_id"`
+	ChannelPoint string `json:"channel_point"`
+	Flags        uint16 `json:"flags"`
+	Expiry       uint16 `json:"expiry"`
+	MinHTLC      int64  `json:"min_htlc"`
+	FeeBaseMsat  int64  `json:"fee_base_msat"`
+	FeeRate      int64  `json:"fee_rate"`
+	Capacity     int64  `json:"capacity"`
 }
 
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing

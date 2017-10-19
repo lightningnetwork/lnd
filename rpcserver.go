@@ -1943,6 +1943,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	// explicitly.
 	expiry := int64(decoded.Expiry().Seconds())
 
+	// The expiry will default to 9 blocks if not specified explicitly.
+	cltvExpiry := decoded.MinFinalCLTVExpiry()
+
 	preimage := invoice.Terms.PaymentPreimage
 	satAmt := invoice.Terms.Value.ToSatoshis()
 
@@ -1957,6 +1960,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
 		Expiry:          expiry,
+		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 	}, nil
 }

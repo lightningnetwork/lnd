@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	cltv uint32 = 5
+	cltv uint32 = 100000
 )
 
 var (
@@ -121,10 +121,8 @@ func shutdown(d *DecayedLog) {
 
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector
 // to delete expired cltv values every time a block is received. Expired cltv
-// values are cltv values that are <= current block height.
+// values are cltv values that are < current block height.
 func TestDecayedLogGarbageCollector(t *testing.T) {
-	t.Parallel()
-
 	d, notifier, hashedSecret, err := startup(true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -137,37 +135,52 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 		t.Fatalf("Unable to store in channeldb: %v", err)
 	}
 
+	// Wait for database write (GC is in a goroutine)
+	time.Sleep(500 * time.Millisecond)
+
 	// Send block notifications to garbage collector. The garbage collector
-	// should remove the entry we just added to sharedHashBucket as it will
-	// expire by the 6th block notification.
-	for i := 0; i < 6; i++ {
-		notifier.epochChan <- &chainntnfs.BlockEpoch{
-			Height: int32(100 + i),
-		}
+	// should remove the entry by block 100001.
+
+	// Send block 100000
+	notifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height:	100000,
+	}
+
+	// Assert that hashedSecret is still in the sharedHashBucket
+	val, err := d.Get(hashedSecret[:])
+	if err != nil {
+		t.Fatalf("Get failed - received an error upon Get: %v", err)
+	}
+
+	if val != cltv {
+		t.Fatalf("GC incorrectly deleted CLTV")
+	}
+
+	// Send block 100001 (expiry block)
+	notifier.epochChan <- &chainntnfs.BlockEpoch{
+		Height:	100001,
 	}
 
 	// Wait for database write (GC is in a goroutine)
 	time.Sleep(500 * time.Millisecond)
 
 	// Assert that hashedSecret is not in the sharedHashBucket
-	val, err := d.Get(hashedSecret[:])
+	val, err = d.Get(hashedSecret[:])
 	if err != nil {
-		t.Fatalf("Delete failed - received an error upon Get: %v", err)
+		t.Fatalf("Get failed - received an error upon Get: %v", err)
 	}
 
 	if val != math.MaxUint32 {
-		t.Fatalf("cltv was not deleted")
+		t.Fatalf("CLTV was not deleted")
 	}
 }
 
 // TestDecayedLogPersistentGarbageCollector tests the persistence property of
-// the garbage collector. A block will be sent to the garbage collector, the
-// garbage collector will be shut down, and then a much later block will be sent
-// (past the expiry of our test CLTV) that causes the <sharedHash, cltv) key-pair
-// to be deleted.
+// the garbage collector. The garbage collector will be restarted immediately and
+// a block that expires the stored CLTV value will be sent to the ChainNotifier.
+// We test that this causes the <hashedSecret, CLTV> pair to be deleted even
+// on GC restarts.
 func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
-	t.Parallel()
-
 	d, notifier, hashedSecret, err := startup(true)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -177,11 +190,6 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	// Store <hashedSecret, cltv> in the sharedHashBucket
 	if err = d.Put(hashedSecret[:], cltv); err != nil {
 		t.Fatalf("Unable to store in channeldb: %v", err)
-	}
-
-	// Send a single block notification to the garbage collector.
-	notifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: int32(100),
 	}
 
 	// Wait for database write (GC is in a goroutine)
@@ -195,9 +203,10 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 		t.Fatalf("Unable to restart DecayedLog: %v", err)
 	}
 
-	// Send a much later block notification to the garbage collector.
+	// Send a block notification to the garbage collector that expires
+	// the stored CLTV.
 	notifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: int32(150),
+		Height: int32(100001),
 	}
 
 	// Wait for database write (GC is in a goroutine)
@@ -214,12 +223,10 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	}
 }
 
-// TestDecayedLogInsertionAndRetrieval inserts a cltv value into the nested
+// TestDecayedLogInsertionAndRetrieval inserts a cltv value into the
 // sharedHashBucket and then deletes it and finally asserts that we can no
 // longer retrieve it.
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {
-	t.Parallel()
-
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -256,8 +263,6 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 // cltv value is indeed still stored in the sharedHashBucket. We then delete
 // the cltv value and check that it persists upon startup.
 func TestDecayedLogStartAndStop(t *testing.T) {
-	t.Parallel()
-
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)
@@ -322,8 +327,6 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 // via the nested sharedHashBucket and finally asserts that the original stored
 // and retrieved cltv values are equal.
 func TestDecayedLogStorageAndRetrieval(t *testing.T) {
-	t.Parallel()
-
 	d, _, hashedSecret, err := startup(false)
 	if err != nil {
 		t.Fatalf("Unable to start up DecayedLog: %v", err)

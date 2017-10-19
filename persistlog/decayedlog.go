@@ -75,56 +75,34 @@ outer:
 						"is nil")
 				}
 
+				var expiredCltv [][]byte
 				sharedHashes.ForEach(func(k, v []byte) error {
 					// The CLTV value in question.
-					cltv := uint32(binary.BigEndian.Uint32(v[:4]))
-					// The last recorded block height that
-					// the garbage collector received.
-					lastHeight := uint32(binary.BigEndian.Uint32(v[4:8]))
+					cltv := uint32(binary.BigEndian.Uint32(v))
 
-					if cltv == 0 {
-						// This CLTV just expired. We
-						// must delete it from the db.
-						err := sharedHashes.Delete(k)
-						if err != nil {
-							return err
-						}
-					} else if lastHeight != 0 && uint32(epoch.Height)-lastHeight > cltv {
-						// This CLTV just expired or
-						// expired in the past but the
-						// garbage collector was not
-						// running and therefore could
-						// not handle it. We delete it
-						// from the db now.
-						err := sharedHashes.Delete(k)
-						if err != nil {
-							return err
-						}
-					} else {
-						// The CLTV is still valid. We
-						// decrement the CLTV value and
-						// store the new CLTV value along
-						// with the current block height.
-						var scratch [8]byte
+					// Current blockheight
+					height := uint32(epoch.Height)
 
-						// Store decremented CLTV in
-						// scratch[:4]
-						cltv--
-						binary.BigEndian.PutUint32(scratch[:4], cltv)
-
-						// Store current blockheight in
-						// scratch[4:8]
-						binary.BigEndian.PutUint32(scratch[4:8], uint32(epoch.Height))
-
-						// Store <hash, CLTV + blockheight>
-						err := sharedHashes.Put(k, scratch[:])
-						if err != nil {
-							return err
-						}
+					if cltv < height {
+						// This CLTV is expired. We must
+						// add it to an array which we'll
+						// loop over and delete every
+						// hash contained from the db.
+						expiredCltv = append(expiredCltv, k)
 					}
 
 					return nil
 				})
+
+				// Delete every item in the array. This must
+				// be done explicitly outside of the ForEach
+				// function for safety reasons.
+				for _, hash := range expiredCltv {
+					err := sharedHashes.Delete(hash)
+					if err != nil {
+						return err
+					}
+				}
 
 				return nil
 			})
@@ -189,14 +167,14 @@ func (d *DecayedLog) Get(hash []byte) (uint32, error) {
 				"not retrieve CLTV value")
 		}
 
-		// Retrieve the bytes which represents the CLTV + blockheight.
+		// Retrieve the bytes which represents the CLTV
 		valueBytes := sharedHashes.Get(hash)
 		if valueBytes == nil {
 			return nil
 		}
 
 		// The first 4 bytes represent the CLTV, store it in value.
-		value = uint32(binary.BigEndian.Uint32(valueBytes[:4]))
+		value = uint32(binary.BigEndian.Uint32(valueBytes))
 
 		return nil
 	})
@@ -211,10 +189,10 @@ func (d *DecayedLog) Get(hash []byte) (uint32, error) {
 func (d *DecayedLog) Put(hash []byte, cltv uint32) error {
 	// The CLTV will be stored into scratch and then stored into the
 	// sharedHashBucket.
-	var scratch [8]byte
+	var scratch [4]byte
 
 	// Store value into scratch
-	binary.BigEndian.PutUint32(scratch[:4], cltv)
+	binary.BigEndian.PutUint32(scratch[:], cltv)
 
 	return d.db.Batch(func(tx *bolt.Tx) error {
 		sharedHashes, err := tx.CreateBucketIfNotExists(sharedHashBucket)

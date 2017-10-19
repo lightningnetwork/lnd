@@ -274,18 +274,6 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 		}
-
-		// As the graph itself is directed, we need to insert two edges
-		// into the graph: one from node1->node2 and one from
-		// node2->node1. A flag of 0 indicates this is the routing
-		// policy for the first node, and a flag of 1 indicates its the
-		// information for the second node.
-		edgePolicy.Flags = 0
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
-			return nil, nil, nil, err
-		}
-
-		edgePolicy.Flags = 1
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, nil, nil, err
 		}

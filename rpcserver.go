@@ -2905,6 +2905,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		DescriptionHash: hex.EncodeToString(descHash[:]),
 		FallbackAddr:    fallbackAddr,
 		Expiry:          expiry,
+		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
 	}, nil
 }
 

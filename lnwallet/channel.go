@@ -158,14 +158,14 @@ type PaymentDescriptor struct {
 	LogIndex uint64
 
 	// HtlcIndex is the index within the main update log for this HTLC.
-	// Entires within the log of type Add will have this field populated,
+	// Entries within the log of type Add will have this field populated,
 	// as other entries will point to the entry via this counter.
 	//
 	// NOTE: This field will only be populate if EntryType is Add.
 	HtlcIndex uint64
 
-	// ParentIndex is the index of the log entry that this HTLC update
-	// settles or times out.
+	// ParentIndex is the HTLC index of the entry that this update settles or
+	// times out.
 	//
 	// NOTE: This field will only be populate if EntryType is Fail or
 	// Settle.
@@ -202,7 +202,7 @@ type PaymentDescriptor struct {
 	// removeCommitHeight[Remote|Local] encodes the height of the
 	// commitment which removed the parent pointer of this
 	// PaymentDescriptor either due to a timeout or a settle. Once both
-	// these heights are above the tail of both chains, the log entries can
+	// these heights are below the tail of both chains, the log entries can
 	// safely be removed.
 	removeCommitHeightRemote uint64
 	removeCommitHeightLocal  uint64
@@ -598,6 +598,13 @@ func (s *commitmentChain) tail() *commitment {
 	return s.commitments.Front().Value.(*commitment)
 }
 
+// hasUnackedCommitment returns true if the commitment chain has more than one
+// entry. The tail of the commitment chain has been ACKed by revoking all prior
+// commitments, but any subsequent commitments have not yet been ACKed.
+func (s *commitmentChain) hasUnackedCommitment() bool {
+	return s.commitments.Front() != s.commitments.Back()
+}
+
 // updateLog is an append-only log that stores updates to a node's commitment
 // chain. This structure can be seen as the "mempool" within Lightning where
 // changes are stored before they're committed to the chain. Once an entry has
@@ -621,21 +628,6 @@ type updateLog struct {
 	// use a distinct index for this purpose, as update's that remove
 	// entires from the log will be indexed using this counter.
 	htlcCounter uint64
-
-	// ackIndex is a special "pointer" index into the log that tracks the
-	// position which, up to, all changes have been ACK'd by the remote
-	// party.  When receiving new commitment states, we include all of our
-	// updates up to this index to restore the commitment view.
-	ackedIndex uint64
-
-	// pendingACKIndex is another special "pointer" index into the log that
-	// tracks our logIndex value right before we extend the remote party's
-	// commitment chain. Once we receive an ACK for this changes, then we
-	// set ackedIndex=pendingAckIndex.
-	//
-	// TODO(roasbeef): eventually expand into list when we go back to a
-	// sliding window format
-	pendingAckIndex uint64
 
 	// List is the updatelog itself, we embed this value so updateLog has
 	// access to all the method of a list.List.
@@ -703,21 +695,6 @@ func (u *updateLog) removeHtlc(i uint64) {
 	delete(u.htlcIndex, i)
 }
 
-// initiateTransition marks that the caller has extended the commitment chain
-// of the remote party with the contents of the updateLog. This function will
-// mark the log index value at this point so it can later be marked as ACK'd.
-func (u *updateLog) initiateTransition() {
-	u.pendingAckIndex = u.logIndex
-}
-
-// ackTransition updates the internal indexes of the updateLog to mark that the
-// last pending state transition has been accepted by the remote party. To do
-// so, we mark the prior pendingAckIndex as fully ACK'd.
-func (u *updateLog) ackTransition() {
-	u.ackedIndex = u.pendingAckIndex
-	u.pendingAckIndex = 0
-}
-
 // compactLogs performs garbage collection within the log removing HTLCs which
 // have been removed from the point-of-view of the tail of both chains. The
 // entries which timeout/settle HTLCs are also removed.
@@ -727,6 +704,9 @@ func compactLogs(ourLog, theirLog *updateLog,
 	compactLog := func(logA, logB *updateLog) {
 		var nextA *list.Element
 		for e := logA.Front(); e != nil; e = nextA {
+			// Assign next iteration element at top of loop because we may
+			// remove the current element from the list, which can change the
+			// iterated sequence.
 			nextA = e.Next()
 
 			htlc := e.Value.(*PaymentDescriptor)
@@ -801,12 +781,6 @@ type LightningChannel struct {
 	signDesc *SignDescriptor
 
 	channelEvents chainntnfs.ChainNotifier
-
-	// pendingACk denotes if we have an outstanding commitment transaction
-	// and are waiting for a revocation to be received. Until the
-	// revocation is received, we're unable to propose a new commitment
-	// state.
-	pendingACK bool
 
 	status channelState
 
@@ -1664,7 +1638,7 @@ func (lc *LightningChannel) restoreStateLogs() error {
 
 	// Grab the current fee rate as we'll need this to determine if the
 	// prior HTLC's were considered dust or not at this particular
-	// commitment sate.
+	// commitment state.
 	feeRate := lc.channelState.FeePerKw
 
 	// TODO(roasbeef): partition entries added based on our current review
@@ -2335,18 +2309,21 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're awaiting an ACK to a commitment signature, then we're
-	// unable to create new states as we don't have any revocations we can
-	// use.
-	if lc.pendingACK {
+	// If we're awaiting for an ACK to a commitment signature, then we're
+	// unable to create new states. Basically we don't want to advance the
+	// commitment chain by more than one at a time.
+	if lc.remoteCommitChain.hasUnackedCommitment() {
 		return nil, nil, ErrNoWindow
 	}
+
+	// Determine the last update on the remote log that has been locked in.
+	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
 
 	// Before we extend this new commitment to the remote commitment chain,
 	// ensure that we aren't violating any of the constraints the remote
 	// party set up when we initially set up the channel. If we are, then
 	// we'll abort this state transition.
-	err := lc.validateCommitmentSanity(lc.remoteUpdateLog.ackedIndex,
+	err := lc.validateCommitmentSanity(remoteACKedIndex,
 		lc.localUpdateLog.logIndex, false, true, true)
 	if err != nil {
 		return nil, nil, err
@@ -2367,7 +2344,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// _all_ of our changes (pending or committed) but only the remote
 	// node's changes up to the last change we've ACK'd.
 	newCommitView, err := lc.fetchCommitmentView(true,
-		lc.localUpdateLog.logIndex, lc.remoteUpdateLog.ackedIndex, keyRing)
+		lc.localUpdateLog.logIndex, remoteACKedIndex, keyRing)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2447,15 +2424,6 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
 		lc.pendingFeeUpdate = nil
 	}
-
-	// As we've just created a new update for the remote commitment chain,
-	// we set the bool indicating that we're waiting for an ACK to our new
-	// changes.
-	lc.pendingACK = true
-
-	// Additionally, we'll remember our log index at this point, so we can
-	// properly track which changes have been ACK'd.
-	lc.localUpdateLog.initiateTransition()
 
 	return sig, htlcSigs, nil
 }
@@ -2661,7 +2629,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 }
 
 // ReceiveNewCommitment process a signature for a new commitment state sent by
-// the remote party. This method will should be called in response to the
+// the remote party. This method should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
 // signature fully accepting a new state we've initiated. If we are able to
 // successfully validate the signature, then the generated commitment is added
@@ -2674,18 +2642,21 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	lc.Lock()
 	defer lc.Unlock()
 
+	// Determine the last update on the local log that has been locked in.
+	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
+
 	// Ensure that this new local update from the remote node respects all
 	// the constraints we specified during initial channel setup. If not,
 	// then we'll abort the channel as they've violated our constraints.
 	err := lc.validateCommitmentSanity(lc.remoteUpdateLog.logIndex,
-		lc.localUpdateLog.ackedIndex, false, true, true)
+		localACKedIndex, false, true, true)
 	if err != nil {
 		return err
 	}
 
 	// We're receiving a new commitment which attempts to extend our local
 	// commitment chain height by one, so fetch the proper commitment point
-	// as this well be needed to derive the keys required to construct the
+	// as this will be needed to derive the keys required to construct the
 	// commitment.
 	nextHeight := lc.currentHeight + 1
 	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(nextHeight)
@@ -2700,7 +2671,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	// commitment view which includes all the entries we know of in their
 	// HTLC log, and up to ourLogIndex in our HTLC log.
 	localCommitmentView, err := lc.fetchCommitmentView(false,
-		lc.localUpdateLog.ackedIndex, lc.remoteUpdateLog.logIndex, keyRing)
+		localACKedIndex, lc.remoteUpdateLog.logIndex, keyRing)
 	if err != nil {
 		return err
 	}
@@ -2777,11 +2748,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 		lc.pendingFeeUpdate = nil
 	}
 
-	// Finally we'll keep track of the current pending index for the remote
-	// party so we can ACK up to this value once we revoke our current
-	// commitment.
-	lc.remoteUpdateLog.initiateTransition()
-
 	return nil
 }
 
@@ -2793,14 +2759,16 @@ func (lc *LightningChannel) FullySynced() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	oweCommitment := (lc.localCommitChain.tip().height >
-		lc.remoteCommitChain.tip().height)
+	lastLocalCommit := lc.localCommitChain.tip()
+	lastRemoteCommit := lc.remoteCommitChain.tip()
 
-	localUpdatesSynced := (lc.localCommitChain.tip().ourMessageIndex ==
-		lc.remoteCommitChain.tip().ourMessageIndex)
+	oweCommitment := lastLocalCommit.height > lastRemoteCommit.height
 
-	remoteUpdatesSynced := (lc.localCommitChain.tip().theirMessageIndex ==
-		lc.remoteCommitChain.tip().theirMessageIndex)
+	localUpdatesSynced :=
+		lastLocalCommit.ourMessageIndex == lastRemoteCommit.ourMessageIndex
+
+	remoteUpdatesSynced :=
+		lastLocalCommit.theirMessageIndex == lastRemoteCommit.theirMessageIndex
 
 	return !oweCommitment && localUpdatesSynced && remoteUpdatesSynced
 }
@@ -2873,12 +2841,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 		lc.channelState.FundingOutpoint, tail.ourBalance,
 		tail.theirBalance)
 
-	// In the process of revoking our current commitment, we've also
-	// implicitly ACK'd their set of pending changes that arrived before
-	// the signature the triggered this revocation. So we'll move up their
-	// ACK'd index within the log to right at this set of pending changes.
-	lc.remoteUpdateLog.ackTransition()
-
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
 		&lc.channelState.FundingOutpoint,
 	)
@@ -2896,11 +2858,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*PaymentDescriptor, error) {
 	lc.Lock()
 	defer lc.Unlock()
-
-	// Now that we've received a new revocation from the remote party,
-	// we'll toggle our pendingACk bool to indicate that we can create a
-	// new commitment state after we finish processing this revocation.
-	lc.pendingACK = false
 
 	// Ensure that the new pre-image can be placed in preimage store.
 	store := lc.channelState.RevocationStore
@@ -2993,11 +2950,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	// from the PoV of both commitment chains.
 	compactLogs(lc.localUpdateLog, lc.remoteUpdateLog,
 		localChainTail, remoteChainTail)
-
-	// As a final step, now that we've received an ACK for our last batch
-	// of pending changes, we'll update our local ACK'd index to the now
-	// commitment index, and reset our pendingACKIndex.
-	lc.localUpdateLog.ackTransition()
 
 	return htlcsToForward, nil
 }

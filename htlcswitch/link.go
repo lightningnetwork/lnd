@@ -1026,8 +1026,8 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 // processLockedInHtlcs serially processes each of the log updates which have
 // been "locked-in". An HTLC is considered locked-in once it has been fully
 // committed to in both the remote and local commitment state. Once a channel
-// updates is locked-in, then it can be acted upon, meaning: settling htlc's,
-// cancelling them, or forwarding new HTLC's to the next hop.
+// updates is locked-in, then it can be acted upon, meaning: settling HTLCs,
+// cancelling them, or forwarding new HTLCs to the next hop.
 func (l *channelLink) processLockedInHtlcs(
 	paymentDescriptors []*lnwallet.PaymentDescriptor) []*htlcPacket {
 
@@ -1080,7 +1080,7 @@ func (l *channelLink) processLockedInHtlcs(
 			l.overflowQueue.SignalFreeSlot()
 
 		// An incoming HTLC add has been full-locked in. As a result we
-		// can no examine the forwarding details of the HTLC, and the
+		// can now examine the forwarding details of the HTLC, and the
 		// HTLC itself to decide if: we should forward it, cancel it,
 		// or are able to settle it (and it adheres to our fee related
 		// constraints).

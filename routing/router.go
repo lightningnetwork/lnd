@@ -25,6 +25,12 @@ import (
 	"github.com/lightningnetwork/lightning-onion"
 )
 
+const (
+	// DefaultFinalCLTVDelta is the default value to be used as the final
+	// CLTV delta for a route if one is unspecified.
+	DefaultFinalCLTVDelta = 9
+)
+
 // ChannelGraphSource represent the source of information about the topology of
 // lightning network, it responsible for addition of nodes, edges
 // and applying edges updates, return the current block with with out
@@ -948,7 +954,14 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, finalExpiry ...uint16) ([]*Route, error) {
+
+	var finalCLTVDelta uint16
+	if len(finalExpiry) == 0 {
+		finalCLTVDelta = DefaultFinalCLTVDelta
+	} else {
+		finalCLTVDelta = finalExpiry[0]
+	}
 
 	// TODO(roasbeef): make num routes a param
 
@@ -1024,7 +1037,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight))
+			uint32(currentHeight), finalCLTVDelta)
 		if err != nil {
 			continue
 		}

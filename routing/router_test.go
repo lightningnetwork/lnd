@@ -65,11 +65,6 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
 		}
-
-		sourceNode, err = graph.SourceNode()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to fetch source node: %v", err)
-		}
 	}
 
 	// Next we'll initialize an instance of the channel router with mock
@@ -130,7 +125,8 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	// Execute a query for all possible routes between roasbeef and luo ji.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
-	routes, err := ctx.router.FindRoutes(target, paymentAmt)
+	routes, err := ctx.router.FindRoutes(target, paymentAmt,
+		DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -247,7 +243,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode := ctx.router.selfNode
+	sourceNode, err := ctx.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
 
 	// First, we'll modify the SendToSwitch method to return an error
 	// indicating that the channel from roasbeef to luoji is not operable
@@ -430,7 +429,7 @@ func TestAddProof(t *testing.T) {
 }
 
 // TestIgnoreNodeAnnouncement tests that adding a node to the router that is
-// not known from any channel annoucement, leads to the annoucement being
+// not known from any channel announcement, leads to the announcement being
 // ignored.
 func TestIgnoreNodeAnnouncement(t *testing.T) {
 	t.Parallel()
@@ -649,7 +648,8 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We should now be able to find one route to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
-	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt)
+	routes, err := ctx.router.FindRoutes(targetNode, paymentAmt,
+		DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
@@ -691,7 +691,8 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the route, and the info should be
 	// updated.
-	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt)
+	routes, err = ctx.router.FindRoutes(targetNode, paymentAmt,
+		DefaultFinalCLTVDelta)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}

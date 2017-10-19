@@ -280,7 +280,28 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 
 		// We don't pay any fees to ourselves on the first-hop channel,
 		// so we don't tally up the running fee and amount.
-		if i != len(pathEdges)-1 {
+		switch {
+		// If this is a single-hop payment, there's no fee required.
+		case i == 0 && len(pathEdges) == 1:
+			nextHop.Fee = 0
+
+		// If this is the "first" hop in a multi-hop payment, then we
+		// don't pay any fee to ourselves, but we craft the payload to
+		// prescribe the proper fee for the _next_ hop.
+		case i == 0 && len(pathEdges) > 1:
+			// Now, we'll compute the fee that we need to path this
+			// hop for its downstream transit. This is the value we
+			// want coming into the _next_ hop, using the fees from
+			// the _incoming_ node.
+			nextFee := computeFee(route.Hops[i+1].AmtToForward,
+				pathEdges[i+1])
+
+			nextHop.AmtToForward -= nextFee
+			nextHop.Fee = 0
+
+		// Otherwise, this is an intermediate hop, and we compute the
+		// fees as normal.
+		default:
 			// For a node to forward an HTLC, then following
 			// inequality most hold true: amt_in - fee >=
 			// amt_to_forward. Therefore we add the fee this node
@@ -295,8 +316,6 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 			// the amount of blocks it'll subtract from the
 			// incoming time lock.
 			route.TotalFees += nextHop.Fee
-		} else {
-			nextHop.Fee = 0
 		}
 
 		// If this is the last hop, then for verification purposes, the

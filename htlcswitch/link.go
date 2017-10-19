@@ -1294,9 +1294,9 @@ func (l *channelLink) processLockedInHtlcs(
 				timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
 				if pd.Timeout-timeDelta <= heightNow {
 					log.Errorf("htlc(%x) has an expiry "+
-						"that's too soon: expiry=%v, "+
+						"that's too soon: outgoing_expiry=%v, "+
 						"best_height=%v", pd.RHash[:],
-						pd.Timeout, heightNow)
+						pd.Timeout-timeDelta, heightNow)
 
 					var failure lnwire.FailureMessage
 					update, err := l.cfg.GetLastChannelUpdate()
@@ -1387,12 +1387,13 @@ func (l *channelLink) processLockedInHtlcs(
 				// time lock. Otherwise, whether the sender
 				// messed up, or an intermediate node tampered
 				// with the HTLC.
-				if pd.Timeout-timeDelta != fwdInfo.OutgoingCTLV {
+				if pd.Timeout-timeDelta < fwdInfo.OutgoingCTLV {
 					log.Errorf("Incoming htlc(%x) has "+
-						"incorrect time-lock value: expected "+
-						"%v blocks, got %v blocks",
-						pd.RHash[:], pd.Timeout-timeDelta,
-						fwdInfo.OutgoingCTLV)
+						"incorrect time-lock value: "+
+						"expected at least %v block delta, "+
+						"got %v block delta", pd.RHash[:],
+						timeDelta,
+						pd.Timeout-fwdInfo.OutgoingCTLV)
 
 					// Grab the latest routing policy so
 					// the sending node is up to date with

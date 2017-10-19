@@ -464,14 +464,11 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			if _, ok := ignoredEdges[outEdge.ChannelID]; ok {
 				return nil
 			}
-			if inEdge == nil {
-				return nil
-			}
 
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
-			tempDist := distance[pivot].dist + edgeWeight(inEdge)
+			tempDist := distance[pivot].dist + edgeWeight(outEdge)
 
 			// If this new tentative distance is better than the
 			// current best known distance to this node, then we
@@ -495,19 +492,11 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 					// specified by the node this channel
 					// connects to.
 					edge: &ChannelHop{
-						ChannelEdgePolicy: inEdge,
+						ChannelEdgePolicy: outEdge,
 						Capacity:          edgeInfo.Capacity,
 					},
 					prevNode: bestNode.PubKey,
 				}
-
-				// In order for the path unwinding to work
-				// properly, we'll ensure that this edge
-				// properly points to the outgoing node.
-				//
-				// TODO(roasbeef): revisit, possibly switch db
-				// format?
-				prev[v].edge.Node = outEdge.Node
 
 				// Add this new node to our heap as we'd like
 				// to further explore down this edge.

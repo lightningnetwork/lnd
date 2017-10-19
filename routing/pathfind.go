@@ -211,7 +211,8 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
-	pathEdges []*ChannelHop, currentHeight uint32) (*Route, error) {
+	pathEdges []*ChannelHop, currentHeight uint32,
+	finalCLTVDelta uint16) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -298,17 +299,23 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 			nextHop.Fee = 0
 		}
 
-		// Next, increment the total timelock of the entire route such
-		// that each hops time lock increases as we walk backwards in
-		// the route, using the delta of the previous hop.
-		route.TotalTimeLock += uint32(edge.TimeLockDelta)
-
 		// If this is the last hop, then for verification purposes, the
 		// value of the outgoing time-lock should be _exactly_ the
 		// absolute time out they'd expect in the HTLC.
 		if i == len(pathEdges)-1 {
-			nextHop.OutgoingTimeLock = currentHeight + uint32(edge.TimeLockDelta)
+			// As this is the last hop, we'll use the specified
+			// final CLTV delta value instead of the value from the
+			// last link in the route.
+			route.TotalTimeLock += uint32(finalCLTVDelta)
+
+			nextHop.OutgoingTimeLock = currentHeight + uint32(finalCLTVDelta)
 		} else {
+			// Next, increment the total timelock of the entire
+			// route such that each hops time lock increases as we
+			// walk backwards in the route, using the delta of the
+			// previous hop.
+			route.TotalTimeLock += uint32(edge.TimeLockDelta)
+
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_
 			// HTLC, so we factor in their specified grace period

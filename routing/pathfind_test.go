@@ -209,9 +209,11 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 	}
 
-	// Set the selected source node
-	if err := graph.SetSourceNode(source); err != nil {
-		return nil, nil, nil, err
+	if source != nil {
+		// Set the selected source node
+		if err := graph.SetSourceNode(source); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	// With all the vertexes inserted, we can now insert the edges into the

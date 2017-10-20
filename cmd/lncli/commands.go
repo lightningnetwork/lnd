@@ -813,7 +813,7 @@ var sendPaymentCommand = cli.Command{
 	Name:  "sendpayment",
 	Usage: "send a payment over lightning",
 	ArgsUsage: "(destination amount payment_hash " +
-		"| --pay_req=[payment request])",
+		"| --pay_req=[payment request]) [--max_fee_satoshis=[max fee]] [--max_fee_ratio=[max fee ratio]]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest, d",
@@ -835,6 +835,14 @@ var sendPaymentCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "a bech32 encoded payment request to fulfill",
+		},
+		cli.Int64Flag{
+			Name:  "max_fee_satoshis",
+			Usage: "Maximum fee to pay in satoshis",
+		},
+		cli.Float64Flag{
+			Name:  "max_fee_ratio",
+			Usage: "Maximum ratio of fee to payment amount",
 		},
 	},
 	Action: sendPayment,
@@ -920,6 +928,16 @@ func sendPayment(ctx *cli.Context) error {
 			}
 			req.PaymentHash = rHash
 		}
+	}
+
+	if ctx.IsSet("max_fee_satoshis") {
+		maxFee := ctx.Int64("max_fee_satoshis")
+		req.MaxFee = &lnrpc.SendRequest_MaxFeeSatoshis{MaxFeeSatoshis: maxFee}
+	}
+
+	if ctx.IsSet("max_fee_ratio") {
+		maxFeeRatio := ctx.Float64("max_fee_ratio")
+		req.MaxFee = &lnrpc.SendRequest_MaxFeeRatio{MaxFeeRatio: maxFeeRatio}
 	}
 
 	paymentStream, err := client.SendPayment(context.Background())

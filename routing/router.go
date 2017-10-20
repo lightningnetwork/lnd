@@ -956,9 +956,9 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // inner loop.  Once we have a set of candidate routes, we calculate the
 // required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
-// fee along the route.
+// fee along the route. Routes with fees greater than maxFee will be abandoned.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, maxFee *lnwire.MilliSatoshi) ([]*Route, error) {
 
 	// TODO(roasbeef): make num routes a param
 
@@ -1030,7 +1030,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight))
+			uint32(currentHeight), maxFee)
 		if err != nil {
 			continue
 		}
@@ -1156,6 +1156,9 @@ type LightningPayment struct {
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.
 	PaymentHash [32]byte
+
+	// MaxFee is the maximum fee the user is willing to pay in fees.
+	MaxFee *lnwire.MilliSatoshi
 
 	// TODO(roasbeef): add e2e message?
 }

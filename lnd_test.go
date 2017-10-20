@@ -1468,6 +1468,192 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 }
 
+// testMaxFee tests that the SendPayment RPC returns no
+// routes with fees greater than the MaxFee cutoff,
+// and returns routes with fees less than the MaxFee cutoff.
+func testMaxFee(net *networkHarness, t *harnessTest) {
+	type testCase struct {
+		maxFee        int64
+		sendAsRatio   bool
+		expectSuccess bool
+		hash          []byte
+	}
+
+	// The path from Carol->Alice->Bob requires 1001 msat in fees,
+	// which corresponds to TotalFees=1.001 satoshis.
+	testCases := []testCase{
+		// Cases to test MaxFeeSatoshis.
+		{
+			// maxFee < 0
+			maxFee:        -1,
+			expectSuccess: false,
+		},
+		{
+			// maxFee < TotalFees
+			maxFee:        0,
+			expectSuccess: false,
+		},
+		{
+			// maxFee < TotalFees && maxFee != 0
+			maxFee:        1,
+			expectSuccess: false,
+		},
+		{
+			// maxFee > TotalFees
+			maxFee:        2,
+			expectSuccess: true,
+		},
+		// Cases to test MaxFeeRatio.
+		{
+			// maxFee < 0
+			maxFee:        -1,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee < TotalFees
+			maxFee:        0,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee < TotalFees && maxFee != 0
+			maxFee:        1,
+			expectSuccess: false,
+			sendAsRatio:   true,
+		},
+		{
+			// maxFee > TotalFees
+			maxFee:        2,
+			expectSuccess: true,
+			sendAsRatio:   true,
+		},
+	}
+	const chanAmt = btcutil.Amount(100000)
+	ctxb := context.Background()
+	timeout := time.Duration(time.Second * 5)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
+		net.Bob, chanAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	if err != nil {
+		t.Fatalf("alice didn't advertise her channel: %v", err)
+	}
+
+	// Create a new node (Carol), load her with some funds, then establish
+	// a connection between Carol and Alice with a channel that has
+	// identical capacity to the one created above.
+	//
+	// The network topology should now look like: Carol -> Alice -> Bob
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {
+		t.Fatalf("unable to connect carol to alice: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
+		net.Alice, chanAmt, 0)
+
+	// Create invoices for Bob, which expect a payment from Carol for 1k
+	// satoshis with a different preimage each time.
+	const paymentAmt = 1000
+	for i := range testCases {
+		invoice := &lnrpc.Invoice{
+			Memo:  "testing",
+			Value: paymentAmt,
+		}
+		resp, err := net.Bob.AddInvoice(ctxb, invoice)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		testCases[i].hash = resp.RHash
+	}
+
+	// Wait for carol to recognize both the Channel from herself to Carol,
+	// and also the channel from Alice to Bob.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
+	if err != nil {
+		t.Fatalf("carol didn't advertise her channel: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
+	if err != nil {
+		t.Fatalf("carol didn't see the alice->bob channel before timeout: %v", err)
+	}
+
+	// Create payment stream for Carol to use in order to pay Bob.
+	carolPayStream, err := carol.SendPayment(ctxb)
+	if err != nil {
+		t.Fatalf("unable to create payment stream for carol: %v", err)
+	}
+
+	// Pay off each of Bob's invoices, testing that payments succeed when
+	// fee < MaxFee and fail when fee > MaxFee.
+	for _, test := range testCases {
+		var sendReq *lnrpc.SendRequest
+		maxFeeRatio := float64(test.maxFee) / float64(paymentAmt)
+		if test.sendAsRatio {
+			// Test MaxFee set as a ratio.
+			sendReq = &lnrpc.SendRequest{
+				PaymentHash: test.hash,
+				Dest:        net.Bob.PubKey[:],
+				Amt:         paymentAmt,
+				MaxFee:      &lnrpc.SendRequest_MaxFeeRatio{MaxFeeRatio: maxFeeRatio},
+			}
+		} else {
+			// Test MaxFee set as a limit in satoshis.
+			sendReq = &lnrpc.SendRequest{
+				PaymentHash: test.hash,
+				Dest:        net.Bob.PubKey[:],
+				Amt:         paymentAmt,
+				MaxFee:      &lnrpc.SendRequest_MaxFeeSatoshis{MaxFeeSatoshis: test.maxFee},
+			}
+
+		}
+
+		if err := carolPayStream.Send(sendReq); err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+
+		if resp, err := carolPayStream.Recv(); err != nil {
+			t.Fatalf("payment stream has been closed: %v", err)
+		} else {
+			switch {
+			case resp.PaymentError != "" && test.expectSuccess:
+				t.Fatalf("Payment with maxFee %v failed when it should have succeeded: %v",
+					test.maxFee, resp.PaymentError)
+			case resp.PaymentError == "" && !test.expectSuccess:
+				t.Fatalf("Payment with maxFee %v succeeded when it should have failed", test.maxFee)
+			}
+
+		}
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
+
+	// Finally, shutdown the node we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := carol.Shutdown(); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
 func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 	ctxb := context.Background()
@@ -3787,6 +3973,10 @@ var testsCases = []*testCase{
 	{
 		name: "revoked uncooperative close retribution remote hodl",
 		test: testRevokedCloseRetributionRemoteHodl,
+	},
+	{
+		name: "maximum fee",
+		test: testMaxFee,
 	},
 }
 

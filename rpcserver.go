@@ -1398,11 +1398,12 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	}
 
 	// For each payment we need to know the msat amount, the destination
-	// public key, and the payment hash.
+	// public key, the payment hash, and the maximum fee.
 	type payment struct {
-		msat  lnwire.MilliSatoshi
-		dest  []byte
-		pHash []byte
+		msat   lnwire.MilliSatoshi
+		dest   []byte
+		pHash  []byte
+		maxFee *lnwire.MilliSatoshi
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1521,6 +1522,20 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					p.pHash = nextPayment.PaymentHash
 				}
 
+				// Calculate the user-specified fee cut-off
+				var maxFee *lnwire.MilliSatoshi
+				switch nextPayment.MaxFee.(type) {
+				case *lnrpc.SendRequest_MaxFeeSatoshis:
+					maxFeeSat := btcutil.Amount(nextPayment.GetMaxFeeSatoshis())
+					maxFeeMSat := lnwire.NewMSatFromSatoshis(maxFeeSat)
+					maxFee = &maxFeeMSat
+				case *lnrpc.SendRequest_MaxFeeRatio:
+					maxFeeRatio := nextPayment.GetMaxFeeRatio()
+					maxFeeMSat := lnwire.MilliSatoshi(float64(p.msat) * maxFeeRatio)
+					maxFee = &maxFeeMSat
+				}
+				p.maxFee = maxFee
+
 				select {
 				case payChan <- p:
 				case <-reqQuit:
@@ -1592,6 +1607,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Target:      destNode,
 					Amount:      p.msat,
 					PaymentHash: rHash,
+					MaxFee:      p.maxFee,
 				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment)
 				if err != nil {
@@ -1721,6 +1737,19 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 			maxPaymentMSat.ToSatoshis())
 	}
 
+	// Calculate the user-specified fee cut-off
+	var maxFee *lnwire.MilliSatoshi
+	switch nextPayment.MaxFee.(type) {
+	case *lnrpc.SendRequest_MaxFeeSatoshis:
+		maxFeeSat := btcutil.Amount(nextPayment.GetMaxFeeSatoshis())
+		maxFeeMSat := lnwire.NewMSatFromSatoshis(maxFeeSat)
+		maxFee = &maxFeeMSat
+	case *lnrpc.SendRequest_MaxFeeRatio:
+		maxFeeRatio := nextPayment.GetMaxFeeRatio()
+		maxFeeMSat := lnwire.MilliSatoshi(float64(amtMSat) * maxFeeRatio)
+		maxFee = &maxFeeMSat
+	}
+
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
@@ -1728,6 +1757,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
+		MaxFee:      maxFee,
 	})
 	if err != nil {
 		return nil, err
@@ -2415,7 +2445,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat)
+	routes, err := r.server.chanRouter.FindRoutes(pubKey, amtMSat, nil)
 	if err != nil {
 		return nil, err
 	}

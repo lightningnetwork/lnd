@@ -498,6 +498,18 @@ message SendRequest {
     payment to the recipient.
     */
     string payment_request = 6;
+
+    // Maximum fee in satoshis, specified as:
+    // max_fee_satoshis: maximum fee in satoshis, or
+    // max_fee_ratio: maximum ratio of fees / payment amount.
+    // Routes with fees greater than max_fee will be abandoned
+    // during path finding.
+        oneof max_fee {
+        // max_fee = max_fee_satoshis
+        int64 max_fee_satoshis = 7 [json_name = "max_fee_satoshis"];
+        // max_fee = max_fee_ratio * amt
+        double max_fee_ratio = 8 [json_name = "max_fee_ratio"];
+    }
 }
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];

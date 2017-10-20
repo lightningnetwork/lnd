@@ -1868,6 +1868,16 @@
         "payment_request": {
           "type": "string",
           "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "max_fee_satoshis": {
+          "type": "string",
+          "format": "int64",
+          "title": "max_fee = max_fee_satoshis"
+        },
+        "max_fee_ratio": {
+          "type": "number",
+          "format": "double",
+          "title": "max_fee = max_fee_ratio * amt"
         }
       }
     },

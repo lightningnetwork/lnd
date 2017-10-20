@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/btcsuite/go-socks/socks"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -213,7 +214,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	})
 
 	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses.
+	// of this server's addresses. We need to use the general lndResolveTCP
+	// function in case we wish to resolve hosts over Tor since domains
+	// CAN be passed into the ExternalIPs configuration option.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
 	for _, ip := range cfg.ExternalIPs {
 		var addr string
@@ -224,7 +227,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			addr = ip
 		}
 
-		lnAddr, err := net.ResolveTCPAddr("tcp", addr)
+		lnAddr, err := lndResolveTCP("tcp", addr)
 		if err != nil {
 			return nil, err
 		}
@@ -602,6 +605,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
 				dnsSeeds,
+				[]interface{}{lndLookup, lndLookupSRV},
 			)
 			if err != nil {
 				return nil, err
@@ -641,10 +645,18 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	// With our initial set of peers obtained, we'll launch a goroutine to
 	// attempt to connect out to each of them. We'll be waking up shortly
-	// below to sample how many of these connections succeeded.
+	// below to sample how many of these connections succeeded. We check
+	// cfg.dial for nil in case Tor's proxy dialer option was set in the
+	// configuration.
 	for _, addr := range bootStrapAddrs {
 		go func(a *lnwire.NetAddress) {
-			conn, err := brontide.Dial(s.identityPriv, a)
+			var conn *brontide.Conn
+			var err error
+			if cfg.dial == nil {
+				conn, err = brontide.Dial(s.identityPriv, a)
+			} else {
+				conn, err = brontide.Dial(s.identityPriv, a, cfg.dial)
+			}
 			if err != nil {
 				srvrLog.Errorf("unable to connect to %v: %v",
 					a, err)
@@ -754,7 +766,16 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				go func(a *lnwire.NetAddress) {
 					// TODO(roasbeef): can do AS, subnet,
 					// country diversity, etc
-					conn, err := brontide.Dial(s.identityPriv, a)
+					// We check cfg.dial for nil in case
+					// a Tor's proxy dialer configuration was
+					// set.
+					var conn *brontide.Conn
+					var err error
+					if cfg.dial == nil {
+						conn, err = brontide.Dial(s.identityPriv, a)
+					} else {
+						conn, err = brontide.Dial(s.identityPriv, a, cfg.dial)
+					}
 					if err != nil {
 						srvrLog.Errorf("unable to connect "+
 							"to %v: %v", a, err)
@@ -1271,10 +1292,25 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	inbound bool) {
 
 	brontideConn := conn.(*brontide.Conn)
-	peerAddr := &lnwire.NetAddress{
-		IdentityKey: brontideConn.RemotePub(),
-		Address:     conn.RemoteAddr().(*net.TCPAddr),
-		ChainNet:    activeNetParams.Net,
+	var peerAddr *lnwire.NetAddress
+	if cfg.dial == nil {
+		peerAddr = &lnwire.NetAddress{
+			IdentityKey: brontideConn.RemotePub(),
+			Address:     conn.RemoteAddr().(*net.TCPAddr),
+			ChainNet:    activeNetParams.Net,
+		}
+	} else {
+		// We are connected to a Tor SOCKS5 proxy, extract our
+		// connection information.
+		proxiedAddr := conn.RemoteAddr().(*socks.ProxiedAddr)
+		peerAddr = &lnwire.NetAddress{
+			IdentityKey: brontideConn.RemotePub(),
+			Address: &net.TCPAddr{
+				IP:   net.ParseIP(proxiedAddr.Host),
+				Port: proxiedAddr.Port,
+			},
+			ChainNet: activeNetParams.Net,
+		}
 	}
 
 	// With the brontide connection established, we'll now craft the local
@@ -1659,8 +1695,14 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	// If we're not making a persistent connection, then we'll attempt to
 	// connect to the target peer. If the we can't make the connection, or
 	// the crypto negotiation breaks down, then return an error to the
-	// caller.
-	conn, err := brontide.Dial(s.identityPriv, addr)
+	// caller. We check cfg.dial for nil in case Tor's proxy dialer function
+	// was set in the configuration options.
+	var conn *brontide.Conn
+	if cfg.dial == nil {
+		conn, err = brontide.Dial(s.identityPriv, addr)
+	} else {
+		conn, err = brontide.Dial(s.identityPriv, addr, cfg.dial)
+	}
 	if err != nil {
 		return err
 	}

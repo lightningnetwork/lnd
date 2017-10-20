@@ -65,6 +65,12 @@ var (
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
 	revocationLogBucket = []byte("revocation-log-key")
+
+	// resolveTCP is a resolver that is used to resolve nodes'
+	// publicly advertised addresses. It is set to net.ResolveTCPAddr
+	// initially, but the SetResolver function can be used to change this
+	// to a Tor-specific resolver.
+	resolveTCP = net.ResolveTCPAddr
 )
 
 var (
@@ -387,6 +393,12 @@ type OpenChannel struct {
 	// TODO(roasbeef): just need to store local and remote HTLC's?
 
 	sync.RWMutex
+}
+
+// SetResolver sets resolveTCP to a resolver other than the default
+// net.ResolveTCPAddr resolver function.
+func SetResolver(resolver func(string, string) (*net.TCPAddr, error)) {
+	resolveTCP = resolver
 }
 
 // FullSync serializes, and writes to disk the *full* channel state, using

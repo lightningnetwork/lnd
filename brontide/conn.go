@@ -32,9 +32,19 @@ var _ net.Conn = (*Conn)(nil)
 // remote peer located at address which has remotePub as its long-term static
 // public key. In the case of a handshake failure, the connection is closed and
 // a non-nil error is returned.
-func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress) (*Conn, error) {
+func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
+	dialer ...func(string, string) (net.Conn, error)) (*Conn, error) {
 	ipAddr := netAddr.Address.String()
-	conn, err := net.Dial("tcp", ipAddr)
+	var conn net.Conn
+	var err error
+	if dialer == nil {
+		// A Tor proxy dial function WAS NOT passed in.
+		conn, err = net.Dial("tcp", ipAddr)
+	} else {
+		// A Tor proxy dial function WAS passed in so we use it instead
+		// of golang's net.Dial.
+		conn, err = dialer[0]("tcp", ipAddr)
+	}
 	if err != nil {
 		return nil, err
 	}

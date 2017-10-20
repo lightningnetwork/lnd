@@ -247,6 +247,7 @@ type DNSSeedBootstrapper struct {
 	// receive the IP address of the current authoritative DNS server for
 	// the network seed.
 	dnsSeeds [][2]string
+	lookupFns []interface{}
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -260,12 +261,10 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // used as a fallback for manual TCP resolution in the case of an error
 // receiving the UDP response. The second host should return a single A record
 // with the IP address of the authoritative name server.
-//
-// TODO(roasbeef): add a lookUpFunc param to pass in, so can divert queries
-// over Tor in future
-func NewDNSSeedBootstrapper(seeds [][2]string) (NetworkPeerBootstrapper, error) {
+func NewDNSSeedBootstrapper(seeds [][2]string, lookupFns []interface{}) (NetworkPeerBootstrapper, error) {
 	return &DNSSeedBootstrapper{
-		dnsSeeds: seeds,
+		dnsSeeds:  seeds,
+		lookupFns: lookupFns,
 	}, nil
 }
 
@@ -349,9 +348,10 @@ search:
 		for _, dnsSeedTuple := range d.dnsSeeds {
 			// We'll first query the seed with an SRV record so we
 			// can obtain a random sample of the encoded public
-			// keys of nodes.
+			// keys of nodes. We use the lndLookupSRV function for
+			// this task.
 			primarySeed := dnsSeedTuple[0]
-			_, addrs, err := net.LookupSRV("nodes", "tcp", primarySeed)
+			_, addrs, err := d.lookupFns[1].(func(string, string, string) (string, []*net.SRV, error))("nodes", "tcp", primarySeed)
 			if err != nil {
 				log.Tracef("Unable to lookup SRV records via " +
 					"primary seed, falling back to secondary")
@@ -387,9 +387,10 @@ search:
 				// With the SRV target obtained, we'll now
 				// perform another query to obtain the IP
 				// address for the matching bech32 encoded node
-				// key.
+				// key. We use the lndLookup function for this
+				// task.
 				bechNodeHost := nodeSrv.Target
-				addrs, err := net.LookupHost(bechNodeHost)
+				addrs, err := d.lookupFns[0].(func(string) ([]string, error))(bechNodeHost)
 				if err != nil {
 					return nil, err
 				}
@@ -441,7 +442,9 @@ search:
 
 				// Finally we'll convert the host:port peer to
 				// a proper TCP address to use within the
-				// lnwire.NetAddress.
+				// lnwire.NetAddress. We don't need to use
+				// the lndResolveTCP function here because we
+				// already have the host:port peer.
 				addr := net.JoinHostPort(addrs[0],
 					strconv.FormatUint(uint64(nodeSrv.Port), 10))
 				tcpAddr, err := net.ResolveTCPAddr("tcp", addr)

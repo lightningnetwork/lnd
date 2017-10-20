@@ -3168,7 +3168,7 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Second * 1)
 	req := &lnrpc.ChannelGraphRequest{}
 	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
 	if err != nil {

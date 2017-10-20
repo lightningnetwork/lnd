@@ -88,9 +88,9 @@ func TestCreateWallet(t *testing.T) {
 	}
 }
 
-// TestUnlockWallet checks that trying to unlock non-existing wallet fail,
-// that unlocking existing wallet with wrong passphrase fails, and that
-// unlocking existing wallet with correct passphrase succeeds.
+// TestUnlockWallet checks that trying to unlock non-existing wallet fail, that
+// unlocking existing wallet with wrong passphrase fails, and that unlocking
+// existing wallet with correct passphrase succeeds.
 func TestUnlockWallet(t *testing.T) {
 	t.Parallel()
 

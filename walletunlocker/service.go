@@ -5,7 +5,6 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcwallet/wallet"
 	"golang.org/x/net/context"
@@ -16,18 +15,14 @@ import (
 // with a password for wallet encryption at startup.
 type UnlockerService struct {
 	// CreatePasswords is a channel where passwords provided by the rpc
-	// client to be used to initially create and encrypt a wallet will
-	// be sent.
+	// client to be used to initially create and encrypt a wallet will be
+	// sent.
 	CreatePasswords chan []byte
 
 	// UnlockPasswords is a channel where passwords provided by the rpc
-	// client to be used to unlock and decrypt an existing wallet will
-	// be sent.
+	// client to be used to unlock and decrypt an existing wallet will be
+	// sent.
 	UnlockPasswords chan []byte
-
-	// authSvc is the authentication/authorization service backed by
-	// macaroons.
-	authSvc *bakery.Service
 
 	chainDir  string
 	netParams *chaincfg.Params
@@ -39,25 +34,16 @@ func New(authSvc *bakery.Service, chainDir string,
 	return &UnlockerService{
 		CreatePasswords: make(chan []byte, 1),
 		UnlockPasswords: make(chan []byte, 1),
-		authSvc:         authSvc,
 		chainDir:        chainDir,
 		netParams:       params,
 	}
 }
 
-// CreateWallet will read the password provided in the CreateWalletRequest
-// and send it over the CreatePasswords channel in case no wallet already
-// exist in the chain's wallet database directory.
+// CreateWallet will read the password provided in the CreateWalletRequest and
+// send it over the CreatePasswords channel in case no wallet already exist in
+// the chain's wallet database directory.
 func (u *UnlockerService) CreateWallet(ctx context.Context,
 	in *lnrpc.CreateWalletRequest) (*lnrpc.CreateWalletResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if u.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "createwallet",
-			u.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
 	loader := wallet.NewLoader(u.netParams, netDir)
@@ -81,18 +67,10 @@ func (u *UnlockerService) CreateWallet(ctx context.Context,
 }
 
 // UnlockWallet sends the password provided by the incoming UnlockWalletRequest
-// over the UnlockPasswords channel in case it successfully decrypts an existing
-// wallet found in the chain's wallet database directory.
+// over the UnlockPasswords channel in case it successfully decrypts an
+// existing wallet found in the chain's wallet database directory.
 func (u *UnlockerService) UnlockWallet(ctx context.Context,
 	in *lnrpc.UnlockWalletRequest) (*lnrpc.UnlockWalletResponse, error) {
-
-	// Check macaroon to see if this is allowed.
-	if u.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "unlockwallet",
-			u.authSvc); err != nil {
-			return nil, err
-		}
-	}
 
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
 	loader := wallet.NewLoader(u.netParams, netDir)

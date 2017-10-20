@@ -566,6 +566,8 @@ func (c *chanMsgStream) msgConsumer() {
 		c.msgs[0] = nil // Set to nil to prevent GC leak.
 		c.msgs = c.msgs[1:]
 
+		c.msgCond.L.Unlock()
+
 		// We'll send a message to the funding manager and wait iff an
 		// active funding process for this channel hasn't yet
 		// completed. We do this in order to account for the following
@@ -587,7 +589,6 @@ func (c *chanMsgStream) msgConsumer() {
 		}
 
 		c.chanLink.HandleChannelUpdate(msg)
-		c.msgCond.L.Unlock()
 	}
 }
 

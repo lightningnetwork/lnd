@@ -149,7 +149,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarne
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 6)[0]
 
 	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
 	if err != nil {
@@ -408,7 +408,7 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
-	const numConfs = 1
+	const numConfs = 6
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
 		chanAmt, pushAmt)
 	if err != nil {
@@ -442,7 +442,7 @@ func testDisconnectingTargetPeer(net *networkHarness, t *harnessTest) {
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, numConfs)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
 	// At this point, the channel should be fully opened and there should
@@ -526,7 +526,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 	// As we need to create a channel that requires more than 1
 	// confirmation before it's open, with the current set of defaults,
 	// we'll need to create a new node instance.
-	const numConfs = 5
+	const numConfs = 6
 	carolArgs := []string{fmt.Sprintf("--defaultchanconfs=%v", numConfs)}
 	carol, err := net.NewNode(carolArgs)
 	if err != nil {
@@ -537,7 +537,7 @@ func testChannelFundingPersistence(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
 
-	// Create a new channel that requires 5 confs before it's considered
+	// Create a new channel that requires 6 confs before it's considered
 	// open, then broadcast the funding transaction
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, carol,
@@ -606,7 +606,7 @@ peersPoll:
 
 	// Next, mine enough blocks s.t the channel will open with a single
 	// additional block mined.
-	if _, err := net.Miner.Node.Generate(3); err != nil {
+	if _, err := net.Miner.Node.Generate(4); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
@@ -744,7 +744,7 @@ func testChannelForceClosure(net *networkHarness, t *harnessTest) {
 	// First establish a channel with a capacity of 100k satoshis between
 	// Alice and Bob. We also push 50k satoshis of the initial amount
 	// towards Bob.
-	numFundingConfs := uint32(1)
+	numFundingConfs := uint32(6)
 	chanAmt := btcutil.Amount(10e4)
 	pushAmt := btcutil.Amount(5e4)
 	chanOpenUpdate, err := net.OpenChannel(ctxb, net.Alice, net.Bob,
@@ -1656,7 +1656,7 @@ func testMaxPendingChannels(net *networkHarness, t *harnessTest) {
 	// Mine a block, then wait for node's to notify us that the channel has
 	// been opened. The funding transactions should be found within the
 	// newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 6)[0]
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
 	for i, stream := range openStreams {

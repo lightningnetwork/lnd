@@ -878,8 +878,13 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 			summary = "(" + summary + ")"
 		}
 
-		return fmt.Sprintf("%v %v%s from %s", summaryPrefix,
-			msg.MsgType(), summary, p)
+		preposition := "to"
+		if read {
+			preposition = "from"
+		}
+
+		return fmt.Sprintf("%v %v%s %v %s", summaryPrefix,
+			msg.MsgType(), summary, preposition, p)
 	}))
 
 	switch m := msg.(type) {

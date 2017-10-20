@@ -90,10 +90,26 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
 
 	channelCapacity := aliceAmount + bobAmount
-	aliceDustLimit := btcutil.Amount(200)
-	bobDustLimit := btcutil.Amount(800)
 	csvTimeoutAlice := uint32(5)
 	csvTimeoutBob := uint32(4)
+
+	aliceConstraints := &channeldb.ChannelConstraints{
+			DustLimit:        btcutil.Amount(200),
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				channelCapacity),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
+
+	bobConstraints := &channeldb.ChannelConstraints{
+			DustLimit:        btcutil.Amount(800),
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				channelCapacity),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+	}
 
 	var hash [sha256.Size]byte
 	randomSeed, err := generateRandomBytes(sha256.Size)
@@ -109,9 +125,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: aliceDustLimit,
-		},
+		ChannelConstraints: *aliceConstraints,
 		CsvDelay:            uint16(csvTimeoutAlice),
 		MultiSigKey:         aliceKeyPub,
 		RevocationBasePoint: aliceKeyPub,
@@ -119,9 +133,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		DelayBasePoint:      aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: bobDustLimit,
-		},
+		ChannelConstraints: *bobConstraints,
 		CsvDelay:            uint16(csvTimeoutBob),
 		MultiSigKey:         bobKeyPub,
 		RevocationBasePoint: bobKeyPub,
@@ -528,13 +540,15 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID,
+	)
 	if err != nil {
 		t.Fatalf("unable to create alice<->bob channel: %v", err)
 	}
 
 	secondBobChannel, carolChannel, sCleanUp, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID,
+	)
 	if err != nil {
 		t.Fatalf("unable to create bob<->carol channel: %v", err)
 	}

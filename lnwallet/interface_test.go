@@ -261,6 +261,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to initialize funding reservation: %v", err)
 	}
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
+	aliceChanReservation.OurContribution().DustLimit = lnwallet.DefaultDustLimit()
 	aliceChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
 		lnwire.NewMSatFromSatoshis(fundingAmount), 10)
 
@@ -284,6 +285,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("bob unable to init channel reservation: %v", err)
 	}
+	bobChanReservation.OurContribution().DustLimit = lnwallet.DefaultDustLimit()
 	bobChanReservation.CommitConstraints(csvDelay, lnwallet.MaxHTLCNumber/2,
 		lnwire.NewMSatFromSatoshis(fundingAmount), 10)
 	bobChanReservation.SetNumConfsRequired(numReqConfs)

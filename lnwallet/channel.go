@@ -49,6 +49,23 @@ var (
 	ErrMaxHTLCNumber = fmt.Errorf("commitment transaction exceed max " +
 		"htlc number")
 
+	// ErrMaxPendingAmount is returned when a proposed HTLC would exceed
+	// the overall maximum pending value of all HTLC's if committed in a
+	// state transition.
+	ErrMaxPendingAmount = fmt.Errorf("commitment transaction exceed max" +
+		"overall htlc value")
+
+	// ErrBelowChanReserve is returned when a proposed HTLC would cause
+	// one of the peer's funds to dip below the channel reserve limit.
+	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
+		"below chan reserve")
+
+	// ErrBelowMinHTLC is returned when a proposed HTLC has a value that
+	// is below the minimum HTLC value constraint for either us or our
+	// peer depending on which flags are set.
+	ErrBelowMinHTLC = fmt.Errorf("proposed HTLC value is below minimum " +
+		"allowed HTLC value")
+
 	// ErrInsufficientBalance is returned when a proposed HTLC would
 	// exceed the available balance.
 	ErrInsufficientBalance = fmt.Errorf("insufficient local balance")
@@ -1515,7 +1532,7 @@ func htlcSuccessFee(feePerKw btcutil.Amount) btcutil.Amount {
 // htlcIsDust determines if an HTLC output is dust or not depending on two
 // bits: if the HTLC is incoming and if the HTLC will be placed on our
 // commitment transaction, or theirs. These two pieces of information are
-// require as we currently used second-level HTLC transactions ass off-chain
+// require as we currently used second-level HTLC transactions as off-chain
 // covenants. Depending on the two bits, we'll either be using a timeout or
 // success transaction which have different weights.
 func htlcIsDust(incoming, ourCommit bool,
@@ -2436,14 +2453,18 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	return sig, htlcSigs, nil
 }
 
-// validateCommitmentSanity is used to validate that on current state the commitment
-// transaction is valid in terms of propagating it over Bitcoin network, and
-// also that all outputs are meet Bitcoin spec requirements and they are
-// spendable.
+// validateCommitmentSanity is used to validate the current state of the
+// commitment transaction in terms of the ChannelConstraints that we and our
+// remote peer agreed upon during the funding workflow.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, prediction bool, local bool, remote bool) error {
 
-	// TODO(roasbeef): verify remaining sanity requirements
+	// In this step, we verify that the total number of active HTLC's does
+	// not exceed our constraint if the remote flag is set. If the local
+	// flag is set, we check that we not exceed the remote peer's constraint.
+	// If both the local and remote flags are set, we check that both of us
+	// adhere to the other's constraints. This step verifies the
+	// MaxAcceptedHtlcs field of ChannelConstraints.
 	htlcCount := 0
 
 	// If we adding or receiving the htlc we increase the number of htlcs
@@ -2483,20 +2504,139 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		}
 	}
 
-	// If we're validating the commitment sanity for HTLC _log_ update by a
-	// particular side, then we'll only consider half of the available HTLC
-	// bandwidth. However, if we're validating the _creation_ of a new
-	// commitment state, then we'll use the full value as the sum of the
-	// contribution of both sides shouldn't exceed the max number.
+	// If we're updating the commitment sanity for HTLC _log_ update by a
+	// particular side, then we'll only consider their bandwidth constraint.
+	// However, if we're validating the _creation_ of a new commitment state,
+	// then we'll use the full combined constraints as the sum of the
+	// contribution of both sides shouldn't exceed this max number.
 	var maxHTLCNumber int
 	if local && remote {
-		maxHTLCNumber = MaxHTLCNumber
-	} else {
-		maxHTLCNumber = MaxHTLCNumber / 2
+		maxHTLCNumber = int(lc.localChanCfg.MaxAcceptedHtlcs +
+			lc.remoteChanCfg.MaxAcceptedHtlcs)
+	} else if local {
+		maxHTLCNumber = int(lc.remoteChanCfg.MaxAcceptedHtlcs)
+	} else if remote {
+		maxHTLCNumber = int(lc.localChanCfg.MaxAcceptedHtlcs)
 	}
 
 	if htlcCount > maxHTLCNumber {
 		return ErrMaxHTLCNumber
+	}
+
+	// In this step, we verify that the maximum overall pending HTLC value
+	// is not met for either party depending on which of [local|remote]
+	// flags are set. This step verifies the MaxPendingAmount field of
+	// ChannelConstraints.
+	if remote {
+		pendingAmount := lnwire.NewMSatFromSatoshis(0)
+
+		for _, entry := range view.theirUpdates {
+			if entry.EntryType == Add {
+				pendingAmount += entry.Amount
+			} else {
+				pendingAmount -= entry.Amount
+			}
+		}
+
+		if pendingAmount > lc.localChanCfg.MaxPendingAmount {
+			return ErrMaxPendingAmount
+		}
+	}
+
+	if local {
+		pendingAmount := lnwire.NewMSatFromSatoshis(0)
+
+		for _, entry := range view.ourUpdates {
+			if entry.EntryType == Add {
+				pendingAmount += entry.Amount
+			} else {
+				pendingAmount -= entry.Amount
+			}
+		}
+
+		if pendingAmount > lc.remoteChanCfg.MaxPendingAmount {
+			return ErrMaxPendingAmount
+		}
+	}
+
+	// In this step, we verify that our channel reserves are still met
+	// with the new commitment transaction. This step verifies ChanReserve
+	// of ChannelConstraints.
+	if remote {
+		theirRemoteBalance := lc.remoteCommitChain.tip().theirBalance
+
+		for _, entry := range view.theirUpdates {
+			if entry.EntryType == Add &&
+				entry.addCommitHeightRemote == 0 {
+				theirRemoteBalance -= entry.Amount
+			} else if entry.EntryType == Settle &&
+				entry.removeCommitHeightRemote == 0 {
+				theirRemoteBalance += entry.Amount
+			}
+		}
+		for _, entry := range view.ourUpdates {
+			if entry.EntryType == Fail &&
+				entry.removeCommitHeightRemote == 0 {
+				theirRemoteBalance += entry.Amount
+			}
+		}
+
+		if theirRemoteBalance.ToSatoshis() < lc.localChanCfg.ChanReserve {
+			return ErrBelowChanReserve
+		}
+	}
+
+	if local {
+		ourLocalBalance := lc.localCommitChain.tip().ourBalance
+
+		for _, entry := range view.ourUpdates {
+			if entry.EntryType == Add &&
+				entry.addCommitHeightLocal == 0 {
+				ourLocalBalance -= entry.Amount
+			} else if entry.EntryType == Settle &&
+				entry.removeCommitHeightLocal == 0 {
+				ourLocalBalance += entry.Amount
+			}
+		}
+		for _, entry := range view.theirUpdates {
+			if entry.EntryType == Fail &&
+				entry.removeCommitHeightLocal == 0 {
+				ourLocalBalance += entry.Amount
+			}
+		}
+
+		if ourLocalBalance.ToSatoshis() < lc.remoteChanCfg.ChanReserve {
+			return ErrBelowChanReserve
+		}
+	}
+
+	// In this step, we verify that no HTLC's value is below either our
+	// or our peer's MinHTLC in ChannelConstraints depending on which of
+	// the [local|remote] flags are set.
+	if remote {
+		for _, entry := range view.theirUpdates {
+			if entry.Amount < lc.localChanCfg.MinHTLC {
+				return ErrBelowMinHTLC
+			}
+		}
+		for _, entry := range view.ourUpdates {
+			if entry.Amount < lc.localChanCfg.MinHTLC {
+				return ErrBelowMinHTLC
+			}
+		}
+	}
+
+	if local {
+		for _, entry := range view.ourUpdates {
+			if entry.Amount < lc.remoteChanCfg.MinHTLC {
+				return ErrBelowMinHTLC
+			}
+		}
+		for _, entry := range view.theirUpdates {
+			if entry.Amount < lc.remoteChanCfg.MinHTLC {
+				return ErrBelowMinHTLC
+			}
+		}
 	}
 
 	return nil
@@ -2681,8 +2821,9 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	commitPoint := ComputeCommitmentPoint(commitSecret[:])
 
 	// With the current commitment point re-calculated, construct the new
-	// commitment view which includes all the entries we know of in their
-	// HTLC log, and up to ourLogIndex in our HTLC log.
+	// commitment view which includes all the entries (pending or committed)
+	// we know of in the remote node's HTLC log, but only our local changes
+	// up to the last change the remote node has ACK'd.
 	localCommitmentView, err := lc.fetchCommitmentView(false,
 		lc.localUpdateLog.ackedIndex, lc.remoteUpdateLog.logIndex,
 		commitPoint)
@@ -4008,4 +4149,9 @@ func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	defer lc.Unlock()
 
 	return lc.channelState.RemoteNextRevocation
+}
+
+// GetReserve returns our local ChanReserve requirement for the remote party.
+func (lc *LightningChannel) GetReserve() btcutil.Amount {
+	return lc.localChanCfg.ChanReserve
 }

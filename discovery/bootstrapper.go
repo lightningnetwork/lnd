@@ -237,7 +237,8 @@ func (c *ChannelGraphBootstrapper) Name() string {
 // boot strapping protocol, see this link:
 //     * https://github.com/lightningnetwork/lightning-rfc/blob/master/10-dns-bootstrap.md
 type DNSSeedBootstrapper struct {
-	dnsSeeds []string
+	dnsSeeds  []string
+	lookupFns []interface{}
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -247,13 +248,12 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // NewDNSSeedBootstrapper returns a new instance of the DNSSeedBootstrapper.
 // The set of passed seeds should point to DNS servers that properly implement
 // Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010.
-//
-//
-// TODO(roasbeef): add a lookUpFunc param to pass in, so can divert queries
-// over Tor in future
-func NewDNSSeedBootstrapper(seeds []string) (NetworkPeerBootstrapper, error) {
+// The lookupFns slice contains the lndLookup, lndLookupSRV, & lndResolveTCP
+// functions respectively.
+func NewDNSSeedBootstrapper(seeds []string, lookupFns []interface{}) (NetworkPeerBootstrapper, error) {
 	return &DNSSeedBootstrapper{
-		dnsSeeds: seeds,
+		dnsSeeds:  seeds,
+		lookupFns: lookupFns,
 	}, nil
 }
 
@@ -274,8 +274,9 @@ search:
 		for _, dnsSeed := range d.dnsSeeds {
 			// We'll first query the seed with an SRV record so we
 			// can obtain a random sample of the encoded public
-			// keys of nodes.
-			_, addrs, err := net.LookupSRV("nodes", "tcp", dnsSeed)
+			// keys of nodes. We use the lndLookupSRV function for
+			// this task.
+			_, addrs, err := d.lookupFns[1].(func(string, string, string) (string, []*net.SRV, error))("nodes", "tcp", dnsSeed)
 			if err != nil {
 				return nil, err
 			}
@@ -294,9 +295,10 @@ search:
 				// With the SRV target obtained, we'll now
 				// perform another query to obtain the IP
 				// address for the matching bech32 encoded node
-				// key.
+				// key. We use the lndLookup function for this
+				// task.
 				bechNodeHost := nodeSrv.Target
-				addrs, err := net.LookupHost(bechNodeHost)
+				addrs, err := d.lookupFns[0].(func(string) ([]string, error))(bechNodeHost)
 				if err != nil {
 					return nil, err
 				}
@@ -348,7 +350,9 @@ search:
 
 				// Finally we'll convert the host:port peer to
 				// a proper TCP address to use within the
-				// lnwire.NetAddress.
+				// lnwire.NetAddress. We don't need to use
+				// the lndResolveTCP function here because we
+				// already have the host:port peer.
 				addr := fmt.Sprintf("%v:%v", addrs[0],
 					nodeSrv.Port)
 				tcpAddr, err := net.ResolveTCPAddr("tcp", addr)

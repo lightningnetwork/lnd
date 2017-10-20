@@ -228,9 +228,12 @@ func lndMain() error {
 	idPrivKey.Curve = btcec.S256()
 
 	// Set up the core server which will listen for incoming peer
-	// connections.
-	defaultListenAddrs := []string{
-		net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)),
+	// connections. If the Tor proxy dial function is not set, we can listen
+	// for connections. Otherwise, since we only want connections routed
+	// through Tor, listening is disabled.
+	var defaultListenAddrs []string
+	if cfg.dial == nil {
+		defaultListenAddrs[0] = net.JoinHostPort("", strconv.Itoa(cfg.PeerPort))
 	}
 	server, err := newServer(defaultListenAddrs, chanDB, activeChainControl,
 		idPrivKey)

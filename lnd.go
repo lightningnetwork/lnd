@@ -190,10 +190,13 @@ func lndMain() error {
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noencryptwallet flag, we use the default password
 	// "hello" for wallet encryption.
-	walletPw := []byte("hello")
+	privateWalletPw := []byte("hello")
+	publicWalletPw := []byte("public")
 	if !cfg.NoEncryptWallet {
-		walletPw, err = waitForWalletPassword(grpcEndpoint, restEndpoint,
-			serverOpts, proxyOpts, tlsConf, macaroonService)
+		privateWalletPw, publicWalletPw, err = waitForWalletPassword(
+			grpcEndpoint, restEndpoint, serverOpts, proxyOpts,
+			tlsConf, macaroonService,
+		)
 		if err != nil {
 			return err
 		}
@@ -203,7 +206,7 @@ func lndMain() error {
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(cfg,
-		chanDB, walletPw)
+		chanDB, privateWalletPw, publicWalletPw)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
 		return err
@@ -623,7 +626,8 @@ func genMacaroons(svc *bakery.Service, admFile, roFile string) error {
 // the user to this RPC server.
 func waitForWalletPassword(grpcEndpoint, restEndpoint string,
 	serverOpts []grpc.ServerOption, proxyOpts []grpc.DialOption,
-	tlsConf *tls.Config, macaroonService *bakery.Service) ([]byte, error) {
+	tlsConf *tls.Config, macaroonService *bakery.Service) ([]byte, []byte, error) {
+
 	// Set up a new PasswordService, which will listen
 	// for passwords provided over RPC.
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -641,7 +645,7 @@ func waitForWalletPassword(grpcEndpoint, restEndpoint string,
 	lis, err := net.Listen("tcp", grpcEndpoint)
 	if err != nil {
 		fmt.Printf("failed to listen: %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 	defer lis.Close()
 
@@ -667,7 +671,7 @@ func waitForWalletPassword(grpcEndpoint, restEndpoint string,
 	err = lnrpc.RegisterWalletUnlockerHandlerFromEndpoint(ctx, mux,
 		grpcEndpoint, proxyOpts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	srv := &http.Server{Handler: mux}
 	defer func() {
@@ -706,10 +710,10 @@ func waitForWalletPassword(grpcEndpoint, restEndpoint string,
 	// created if none exists when creating the chain control.
 	select {
 	case walletPw := <-pwService.CreatePasswords:
-		return walletPw, nil
+		return walletPw, walletPw, nil
 	case walletPw := <-pwService.UnlockPasswords:
-		return walletPw, nil
+		return walletPw, walletPw, nil
 	case <-shutdownChannel:
-		return nil, fmt.Errorf("shutting down")
+		return nil, nil, fmt.Errorf("shutting down")
 	}
 }

@@ -103,7 +103,8 @@ type chainControl struct {
 // branches of chainControl instances exist: one backed by a running btcd
 // full-node, and the other backed by a running neutrino light client instance.
 func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
-	walletPw []byte) (*chainControl, func(), error) {
+	privateWalletPw, publicWalletPw []byte) (*chainControl, func(), error) {
+
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
 	homeChainConfig := cfg.Bitcoin
@@ -132,8 +133,8 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	walletConfig := &btcwallet.Config{
-		PrivatePass:  walletPw,
-		PublicPass:   walletPw,
+		PrivatePass:  privateWalletPw,
+		PublicPass:   publicWalletPw,
 		DataDir:      homeChainConfig.ChainDir,
 		NetParams:    activeNetParams.Params,
 		FeeEstimator: cc.feeEstimator,

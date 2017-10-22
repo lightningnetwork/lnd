@@ -30,6 +30,16 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
+var (
+	// ErrPeerNotFound signals that the server has no connection to the
+	// given peer.
+	ErrPeerNotFound = errors.New("unable to find peer")
+
+	// ErrServerShuttingDown indicates that the server is in the process of
+	// gracefully exiting.
+	ErrServerShuttingDown = errors.New("server is shutting down")
+)
+
 // server is the main server of the Lightning Network Daemon. The server houses
 // global state pertaining to the wallet, database, and the rpcserver.
 // Additionally, the server is also used as a central messaging bus to interact
@@ -62,6 +72,12 @@ type server struct {
 	persistentPeers    map[string]struct{}
 	persistentConnReqs map[string][]*connmgr.ConnReq
 
+	// ignorePeerTermination tracks peers for which the server has initiated
+	// a disconnect. Adding a peer to this map causes the peer termination
+	// watcher to short circuit in the event that peers are purposefully
+	// disconnected.
+	ignorePeerTermination map[*peer]struct{}
+
 	cc *chainControl
 
 	fundingMgr *fundingManager
@@ -85,10 +101,6 @@ type server struct {
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
-
-	// localFeatures is an feature vector which represent the features
-	// which only affect the protocol between these two nodes.
-	localFeatures *lnwire.FeatureVector
 
 	// currentNodeAnn is the node announcement that has been broadcast to
 	// the network upon startup, if the attributes of the node (us) has
@@ -115,6 +127,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		}
 	}
 
+	globalFeatures := lnwire.NewRawFeatureVector()
+
 	serializedPubKey := privKey.PubKey().SerializeCompressed()
 	s := &server{
 		chanDB: chanDB,
@@ -133,8 +147,9 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			sphinx.NewRouter(privKey, activeNetParams.Params)),
 		lightningID: sha256.Sum256(serializedPubKey),
 
-		persistentPeers:    make(map[string]struct{}),
-		persistentConnReqs: make(map[string][]*connmgr.ConnReq),
+		persistentPeers:       make(map[string]struct{}),
+		persistentConnReqs:    make(map[string][]*connmgr.ConnReq),
+		ignorePeerTermination: make(map[*peer]struct{}),
 
 		peersByID:              make(map[int32]*peer),
 		peersByPub:             make(map[string]*peer),
@@ -142,9 +157,8 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
 
-		globalFeatures: globalFeatures,
-		localFeatures:  localFeatures,
-
+		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
+			lnwire.GlobalFeatures),
 		quit: make(chan struct{}),
 	}
 
@@ -159,6 +173,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.htlcSwitch = htlcswitch.New(htlcswitch.Config{
+		SelfKey: s.identityPriv.PubKey(),
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -216,7 +231,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Addresses:            selfAddrs,
 		PubKey:               privKey.PubKey(),
 		Alias:                alias.String(),
-		Features:             globalFeatures,
+		Features:             s.globalFeatures,
 	}
 
 	// If our information has changed since our last boot, then we'll
@@ -229,7 +244,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		Addresses: selfNode.Addresses,
 		NodeID:    selfNode.PubKey,
 		Alias:     alias,
-		Features:  selfNode.Features,
+		Features:  selfNode.Features.RawFeatureVector,
 	}
 	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
 		s.identityPriv.PubKey(), nodeAnn,
@@ -255,10 +270,10 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			circuit *sphinx.Circuit) ([32]byte, error) {
 
 			// Using the created circuit, initialize the error
-			// decryptor so we can parse+decode any failures
+			// decrypter so we can parse+decode any failures
 			// incurred by this payment within the switch.
-			errorDecryptor := &htlcswitch.FailureDeobfuscator{
-				OnionDeobfuscator: sphinx.NewOnionDeobfuscator(circuit),
+			errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+				OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
 			}
 
 			var firstHopPub [33]byte
@@ -424,8 +439,7 @@ func (s *server) Stop() error {
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
-	peers := s.Peers()
-	for _, peer := range peers {
+	for _, peer := range s.Peers() {
 		s.DisconnectPeer(peer.addr.IdentityKey)
 	}
 
@@ -550,12 +564,25 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 		// The ticker has just woken us up, so we'll need to check if
 		// we need to attempt to connect our to any more peers.
 		case <-sampleTicker.C:
+			// Obtain the current number of peers, so we can gauge
+			// if we need to sample more peers or not.
+			s.mu.Lock()
+			numActivePeers := uint32(len(s.peersByPub))
+			s.mu.Unlock()
+
+			// If we have enough peers, then we can loop back
+			// around to the next round as we're done here.
+			if numActivePeers >= numTargetPeers {
+				continue
+			}
+
 			// If all of our attempts failed during this last back
 			// off period, then will increase our backoff to 5
 			// minute ceiling to avoid an excessive number of
 			// queries
 			//
 			// TODO(roasbeef): add reverse policy too?
+
 			if epochAttempts > 0 &&
 				atomic.LoadUint32(&epochErrors) >= epochAttempts {
 
@@ -574,18 +601,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 			atomic.StoreUint32(&epochErrors, 0)
 			epochAttempts = 0
-
-			// Obtain the current number of peers, so we can gauge
-			// if we need to sample more peers or not.
-			s.mu.Lock()
-			numActivePeers := uint32(len(s.peersByPub))
-			s.mu.Unlock()
-
-			// If we have enough peers, then we can loop back
-			// around to the next round as we're done here.
-			if numActivePeers >= numTargetPeers {
-				continue
-			}
 
 			// Since we know need more peers, we'll compute the
 			// exact number we need to reach our threshold.
@@ -825,13 +840,9 @@ func (s *server) broadcastMessages(
 	// throughout this process to ensure we deliver messages to exact set
 	// of peers present at the time of invocation.
 	var wg sync.WaitGroup
-	for _, sPeer := range s.peersByPub {
-		if skip != nil &&
-			sPeer.addr.IdentityKey.IsEqual(skip) {
-
-			srvrLog.Debugf("Skipping %v in broadcast",
-				skip.SerializeCompressed())
-
+	for pubStr, sPeer := range s.peersByPub {
+		if skip != nil && sPeer.addr.IdentityKey.IsEqual(skip) {
+			srvrLog.Debugf("Skipping %v in broadcast", pubStr)
 			continue
 		}
 
@@ -904,12 +915,11 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 	// caller if the peer is unknown.  Access to peersByPub is synchronized
 	// here to ensure we consider the exact set of peers present at the
 	// time of invocation.
-	targetPeer, ok := s.peersByPub[string(targetPubBytes)]
-	if !ok {
+	targetPeer, err := s.findPeerByPubStr(string(targetPubBytes))
+	if err == ErrPeerNotFound {
 		srvrLog.Errorf("unable to send message to %x, "+
 			"peer not found", targetPubBytes)
-
-		return errors.New("peer not found")
+		return err
 	}
 
 	s.sendPeerMessages(targetPeer, msgs, nil)
@@ -957,9 +967,9 @@ func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	serializedIDKey := string(peerKey.SerializeCompressed())
+	pubStr := string(peerKey.SerializeCompressed())
 
-	return s.findPeer(serializedIDKey)
+	return s.findPeerByPubStr(pubStr)
 }
 
 // FindPeerByPubStr will return the peer that corresponds to the passed peerID,
@@ -967,34 +977,34 @@ func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer, error) {
 // public key.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) FindPeerByPubStr(peerID string) (*peer, error) {
+func (s *server) FindPeerByPubStr(pubStr string) (*peer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.findPeer(peerID)
+	return s.findPeerByPubStr(pubStr)
 }
 
-// findPeer is an internal method that retrieves the specified peer from the
-// server's internal state.
-func (s *server) findPeer(peerID string) (*peer, error) {
-	peer := s.peersByPub[peerID]
-	if peer == nil {
-		return nil, errors.New("Peer not found. Pubkey: " + peerID)
+// findPeerByPubStr is an internal method that retrieves the specified peer from
+// the server's internal state using.
+func (s *server) findPeerByPubStr(pubStr string) (*peer, error) {
+	peer, ok := s.peersByPub[pubStr]
+	if !ok {
+		return nil, ErrPeerNotFound
 	}
 
 	return peer, nil
 }
 
-// peerTerminationWatcher waits until a peer has been disconnected, and then
-// cleans up all resources allocated to the peer, notifies relevant sub-systems
-// of its demise, and finally handles re-connecting to the peer if it's
-// persistent.
+// peerTerminationWatcher waits until a peer has been disconnected unexpectedly,
+// and then cleans up all resources allocated to the peer, notifies relevant
+// sub-systems of its demise, and finally handles re-connecting to the peer if
+// it's persistent. If the server intentionally disconnects a peer, it should
+// have a corresponding entry in the ignorePeerTermination map which will cause
+// the cleanup routine to exit early.
 //
-// NOTE: This MUST be launched as a goroutine AND the _peer's_ WaitGroup should
-// be incremented before spawning this method, as it will signal to the peer's
-// WaitGroup upon completion.
+// NOTE: This MUST be launched as a goroutine.
 func (s *server) peerTerminationWatcher(p *peer) {
-	defer p.wg.Done()
+	defer s.wg.Done()
 
 	p.WaitForDisconnect()
 
@@ -1024,15 +1034,19 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		}
 	}
 
-	// Send the peer to be garbage collected by the server.
-	s.removePeer(p)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// If this peer had an active persistent connection request, then we
-	// can remove this as we manually decide below if we should attempt to
-	// re-connect.
-	if p.connReq != nil {
-		s.connMgr.Remove(p.connReq.ID())
+	// If the server has already removed this peer, we can short circuit the
+	// peer termination watcher and skip cleanup.
+	if _, ok := s.ignorePeerTermination[p]; ok {
+		delete(s.ignorePeerTermination, p)
+		return
 	}
+
+	// First, cleanup any remaining state the server has regarding the peer
+	// in question.
+	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
@@ -1065,6 +1079,17 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	}
 }
 
+// shouldRequestGraphSync returns true if the servers deems it necessary that
+// we sync channel graph state with the remote peer. This method is used to
+// avoid _always_ syncing channel graph state with each peer that connects.
+//
+// NOTE: This MUST be called with the server's mutex held.
+func (s *server) shouldRequestGraphSync() bool {
+	// Initially, we'll only request a graph sync iff we have less than two
+	// peers.
+	return len(s.peersByPub) <= 2
+}
+
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly.
@@ -1078,9 +1103,19 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChainNet:    activeNetParams.Net,
 	}
 
-	// Now that we've established a connection, create a peer, and
-	// it to the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound)
+	// With the brontide connection established, we'll now craft the local
+	// feature vector to advertise to the remote node.
+	localFeatures := lnwire.NewRawFeatureVector()
+
+	// We'll only request a full channel graph sync if we detect that that
+	// we aren't fully synced yet.
+	if s.shouldRequestGraphSync() {
+		localFeatures.Set(lnwire.InitialRoutingSync)
+	}
+
+	// Now that we've established a connection, create a peer, and it to
+	// the set of currently active peers.
+	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
 		return
@@ -1144,13 +1179,22 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	localPub := s.identityPriv.PubKey()
 
-	// Check to see if we should drop our connection, if not, then we'll
-	// close out this connection with the remote peer. This
-	// prevents us from having duplicate connections, or none.
-	if connectedPeer, ok := s.peersByPub[pubStr]; ok {
-		// If the connection we've already established should be kept,
-		// then we'll close out this connection s.t there's only a
-		// single connection between us.
+	// Check to see if we already have a connection with this peer. If so,
+	// we may need to drop our existing connection. This prevents us from
+	// having duplicate connections to the same peer. We forgo adding a
+	// default case as we expect these to be the only error values returned
+	// from findPeerByPubStr.
+	connectedPeer, err := s.findPeerByPubStr(pubStr)
+	switch err {
+	case ErrPeerNotFound:
+		// We were unable to locate an existing connection with the
+		// target peer, proceed to connect.
+
+	case nil:
+		// We already have a connection with the incoming peer. If the
+		// connection we've already established should be kept, then
+		// we'll close out this connection s.t there's only a single
+		// connection between us.
 		if !shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Received inbound connection from "+
 				"peer %x, but already connected, dropping conn",
@@ -1160,13 +1204,15 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		}
 
 		// Otherwise, if we should drop the connection, then we'll
-		// disconnect our already connected peer, and also send the
-		// peer to the peer garbage collection goroutine.
+		// disconnect our already connected peer.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
-		connectedPeer.Disconnect(errors.New("remove stale connection"))
 
+		// Remove the current peer from the server's internal state and
+		// signal that the peer termination watcher does not need to
+		// execute for this peer.
 		s.removePeer(connectedPeer)
+		s.ignorePeerTermination[connectedPeer] = struct{}{}
 	}
 
 	// Next, check to see if we have any outstanding persistent connection
@@ -1228,9 +1274,18 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		delete(s.persistentConnReqs, pubStr)
 	}
 
-	// If we already have an inbound connection from this peer, then we'll
-	// check to see _which_ of our connections should be dropped.
-	if connectedPeer, ok := s.peersByPub[pubStr]; ok {
+	// If we already have a connection with this peer, decide whether or not
+	// we need to drop the stale connection. We forgo adding a default case
+	// as we expect these to be the only error values returned from
+	// findPeerByPubStr.
+	connectedPeer, err := s.findPeerByPubStr(pubStr)
+	switch err {
+	case ErrPeerNotFound:
+		// We were unable to locate an existing connection with the
+		// target peer, proceed to connect.
+
+	case nil:
+		// We already have a connection open with the target peer.
 		// If our (this) connection should be dropped, then we'll do
 		// so, in order to ensure we don't have any duplicate
 		// connections.
@@ -1238,11 +1293,9 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			srvrLog.Warnf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
-
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())
 			}
-
 			conn.Close()
 			return
 		}
@@ -1252,9 +1305,12 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// server for garbage collection.
 		srvrLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
-		connectedPeer.Disconnect(errors.New("remove stale connection"))
 
+		// Remove the current peer from the server's internal state and
+		// signal that the peer termination watcher does not need to
+		// execute for this peer.
 		s.removePeer(connectedPeer)
+		s.ignorePeerTermination[connectedPeer] = struct{}{}
 	}
 
 	s.peerConnected(conn, connReq, true)
@@ -1268,8 +1324,8 @@ func (s *server) addPeer(p *peer) {
 	}
 
 	// Ignore new peers if we're shutting down.
-	if atomic.LoadInt32(&s.shutdown) != 0 {
-		p.Disconnect(errors.New("server is shutting down"))
+	if s.Stopped() {
+		p.Disconnect(ErrServerShuttingDown)
 		return
 	}
 
@@ -1289,18 +1345,21 @@ func (s *server) addPeer(p *peer) {
 		s.outboundPeers[pubStr] = p
 	}
 
-	// Launch a goroutine to watch for the termination of this peer so we
-	// can ensure all resources are properly cleaned up and if need be
-	// connections are re-established.  The go routine is tracked by the
-	// _peer's_ WaitGroup so that a call to Disconnect will block until the
-	// `peerTerminationWatcher` has exited.
-	p.wg.Add(1)
+	// Launch a goroutine to watch for the unexpected termination of this
+	// peer, which will ensure all resources are properly cleaned up, and
+	// re-establish persistent connections when necessary. The peer
+	// termination watcher will be short circuited if the peer is ever
+	// added to the ignorePeerTermination map, indicating that the server
+	// has already handled the removal of this peer.
+	s.wg.Add(1)
 	go s.peerTerminationWatcher(p)
 
-	// Once the peer has been added to our indexes, send a message to the
-	// channel router so we can synchronize our view of the channel graph
-	// with this new peer.
-	go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+	// If the remote peer has the initial sync feature bit set, then we'll
+	// being the synchronization protocol to exchange authenticated channel
+	// graph edges/vertexes
+	if p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync) {
+		go s.authGossiper.SynchronizeNode(p.addr.IdentityKey)
+	}
 
 	// Check if there are listeners waiting for this peer to come online.
 	for _, con := range s.peerConnectedListeners[pubStr] {
@@ -1320,10 +1379,15 @@ func (s *server) removePeer(p *peer) {
 
 	// As the peer is now finished, ensure that the TCP connection is
 	// closed and all of its related goroutines have exited.
-	p.Disconnect(errors.New("remove peer"))
+	p.Disconnect(fmt.Errorf("server: disconnecting peer %v", p))
+
+	// If this peer had an active persistent connection request, remove it.
+	if p.connReq != nil {
+		s.connMgr.Remove(p.connReq.ID())
+	}
 
 	// Ignore deleting peers if we're shutting down.
-	if atomic.LoadInt32(&s.shutdown) != 0 {
+	if s.Stopped() {
 		return
 	}
 
@@ -1375,19 +1439,19 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	s.mu.Lock()
 
 	// Ensure we're not already connected to this peer.
-	peer, ok := s.peersByPub[targetPub]
-	if ok {
+	peer, err := s.findPeerByPubStr(targetPub)
+	if err == nil {
 		s.mu.Unlock()
-
 		return fmt.Errorf("already connected to peer: %v", peer)
 	}
+
+	// Peer was not found, continue to pursue connection with peer.
 
 	// If there's already a pending connection request for this pubkey,
 	// then we ignore this request to ensure we don't create a redundant
 	// connection.
 	if _, ok := s.persistentConnReqs[targetPub]; ok {
 		s.mu.Unlock()
-
 		return fmt.Errorf("connection attempt to %v is pending", addr)
 	}
 
@@ -1443,26 +1507,23 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// Check that were actually connected to this peer. If not, then we'll
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
-	peer, ok := s.peersByPub[pubStr]
-	if !ok {
+	peer, err := s.findPeerByPubStr(pubStr)
+	if err == ErrPeerNotFound {
 		return fmt.Errorf("unable to find peer %x", pubBytes)
 	}
+
+	srvrLog.Infof("Disconnecting from %v", peer)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we
 	// disconnect.
-	if _, ok := s.persistentPeers[pubStr]; ok {
-		delete(s.persistentPeers, pubStr)
-	}
+	delete(s.persistentPeers, pubStr)
 
-	// Now that we know the peer is actually connected, we'll disconnect
-	// from the peer.  The lock is held until after Disconnect to ensure
-	// that the peer's `peerTerminationWatcher` has fully exited before
-	// returning to the caller.
-	srvrLog.Infof("Disconnecting from %v", peer)
-	peer.Disconnect(
-		errors.New("received user command to disconnect the peer"),
-	)
+	// Remove the current peer from the server's internal state and signal
+	// that the peer termination watcher does not need to execute for this
+	// peer.
+	s.removePeer(peer)
+	s.ignorePeerTermination[peer] = struct{}{}
 
 	return nil
 }

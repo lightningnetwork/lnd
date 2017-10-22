@@ -115,6 +115,11 @@ type ChannelGraph struct {
 	//  * LRU cache for edges?
 }
 
+// Database returns a pointer to the underlying database.
+func (c *ChannelGraph) Database() *DB {
+	return c.db
+}
+
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.
 type addressType uint8
@@ -1587,10 +1592,12 @@ func deserializeLightningNode(r io.Reader) (*LightningNode, error) {
 		return nil, err
 	}
 
-	node.Features, err = lnwire.NewFeatureVectorFromReader(r)
+	fv := lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures)
+	err = fv.Decode(r)
 	if err != nil {
 		return nil, err
 	}
+	node.Features = fv
 
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return nil, err

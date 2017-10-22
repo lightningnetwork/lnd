@@ -153,11 +153,11 @@ var _ HopIterator = (*mockHopIterator)(nil)
 // encodes the failure and do not makes any onion obfuscation.
 type mockObfuscator struct{}
 
-func newMockObfuscator() Obfuscator {
+func newMockObfuscator() ErrorEncrypter {
 	return &mockObfuscator{}
 }
 
-func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
+func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
 
 	var b bytes.Buffer
@@ -167,7 +167,7 @@ func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
 	return b.Bytes(), nil
 }
 
-func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return reason
 
 }
@@ -176,21 +176,24 @@ func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.Op
 // only decodes the failure do not makes any onion obfuscation.
 type mockDeobfuscator struct{}
 
-func newMockDeobfuscator() Deobfuscator {
+func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) Deobfuscate(reason lnwire.OpaqueReason) (lnwire.FailureMessage,
-	error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*ForwardingError, error) {
+
 	r := bytes.NewReader(reason)
 	failure, err := lnwire.DecodeFailure(r, 0)
 	if err != nil {
 		return nil, err
 	}
-	return failure, nil
+
+	return &ForwardingError{
+		FailureMessage: failure,
+	}, nil
 }
 
-var _ Deobfuscator = (*mockDeobfuscator)(nil)
+var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
 
 // mockIteratorDecoder test version of hop iterator decoder which decodes the
 // encoded array of hops.

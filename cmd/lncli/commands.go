@@ -20,6 +20,7 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
+	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
 )
 
@@ -597,6 +598,75 @@ func listPeers(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var createCommand = cli.Command{
+	Name:   "create",
+	Usage:  "used to set the wallet password at lnd startup",
+	Action: create,
+}
+
+func create(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
+
+	fmt.Printf("Input wallet password: ")
+	pw1, err := terminal.ReadPassword(0)
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	fmt.Printf("Confirm wallet password: ")
+	pw2, err := terminal.ReadPassword(0)
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	if !bytes.Equal(pw1, pw2) {
+		return fmt.Errorf("passwords don't match")
+	}
+
+	req := &lnrpc.CreateWalletRequest{
+		Password: pw1,
+	}
+	_, err = client.CreateWallet(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var unlockCommand = cli.Command{
+	Name:   "unlock",
+	Usage:  "unlock encrypted wallet at lnd startup",
+	Action: unlock,
+}
+
+func unlock(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
+
+	fmt.Printf("Input wallet password: ")
+	pw, err := terminal.ReadPassword(0)
+	if err != nil {
+		return err
+	}
+	fmt.Println()
+
+	req := &lnrpc.UnlockWalletRequest{
+		Password: pw,
+	}
+	_, err = client.UnlockWallet(ctxb, req)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

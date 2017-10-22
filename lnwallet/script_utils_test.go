@@ -71,9 +71,13 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceDelayKey,
-		bobPayKey, revokePubKey, csvTimeout, channelBalance,
-		channelBalance, DefaultDustLimit())
+	keyRing := &commitmentKeyRing{
+		delayKey:      aliceDelayKey,
+		revocationKey: revokePubKey,
+		paymentKey:    bobPayKey,
+	}
+	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, keyRing, csvTimeout,
+		channelBalance, channelBalance, DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
 	}

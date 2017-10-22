@@ -504,13 +504,13 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		// Coin selection is done on the basis of sat-per-byte, so
+		// Coin selection is done on the basis of sat-per-weight, so
 		// we'll query the fee estimator for a fee to use to ensure the
 		// funding transaction gets into the _next_  block.
 		//
 		// TODO(roasbeef): shouldn't be targeting next block
-		satPerByte := l.Cfg.FeeEstimator.EstimateFeePerByte(1)
-		err := l.selectCoinsAndChange(satPerByte, req.fundingAmount,
+		satPerWeight := l.Cfg.FeeEstimator.EstimateFeePerWeight(1)
+		err := l.selectCoinsAndChange(satPerWeight, req.fundingAmount,
 			reservation.ourContribution)
 		if err != nil {
 			req.err <- err
@@ -649,31 +649,12 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn *wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	remoteRevocation := DeriveRevocationPubkey(
-		ourChanCfg.RevocationBasePoint,
-		remoteCommitPoint,
-	)
-	localRevocation := DeriveRevocationPubkey(
-		theirChanCfg.RevocationBasePoint,
-		localCommitPoint,
-	)
+	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
+		ourChanCfg, theirChanCfg)
+	remoteCommitmentKeys := deriveCommitmentKeys(remoteCommitPoint, false,
+		ourChanCfg, theirChanCfg)
 
-	remoteDelayKey := TweakPubKey(theirChanCfg.DelayBasePoint,
-		remoteCommitPoint)
-	localDelayKey := TweakPubKey(ourChanCfg.DelayBasePoint,
-		localCommitPoint)
-
-	// The payment keys go on the opposite commitment transaction, so we'll
-	// swap the commitment points we use. As in the remote payment key will
-	// be used within our commitment transaction, and the local payment key
-	// used within the remote commitment transaction.
-	remotePaymentKey := TweakPubKey(theirChanCfg.PaymentBasePoint,
-		localCommitPoint)
-	localPaymentKey := TweakPubKey(ourChanCfg.PaymentBasePoint,
-		remoteCommitPoint)
-
-	ourCommitTx, err := CreateCommitTx(fundingTxIn,
-		localDelayKey, remotePaymentKey, localRevocation,
+	ourCommitTx, err := CreateCommitTx(fundingTxIn, localCommitmentKeys,
 		uint32(ourChanCfg.CsvDelay), localBalance, remoteBalance,
 		ourChanCfg.DustLimit)
 	if err != nil {
@@ -685,8 +666,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 		return nil, nil, err
 	}
 
-	theirCommitTx, err := CreateCommitTx(fundingTxIn,
-		remoteDelayKey, localPaymentKey, remoteRevocation,
+	theirCommitTx, err := CreateCommitTx(fundingTxIn, remoteCommitmentKeys,
 		uint32(theirChanCfg.CsvDelay), remoteBalance, localBalance,
 		theirChanCfg.DustLimit)
 	if err != nil {
@@ -1039,20 +1019,19 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// Next, create the spending scriptSig, and then verify that the script
 	// is complete, allowing us to spend from the funding transaction.
-	theirCommitSig := msg.theirCommitmentSig
 	channelValue := int64(res.partialState.Capacity)
 	hashCache := txscript.NewTxSigHashes(&commitTx)
 	sigHash, err := txscript.CalcWitnessSigHash(witnessScript, hashCache,
 		txscript.SigHashAll, &commitTx, 0, channelValue)
 	if err != nil {
-		msg.err <- fmt.Errorf("counterparty's commitment signature is "+
-			"invalid: %v", err)
+		msg.err <- err
 		msg.completeChan <- nil
 		return
 	}
 
 	// Verify that we've received a valid signature from the remote party
 	// for our version of the commitment transaction.
+	theirCommitSig := msg.theirCommitmentSig
 	sig, err := btcec.ParseSignature(theirCommitSig, btcec.S256())
 	if err != nil {
 		msg.err <- err
@@ -1268,8 +1247,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
-func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amount,
-	contribution *ChannelContribution) error {
+func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight uint64,
+	amt btcutil.Amount, contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1277,8 +1256,8 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
-	walletLog.Infof("Performing coin selection using %v sat/byte as fee "+
-		"rate", feeRate)
+	walletLog.Infof("Performing coin selection using %v sat/weight as fee "+
+		"rate", feeRatePerWeight)
 
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
@@ -1291,7 +1270,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
+	selectedCoins, changeAmt, err := coinSelect(feeRatePerWeight, amt, coins)
 	if err != nil {
 		return err
 	}
@@ -1301,12 +1280,13 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate uint64, amt btcutil.Amoun
 	// double-spending the same set of coins.
 	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
 	for i, coin := range selectedCoins {
-		l.lockedOutPoints[*coin] = struct{}{}
-		l.LockOutpoint(*coin)
+		outpoint := &coin.OutPoint
+		l.lockedOutPoints[*outpoint] = struct{}{}
+		l.LockOutpoint(*outpoint)
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
-		contribution.Inputs[i] = wire.NewTxIn(coin, nil, nil)
+		contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
 	}
 
 	// Record any change output(s) generated as a result of the coin
@@ -1384,67 +1364,23 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*wire.OutPoint, error) {
-	var (
-		selectedUtxos []*wire.OutPoint
-		satSelected   btcutil.Amount
-	)
-
-	i := 0
-	for satSelected < amt {
-		// If we're about to go past the number of available coins,
-		// then exit with an error.
-		if i > len(coins)-1 {
-			return 0, nil, &ErrInsufficientFunds{amt, satSelected}
-		}
-
-		// Otherwise, collect this new coin as it may be used for final
-		// coin selection.
-		coin := coins[i]
-		utxo := &wire.OutPoint{
-			Hash:  coin.Hash,
-			Index: coin.Index,
-		}
-
-		selectedUtxos = append(selectedUtxos, utxo)
+func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, error) {
+	satSelected := btcutil.Amount(0)
+	for i, coin := range coins {
 		satSelected += coin.Value
-
-		i++
+		if satSelected >= amt {
+			return satSelected, coins[:i+1], nil
+		}
 	}
-
-	return satSelected, selectedUtxos, nil
+	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
 }
 
 // coinSelect attempts to select a sufficient amount of coins, including a
 // change output to fund amt satoshis, adhering to the specified fee rate. The
 // specified fee rate should be expressed in sat/byte for coin selection to
 // function properly.
-func coinSelect(feeRate uint64, amt btcutil.Amount,
-	coins []*Utxo) ([]*wire.OutPoint, btcutil.Amount, error) {
-
-	const (
-		// txOverhead is the overhead of a transaction residing within
-		// the version number and lock time.
-		txOverhead = 8
-
-		// p2wkhSpendSize an estimate of the number of bytes it takes
-		// to spend a p2wkh output.
-		//
-		// (p2wkh witness) + txid + index + varint script size + sequence
-		// TODO(roasbeef): div by 3 due to witness size?
-		p2wkhSpendSize = (1 + 73 + 1 + 33) + 32 + 4 + 1 + 4
-
-		// p2wkhOutputSize is an estimate of the size of a regualr
-		// p2wkh output.
-		//
-		// 8 (output) + 1 (var int script) + 22 (p2wkh output)
-		p2wkhOutputSize = 8 + 1 + 22
-
-		// p2wkhOutputSize is an estimate of the p2wsh funding uotput.
-		p2wshOutputSize = 8 + 1 + 34
-	)
-
-	var estimatedSize int
+func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
+	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -1455,10 +1391,28 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 			return nil, 0, err
 		}
 
-		// Based on the selected coins, estimate the size of the final
-		// fully signed transaction.
-		estimatedSize = ((len(selectedUtxos) * p2wkhSpendSize) +
-			p2wshOutputSize + txOverhead)
+		var weightEstimate TxWeightEstimator
+
+		for _, utxo := range selectedUtxos {
+			switch utxo.AddressType {
+			case WitnessPubKey:
+				weightEstimate.AddP2WKHInput()
+			case NestedWitnessPubKey:
+				weightEstimate.AddNestedP2WKHInput()
+			case PubKeyHash:
+				weightEstimate.AddP2PKHInput()
+			default:
+				return nil, 0, fmt.Errorf("Unsupported address type: %v",
+					utxo.AddressType)
+			}
+		}
+
+		// Channel funding multisig output is P2WSH.
+		weightEstimate.AddP2WSHOutput()
+
+		// Assume that change output is a P2WKH output.
+		// TODO: Handle wallets that generate non-witness change addresses.
+		weightEstimate.AddP2WKHOutput()
 
 		// The difference between the selected amount and the amount
 		// requested will be used to pay fees, and generate a change
@@ -1469,9 +1423,10 @@ func coinSelect(feeRate uint64, amt btcutil.Amount,
 		// amount isn't enough to pay fees, then increase the requested
 		// coin amount by the estimate required fee, performing another
 		// round of coin selection.
-		requiredFee := btcutil.Amount(uint64(estimatedSize) * feeRate)
+		requiredFee := btcutil.Amount(
+			uint64(weightEstimate.Weight()) * feeRatePerWeight)
 		if overShootAmt < requiredFee {
-			amtNeeded += requiredFee
+			amtNeeded = amt + requiredFee
 			continue
 		}
 

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/roasbeef/btcd/btcec"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -40,7 +41,7 @@ type pendingPayment struct {
 	// deobfuscator is an serializable entity which is used if we received
 	// an error, it deobfuscates the onion failure blob, and extracts the
 	// exact error from it.
-	deobfuscator Deobfuscator
+	deobfuscator ErrorDecrypter
 }
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -85,8 +86,13 @@ type ChanClose struct {
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
-	// LocalChannelClose kicks-off the workflow to execute a cooperative
-	// or forced unilateral closure of the channel initiated by a local
+	// SelfKey is the key of the backing Lightning node. This key is used
+	// to properly craft failure messages, such that the Layer 3 router can
+	// properly route around link./vertex failures.
+	SelfKey *btcec.PublicKey
+
+	// LocalChannelClose kicks-off the workflow to execute a cooperative or
+	// forced unilateral closure of the channel initiated by a local
 	// subsystem.
 	LocalChannelClose func(pubKey []byte, request *ChanClose)
 }
@@ -170,7 +176,7 @@ func New(cfg Config) *Switch {
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update.
 func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
-	deobfuscator Deobfuscator) ([sha256.Size]byte, error) {
+	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 
 	// Create payment and add to the map of payment in order later to be
 	// able to retrieve it and return response to the user.
@@ -314,10 +320,10 @@ func (s *Switch) forward(packet *htlcPacket) error {
 	}
 }
 
-// handleLocalDispatch is used at the start/end of the htlc update life
-// cycle. At the start (1) it is used to send the htlc to the channel link
-// without creation of circuit. At the end (2) it is used to notify the user
-// about the result of his payment is it was successful or not.
+// handleLocalDispatch is used at the start/end of the htlc update life cycle.
+// At the start (1) it is used to send the htlc to the channel link without
+// creation of circuit. At the end (2) it is used to notify the user about the
+// result of his payment is it was successful or not.
 //
 //   Alice         Bob          Carol
 //     o --add----> o ---add----> o
@@ -336,9 +342,11 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		// Try to find links by node destination.
 		links, err := s.getLinks(packet.destNode)
 		if err != nil {
-			log.Errorf("unable to find links by "+
-				"destination %v", err)
-			return errors.New(lnwire.CodeUnknownNextPeer)
+			log.Errorf("unable to find links by destination %v", err)
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				FailureMessage: &lnwire.FailUnknownNextPeer{},
+			}
 		}
 
 		// Try to find destination channel link with appropriate
@@ -367,19 +375,26 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 				"outgoing links: need %v, max available is %v",
 				htlc.Amount, largestBandwidth)
 			log.Error(err)
-			return err
+
+			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       err.Error(),
+				FailureMessage: htlcErr,
+			}
 		}
 
 		// Send the packet to the destination channel link which
 		// manages then channel.
+		//
+		// TODO(roasbeef): should return with an error
 		destination.HandleSwitchPacket(packet)
 		return nil
 
-	// We've just received a settle update which means we can finalize
-	// the user payment and return successful response.
+	// We've just received a settle update which means we can finalize the
+	// user payment and return successful response.
 	case *lnwire.UpdateFufillHTLC:
-		// Notify the user that his payment was
-		// successfully proceed.
+		// Notify the user that his payment was successfully proceed.
 		payment.err <- nil
 		payment.preimage <- htlc.PaymentPreimage
 		s.removePendingPayment(payment.amount, payment.paymentHash)
@@ -387,23 +402,19 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 	// We've just received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		var userErr error
-
 		// We'll attempt to fully decrypt the onion encrypted error. If
 		// we're unable to then we'll bail early.
-		failure, err := payment.deobfuscator.Deobfuscate(htlc.Reason)
+		failure, err := payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			// TODO(roasbeef): can happen in case of local error in
-			// link pkt handling
-			userErr = errors.Errorf("unable to de-obfuscate "+
+			userErr := fmt.Sprintf("unable to de-obfuscate "+
 				"onion failure, htlc with hash(%x): %v",
 				payment.paymentHash[:], err)
 			log.Error(userErr)
-		}
-
-		// Notify user that his payment was discarded.
-		if userErr != nil {
-			payment.err <- userErr
+			payment.err <- &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				ExtraMsg:       userErr,
+				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+			}
 		} else {
 			payment.err <- failure
 		}
@@ -442,7 +453,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// than we should notify this link that some error
 			// occurred.
 			failure := lnwire.FailUnknownNextPeer{}
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -482,7 +493,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// channel link than we should notify this
 			// link that some error occurred.
 			failure := lnwire.NewTemporaryChannelFailure(nil)
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -516,7 +527,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			packet.obfuscator,
 		)); err != nil {
 			failure := lnwire.NewTemporaryChannelFailure(nil)
-			reason, err := packet.obfuscator.InitialObfuscate(failure)
+			reason, err := packet.obfuscator.EncryptFirstHop(failure)
 			if err != nil {
 				err := errors.Errorf("unable to obfuscate "+
 					"error: %v", err)
@@ -558,7 +569,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 		// If this is failure than we need to obfuscate the error.
 		if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
-			htlc.Reason = circuit.Obfuscator.BackwardObfuscate(
+			htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
 				htlc.Reason,
 			)
 		}

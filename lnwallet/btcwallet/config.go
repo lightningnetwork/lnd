@@ -77,9 +77,9 @@ type Config struct {
 	NetParams *chaincfg.Params
 }
 
-// networkDir returns the directory name of a network directory to hold wallet
+// NetworkDir returns the directory name of a network directory to hold wallet
 // files.
-func networkDir(dataDir string, chainParams *chaincfg.Params) string {
+func NetworkDir(dataDir string, chainParams *chaincfg.Params) string {
 	netname := chainParams.Name
 
 	// For now, we must always name the testnet data directory as "testnet"

@@ -25,6 +25,43 @@ package lnrpc;
  * https://github.com/MaxFangX/lightning-api
  */
 
+// The WalletUnlocker service is used to set up a wallet password for
+// lnd at first startup, and unlock a previously set up wallet.
+service WalletUnlocker {
+    /** lncli: `create`
+    CreateWallet is used at lnd startup to set the encryption password for
+    the wallet database.
+    */
+    rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse) {
+        option (google.api.http) = {
+            post: "/v1/createwallet"
+            body: "*"
+        };
+    }
+
+    /** lncli: `unlock`
+    UnlockWallet is used at startup of lnd to provide a password to unlock
+    the wallet database.
+    */
+    rpc UnlockWallet(UnlockWalletRequest) returns (UnlockWalletResponse) {
+        option (google.api.http) = {
+            post: "/v1/unlockwallet"
+            body: "*"
+        };
+    }
+}
+
+message CreateWalletRequest {
+    bytes password = 1;
+}
+message CreateWalletResponse {}
+
+
+message UnlockWalletRequest {
+    bytes password = 1;
+}
+message UnlockWalletResponse {}
+
 service Lightning {
     /** lncli: `walletbalance`
     WalletBalance returns the sum of all confirmed unspent outputs under control

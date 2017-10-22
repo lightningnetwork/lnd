@@ -352,7 +352,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// back. This request should be forwarded back to alice channel link.
 	obfuscator := newMockObfuscator()
 	failure := lnwire.FailIncorrectPaymentAmount{}
-	reason, err := obfuscator.InitialObfuscate(failure)
+	reason, err := obfuscator.EncryptFirstHop(failure)
 	if err != nil {
 		t.Fatalf("unable obfuscate failure: %v", err)
 	}

@@ -32,7 +32,7 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 		NodeID2:        chanInfo.NodeKey2,
 		ChainHash:      chanInfo.ChainHash,
 		BitcoinKey1:    chanInfo.BitcoinKey1,
-		Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+		Features:       lnwire.NewRawFeatureVector(),
 		BitcoinKey2:    chanInfo.BitcoinKey2,
 	}
 

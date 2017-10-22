@@ -37,7 +37,7 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
+	testFeatures = lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures)
 )
 
 func createTestVertex(db *DB) (*LightningNode, error) {

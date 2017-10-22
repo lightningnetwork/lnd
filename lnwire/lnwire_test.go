@@ -51,16 +51,14 @@ func randPubKey() (*btcec.PublicKey, error) {
 	return priv.PubKey(), nil
 }
 
-func randFeatureVector(r *rand.Rand) *FeatureVector {
-	numFeatures := r.Int31n(10000)
-	features := make([]Feature, numFeatures)
-	for i := int32(0); i < numFeatures; i++ {
-		features[i] = Feature{
-			Flag: featureFlag(rand.Int31n(2) + 1),
+func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
+	featureVec := NewRawFeatureVector()
+	for i := 0; i < 10000; i++ {
+		if r.Int31n(2) == 0 {
+			featureVec.Set(FeatureBit(i))
 		}
 	}
-
-	return NewFeatureVector(features)
+	return featureVec
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
@@ -139,11 +137,9 @@ func TestLightningWireProtocol(t *testing.T) {
 	customTypeGen := map[MessageType]func([]reflect.Value, *rand.Rand){
 		MsgInit: func(v []reflect.Value, r *rand.Rand) {
 			req := NewInitMessage(
-				randFeatureVector(r),
-				randFeatureVector(r),
+				randRawFeatureVector(r),
+				randRawFeatureVector(r),
 			)
-			req.GlobalFeatures.featuresMap = nil
-			req.LocalFeatures.featuresMap = nil
 
 			v[0] = reflect.ValueOf(*req)
 		},
@@ -351,9 +347,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			req := ChannelAnnouncement{
 				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
-				Features:       randFeatureVector(r),
+				Features:       randRawFeatureVector(r),
 			}
-			req.Features.featuresMap = nil
 			req.NodeSig1 = testSig
 			req.NodeSig2 = testSig
 			req.BitcoinSig1 = testSig
@@ -396,7 +391,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req := NodeAnnouncement{
 				Signature: testSig,
-				Features:  randFeatureVector(r),
+				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
 				Alias:     a,
 				RGBColor: RGB{
@@ -407,7 +402,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				// TODO(roasbeef): proper gen rand addrs
 				Addresses: testAddrs,
 			}
-			req.Features.featuresMap = nil
 
 			var err error
 			req.NodeID, err = randPubKey()

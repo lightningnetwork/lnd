@@ -382,7 +382,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// this is either a new announcement from our PoV or an
 			// edges to a prior vertex/edge we previously
 			// proceeded.
-			emittedAnnouncements := d.processNetworkAnnouncement(announcement)
+			emittedAnnouncements := d.processNetworkAnnouncement(
+				announcement,
+			)
 
 			// If the announcement was accepted, then add the
 			// emitted announcements to our announce batch to be
@@ -645,6 +647,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			}
 		}
 
+		features := lnwire.NewFeatureVector(msg.Features, lnwire.GlobalFeatures)
 		node := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			LastUpdate:           time.Unix(int64(msg.Timestamp), 0),
@@ -652,7 +655,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			PubKey:               msg.NodeID,
 			Alias:                msg.Alias.String(),
 			AuthSig:              msg.Signature,
-			Features:             msg.Features,
+			Features:             features,
 		}
 
 		if err := d.cfg.Router.AddNode(node); err != nil {
@@ -693,7 +696,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			blockHeight := msg.ShortChannelID.BlockHeight
 			log.Infof("Announcement for chan_id=(%v), is premature: "+
 				"advertises height %v, only height %v is known",
@@ -800,7 +803,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// If the advertised inclusionary block is beyond our knowledge
 		// of the chain tip, then we'll put the announcement in limbo
 		// to be fully verified once we advance forward in the chain.
-		if isPremature(msg.ShortChannelID, 0) {
+		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			log.Infof("Update announcement for "+
 				"short_chan_id(%v), is premature: advertises "+
 				"height %v, only height %v is known",
@@ -1176,7 +1179,7 @@ func (d *AuthenticatedGossiper) synchronizeWithNode(syncReq *syncRequest) error 
 			Addresses: node.Addresses,
 			NodeID:    node.PubKey,
 			Alias:     alias,
-			Features:  node.Features,
+			Features:  node.Features.RawFeatureVector,
 		}
 		announceMessages = append(announceMessages, ann)
 
@@ -1256,7 +1259,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 			NodeID2:        info.NodeKey2,
 			ChainHash:      info.ChainHash,
 			BitcoinKey1:    info.BitcoinKey1,
-			Features:       lnwire.NewFeatureVector([]lnwire.Feature{}),
+			Features:       lnwire.NewRawFeatureVector(),
 			BitcoinKey2:    info.BitcoinKey2,
 		}
 	}

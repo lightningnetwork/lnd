@@ -1046,30 +1046,21 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 // TODO(roasbeef): should be using double-scalar mult here
 func TweakPubKey(basePoint, commitPoint *btcec.PublicKey) *btcec.PublicKey {
 	tweakBytes := SingleTweakBytes(commitPoint, basePoint)
-	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
-
-	// TODO(roasbeef): check that both passed on curve?
-
-	x, y := btcec.S256().Add(basePoint.X, basePoint.Y, tweakX, tweakY)
-
-	return &btcec.PublicKey{
-		X:     x,
-		Y:     y,
-		Curve: btcec.S256(),
-	}
+	return TweakPubKeyWithTweak(basePoint, tweakBytes)
 }
 
 // TweakPubKeyWithTweak is the exact same as the TweakPubKey function, however
 // it accepts the raw tweak bytes directly rather than the commitment point.
 func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.PublicKey {
-	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
+	curve := btcec.S256()
+	tweakX, tweakY := curve.ScalarBaseMult(tweakBytes)
 
-	x, y := btcec.S256().Add(pubKey.X, pubKey.Y, tweakX, tweakY)
-
+	// TODO(roasbeef): check that both passed on curve?
+	x, y := curve.Add(pubKey.X, pubKey.Y, tweakX, tweakY)
 	return &btcec.PublicKey{
 		X:     x,
 		Y:     y,
-		Curve: btcec.S256(),
+		Curve: curve,
 	}
 }
 

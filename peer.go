@@ -37,6 +37,9 @@ const (
 	// pingInterval is the interval at which ping messages are sent.
 	pingInterval = 1 * time.Minute
 
+	// idleTimeout is the duration of inactivity before we time out a peer.
+	idleTimeout = 5 * time.Minute
+
 	// outgoingQueueLen is the buffer size of the channel which houses
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
@@ -108,6 +111,14 @@ type peer struct {
 	// written onto the wire. Note that this channel is unbuffered.
 	sendQueue chan outgoinMsg
 
+	// sendQueueSync is a channel that's used to synchronize sends between
+	// the queueHandler and the writeHandler. At times the writeHandler may
+	// get blocked on sending messages. As a result we require a
+	// synchronization mechanism between the two otherwise the queueHandler
+	// would need to continually spin checking to see if the writeHandler
+	// is ready for an additional message.
+	sendQueueSync chan struct{}
+
 	// outgoingQueue is a buffered channel which allows second/third party
 	// objects to queue messages to be sent out on the wire.
 	outgoingQueue chan outgoinMsg
@@ -136,15 +147,17 @@ type peer struct {
 
 	server *server
 
-	// localSharedFeatures is a product of comparison of our and their
-	// local features vectors which consist of features which are present
-	// on both sides.
-	localSharedFeatures *lnwire.SharedFeatures
+	// localFeatures is the set of local features that we advertised to the
+	// remote node.
+	localFeatures *lnwire.RawFeatureVector
 
-	// globalSharedFeatures is a product of comparison of our and their
-	// global features vectors which consist of features which are present
-	// on both sides.
-	globalSharedFeatures *lnwire.SharedFeatures
+	// remoteLocalFeatures is the local feature vector received from the
+	// peer during the connection handshake.
+	remoteLocalFeatures *lnwire.FeatureVector
+
+	// remoteGlobalFeatures is the global feature vector received from the
+	// peer during the connection handshake.
+	remoteGlobalFeatures *lnwire.FeatureVector
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -154,7 +167,8 @@ type peer struct {
 // newPeer creates a new peer from an establish connection object, and a
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
-	addr *lnwire.NetAddress, inbound bool) (*peer, error) {
+	addr *lnwire.NetAddress, inbound bool,
+	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
 
 	nodePub := addr.IdentityKey
 
@@ -168,7 +182,10 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		server: server,
 
+		localFeatures: localFeatures,
+
 		sendQueue:     make(chan outgoinMsg),
+		sendQueueSync: make(chan struct{}),
 		outgoingQueue: make(chan outgoinMsg),
 
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
@@ -177,9 +194,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		localCloseChanReqs:    make(chan *htlcswitch.ChanClose),
 		shutdownChanReqs:      make(chan *lnwire.Shutdown),
 		closingSignedChanReqs: make(chan *lnwire.ClosingSigned),
-
-		localSharedFeatures:  nil,
-		globalSharedFeatures: nil,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -375,7 +389,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		linkCfg := htlcswitch.ChannelLinkConfig{
 			Peer:                  p,
 			DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
-			DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+			DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 			GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 				p.PubKey(), lnChan.ShortChanID()),
 			SettledContracts: p.server.breachArbiter.settledContracts,
@@ -552,6 +566,8 @@ func (c *chanMsgStream) msgConsumer() {
 		c.msgs[0] = nil // Set to nil to prevent GC leak.
 		c.msgs = c.msgs[1:]
 
+		c.msgCond.L.Unlock()
+
 		// We'll send a message to the funding manager and wait iff an
 		// active funding process for this channel hasn't yet
 		// completed. We do this in order to account for the following
@@ -573,7 +589,6 @@ func (c *chanMsgStream) msgConsumer() {
 		}
 
 		c.chanLink.HandleChannelUpdate(msg)
-		c.msgCond.L.Unlock()
 	}
 }
 
@@ -597,10 +612,19 @@ func (c *chanMsgStream) AddMsg(msg lnwire.Message) {
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) readHandler() {
 
+	// We'll stop the timer after a new messages is received, and also
+	// reset it after we process the next message.
+	idleTimer := time.AfterFunc(idleTimeout, func() {
+		err := fmt.Errorf("Peer %s no answer for %s -- disconnecting",
+			p, idleTimeout)
+		p.Disconnect(err)
+	})
+
 	chanMsgStreams := make(map[lnwire.ChannelID]*chanMsgStream)
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, err := p.readNextMessage()
+		idleTimer.Stop()
 		if err != nil {
 			peerLog.Infof("unable to read message from %v: %v",
 				p, err)
@@ -611,6 +635,7 @@ out:
 			// us to introduce new messages in a forwards
 			// compatible manner.
 			case *lnwire.UnknownMessage:
+				idleTimer.Reset(idleTimeout)
 				continue
 
 			// If the error we encountered wasn't just a message we
@@ -695,8 +720,8 @@ out:
 			p.server.authGossiper.ProcessRemoteAnnouncement(msg,
 				p.addr.IdentityKey)
 		default:
-			peerLog.Errorf("unknown message received from peer "+
-				"%v", p)
+			peerLog.Errorf("unknown message %v received from peer "+
+				"%v", uint16(msg.MsgType()), p)
 		}
 
 		if isChanUpdate {
@@ -717,6 +742,8 @@ out:
 			// stream so we can continue processing message.
 			chanStream.AddMsg(nextMsg)
 		}
+
+		idleTimer.Reset(idleTimeout)
 	}
 
 	p.wg.Done()
@@ -732,12 +759,134 @@ out:
 	peerLog.Tracef("readHandler for peer %v done", p)
 }
 
+// messageSummary returns a human-readable string that summarizes a
+// incoming/outgoing message. Not all messages will have a summary, only those
+// which have additional data that can be informative at a glance.
+func messageSummary(msg lnwire.Message) string {
+	switch msg := msg.(type) {
+	case *lnwire.Init:
+		// No summary.
+		return ""
+
+	case *lnwire.OpenChannel:
+		return fmt.Sprintf("temp_chan_id=%x, chain=%v, csv=%v, amt=%v, "+
+			"push_amt=%v, reserve=%v, flags=%v",
+			msg.PendingChannelID[:], msg.ChainHash,
+			msg.CsvDelay, msg.FundingAmount, msg.PushAmount,
+			msg.ChannelReserve, msg.ChannelFlags)
+
+	case *lnwire.AcceptChannel:
+		return fmt.Sprintf("temp_chan_id=%x, reserve=%v, csv=%v",
+			msg.PendingChannelID[:], msg.ChannelReserve, msg.CsvDelay)
+
+	case *lnwire.FundingCreated:
+		return fmt.Sprintf("temp_chan_id=%x, chan_point=%v",
+			msg.PendingChannelID[:], msg.FundingPoint)
+
+	case *lnwire.FundingSigned:
+		return fmt.Sprintf("chan_id=%v", msg.ChanID)
+
+	case *lnwire.FundingLocked:
+		return fmt.Sprintf("chan_id=%v, next_point=%x",
+			msg.ChanID, msg.NextPerCommitmentPoint.SerializeCompressed())
+
+	case *lnwire.Shutdown:
+		return fmt.Sprintf("chan_id=%v, script=%x", msg.ChannelID,
+			msg.Address[:])
+
+	case *lnwire.ClosingSigned:
+		return fmt.Sprintf("chan_id=%v, fee_sat=%v", msg.ChannelID,
+			msg.FeeSatoshis)
+
+	case *lnwire.UpdateAddHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, hash=%x",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry, msg.PaymentHash[:])
+
+	case *lnwire.UpdateFailHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, reason=%v", msg.ChanID,
+			msg.ID, msg.Reason)
+
+	case *lnwire.UpdateFufillHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
+			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
+
+	case *lnwire.CommitSig:
+		return fmt.Sprintf("chan_id=%v, num_htlcs=%v", msg.ChanID,
+			len(msg.HtlcSigs))
+
+	case *lnwire.RevokeAndAck:
+		return fmt.Sprintf("chan_id=%v, rev=%x, next_point=%x",
+			msg.ChanID, msg.Revocation[:],
+			msg.NextRevocationKey.SerializeCompressed())
+
+	case *lnwire.UpdateFailMalformedHTLC:
+		return fmt.Sprintf("chan_id=%v, id=%v, fail_code=%v",
+			msg.ChanID, msg.ID, msg.FailureCode)
+
+	case *lnwire.Error:
+		return fmt.Sprintf("chan_id=%v, err=%v", msg.ChanID, msg.Data)
+
+	case *lnwire.AnnounceSignatures:
+		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
+			msg.ShortChannelID.ToUint64())
+
+	case *lnwire.ChannelAnnouncement:
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
+			msg.ChainHash, msg.ShortChannelID.ToUint64())
+
+	case *lnwire.ChannelUpdate:
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, update_time=%v",
+			msg.ChainHash, msg.ShortChannelID.ToUint64(),
+			time.Unix(int64(msg.Timestamp), 0))
+
+	case *lnwire.NodeAnnouncement:
+		return fmt.Sprintf("node=%x, update_time=%v",
+			msg.NodeID.SerializeCompressed(),
+			time.Unix(int64(msg.Timestamp), 0))
+
+	case *lnwire.Ping:
+		// No summary.
+		return ""
+
+	case *lnwire.Pong:
+		// No summary.
+		return ""
+
+	case *lnwire.UpdateFee:
+		return fmt.Sprintf("chan_id=%v, fee_update_sat=%v",
+			msg.ChanID, int64(msg.FeePerKw))
+	}
+
+	return ""
+}
+
 // logWireMessage logs the receipt or sending of particular wire message. This
 // function is used rather than just logging the message in order to produce
 // less spammy log messages in trace mode by setting the 'Curve" parameter to
 // nil. Doing this avoids printing out each of the field elements in the curve
 // parameters for secp256k1.
 func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
+	summaryPrefix := "Received"
+	if !read {
+		summaryPrefix = "Sending"
+	}
+
+	peerLog.Debugf("%v", newLogClosure(func() string {
+		// Debug summary of message.
+		summary := messageSummary(msg)
+		if len(summary) > 0 {
+			summary = "(" + summary + ")"
+		}
+
+		preposition := "to"
+		if read {
+			preposition = "from"
+		}
+
+		return fmt.Sprintf("%v %v%s %v %s", summaryPrefix,
+			msg.MsgType(), summary, preposition, p)
+	}))
+
 	switch m := msg.(type) {
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
@@ -795,6 +944,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 	n, err := lnwire.WriteMessage(b, msg, 0)
 	atomic.AddUint64(&p.bytesSent, uint64(n))
 
+	// TODO(roasbeef): add write deadline?
+
 	// Finally, write the message itself in a single swoop.
 	_, err = p.conn.Write(b.Bytes())
 	return err
@@ -802,7 +953,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 
 // writeHandler is a goroutine dedicated to reading messages off of an incoming
 // queue, and writing them out to the wire. This goroutine coordinates with the
-// queueHandler in order to ensure the incoming message queue is quickly drained.
+// queueHandler in order to ensure the incoming message queue is quickly
+// drained.
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
@@ -837,6 +989,14 @@ out:
 				break out
 			}
 
+			// If the queueHandler was waiting for us to complete
+			// the last write, then we'll send it a sginal that
+			// we're done and are awaiting additional messages.
+			select {
+			case p.sendQueueSync <- struct{}{}:
+			default:
+			}
+
 		case <-p.quit:
 			exitErr = errors.Errorf("peer exiting")
 			break out
@@ -862,6 +1022,7 @@ func (p *peer) queueHandler() {
 		// Before add a queue'd message our pending message queue,
 		// we'll first try to aggressively empty out our pending list of
 		// messaging.
+	drain:
 		for {
 			// Examine the front of the queue. If this message is
 			// nil, then we've emptied out the queue and can accept
@@ -877,21 +1038,27 @@ func (p *peer) queueHandler() {
 			case <-p.quit:
 				return
 			default:
-				break
+				// If the write handler is currently blocked,
+				// then we'll break out of this loop, to avoid
+				// tightly spinning waiting for a blocked write
+				// handler.
+				break drain
 			}
 		}
 
 		// If there weren't any messages to send, or the writehandler
 		// is still blocked, then we'll accept a new message into the
-		// queue from outside sub-systems.
-		//
-		// TODO(roasbeef): need send clause here as well to account for
-		// writeHandler blocking?
+		// queue from outside sub-systems. We'll also attempt to send
+		// to the writeHandler again, as if this succeeds we'll once
+		// again try to aggressively drain the pending message queue.
 		select {
 		case <-p.quit:
 			return
 		case msg := <-p.outgoingQueue:
 			pendingMsgs.PushBack(msg)
+		case <-p.sendQueueSync:
+			// Fall through so we can go back to the top of the
+			// drain loop.
 		}
 
 	}
@@ -1051,7 +1218,7 @@ out:
 			linkConfig := htlcswitch.ChannelLinkConfig{
 				Peer:                  p,
 				DecodeHopIterator:     p.server.sphinx.DecodeHopIterator,
-				DecodeOnionObfuscator: p.server.sphinx.DecodeOnionObfuscator,
+				DecodeOnionObfuscator: p.server.sphinx.ExtractErrorEncrypter,
 				GetLastChannelUpdate: createGetLastUpdate(p.server.chanRouter,
 					p.PubKey(), newChanReq.channel.ShortChanID()),
 				SettledContracts: p.server.breachArbiter.settledContracts,
@@ -1479,11 +1646,15 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 		if strings.Contains(err.Error(), "already exists") ||
 			strings.Contains(err.Error(), "already have") {
 			peerLog.Infof("channel close tx from ChannelPoint(%v) "+
-				" already exist, probably broadcasted by peer: %v",
+				" already exist, probably broadcast by peer: %v",
 				chanPoint, err)
 		} else {
 			peerLog.Errorf("channel close tx from ChannelPoint(%v) "+
 				" rejected: %v", chanPoint, err)
+
+			if localReq != nil {
+				localReq.Err <- err
+			}
 
 			// TODO(roasbeef): send ErrorGeneric to other side
 			return nil, 0
@@ -1779,23 +1950,26 @@ func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
 // handleInitMsg handles the incoming init message which contains global and
 // local features vectors. If feature vectors are incompatible then disconnect.
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
-	localSharedFeatures, err := p.server.localFeatures.Compare(msg.LocalFeatures)
-	if err != nil {
-		err := errors.Errorf("can't compare remote and local feature "+
-			"vectors: %v", err)
-		peerLog.Error(err)
-		return err
-	}
-	p.localSharedFeatures = localSharedFeatures
+	p.remoteLocalFeatures = lnwire.NewFeatureVector(msg.LocalFeatures,
+		lnwire.LocalFeatures)
+	p.remoteGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
+		lnwire.GlobalFeatures)
 
-	globalSharedFeatures, err := p.server.globalFeatures.Compare(msg.GlobalFeatures)
-	if err != nil {
-		err := errors.Errorf("can't compare remote and global feature "+
-			"vectors: %v", err)
+	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
+	if len(unknownLocalFeatures) > 0 {
+		err := errors.Errorf("Peer set unknown local feature bits: %v",
+			unknownLocalFeatures)
 		peerLog.Error(err)
 		return err
 	}
-	p.globalSharedFeatures = globalSharedFeatures
+
+	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
+	if len(unknownGlobalFeatures) > 0 {
+		err := errors.Errorf("Peer set unknown global feature bits: %v",
+			unknownGlobalFeatures)
+		peerLog.Error(err)
+		return err
+	}
 
 	return nil
 }
@@ -1804,8 +1978,8 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 // supported local and global features.
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
-		p.server.globalFeatures,
-		p.server.localFeatures,
+		p.server.globalFeatures.RawFeatureVector,
+		p.localFeatures,
 	)
 
 	return p.writeMessage(msg)

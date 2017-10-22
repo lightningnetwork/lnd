@@ -384,6 +384,10 @@ func testBasicChannelFunding(net *networkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
 
 	// With then channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
@@ -3094,7 +3098,8 @@ out:
 	if err := carol.Shutdown(); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
-	time.Sleep(time.Second * 2)
+	// TODO(roasbeef): mission control
+	time.Sleep(time.Second * 5)
 	alicePayStream, err = net.Alice.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream: %v", err)
@@ -3397,7 +3402,7 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Second * 1)
 	req := &lnrpc.ChannelGraphRequest{}
 	chanGraph, err := net.Alice.DescribeGraph(ctxb, req)
 	if err != nil {

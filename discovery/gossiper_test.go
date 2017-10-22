@@ -837,3 +837,171 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		t.Fatal("wrong number of objects in storage")
 	}
 }
+
+// TestDeDuplicatedAnnouncements ensures that the deDupedAnnouncements
+// struct properly stores and delivers the set of de-duplicated
+// announcements.
+func TestDeDuplicatedAnnouncements(t *testing.T) {
+	t.Parallel()
+
+	announcements := deDupedAnnouncements{}
+	announcements.Reset()
+
+	// Ensure that after new deDupedAnnouncements struct is created
+	// and reset that storage of each announcement type is empty.
+	if len(announcements.channelAnnouncements) != 0 {
+		t.Fatal("channel announcements map not empty after reset")
+	}
+
+	if len(announcements.channelUpdates) != 0 {
+		t.Fatal("channel updates map not empty after reset")
+	}
+
+	if len(announcements.nodeAnnouncements) != 0 {
+		t.Fatal("node announcements map not empty after reset")
+	}
+
+	// Ensure that remote channel announcements are properly stored
+	// and de-duplicated.
+	ca, err := createRemoteChannelAnnouncement(0)
+
+	if err != nil {
+		t.Fatalf("can't create remote channel announcement: %v", err)
+	}
+
+	announcements.AddMsg(ca)
+
+	if len(announcements.channelAnnouncements) != 1 {
+		t.Fatal("new channel announcement not stored in batch")
+	}
+
+	ca2, err := createRemoteChannelAnnouncement(0)
+
+	if err != nil {
+		t.Fatalf("can't create remote channel announcement: %v", err)
+	}
+
+	announcements.AddMsg(ca2)
+
+	if len(announcements.channelAnnouncements) != 1 {
+		t.Fatal("channel announcement not replaced in batch")
+	}
+
+	// Ensure that channel update announcements are properly stored
+	// and de-duplicated.
+	ua, err := createUpdateAnnouncement(0)
+
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+
+	announcements.AddMsg(ua)
+
+	if len(announcements.channelUpdates) != 1 {
+		t.Fatal("new channel update not stored in batch")
+	}
+
+	ua2, err := createUpdateAnnouncement(0)
+
+	if err != nil {
+		t.Fatalf("can't create update announcement: %v", err)
+	}
+
+	announcements.AddMsg(ua2)
+
+	if len(announcements.channelUpdates) != 1 {
+		t.Fatal("channel update not replaced in batch")
+	}
+
+	// Ensure that node announcements are properly stored and de-duplicated.
+	na, err := createNodeAnnouncement(nodeKeyPriv1)
+
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	announcements.AddMsg(na)
+
+	if len(announcements.nodeAnnouncements) != 1 {
+		t.Fatal("new node announcement not stored in batch")
+	}
+
+	na2, err := createNodeAnnouncement(nodeKeyPriv2)
+
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	announcements.AddMsg(na2)
+
+	if len(announcements.nodeAnnouncements) != 2 {
+		t.Fatal("second node announcement not stored in batch")
+	}
+
+	na3, err := createNodeAnnouncement(nodeKeyPriv2)
+
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	announcements.AddMsg(na3)
+
+	if len(announcements.nodeAnnouncements) != 2 {
+		t.Fatal("second node announcement not replaced in batch")
+	}
+
+	// Ensure that node announcement with different pointer to
+	// same public key is still de-duplicated.
+	newNodeKeyPointer := nodeKeyPriv2
+	na4, err := createNodeAnnouncement(newNodeKeyPointer)
+
+	if err != nil {
+		t.Fatalf("can't create node announcement: %v", err)
+	}
+
+	announcements.AddMsg(na4)
+
+	if len(announcements.nodeAnnouncements) != 2 {
+		t.Fatal("second node announcement not replaced again in batch")
+	}
+
+	// Ensure that announcement batch delivers channel announcements,
+	// channel updates, and node announcements in proper order.
+	batch := announcements.Batch()
+
+	if len(batch) != 4 {
+		t.Fatal("announcement batch incorrect length")
+	}
+
+	if batch[0] != ca2 {
+		t.Fatal("channel announcement not first in batch")
+	}
+
+	if batch[1] != ua2 {
+		t.Fatal("channel update not next in batch")
+	}
+
+	if batch[2] != na && batch[3] != na {
+		t.Fatal("first node announcement not in last part of batch")
+	}
+
+	if batch[2] != na4 && batch[3] != na4 {
+		t.Fatal("second node announcement not in last part of batch")
+	}
+
+	// Ensure that after reset, storage of each announcement type
+	// in deDupedAnnouncements struct is empty again.
+	announcements.Reset()
+
+	if len(announcements.channelAnnouncements) != 0 {
+		t.Fatal("channel announcements map not empty after reset")
+	}
+
+	if len(announcements.channelUpdates) != 0 {
+		t.Fatal("channel updates map not empty after reset")
+	}
+
+	if len(announcements.nodeAnnouncements) != 0 {
+		t.Fatal("node announcements map not empty after reset")
+	}
+}

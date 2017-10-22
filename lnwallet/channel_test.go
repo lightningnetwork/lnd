@@ -1505,7 +1505,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// Newly generated pkScripts for HTLCs should be the same as in the old channel.
 	for _, entry := range aliceChannel.localUpdateLog.updateIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
-		restoredHtlc := aliceChannelNew.localUpdateLog.lookup(htlc.Index)
+		restoredHtlc := aliceChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1517,7 +1517,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 	for _, entry := range aliceChannel.remoteUpdateLog.updateIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
-		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookup(htlc.Index)
+		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1529,7 +1529,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 	for _, entry := range bobChannel.localUpdateLog.updateIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
-		restoredHtlc := bobChannelNew.localUpdateLog.lookup(htlc.Index)
+		restoredHtlc := bobChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1541,7 +1541,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 	for _, entry := range bobChannel.remoteUpdateLog.updateIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
-		restoredHtlc := bobChannelNew.remoteUpdateLog.lookup(htlc.Index)
+		restoredHtlc := bobChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])

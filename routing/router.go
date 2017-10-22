@@ -1010,7 +1010,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(tx, r.cfg.Graph, r.selfNode, target,
-		amt)
+		make(map[vertex]struct{}), make(map[uint64]struct{}), amt)
 	if err != nil {
 		tx.Rollback()
 		return nil, err
@@ -1196,7 +1196,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment,
 		// state of the channel graph and our past HTLC routing
 		// successes/failures.
 		route, err := r.missionControl.RequestRoute(payment,
-			uint32(currentHeight))
+			uint32(currentHeight), routeFilter)
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.
@@ -1207,11 +1207,6 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment,
 			}
 
 			return preImage, nil, err
-		}
-
-		// If route is discarded by the filter, continue to the next one.
-		if err := routeFilter(route); err != nil {
-			continue
 		}
 
 		log.Tracef("Attempting to send payment %x, using route: %v",

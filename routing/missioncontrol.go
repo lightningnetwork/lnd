@@ -111,7 +111,8 @@ func (m *missionControl) ReportChannelFailure(e uint64) {
 //
 // NOTE: This function is safe for concurrent access.
 func (m *missionControl) RequestRoute(payment *LightningPayment,
-	height uint32) (*Route, error) {
+	height uint32, routeFilter func(*Route) error) (*Route, error) {
+	sourceVertex := newVertex(m.selfNode.PubKey)
 
 	// First, we'll query mission control for it's current recommendation
 	// on the edges/vertexes to ignore during path finding.
@@ -122,23 +123,28 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(nil, m.graph, m.selfNode, payment.Target,
+	paths, err := findPaths(nil, m.graph, m.selfNode, payment.Target,
 		pruneView.vertexes, pruneView.edges, payment.Amount)
 	if err != nil {
 		return nil, err
 	}
+	var route *Route
+	for _, path := range paths {
+		// With the next candidate path found, we'll attempt to turn this into
+		// a route by applying the time-lock and fee requirements.
+		route, err = newRoute(payment.Amount, sourceVertex, path[1:], height)
+		if err != nil {
+			// TODO(roasbeef): return which edge/vertex didn't work
+			// out
+			return nil, err
+		}
 
-	// With the next candidate path found, we'll attempt to turn this into
-	// a route by applying the time-lock and fee requirements.
-	sourceVertex := newVertex(m.selfNode.PubKey)
-	route, err := newRoute(payment.Amount, sourceVertex, path, height)
-	if err != nil {
-		// TODO(roasbeef): return which edge/vertex didn't work
-		// out
-		return nil, err
+		// If route is discarded by the filter, return filter error.
+		if err := routeFilter(route); err == nil {
+			break
+		}
 	}
-
-	return route, err
+	return route, nil
 }
 
 // GraphPruneView returns a new graphPruneView instance which is to be

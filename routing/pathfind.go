@@ -570,13 +570,10 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // algorithm in a block box manner.
 func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
+	ignoredVertexes map[vertex]struct{}, ignoredEdges map[uint64]struct{},
 	amt lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
 
 	// TODO(roasbeef): take in db tx
-
-	ignoredEdges := make(map[uint64]struct{})
-	ignoredVertexes := make(map[vertex]struct{})
-
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
 	var (

@@ -1087,8 +1087,8 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Add:
 			// Fetch the onion blob that was included within this
 			// processed payment descriptor.
-			onionBlob := l.clearedOnionBlobs[pd.Index]
-			delete(l.clearedOnionBlobs, pd.Index)
+			onionBlob := l.clearedOnionBlobs[pd.HtlcIndex]
+			delete(l.clearedOnionBlobs, pd.HtlcIndex)
 
 			// Retrieve onion obfuscator from onion blob in order
 			// to produce initial obfuscation of the onion

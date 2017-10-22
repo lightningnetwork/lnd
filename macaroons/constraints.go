@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/context"
 	"gopkg.in/macaroon-bakery.v1/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v1"
 )
@@ -16,6 +17,24 @@ import (
 // Constraint type adds a layer of indirection over macaroon caveats and
 // checkers.
 type Constraint func(*macaroon.Macaroon) error
+
+// Checker type allow to delay checker creation to the point in time, when
+// complete request context is known.
+type Checker func(context.Context) checkers.Checker
+
+// DefaultCheckers collects all currently active checkers into a slice.
+//
+// TODO(aakselrod): use FromIncomingContext after grpc update in glide.
+var DefaultCheckers = []Checker{
+	// Check if method is permitted.
+	AllowChecker,
+	// Check for macaroon expiration.
+	TimeoutChecker,
+	// Check for IP lock.
+	IPLockChecker,
+	// Check for payment path constraint.
+	PaymentPathChecker,
+}
 
 // AddConstraints returns new derived macaroon by applying every passed
 // constraint and tightening its restrictions.
@@ -33,6 +52,19 @@ func AddConstraints(mac *macaroon.Macaroon, cs ...Constraint) (*macaroon.Macaroo
 // to the macaroon and adds another restriction to it. For each *Constraint,
 // the corresponding *Checker is provided.
 
+type checkerContextKey int
+
+const (
+	// AllowConstraint context key.
+	AllowContextKey = checkerContextKey(iota)
+	// TimeoutConstraint context key.
+	TimeoutContextKey = checkerContextKey(iota)
+	// IPLockConsraint context key.
+	IPLockContextKey = checkerContextKey(iota)
+	// PaymentPathChecker context key.
+	PaymentPathContextKey = checkerContextKey(iota)
+)
+
 // AllowConstraint restricts allowed operations set to the ones
 // passed to it.
 func AllowConstraint(ops ...string) func(*macaroon.Macaroon) error {
@@ -43,7 +75,8 @@ func AllowConstraint(ops ...string) func(*macaroon.Macaroon) error {
 }
 
 // AllowChecker wraps default checkers.OperationChecker.
-func AllowChecker(method string) checkers.Checker {
+func AllowChecker(ctx context.Context) checkers.Checker {
+	method, _ := ctx.Value(AllowContextKey).(string)
 	return checkers.OperationChecker(method)
 }
 
@@ -59,7 +92,7 @@ func TimeoutConstraint(seconds int64) func(*macaroon.Macaroon) error {
 }
 
 // TimeoutChecker wraps default checkers.TimeBefore checker.
-func TimeoutChecker() checkers.Checker {
+func TimeoutChecker(_ context.Context) checkers.Checker {
 	return checkers.TimeBefore
 }
 
@@ -82,7 +115,8 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 
 // IPLockChecker accepts client IP from the validation context and compares it
 // with IP locked in the macaroon.
-func IPLockChecker(clientIP string) checkers.Checker {
+func IPLockChecker(ctx context.Context) checkers.Checker {
+	clientIP, _ := ctx.Value(IPLockContextKey).(string)
 	return checkers.CheckerFunc{
 		Condition_: checkers.CondClientIPAddr,
 		Check_: func(_, cav string) error {
@@ -159,8 +193,13 @@ func routeCaveat(predicate string) checkers.Caveat {
 
 // PaymentPathChecker receives slice of base58-encoded node pubkeys and
 // checks if it satisfies the payment path constraint in the macaroon.
-func PaymentPathChecker(path []string) checkers.Checker {
+func PaymentPathChecker(ctx context.Context) checkers.Checker {
+	path, _ := ctx.Value(PaymentPathContextKey).([]string)
 	checkerFunc := func(_, cav string) error {
+		// If path is empty, every constraint is valid.
+		if path == nil {
+			return nil
+		}
 		// Check if constraint is valid.
 		routeConstraint, err := parseRouteConstraint(cav)
 		if err != nil {

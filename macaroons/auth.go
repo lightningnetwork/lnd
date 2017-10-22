@@ -53,27 +53,29 @@ func NewMacaroonCredential(m *macaroon.Macaroon) MacaroonCredential {
 // ValidateMacaroon constructs checkers needed for request authentication and
 // delegates validation to ValidateMacaroonWithCheckers.
 func ValidateMacaroon(ctx context.Context, method string,
-	svc *bakery.Service) error {
+	svc *bakery.Service) (context.Context, error) {
 
 	// Get peer info and extract IP address from it for macaroon check
 	pr, ok := peer.FromContext(ctx)
 	if !ok {
-		return fmt.Errorf("unable to get peer info from context")
+		return nil, fmt.Errorf("unable to get peer info from context")
 	}
 	peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
 	if err != nil {
-		return fmt.Errorf("unable to parse peer address")
+		return nil, fmt.Errorf("unable to parse peer address")
+	}
+
+	// Add checker context value to the context (no pun intended).
+	// Currently only AllowConstraint and IPLockConsraint require one.
+	for key, value := range map[interface{}]interface{}{
+		AllowContextKey:  method,
+		IPLockContextKey: peerAddr,
+	} {
+		ctx = context.WithValue(ctx, key, value)
 	}
 
 	// TODO(aakselrod): Add more checks as required.
-	return ValidateMacaroonWithCheckers(ctx, svc,
-		// Check if method is permitted.
-		AllowChecker(method),
-		// Check for macaroon expiration.
-		TimeoutChecker(),
-		// Check for iP lock.
-		IPLockChecker(peerAddr),
-	)
+	return ctx, ValidateMacaroonWithCheckers(ctx, svc, DefaultCheckers...)
 }
 
 // ValidateMacaroonWithCheckers validates the capabilities of a given request
@@ -81,23 +83,22 @@ func ValidateMacaroon(ctx context.Context, method string,
 // context.Context, we expect a macaroon to be encoded as request metadata
 // using the key "macaroon".
 func ValidateMacaroonWithCheckers(ctx context.Context,
-	svc *bakery.Service, checkersList ...checkers.Checker) error {
+	svc *bakery.Service, checkerList ...Checker) error {
 	// Get macaroon bytes from context and unmarshal into macaroon.
-	//
-	// TODO(aakselrod): use FromIncomingContext after grpc update in glide.
 	md, ok := metadata.FromContext(ctx)
 	if !ok {
 		return fmt.Errorf("unable to get metadata from context")
 	}
-	if len(md["macaroon"]) != 1 {
-		return fmt.Errorf("expected 1 macaroon, got %d",
-			len(md["macaroon"]))
+
+	macMD := md["macaroon"]
+	if len(macMD) != 1 {
+		return fmt.Errorf("expected 1 macaroon, got %d", len(macMD))
 	}
 
 	// With the macaroon obtained, we'll now decode the hex-string
 	// encoding, then unmarshal it from binary into its concrete struct
 	// representation.
-	macBytes, err := hex.DecodeString(md["macaroon"][0])
+	macBytes, err := hex.DecodeString(macMD[0])
 	if err != nil {
 		return err
 	}
@@ -107,5 +108,11 @@ func ValidateMacaroonWithCheckers(ctx context.Context,
 		return err
 	}
 
-	return svc.Check(macaroon.Slice{mac}, checkers.New(checkersList...))
+	// Instantiate checkers with context.
+	cInstances := []checkers.Checker{}
+	for _, gen := range checkerList {
+		cInstances = append(cInstances, gen(ctx))
+	}
+
+	return svc.Check(macaroon.Slice{mac}, checkers.New(cInstances...))
 }

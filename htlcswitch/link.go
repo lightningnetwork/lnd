@@ -1174,6 +1174,22 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
+				// If we're not currently in debug mode, and
+				// the extended htlc doesn't meet the value
+				// requested, then we'll fail the htlc.
+				// Otherwise, we settle this htlc within our
+				// local state update log, then send the update
+				// entry to the remote party.
+				if !l.cfg.DebugHTLC && pd.Amount < invoice.Terms.Value {
+					log.Errorf("rejecting htlc due to incorrect "+
+						"amount: expected %v, received %v",
+						invoice.Terms.Value, pd.Amount)
+					failure := lnwire.FailIncorrectPaymentAmount{}
+					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
 				// As we're the exit hop, we'll double check
 				// the hop-payload included in the HTLC to
 				// ensure that it was crafted correctly by the
@@ -1196,6 +1212,8 @@ func (l *channelLink) processLockedInHtlcs(
 
 				// We'll also ensure that our time-lock value
 				// has been computed correctly.
+				//
+				// TODO(roasbeef): also accept global default?
 				expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
 				if !l.cfg.DebugHTLC {
 					switch {
@@ -1225,22 +1243,6 @@ func (l *channelLink) processLockedInHtlcs(
 						needUpdate = true
 						continue
 					}
-				}
-
-				// If we're not currently in debug mode, and
-				// the extended htlc doesn't meet the value
-				// requested, then we'll fail the htlc.
-				// Otherwise, we settle this htlc within our
-				// local state update log, then send the update
-				// entry to the remote party.
-				if !l.cfg.DebugHTLC && pd.Amount < invoice.Terms.Value {
-					log.Errorf("rejecting htlc due to incorrect "+
-						"amount: expected %v, received %v",
-						invoice.Terms.Value, pd.Amount)
-					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
-					needUpdate = true
-					continue
 				}
 
 				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {

@@ -26,6 +26,20 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+const (
+	// testPollNumTries is the number of times we attempt to query
+	// for a certain expected database state before we give up and
+	// consider the test failed. Since it sometimes can take a
+	// while to update the database, we poll a certain amount of
+	// times, until it gets into the state we expect, or we are out
+	// of tries.
+	testPollNumTries = 10
+
+	// testPollSleepMs is the number of milliseconds to sleep between
+	// each attempt to access the database to check its state.
+	testPollSleepMs = 500
+)
+
 var (
 	privPass = []byte("dummy-pass")
 
@@ -522,8 +536,13 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 
 func assertNumPendingChannels(t *testing.T, node *testNode, expectedNum int) {
 	var numPendingChans int
-	for i := 0; i < 10; i++ {
-		pendingChannels, err := node.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
+		pendingChannels, err := node.fundingMgr.
+			cfg.Wallet.Cfg.Database.FetchPendingChannels()
 		if err != nil {
 			t.Fatalf("unable to fetch pending channels: %v", err)
 		}
@@ -533,9 +552,6 @@ func assertNumPendingChannels(t *testing.T, node *testNode, expectedNum int) {
 			// Success, return.
 			return
 		}
-
-		// Sleep, and try again in a bit.
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	t.Fatalf("Expected node to have %d pending channels, had %v",
@@ -547,7 +563,11 @@ func assertDatabaseState(t *testing.T, node *testNode,
 
 	var state channelOpeningState
 	var err error
-	for i := 0; i < 10; i++ {
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
 		if err != nil && err != ErrChannelNotFound {
@@ -559,9 +579,6 @@ func assertDatabaseState(t *testing.T, node *testNode,
 			// Got expected state, return with success.
 			return
 		}
-
-		// Try again in 500 ms.
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	// 10 tries without success.
@@ -722,7 +739,11 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 
 	var state channelOpeningState
 	var err error
-	for i := 0; i < 10; i++ {
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
 		state, _, err = node.fundingMgr.getChannelOpeningState(
 			fundingOutPoint)
 		if err == ErrChannelNotFound {
@@ -731,9 +752,6 @@ func assertErrChannelNotFound(t *testing.T, node *testNode,
 		} else if err != nil {
 			t.Fatalf("unable to get channel state: %v", err)
 		}
-
-		// Try again in 500 ms.
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	// 10 tries without success.

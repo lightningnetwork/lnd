@@ -1,5 +1,9 @@
 package lnwire
 
+import (
+	"fmt"
+)
+
 // ShortChannelID represents the set of data which is needed to retrieve all
 // necessary data to validate the channel existence.
 type ShortChannelID struct {
@@ -36,4 +40,9 @@ func (c *ShortChannelID) ToUint64() uint64 {
 	// TODO(roasbeef): explicit error on overflow?
 	return ((uint64(c.BlockHeight) << 40) | (uint64(c.TxIndex) << 16) |
 		(uint64(c.TxPosition)))
+}
+
+// String generates a human-readable representation of the channel ID.
+func (c ShortChannelID) String() string {
+	return fmt.Sprintf("%d:%d:%d", c.BlockHeight, c.TxIndex, c.TxPosition)
 }

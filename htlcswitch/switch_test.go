@@ -57,6 +57,7 @@ func TestSwitchForward(t *testing.T) {
 	rhash := fastsha256.Sum256(preimage[:])
 	packet := &htlcPacket{
 		src:        aliceChannelLink.ShortChanID(),
+		srcID:      0,
 		dest:       bobChannelLink.ShortChanID(),
 		obfuscator: newMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
@@ -69,6 +70,15 @@ func TestSwitchForward(t *testing.T) {
 	if err := s.forward(packet); err != nil {
 		t.Fatal(err)
 	}
+
+	s.addCircuit(&PaymentCircuit{
+		PaymentHash:    packet.payHash,
+		IncomingChanID: packet.src,
+		IncomingHTLCID: 0,
+		OutgoingChanID: packet.dest,
+		OutgoingHTLCID: 0,
+		ErrorEncrypter: packet.obfuscator,
+	})
 
 	select {
 	case <-bobChannelLink.packets:
@@ -145,8 +155,9 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
 	packet = &htlcPacket{
-		src:  aliceChannelLink.ShortChanID(),
-		dest: bobChannelLink.ShortChanID(),
+		src:   aliceChannelLink.ShortChanID(),
+		srcID: 0,
+		dest:  bobChannelLink.ShortChanID(),
 		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
@@ -234,6 +245,7 @@ func TestSwitchCancel(t *testing.T) {
 	rhash := fastsha256.Sum256(preimage[:])
 	request := &htlcPacket{
 		src:        aliceChannelLink.ShortChanID(),
+		srcID:      0,
 		dest:       bobChannelLink.ShortChanID(),
 		obfuscator: newMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
@@ -246,6 +258,15 @@ func TestSwitchCancel(t *testing.T) {
 	if err := s.forward(request); err != nil {
 		t.Fatal(err)
 	}
+
+	s.addCircuit(&PaymentCircuit{
+		PaymentHash:    request.payHash,
+		IncomingChanID: request.src,
+		IncomingHTLCID: 0,
+		OutgoingChanID: request.dest,
+		OutgoingHTLCID: 0,
+		ErrorEncrypter: request.obfuscator,
+	})
 
 	select {
 	case <-bobChannelLink.packets:
@@ -263,6 +284,7 @@ func TestSwitchCancel(t *testing.T) {
 	// request should be forwarder back to alice channel link.
 	request = &htlcPacket{
 		src:          bobChannelLink.ShortChanID(),
+		srcID:        0,
 		payHash:      rhash,
 		amount:       1,
 		isObfuscated: true,
@@ -316,6 +338,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	rhash := fastsha256.Sum256(preimage[:])
 	request := &htlcPacket{
 		src:        aliceChannelLink.ShortChanID(),
+		srcID:      0,
 		dest:       bobChannelLink.ShortChanID(),
 		obfuscator: newMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
@@ -329,6 +352,15 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	s.addCircuit(&PaymentCircuit{
+		PaymentHash:    request.payHash,
+		IncomingChanID: request.src,
+		IncomingHTLCID: 0,
+		OutgoingChanID: request.dest,
+		OutgoingHTLCID: 0,
+		ErrorEncrypter: request.obfuscator,
+	})
+
 	select {
 	case <-bobChannelLink.packets:
 		break
@@ -340,10 +372,30 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		t.Fatal("wrong amount of circuits")
 	}
 
+	request = &htlcPacket{
+		src:        aliceChannelLink.ShortChanID(),
+		srcID:      1,
+		dest:       bobChannelLink.ShortChanID(),
+		obfuscator: newMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
+			PaymentHash: rhash,
+			Amount:      1,
+		},
+	}
+
 	// Handle the request and checks that bob channel link received it.
 	if err := s.forward(request); err != nil {
 		t.Fatal(err)
 	}
+
+	s.addCircuit(&PaymentCircuit{
+		PaymentHash:    request.payHash,
+		IncomingChanID: request.src,
+		IncomingHTLCID: 1,
+		OutgoingChanID: request.dest,
+		OutgoingHTLCID: 1,
+		ErrorEncrypter: request.obfuscator,
+	})
 
 	if s.circuits.pending() != 2 {
 		t.Fatal("wrong amount of circuits")
@@ -374,6 +426,15 @@ func TestSwitchAddSamePayment(t *testing.T) {
 
 	if s.circuits.pending() != 1 {
 		t.Fatal("wrong amount of circuits")
+	}
+
+	request = &htlcPacket{
+		src:          bobChannelLink.ShortChanID(),
+		srcID:        1,
+		payHash:      rhash,
+		amount:       1,
+		isObfuscated: true,
+		htlc:         &lnwire.UpdateFailHTLC{},
 	}
 
 	// Handle the request and checks that payment circuit works properly.

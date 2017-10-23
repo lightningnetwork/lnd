@@ -129,7 +129,7 @@ type Switch struct {
 
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
-	circuits *circuitMap
+	circuits *CircuitMap
 
 	// links is a map of channel id and channel link which manages
 	// this channel.
@@ -167,7 +167,7 @@ type Switch struct {
 func New(cfg Config) *Switch {
 	return &Switch{
 		cfg:               &cfg,
-		circuits:          newCircuitMap(),
+		circuits:          NewCircuitMap(),
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
 		interfaceIndex:    make(map[[33]byte]map[ChannelLink]struct{}),
@@ -481,7 +481,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 
 			source.HandleSwitchPacket(&htlcPacket{
-				src:          packet.src,
+				dest:         packet.src,
+				destID:       packet.srcID,
 				payHash:      htlc.PaymentHash,
 				isObfuscated: true,
 				htlc: &lnwire.UpdateFailHTLC{
@@ -529,7 +530,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 
 			source.HandleSwitchPacket(&htlcPacket{
-				src:          packet.src,
+				dest:         packet.src,
+				destID:       packet.srcID,
 				payHash:      htlc.PaymentHash,
 				isObfuscated: true,
 				htlc: &lnwire.UpdateFailHTLC{
@@ -544,38 +546,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			return err
 		}
 
-		// If packet was forwarded from another channel link than we
-		// should create circuit (remember the path) in order to
-		// forward settle/fail packet back.
-		if err := s.circuits.add(newPaymentCircuit(
-			source.ShortChanID(),
-			destination.ShortChanID(),
-			htlc.PaymentHash,
-			packet.obfuscator,
-		)); err != nil {
-			failure := lnwire.NewTemporaryChannelFailure(nil)
-			reason, err := packet.obfuscator.EncryptFirstHop(failure)
-			if err != nil {
-				err := errors.Errorf("unable to obfuscate "+
-					"error: %v", err)
-				log.Error(err)
-				return err
-			}
-
-			source.HandleSwitchPacket(&htlcPacket{
-				src:          packet.src,
-				payHash:      htlc.PaymentHash,
-				isObfuscated: true,
-				htlc: &lnwire.UpdateFailHTLC{
-					Reason: reason,
-				},
-			})
-			err = errors.Errorf("unable to add circuit: "+
-				"%v", err)
-			log.Error(err)
-			return err
-		}
-
 		// Send the packet to the destination channel link which
 		// manages the channel.
 		destination.HandleSwitchPacket(packet)
@@ -585,36 +555,48 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit by forwarding the settle msg to the channel from
 	// which htlc add packet was initially received.
 	case *lnwire.UpdateFufillHTLC, *lnwire.UpdateFailHTLC:
-		// Exit if we can't find and remove the active circuit to
-		// continue propagating the fail over.
-		circuit, err := s.circuits.remove(packet.payHash)
+		if packet.dest == (lnwire.ShortChannelID{}) {
+			// Use circuit map to find the link to forward settle/fail to.
+			circuit := s.circuits.LookupByHTLC(packet.src, packet.srcID)
+			if circuit == nil {
+				err := errors.Errorf("Unable to find source channel for HTLC "+
+					"settle/fail: channel ID = %s, HTLC ID = %d, "+
+					"payment hash = %x", packet.src, packet.srcID,
+					packet.payHash[:])
+				log.Error(err)
+				return err
+			}
+
+			// Remove circuit since we are about to complete the HTLC.
+			err := s.circuits.Remove(packet.src, packet.srcID)
+			if err != nil {
+				log.Warnf("Failed to close completed onion circuit for %x: "+
+					"%s<->%s", packet.payHash[:], circuit.IncomingChanID,
+					circuit.OutgoingChanID)
+			} else {
+				log.Debugf("Closed completed onion circuit for %x: %s<->%s",
+					packet.payHash[:], circuit.IncomingChanID,
+					circuit.OutgoingChanID)
+			}
+
+			// Obfuscate the error message for fail updates before sending back
+			// through the circuit.
+			if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
+				htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
+					htlc.Reason)
+			}
+
+			packet.dest = circuit.IncomingChanID
+			packet.destID = circuit.IncomingHTLCID
+		}
+
+		source, err := s.getLinkByShortID(packet.dest)
 		if err != nil {
-			err := errors.Errorf("unable to remove "+
-				"circuit for payment hash: %v", packet.payHash)
+			err := errors.Errorf("Unable to get source channel link to "+
+				"forward HTLC settle/fail: %v", err)
 			log.Error(err)
 			return err
 		}
-
-		// If this is failure than we need to obfuscate the error.
-		if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
-			htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-				htlc.Reason,
-			)
-		}
-
-		// Propagating settle/fail htlc back to src of add htlc packet.
-		source, err := s.getLinkByShortID(circuit.Src)
-		if err != nil {
-			err := errors.Errorf("unable to get source "+
-				"channel link to forward settle/fail htlc: %v",
-				err)
-			log.Error(err)
-			return err
-		}
-
-		log.Debugf("Closing completed onion "+
-			"circuit for %x: %v<->%v", packet.payHash[:],
-			circuit.Src, circuit.Dest)
 
 		source.HandleSwitchPacket(packet)
 		return nil
@@ -1108,4 +1090,9 @@ func (s *Switch) numPendingPayments() int {
 	}
 
 	return l
+}
+
+// addCircuit adds a circuit to the switch's in-memory mapping.
+func (s *Switch) addCircuit(circuit *PaymentCircuit) {
+	s.circuits.Add(circuit)
 }

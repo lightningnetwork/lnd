@@ -1,135 +1,174 @@
 package htlcswitch
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"fmt"
 	"sync"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// circuitKey uniquely identifies an active circuit between two open channels.
-// Currently, the payment hash is used to uniquely identify each circuit.
-type circuitKey [sha256.Size]byte
-
-// String returns the string representation of the circuitKey.
-func (k *circuitKey) String() string {
-	return hex.EncodeToString(k[:])
-}
-
-// paymentCircuit is used by the htlc switch subsystem to determine the
-// forwards/backwards path for the settle/fail HTLC messages. A payment circuit
-// will be created once a channel link forwards the htlc add request and
-// removed when we receive settle/fail htlc message.
-type paymentCircuit struct {
+// PaymentCircuit is used by the HTLC switch subsystem to determine the
+// backwards path for the settle/fail HTLC messages. A payment circuit
+// will be created once a channel link forwards the HTLC add request and
+// removed when we receive a settle/fail HTLC message.
+type PaymentCircuit struct {
 	// PaymentHash used as unique identifier of payment.
-	PaymentHash circuitKey
+	PaymentHash [32]byte
 
-	// Src identifies the channel from which add htlc request is came from
-	// and to which settle/fail htlc request will be returned back. Once
+	// IncomingChanID identifies the channel from which add HTLC request came
+	// and to which settle/fail HTLC request will be returned back. Once
 	// the switch forwards the settle/fail message to the src the circuit
 	// is considered to be completed.
-	Src lnwire.ShortChannelID
+	IncomingChanID lnwire.ShortChannelID
 
-	// Dest identifies the channel to which we propagate the htlc add
-	// update and from which we are expecting to receive htlc settle/fail
+	// IncomingHTLCID is the ID in the update_add_htlc message we received from
+	// the incoming channel, which will be included in any settle/fail messages
+	// we send back.
+	IncomingHTLCID uint64
+
+	// OutgoingChanID identifies the channel to which we propagate the HTLC add
+	// update and from which we are expecting to receive HTLC settle/fail
 	// request back.
-	Dest lnwire.ShortChannelID
+	OutgoingChanID lnwire.ShortChannelID
+
+	// OutgoingHTLCID is the ID in the update_add_htlc message we sent to the
+	// outgoing channel.
+	OutgoingHTLCID uint64
 
 	// ErrorEncrypter is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.
 	ErrorEncrypter ErrorEncrypter
-
-	// RefCount is used to count the circuits with the same circuit key.
-	RefCount int
 }
 
-// newPaymentCircuit creates new payment circuit instance.
-func newPaymentCircuit(src, dest lnwire.ShortChannelID, key circuitKey,
-	e ErrorEncrypter) *paymentCircuit {
-
-	return &paymentCircuit{
-		Src:            src,
-		Dest:           dest,
-		PaymentHash:    key,
-		RefCount:       1,
-		ErrorEncrypter: e,
-	}
+// circuitKey is a channel ID, HTLC ID tuple used as an identifying key for a
+// payment circuit. The circuit map is keyed with the idenitifer for the
+// outgoing HTLC
+type circuitKey struct {
+	chanID lnwire.ShortChannelID
+	htlcID uint64
 }
 
-// isEqual checks the equality of two payment circuits.
-func (a *paymentCircuit) isEqual(b *paymentCircuit) bool {
-	return bytes.Equal(a.PaymentHash[:], b.PaymentHash[:]) &&
-		a.Src == b.Src &&
-		a.Dest == b.Dest
+// String returns a string representation of the circuitKey.
+func (k *circuitKey) String() string {
+	return fmt.Sprintf("(Chan ID=%s, HTLC ID=%d)", k.chanID, k.htlcID)
 }
 
-// circuitMap is a data structure that implements thread safe storage of
-// circuits. Each circuit key (payment hash) may have several of circuits
-// corresponding to it due to the possibility of repeated payment hashes.
+// CircuitMap is a data structure that implements thread safe storage of
+// circuit routing information. The switch consults a circuit map to determine
+// where to forward HTLC update messages. Each circuit is stored with it's
+// outgoing HTLC as the primary key because, each offered HTLC has at most one
+// received HTLC, but there may be multiple offered or received HTLCs with the
+// same payment hash. Circuits are also indexed to provide fast lookups by
+// payment hash.
 //
 // TODO(andrew.shvv) make it persistent
-type circuitMap struct {
-	sync.RWMutex
-	circuits map[circuitKey]*paymentCircuit
+type CircuitMap struct {
+	mtx       sync.RWMutex
+	circuits  map[circuitKey]*PaymentCircuit
+	hashIndex map[[32]byte]map[PaymentCircuit]struct{}
 }
 
-// newCircuitMap creates a new instance of the circuitMap.
-func newCircuitMap() *circuitMap {
-	return &circuitMap{
-		circuits: make(map[circuitKey]*paymentCircuit),
+// NewCircuitMap creates a new instance of the CircuitMap.
+func NewCircuitMap() *CircuitMap {
+	return &CircuitMap{
+		circuits:  make(map[circuitKey]*PaymentCircuit),
+		hashIndex: make(map[[32]byte]map[PaymentCircuit]struct{}),
 	}
 }
 
-// add adds a new active payment circuit to the circuitMap.
-func (m *circuitMap) add(circuit *paymentCircuit) error {
-	m.Lock()
-	defer m.Unlock()
+// LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
+// IDs. Returns nil if there is no such circuit.
+func (cm *CircuitMap) LookupByHTLC(chanID lnwire.ShortChannelID, htlcID uint64) *PaymentCircuit {
+	cm.mtx.RLock()
 
-	// Examine the circuit map to see if this circuit is already in use or
-	// not. If so, then we'll simply increment the reference count.
-	// Otherwise, we'll create a new circuit from scratch.
-	//
-	// TODO(roasbeef): include dest+src+amt in key
-	if c, ok := m.circuits[circuit.PaymentHash]; ok {
-		c.RefCount++
-		return nil
+	key := circuitKey{
+		chanID: chanID,
+		htlcID: htlcID,
+	}
+	circuit := cm.circuits[key]
+
+	cm.mtx.RUnlock()
+	return circuit
+}
+
+// LookupByPaymentHash looks up and returns any payment circuits with a given
+// payment hash.
+func (cm *CircuitMap) LookupByPaymentHash(hash [32]byte) []*PaymentCircuit {
+	cm.mtx.RLock()
+
+	var circuits []*PaymentCircuit
+	if circuitSet, ok := cm.hashIndex[hash]; ok {
+		circuits = make([]*PaymentCircuit, 0, len(circuitSet))
+		for circuit := range circuitSet {
+			circuits = append(circuits, &circuit)
+		}
 	}
 
-	m.circuits[circuit.PaymentHash] = circuit
+	cm.mtx.RUnlock()
+	return circuits
+}
 
+// Add adds a new active payment circuit to the CircuitMap.
+func (cm *CircuitMap) Add(circuit *PaymentCircuit) error {
+	cm.mtx.Lock()
+
+	key := circuitKey{
+		chanID: circuit.OutgoingChanID,
+		htlcID: circuit.OutgoingHTLCID,
+	}
+	cm.circuits[key] = circuit
+
+	// Add circuit to the hash index.
+	if _, ok := cm.hashIndex[circuit.PaymentHash]; !ok {
+		cm.hashIndex[circuit.PaymentHash] = make(map[PaymentCircuit]struct{})
+	}
+	cm.hashIndex[circuit.PaymentHash][*circuit] = struct{}{}
+
+	cm.mtx.Unlock()
 	return nil
 }
 
-// remove destroys the target circuit by removing it from the circuit map.
-func (m *circuitMap) remove(key circuitKey) (*paymentCircuit, error) {
-	m.Lock()
-	defer m.Unlock()
+// Remove destroys the target circuit by removing it from the circuit map.
+func (cm *CircuitMap) Remove(chanID lnwire.ShortChannelID, htlcID uint64) error {
+	cm.mtx.Lock()
+	defer cm.mtx.Unlock()
 
-	if circuit, ok := m.circuits[key]; ok {
-		if circuit.RefCount--; circuit.RefCount == 0 {
-			delete(m.circuits, key)
-		}
+	// Look up circuit so that pointer can be matched in the hash index.
+	key := circuitKey{
+		chanID: chanID,
+		htlcID: htlcID,
+	}
+	circuit, found := cm.circuits[key]
+	if !found {
+		return errors.Errorf("Can't find circuit for HTLC %v", key)
+	}
+	delete(cm.circuits, key)
 
-		return circuit, nil
+	// Remove circuit from hash index.
+	circuitsWithHash, ok := cm.hashIndex[circuit.PaymentHash]
+	if !ok {
+		return errors.Errorf("Can't find circuit in hash index for HTLC %v",
+			key)
 	}
 
-	return nil, errors.Errorf("can't find circuit"+
-		" for key %v", key)
+	if _, ok = circuitsWithHash[*circuit]; !ok {
+		return errors.Errorf("Can't find circuit in hash index for HTLC %v",
+			key)
+	}
+
+	delete(circuitsWithHash, *circuit)
+	if len(circuitsWithHash) == 0 {
+		delete(cm.hashIndex, circuit.PaymentHash)
+	}
+	return nil
 }
 
 // pending returns number of circuits which are waiting for to be completed
 // (settle/fail responses to be received).
-func (m *circuitMap) pending() int {
-	m.RLock()
-	defer m.RUnlock()
-
-	var length int
-	for _, circuits := range m.circuits {
-		length += circuits.RefCount
-	}
-
-	return length
+func (cm *CircuitMap) pending() int {
+	cm.mtx.RLock()
+	count := len(cm.circuits)
+	cm.mtx.RUnlock()
+	return count
 }

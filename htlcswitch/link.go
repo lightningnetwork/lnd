@@ -700,6 +700,8 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 				failPkt := &htlcPacket{
 					src:          l.ShortChanID(),
+					dest:         pkt.src,
+					destID:       pkt.srcID,
 					payHash:      htlc.PaymentHash,
 					amount:       htlc.Amount,
 					isObfuscated: isObfuscated,
@@ -719,6 +721,20 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		log.Tracef("Received downstream htlc: payment_hash=%x, "+
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
+
+		// If packet was forwarded from another channel link then we should
+		// create circuit (remember the path) in order to forward settle/fail
+		// packet back.
+		if pkt.src != (lnwire.ShortChannelID{}) {
+			l.cfg.Switch.addCircuit(&PaymentCircuit{
+				PaymentHash:    htlc.PaymentHash,
+				IncomingChanID: pkt.src,
+				IncomingHTLCID: pkt.srcID,
+				OutgoingChanID: pkt.dest,
+				OutgoingHTLCID: index,
+				ErrorEncrypter: pkt.obfuscator,
+			})
+		}
 
 		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)
@@ -1180,6 +1196,7 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Settle:
 			settlePacket := &htlcPacket{
 				src:     l.ShortChanID(),
+				srcID:   pd.ParentIndex,
 				payHash: pd.RHash,
 				amount:  pd.Amount,
 				htlc: &lnwire.UpdateFufillHTLC{
@@ -1202,6 +1219,7 @@ func (l *channelLink) processLockedInHtlcs(
 			// continue to propagate it.
 			failPacket := &htlcPacket{
 				src:          l.ShortChanID(),
+				srcID:        pd.HtlcIndex,
 				payHash:      pd.RHash,
 				amount:       pd.Amount,
 				isObfuscated: false,
@@ -1573,6 +1591,7 @@ func (l *channelLink) processLockedInHtlcs(
 
 				updatePacket := &htlcPacket{
 					src:        l.ShortChanID(),
+					srcID:      pd.HtlcIndex,
 					dest:       fwdInfo.NextHop,
 					htlc:       addMsg,
 					obfuscator: obfuscator,

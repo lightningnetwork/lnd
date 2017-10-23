@@ -27,6 +27,14 @@ type htlcPacket struct {
 	// of the target link.
 	src lnwire.ShortChannelID
 
+	// destID is the ID of the HTLC in the destination channel. This will be set
+	// when forwarding a settle or fail update back to the original source.
+	destID uint64
+
+	// srcID is the ID of the HTLC in the source channel. This will be set when
+	// forwarding any HTLC update message.
+	srcID uint64
+
 	// amount is the value of the HTLC that is being created or modified.
 	amount lnwire.MilliSatoshi
 

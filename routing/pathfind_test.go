@@ -718,6 +718,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	if err := ctx.graph.SetSourceNode(aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
+	ctx.router.selfNode = aliceNode
 	source, err := ctx.graph.SourceNode()
 	if err != nil {
 		t.Fatalf("unable to retrieve source node: %v", err)

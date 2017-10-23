@@ -6,7 +6,7 @@
             "alias": "A"
         }, 
         {
-            "source": false, 
+            "source": true, 
             "pubkey": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
             "alias": "B" 
         }, 

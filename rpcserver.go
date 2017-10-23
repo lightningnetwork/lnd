@@ -1400,9 +1400,10 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	// For each payment we need to know the msat amount, the destination
 	// public key, and the payment hash.
 	type payment struct {
-		msat  lnwire.MilliSatoshi
-		dest  []byte
-		pHash []byte
+		msat      lnwire.MilliSatoshi
+		dest      []byte
+		pHash     []byte
+		cltvDelta uint16
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1510,6 +1511,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					}
 					p.msat = *payReq.MilliSat
 					p.pHash = payReq.PaymentHash[:]
+					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 				} else {
 					// If the payment request field was not
 					// specified, construct the payment from
@@ -1593,6 +1595,9 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Amount:      p.msat,
 					PaymentHash: rHash,
 				}
+				if p.cltvDelta != 0 {
+					payment.FinalCLTVDelta = &p.cltvDelta
+				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment)
 				if err != nil {
 					// If we receive payment error than,
@@ -1654,9 +1659,10 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	var (
-		destPub *btcec.PublicKey
-		amtMSat lnwire.MilliSatoshi
-		rHash   [32]byte
+		destPub   *btcec.PublicKey
+		amtMSat   lnwire.MilliSatoshi
+		rHash     [32]byte
+		cltvDelta uint16
 	)
 
 	// If the proto request has an encoded payment request, then we we'll
@@ -1680,6 +1686,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		}
 		amtMSat = *payReq.MilliSat
 		rHash = *payReq.PaymentHash
+		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 
 		// Otherwise, the payment conditions have been manually
 		// specified in the proto.
@@ -1724,11 +1731,15 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
-	preImage, route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
+	payment := &routing.LightningPayment{
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
-	})
+	}
+	if cltvDelta != 0 {
+		payment.FinalCLTVDelta = &cltvDelta
+	}
+	preImage, route, err := r.server.chanRouter.SendPayment(payment)
 	if err != nil {
 		return nil, err
 	}

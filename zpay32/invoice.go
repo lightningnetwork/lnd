@@ -491,11 +491,9 @@ func (invoice *Invoice) Expiry() time.Duration {
 // current height and the expiry height of the HTLC extended in the last hop.
 func (invoice *Invoice) MinFinalCLTVExpiry() uint64 {
 	if invoice.minFinalCLTVExpiry != nil {
-		fmt.Println("USING SET CLTV")
 		return *invoice.minFinalCLTVExpiry
 	}
 
-	fmt.Println("USING DEFAULT CLTV")
 	return routing.DefaultFinalCLTVDelta
 }
 

@@ -67,13 +67,13 @@ type missionControl struct {
 //
 // TODO(roasbeef): persist memory
 func newMissionControl(g *channeldb.ChannelGraph,
-	s *channeldb.LightningNode) *missionControl {
+	selfNode *channeldb.LightningNode) *missionControl {
 
 	return &missionControl{
-		graph:          g,
-		selfNode:       s,
 		failedEdges:    make(map[uint64]time.Time),
 		failedVertexes: make(map[vertex]time.Time),
+		selfNode:       selfNode,
+		graph:          g,
 	}
 }
 
@@ -111,7 +111,7 @@ func (m *missionControl) ReportChannelFailure(e uint64) {
 //
 // NOTE: This function is safe for concurrent access.
 func (m *missionControl) RequestRoute(payment *LightningPayment,
-	height uint32) (*Route, error) {
+	height uint32, finalCltvDelta uint16) (*Route, error) {
 
 	// First, we'll query mission control for it's current recommendation
 	// on the edges/vertexes to ignore during path finding.
@@ -131,7 +131,8 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := newVertex(m.selfNode.PubKey)
-	route, err := newRoute(payment.Amount, sourceVertex, path, height)
+	route, err := newRoute(payment.Amount, sourceVertex, path, height,
+		finalCltvDelta)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work
 		// out

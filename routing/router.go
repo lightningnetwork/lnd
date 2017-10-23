@@ -1216,7 +1216,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		// state of the channel graph and our past HTLC routing
 		// successes/failures.
 		route, err := r.missionControl.RequestRoute(payment,
-			uint32(currentHeight))
+			uint32(currentHeight), finalCLTVDelta)
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.

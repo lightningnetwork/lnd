@@ -111,8 +111,8 @@ func (m *missionControl) ReportChannelFailure(e uint64) {
 //
 // NOTE: This function is safe for concurrent access.
 func (m *missionControl) RequestRoute(payment *LightningPayment,
-	height uint32, routeFilter func(*Route) error) (*Route, error) {
-	sourceVertex := newVertex(m.selfNode.PubKey)
+	height uint32, finalCltvDelta uint16,
+	routeFilter func(*Route) error) (*Route, error) {
 
 	// First, we'll query mission control for it's current recommendation
 	// on the edges/vertexes to ignore during path finding.
@@ -129,10 +129,12 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 		return nil, err
 	}
 	var route *Route
+	sourceVertex := newVertex(m.selfNode.PubKey)
 	for _, path := range paths {
 		// With the next candidate path found, we'll attempt to turn this into
 		// a route by applying the time-lock and fee requirements.
-		route, err = newRoute(payment.Amount, sourceVertex, path[1:], height)
+		route, err = newRoute(payment.Amount, sourceVertex, path[1:],
+			height, finalCltvDelta)
 		if err != nil {
 			// TODO(roasbeef): return which edge/vertex didn't work
 			// out
@@ -144,7 +146,7 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 			break
 		}
 	}
-	return route, nil
+	return route, err
 }
 
 // GraphPruneView returns a new graphPruneView instance which is to be

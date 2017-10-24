@@ -274,7 +274,7 @@ func (r *rpcServer) NewWitnessAddress(ctx context.Context,
 func (r *rpcServer) SignMessage(ctx context.Context,
 	in *lnrpc.SignMessageRequest) (*lnrpc.SignMessageResponse, error) {
 
-	// Check macaroon to see if this is allowed.\
+	// Check macaroon to see if this is allowed.
 	var err error
 	if r.authSvc != nil {
 		if ctx, err = macaroons.ValidateMacaroon(ctx, "signmessage",
@@ -1441,9 +1441,10 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 	// For each payment we need to know the msat amount, the destination
 	// public key, and the payment hash.
 	type payment struct {
-		msat  lnwire.MilliSatoshi
-		dest  []byte
-		pHash []byte
+		msat      lnwire.MilliSatoshi
+		dest      []byte
+		pHash     []byte
+		cltvDelta uint16
 	}
 	payChan := make(chan *payment)
 	errChan := make(chan error, 1)
@@ -1551,6 +1552,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					}
 					p.msat = *payReq.MilliSat
 					p.pHash = payReq.PaymentHash[:]
+					p.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 				} else {
 					// If the payment request field was not
 					// specified, construct the payment from
@@ -1634,6 +1636,9 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 					Amount:      p.msat,
 					PaymentHash: rHash,
 				}
+				if p.cltvDelta != 0 {
+					payment.FinalCLTVDelta = &p.cltvDelta
+				}
 				preImage, route, err := r.server.chanRouter.SendPayment(payment,
 					routeFilter(ctx, r.authSvc))
 				if err != nil {
@@ -1697,9 +1702,10 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 
 	var (
-		destPub *btcec.PublicKey
-		amtMSat lnwire.MilliSatoshi
-		rHash   [32]byte
+		destPub   *btcec.PublicKey
+		amtMSat   lnwire.MilliSatoshi
+		rHash     [32]byte
+		cltvDelta uint16
 	)
 
 	// If the proto request has an encoded payment request, then we we'll
@@ -1723,6 +1729,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 		}
 		amtMSat = *payReq.MilliSat
 		rHash = *payReq.PaymentHash
+		cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 
 		// Otherwise, the payment conditions have been manually
 		// specified in the proto.
@@ -1767,11 +1774,16 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// Finally, send a payment request to the channel router. If the
 	// payment succeeds, then the returned route will be that was used
 	// successfully within the payment.
-	preImage, route, err := r.server.chanRouter.SendPayment(&routing.LightningPayment{
+	payment := &routing.LightningPayment{
 		Target:      destPub,
 		Amount:      amtMSat,
 		PaymentHash: rHash,
-	}, routeFilter(ctx, r.authSvc))
+	}
+	if cltvDelta != 0 {
+		payment.FinalCLTVDelta = &cltvDelta
+	}
+	preImage, route, err := r.server.chanRouter.SendPayment(payment, 
+		routeFilter(ctx, r.authSvc))
 	if err != nil {
 		return nil, err
 	}
@@ -1900,6 +1912,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		options = append(options, zpay32.Description(invoice.Memo))
 	}
 
+	// We'll use our current default CLTV value unless one was specified as
+	// an option on the command line when creating an invoice.
+	switch {
+	case invoice.CltvExpiry > math.MaxUint16:
+		return nil, fmt.Errorf("CLTV delta of %v is too large, max "+
+			"accepted is: %v", invoice.CltvExpiry, math.MaxUint16)
+	case invoice.CltvExpiry != 0:
+		options = append(options,
+			zpay32.CLTVExpiry(invoice.CltvExpiry))
+	default:
+		// TODO(roasbeef): assumes set delta between versions
+		defaultDelta := defaultBitcoinForwardingPolicy.TimeLockDelta
+		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
+	}
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
@@ -1935,7 +1962,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
 			return spew.Sdump(i)
-		}))
+		}),
+	)
 
 	// With all sanity checks passed, write the invoice to the database.
 	if err := r.server.invoices.AddInvoice(i); err != nil {
@@ -1971,6 +1999,9 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	// explicitly.
 	expiry := int64(decoded.Expiry().Seconds())
 
+	// The expiry will default to 9 blocks if not specified explicitly.
+	cltvExpiry := decoded.MinFinalCLTVExpiry()
+
 	preimage := invoice.Terms.PaymentPreimage
 	satAmt := invoice.Terms.Value.ToSatoshis()
 
@@ -1985,6 +2016,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
 		Expiry:          expiry,
+		CltvExpiry:      cltvExpiry,
 		FallbackAddr:    fallbackAddr,
 	}, nil
 }
@@ -2948,6 +2980,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		DescriptionHash: hex.EncodeToString(descHash[:]),
 		FallbackAddr:    fallbackAddr,
 		Expiry:          expiry,
+		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
 	}, nil
 }
 
@@ -3076,7 +3109,9 @@ func (r *rpcServer) UpdateFees(ctx context.Context,
 	// With the scope resolved, we'll now send this to the
 	// AuthenticatedGossiper so it can propagate the new fee schema for out
 	// target channel(s).
-	err = r.server.authGossiper.PropagateFeeUpdate(feeSchema, targetChans...)
+	err = r.server.authGossiper.PropagateFeeUpdate(
+		feeSchema, targetChans...,
+	)
 	if err != nil {
 		return nil, err
 	}

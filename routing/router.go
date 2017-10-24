@@ -25,6 +25,12 @@ import (
 	"github.com/lightningnetwork/lightning-onion"
 )
 
+const (
+	// DefaultFinalCLTVDelta is the default value to be used as the final
+	// CLTV delta for a route if one is unspecified.
+	DefaultFinalCLTVDelta = 9
+)
+
 // ChannelGraphSource represent the source of information about the topology of
 // lightning network, it responsible for addition of nodes, edges
 // and applying edges updates, return the current block with with out
@@ -223,6 +229,7 @@ var _ ChannelGraphSource = (*ChannelRouter)(nil)
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
+
 	selfNode, err := cfg.Graph.SourceNode()
 	if err != nil {
 		return nil, err
@@ -230,11 +237,11 @@ func New(cfg Config) (*ChannelRouter, error) {
 
 	return &ChannelRouter{
 		cfg:               &cfg,
-		selfNode:          selfNode,
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		missionControl:    newMissionControl(cfg.Graph, selfNode),
+		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
 		quit:              make(chan struct{}),
 	}, nil
@@ -958,7 +965,14 @@ func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi) ([]*Route, error) {
+	amt lnwire.MilliSatoshi, finalExpiry ...uint16) ([]*Route, error) {
+
+	var finalCLTVDelta uint16
+	if len(finalExpiry) == 0 {
+		finalCLTVDelta = DefaultFinalCLTVDelta
+	} else {
+		finalCLTVDelta = finalExpiry[0]
+	}
 
 	// TODO(roasbeef): make num routes a param
 
@@ -1030,7 +1044,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(amt, sourceVertex, path[1:],
-			uint32(currentHeight))
+			uint32(currentHeight), finalCLTVDelta)
 		if err != nil {
 			continue
 		}
@@ -1157,6 +1171,13 @@ type LightningPayment struct {
 	// the first hop.
 	PaymentHash [32]byte
 
+	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
+	// in the route. This means that the final hop will have a CLTV delta
+	// of at least: currentHeight + FinalCLTVDelta. If this value is
+	// unspcified, then a default value of DefaultFinalCLTVDelta will be
+	// used.
+	FinalCLTVDelta *uint16
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1188,6 +1209,13 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment,
 		return preImage, nil, err
 	}
 
+	var finalCLTVDelta uint16
+	if payment.FinalCLTVDelta == nil {
+		finalCLTVDelta = DefaultFinalCLTVDelta
+	} else {
+		finalCLTVDelta = *payment.FinalCLTVDelta
+	}
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
@@ -1196,7 +1224,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment,
 		// state of the channel graph and our past HTLC routing
 		// successes/failures.
 		route, err := r.missionControl.RequestRoute(payment,
-			uint32(currentHeight), routeFilter)
+			uint32(currentHeight), finalCLTVDelta, routeFilter)
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.

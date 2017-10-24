@@ -803,7 +803,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChanID, msg.ID, msg.Amount, msg.Expiry, msg.PaymentHash[:])
 
 	case *lnwire.UpdateFailHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, reason=%v", msg.ChanID,
+		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
 	case *lnwire.UpdateFufillHTLC:

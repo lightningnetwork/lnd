@@ -1055,9 +1055,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to create alice payment stream: %v", err)
 	}
 	sendReq := &lnrpc.SendRequest{
-		PaymentHash: invoiceResp.RHash,
-		Dest:        net.Bob.PubKey[:],
-		Amt:         paymentAmt,
+		PaymentRequest: invoiceResp.PaymentRequest,
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -1067,7 +1065,7 @@ func testSingleHopInvoice(net *networkHarness, t *harnessTest) {
 	if resp, err := sendStream.Recv(); err != nil {
 		t.Fatalf("payment stream has been close: %v", err)
 	} else if resp.PaymentError != "" {
-		t.Fatalf("error when attempting recv: %v", err)
+		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
 	} else if !bytes.Equal(preimage, resp.PaymentPreimage) {
 		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
 			resp.GetPaymentPreimage())
@@ -1190,9 +1188,7 @@ func testListPayments(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to create alice payment stream: %v", err)
 	}
 	sendReq := &lnrpc.SendRequest{
-		PaymentHash: invoiceResp.RHash,
-		Dest:        net.Bob.PubKey[:],
-		Amt:         paymentAmt,
+		PaymentRequest: invoiceResp.PaymentRequest,
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -1326,7 +1322,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	rHashes := make([][]byte, numPayments)
+	payReqs := make([]string, numPayments)
 	for i := 0; i < numPayments; i++ {
 		invoice := &lnrpc.Invoice{
 			Memo:  "testing",
@@ -1337,7 +1333,7 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		rHashes[i] = resp.RHash
+		payReqs[i] = resp.PaymentRequest
 	}
 
 	// Wait for carol to recognize both the Channel from herself to Carol,
@@ -1363,11 +1359,9 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// will unblock on the recv once the HTLC it sent has been fully
 	// settled.
 	var wg sync.WaitGroup
-	for _, rHash := range rHashes {
+	for _, payReq := range payReqs {
 		sendReq := &lnrpc.SendRequest{
-			PaymentHash: rHash,
-			Dest:        net.Bob.PubKey[:],
-			Amt:         paymentAmt,
+			PaymentRequest: payReq,
 		}
 
 		if err := carolPayStream.Send(sendReq); err != nil {
@@ -1564,9 +1558,7 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 		t.Fatalf("unable to create alice payment stream: %v", err)
 	}
 	sendReq := &lnrpc.SendRequest{
-		PaymentHash: invoiceResp.RHash,
-		Dest:        net.Bob.PubKey[:],
-		Amt:         paymentAmt,
+		PaymentRequest: invoiceResp.PaymentRequest,
 	}
 	if err := sendStream.Send(sendReq); err != nil {
 		t.Fatalf("unable to send payment: %v", err)
@@ -2013,7 +2005,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 
 	// With the channel open, we'll create a few invoices for Bob that
 	// Alice will pay to in order to advance the state of the channel.
-	bobPaymentHashes := make([][]byte, numInvoices)
+	bobPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := bytes.Repeat([]byte{byte(255 - i)}, 32)
 		invoice := &lnrpc.Invoice{
@@ -2026,7 +2018,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		bobPaymentHashes[i] = resp.RHash
+		bobPayReqs[i] = resp.PaymentRequest
 	}
 
 	// As we'll be querying the state of bob's channels frequently we'll
@@ -2063,9 +2055,7 @@ func testRevokedCloseRetribution(net *networkHarness, t *harnessTest) {
 	sendPayments := func(start, stop int) error {
 		for i := start; i < stop; i++ {
 			sendReq := &lnrpc.SendRequest{
-				PaymentHash: bobPaymentHashes[i],
-				Dest:        net.Bob.PubKey[:],
-				Amt:         paymentAmt,
+				PaymentRequest: bobPayReqs[i],
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
@@ -2285,7 +2275,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Alice will pay to in order to advance the state of the channel.
-	carolPaymentHashes := make([][]byte, numInvoices)
+	carolPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := bytes.Repeat([]byte{byte(192 - i)}, 32)
 		invoice := &lnrpc.Invoice{
@@ -2298,7 +2288,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		carolPaymentHashes[i] = resp.RHash
+		carolPayReqs[i] = resp.PaymentRequest
 	}
 
 	// As we'll be querying the state of Carols's channels frequently we'll
@@ -2335,9 +2325,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(
 	sendPayments := func(start, stop int) error {
 		for i := start; i < stop; i++ {
 			sendReq := &lnrpc.SendRequest{
-				PaymentHash: carolPaymentHashes[i],
-				Dest:        carol.PubKey[:],
-				Amt:         paymentAmt,
+				PaymentRequest: carolPayReqs[i],
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
@@ -2538,7 +2526,7 @@ func testRevokedCloseRetributionRemoteHodl(
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Alice will pay to in order to advance the state of the channel.
-	carolPaymentHashes := make([][]byte, numInvoices)
+	carolPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := bytes.Repeat([]byte{byte(192 - i)}, 32)
 		invoice := &lnrpc.Invoice{
@@ -2551,7 +2539,7 @@ func testRevokedCloseRetributionRemoteHodl(
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		carolPaymentHashes[i] = resp.RHash
+		carolPayReqs[i] = resp.PaymentRequest
 	}
 
 	// As we'll be querying the state of Carol's channels frequently we'll
@@ -2615,9 +2603,7 @@ func testRevokedCloseRetributionRemoteHodl(
 	sendPayments := func(start, stop int, isHodl bool) error {
 		for i := start; i < stop; i++ {
 			sendReq := &lnrpc.SendRequest{
-				PaymentHash: carolPaymentHashes[i],
-				Dest:        carol.PubKey[:],
-				Amt:         paymentAmt,
+				PaymentRequest: carolPayReqs[i],
 			}
 			if err := alicePayStream.Send(sendReq); err != nil {
 				return err
@@ -3569,9 +3555,9 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 	// Initialize seed random in order to generate invoices.
 	prand.Seed(time.Now().UnixNano())
 
-	// With the channel open, we'll create a invoices for Bob that
-	// Alice will pay to in order to advance the state of the channel.
-	bobPaymentHashes := make([][]byte, numInvoices)
+	// With the channel open, we'll create a invoices for Bob that Alice
+	// will pay to in order to advance the state of the channel.
+	bobPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := make([]byte, 32)
 		_, err := rand.Read(preimage)
@@ -3589,7 +3575,7 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		bobPaymentHashes[i] = resp.RHash
+		bobPayReqs[i] = resp.PaymentRequest
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
@@ -3613,9 +3599,7 @@ func testAsyncPayments(net *networkHarness, t *harnessTest) {
 	now := time.Now()
 	for i := 0; i < numInvoices; i++ {
 		sendReq := &lnrpc.SendRequest{
-			PaymentHash: bobPaymentHashes[i],
-			Dest:        net.Bob.PubKey[:],
-			Amt:         paymentAmt,
+			PaymentRequest: bobPayReqs[i],
 		}
 
 		if err := alicePayStream.Send(sendReq); err != nil {
@@ -3748,9 +3732,9 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 	// Initialize seed random in order to generate invoices.
 	prand.Seed(time.Now().UnixNano())
 
-	// With the channel open, we'll create a invoices for Bob that
-	// Alice will pay to in order to advance the state of the channel.
-	bobPaymentHashes := make([][]byte, numInvoices)
+	// With the channel open, we'll create a invoices for Bob that Alice
+	// will pay to in order to advance the state of the channel.
+	bobPayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := make([]byte, 32)
 		_, err := rand.Read(preimage)
@@ -3768,12 +3752,12 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		bobPaymentHashes[i] = resp.RHash
+		bobPayReqs[i] = resp.PaymentRequest
 	}
 
-	// With the channel open, we'll create a invoices for Alice that
-	// Bob will pay to in order to advance the state of the channel.
-	alicePaymentHashes := make([][]byte, numInvoices)
+	// With the channel open, we'll create a invoices for Alice that Bob
+	// will pay to in order to advance the state of the channel.
+	alicePayReqs := make([]string, numInvoices)
 	for i := 0; i < numInvoices; i++ {
 		preimage := make([]byte, 32)
 		_, err := rand.Read(preimage)
@@ -3791,7 +3775,7 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 			t.Fatalf("unable to add invoice: %v", err)
 		}
 
-		alicePaymentHashes[i] = resp.RHash
+		alicePayReqs[i] = resp.PaymentRequest
 	}
 
 	// Wait for Alice to receive the channel edge from the funding manager.
@@ -3821,15 +3805,11 @@ func testBidirectionalAsyncPayments(net *networkHarness, t *harnessTest) {
 	// manner.
 	for i := 0; i < numInvoices; i++ {
 		aliceSendReq := &lnrpc.SendRequest{
-			PaymentHash: bobPaymentHashes[i],
-			Dest:        net.Bob.PubKey[:],
-			Amt:         paymentAmt,
+			PaymentRequest: bobPayReqs[i],
 		}
 
 		bobSendReq := &lnrpc.SendRequest{
-			PaymentHash: alicePaymentHashes[i],
-			Dest:        net.Alice.PubKey[:],
-			Amt:         paymentAmt,
+			PaymentRequest: alicePayReqs[i],
 		}
 
 		if err := alicePayStream.Send(aliceSendReq); err != nil {

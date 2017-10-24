@@ -35,6 +35,11 @@ const (
 	// hops error. The error has since been fixed, but a test case
 	// exercising it is kept around to guard against regressions.
 	excessiveHopsGraphFilePath = "testdata/excessive_hops.json"
+
+	// specExampleFilePath is a file path which stores an example which
+	// implementations will use in order to ensure that they're calculating
+	// the payload for each hop in path properly.
+	specExampleFilePath = "testdata/spec_example.json"
 )
 
 var (
@@ -77,16 +82,16 @@ type testNode struct {
 // testChan represents the JSON version of a payment channel. This struct
 // matches the Json that's encoded under the "edges" key within the test graph.
 type testChan struct {
-	Node1        string  `json:"node_1"`
-	Node2        string  `json:"node_2"`
-	ChannelID    uint64  `json:"channel_id"`
-	ChannelPoint string  `json:"channel_point"`
-	Flags        uint16  `json:"flags"`
-	Expiry       uint16  `json:"expiry"`
-	MinHTLC      int64   `json:"min_htlc"`
-	FeeBaseMsat  int64   `json:"fee_base_msat"`
-	FeeRate      float64 `json:"fee_rate"`
-	Capacity     int64   `json:"capacity"`
+	Node1        string `json:"node_1"`
+	Node2        string `json:"node_2"`
+	ChannelID    uint64 `json:"channel_id"`
+	ChannelPoint string `json:"channel_point"`
+	Flags        uint16 `json:"flags"`
+	Expiry       uint16 `json:"expiry"`
+	MinHTLC      int64  `json:"min_htlc"`
+	FeeBaseMsat  int64  `json:"fee_base_msat"`
+	FeeRate      int64  `json:"fee_rate"`
+	Capacity     int64  `json:"capacity"`
 }
 
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
@@ -209,9 +214,11 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 		}
 	}
 
-	// Set the selected source node
-	if err := graph.SetSourceNode(source); err != nil {
-		return nil, nil, nil, err
+	if source != nil {
+		// Set the selected source node
+		if err := graph.SetSourceNode(source); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	// With all the vertexes inserted, we can now insert the edges into the
@@ -257,12 +264,14 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			ChannelPoint: fundingPoint,
 			Capacity:     btcutil.Amount(edge.Capacity),
 		}
-		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
+		err = graph.AddChannelEdge(&edgeInfo)
+		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
 			return nil, nil, nil, err
 		}
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			Signature:                 testSig,
+			Flags:                     edge.Flags,
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
 			TimeLockDelta:             edge.Expiry,
@@ -270,18 +279,6 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 		}
-
-		// As the graph itself is directed, we need to insert two edges
-		// into the graph: one from node1->node2 and one from
-		// node2->node1. A flag of 0 indicates this is the routing
-		// policy for the first node, and a flag of 1 indicates its the
-		// information for the second node.
-		edgePolicy.Flags = 0
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
-			return nil, nil, nil, err
-		}
-
-		edgePolicy.Flags = 1
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, nil, nil, err
 		}
@@ -312,7 +309,10 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	// the pre-generated graph. Consult the testdata/basic_graph.json file
 	// to follow along with the assumptions we'll use to test the path
 	// finding.
-	const startingHeight = 100
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := aliases["sophon"]
@@ -321,7 +321,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
 	}
-	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err := newRoute(paymentAmt, sourceVertex, path, startingHeight,
+		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -390,22 +391,24 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	// Additionally, we'll ensure that the amount to forward, and fees
 	// computed for each hop are correct.
-	firstHopFee := route.Hops[0].Channel.FeeBaseMSat
+	if route.Hops[0].Fee != 0 {
+		t.Fatalf("first hop fee incorrect: expected %v, got %v",
+			0, route.Hops[1].Fee)
+	}
+
+	firstHopFee := computeFee(paymentAmt, route.Hops[1].Channel)
 	if route.TotalAmount != paymentAmt+firstHopFee {
 		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
+			paymentAmt+firstHopFee, route.TotalAmount)
 	}
-	if route.Hops[0].Fee != firstHopFee {
+	if route.Hops[1].Fee != firstHopFee {
 		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, route.Hops[0].Fee)
+			firstHopFee, route.Hops[1].Fee)
 	}
+
 	if route.Hops[1].AmtToForward != paymentAmt {
 		t.Fatalf("second hop forwarding amount incorrect: expected %v, got %v",
-			paymentAmt+firstHopFee, route.Hops[0].AmtToForward)
-	}
-	if route.Hops[1].Fee != 0 {
-		t.Fatalf("second hop fee incorrect: expected %v, got %v",
-			0, route.Hops[1].Fee)
+			paymentAmt+firstHopFee, route.Hops[1].AmtToForward)
 	}
 
 	// Next, attempt to query for a path to Luo Ji for 100 satoshis, there
@@ -417,7 +420,8 @@ func TestBasicGraphPathFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
-	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight)
+	route, err = newRoute(paymentAmt, sourceVertex, path, startingHeight,
+		finalHopCLTV)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
 	}
@@ -507,7 +511,7 @@ func TestKShortestPathFinding(t *testing.T) {
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Parallel()
+	t.Skip()
 
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
@@ -630,4 +634,217 @@ func TestPathInsufficientCapacityWithFee(t *testing.T) {
 	// work
 }
 
-// TODO(roasbeef): more time-lock calvulation tests
+func TestPathFindSpecExample(t *testing.T) {
+	t.Parallel()
+
+	// All our path finding tests will assume a starting height of 100, so
+	// we'll pass that in to ensure that the router uses 100 as the current
+	// height.
+	const startingHeight = 100
+	ctx, cleanUp, err := createTestCtx(startingHeight, specExampleFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	const (
+		aliceFinalCLTV = 10
+		bobFinalCLTV   = 20
+		carolFinalCLTV = 30
+		daveFinalCLTV  = 40
+	)
+
+	// We'll first exercise the scenario of a direct payment from Bob to
+	// Carol, so we set "B" as the source node so path finding starts from
+	// Bob.
+	bob := ctx.aliases["B"]
+	bobNode, err := ctx.graph.FetchLightningNode(bob)
+	if err != nil {
+		t.Fatalf("unable to find bob: %v", err)
+	}
+	if err := ctx.graph.SetSourceNode(bobNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+
+	// Query for a route of 4,999,999 mSAT to carol.
+	carol := ctx.aliases["C"]
+	const amt lnwire.MilliSatoshi = 4999999
+	routes, err := ctx.router.FindRoutes(carol, amt)
+	if err != nil {
+		t.Fatalf("unable to find route: %v", err)
+	}
+
+	// We should come back with _exactly_ two routes.
+	if len(routes) != 2 {
+		t.Fatalf("expected %v routes, instead have: %v", 2,
+			len(routes))
+	}
+
+	// Now we'll examine the first route returned for correctness.
+	//
+	// It should be sending the exact payment amount as there're no
+	// additional hops.
+	firstRoute := routes[0]
+	if firstRoute.TotalAmount != amt {
+		t.Fatalf("wrong total amount: got %v, expected %v",
+			firstRoute.TotalAmount, amt)
+	}
+	if firstRoute.Hops[0].AmtToForward != amt {
+		t.Fatalf("wrong forward amount: got %v, expected %v",
+			firstRoute.Hops[0].AmtToForward, amt)
+	}
+	if firstRoute.Hops[0].Fee != 0 {
+		t.Fatalf("wrong hop fee: got %v, expected %v",
+			firstRoute.Hops[0].Fee, 0)
+	}
+
+	// The CLTV expiry should be the current height plus 9 (the expiry for
+	// the B -> C channel.
+	if firstRoute.TotalTimeLock !=
+		startingHeight+DefaultFinalCLTVDelta {
+
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			firstRoute.TotalTimeLock,
+			startingHeight+DefaultFinalCLTVDelta)
+	}
+
+	// Next, we'll set A as the source node so we can assert that we create
+	// the proper route for any queries starting with Alice.
+	alice := ctx.aliases["A"]
+	aliceNode, err := ctx.graph.FetchLightningNode(alice)
+	if err != nil {
+		t.Fatalf("unable to find alice: %v", err)
+	}
+	if err := ctx.graph.SetSourceNode(aliceNode); err != nil {
+		t.Fatalf("unable to set source node: %v", err)
+	}
+	ctx.router.selfNode = aliceNode
+	source, err := ctx.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to retrieve source node: %v", err)
+	}
+	if !source.PubKey.IsEqual(alice) {
+		t.Fatalf("source node not set")
+	}
+
+	// We'll now request a route from A -> B -> C.
+	ctx.router.routeCache = make(map[routeTuple][]*Route)
+	routes, err = ctx.router.FindRoutes(carol, amt)
+	if err != nil {
+		t.Fatalf("unable to find routes: %v", err)
+	}
+
+	// We should come back with _exactly_ two routes.
+	if len(routes) != 2 {
+		t.Fatalf("expected %v routes, instead have: %v", 2,
+			len(routes))
+	}
+
+	// Both routes should be two hops.
+	if len(routes[0].Hops) != 2 {
+		t.Fatalf("route should be %v hops, is instead %v", 2,
+			len(routes[0].Hops))
+	}
+	if len(routes[1].Hops) != 2 {
+		t.Fatalf("route should be %v hops, is instead %v", 2,
+			len(routes[1].Hops))
+	}
+
+	// The total amount should factor in a fee of 10199 and also use a CLTV
+	// delta total of 29 (20 + 9),
+	expectedAmt := lnwire.MilliSatoshi(5010198)
+	if routes[0].TotalAmount != expectedAmt {
+		t.Fatalf("wrong amount: got %v, expected %v",
+			routes[0].TotalAmount, expectedAmt)
+	}
+	if routes[0].TotalTimeLock != startingHeight+29 {
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			routes[0].TotalTimeLock, startingHeight+29)
+	}
+
+	// Ensure that the hops of the first route are properly crafted.
+	//
+	// After taking the fee, Bob should be forwarding the remainder which
+	// is the exact payment to Bob.
+	if routes[0].Hops[0].AmtToForward != amt {
+		t.Fatalf("wrong forward amount: got %v, expected %v",
+			routes[0].Hops[0].AmtToForward, amt)
+	}
+
+	// We shouldn't pay any fee for the first, hop, but the fee for the
+	// second hop posted fee should be exactly:
+	//
+	//  * 200 + 4999999 * 2000 / 1000000 = 10199
+	if routes[0].Hops[0].Fee != 0 {
+		t.Fatalf("wrong hop fee: got %v, expected %v",
+			routes[0].Hops[1].Fee, 0)
+	}
+	if routes[0].Hops[1].Fee != 10199 {
+		t.Fatalf("wrong hop fee: got %v, expected %v",
+			routes[0].Hops[0].Fee, 10199)
+	}
+
+	// The outgoing CLTV value itself should be the current height plus 30
+	// to meet Carol's requirements.
+	if routes[0].Hops[0].OutgoingTimeLock !=
+		startingHeight+DefaultFinalCLTVDelta {
+
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			routes[0].Hops[0].OutgoingTimeLock,
+			startingHeight+DefaultFinalCLTVDelta)
+	}
+
+	// For B -> C, we assert that the final hop also has the proper
+	// parameters.
+	lastHop := routes[0].Hops[1]
+	if lastHop.AmtToForward != amt {
+		t.Fatalf("wrong forward amount: got %v, expected %v",
+			lastHop.AmtToForward, amt)
+	}
+	if lastHop.OutgoingTimeLock !=
+		startingHeight+DefaultFinalCLTVDelta {
+
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			lastHop.OutgoingTimeLock,
+			startingHeight+DefaultFinalCLTVDelta)
+	}
+
+	// We'll also make similar assertions for the second route from A to C
+	// via D.
+	secondRoute := routes[1]
+	expectedAmt = 5020398
+	if secondRoute.TotalAmount != expectedAmt {
+		t.Fatalf("wrong amount: got %v, expected %v",
+			secondRoute.TotalAmount, expectedAmt)
+	}
+	expectedTimeLock := startingHeight + daveFinalCLTV + DefaultFinalCLTVDelta
+	if secondRoute.TotalTimeLock != uint32(expectedTimeLock) {
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			secondRoute.TotalTimeLock, expectedTimeLock)
+	}
+	onionPayload := secondRoute.Hops[0]
+	if onionPayload.AmtToForward != amt {
+		t.Fatalf("wrong forward amount: got %v, expected %v",
+			onionPayload.AmtToForward, amt)
+	}
+	expectedTimeLock = startingHeight + DefaultFinalCLTVDelta
+	if onionPayload.OutgoingTimeLock != uint32(expectedTimeLock) {
+		t.Fatalf("wrong outgoing time lock: got %v, expecting %v",
+			onionPayload.OutgoingTimeLock,
+			expectedTimeLock)
+	}
+
+	// The B -> C hop should also be identical as the prior cases.
+	lastHop = secondRoute.Hops[1]
+	if lastHop.AmtToForward != amt {
+		t.Fatalf("wrong forward amount: got %v, expected %v",
+			lastHop.AmtToForward, amt)
+	}
+	if lastHop.OutgoingTimeLock !=
+		startingHeight+DefaultFinalCLTVDelta {
+
+		t.Fatalf("wrong total time lock: got %v, expecting %v",
+			lastHop.OutgoingTimeLock,
+			startingHeight+DefaultFinalCLTVDelta)
+	}
+}

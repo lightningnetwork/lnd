@@ -1087,8 +1087,8 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Add:
 			// Fetch the onion blob that was included within this
 			// processed payment descriptor.
-			onionBlob := l.clearedOnionBlobs[pd.Index]
-			delete(l.clearedOnionBlobs, pd.Index)
+			onionBlob := l.clearedOnionBlobs[pd.HtlcIndex]
+			delete(l.clearedOnionBlobs, pd.HtlcIndex)
 
 			// Retrieve onion obfuscator from onion blob in order
 			// to produce initial obfuscation of the onion
@@ -1174,6 +1174,22 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
+				// If we're not currently in debug mode, and
+				// the extended htlc doesn't meet the value
+				// requested, then we'll fail the htlc.
+				// Otherwise, we settle this htlc within our
+				// local state update log, then send the update
+				// entry to the remote party.
+				if !l.cfg.DebugHTLC && pd.Amount < invoice.Terms.Value {
+					log.Errorf("rejecting htlc due to incorrect "+
+						"amount: expected %v, received %v",
+						invoice.Terms.Value, pd.Amount)
+					failure := lnwire.FailIncorrectPaymentAmount{}
+					l.sendHTLCError(pd.RHash, failure, obfuscator)
+					needUpdate = true
+					continue
+				}
+
 				// As we're the exit hop, we'll double check
 				// the hop-payload included in the HTLC to
 				// ensure that it was crafted correctly by the
@@ -1196,6 +1212,8 @@ func (l *channelLink) processLockedInHtlcs(
 
 				// We'll also ensure that our time-lock value
 				// has been computed correctly.
+				//
+				// TODO(roasbeef): also accept global default?
 				expectedHeight := heightNow + l.cfg.FwrdingPolicy.TimeLockDelta
 				if !l.cfg.DebugHTLC {
 					switch {
@@ -1225,22 +1243,6 @@ func (l *channelLink) processLockedInHtlcs(
 						needUpdate = true
 						continue
 					}
-				}
-
-				// If we're not currently in debug mode, and
-				// the extended htlc doesn't meet the value
-				// requested, then we'll fail the htlc.
-				// Otherwise, we settle this htlc within our
-				// local state update log, then send the update
-				// entry to the remote party.
-				if !l.cfg.DebugHTLC && pd.Amount < invoice.Terms.Value {
-					log.Errorf("rejecting htlc due to incorrect "+
-						"amount: expected %v, received %v",
-						invoice.Terms.Value, pd.Amount)
-					failure := lnwire.FailIncorrectPaymentAmount{}
-					l.sendHTLCError(pd.RHash, failure, obfuscator)
-					needUpdate = true
-					continue
 				}
 
 				if l.cfg.DebugHTLC && l.cfg.HodlHTLC {
@@ -1294,9 +1296,9 @@ func (l *channelLink) processLockedInHtlcs(
 				timeDelta := l.cfg.FwrdingPolicy.TimeLockDelta
 				if pd.Timeout-timeDelta <= heightNow {
 					log.Errorf("htlc(%x) has an expiry "+
-						"that's too soon: expiry=%v, "+
+						"that's too soon: outgoing_expiry=%v, "+
 						"best_height=%v", pd.RHash[:],
-						pd.Timeout, heightNow)
+						pd.Timeout-timeDelta, heightNow)
 
 					var failure lnwire.FailureMessage
 					update, err := l.cfg.GetLastChannelUpdate()
@@ -1387,12 +1389,13 @@ func (l *channelLink) processLockedInHtlcs(
 				// time lock. Otherwise, whether the sender
 				// messed up, or an intermediate node tampered
 				// with the HTLC.
-				if pd.Timeout-timeDelta != fwdInfo.OutgoingCTLV {
+				if pd.Timeout-timeDelta < fwdInfo.OutgoingCTLV {
 					log.Errorf("Incoming htlc(%x) has "+
-						"incorrect time-lock value: expected "+
-						"%v blocks, got %v blocks",
-						pd.RHash[:], pd.Timeout-timeDelta,
-						fwdInfo.OutgoingCTLV)
+						"incorrect time-lock value: "+
+						"expected at least %v block delta, "+
+						"got %v block delta", pd.RHash[:],
+						timeDelta,
+						pd.Timeout-fwdInfo.OutgoingCTLV)
 
 					// Grab the latest routing policy so
 					// the sending node is up to date with

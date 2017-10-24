@@ -152,13 +152,23 @@ type PaymentDescriptor struct {
 	// Amount is the HTLC amount in milli-satoshis.
 	Amount lnwire.MilliSatoshi
 
-	// Index is the log entry number that his HTLC update has within the
+	// LogIndex is the log entry number that his HTLC update has within the
 	// log. Depending on if IsIncoming is true, this is either an entry the
 	// remote party added, or one that we added locally.
-	Index uint64
+	LogIndex uint64
+
+	// HtlcIndex is the index within the main update log for this HTLC.
+	// Entires within the log of type Add will have this field populated,
+	// as other entries will point to the entry via this counter.
+	//
+	// NOTE: This field will only be populate if EntryType is Add.
+	HtlcIndex uint64
 
 	// ParentIndex is the index of the log entry that this HTLC update
 	// settles or times out.
+	//
+	// NOTE: This field will only be populate if EntryType is Fail or
+	// Settle.
 	ParentIndex uint64
 
 	// localOutputIndex is the output index of this HTLc output in the
@@ -593,6 +603,8 @@ func (s *commitmentChain) tail() *commitment {
 // changes are stored before they're committed to the chain. Once an entry has
 // been committed in both the local and remote commitment chain, then it can be
 // removed from this log.
+
+// TODO(roasbeef): update with offer vs update distinction
 //
 // TODO(roasbeef): create lightning package, move commitment and update to
 // package?
@@ -603,6 +615,12 @@ type updateLog struct {
 	// number of update entries ever applied to the log. When sending new
 	// commitment states, we include all updates up to this index.
 	logIndex uint64
+
+	// htlcCounter is a monotonically increasing integer that tracks the
+	// total number of offered HTLC's by the owner of this update log. We
+	// use a distinct index for this purpose, as update's that remove
+	// entires from the log will be indexed using this counter.
+	htlcCounter uint64
 
 	// ackIndex is a special "pointer" index into the log that tracks the
 	// position which, up to, all changes have been ACK'd by the remote
@@ -626,6 +644,10 @@ type updateLog struct {
 	// updateIndex is an index that maps a particular entries index to the
 	// list element within the list.List above.
 	updateIndex map[uint64]*list.Element
+
+	// offerIndex is an index that maps the counter for offered HTLC's to
+	// their list elemtn within the main list.List.
+	htlcIndex map[uint64]*list.Element
 }
 
 // newUpdateLog creates a new updateLog instance.
@@ -633,6 +655,7 @@ func newUpdateLog() *updateLog {
 	return &updateLog{
 		List:        list.New(),
 		updateIndex: make(map[uint64]*list.Element),
+		htlcIndex:   make(map[uint64]*list.Element),
 	}
 }
 
@@ -643,18 +666,41 @@ func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
 	u.logIndex++
 }
 
-// lookup attempts to look up an update entry according to it's index value. In
-// the case that the entry isn't found, a nil pointer is returned.
-func (u *updateLog) lookup(i uint64) *PaymentDescriptor {
-	return u.updateIndex[i].Value.(*PaymentDescriptor)
+// appendHtlc appends a new HTLC offer to the tip of the update log. The entry
+// is also added to the offer index accordingly.
+func (u *updateLog) appendHtlc(pd *PaymentDescriptor) {
+	u.htlcIndex[u.htlcCounter] = u.PushBack(pd)
+	u.htlcCounter++
+
+	u.logIndex++
+}
+
+// lookupHtlc attempts to look up an offered HTLC according to it's offer
+// index. If the entry isn't found, then a nil pointer is returned.
+func (u *updateLog) lookupHtlc(i uint64) *PaymentDescriptor {
+	htlc, ok := u.htlcIndex[i]
+	if !ok {
+		return nil
+	}
+
+	return htlc.Value.(*PaymentDescriptor)
 }
 
 // remove attempts to remove an entry from the update log. If the entry is
 // found, then the entry will be removed from the update log and index.
-func (u *updateLog) remove(i uint64) {
+func (u *updateLog) removeUpdate(i uint64) {
 	entry := u.updateIndex[i]
 	u.Remove(entry)
 	delete(u.updateIndex, i)
+}
+
+// removeHtlc attempts to remove an HTLC offer form the update log. If the
+// entry is found, then the entry will be removed from both the main log and
+// the offer index.
+func (u *updateLog) removeHtlc(i uint64) {
+	entry := u.htlcIndex[i]
+	u.Remove(entry)
+	delete(u.htlcIndex, i)
 }
 
 // initiateTransition marks that the caller has extended the commitment chain
@@ -702,8 +748,8 @@ func compactLogs(ourLog, theirLog *updateLog,
 			if remoteChainTail >= htlc.removeCommitHeightRemote &&
 				localChainTail >= htlc.removeCommitHeightLocal {
 
-				logA.remove(htlc.Index)
-				logB.remove(htlc.ParentIndex)
+				logA.removeUpdate(htlc.LogIndex)
+				logB.removeHtlc(htlc.ParentIndex)
 			}
 
 		}
@@ -1674,13 +1720,13 @@ func (lc *LightningChannel) restoreStateLogs() error {
 		}
 
 		if !htlc.Incoming {
-			pd.Index = ourCounter
-			lc.localUpdateLog.appendUpdate(pd)
+			pd.HtlcIndex = ourCounter
+			lc.localUpdateLog.appendHtlc(pd)
 
 			ourCounter++
 		} else {
-			pd.Index = theirCounter
-			lc.remoteUpdateLog.appendUpdate(pd)
+			pd.HtlcIndex = theirCounter
+			lc.remoteUpdateLog.appendHtlc(pd)
 			lc.rHashMap[pd.RHash] = append(lc.rHashMap[pd.RHash], pd)
 
 			theirCounter++
@@ -1713,7 +1759,7 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 		// This HTLC is active from this point-of-view iff the log
 		// index of the state update is below the specified index in
 		// our update log.
-		if htlc.Index < ourLogIndex {
+		if htlc.LogIndex < ourLogIndex {
 			ourHTLCs = append(ourHTLCs, htlc)
 		}
 	}
@@ -1725,7 +1771,7 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 		// If this is an incoming HTLC, then it is only active from
 		// this point-of-view if the index of the HTLC addition in
 		// their log is below the specified view index.
-		if htlc.Index < theirLogIndex {
+		if htlc.LogIndex < theirLogIndex {
 			theirHTLCs = append(theirHTLCs, htlc)
 		}
 	}
@@ -2005,9 +2051,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatReceived += entry.Amount
 		}
 
-		addEntry := lc.remoteUpdateLog.lookup(entry.ParentIndex)
+		addEntry := lc.remoteUpdateLog.lookupHtlc(entry.ParentIndex)
 
-		skipThem[addEntry.Index] = struct{}{}
+		skipThem[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
 			nextHeight, remoteChain, true)
 	}
@@ -2025,9 +2071,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatSent += entry.Amount
 		}
 
-		addEntry := lc.localUpdateLog.lookup(entry.ParentIndex)
+		addEntry := lc.localUpdateLog.lookupHtlc(entry.ParentIndex)
 
-		skipUs[addEntry.Index] = struct{}{}
+		skipUs[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
 			nextHeight, remoteChain, false)
 	}
@@ -2037,7 +2083,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// added HTLCs.
 	for _, entry := range view.ourUpdates {
 		isAdd := entry.EntryType == Add
-		if _, ok := skipUs[entry.Index]; !isAdd || ok {
+		if _, ok := skipUs[entry.HtlcIndex]; !isAdd || ok {
 			continue
 		}
 
@@ -2047,7 +2093,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	}
 	for _, entry := range view.theirUpdates {
 		isAdd := entry.EntryType == Add
-		if _, ok := skipThem[entry.Index]; !isAdd || ok {
+		if _, ok := skipThem[entry.HtlcIndex]; !isAdd || ok {
 			continue
 		}
 
@@ -3005,12 +3051,13 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 		RHash:     PaymentHash(htlc.PaymentHash),
 		Timeout:   htlc.Expiry,
 		Amount:    htlc.Amount,
-		Index:     lc.localUpdateLog.logIndex,
+		LogIndex:  lc.localUpdateLog.logIndex,
+		HtlcIndex: lc.localUpdateLog.htlcCounter,
 	}
 
-	lc.localUpdateLog.appendUpdate(pd)
+	lc.localUpdateLog.appendHtlc(pd)
 
-	return pd.Index, nil
+	return pd.HtlcIndex, nil
 }
 
 // ReceiveHTLC adds an HTLC to the state machine's remote update log. This
@@ -3030,14 +3077,15 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		RHash:     PaymentHash(htlc.PaymentHash),
 		Timeout:   htlc.Expiry,
 		Amount:    htlc.Amount,
-		Index:     lc.remoteUpdateLog.logIndex,
+		LogIndex:  lc.remoteUpdateLog.logIndex,
+		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
 	}
 
-	lc.remoteUpdateLog.appendUpdate(pd)
+	lc.remoteUpdateLog.appendHtlc(pd)
 
 	lc.rHashMap[pd.RHash] = append(lc.rHashMap[pd.RHash], pd)
 
-	return pd.Index, nil
+	return pd.HtlcIndex, nil
 }
 
 // SettleHTLC attempts to settle an existing outstanding received HTLC. The
@@ -3061,8 +3109,8 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64,
 	pd := &PaymentDescriptor{
 		Amount:      targetHTLC.Amount,
 		RPreimage:   preimage,
-		Index:       lc.localUpdateLog.logIndex,
-		ParentIndex: targetHTLC.Index,
+		LogIndex:    lc.localUpdateLog.logIndex,
+		ParentIndex: targetHTLC.HtlcIndex,
 		EntryType:   Settle,
 	}
 
@@ -3075,19 +3123,19 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64,
 	}
 
 	lc.availableLocalBalance += pd.Amount
-	return targetHTLC.Index, targetHTLC.Amount, nil
+	return targetHTLC.HtlcIndex, targetHTLC.Amount, nil
 }
 
 // ReceiveHTLCSettle attempts to settle an existing outgoing HTLC indexed by an
 // index into the local log. If the specified index doesn't exist within the
 // log, and error is returned. Similarly if the preimage is invalid w.r.t to
 // the referenced of then a distinct error is returned.
-func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64) error {
+func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint64) error {
 	lc.Lock()
 	defer lc.Unlock()
 
 	paymentHash := sha256.Sum256(preimage[:])
-	htlc := lc.localUpdateLog.lookup(logIndex)
+	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return fmt.Errorf("non existant log entry")
 	}
@@ -3100,9 +3148,9 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, logIndex uint64
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
 		RPreimage:   preimage,
-		ParentIndex: htlc.Index,
+		ParentIndex: htlc.HtlcIndex,
 		RHash:       htlc.RHash,
-		Index:       lc.remoteUpdateLog.logIndex,
+		LogIndex:    lc.remoteUpdateLog.logIndex,
 		EntryType:   Settle,
 	}
 
@@ -3129,8 +3177,8 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 	pd := &PaymentDescriptor{
 		Amount:      addEntry.Amount,
 		RHash:       addEntry.RHash,
-		ParentIndex: addEntry.Index,
-		Index:       lc.localUpdateLog.logIndex,
+		ParentIndex: addEntry.HtlcIndex,
+		LogIndex:    lc.localUpdateLog.logIndex,
 		EntryType:   Fail,
 	}
 
@@ -3142,19 +3190,19 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte) (uint64, error) {
 		delete(lc.rHashMap, rHash)
 	}
 
-	return addEntry.Index, nil
+	return addEntry.HtlcIndex, nil
 }
 
-// ReceiveFailHTLC attempts to cancel a targeted HTLC by its log index,
+// ReceiveFailHTLC attempts to cancel a targeted HTLC by its log htlc,
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC. The value of the failed HTLC is returned
 // along with an error indicating success.
-func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) (lnwire.MilliSatoshi, error) {
+func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64) (lnwire.MilliSatoshi, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
-	htlc := lc.localUpdateLog.lookup(logIndex)
+	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
 		return 0, fmt.Errorf("unable to find HTLC to fail")
 	}
@@ -3162,8 +3210,8 @@ func (lc *LightningChannel) ReceiveFailHTLC(logIndex uint64) (lnwire.MilliSatosh
 	pd := &PaymentDescriptor{
 		Amount:      htlc.Amount,
 		RHash:       htlc.RHash,
-		ParentIndex: htlc.Index,
-		Index:       lc.remoteUpdateLog.logIndex,
+		ParentIndex: htlc.HtlcIndex,
+		LogIndex:    lc.remoteUpdateLog.logIndex,
 		EntryType:   Fail,
 	}
 

@@ -473,11 +473,11 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// time-lock value to account for the decrements over the entire route.
 	htlcAmt, htlcExpiry, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
-	htlcExpiry += 10
+	htlcExpiry -= 2
 
 	// Next, we'll make the payment which'll send an HTLC with our
 	// specified parameters to the first hop in the route.
-	_, err := n.makePayment(n.aliceServer, n.bobServer,
+	_, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt, htlcExpiry)
 
 	// We should get an error, and that error should indicate that the HTLC

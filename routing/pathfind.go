@@ -211,7 +211,8 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
-	pathEdges []*ChannelHop, currentHeight uint32) (*Route, error) {
+	pathEdges []*ChannelHop, currentHeight uint32,
+	finalCLTVDelta uint16) (*Route, error) {
 
 	// First, we'll create a new empty route with enough hops to match the
 	// amount of path edges. We set the TotalTimeLock to the current block
@@ -279,7 +280,28 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 
 		// We don't pay any fees to ourselves on the first-hop channel,
 		// so we don't tally up the running fee and amount.
-		if i != len(pathEdges)-1 {
+		switch {
+		// If this is a single-hop payment, there's no fee required.
+		case i == 0 && len(pathEdges) == 1:
+			nextHop.Fee = 0
+
+		// If this is the "first" hop in a multi-hop payment, then we
+		// don't pay any fee to ourselves, but we craft the payload to
+		// prescribe the proper fee for the _next_ hop.
+		case i == 0 && len(pathEdges) > 1:
+			// Now, we'll compute the fee that we need to path this
+			// hop for its downstream transit. This is the value we
+			// want coming into the _next_ hop, using the fees from
+			// the _incoming_ node.
+			nextFee := computeFee(route.Hops[i+1].AmtToForward,
+				pathEdges[i+1])
+
+			nextHop.AmtToForward -= nextFee
+			nextHop.Fee = 0
+
+		// Otherwise, this is an intermediate hop, and we compute the
+		// fees as normal.
+		default:
 			// For a node to forward an HTLC, then following
 			// inequality most hold true: amt_in - fee >=
 			// amt_to_forward. Therefore we add the fee this node
@@ -294,21 +316,25 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 			// the amount of blocks it'll subtract from the
 			// incoming time lock.
 			route.TotalFees += nextHop.Fee
-		} else {
-			nextHop.Fee = 0
 		}
-
-		// Next, increment the total timelock of the entire route such
-		// that each hops time lock increases as we walk backwards in
-		// the route, using the delta of the previous hop.
-		route.TotalTimeLock += uint32(edge.TimeLockDelta)
 
 		// If this is the last hop, then for verification purposes, the
 		// value of the outgoing time-lock should be _exactly_ the
 		// absolute time out they'd expect in the HTLC.
 		if i == len(pathEdges)-1 {
-			nextHop.OutgoingTimeLock = currentHeight + uint32(edge.TimeLockDelta)
+			// As this is the last hop, we'll use the specified
+			// final CLTV delta value instead of the value from the
+			// last link in the route.
+			route.TotalTimeLock += uint32(finalCLTVDelta)
+
+			nextHop.OutgoingTimeLock = currentHeight + uint32(finalCLTVDelta)
 		} else {
+			// Next, increment the total timelock of the entire
+			// route such that each hops time lock increases as we
+			// walk backwards in the route, using the delta of the
+			// previous hop.
+			route.TotalTimeLock += uint32(edge.TimeLockDelta)
+
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_
 			// HTLC, so we factor in their specified grace period
@@ -457,14 +483,11 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			if _, ok := ignoredEdges[outEdge.ChannelID]; ok {
 				return nil
 			}
-			if inEdge == nil {
-				return nil
-			}
 
 			// Compute the tentative distance to this new
 			// channel/edge which is the distance to our current
 			// pivot node plus the weight of this edge.
-			tempDist := distance[pivot].dist + edgeWeight(inEdge)
+			tempDist := distance[pivot].dist + edgeWeight(outEdge)
 
 			// If this new tentative distance is better than the
 			// current best known distance to this node, then we
@@ -488,19 +511,11 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 					// specified by the node this channel
 					// connects to.
 					edge: &ChannelHop{
-						ChannelEdgePolicy: inEdge,
+						ChannelEdgePolicy: outEdge,
 						Capacity:          edgeInfo.Capacity,
 					},
 					prevNode: bestNode.PubKey,
 				}
-
-				// In order for the path unwinding to work
-				// properly, we'll ensure that this edge
-				// properly points to the outgoing node.
-				//
-				// TODO(roasbeef): revisit, possibly switch db
-				// format?
-				prev[v].edge.Node = outEdge.Node
 
 				// Add this new node to our heap as we'd like
 				// to further explore down this edge.

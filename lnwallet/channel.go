@@ -1167,13 +1167,6 @@ type LightningChannel struct {
 	// initiated.
 	pendingAckFeeUpdate *btcutil.Amount
 
-	// rHashMap is a map with PaymentHashes pointing to their respective
-	// PaymentDescriptors. We insert *PaymentDescriptors whenever we
-	// receive HTLCs. When a state transition happens (settling or
-	// canceling the HTLC), rHashMap will provide an efficient
-	// way to lookup the original PaymentDescriptor.
-	rHashMap map[PaymentHash][]*PaymentDescriptor
-
 	// FundingWitnessScript is the witness script for the 2-of-2 multi-sig
 	// that opened the channel.
 	FundingWitnessScript []byte
@@ -1276,7 +1269,6 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		remoteChanCfg:         &state.RemoteChanCfg,
 		localUpdateLog:        localUpdateLog,
 		remoteUpdateLog:       remoteUpdateLog,
-		rHashMap:              make(map[PaymentHash][]*PaymentDescriptor),
 		Capacity:              state.Capacity,
 		FundingWitnessScript:  multiSigScript,
 		ForceCloseSignal:      make(chan struct{}),
@@ -1617,8 +1609,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	for i := range localCommitment.incomingHTLCs {
 		htlc := localCommitment.incomingHTLCs[i]
 		lc.remoteUpdateLog.restoreHtlc(&htlc)
-
-		lc.rHashMap[htlc.RHash] = append(lc.rHashMap[htlc.RHash], &htlc)
 	}
 	for i := range localCommitment.outgoingHTLCs {
 		htlc := localCommitment.outgoingHTLCs[i]
@@ -3915,8 +3905,6 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 
 	lc.remoteUpdateLog.appendHtlc(pd)
 
-	lc.rHashMap[pd.RHash] = append(lc.rHashMap[pd.RHash], pd)
-
 	return pd.HtlcIndex, nil
 }
 
@@ -3951,13 +3939,6 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte, htlcIndex uint64,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
-
-	paymentHash := htlc.RHash
-	lc.rHashMap[paymentHash][0] = nil
-	lc.rHashMap[paymentHash] = lc.rHashMap[paymentHash][1:]
-	if len(lc.rHashMap[paymentHash]) == 0 {
-		delete(lc.rHashMap, paymentHash)
-	}
 
 	return nil
 }
@@ -4019,13 +4000,6 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte) error {
 
 	lc.localUpdateLog.appendUpdate(pd)
 
-	rHash := htlc.RHash
-	lc.rHashMap[rHash][0] = nil
-	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
-	if len(lc.rHashMap[rHash]) == 0 {
-		delete(lc.rHashMap, rHash)
-	}
-
 	return nil
 }
 
@@ -4056,13 +4030,6 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
-
-	rHash := htlc.RHash
-	lc.rHashMap[rHash][0] = nil
-	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
-	if len(lc.rHashMap[rHash]) == 0 {
-		delete(lc.rHashMap, rHash)
-	}
 
 	return nil
 }

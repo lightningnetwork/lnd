@@ -3978,10 +3978,6 @@ var testsCases = []*testCase{
 		test: testMaxPendingChannels,
 	},
 	{
-		name: "payment path constraints",
-		test: testPaymentPathConstraints,
-	},
-	{
 		name: "multi-hop payments",
 		test: testMultiHopPayments,
 	},
@@ -3997,6 +3993,7 @@ var testsCases = []*testCase{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
 	},
+
 	// TODO(roasbeef): multi-path integration test
 	{
 		name: "node announcement",
@@ -4025,6 +4022,10 @@ var testsCases = []*testCase{
 	{
 		name: "revoked uncooperative close retribution remote hodl",
 		test: testRevokedCloseRetributionRemoteHodl,
+	},
+	{
+		name: "payment path constraints",
+		test: testPaymentPathConstraints,
 	},
 }
 

@@ -202,7 +202,10 @@ func (s *Switch) SendHTLC(nextNode [33]byte, htlc *lnwire.UpdateAddHTLC,
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our
 	// system and something wrong happened.
-	packet := newInitPacket(nextNode, htlc)
+	packet := &htlcPacket{
+		destNode: nextNode,
+		htlc:     htlc,
+	}
 	if err := s.forward(packet); err != nil {
 		s.removePendingPayment(payment.amount, payment.paymentHash)
 		return zeroPreimage, err
@@ -477,13 +480,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			source.HandleSwitchPacket(newFailPacket(
-				packet.src,
-				&lnwire.UpdateFailHTLC{
+			source.HandleSwitchPacket(&htlcPacket{
+				src:          packet.src,
+				payHash:      htlc.PaymentHash,
+				isObfuscated: true,
+				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
-				htlc.PaymentHash, 0, true,
-			))
+			})
 			err = errors.Errorf("unable to find link with "+
 				"destination %v", packet.dest)
 			log.Error(err)
@@ -524,14 +528,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			source.HandleSwitchPacket(newFailPacket(
-				packet.src,
-				&lnwire.UpdateFailHTLC{
+			source.HandleSwitchPacket(&htlcPacket{
+				src:          packet.src,
+				payHash:      htlc.PaymentHash,
+				isObfuscated: true,
+				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
-				htlc.PaymentHash,
-				0, true,
-			))
+			})
 
 			err = errors.Errorf("unable to find appropriate "+
 				"channel link insufficient capacity, need "+
@@ -558,13 +562,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			source.HandleSwitchPacket(newFailPacket(
-				packet.src,
-				&lnwire.UpdateFailHTLC{
+			source.HandleSwitchPacket(&htlcPacket{
+				src:          packet.src,
+				payHash:      htlc.PaymentHash,
+				isObfuscated: true,
+				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
-				htlc.PaymentHash, 0, true,
-			))
+			})
 			err = errors.Errorf("unable to add circuit: "+
 				"%v", err)
 			log.Error(err)

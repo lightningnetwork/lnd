@@ -32,8 +32,6 @@ var (
 func TestSwitchForward(t *testing.T) {
 	t.Parallel()
 
-	var packet *htlcPacket
-
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
@@ -57,14 +55,15 @@ func TestSwitchForward(t *testing.T) {
 	// bob channel link.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
-	packet = newAddPacket(
-		aliceChannelLink.ShortChanID(),
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateAddHTLC{
+	packet := &htlcPacket{
+		src:        aliceChannelLink.ShortChanID(),
+		dest:       bobChannelLink.ShortChanID(),
+		obfuscator: newMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		}, newMockObfuscator(),
-	)
+		},
+	}
 
 	// Handle the request and checks that bob channel link received it.
 	if err := s.forward(packet); err != nil {
@@ -85,12 +84,14 @@ func TestSwitchForward(t *testing.T) {
 	// Create settle request pretending that bob link handled the add htlc
 	// request and sent the htlc settle request back. This request should
 	// be forwarder back to Alice link.
-	packet = newSettlePacket(
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateFufillHTLC{
+	packet = &htlcPacket{
+		src:     bobChannelLink.ShortChanID(),
+		payHash: rhash,
+		amount:  1,
+		htlc: &lnwire.UpdateFufillHTLC{
 			PaymentPreimage: preimage,
 		},
-		rhash, 1)
+	}
 
 	// Handle the request and checks that payment circuit works properly.
 	if err := s.forward(packet); err != nil {
@@ -143,14 +144,15 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	// Alice.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
-	packet = newAddPacket(
-		aliceChannelLink.ShortChanID(),
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateAddHTLC{
+	packet = &htlcPacket{
+		src:  aliceChannelLink.ShortChanID(),
+		dest: bobChannelLink.ShortChanID(),
+		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		}, newMockObfuscator(),
-	)
+		},
+		obfuscator: newMockObfuscator(),
+	}
 
 	// The request to forward should fail as
 	err := s.forward(packet)
@@ -207,8 +209,6 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 func TestSwitchCancel(t *testing.T) {
 	t.Parallel()
 
-	var request *htlcPacket
-
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
@@ -232,14 +232,15 @@ func TestSwitchCancel(t *testing.T) {
 	// to bob channel link.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
-	request = newAddPacket(
-		aliceChannelLink.ShortChanID(),
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateAddHTLC{
+	request := &htlcPacket{
+		src:        aliceChannelLink.ShortChanID(),
+		dest:       bobChannelLink.ShortChanID(),
+		obfuscator: newMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		}, newMockObfuscator(),
-	)
+		},
+	}
 
 	// Handle the request and checks that bob channel link received it.
 	if err := s.forward(request); err != nil {
@@ -260,10 +261,13 @@ func TestSwitchCancel(t *testing.T) {
 	// Create settle request pretending that bob channel link handled
 	// the add htlc request and sent the htlc settle request back. This
 	// request should be forwarder back to alice channel link.
-	request = newFailPacket(
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateFailHTLC{},
-		rhash, 1, true)
+	request = &htlcPacket{
+		src:          bobChannelLink.ShortChanID(),
+		payHash:      rhash,
+		amount:       1,
+		isObfuscated: true,
+		htlc:         &lnwire.UpdateFailHTLC{},
+	}
 
 	// Handle the request and checks that payment circuit works properly.
 	if err := s.forward(request); err != nil {
@@ -287,8 +291,6 @@ func TestSwitchCancel(t *testing.T) {
 func TestSwitchAddSamePayment(t *testing.T) {
 	t.Parallel()
 
-	var request *htlcPacket
-
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
@@ -312,14 +314,15 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	// to bob channel link.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
-	request = newAddPacket(
-		aliceChannelLink.ShortChanID(),
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateAddHTLC{
+	request := &htlcPacket{
+		src:        aliceChannelLink.ShortChanID(),
+		dest:       bobChannelLink.ShortChanID(),
+		obfuscator: newMockObfuscator(),
+		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,
 			Amount:      1,
-		}, newMockObfuscator(),
-	)
+		},
+	}
 
 	// Handle the request and checks that bob channel link received it.
 	if err := s.forward(request); err != nil {
@@ -349,10 +352,13 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	// Create settle request pretending that bob channel link handled
 	// the add htlc request and sent the htlc settle request back. This
 	// request should be forwarder back to alice channel link.
-	request = newFailPacket(
-		bobChannelLink.ShortChanID(),
-		&lnwire.UpdateFailHTLC{},
-		rhash, 1, true)
+	request = &htlcPacket{
+		src:          bobChannelLink.ShortChanID(),
+		payHash:      rhash,
+		amount:       1,
+		isObfuscated: true,
+		htlc:         &lnwire.UpdateFailHTLC{},
+	}
 
 	// Handle the request and checks that payment circuit works properly.
 	if err := s.forward(request); err != nil {
@@ -464,12 +470,16 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("unable obfuscate failure: %v", err)
 	}
 
-	packet := newFailPacket(aliceChannelLink.ShortChanID(),
-		&lnwire.UpdateFailHTLC{
+	packet := &htlcPacket{
+		src:          aliceChannelLink.ShortChanID(),
+		payHash:      rhash,
+		amount:       1,
+		isObfuscated: true,
+		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
 			ID:     1,
 		},
-		rhash, 1, true)
+	}
 
 	if err := s.forward(packet); err != nil {
 		t.Fatalf("can't forward htlc packet: %v", err)

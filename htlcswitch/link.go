@@ -698,14 +698,15 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					isObfuscated = true
 				}
 
-				upddateFail := &lnwire.UpdateFailHTLC{
-					Reason: reason,
+				failPkt := &htlcPacket{
+					src:          l.ShortChanID(),
+					payHash:      htlc.PaymentHash,
+					amount:       htlc.Amount,
+					isObfuscated: isObfuscated,
+					htlc: &lnwire.UpdateFailHTLC{
+						Reason: reason,
+					},
 				}
-				failPkt := newFailPacket(
-					l.ShortChanID(), upddateFail,
-					htlc.PaymentHash, htlc.Amount,
-					isObfuscated,
-				)
 
 				// TODO(roasbeef): need to identify if sent
 				// from switch so don't need to obfuscate
@@ -1177,11 +1178,14 @@ func (l *channelLink) processLockedInHtlcs(
 		// received. So we'll forward the HTLC to the switch which
 		// will handle propagating the settle to the prior hop.
 		case lnwallet.Settle:
-			settleUpdate := &lnwire.UpdateFufillHTLC{
-				PaymentPreimage: pd.RPreimage,
+			settlePacket := &htlcPacket{
+				src:     l.ShortChanID(),
+				payHash: pd.RHash,
+				amount:  pd.Amount,
+				htlc: &lnwire.UpdateFufillHTLC{
+					PaymentPreimage: pd.RPreimage,
+				},
 			}
-			settlePacket := newSettlePacket(l.ShortChanID(),
-				settleUpdate, pd.RHash, pd.Amount)
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been
@@ -1196,12 +1200,15 @@ func (l *channelLink) processLockedInHtlcs(
 		case lnwallet.Fail:
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
-			failUpdate := &lnwire.UpdateFailHTLC{
-				Reason: lnwire.OpaqueReason(pd.FailReason),
-				ChanID: l.ChanID(),
+			failPacket := &htlcPacket{
+				src:          l.ShortChanID(),
+				payHash:      pd.RHash,
+				amount:       pd.Amount,
+				isObfuscated: false,
+				htlc: &lnwire.UpdateFailHTLC{
+					Reason: lnwire.OpaqueReason(pd.FailReason),
+				},
 			}
-			failPacket := newFailPacket(l.ShortChanID(), failUpdate,
-				pd.RHash, pd.Amount, false)
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been
@@ -1564,8 +1571,12 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
-				updatePacket := newAddPacket(l.ShortChanID(),
-					fwdInfo.NextHop, addMsg, obfuscator)
+				updatePacket := &htlcPacket{
+					src:        l.ShortChanID(),
+					dest:       fwdInfo.NextHop,
+					htlc:       addMsg,
+					obfuscator: obfuscator,
+				}
 				packetsToForward = append(packetsToForward, updatePacket)
 			}
 		}

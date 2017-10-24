@@ -1583,6 +1583,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// remain unchanged (but Alice will need to pay the fee for the extra
 	// HTLC).
 	updateMsg := &lnwire.UpdateAddHTLC{
+		ID:          0,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash, // Re-using the same payment hash.
@@ -1607,6 +1608,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// Finally, we'll test the scenario of failing an HTLC received by the
 	// remote node. This should result in no perceived bandwidth changes.
 	htlcAdd := &lnwire.UpdateAddHTLC{
+		ID:          1,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash,

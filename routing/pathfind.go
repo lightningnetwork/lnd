@@ -242,17 +242,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 	for i := pathLength - 1; i >= 0; i-- {
 		edge := pathEdges[i]
 
-		// Now we create the hop struct for this point in the route.
-		// The amount to forward is the running amount, and we compute
-		// the required fee based on this amount.
-		nextHop := &Hop{
-			Channel:      edge,
-			AmtToForward: runningAmt,
-			Fee:          computeFee(runningAmt, edge),
-		}
-		edge.Node.PubKey.Curve = nil
-
-		// Next, we'll update both the node and channel index, to
+		// First, we'll update both the node and channel index, to
 		// indicate that this vertex, and outgoing channel link are
 		// present within this route.
 		v := newVertex(edge.Node.PubKey)
@@ -266,6 +256,52 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 			route.nextHopMap[v] = route.Hops[i+1].Channel
 		}
 
+		// Now we'll start to calculate the items within the per-hop
+		// payload for this current hop.
+		//
+		// If this is the last hop, then we send the exact amount and
+		// pay no fee, as we're paying directly to the receiver, and
+		// there're no additional hops.
+		amtToForward := runningAmt
+		fee := lnwire.MilliSatoshi(0)
+
+		// If this isn't the last hop, to add enough funds to pay for
+		// transit over the next link.
+		if i != len(pathEdges)-1 {
+			// We'll grab the edge policy and per-hop payload of
+			// the prior hop so we can calculate fees properly.
+			prevEdge := pathEdges[i+1]
+			prevHop := route.Hops[i+1]
+
+			// The fee for this hop, will be based on how much the
+			// prior hop carried, as we'll need to increase the
+			// amount of satoshis incoming into this hop to
+			// properly pay the required fees.
+			prevAmount := prevHop.AmtToForward
+			fee = computeFee(prevAmount, prevEdge)
+
+			// With the fee computed, we increment the total amount
+			// as we need to pay this fee. This value represents
+			// the amount of funds that will come _into_ this edge.
+			runningAmt += fee
+
+			// Otherwise, for a node to forward an HTLC, then
+			// following inequality most hold true:
+			//
+			//     * amt_in - fee >= amt_to_forward
+			amtToForward = runningAmt - fee
+		}
+
+		// Now we create the hop struct for this point in the route.
+		// The amount to forward is the running amount, and we compute
+		// the required fee based on this amount.
+		nextHop := &Hop{
+			Channel:      edge,
+			AmtToForward: amtToForward,
+			Fee:          fee,
+		}
+		edge.Node.PubKey.Curve = nil
+
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which
 		// includes the fee dictated at each hop.
@@ -276,46 +312,6 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex vertex,
 				nextHop.Channel.Capacity)
 
 			return nil, newErrf(ErrInsufficientCapacity, err)
-		}
-
-		// We don't pay any fees to ourselves on the first-hop channel,
-		// so we don't tally up the running fee and amount.
-		switch {
-		// If this is a single-hop payment, there's no fee required.
-		case i == 0 && len(pathEdges) == 1:
-			nextHop.Fee = 0
-
-		// If this is the "first" hop in a multi-hop payment, then we
-		// don't pay any fee to ourselves, but we craft the payload to
-		// prescribe the proper fee for the _next_ hop.
-		case i == 0 && len(pathEdges) > 1:
-			// Now, we'll compute the fee that we need to path this
-			// hop for its downstream transit. This is the value we
-			// want coming into the _next_ hop, using the fees from
-			// the _incoming_ node.
-			nextFee := computeFee(route.Hops[i+1].AmtToForward,
-				pathEdges[i+1])
-
-			nextHop.AmtToForward -= nextFee
-			nextHop.Fee = 0
-
-		// Otherwise, this is an intermediate hop, and we compute the
-		// fees as normal.
-		default:
-			// For a node to forward an HTLC, then following
-			// inequality most hold true: amt_in - fee >=
-			// amt_to_forward. Therefore we add the fee this node
-			// consumes in order to calculate the amount that it
-			// show be forwarded by the prior node which is the
-			// next hop in our loop.
-			runningAmt += nextHop.Fee
-
-			// Next we tally the total fees (thus far) in the
-			// route, and also accumulate the total timelock in the
-			// route by adding the node's time lock delta which is
-			// the amount of blocks it'll subtract from the
-			// incoming time lock.
-			route.TotalFees += nextHop.Fee
 		}
 
 		// If this is the last hop, then for verification purposes, the

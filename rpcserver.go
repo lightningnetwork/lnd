@@ -1782,7 +1782,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	if cltvDelta != 0 {
 		payment.FinalCLTVDelta = &cltvDelta
 	}
-	preImage, route, err := r.server.chanRouter.SendPayment(payment, 
+	preImage, route, err := r.server.chanRouter.SendPayment(payment,
 		routeFilter(ctx, r.authSvc))
 	if err != nil {
 		return nil, err

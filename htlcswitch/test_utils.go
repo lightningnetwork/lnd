@@ -384,14 +384,10 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
 			runningAmt += fee
 
-			// If the this the first hop, then we don't need to
-			// apply any fee, otherwise, the amount to forward
-			// needs to take into account the fees.
-			if i == 0 {
-				amount = prevAmount
-			} else {
-				amount = prevAmount + fee
-			}
+			// Otherwise, for a node to forward an HTLC, then
+			// following inequality most hold true:
+			//     * amt_in - fee >= amt_to_forward
+			amount = runningAmt - fee
 		}
 
 		hops[i] = ForwardingInfo{

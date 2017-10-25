@@ -233,7 +233,8 @@ func lndMain() error {
 	// through Tor, listening is disabled.
 	var defaultListenAddrs []string
 	if _, ok := cfg.net.(*RegularNet); ok {
-		defaultListenAddrs[0] = net.JoinHostPort("", strconv.Itoa(cfg.PeerPort))
+		defaultListenAddrs = append(defaultListenAddrs,
+			net.JoinHostPort("", strconv.Itoa(cfg.PeerPort)))
 	}
 	server, err := newServer(defaultListenAddrs, chanDB, activeChainControl,
 		idPrivKey)

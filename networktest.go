@@ -130,6 +130,8 @@ func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*li
 	}
 
 	nodeNum := numActiveNodes
+	numActiveNodes++
+
 	cfg.DataDir, err = ioutil.TempDir("", "lndtest-data")
 	if err != nil {
 		return nil, err
@@ -144,8 +146,6 @@ func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*li
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 
 	cfg.PeerPort, cfg.RPCPort = generateListeningPorts()
-
-	numActiveNodes++
 
 	lndArgs = append(lndArgs, "--externalip=127.0.0.1:"+
 		strconv.Itoa(cfg.PeerPort))
@@ -198,7 +198,7 @@ func (l *lightningNode) genArgs() []string {
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
-func (l *lightningNode) Start(lndError chan error) error {
+func (l *lightningNode) Start(lndError chan<- error) error {
 	args := l.genArgs()
 
 	l.cmd = exec.Command("lnd", args...)
@@ -346,8 +346,9 @@ func (l *lightningNode) cleanup() error {
 
 	var err error
 	for _, dir := range dirs {
-		if err = os.RemoveAll(dir); err != nil {
-			log.Printf("Cannot remove dir %s: %v", dir, err)
+		if removeErr := os.RemoveAll(dir); removeErr != nil {
+			log.Printf("Cannot remove dir %s: %v", dir, removeErr)
+			err = removeErr
 		}
 	}
 	return err
@@ -388,7 +389,7 @@ func (l *lightningNode) Stop() error {
 // process has been started up again.
 func (l *lightningNode) Restart(errChan chan error, callback func() error) error {
 	if err := l.Stop(); err != nil {
-		return nil
+		return err
 	}
 
 	<-l.processExit
@@ -705,6 +706,8 @@ type networkHarness struct {
 	// to main process.
 	lndErrorChan chan error
 
+	quit chan struct{}
+
 	sync.Mutex
 }
 
@@ -718,10 +721,11 @@ func newNetworkHarness() (*networkHarness, error) {
 		seenTxns:             make(chan chainhash.Hash),
 		bitcoinWatchRequests: make(chan *txWatchRequest),
 		lndErrorChan:         make(chan error),
+		quit:                 make(chan struct{}),
 	}, nil
 }
 
-// InitializeSeedNodes initialized alice and bob nodes given an already
+// InitializeSeedNodes initializes alice and bob nodes given an already
 // running instance of btcd's rpctest harness and extra command line flags,
 // which should be formatted properly - "--arg=value".
 func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []string) error {
@@ -780,19 +784,15 @@ func (n *networkHarness) SetUp() error {
 	errChan := make(chan error, 2)
 	wg.Add(2)
 	go func() {
-		var err error
 		defer wg.Done()
-		if err = n.Alice.Start(n.lndErrorChan); err != nil {
+		if err := n.Alice.Start(n.lndErrorChan); err != nil {
 			errChan <- err
-			return
 		}
 	}()
 	go func() {
-		var err error
 		defer wg.Done()
-		if err = n.Bob.Start(n.lndErrorChan); err != nil {
+		if err := n.Bob.Start(n.lndErrorChan); err != nil {
 			errChan <- err
-			return
 		}
 	}()
 	wg.Wait()
@@ -888,6 +888,8 @@ func (n *networkHarness) TearDownAll() error {
 	}
 
 	close(n.lndErrorChan)
+	close(n.quit)
+
 	return nil
 }
 
@@ -1016,6 +1018,9 @@ func (n *networkHarness) networkWatcher() {
 	for {
 
 		select {
+		case <-n.quit:
+			return
+
 		case req := <-n.bitcoinWatchRequests:
 			// If we've already seen this transaction, then
 			// immediately dispatch the request. Otherwise, append
@@ -1053,6 +1058,13 @@ func (n *networkHarness) networkWatcher() {
 // OnTxAccepted is a callback to be called each time a new transaction has been
 // broadcast on the network.
 func (n *networkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) {
+	// Return immediately if harness has been torn down.
+	select {
+	case <-n.quit:
+		return
+	default:
+	}
+
 	go func() {
 		n.seenTxns <- *hash
 	}()
@@ -1063,6 +1075,13 @@ func (n *networkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) 
 // then an error is returned.
 // TODO(roasbeef): add another method which creates queue of all seen transactions
 func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.Hash) error {
+	// Return immediately if harness has been torn down.
+	select {
+	case <-n.quit:
+		return fmt.Errorf("networkHarness has been torn down")
+	default:
+	}
+
 	eventChan := make(chan struct{})
 
 	n.bitcoinWatchRequests <- &txWatchRequest{
@@ -1073,6 +1092,8 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 	select {
 	case <-eventChan:
 		return nil
+	case <-n.quit:
+		return fmt.Errorf("networkHarness has been torn down")
 	case <-ctx.Done():
 		return fmt.Errorf("tx not seen before context timeout")
 	}

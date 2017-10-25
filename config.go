@@ -17,15 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcd/connmgr"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/btcsuite/go-socks/socks"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/miekg/dns"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
-	"golang.org/x/net/proxy"
 )
 
 const (
@@ -162,8 +159,10 @@ type config struct {
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
-	Profile  string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
+	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
+
 	TorSocks string `long:"torsocks" description:"The port that Tor's exposed SOCKS5 proxy is listening on -- NOTE port must be between 1024 and 65535"`
+	TorDNS   string `long:"tordns" description:"The DNS server that Tor will use for SRV queries"`
 
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
@@ -192,7 +191,6 @@ type config struct {
 	lookup     func(string) ([]string, error)
 	lookupSRV  func(string, string, string) (string, []*net.SRV, error)
 	resolveTCP func(string, string) (*net.TCPAddr, error)
-	// TODO(eugene) - onionDial & related onion functions
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -297,15 +295,15 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
-	// Setup dial and DNS resolution (lookup, lookupSRV, resolveTCP) functions
-	// depending on the specified options. The default is to use the standard
-	// golang "net" package functions. When Tor's proxy is specified, the dial
-	// function is set to the proxy specific dial function and the DNS
-	// resolution functions use Tor.
+	// Setup dial and DNS resolution functions depending on the specified
+	// options. The default is to use the standard golang "net" package
+	// functions. When Tor's proxy is specified, the dial function is set to
+	// the proxy specific dial function and the DNS resolution functions use
+	// Tor.
 	cfg.lookup = net.LookupHost
 	cfg.lookupSRV = net.LookupSRV
 	cfg.resolveTCP = net.ResolveTCPAddr
-	if cfg.TorSocks != "" {
+	if cfg.TorSocks != "" && cfg.TorDNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.TorSocks)
 		if err != nil || torport < 1024 || torport > 65535 {
@@ -315,8 +313,6 @@ func loadConfig() (*config, error) {
 			fmt.Fprintln(os.Stderr, usageMessage)
 			return nil, err
 		}
-
-		proxyAddr := "127.0.0.1:" + cfg.TorSocks
 
 		// If ExternalIPs is set, throw an error since we cannot
 		// listen for incoming connections via Tor's SOCKS5 proxy.
@@ -328,49 +324,22 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		// We use go-socks for the dialer that actually connects to peers
-		// since it preserves the connection information in a *ProxiedAddr
-		// struct. golang's proxy package abstracts this away and is
-		// therefore unsuitable.
-		p := &socks.Proxy{
-			Addr: proxyAddr,
-		}
-		cfg.dial = p.Dial
+		cfg.dial = torsvc.TorDial(cfg.TorSocks)
 
 		// If we are using Tor, since we only want connections routed
 		// through Tor, listening is disabled.
 		cfg.DisableListen = true
 
-		dialer, err := proxy.SOCKS5(
-			"tcp",
-			proxyAddr,
-			nil,
-			proxy.Direct,
-		)
-		if err != nil {
-			str := "%s: Unable to set up SRV dialer: %v"
-			err := fmt.Errorf(str, funcName, err)
-			return nil, err
-		}
-
-		// Perform all DNS resolution through the Tor proxy. We set the
-		// lookup, lookupSRV, & resolveTCP functions here.
 		cfg.lookup = func(host string) ([]string, error) {
-			return proxyLookup(host, proxyAddr)
+			return torsvc.TorLookupHost(host, cfg.TorSocks)
 		}
-
-		// lookupSRV uses golang's proxy package since go-socks will
-		// cause the SRV request to hang.
 		cfg.lookupSRV = func(service, proto, name string) (cname string,
 			addrs []*net.SRV, err error) {
-			return proxySRV(dialer, service, proto, name)
+			return torsvc.TorLookupSRV(service, proto, name,
+				cfg.TorSocks, cfg.TorDNS)
 		}
-
-		// resolveTCP uses TCP over Tor to resolve TCP addresses and
-		// returns a pointer to a net.TCPAddr struct in the same manner
-		// that the net.ResolveTCPAddr function does.
 		cfg.resolveTCP = func(network, address string) (*net.TCPAddr, error) {
-			return proxyTCP(address, cfg.lookup)
+			return torsvc.TorResolveTCP(address, cfg.TorSocks)
 		}
 	}
 
@@ -744,106 +713,6 @@ func lndResolveTCP(network, address string) (*net.TCPAddr, error) {
 	return cfg.resolveTCP(network, address)
 }
 
-// proxyLookup uses Tor to resolve DNS via the SOCKS extension they provide for
-// resolution over the Tor network. Only IPV4 is supported. Unlike btcd's
-// TorLookupIP function, however, this function returns a ([]string, error)
-// tuple.
-func proxyLookup(host string, proxy string) ([]string, error) {
-	ip, err := connmgr.TorLookupIP(host, proxy)
-	if err != nil {
-		return nil, err
-	}
-
-	var addrs []string
-	// Only one IPv4 address is returned by the TorLookupIP function.
-	addrs = append(addrs, ip[0].String())
-	return addrs, nil
-}
-
-// proxyTCP uses Tor's proxy to resolve tcp addresses instead of the system resolver
-// that ResolveTCPAddr and related functions use. This resolver only queries DNS
-// servers in the case a hostname is passed in the address parameter. Only TCP
-// resolution is supported.
-func proxyTCP(address string, lookupFn func(string) ([]string, error)) (*net.TCPAddr, error) {
-	// Split host:port since the lookup function does not take a port.
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-
-	// Look up the host's IP address via Tor.
-	ip, err := lookupFn(host)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert port to an int
-	p, err := strconv.Atoi(port)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return a pointer to a net.TCPAddr struct exactly like ResolveTCPAddr.
-	return &net.TCPAddr{
-		IP:   net.ParseIP(ip[0]),
-		Port: p,
-	}, nil
-}
-
-// proxySRV uses Tor's proxy to route DNS SRV requests. Tor does not support
-// SRV queries. Therefore, we must route all SRV requests THROUGH the Tor proxy
-// and connect directly to a DNS server and query it. Note: the DNS server must
-// be a Lightning DNS server that follows the BOLT#10 specification.
-func proxySRV(dialer proxy.Dialer, service, proto, name string) (string, []*net.SRV, error) {
-
-	// _service._proto.name as described in RFC#2782.
-	host := "_" + service + "._" + proto + "." + name + "."
-
-	// Dial Eugene's lseed.
-	conn, err := dialer.Dial("tcp", "108.26.210.110:8053")
-	if err != nil {
-		return "", nil, err
-	}
-
-	// Construct the actual SRV request.
-	msg := new(dns.Msg)
-	msg.SetQuestion(host, dns.TypeSRV)
-	msg.RecursionDesired = true
-
-	dnsConn := &dns.Conn{
-		Conn: conn,
-	}
-	defer dnsConn.Close()
-
-	// Write the SRV request
-	dnsConn.WriteMsg(msg)
-
-	// Read the response
-	resp, err := dnsConn.ReadMsg()
-	if err != nil {
-		return "", nil, err
-	}
-
-	if resp.Rcode != dns.RcodeSuccess {
-		// TODO(eugene) - table of Rcode fmt.Errors
-		return "", nil, fmt.Errorf("Unsuccessful SRV request, received: %d",
-			resp.Rcode)
-	}
-
-	// Retrieve the RR(s) of the Answer section.
-	var rrs []*net.SRV
-	for _, rr := range resp.Answer {
-		srv := rr.(*dns.SRV)
-		rrs = append(rrs, &net.SRV{
-			Target:   srv.Target,
-			Port:     srv.Port,
-			Priority: srv.Priority,
-			Weight:   srv.Weight,
-		})
-	}
-
-	return "", rrs, nil
-}
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 	funcName string) error {

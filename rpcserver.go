@@ -1726,9 +1726,11 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
 	if amtMSat > maxPaymentMSat {
-		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", nextPayment.Amt,
-			maxPaymentMSat.ToSatoshis())
+		err := fmt.Errorf("payment of %v is too large, max payment "+
+			"allowed is %v", nextPayment.Amt, maxPaymentMSat.ToSatoshis())
+		return &lnrpc.SendResponse{
+			PaymentError: err.Error(),
+		}, nil
 	}
 
 	// Finally, send a payment request to the channel router. If the
@@ -1744,7 +1746,9 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	}
 	preImage, route, err := r.server.chanRouter.SendPayment(payment)
 	if err != nil {
-		return nil, err
+		return &lnrpc.SendResponse{
+			PaymentError: err.Error(),
+		}, nil
 	}
 
 	// With the payment completed successfully, we now ave the details of

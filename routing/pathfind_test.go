@@ -391,19 +391,19 @@ func TestBasicGraphPathFinding(t *testing.T) {
 
 	// Additionally, we'll ensure that the amount to forward, and fees
 	// computed for each hop are correct.
-	if route.Hops[0].Fee != 0 {
+	firstHopFee := computeFee(paymentAmt, route.Hops[1].Channel)
+	if route.Hops[0].Fee != firstHopFee {
 		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			0, route.Hops[1].Fee)
+			firstHopFee, route.Hops[0].Fee)
 	}
 
-	firstHopFee := computeFee(paymentAmt, route.Hops[1].Channel)
 	if route.TotalAmount != paymentAmt+firstHopFee {
 		t.Fatalf("first hop forwarding amount incorrect: expected %v, got %v",
 			paymentAmt+firstHopFee, route.TotalAmount)
 	}
-	if route.Hops[1].Fee != firstHopFee {
+	if route.Hops[1].Fee != 0 {
 		t.Fatalf("first hop fee incorrect: expected %v, got %v",
-			firstHopFee, route.Hops[1].Fee)
+			firstHopFee, 0)
 	}
 
 	if route.Hops[1].AmtToForward != paymentAmt {
@@ -773,15 +773,21 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We shouldn't pay any fee for the first, hop, but the fee for the
 	// second hop posted fee should be exactly:
+
+	// The fee that we pay for the second hop will be "applied to the first
+	// hop, so we should get a fee of exactly:
 	//
 	//  * 200 + 4999999 * 2000 / 1000000 = 10199
-	if routes[0].Hops[0].Fee != 0 {
-		t.Fatalf("wrong hop fee: got %v, expected %v",
-			routes[0].Hops[1].Fee, 0)
-	}
-	if routes[0].Hops[1].Fee != 10199 {
+	if routes[0].Hops[0].Fee != 10199 {
 		t.Fatalf("wrong hop fee: got %v, expected %v",
 			routes[0].Hops[0].Fee, 10199)
+	}
+
+	// While for the final hop, as there's no additional hop afterwards, we
+	// pay no fee.
+	if routes[0].Hops[1].Fee != 0 {
+		t.Fatalf("wrong hop fee: got %v, expected %v",
+			routes[0].Hops[0].Fee, 0)
 	}
 
 	// The outgoing CLTV value itself should be the current height plus 30

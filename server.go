@@ -605,7 +605,8 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
 				dnsSeeds,
-				[]interface{}{lndLookup, lndLookupSRV},
+				lndLookup,
+				lndLookupSRV,
 			)
 			if err != nil {
 				return nil, err

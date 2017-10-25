@@ -805,7 +805,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		case 0:
 			if edge1Timestamp.After(msg.LastUpdate) ||
 				edge1Timestamp.Equal(msg.LastUpdate) {
-				return newErrf(ErrIgnored, "Ignoring announcement "+
+				return newErrf(ErrIgnored, "Ignoring update "+
 					"(flags=%v) for known chan_id=%v", msg.Flags,
 					msg.ChannelID)
 
@@ -817,7 +817,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			if edge2Timestamp.After(msg.LastUpdate) ||
 				edge2Timestamp.Equal(msg.LastUpdate) {
 
-				return newErrf(ErrIgnored, "Ignoring announcement "+
+				return newErrf(ErrIgnored, "Ignoring update "+
 					"(flags=%v) for known chan_id=%v", msg.Flags,
 					msg.ChannelID)
 			}
@@ -1477,7 +1477,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) error {
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 	})
-	if err != nil {
+	if err != nil && !IsError(err, ErrIgnored) {
 		return fmt.Errorf("Unable to apply channel update: %v", err)
 	}
 

@@ -590,7 +590,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	}
 
 	// We use lndResolveTCP here in case we wish to resolve hosts over Tor.
-	host, err := lndResolveTCP("tcp", addr)
+	host, err := cfg.net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, err
 	}

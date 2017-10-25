@@ -227,7 +227,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 			addr = ip
 		}
 
-		lnAddr, err := lndResolveTCP("tcp", addr)
+		lnAddr, err := cfg.net.ResolveTCPAddr("tcp", addr)
 		if err != nil {
 			return nil, err
 		}
@@ -605,8 +605,8 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 			dnsBootStrapper, err := discovery.NewDNSSeedBootstrapper(
 				dnsSeeds,
-				lndLookup,
-				lndLookupSRV,
+				cfg.net.LookupHost,
+				cfg.net.LookupSRV,
 			)
 			if err != nil {
 				return nil, err
@@ -646,18 +646,10 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	// With our initial set of peers obtained, we'll launch a goroutine to
 	// attempt to connect out to each of them. We'll be waking up shortly
-	// below to sample how many of these connections succeeded. We check
-	// cfg.dial for nil in case Tor's proxy dialer option was set in the
-	// configuration.
+	// below to sample how many of these connections succeeded.
 	for _, addr := range bootStrapAddrs {
 		go func(a *lnwire.NetAddress) {
-			var conn *brontide.Conn
-			var err error
-			if cfg.dial == nil {
-				conn, err = brontide.Dial(s.identityPriv, a)
-			} else {
-				conn, err = brontide.Dial(s.identityPriv, a, cfg.dial)
-			}
+			conn, err := brontide.Dial(s.identityPriv, a, cfg.net.Dial)
 			if err != nil {
 				srvrLog.Errorf("unable to connect to %v: %v",
 					a, err)
@@ -767,16 +759,8 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				go func(a *lnwire.NetAddress) {
 					// TODO(roasbeef): can do AS, subnet,
 					// country diversity, etc
-					// We check cfg.dial for nil in case
-					// a Tor's proxy dialer configuration was
-					// set.
-					var conn *brontide.Conn
-					var err error
-					if cfg.dial == nil {
-						conn, err = brontide.Dial(s.identityPriv, a)
-					} else {
-						conn, err = brontide.Dial(s.identityPriv, a, cfg.dial)
-					}
+					conn, err := brontide.Dial(s.identityPriv,
+						a, cfg.net.Dial)
 					if err != nil {
 						srvrLog.Errorf("unable to connect "+
 							"to %v: %v", a, err)
@@ -1294,7 +1278,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	brontideConn := conn.(*brontide.Conn)
 	var peerAddr *lnwire.NetAddress
-	if cfg.dial == nil {
+	if _, ok := cfg.net.(*RegularNet); ok {
 		peerAddr = &lnwire.NetAddress{
 			IdentityKey: brontideConn.RemotePub(),
 			Address:     conn.RemoteAddr().(*net.TCPAddr),
@@ -1696,14 +1680,8 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	// If we're not making a persistent connection, then we'll attempt to
 	// connect to the target peer. If the we can't make the connection, or
 	// the crypto negotiation breaks down, then return an error to the
-	// caller. We check cfg.dial for nil in case Tor's proxy dialer function
-	// was set in the configuration options.
-	var conn *brontide.Conn
-	if cfg.dial == nil {
-		conn, err = brontide.Dial(s.identityPriv, addr)
-	} else {
-		conn, err = brontide.Dial(s.identityPriv, addr, cfg.dial)
-	}
+	// caller.
+	conn, err := brontide.Dial(s.identityPriv, addr, cfg.net.Dial)
 	if err != nil {
 		return err
 	}

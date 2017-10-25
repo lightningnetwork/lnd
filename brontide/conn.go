@@ -38,11 +38,10 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	var conn net.Conn
 	var err error
 	if dialer == nil {
-		// A Tor proxy dial function WAS NOT passed in.
+		// A dial function WAS NOT passed in.
 		conn, err = net.Dial("tcp", ipAddr)
 	} else {
-		// A Tor proxy dial function WAS passed in so we use it instead
-		// of golang's net.Dial.
+		// A dial function WAS passed in so we use it instead.
 		conn, err = dialer[0]("tcp", ipAddr)
 	}
 	if err != nil {

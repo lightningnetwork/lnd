@@ -629,8 +629,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		n.firstBobChannelLink, n.carolChannelLink)
 
 	// First, send this 1 BTC payment over the three hops, the payment
-	// should succeed, and all balances should be updated
-	// accordingly.
+	// should succeed, and all balances should be updated accordingly.
 	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
 		htlcExpiry)
@@ -675,7 +674,25 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	newPolicy.BaseFee = lnwire.NewMSatFromSatoshis(1000)
 	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
 
-	// TODO(roasbeef): should send again an ensure rejected?
+	// Next, we'll send the payment again, using the exact same per-hop
+	// payload for each node. This payment should fail as it wont' factor
+	// in Bob's new fee policy.
+	_, err = n.makePayment(n.aliceServer, n.carolServer,
+		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
+		htlcExpiry)
+	if err == nil {
+		t.Fatalf("payment should've been rejected")
+	}
+
+	ferr, ok := err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+	}
+	switch ferr.FailureMessage.(type) {
+	case *lnwire.FailFeeInsufficient:
+	default:
+		t.Fatalf("expected FailFeeInsufficient instead got: %v", err)
+	}
 }
 
 // TestChannelLinkMultiHopInsufficientPayment checks that we receive error if

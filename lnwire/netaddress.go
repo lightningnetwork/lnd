@@ -22,8 +22,9 @@ type NetAddress struct {
 	// the node.
 	IdentityKey *btcec.PublicKey
 
-	// Address is is the IP address and port of the node.
-	Address *net.TCPAddr
+	// Address is is the IP address and port of the node. This is left
+	// general so that multiple implementations can be used.
+	Address net.Addr
 
 	// ChainNet is the Bitcoin network this node is associated with.
 	// TODO(roasbeef): make a slice in the future for multi-chain

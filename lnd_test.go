@@ -4049,17 +4049,17 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
-	// fails immediately with a fatal error, as far as fatal is happening
-	// inside goroutine main goroutine would not be finished at the same
-	// time as we receive fatal error from lnd process.
-	testsFin := make(chan struct{})
+	// case should naturally as a result and we log the server error here to
+	// help debug.
 	go func() {
-		select {
-		case err := <-lndHarness.ProcessErrors():
-			ht.Fatalf("lnd finished with error (stderr): "+
-				"\n%v", err)
-		case <-testsFin:
-			return
+		for {
+			select {
+			case err, more := <-lndHarness.ProcessErrors():
+				if !more {
+					return
+				}
+				ht.Logf("lnd finished with error (stderr):\n%v", err)
+			}
 		}
 	}()
 
@@ -4118,6 +4118,4 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			break
 		}
 	}
-
-	close(testsFin)
 }

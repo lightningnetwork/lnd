@@ -132,9 +132,8 @@ func TorLookupSRV(service, proto, name, socksPort, dnsServer string) (string,
 }
 
 // TorResolveTCP uses Tor's proxy to resolve TCP addresses instead of the
-// system resolver that ResolveTCPAddr and related functions use. This resolver
-// only queries DNS servers in the case that a hostname is passed in the
-// address parameter. Only TCP resolution is supported.
+// system resolver that ResolveTCPAddr and related functions use. Only TCP
+// resolution is supported.
 func TorResolveTCP(address, socksPort string) (*net.TCPAddr, error) {
 	// Split host:port since the lookup function does not take a port.
 	host, port, err := net.SplitHostPort(address)

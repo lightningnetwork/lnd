@@ -20,6 +20,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -161,7 +162,7 @@ type config struct {
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
 	TorSocks string `long:"torsocks" description:"The port that Tor's exposed SOCKS5 proxy is listening on -- NOTE port must be between 1024 and 65535"`
-	TorDNS   string `long:"tordns" description:"The DNS server that Tor will use for SRV queries"`
+	TorDNS   string `long:"tordns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
@@ -186,7 +187,7 @@ type config struct {
 	Alias string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 
-	net NetInterface
+	net *torsvc.MultiNet
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -296,7 +297,7 @@ func loadConfig() (*config, error) {
 	// functions. When Tor's proxy is specified, the dial function is set to
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
-	cfg.net = &RegularNet{}
+	cfg.net = &torsvc.MultiNet{Tor: false}
 	if cfg.TorSocks != "" && cfg.TorDNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.TorSocks)
@@ -318,14 +319,20 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
+		cfg.net.TorDNS = cfg.TorDNS
+		cfg.net.TorSocks = cfg.TorSocks
+
 		// If we are using Tor, since we only want connections routed
 		// through Tor, listening is disabled.
 		cfg.DisableListen = true
 
-		cfg.net = &TorProxyNet{
-			TorSocks: cfg.TorSocks,
-			TorDNS:   cfg.TorDNS,
-		}
+	} else if cfg.TorSocks != "" || cfg.TorDNS != "" {
+		// Both TorSocks and TorDNS must be set.
+		str := "%s: Both the torsocks and the tordns flags must be set" +
+			"to properly route connections and avoid DNS leaks while" +
+			"using Tor"
+		err := fmt.Errorf(str, funcName)
+		return nil, err
 	}
 
 	switch {

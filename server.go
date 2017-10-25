@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/btcsuite/go-socks/socks"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -214,7 +213,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	})
 
 	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses. We need to use the general lndResolveTCP
+	// of this server's addresses. We need to use the cfg.net.ResolveTCPAddr
 	// function in case we wish to resolve hosts over Tor since domains
 	// CAN be passed into the ExternalIPs configuration option.
 	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
@@ -1277,25 +1276,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	inbound bool) {
 
 	brontideConn := conn.(*brontide.Conn)
-	var peerAddr *lnwire.NetAddress
-	if _, ok := cfg.net.(*RegularNet); ok {
-		peerAddr = &lnwire.NetAddress{
-			IdentityKey: brontideConn.RemotePub(),
-			Address:     conn.RemoteAddr().(*net.TCPAddr),
-			ChainNet:    activeNetParams.Net,
-		}
-	} else {
-		// We are connected to a Tor SOCKS5 proxy, extract our
-		// connection information.
-		proxiedAddr := conn.RemoteAddr().(*socks.ProxiedAddr)
-		peerAddr = &lnwire.NetAddress{
-			IdentityKey: brontideConn.RemotePub(),
-			Address: &net.TCPAddr{
-				IP:   net.ParseIP(proxiedAddr.Host),
-				Port: proxiedAddr.Port,
-			},
-			ChainNet: activeNetParams.Net,
-		}
+	peerAddr := &lnwire.NetAddress{
+		IdentityKey: brontideConn.RemotePub(),
+		Address:     conn.RemoteAddr(),
+		ChainNet:    activeNetParams.Net,
 	}
 
 	// With the brontide connection established, we'll now craft the local

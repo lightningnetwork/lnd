@@ -26,6 +26,20 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+const (
+	// testPollNumTries is the number of times we attempt to query
+	// for a certain expected database state before we give up and
+	// consider the test failed. Since it sometimes can take a
+	// while to update the database, we poll a certain amount of
+	// times, until it gets into the state we expect, or we are out
+	// of tries.
+	testPollNumTries = 10
+
+	// testPollSleepMs is the number of milliseconds to sleep between
+	// each attempt to access the database to check its state.
+	testPollSleepMs = 500
+)
+
 var (
 	privPass = []byte("dummy-pass")
 
@@ -520,24 +534,66 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	return fundingOutPoint
 }
 
+func assertNumPendingChannels(t *testing.T, node *testNode, expectedNum int) {
+	var numPendingChans int
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
+		pendingChannels, err := node.fundingMgr.
+			cfg.Wallet.Cfg.Database.FetchPendingChannels()
+		if err != nil {
+			t.Fatalf("unable to fetch pending channels: %v", err)
+		}
+
+		numPendingChans = len(pendingChannels)
+		if numPendingChans == expectedNum {
+			// Success, return.
+			return
+		}
+	}
+
+	t.Fatalf("Expected node to have %d pending channels, had %v",
+		expectedNum, numPendingChans)
+}
+
+func assertDatabaseState(t *testing.T, node *testNode,
+	fundingOutPoint *wire.OutPoint, expectedState channelOpeningState) {
+
+	var state channelOpeningState
+	var err error
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
+		state, _, err = node.fundingMgr.getChannelOpeningState(
+			fundingOutPoint)
+		if err != nil && err != ErrChannelNotFound {
+			t.Fatalf("unable to get channel state: %v", err)
+		}
+
+		// If we found the channel, check if it had the expected state.
+		if err != ErrChannelNotFound && state == expectedState {
+			// Got expected state, return with success.
+			return
+		}
+	}
+
+	// 10 tries without success.
+	if err != nil {
+		t.Fatalf("error getting channelOpeningState: %v", err)
+	} else {
+		t.Fatalf("expected state to be %v, was %v", expectedState,
+			state)
+	}
+}
+
 func assertMarkedOpen(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
-	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != markedOpen {
-		t.Fatalf("expected state to be markedOpen, was %v", state)
-	}
-	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != markedOpen {
-		t.Fatalf("expected state to be markedOpen, was %v", state)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
+	assertDatabaseState(t, bob, fundingOutPoint, markedOpen)
 }
 
 func checkNodeSendingFundingLocked(t *testing.T, node *testNode) *lnwire.FundingLocked {
@@ -564,22 +620,8 @@ func checkNodeSendingFundingLocked(t *testing.T, node *testNode) *lnwire.Funding
 
 func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
-	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
-	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 }
 
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
@@ -687,16 +729,33 @@ func waitForOpenUpdate(t *testing.T, updateChan chan *lnrpc.OpenStatusUpdate) {
 
 func assertNoChannelState(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
-	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != ErrChannelNotFound {
-		t.Fatalf("expected to not find channel state, but got: %v", state)
+
+	assertErrChannelNotFound(t, alice, fundingOutPoint)
+	assertErrChannelNotFound(t, bob, fundingOutPoint)
+}
+
+func assertErrChannelNotFound(t *testing.T, node *testNode,
+	fundingOutPoint *wire.OutPoint) {
+
+	var state channelOpeningState
+	var err error
+	for i := 0; i < testPollNumTries; i++ {
+		// If this is not the first try, sleep before retrying.
+		if i > 0 {
+			time.Sleep(testPollSleepMs * time.Millisecond)
+		}
+		state, _, err = node.fundingMgr.getChannelOpeningState(
+			fundingOutPoint)
+		if err == ErrChannelNotFound {
+			// Got expected state, return with success.
+			return
+		} else if err != nil {
+			t.Fatalf("unable to get channel state: %v", err)
+		}
 	}
 
-	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != ErrChannelNotFound {
-		t.Fatalf("expected to not find channel state, but got: %v", state)
-	}
-
+	// 10 tries without success.
+	t.Fatalf("expected to not find state, found state %v", state)
 }
 
 func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
@@ -746,10 +805,6 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write
-	//state to database.
-	time.Sleep(300 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -761,9 +816,6 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// And similarly Bob will send funding locked to Alice.
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
-
-	// Sleep to make sure database write is finished.
-	time.Sleep(300 * time.Millisecond)
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
@@ -777,7 +829,6 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
-	time.Sleep(300 * time.Millisecond)
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
 
 	// Exchange the fundingLocked messages.
@@ -819,10 +870,6 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write to
-	// the database.
-	time.Sleep(500 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -842,33 +889,15 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Bob will send funding locked to Alice.
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
 
-	// Sleep to make sure database write is finished.
-	time.Sleep(1 * time.Second)
-
 	// Alice should still be markedOpen
-	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != markedOpen {
-		t.Fatalf("expected state to be markedOpen, was %v", state)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
 	// While Bob successfully sent fundingLocked.
-	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
+	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 
 	// We now recreate Alice's fundingManager, and expect it to retry
 	// sending the fundingLocked message.
 	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
 
 	// Intetionally make the next channel announcement fail
 	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message) error {
@@ -877,23 +906,14 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	fundingLockedAlice := checkNodeSendingFundingLocked(t, alice)
 
-	// Sleep to make sure database write is finished.
-	time.Sleep(500 * time.Millisecond)
-
 	// The state should now be fundingLockedSent
-	state, _, err = alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
 
 	// Check that the channel announcements were never sent
 	select {
 	case ann := <-alice.announceChan:
-		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+		t.Fatalf("unexpectedly got channel announcement message: %v",
+			ann)
 	default:
 		// Expected
 	}
@@ -901,13 +921,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Next up, we check that the Alice rebroadcasts the announcement
 	// messages on restart. Bob should as expected send announcements.
 	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
 	assertChannelAnnouncements(t, alice, bob)
-
-	// The funding process is now finished. Since we recreated the
-	// fundingManager, we don't have an update channel to synchronize on,
-	// so a small sleep makes sure the database writing is finished.
-	time.Sleep(300 * time.Millisecond)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -920,7 +934,6 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleFundingLocked(t, alice, bob)
-
 }
 
 // TestFundingManagerOfflinePeer checks that the fundingManager waits for the
@@ -956,10 +969,6 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write to
-	// the database.
-	time.Sleep(500 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -979,28 +988,11 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// Bob will send funding locked to Alice
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
 
-	// Sleep to make sure database write is finished.
-	time.Sleep(1 * time.Second)
-
 	// Alice should still be markedOpen
-	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != markedOpen {
-		t.Fatalf("expected state to be markedOpen, was %v", state)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
 	// While Bob successfully sent fundingLocked.
-	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
-
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
+	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 
 	// Alice should be waiting for the server to notify when Bob somes back online.
 	var peer *btcec.PublicKey
@@ -1039,20 +1031,11 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// This should make Alice send the fundingLocked.
 	fundingLockedAlice := checkNodeSendingFundingLocked(t, alice)
 
-	// Sleep to make sure database write is finished.
-	time.Sleep(500 * time.Millisecond)
-
 	// The state should now be fundingLockedSent
-	state, _, err = alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
-	if err != nil {
-		t.Fatalf("unable to get channel state: %v", err)
-	}
+	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
 
-	if state != fundingLockedSent {
-		t.Fatalf("expected state to be fundingLockedSent, was %v", state)
-	}
-
-	// Make sure both fundingManagers send the expected channel announcements.
+	// Make sure both fundingManagers send the expected channel
+	// announcements.
 	assertChannelAnnouncements(t, alice, bob)
 
 	// The funding process is now finished, wait for the
@@ -1061,7 +1044,6 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
-	time.Sleep(300 * time.Millisecond)
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
 
 	// Exchange the fundingLocked messages.
@@ -1104,34 +1086,15 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 		Height: fundingBroadcastHeight + 287,
 	}
 
-	time.Sleep(300 * time.Millisecond)
-
 	// Bob should still be waiting for the channel to open.
-	pendingChannels, err = bob.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch pending channels: %v", err)
-	}
-	if len(pendingChannels) != 1 {
-		t.Fatalf("Expected Bob to have 1 pending channel, had  %v",
-			len(pendingChannels))
-	}
+	assertNumPendingChannels(t, bob, 1)
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight + 288,
 	}
 
-	// It takes some time for Bob to update the database, so sleep for
-	// some time.
-	time.Sleep(300 * time.Millisecond)
-
-	pendingChannels, err = bob.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to fetch pending channels: %v", err)
-	}
-	if len(pendingChannels) != 0 {
-		t.Fatalf("Expected Bob to have 0 pending channel, had  %v",
-			len(pendingChannels))
-	}
+	// Should not be pending anymore.
+	assertNumPendingChannels(t, bob, 0)
 }
 
 // TestFundingManagerReceiveFundingLockedTwice checks that the fundingManager
@@ -1154,10 +1117,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write
-	//state to database.
-	time.Sleep(300 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -1169,9 +1128,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// And similarly Bob will send funding locked to Alice.
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
-
-	// Sleep to make sure database write is finished.
-	time.Sleep(300 * time.Millisecond)
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
@@ -1185,7 +1141,6 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
-	time.Sleep(300 * time.Millisecond)
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
 
 	// Send the fundingLocked message twice to Alice, and once to Bob.
@@ -1250,10 +1205,6 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write
-	//state to database.
-	time.Sleep(300 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -1265,9 +1216,6 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// And similarly Bob will send funding locked to Alice.
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
-
-	// Sleep to make sure database write is finished.
-	time.Sleep(300 * time.Millisecond)
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
@@ -1281,14 +1229,12 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
-	time.Sleep(300 * time.Millisecond)
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
 
 	// At this point we restart Alice's fundingManager, before she receives
 	// the fundingLocked message. After restart, she will receive it, and
 	// we expect her to be able to handle it correctly.
 	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
 
 	// Exchange the fundingLocked messages.
 	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
@@ -1319,10 +1265,6 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
-	// Give fundingManager time to process the newly mined tx and write
-	//state to database.
-	time.Sleep(300 * time.Millisecond)
-
 	// The funding transaction was mined, so assert that both funding
 	// managers now have the state of this channel 'markedOpen' in their
 	// internal state machine.
@@ -1335,15 +1277,11 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	// And similarly Bob will send funding locked to Alice.
 	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
 
-	// Sleep to make sure database write is finished.
-	time.Sleep(300 * time.Millisecond)
-
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
 
 	// Let Alice immediately get the fundingLocked message.
 	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
-	time.Sleep(300 * time.Millisecond)
 
 	// She will block waiting for local channel announcements to finish
 	// before sending the new channel state to the peer.
@@ -1356,18 +1294,12 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	// At this point we restart Alice's fundingManager. Bob will resend
 	// the fundingLocked after the connection is re-established.
 	recreateAliceFundingManager(t, alice)
-	time.Sleep(300 * time.Millisecond)
 
 	// Simulate Bob resending the message when Alice is back up.
 	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
 
 	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
-
-	// The funding process is now finished. Since we recreated the
-	// fundingManager, we don't have an update channel to synchronize on,
-	// so a small sleep makes sure the database writing is finished.
-	time.Sleep(300 * time.Millisecond)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.

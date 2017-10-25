@@ -14,6 +14,7 @@ import (
 
 	flags "github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/lnnet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
@@ -113,7 +114,7 @@ type config struct {
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
 	TorSocks string `long:"torsocks" description:"The port that Tor's exposed SOCKS5 proxy is listening on -- NOTE port must be between 1024 and 65535"`
-	TorDNS   string `long:"tordns" description:"The DNS server that Tor will use for SRV queries"`
+	TorDNS   string `long:"tordns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 
 	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
 	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
@@ -135,7 +136,7 @@ type config struct {
 
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
-	net NetInterface
+	net *lnnet.LnNet
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -229,7 +230,7 @@ func loadConfig() (*config, error) {
 	// functions. When Tor's proxy is specified, the dial function is set to
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
-	cfg.net = &RegularNet{}
+	cfg.net = &lnnet.LnNet{Tor: false}
 	if cfg.TorSocks != "" && cfg.TorDNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.TorSocks)
@@ -251,10 +252,15 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		cfg.net = &TorProxyNet{
-			TorSocks: cfg.TorSocks,
-			TorDNS:   cfg.TorDNS,
-		}
+		cfg.net.TorDNS = cfg.TorDNS
+		cfg.net.TorSocks = cfg.TorSocks
+	} else if cfg.TorSocks != "" || cfg.TorDNS != "" {
+		// Both TorSocks and TorDNS must be set.
+		str := "%s: Both the torsocks and the tordns flags must be set" +
+			"to properly route connections and avoid DNS leaks while" +
+			"using Tor"
+		err := fmt.Errorf(str, funcName)
+		return nil, err
 	}
 
 	// At this moment, multiple active chains are not supported.

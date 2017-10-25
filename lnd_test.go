@@ -1264,17 +1264,45 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		Index: chanPointAlice.OutputIndex,
 	}
 
-	// Create a new node (Carol), load her with some funds, then establish
-	// a connection between Carol and Alice with a channel that has
-	// identical capacity to the one created above.
+	// As preliminary setup, we'll create two new nodes: Carol and Dave,
+	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// a channel with Alice, and Carol with Dave. After this setup, the
+	// network topology should now look like:
+	//     Carol -> Dave -> Alice -> Bob
 	//
-	// The network topology should now look like: Carol -> Alice -> Bob
+	// First, we'll create Dave and establish a channel to Alice.
+	dave, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	if err := net.ConnectNodes(ctxb, dave, net.Alice); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, dave)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPointDave := openChannelAndAssert(ctxt, t, net, dave,
+		net.Alice, chanAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	daveChanTXID, err := chainhash.NewHash(chanPointDave.FundingTxid)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
+	daveFundPoint := wire.OutPoint{
+		Hash:  *daveChanTXID,
+		Index: chanPointDave.OutputIndex,
+	}
+
+	// Next, we'll create Carol and establish a channel to from her to
+	// Dave.
 	carol, err := net.NewNode(nil)
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
-	if err := net.ConnectNodes(ctxb, carol, net.Alice); err != nil {
-		t.Fatalf("unable to connect carol to alice: %v", err)
+	if err := net.ConnectNodes(ctxb, carol, dave); err != nil {
+		t.Fatalf("unable to connect carol to dave: %v", err)
 	}
 	err = net.SendCoins(ctxb, btcutil.SatoshiPerBitcoin, carol)
 	if err != nil {
@@ -1282,8 +1310,8 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
-		net.Alice, chanAmt, 0)
-
+		dave, chanAmt, 0)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
@@ -1311,20 +1339,22 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		payReqs[i] = resp.PaymentRequest
 	}
 
-	// Wait for carol to recognize both the Channel from herself to Carol,
-	// and also the channel from Alice to Bob.
+	// We'll wait for all parties to recognize the new channels within the
+	// network.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = dave.WaitForNetworkChannelOpen(ctxt, chanPointDave)
+	if err != nil {
+		t.Fatalf("dave didn't advertise his channel: %v", err)
+	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointCarol)
 	if err != nil {
-		t.Fatalf("carol didn't advertise her channel: %v", err)
-	}
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
-	if err != nil {
-		t.Fatalf("carol didn't see the alice->bob channel before timeout: %v", err)
+		t.Fatalf("carol didn't advertise her channel in time: %v",
+			err)
 	}
 
-	// Using Carol as the source, pay to the 5 invoices from Bob created above.
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
 	carolPayStream, err := carol.SendPayment(ctxb)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for carol: %v", err)
@@ -1368,16 +1398,17 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// creating the seed nodes in the network.
 	const baseFee = 1
 
-	assertAmountPaid := func(node *lightningNode,
-		chanPoint wire.OutPoint, amountSent,
-		amountReceived int64) {
+	assertAmountPaid := func(node *lightningNode, chanPoint wire.OutPoint,
+		amountSent, amountReceived int64) {
 
 		channelName := ""
 		switch chanPoint {
-		case carolFundPoint:
-			channelName = "Carol(local) => Alice(remote)"
 		case aliceFundPoint:
 			channelName = "Alice(local) => Bob(remote)"
+		case daveFundPoint:
+			channelName = "Dave(local) => Alice(remote)"
+		case carolFundPoint:
+			channelName = "Carol(local) => Dave(remote)"
 		}
 
 		checkAmountPaid := func() error {
@@ -1413,8 +1444,8 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 		}
 
 		// As far as HTLC inclusion in commitment transaction might be
-		// postponed we will try to check the balance couple of
-		// times, and then if after some period of time we receive wrong
+		// postponed we will try to check the balance couple of times,
+		// and then if after some period of time we receive wrong
 		// balance return the error.
 		// TODO(roasbeef): remove sleep after invoice notification hooks
 		// are in place
@@ -1440,25 +1471,35 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 	// shifted by 5k satoshis in the direction of Bob, the sink within the
 	// payment flow generated above. The order of asserts corresponds to
 	// increasing of time is needed to embed the HTLC in commitment
-	// transaction, in channel Carol->Alice->Bob, order is Bob,Alice,Carol.
+	// transaction, in channel Carol->David->Alice->Bob, order is Bob,
+	// Alice, David, Carol.
 	const amountPaid = int64(5000)
 	assertAmountPaid(net.Bob, aliceFundPoint, int64(0), amountPaid)
 	assertAmountPaid(net.Alice, aliceFundPoint, amountPaid, int64(0))
-	assertAmountPaid(net.Alice, carolFundPoint, int64(0),
+	assertAmountPaid(net.Alice, daveFundPoint, int64(0),
 		amountPaid+(baseFee*numPayments))
-	assertAmountPaid(carol, carolFundPoint, amountPaid+(baseFee*numPayments),
+	assertAmountPaid(dave, daveFundPoint, amountPaid+(baseFee*numPayments),
+		int64(0))
+	assertAmountPaid(dave, carolFundPoint, int64(0),
+		amountPaid+((baseFee*numPayments)*2))
+	assertAmountPaid(carol, carolFundPoint, amountPaid+(baseFee*numPayments)*2,
 		int64(0))
 
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, dave, chanPointDave, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 
-	// Finally, shutdown the node we created for the duration of the tests,
-	// only leaving the two seed nodes (Alice and Bob) within our test
-	// network.
+	// Finally, shutdown the nodes we created for the duration of the
+	// tests, only leaving the two seed nodes (Alice and Bob) within our
+	// test network.
 	if err := carol.Shutdown(); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+	if err := dave.Shutdown(); err != nil {
+		t.Fatalf("unable to shutdown dave: %v", err)
 	}
 }
 

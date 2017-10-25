@@ -237,8 +237,9 @@ func (c *ChannelGraphBootstrapper) Name() string {
 // boot strapping protocol, see this link:
 //     * https://github.com/lightningnetwork/lightning-rfc/blob/master/10-dns-bootstrap.md
 type DNSSeedBootstrapper struct {
-	dnsSeeds  []string
-	lookupFns []interface{}
+	dnsSeeds   []string
+	lookupHost func(string) ([]string, error)
+	lookupSRV  func(string, string, string) (string, []*net.SRV, error)
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -248,12 +249,14 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // NewDNSSeedBootstrapper returns a new instance of the DNSSeedBootstrapper.
 // The set of passed seeds should point to DNS servers that properly implement
 // Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010.
-// The lookupFns slice contains the lndLookup, lndLookupSRV, & lndResolveTCP
-// functions respectively.
-func NewDNSSeedBootstrapper(seeds []string, lookupFns []interface{}) (NetworkPeerBootstrapper, error) {
+func NewDNSSeedBootstrapper(seeds []string, lookupHost func(string) ([]string, error),
+	lookupSRV func(string, string, string) (string, []*net.SRV, error)) (
+	NetworkPeerBootstrapper, error) {
+
 	return &DNSSeedBootstrapper{
-		dnsSeeds:  seeds,
-		lookupFns: lookupFns,
+		dnsSeeds:   seeds,
+		lookupHost: lookupHost,
+		lookupSRV:  lookupSRV,
 	}, nil
 }
 
@@ -276,7 +279,7 @@ search:
 			// can obtain a random sample of the encoded public
 			// keys of nodes. We use the lndLookupSRV function for
 			// this task.
-			_, addrs, err := d.lookupFns[1].(func(string, string, string) (string, []*net.SRV, error))("nodes", "tcp", dnsSeed)
+			_, addrs, err := d.lookupSRV("nodes", "tcp", dnsSeed)
 			if err != nil {
 				return nil, err
 			}
@@ -298,7 +301,7 @@ search:
 				// key. We use the lndLookup function for this
 				// task.
 				bechNodeHost := nodeSrv.Target
-				addrs, err := d.lookupFns[0].(func(string) ([]string, error))(bechNodeHost)
+				addrs, err := d.lookupHost(bechNodeHost)
 				if err != nil {
 					return nil, err
 				}

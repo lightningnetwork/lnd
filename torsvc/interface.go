@@ -1,11 +1,11 @@
-package lnnet
+package torsvc
 
 import (
 	"net"
 )
 
-// LightningNet is an interface housing a Dial function and several DNS functions.
-type LightningNet interface {
+// Net is an interface housing a Dial function and several DNS functions.
+type Net interface {
 	Dial(string, string) (net.Conn, error)
 	LookupHost(string) ([]string, error)
 	LookupSRV(string, string, string) (string, []*net.SRV, error)

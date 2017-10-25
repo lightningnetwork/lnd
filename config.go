@@ -14,8 +14,8 @@ import (
 
 	flags "github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/lnnet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -136,7 +136,7 @@ type config struct {
 
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
-	net *lnnet.LnNet
+	net *torsvc.MultiNet
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -230,7 +230,7 @@ func loadConfig() (*config, error) {
 	// functions. When Tor's proxy is specified, the dial function is set to
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
-	cfg.net = &lnnet.LnNet{Tor: false}
+	cfg.net = &torsvc.MultiNet{Tor: false}
 	if cfg.TorSocks != "" && cfg.TorDNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.TorSocks)

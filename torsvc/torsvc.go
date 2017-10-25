@@ -43,11 +43,11 @@ var (
 	}
 )
 
-// TorDial returns a go-socks proxy dialer function that can be used to make
-// connections to peers through Tor's exposed socks proxy.
-func TorDial(socksPort string) func(string, string) (net.Conn, error) {
+// TorDial returns a connection to a remote peer via Tor's socks proxy. Only
+// TCP is supported over Tor.
+func TorDial(address, socksPort string) (net.Conn, error) {
 	p := &socks.Proxy{Addr: localhost + ":" + socksPort}
-	return p.Dial
+	return p.Dial("tcp", address)
 }
 
 // TorLookupHost performs DNS resolution on a given hostname via Tor's

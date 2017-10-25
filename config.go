@@ -15,7 +15,6 @@ import (
 	flags "github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -136,10 +135,7 @@ type config struct {
 
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
 
-	dial       func(string, string) (net.Conn, error)
-	lookup     func(string) ([]string, error)
-	lookupSRV  func(string, string, string) (string, []*net.SRV, error)
-	resolveTCP func(string, string) (*net.TCPAddr, error)
+	net NetInterface
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -233,9 +229,7 @@ func loadConfig() (*config, error) {
 	// functions. When Tor's proxy is specified, the dial function is set to
 	// the proxy specific dial function and the DNS resolution functions use
 	// Tor.
-	cfg.lookup = net.LookupHost
-	cfg.lookupSRV = net.LookupSRV
-	cfg.resolveTCP = net.ResolveTCPAddr
+	cfg.net = &RegularNet{}
 	if cfg.TorSocks != "" && cfg.TorDNS != "" {
 		// Validate Tor port number
 		torport, err := strconv.Atoi(cfg.TorSocks)
@@ -257,17 +251,9 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		cfg.dial = torsvc.TorDial(cfg.TorSocks)
-		cfg.lookup = func(host string) ([]string, error) {
-			return torsvc.TorLookupHost(host, cfg.TorSocks)
-		}
-		cfg.lookupSRV = func(service, proto, name string) (cname string,
-			addrs []*net.SRV, err error) {
-			return torsvc.TorLookupSRV(service, proto, name,
-				cfg.TorSocks, cfg.TorDNS)
-		}
-		cfg.resolveTCP = func(network, address string) (*net.TCPAddr, error) {
-			return torsvc.TorResolveTCP(address, cfg.TorSocks)
+		cfg.net = &TorProxyNet{
+			TorSocks: cfg.TorSocks,
+			TorDNS:   cfg.TorDNS,
 		}
 	}
 
@@ -544,33 +530,8 @@ func supportedSubsystems() []string {
 func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		if cfg.dial == nil {
-			return brontide.Dial(idPriv, lnAddr)
-		}
-		return brontide.Dial(idPriv, lnAddr, cfg.dial)
+		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
 	}
-}
-
-// lndLookup resolves the IP address of a given host using the correct DNS
-// function depending on the lookup configuration options. Lookup can be done
-// via golang's system resolver or via Tor. When Tor is used, only IPv4
-// addresses are returned.
-func lndLookup(host string) ([]string, error) {
-	return cfg.lookup(host)
-}
-
-// lndLookupSRV queries a DNS server with SRV requests depending on the
-// configuration options. SRV queries can be done via golang's system
-// resolver or through (but not by!) Tor.
-func lndLookupSRV(service, proto, name string) (string, []*net.SRV, error) {
-	return cfg.lookupSRV(service, proto, name)
-}
-
-// lndResolveTCP resolves TCP addresses into type *net.TCPAddr. Depending on
-// configuration options, this resolution can be done via golang's system
-// resolver or via Tor.
-func lndResolveTCP(network, address string) (*net.TCPAddr, error) {
-	return cfg.resolveTCP(network, address)
 }
 
 func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error {

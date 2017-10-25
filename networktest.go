@@ -243,55 +243,19 @@ func (l *lightningNode) Start(lndError chan error) error {
 		close(l.processExit)
 	}()
 
-	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
-		fmt.Sprintf("%v.pid", l.nodeID)))
-	if err != nil {
-		return err
-	}
-	l.pidFile = pid.Name()
-	if _, err = fmt.Fprintf(pid, "%v\n", l.cmd.Process.Pid); err != nil {
-		return err
-	}
-	if err := pid.Close(); err != nil {
+	// Write process ID to a file.
+	if err := l.writePidFile(); err != nil {
+		l.cmd.Process.Kill()
 		return err
 	}
 
-	// Wait until TLS certificate and admin macaroon are created before
-	// using them, up to 20 sec.
-	tlsTimeout := time.After(30 * time.Second)
-	for !fileExists(l.cfg.TLSCertPath) || !fileExists(l.cfg.AdminMacPath) {
-		time.Sleep(100 * time.Millisecond)
-		select {
-		case <-tlsTimeout:
-			panic(fmt.Errorf("timeout waiting for TLS cert file " +
-				"and admin macaroon file to be created after " +
-				"20 seconds"))
-		default:
-		}
-	}
-	tlsCreds, err := credentials.NewClientTLSFromFile(l.cfg.TLSCertPath, "")
+	// Since Stop uses the LightningClient to stop the node, if we fail to get a
+	// connected client, we have to kill the process.
+	conn, err := l.connectRPC()
 	if err != nil {
+		l.cmd.Process.Kill()
 		return err
 	}
-	macBytes, err := ioutil.ReadFile(l.cfg.AdminMacPath)
-	if err != nil {
-		return err
-	}
-	mac := &macaroon.Macaroon{}
-	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return err
-	}
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(tlsCreds),
-		grpc.WithPerRPCCredentials(macaroons.NewMacaroonCredential(mac)),
-		grpc.WithBlock(),
-		grpc.WithTimeout(time.Second * 20),
-	}
-	conn, err := grpc.Dial(l.rpcAddr, opts...)
-	if err != nil {
-		return err
-	}
-
 	l.LightningClient = lnrpc.NewLightningClient(conn)
 
 	// Obtain the lnid of this node for quick identification purposes.
@@ -317,6 +281,62 @@ func (l *lightningNode) Start(lndError chan error) error {
 	return nil
 }
 
+// writePidFile writes the process ID of the running lnd process to a .pid file.
+func (l *lightningNode) writePidFile() error {
+	filePath := filepath.Join(l.cfg.DataDir, fmt.Sprintf("%v.pid", l.nodeID))
+
+	pid, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer pid.Close()
+
+	_, err = fmt.Fprintf(pid, "%v\n", l.cmd.Process.Pid)
+	if err != nil {
+		return err
+	}
+
+	l.pidFile = filePath
+	return nil
+}
+
+// connectRPC uses the TLS certificate and admin macaroon files written by the
+// lnd node to create a gRPC client connection.
+func (l *lightningNode) connectRPC() (*grpc.ClientConn, error) {
+	// Wait until TLS certificate and admin macaroon are created before
+	// using them, up to 20 sec.
+	tlsTimeout := time.After(30 * time.Second)
+	for !fileExists(l.cfg.TLSCertPath) || !fileExists(l.cfg.AdminMacPath) {
+		select {
+		case <-tlsTimeout:
+			return nil, fmt.Errorf("timeout waiting for TLS cert file " +
+				"and admin macaroon file to be created after " +
+				"20 seconds")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	tlsCreds, err := credentials.NewClientTLSFromFile(l.cfg.TLSCertPath, "")
+	if err != nil {
+		return nil, err
+	}
+	macBytes, err := ioutil.ReadFile(l.cfg.AdminMacPath)
+	if err != nil {
+		return nil, err
+	}
+	mac := &macaroon.Macaroon{}
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, err
+	}
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(tlsCreds),
+		grpc.WithPerRPCCredentials(macaroons.NewMacaroonCredential(mac)),
+		grpc.WithBlock(),
+		grpc.WithTimeout(time.Second * 20),
+	}
+	return grpc.Dial(l.rpcAddr, opts...)
+}
+
 // cleanup cleans up all the temporary files created by the node's process.
 func (l *lightningNode) cleanup() error {
 	dirs := []string{
@@ -335,10 +355,12 @@ func (l *lightningNode) cleanup() error {
 
 // Stop attempts to stop the active lnd process.
 func (l *lightningNode) Stop() error {
-	// We should skip node stop in case:
-	// - start of the node wasn't initiated
-	// - process wasn't spawned
-	// - process already finished
+	// Do nothing if the process never started successfully.
+	if l.LightningClient == nil {
+		return nil
+	}
+
+	// Do nothing if the process already finished.
 	select {
 	case <-l.quit:
 		return nil
@@ -371,6 +393,7 @@ func (l *lightningNode) Restart(errChan chan error, callback func() error) error
 
 	<-l.processExit
 
+	l.LightningClient = nil
 	l.processExit = make(chan struct{})
 	l.quit = make(chan struct{})
 	l.wg = sync.WaitGroup{}
@@ -880,11 +903,13 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 		return nil, err
 	}
 
+	// Put node in activeNodes to ensure Shutdown is called even if Start
+	// returns an error.
+	n.activeNodes[node.nodeID] = node
+
 	if err := node.Start(n.lndErrorChan); err != nil {
 		return nil, err
 	}
-
-	n.activeNodes[node.nodeID] = node
 
 	return node, nil
 }

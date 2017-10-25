@@ -235,13 +235,12 @@ func (l *lightningNode) Start(lndError chan error) error {
 	// process errors to the goroutine running the tests.
 	go func() {
 		err := l.cmd.Wait()
+		if err != nil {
+			lndError <- errors.Errorf("%v\n%v\n", err, errb.String())
+		}
 
 		// Signal any onlookers that this process has exited.
 		close(l.processExit)
-
-		if err != nil {
-			lndError <- errors.New(errb.String())
-		}
 	}()
 
 	pid, err := os.Create(filepath.Join(l.cfg.DataDir,
@@ -728,7 +727,7 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []strin
 // ProcessErrors returns a channel used for reporting any fatal process errors.
 // If any of the active nodes within the harness' test network incur a fatal
 // error, that error is sent over this channel.
-func (n *networkHarness) ProcessErrors() chan error {
+func (n *networkHarness) ProcessErrors() <-chan error {
 	return n.lndErrorChan
 }
 
@@ -751,6 +750,7 @@ func (n *networkHarness) SetUp() error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
+
 	// Start the initial seeder nodes within the test network, then connect
 	// their respective RPC clients.
 	var wg sync.WaitGroup
@@ -864,6 +864,7 @@ func (n *networkHarness) TearDownAll() error {
 		}
 	}
 
+	close(n.lndErrorChan)
 	return nil
 }
 

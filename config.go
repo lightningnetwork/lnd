@@ -15,6 +15,7 @@ import (
 	flags "github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/torsvc"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
 )
@@ -110,7 +111,10 @@ type config struct {
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
-	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
+	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
+
+	TorSocks string `long:"torsocks" description:"The port that Tor's exposed SOCKS5 proxy is listening on -- NOTE port must be between 1024 and 65535"`
+	TorDNS   string `long:"tordns" description:"The DNS server as IP:PORT that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 
 	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
 	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
@@ -131,6 +135,8 @@ type config struct {
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
 	NoEncryptWallet bool `long:"noencryptwallet" description:"If set, wallet will be encrypted using the default passphrase."`
+
+	net *torsvc.MultiNet
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -216,6 +222,44 @@ func loadConfig() (*config, error) {
 	// Finally, parse the remaining command line options again to ensure
 	// they take precedence.
 	if _, err := flags.Parse(&cfg); err != nil {
+		return nil, err
+	}
+
+	// Setup dial and DNS resolution functions depending on the specified
+	// options. The default is to use the standard golang "net" package
+	// functions. When Tor's proxy is specified, the dial function is set to
+	// the proxy specific dial function and the DNS resolution functions use
+	// Tor.
+	cfg.net = &torsvc.MultiNet{Tor: false}
+	if cfg.TorSocks != "" && cfg.TorDNS != "" {
+		// Validate Tor port number
+		torport, err := strconv.Atoi(cfg.TorSocks)
+		if err != nil || torport < 1024 || torport > 65535 {
+			str := "%s: The tor socks5 port must be between 1024 and 65535"
+			err := fmt.Errorf(str, funcName)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return nil, err
+		}
+
+		// If ExternalIPs is set, throw an error since we cannot
+		// listen for incoming connections via Tor's SOCKS5 proxy.
+		if len(cfg.ExternalIPs) != 0 {
+			str := "%s: Cannot set externalip flag with proxy flag - " +
+				"cannot listen for incoming connections via Tor's " +
+				"socks5 proxy"
+			err := fmt.Errorf(str, funcName)
+			return nil, err
+		}
+
+		cfg.net.TorDNS = cfg.TorDNS
+		cfg.net.TorSocks = cfg.TorSocks
+	} else if cfg.TorSocks != "" || cfg.TorDNS != "" {
+		// Both TorSocks and TorDNS must be set.
+		str := "%s: Both the torsocks and the tordns flags must be set" +
+			"to properly route connections and avoid DNS leaks while" +
+			"using Tor"
+		err := fmt.Errorf(str, funcName)
 		return nil, err
 	}
 
@@ -492,7 +536,7 @@ func supportedSubsystems() []string {
 func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr := a.(*lnwire.NetAddress)
-		return brontide.Dial(idPriv, lnAddr)
+		return brontide.Dial(idPriv, lnAddr, cfg.net.Dial)
 	}
 }
 

@@ -275,7 +275,10 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 			return nil, err
 		}
 
-		addr, err := net.ResolveTCPAddr("tcp", addrString)
+		// We use the general resolveTCP function in case a separate
+		// resolver was specified in the SetResolver function. By
+		// default resolveTCP = net.ResolveTCPAddr.
+		addr, err := resolveTCP("tcp", addrString)
 		if err != nil {
 			return nil, err
 		}

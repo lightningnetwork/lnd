@@ -24,6 +24,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 	"google.golang.org/grpc"
+	"net"
 )
 
 const (
@@ -759,7 +760,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
 		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight),
-		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
+		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address.(*net.TCPAddr),
 		&chainHash)
 	if err != nil {
 		fndgLog.Errorf("Unable to initialize reservation: %v", err)
@@ -2024,7 +2025,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
 		localAmt, msg.pushAmt, feePerKw, peerKey,
-		msg.peerAddress.Address, &msg.chainHash)
+		msg.peerAddress.Address.(*net.TCPAddr), &msg.chainHash)
 	if err != nil {
 		msg.err <- err
 		return

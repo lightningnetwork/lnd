@@ -701,7 +701,6 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				failPkt := &htlcPacket{
 					incomingChanID: pkt.incomingChanID,
 					incomingHTLCID: pkt.incomingHTLCID,
-					payHash:        htlc.PaymentHash,
 					amount:         htlc.Amount,
 					isObfuscated:   isObfuscated,
 					htlc: &lnwire.UpdateFailHTLC{
@@ -1192,7 +1191,6 @@ func (l *channelLink) processLockedInHtlcs(
 			settlePacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
-				payHash:        pd.RHash,
 				amount:         pd.Amount,
 				htlc: &lnwire.UpdateFufillHTLC{
 					PaymentPreimage: pd.RPreimage,
@@ -1215,7 +1213,6 @@ func (l *channelLink) processLockedInHtlcs(
 			failPacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
-				payHash:        pd.RHash,
 				amount:         pd.Amount,
 				isObfuscated:   false,
 				htlc: &lnwire.UpdateFailHTLC{
@@ -1588,6 +1585,7 @@ func (l *channelLink) processLockedInHtlcs(
 					incomingChanID: l.ShortChanID(),
 					incomingHTLCID: pd.HtlcIndex,
 					outgoingChanID: fwdInfo.NextHop,
+					amount:         addMsg.Amount,
 					htlc:           addMsg,
 					obfuscator:     obfuscator,
 				}

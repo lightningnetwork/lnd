@@ -31,36 +31,36 @@ func TestCircuitMap(t *testing.T) {
 	// Add multiple circuits with same destination channel but different HTLC
 	// IDs and payment hashes.
 	circuitMap.Add(&htlcswitch.PaymentCircuit{
-		PaymentHash: hash1,
-		SrcChanID:   chan2,
-		SrcHTLCID:   1,
-		DestChanID:  chan1,
-		DestHTLCID:  0,
+		PaymentHash:    hash1,
+		IncomingChanID: chan2,
+		IncomingHTLCID: 1,
+		OutgoingChanID: chan1,
+		OutgoingHTLCID: 0,
 	})
 
 	circuitMap.Add(&htlcswitch.PaymentCircuit{
-		PaymentHash: hash2,
-		SrcChanID:   chan2,
-		SrcHTLCID:   2,
-		DestChanID:  chan1,
-		DestHTLCID:  1,
+		PaymentHash:    hash2,
+		IncomingChanID: chan2,
+		IncomingHTLCID: 2,
+		OutgoingChanID: chan1,
+		OutgoingHTLCID: 1,
 	})
 
 	// Add another circuit with an already-used HTLC ID but different
 	// destination channel.
 	circuitMap.Add(&htlcswitch.PaymentCircuit{
-		PaymentHash: hash3,
-		SrcChanID:   chan1,
-		SrcHTLCID:   2,
-		DestChanID:  chan2,
-		DestHTLCID:  0,
+		PaymentHash:    hash3,
+		IncomingChanID: chan1,
+		IncomingHTLCID: 2,
+		OutgoingChanID: chan2,
+		OutgoingHTLCID: 0,
 	})
 
 	circuit = circuitMap.LookupByHTLC(chan1, 0)
 	if circuit == nil {
 		t.Fatal("LookupByHTLC failed to find circuit")
 	}
-	if circuit.PaymentHash != hash1 || circuit.SrcHTLCID != 1 {
+	if circuit.PaymentHash != hash1 || circuit.IncomingHTLCID != 1 {
 		t.Fatalf("LookupByHTLC found unexpected circuit: %v", circuit)
 	}
 
@@ -68,7 +68,7 @@ func TestCircuitMap(t *testing.T) {
 	if circuit == nil {
 		t.Fatal("LookupByHTLC failed to find circuit")
 	}
-	if circuit.PaymentHash != hash2 || circuit.SrcHTLCID != 2 {
+	if circuit.PaymentHash != hash2 || circuit.IncomingHTLCID != 2 {
 		t.Fatalf("LookupByHTLC found unexpected circuit: %v", circuit)
 	}
 
@@ -76,7 +76,7 @@ func TestCircuitMap(t *testing.T) {
 	if circuit == nil {
 		t.Fatal("LookupByHTLC failed to find circuit")
 	}
-	if circuit.PaymentHash != hash3 || circuit.SrcHTLCID != 2 {
+	if circuit.PaymentHash != hash3 || circuit.IncomingHTLCID != 2 {
 		t.Fatalf("LookupByHTLC found unexpected circuit: %v", circuit)
 	}
 
@@ -91,18 +91,18 @@ func TestCircuitMap(t *testing.T) {
 	// Add a circuit with a destination channel and payment hash that are
 	// already added but a different HTLC ID.
 	circuitMap.Add(&htlcswitch.PaymentCircuit{
-		PaymentHash: hash1,
-		SrcChanID:   chan2,
-		SrcHTLCID:   3,
-		DestChanID:  chan1,
-		DestHTLCID:  3,
+		PaymentHash:    hash1,
+		IncomingChanID: chan2,
+		IncomingHTLCID: 3,
+		OutgoingChanID: chan1,
+		OutgoingHTLCID: 3,
 	})
 
 	circuit = circuitMap.LookupByHTLC(chan1, 3)
 	if circuit == nil {
 		t.Fatal("LookupByHTLC failed to find circuit")
 	}
-	if circuit.PaymentHash != hash1 || circuit.SrcHTLCID != 3 {
+	if circuit.PaymentHash != hash1 || circuit.IncomingHTLCID != 3 {
 		t.Fatalf("LookupByHTLC found unexpected circuit: %v", circuit)
 	}
 
@@ -130,7 +130,7 @@ func TestCircuitMap(t *testing.T) {
 		t.Fatalf("LookupByPaymentHash returned wrong number of circuits for "+
 			"hash1: expecected %d, got %d", 1, len(circuits))
 	}
-	if circuits[0].DestHTLCID != 3 {
+	if circuits[0].OutgoingHTLCID != 3 {
 		t.Fatalf("LookupByPaymentHash returned wrong circuit for hash1: %v",
 			circuits[0])
 	}

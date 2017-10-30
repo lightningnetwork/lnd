@@ -30,10 +30,10 @@ func TestMailBoxCouriers(t *testing.T) {
 	sentPackets := make([]*htlcPacket, numPackets)
 	for i := 0; i < numPackets; i++ {
 		pkt := &htlcPacket{
-			dest:         lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
-			src:          lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
-			amount:       lnwire.MilliSatoshi(prand.Int63()),
-			isObfuscated: i%2 == 0,
+			outgoingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
+			incomingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
+			amount:         lnwire.MilliSatoshi(prand.Int63()),
+			isObfuscated:   i%2 == 0,
 		}
 		sentPackets[i] = pkt
 

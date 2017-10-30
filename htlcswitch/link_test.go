@@ -1620,7 +1620,6 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		htlc: &lnwire.UpdateFailHTLC{
 			ID: 3,
 		},
-		payHash: htlc.PaymentHash,
 	}
 	aliceLink.HandleSwitchPacket(&failPkt)
 	time.Sleep(time.Millisecond * 100)
@@ -1662,11 +1661,10 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to create payment: %v", err)
 		}
-		addPkt := htlcPacket{
+		aliceLink.HandleSwitchPacket(&htlcPacket{
 			htlc:   htlc,
 			amount: amt,
-		}
-		aliceLink.HandleSwitchPacket(&addPkt)
+		})
 
 		return invoice.Terms.PaymentPreimage
 	}

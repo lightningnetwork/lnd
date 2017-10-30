@@ -503,7 +503,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			source.HandleSwitchPacket(&htlcPacket{
 				incomingChanID: packet.incomingChanID,
 				incomingHTLCID: packet.incomingHTLCID,
-				payHash:        htlc.PaymentHash,
 				isObfuscated:   true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
@@ -552,7 +551,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			source.HandleSwitchPacket(&htlcPacket{
 				incomingChanID: packet.incomingChanID,
 				incomingHTLCID: packet.incomingHTLCID,
-				payHash:        htlc.PaymentHash,
 				isObfuscated:   true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
@@ -581,9 +579,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				packet.outgoingHTLCID)
 			if circuit == nil {
 				err := errors.Errorf("Unable to find target channel for HTLC "+
-					"settle/fail: channel ID = %s, HTLC ID = %d, "+
-					"payment hash = %x", packet.outgoingChanID,
-					packet.outgoingHTLCID, packet.payHash[:])
+					"settle/fail: channel ID = %s, HTLC ID = %d",
+					packet.outgoingChanID, packet.outgoingHTLCID)
 				log.Error(err)
 				return err
 			}
@@ -593,12 +590,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				packet.outgoingHTLCID)
 			if err != nil {
 				log.Warnf("Failed to close completed onion circuit for %x: "+
-					"%s<->%s", packet.payHash[:], circuit.IncomingChanID,
-					circuit.OutgoingChanID)
+					"(%s, %d) <-> (%s, %d)", circuit.PaymentHash,
+					circuit.IncomingChanID, circuit.IncomingHTLCID,
+					circuit.OutgoingChanID, circuit.OutgoingHTLCID)
 			} else {
-				log.Debugf("Closed completed onion circuit for %x: %s<->%s",
-					packet.payHash[:], circuit.IncomingChanID,
-					circuit.OutgoingChanID)
+				log.Debugf("Closed completed onion circuit for %x: "+
+					"(%s, %d) <-> (%s, %d)", circuit.PaymentHash,
+					circuit.IncomingChanID, circuit.IncomingHTLCID,
+					circuit.OutgoingChanID, circuit.OutgoingHTLCID)
 			}
 
 			packet.incomingChanID = circuit.IncomingChanID

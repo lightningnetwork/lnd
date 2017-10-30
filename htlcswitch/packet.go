@@ -1,8 +1,6 @@
 package htlcswitch
 
 import (
-	"crypto/sha256"
-
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -12,12 +10,6 @@ type htlcPacket struct {
 	// destNode is the first-hop destination of a local created HTLC add
 	// message.
 	destNode [33]byte
-
-	// payHash is the payment hash of the HTLC which was modified by either
-	// a settle or fail action.
-	//
-	// NOTE: This fields is initialized only in settle and fail packets.
-	payHash [sha256.Size]byte
 
 	// incomingChanID is the ID of the channel that we have received an incoming
 	// HTLC on.

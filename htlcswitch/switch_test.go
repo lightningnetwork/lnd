@@ -72,7 +72,7 @@ func TestSwitchForward(t *testing.T) {
 	}
 
 	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    packet.payHash,
+		PaymentHash:    rhash,
 		IncomingChanID: packet.incomingChanID,
 		IncomingHTLCID: packet.incomingHTLCID,
 		OutgoingChanID: packet.outgoingChanID,
@@ -97,7 +97,6 @@ func TestSwitchForward(t *testing.T) {
 	packet = &htlcPacket{
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
-		payHash:        rhash,
 		amount:         1,
 		htlc: &lnwire.UpdateFufillHTLC{
 			PaymentPreimage: preimage,
@@ -261,7 +260,7 @@ func TestSwitchCancel(t *testing.T) {
 	}
 
 	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    request.payHash,
+		PaymentHash:    rhash,
 		IncomingChanID: request.incomingChanID,
 		IncomingHTLCID: request.incomingHTLCID,
 		OutgoingChanID: request.outgoingChanID,
@@ -286,7 +285,6 @@ func TestSwitchCancel(t *testing.T) {
 	request = &htlcPacket{
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
-		payHash:        rhash,
 		amount:         1,
 		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
@@ -354,7 +352,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	}
 
 	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    request.payHash,
+		PaymentHash:    rhash,
 		IncomingChanID: request.incomingChanID,
 		IncomingHTLCID: request.incomingHTLCID,
 		OutgoingChanID: request.outgoingChanID,
@@ -390,7 +388,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	}
 
 	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    request.payHash,
+		PaymentHash:    rhash,
 		IncomingChanID: request.incomingChanID,
 		IncomingHTLCID: request.incomingHTLCID,
 		OutgoingChanID: request.outgoingChanID,
@@ -408,7 +406,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	request = &htlcPacket{
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
-		payHash:        rhash,
 		amount:         1,
 		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
@@ -433,7 +430,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	request = &htlcPacket{
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 1,
-		payHash:        rhash,
 		amount:         1,
 		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
@@ -536,7 +532,6 @@ func TestSwitchSendPayment(t *testing.T) {
 	packet := &htlcPacket{
 		outgoingChanID: aliceChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
-		payHash:        rhash,
 		amount:         1,
 		isObfuscated:   true,
 		htlc: &lnwire.UpdateFailHTLC{

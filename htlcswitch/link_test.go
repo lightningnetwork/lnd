@@ -1448,7 +1448,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy:     globalPolicy,
 		Peer:              &alicePeer,
-		Switch:            nil,
+		Switch:            New(Config{}),
 		DecodeHopIterator: decoder.DecodeHopIterator,
 		DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone

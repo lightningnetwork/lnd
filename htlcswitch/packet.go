@@ -19,21 +19,21 @@ type htlcPacket struct {
 	// NOTE: This fields is initialized only in settle and fail packets.
 	payHash [sha256.Size]byte
 
-	// dest is the destination of this packet identified by the short
-	// channel ID of the target link.
-	dest lnwire.ShortChannelID
+	// incomingChanID is the ID of the channel that we have received an incoming
+	// HTLC on.
+	incomingChanID lnwire.ShortChannelID
 
-	// src is the source of this packet identified by the short channel ID
-	// of the target link.
-	src lnwire.ShortChannelID
+	// outgoingChanID is the ID of the channel that we have offered or will
+	// offer an outgoing HTLC on.
+	outgoingChanID lnwire.ShortChannelID
 
-	// destID is the ID of the HTLC in the destination channel. This will be set
-	// when forwarding a settle or fail update back to the original source.
-	destID uint64
+	// incomingHTLCID is the ID of the HTLC that we have received from the peer
+	// on the incoming channel.
+	incomingHTLCID uint64
 
-	// srcID is the ID of the HTLC in the source channel. This will be set when
-	// forwarding any HTLC update message.
-	srcID uint64
+	// outgoingHTLCID is the ID of the HTLC that we offered to the peer on the
+	// outgoing channel.
+	outgoingHTLCID uint64
 
 	// amount is the value of the HTLC that is being created or modified.
 	amount lnwire.MilliSatoshi

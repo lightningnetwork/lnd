@@ -458,15 +458,15 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit within our internal state so we can properly forward
 	// the ultimate settle message back latter.
 	case *lnwire.UpdateAddHTLC:
-		source, err := s.getLinkByShortID(packet.src)
+		source, err := s.getLinkByShortID(packet.incomingChanID)
 		if err != nil {
 			err := errors.Errorf("unable to find channel link "+
-				"by channel point (%v): %v", packet.src, err)
+				"by channel point (%v): %v", packet.incomingChanID, err)
 			log.Error(err)
 			return err
 		}
 
-		targetLink, err := s.getLinkByShortID(packet.dest)
+		targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
 		if err != nil {
 			// If packet was forwarded from another channel link
 			// than we should notify this link that some error
@@ -481,16 +481,16 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 
 			source.HandleSwitchPacket(&htlcPacket{
-				dest:         packet.src,
-				destID:       packet.srcID,
-				payHash:      htlc.PaymentHash,
-				isObfuscated: true,
+				incomingChanID: packet.incomingChanID,
+				incomingHTLCID: packet.incomingHTLCID,
+				payHash:        htlc.PaymentHash,
+				isObfuscated:   true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
 			})
 			err = errors.Errorf("unable to find link with "+
-				"destination %v", packet.dest)
+				"destination %v", packet.outgoingChanID)
 			log.Error(err)
 			return err
 		}
@@ -530,10 +530,10 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 
 			source.HandleSwitchPacket(&htlcPacket{
-				dest:         packet.src,
-				destID:       packet.srcID,
-				payHash:      htlc.PaymentHash,
-				isObfuscated: true,
+				incomingChanID: packet.incomingChanID,
+				incomingHTLCID: packet.incomingHTLCID,
+				payHash:        htlc.PaymentHash,
+				isObfuscated:   true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
@@ -555,20 +555,22 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit by forwarding the settle msg to the channel from
 	// which htlc add packet was initially received.
 	case *lnwire.UpdateFufillHTLC, *lnwire.UpdateFailHTLC:
-		if packet.dest == (lnwire.ShortChannelID{}) {
+		if packet.incomingChanID == (lnwire.ShortChannelID{}) {
 			// Use circuit map to find the link to forward settle/fail to.
-			circuit := s.circuits.LookupByHTLC(packet.src, packet.srcID)
+			circuit := s.circuits.LookupByHTLC(packet.outgoingChanID,
+				packet.outgoingHTLCID)
 			if circuit == nil {
-				err := errors.Errorf("Unable to find source channel for HTLC "+
+				err := errors.Errorf("Unable to find target channel for HTLC "+
 					"settle/fail: channel ID = %s, HTLC ID = %d, "+
-					"payment hash = %x", packet.src, packet.srcID,
-					packet.payHash[:])
+					"payment hash = %x", packet.outgoingChanID,
+					packet.outgoingHTLCID, packet.payHash[:])
 				log.Error(err)
 				return err
 			}
 
 			// Remove circuit since we are about to complete the HTLC.
-			err := s.circuits.Remove(packet.src, packet.srcID)
+			err := s.circuits.Remove(packet.outgoingChanID,
+				packet.outgoingHTLCID)
 			if err != nil {
 				log.Warnf("Failed to close completed onion circuit for %x: "+
 					"%s<->%s", packet.payHash[:], circuit.IncomingChanID,
@@ -586,11 +588,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					htlc.Reason)
 			}
 
-			packet.dest = circuit.IncomingChanID
-			packet.destID = circuit.IncomingHTLCID
+			packet.incomingChanID = circuit.IncomingChanID
+			packet.incomingHTLCID = circuit.IncomingHTLCID
 		}
 
-		source, err := s.getLinkByShortID(packet.dest)
+		source, err := s.getLinkByShortID(packet.incomingChanID)
 		if err != nil {
 			err := errors.Errorf("Unable to get source channel link to "+
 				"forward HTLC settle/fail: %v", err)

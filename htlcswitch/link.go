@@ -699,12 +699,11 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				}
 
 				failPkt := &htlcPacket{
-					src:          l.ShortChanID(),
-					dest:         pkt.src,
-					destID:       pkt.srcID,
-					payHash:      htlc.PaymentHash,
-					amount:       htlc.Amount,
-					isObfuscated: isObfuscated,
+					incomingChanID: pkt.incomingChanID,
+					incomingHTLCID: pkt.incomingHTLCID,
+					payHash:        htlc.PaymentHash,
+					amount:         htlc.Amount,
+					isObfuscated:   isObfuscated,
 					htlc: &lnwire.UpdateFailHTLC{
 						Reason: reason,
 					},
@@ -725,12 +724,12 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// If packet was forwarded from another channel link then we should
 		// create circuit (remember the path) in order to forward settle/fail
 		// packet back.
-		if pkt.src != (lnwire.ShortChannelID{}) {
+		if pkt.incomingChanID != (lnwire.ShortChannelID{}) {
 			l.cfg.Switch.addCircuit(&PaymentCircuit{
 				PaymentHash:    htlc.PaymentHash,
-				IncomingChanID: pkt.src,
-				IncomingHTLCID: pkt.srcID,
-				OutgoingChanID: pkt.dest,
+				IncomingChanID: pkt.incomingChanID,
+				IncomingHTLCID: pkt.incomingHTLCID,
+				OutgoingChanID: l.ShortChanID(),
 				OutgoingHTLCID: index,
 				ErrorEncrypter: pkt.obfuscator,
 			})
@@ -743,7 +742,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// An HTLC we forward to the switch has just settled somewhere
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
-		err := l.channel.SettleHTLC(htlc.PaymentPreimage, pkt.destID)
+		err := l.channel.SettleHTLC(htlc.PaymentPreimage, pkt.incomingHTLCID)
 		if err != nil {
 			// TODO(roasbeef): broadcast on-chain
 			l.fail("unable to settle incoming HTLC: %v", err)
@@ -754,7 +753,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// message to target the specific channel and HTLC to be
 		// cancelled.
 		htlc.ChanID = l.ChanID()
-		htlc.ID = pkt.destID
+		htlc.ID = pkt.incomingHTLCID
 
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
@@ -764,7 +763,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 	case *lnwire.UpdateFailHTLC:
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
-		err := l.channel.FailHTLC(pkt.destID, htlc.Reason)
+		err := l.channel.FailHTLC(pkt.incomingHTLCID, htlc.Reason)
 		if err != nil {
 			log.Errorf("unable to cancel HTLC: %v", err)
 			return
@@ -775,7 +774,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// cancelled. The "Reason" field will have already been set
 		// within the switch.
 		htlc.ChanID = l.ChanID()
-		htlc.ID = pkt.destID
+		htlc.ID = pkt.incomingHTLCID
 
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
@@ -1194,10 +1193,10 @@ func (l *channelLink) processLockedInHtlcs(
 		// will handle propagating the settle to the prior hop.
 		case lnwallet.Settle:
 			settlePacket := &htlcPacket{
-				src:     l.ShortChanID(),
-				srcID:   pd.ParentIndex,
-				payHash: pd.RHash,
-				amount:  pd.Amount,
+				outgoingChanID: l.ShortChanID(),
+				outgoingHTLCID: pd.ParentIndex,
+				payHash:        pd.RHash,
+				amount:         pd.Amount,
 				htlc: &lnwire.UpdateFufillHTLC{
 					PaymentPreimage: pd.RPreimage,
 				},
@@ -1217,11 +1216,11 @@ func (l *channelLink) processLockedInHtlcs(
 			// Fetch the reason the HTLC was cancelled so we can
 			// continue to propagate it.
 			failPacket := &htlcPacket{
-				src:          l.ShortChanID(),
-				srcID:        pd.ParentIndex,
-				payHash:      pd.RHash,
-				amount:       pd.Amount,
-				isObfuscated: false,
+				outgoingChanID: l.ShortChanID(),
+				outgoingHTLCID: pd.ParentIndex,
+				payHash:        pd.RHash,
+				amount:         pd.Amount,
+				isObfuscated:   false,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: lnwire.OpaqueReason(pd.FailReason),
 				},
@@ -1589,11 +1588,11 @@ func (l *channelLink) processLockedInHtlcs(
 				}
 
 				updatePacket := &htlcPacket{
-					src:        l.ShortChanID(),
-					srcID:      pd.HtlcIndex,
-					dest:       fwdInfo.NextHop,
-					htlc:       addMsg,
-					obfuscator: obfuscator,
+					incomingChanID: l.ShortChanID(),
+					incomingHTLCID: pd.HtlcIndex,
+					outgoingChanID: fwdInfo.NextHop,
+					htlc:           addMsg,
+					obfuscator:     obfuscator,
 				}
 				packetsToForward = append(packetsToForward, updatePacket)
 			}

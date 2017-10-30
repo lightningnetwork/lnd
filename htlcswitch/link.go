@@ -721,19 +721,16 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
-		// If packet was forwarded from another channel link then we should
-		// create circuit (remember the path) in order to forward settle/fail
+		// Create circuit (remember the path) in order to forward settle/fail
 		// packet back.
-		if pkt.incomingChanID != (lnwire.ShortChannelID{}) {
-			l.cfg.Switch.addCircuit(&PaymentCircuit{
-				PaymentHash:    htlc.PaymentHash,
-				IncomingChanID: pkt.incomingChanID,
-				IncomingHTLCID: pkt.incomingHTLCID,
-				OutgoingChanID: l.ShortChanID(),
-				OutgoingHTLCID: index,
-				ErrorEncrypter: pkt.obfuscator,
-			})
-		}
+		l.cfg.Switch.addCircuit(&PaymentCircuit{
+			PaymentHash:    htlc.PaymentHash,
+			IncomingChanID: pkt.incomingChanID,
+			IncomingHTLCID: pkt.incomingHTLCID,
+			OutgoingChanID: l.ShortChanID(),
+			OutgoingHTLCID: index,
+			ErrorEncrypter: pkt.obfuscator,
+		})
 
 		htlc.ID = index
 		l.cfg.Peer.SendMessage(htlc)

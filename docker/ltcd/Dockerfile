@@ -1,6 +1,6 @@
 FROM golang:1.7
 
-MAINTAINER Andrey Samokhvalov <andrew.shvv@gmail.com>
+MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
 # Expose mainnet ports (server, rpc)
 EXPOSE 8333 8334

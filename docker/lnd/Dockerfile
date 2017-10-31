@@ -1,6 +1,6 @@
 FROM golang:1.8
 
-MAINTAINER Olaoluwa Osuntokun <laolu@lightning.network>
+MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
 # Expose lnd ports (server, rpc).
 EXPOSE 9735 10009

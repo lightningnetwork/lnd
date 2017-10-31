@@ -107,6 +107,21 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 	return n
 }
 
+// shuffleCandidates shuffles the set of candidate nodes for preferential
+// attachment in order to break any ordering already enforced by the sorted
+// order of the public key for each node. To shuffle the set of candidates, we
+// use a version of the Fisher–Yates shuffle algorithm.
+func shuffleCandidates(candidates []Node) []Node {
+	shuffledNodes := make([]Node, len(candidates))
+	perm := prand.Perm(len(candidates))
+
+	for i, v := range perm {
+		shuffledNodes[v] = candidates[i]
+	}
+
+	return shuffledNodes
+}
+
 // Select returns a candidate set of attachment directives that should be
 // executed based on the current internal state, the state of the channel
 // graph, the set of nodes we should exclude, and the amount of funds
@@ -208,8 +223,9 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 		// Given our selection slice, we'll now generate a random index
 		// into this slice. The node we select will be recommended by
 		// us to create a channel to.
-		selectedIndex := prand.Int31n(int32(len(selectionSlice)))
-		selectedNode := selectionSlice[selectedIndex]
+		candidates := shuffleCandidates(selectionSlice)
+		selectedIndex := prand.Int31n(int32(len(candidates)))
+		selectedNode := candidates[selectedIndex]
 
 		// TODO(roasbeef): cap on num channels to same participant?
 

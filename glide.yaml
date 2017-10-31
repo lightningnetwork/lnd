@@ -77,3 +77,4 @@ import:
 - package: github.com/juju/loggo
 - package: github.com/rogpeppe/fastuuid
 - package: gopkg.in/errgo.v1
+- package: github.com/miekg/dns

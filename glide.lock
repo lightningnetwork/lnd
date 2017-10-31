@@ -1,5 +1,5 @@
-hash: c34fae15752800433c31a9eac25ad8b5f71b70654db63886f9678a062b47d6cb
-updated: 2017-10-16T20:17:38.675070237-07:00
+hash: 455c5f00a9528a6b9be73e74ab7fbd8b184c5b53a4f3db409033af31721c275b
+updated: 2017-10-30T19:08:26.782081708-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -82,6 +82,10 @@ imports:
   - chaincfg
   - chaincfg/chainhash
   - wire
+- name: github.com/miekg/dns
+  version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
+  subpackages:
+  - internal/socket
 - name: github.com/roasbeef/btcd
   version: a64d018fd91151b842522d64771610712565d30a
   subpackages:
@@ -150,6 +154,7 @@ imports:
   - salsa20
   - salsa20/salsa
   - scrypt
+  - ssh/terminal
 - name: golang.org/x/net
   version: 1087133bc4af3073e18add999345c6ae75918503
   subpackages:
@@ -164,6 +169,7 @@ imports:
   version: 686000749eaec0b8855b8eef5336cf63899fe51d
   subpackages:
   - unix
+  - windows
 - name: golang.org/x/text
   version: c01e4764d870b77f8abe5096ee19ad20d80e8075
   subpackages:

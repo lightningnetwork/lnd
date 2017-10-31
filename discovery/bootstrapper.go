@@ -312,7 +312,7 @@ func fallBackSRVLookup(soaShim string) ([]*net.SRV, error) {
 	// If the message response code was not the success code, fail.
 	if resp.Rcode != dns.RcodeSuccess {
 		return nil, fmt.Errorf("Unsuccessful SRV request, "+
-			"received: %s", resp.Rcode)
+			"received: %v", resp.Rcode)
 	}
 
 	// Retrieve the RR(s) of the Answer section, and covert to the format

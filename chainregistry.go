@@ -343,12 +343,21 @@ var (
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
 	// that will be use to bootstrap peers upon first startup.
 	//
+	// The first item in the array is the primary host we'll use to attempt
+	// the SRV lookup we require. If we're unable to receive a response
+	// over UDP, then we'll fall back to manual TCP resolution. The second
+	// item in the array is a special A record that we'll query in order to
+	// receive the IP address of the current authoritative DNS server for
+	// the network seed.
+	//
 	// TODO(roasbeef): extend and collapse these and chainparams.go into
 	// struct like chaincfg.Params
-	chainDNSSeeds = map[chainhash.Hash][]string{
+	chainDNSSeeds = map[chainhash.Hash][][2]string{
 		bitcoinGenesis: {
-			"nodes.lightning.directory",
-			//"lseed.bitcoinstats.com",
+			{
+				"nodes.lightning.directory",
+				"soa.nodes.lightning.directory",
+			},
 		},
 	}
 )

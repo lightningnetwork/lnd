@@ -46,6 +46,7 @@ NETWORK=$(set_default "$NETWORK" "simnet")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
 
 lnd \
+    --noencryptwallet
     --logdir="/data" \
     "--$CHAIN.rpccert"="/rpc/rpc.cert" \
     "--$CHAIN.active" \

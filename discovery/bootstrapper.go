@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/miekg/dns"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil/bech32"
 )
@@ -237,7 +238,14 @@ func (c *ChannelGraphBootstrapper) Name() string {
 // boot strapping protocol, see this link:
 //     * https://github.com/lightningnetwork/lightning-rfc/blob/master/10-dns-bootstrap.md
 type DNSSeedBootstrapper struct {
-	dnsSeeds []string
+	// dnsSeeds is an array of two tuples we'll use for bootstrapping. The
+	// first item in the tuple is the primary host we'll use to attempt the
+	// SRV lookup we require. If we're unable to receive a response over
+	// UDP, then we'll fall back to manual TCP resolution. The second item
+	// in the tuple is a special A record that we'll query in order to
+	// receive the IP address of the current authoritative DNS server for
+	// the network seed.
+	dnsSeeds [][2]string
 }
 
 // A compile time assertion to ensure that DNSSeedBootstrapper meets the
@@ -246,15 +254,81 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 
 // NewDNSSeedBootstrapper returns a new instance of the DNSSeedBootstrapper.
 // The set of passed seeds should point to DNS servers that properly implement
-// Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010.
-//
+// Lighting's DNS peer bootstrapping protocol as defined in BOLT-0010. The set
+// of passed DNS seeds should come in pairs, with the second host name to be
+// used as a fallback for manual TCP resolution in the case of an error
+// receiving the UDP response. The second host should return a single A record
+// with the IP address of the authoritative name server.
 //
 // TODO(roasbeef): add a lookUpFunc param to pass in, so can divert queries
 // over Tor in future
-func NewDNSSeedBootstrapper(seeds []string) (NetworkPeerBootstrapper, error) {
+func NewDNSSeedBootstrapper(seeds [][2]string) (NetworkPeerBootstrapper, error) {
 	return &DNSSeedBootstrapper{
 		dnsSeeds: seeds,
 	}, nil
+}
+
+// fallBackSRVLookup attempts to manually query for SRV records we need to
+// properly bootstrap. We do this by querying the special record at the "soa."
+// sub-domain of supporting DNS servers. The retuned IP address will be the IP
+// address of the authoritative DNS server. Once we have this IP address, we'll
+// connect manually over TCP to request the SRV record. This is necessary as
+// the records we return are currently too large for a class of resolvers,
+// causing them to be filtered out.
+func fallBackSRVLookup(soaShim string) ([]*net.SRV, error) {
+	log.Tracef("Attempting to query fallback DNS seed")
+
+	// First, we'll lookup the IP address of the server that will act as
+	// our shim.
+	addrs, err := net.LookupHost(soaShim)
+	if err != nil {
+		return nil, err
+	}
+
+	// Once we have the IP address, we'll establish a TCP connection using
+	// port 53.
+	dnsServer := net.JoinHostPort(addrs[0], "53")
+	conn, err := net.Dial("tcp", dnsServer)
+	if err != nil {
+		return nil, err
+	}
+
+	dnsHost := "_nodes._tcp.nodes.lightning.directory."
+	dnsConn := &dns.Conn{Conn: conn}
+	defer dnsConn.Close()
+
+	// With the connection established, we'll craft our SRV query, write
+	// toe request, then wait for the server to give our response.
+	msg := new(dns.Msg)
+	msg.SetQuestion(dnsHost, dns.TypeSRV)
+	if err := dnsConn.WriteMsg(msg); err != nil {
+		return nil, err
+	}
+	resp, err := dnsConn.ReadMsg()
+	if err != nil {
+		return nil, err
+	}
+
+	// If the message response code was not the success code, fail.
+	if resp.Rcode != dns.RcodeSuccess {
+		return nil, fmt.Errorf("Unsuccessful SRV request, "+
+			"received: %s", resp.Rcode)
+	}
+
+	// Retrieve the RR(s) of the Answer section, and covert to the format
+	// that net.LookupSRV would normally return.
+	var rrs []*net.SRV
+	for _, rr := range resp.Answer {
+		srv := rr.(*dns.SRV)
+		rrs = append(rrs, &net.SRV{
+			Target:   srv.Target,
+			Port:     srv.Port,
+			Priority: srv.Priority,
+			Weight:   srv.Weight,
+		})
+	}
+
+	return rrs, nil
 }
 
 // SampleNodeAddrs uniformly samples a set of specified address from the
@@ -271,13 +345,31 @@ func (d *DNSSeedBootstrapper) SampleNodeAddrs(numAddrs uint32,
 	// continue to query until we reach our target.
 search:
 	for uint32(len(netAddrs)) < numAddrs {
-		for _, dnsSeed := range d.dnsSeeds {
+		for _, dnsSeedTuple := range d.dnsSeeds {
 			// We'll first query the seed with an SRV record so we
 			// can obtain a random sample of the encoded public
 			// keys of nodes.
-			_, addrs, err := net.LookupSRV("nodes", "tcp", dnsSeed)
+			primarySeed := dnsSeedTuple[0]
+			_, addrs, err := net.LookupSRV("nodes", "tcp", primarySeed)
 			if err != nil {
-				return nil, err
+				log.Tracef("Unable to lookup SRV records via " +
+					"primary seed, falling back to secondary")
+
+				// If the host of the secondary seed is blank,
+				// then we'll bail here as we can't proceed.
+				if dnsSeedTuple[1] == "" {
+					return nil, fmt.Errorf("Secondary seed is blank")
+				}
+
+				// If we get an error when trying to query via
+				// the primary seed, we'll fallback to the
+				// secondary seed before concluding failure.
+				secondarySeed := dnsSeedTuple[1]
+				addrs, err = fallBackSRVLookup(secondarySeed)
+				if err != nil {
+					return nil, err
+				}
+				log.Tracef("Successfully queried fallback DNS seed")
 			}
 
 			log.Tracef("Retrieved SRV records from dns seed: %v",

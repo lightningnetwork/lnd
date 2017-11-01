@@ -14,8 +14,8 @@ import (
 )
 
 func establishTestConnection() (net.Conn, net.Conn, error) {
-	// First, generate the long-term private keys both ends of the connection
-	// within our test.
+	// First, generate the long-term private keys both ends of the
+	// connection within our test.
 	localPriv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
 		return nil, nil, err
@@ -42,24 +42,38 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 	}
 
 	// Initiate a connection with a separate goroutine, and listen with our
-	// main one. If both errors are nil, then encryption+auth was succesful.
-	errChan := make(chan error)
-	connChan := make(chan net.Conn)
+	// main one. If both errors are nil, then encryption+auth was
+	// successful.
+	conErrChan := make(chan error, 1)
+	connChan := make(chan net.Conn, 1)
 	go func() {
 		conn, err := Dial(remotePriv, netAddr)
 
-		errChan <- err
+		conErrChan <- err
 		connChan <- conn
 	}()
 
-	localConn, listenErr := listener.Accept()
-	if listenErr != nil {
-		return nil, nil, listenErr
+	lisErrChan := make(chan error, 1)
+	lisChan := make(chan net.Conn, 1)
+	go func() {
+		localConn, listenErr := listener.Accept()
+
+		lisErrChan <- listenErr
+		lisChan <- localConn
+	}()
+
+	select {
+	case err := <-conErrChan:
+		if err != nil {
+			return nil, nil, err
+		}
+	case err := <-lisErrChan:
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	if dialErr := <-errChan; dialErr != nil {
-		return nil, nil, dialErr
-	}
+	localConn := <-lisChan
 	remoteConn := <-connChan
 
 	return localConn, remoteConn, nil

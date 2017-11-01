@@ -27,7 +27,7 @@ func establishTestConnection() (net.Conn, net.Conn, func(), error) {
 
 	// Having a port of ":0" means a random port, and interface will be
 	// chosen for our listener.
-	addr := ":0"
+	addr := "localhost:0"
 
 	// Our listener will be local, and the connection remote.
 	listener, err := NewListener(localPriv, addr)

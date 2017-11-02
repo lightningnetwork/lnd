@@ -1167,6 +1167,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 				return
 			}
 
+			f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
+
 			// Success, funding transaction was confirmed.
 			err := f.handleFundingConfirmation(completeChan,
 				shortChanID)
@@ -1175,8 +1177,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 					"confirmation: %v", err)
 				return
 			}
-
-			f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
 		}
 	}()
 }
@@ -1291,6 +1291,8 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 				return
 			}
 
+			f.deleteReservationCtx(peerKey, pendingChanID)
+
 			// Success, funding transaction was confirmed
 			err := f.handleFundingConfirmation(completeChan,
 				shortChanID)
@@ -1314,8 +1316,6 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 				},
 			},
 		}
-
-		f.deleteReservationCtx(peerKey, pendingChanID)
 	}()
 }
 

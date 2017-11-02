@@ -169,6 +169,9 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest, net *networkHarne
 	if err := net.AssertChannelExists(ctx, alice, &chanPoint); err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
+	if err := net.AssertChannelExists(ctx, bob, &chanPoint); err != nil {
+		t.Fatalf("unable to assert channel existence: %v", err)
+	}
 
 	return fundingChanPoint
 }
@@ -1807,12 +1810,6 @@ func testBasicChannelCreation(net *networkHarness, t *harnessTest) {
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
 		chanPoints[i] = openChannelAndAssert(ctx, t, net, net.Alice,
 			net.Bob, amount, 0)
-
-		// We need to give Bob a bit of time to make sure the newly
-		// opened channel is not still pending.
-		if i != numChannels-1 {
-			time.Sleep(time.Millisecond * 500)
-		}
 	}
 
 	// Close the channel between Alice and Bob, asserting that the
@@ -3196,8 +3193,6 @@ func testGraphTopologyNotifications(net *networkHarness, t *harnessTest) {
 	chanPoint = openChannelAndAssert(ctxt, t, net, net.Bob, carol,
 		chanAmt, 0)
 
-	time.Sleep(time.Millisecond * 300)
-
 	// Reconnect Alice and Bob. This should result in the nodes syncing up
 	// their respective graph state, with the new addition being the
 	// existence of Carol in the graph, and also the channel between Bob
@@ -3294,8 +3289,6 @@ func testNodeAnnouncement(net *networkHarness, t *harnessTest) {
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPoint := openChannelAndAssert(ctxt, t, net, net.Bob, dave,
 		1000000, 0)
-
-	time.Sleep(time.Millisecond * 300)
 
 	// When Alice now connects with Dave, Alice will get his node announcement.
 	if err := net.ConnectNodes(ctxb, net.Alice, dave); err != nil {

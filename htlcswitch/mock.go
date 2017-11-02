@@ -390,6 +390,8 @@ func (s *mockServer) String() string {
 }
 
 type mockChannelLink struct {
+	htlcSwitch *Switch
+
 	shortChanID lnwire.ShortChannelID
 
 	chanID lnwire.ChannelID
@@ -399,12 +401,16 @@ type mockChannelLink struct {
 	packets chan *htlcPacket
 
 	eligible bool
+
+	htlcID uint64
 }
 
-func newMockChannelLink(chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID,
-	peer Peer, eligible bool) *mockChannelLink {
+func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID, peer Peer, eligible bool,
+) *mockChannelLink {
 
 	return &mockChannelLink{
+		htlcSwitch:  htlcSwitch,
 		chanID:      chanID,
 		shortChanID: shortChanID,
 		packets:     make(chan *htlcPacket, 1),
@@ -414,6 +420,19 @@ func newMockChannelLink(chanID lnwire.ChannelID, shortChanID lnwire.ShortChannel
 }
 
 func (f *mockChannelLink) HandleSwitchPacket(packet *htlcPacket) {
+	switch htlc := packet.htlc.(type) {
+	case *lnwire.UpdateAddHTLC:
+		f.htlcSwitch.addCircuit(&PaymentCircuit{
+			PaymentHash:    htlc.PaymentHash,
+			IncomingChanID: packet.incomingChanID,
+			IncomingHTLCID: packet.incomingHTLCID,
+			OutgoingChanID: f.shortChanID,
+			OutgoingHTLCID: f.htlcID,
+			ErrorEncrypter: packet.obfuscator,
+		})
+		f.htlcID++
+	}
+
 	f.packets <- packet
 }
 

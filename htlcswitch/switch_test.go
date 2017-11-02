@@ -35,15 +35,15 @@ func TestSwitchForward(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, true,
-	)
-	bobChannelLink := newMockChannelLink(
-		chanID2, bobChanID, bobPeer, true,
-	)
-
 	s := New(Config{})
 	s.Start()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	bobChannelLink := newMockChannelLink(
+		s, chanID2, bobChanID, bobPeer, true,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -70,15 +70,6 @@ func TestSwitchForward(t *testing.T) {
 	if err := s.forward(packet); err != nil {
 		t.Fatal(err)
 	}
-
-	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    rhash,
-		IncomingChanID: packet.incomingChanID,
-		IncomingHTLCID: packet.incomingHTLCID,
-		OutgoingChanID: packet.outgoingChanID,
-		OutgoingHTLCID: 0,
-		ErrorEncrypter: packet.obfuscator,
-	})
 
 	select {
 	case <-bobChannelLink.packets:
@@ -131,18 +122,19 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
+	s := New(Config{})
+	s.Start()
+
 	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, true,
+		s, chanID1, aliceChanID, alicePeer, true,
 	)
 
 	// We'll create a link for Bob, but mark the link as unable to forward
 	// any new outgoing HTLC's.
 	bobChannelLink := newMockChannelLink(
-		chanID2, bobChanID, bobPeer, false,
+		s, chanID2, bobChanID, bobPeer, false,
 	)
 
-	s := New(Config{})
-	s.Start()
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -184,12 +176,13 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	// We'll create a single link for this test, marking it as being unable
 	// to forward form the get go.
 	alicePeer := newMockServer(t, "alice")
-	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, false,
-	)
 
 	s := New(Config{})
 	s.Start()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, false,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -223,15 +216,15 @@ func TestSwitchCancel(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, true,
-	)
-	bobChannelLink := newMockChannelLink(
-		chanID2, bobChanID, bobPeer, true,
-	)
-
 	s := New(Config{})
 	s.Start()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	bobChannelLink := newMockChannelLink(
+		s, chanID2, bobChanID, bobPeer, true,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -258,15 +251,6 @@ func TestSwitchCancel(t *testing.T) {
 	if err := s.forward(request); err != nil {
 		t.Fatal(err)
 	}
-
-	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    rhash,
-		IncomingChanID: request.incomingChanID,
-		IncomingHTLCID: request.incomingHTLCID,
-		OutgoingChanID: request.outgoingChanID,
-		OutgoingHTLCID: 0,
-		ErrorEncrypter: request.obfuscator,
-	})
 
 	select {
 	case <-bobChannelLink.packets:
@@ -315,15 +299,15 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	alicePeer := newMockServer(t, "alice")
 	bobPeer := newMockServer(t, "bob")
 
-	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, true,
-	)
-	bobChannelLink := newMockChannelLink(
-		chanID2, bobChanID, bobPeer, true,
-	)
-
 	s := New(Config{})
 	s.Start()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	bobChannelLink := newMockChannelLink(
+		s, chanID2, bobChanID, bobPeer, true,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -351,15 +335,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    rhash,
-		IncomingChanID: request.incomingChanID,
-		IncomingHTLCID: request.incomingHTLCID,
-		OutgoingChanID: request.outgoingChanID,
-		OutgoingHTLCID: 0,
-		ErrorEncrypter: request.obfuscator,
-	})
-
 	select {
 	case <-bobChannelLink.packets:
 		break
@@ -386,15 +361,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 	if err := s.forward(request); err != nil {
 		t.Fatal(err)
 	}
-
-	s.addCircuit(&PaymentCircuit{
-		PaymentHash:    rhash,
-		IncomingChanID: request.incomingChanID,
-		IncomingHTLCID: request.incomingHTLCID,
-		OutgoingChanID: request.outgoingChanID,
-		OutgoingHTLCID: 1,
-		ErrorEncrypter: request.obfuscator,
-	})
 
 	if s.circuits.pending() != 2 {
 		t.Fatal("wrong amount of circuits")
@@ -458,12 +424,13 @@ func TestSwitchSendPayment(t *testing.T) {
 	t.Parallel()
 
 	alicePeer := newMockServer(t, "alice")
-	aliceChannelLink := newMockChannelLink(
-		chanID1, aliceChanID, alicePeer, true,
-	)
 
 	s := New(Config{})
 	s.Start()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add link: %v", err)
 	}
@@ -515,7 +482,7 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatal("wrong amount of pending payments")
 	}
 
-	if s.circuits.pending() != 0 {
+	if s.circuits.pending() != 2 {
 		t.Fatal("wrong amount of circuits")
 	}
 
@@ -536,7 +503,6 @@ func TestSwitchSendPayment(t *testing.T) {
 		isObfuscated:   true,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
-			ID:     1,
 		},
 	}
 
@@ -551,6 +517,15 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")
+	}
+
+	packet = &htlcPacket{
+		outgoingChanID: aliceChannelLink.ShortChanID(),
+		outgoingHTLCID: 1,
+		isObfuscated:   true,
+		htlc: &lnwire.UpdateFailHTLC{
+			Reason: reason,
+		},
 	}
 
 	// Send second failure response and check that user were able to

@@ -266,19 +266,18 @@ func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 	}
 }
 
-//assertNumConnections asserts number current connections between two peers
-func assertNumConnections(
-	ctxt context.Context,
-	t *harnessTest,
-	alice, bob *lightningNode,
-	expected int) {
+// assertNumConnections asserts number current connections between two peers.
+func assertNumConnections(ctxt context.Context, t *harnessTest,
+	alice, bob *lightningNode, expected int) {
 
 	const nPolls = 10
 
-	tick := time.Tick(300 * time.Millisecond)
+	tick := time.NewTicker(300 * time.Millisecond)
+	defer tick.Stop()
+
 	for i := nPolls - 1; i >= 0; i-- {
 		select {
-		case <-tick:
+		case <-tick.C:
 			aNumPeers, err := alice.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
 			if err != nil {
 				t.Fatalf("unable to fetch alice's node (%v) list peers %v",

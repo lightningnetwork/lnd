@@ -204,8 +204,6 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 		cfg:               &cfg,
 		NodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
-		processExit:       make(chan struct{}),
-		quit:              make(chan struct{}),
 	}, nil
 }
 
@@ -217,7 +215,12 @@ func (hn *HarnessNode) DBPath() string {
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
+//
+// This may not clean up properly if an error is returned, so the caller should
+// call shutdown() regardless of the return value.
 func (hn *HarnessNode) start(lndError chan<- error) error {
+	hn.quit = make(chan struct{})
+
 	args := hn.cfg.genArgs()
 	hn.cmd = exec.Command("lnd", args...)
 
@@ -251,6 +254,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	// Launch a new goroutine which that bubbles up any potential fatal
 	// process errors to the goroutine running the tests.
+	hn.processExit = make(chan struct{})
 	go func() {
 		err := hn.cmd.Wait()
 
@@ -363,56 +367,30 @@ func (hn *HarnessNode) cleanup() error {
 
 // Stop attempts to stop the active lnd process.
 func (hn *HarnessNode) stop() error {
-	// Do nothing if the process never started successfully.
-	if hn.LightningClient == nil {
+	// Do nothing if the process is not running.
+	if hn.processExit == nil {
 		return nil
 	}
 
-	// Do nothing if the process already finished.
-	select {
-	case <-hn.quit:
-		return nil
-	case <-hn.processExit:
-		return nil
-	default:
+	// If start() failed before creating a client, we will just wait for the
+	// child process to die.
+	if hn.LightningClient != nil {
+		// Don't watch for error because sometimes the RPC connection gets
+		// closed before a response is returned.
+		req := lnrpc.StopRequest{}
+		ctx := context.Background()
+		hn.LightningClient.StopDaemon(ctx, &req)
 	}
 
-	// Don't watch for error because sometimes the RPC connection gets
-	// closed before a response is returned.
-	req := lnrpc.StopRequest{}
-	ctx := context.Background()
-	hn.LightningClient.StopDaemon(ctx, &req)
-
+	// Wait for lnd process and other goroutines to exit.
+	<-hn.processExit
 	close(hn.quit)
 	hn.wg.Wait()
-	return nil
-}
 
-// Restart attempts to restart a lightning node by shutting it down cleanly,
-// then restarting the process. This function is fully blocking. Upon restart,
-// the RPC connection to the node will be re-attempted, continuing iff the
-// connection attempt is successful. Additionally, if a callback is passed, the
-// closure will be executed after the node has been shutdown, but before the
-// process has been started up again.
-func (hn *HarnessNode) restart(errChan chan error, callback func() error) error {
-	if err := hn.stop(); err != nil {
-		return err
-	}
-
-	<-hn.processExit
-
+	hn.quit = nil
+	hn.processExit = nil
 	hn.LightningClient = nil
-	hn.processExit = make(chan struct{})
-	hn.quit = make(chan struct{})
-	hn.wg = sync.WaitGroup{}
-
-	if callback != nil {
-		if err := callback(); err != nil {
-			return err
-		}
-	}
-
-	return hn.start(errChan)
+	return nil
 }
 
 // shutdown stops the active lnd process and cleans up any temporary directories

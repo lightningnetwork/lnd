@@ -338,7 +338,17 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 // and invalidated prior state, or persistent state recovery, simulating node
 // crashes, etc.
 func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
-	return node.restart(n.lndErrorChan, callback)
+	if err := node.stop(); err != nil {
+		return err
+	}
+
+	if callback != nil {
+		if err := callback(); err != nil {
+			return err
+		}
+	}
+
+	return node.start(n.lndErrorChan)
 }
 
 // ShutdownNode stops an active lnd process and returns when the process has

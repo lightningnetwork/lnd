@@ -45,18 +45,22 @@ func newNetworkHarness() (*networkHarness, error) {
 // running instance of btcd's rpctest harness and extra command line flags,
 // which should be formatted properly - "--arg=value".
 func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []string) error {
-	nodeConfig := r.RPCConfig()
-
 	n.netParams = r.ActiveNet
 	n.Miner = r
 	n.rpcConfig = nodeConfig
 
+	config := nodeConfig{
+		RPCConfig: &n.rpcConfig,
+		NetParams: n.netParams,
+		ExtraArgs: lndArgs,
+	}
+
 	var err error
-	n.Alice, err = newLightningNode(&nodeConfig, lndArgs)
+	n.Alice, err = newLightningNode(config)
 	if err != nil {
 		return err
 	}
-	n.Bob, err = newLightningNode(&nodeConfig, lndArgs)
+	n.Bob, err = newLightningNode(config)
 	if err != nil {
 		return err
 	}
@@ -216,7 +220,11 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 	n.Lock()
 	defer n.Unlock()
 
-	node, err := newLightningNode(&n.rpcConfig, extraArgs)
+	node, err := newLightningNode(nodeConfig{
+		RPCConfig: &n.rpcConfig,
+		NetParams: n.netParams,
+		ExtraArgs: extraArgs,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +255,7 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.p2pAddr,
+			Host:   b.cfg.P2PAddr(),
 		},
 	}
 	if _, err := a.ConnectPeer(ctx, req); err != nil {

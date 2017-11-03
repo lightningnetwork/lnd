@@ -48,15 +48,82 @@ func generateListeningPorts() (int, int) {
 	return p2p, rpc
 }
 
+type nodeConfig struct {
+	RPCConfig *rpcclient.ConnConfig
+	NetParams *chaincfg.Params
+	BaseDir   string
+	ExtraArgs []string
+
+	DataDir      string
+	LogDir       string
+	TLSCertPath  string
+	TLSKeyPath   string
+	AdminMacPath string
+	ReadMacPath  string
+	P2PPort      int
+	RPCPort      int
+}
+
+func (cfg nodeConfig) P2PAddr() string {
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.P2PPort))
+}
+
+func (cfg nodeConfig) RPCAddr() string {
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
+}
+
+func (cfg nodeConfig) DBPath() string {
+	return filepath.Join(cfg.DataDir, cfg.NetParams.Name, "bitcoin/channel.db")
+}
+
+// genArgs generates a slice of command line arguments from the lightning node
+// config struct.
+func (cfg nodeConfig) genArgs() []string {
+	var args []string
+
+	switch cfg.NetParams {
+	case &chaincfg.TestNet3Params:
+		args = append(args, "--bitcoin.testnet")
+	case &chaincfg.SimNetParams:
+		args = append(args, "--bitcoin.simnet")
+	case &chaincfg.RegressionNetParams:
+		args = append(args, "--bitcoin.regtest")
+	}
+
+	encodedCert := hex.EncodeToString(cfg.RPCConfig.Certificates)
+	args = append(args, "--bitcoin.active")
+	args = append(args, "--nobootstrap")
+	args = append(args, "--noencryptwallet")
+	args = append(args, "--debuglevel=debug")
+	args = append(args, "--defaultchanconfs=1")
+	args = append(args, fmt.Sprintf("--bitcoin.rpchost=%v", cfg.RPCConfig.Host))
+	args = append(args, fmt.Sprintf("--bitcoin.rpcuser=%v", cfg.RPCConfig.User))
+	args = append(args, fmt.Sprintf("--bitcoin.rpcpass=%v", cfg.RPCConfig.Pass))
+	args = append(args, fmt.Sprintf("--bitcoin.rawrpccert=%v", encodedCert))
+	args = append(args, fmt.Sprintf("--rpcport=%v", cfg.RPCPort))
+	args = append(args, fmt.Sprintf("--peerport=%v", cfg.P2PPort))
+	args = append(args, fmt.Sprintf("--logdir=%v", cfg.LogDir))
+	args = append(args, fmt.Sprintf("--datadir=%v", cfg.DataDir))
+	args = append(args, fmt.Sprintf("--tlscertpath=%v", cfg.TLSCertPath))
+	args = append(args, fmt.Sprintf("--tlskeypath=%v", cfg.TLSKeyPath))
+	args = append(args, fmt.Sprintf("--configfile=%v", cfg.DataDir))
+	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
+	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
+	args = append(args, fmt.Sprintf("--externalip=%s", cfg.P2PAddr()))
+	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
+
+	if cfg.ExtraArgs != nil {
+		args = append(args, cfg.ExtraArgs...)
+	}
+
+	return args
+}
+
 // lightningNode represents an instance of lnd running within our test network
 // harness. Each lightningNode instance also fully embedds an RPC client in
 // order to pragmatically drive the node.
 type lightningNode struct {
-	cfg *config
-
-	rpcAddr string
-	p2pAddr string
-	rpcCert []byte
+	cfg *nodeConfig
 
 	nodeID int
 
@@ -73,8 +140,6 @@ type lightningNode struct {
 	// process this instance of lightningNode is bound to has exited.
 	processExit chan struct{}
 
-	extraArgs []string
-
 	chanWatchRequests chan *chanWatchRequest
 
 	quit chan struct{}
@@ -85,90 +150,40 @@ type lightningNode struct {
 
 // newLightningNode creates a new test lightning node instance from the passed
 // rpc config and slice of extra arguments.
-func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*lightningNode, error) {
-	var err error
-
-	cfg := &config{
-		Bitcoin: &chainConfig{
-			RPCHost: btcrpcConfig.Host,
-			RPCUser: btcrpcConfig.User,
-			RPCPass: btcrpcConfig.Pass,
-		},
+func newLightningNode(cfg nodeConfig) (*lightningNode, error) {
+	if cfg.BaseDir == "" {
+		var err error
+		cfg.BaseDir, err = ioutil.TempDir("", "lndtest-node")
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	nodeNum := numActiveNodes
-	numActiveNodes++
-
-	cfg.DataDir, err = ioutil.TempDir("", "lndtest-data")
-	if err != nil {
-		return nil, err
-	}
-	cfg.LogDir, err = ioutil.TempDir("", "lndtest-log")
-	if err != nil {
-		return nil, err
-	}
+	cfg.DataDir = filepath.Join(cfg.BaseDir, "data")
+	cfg.LogDir = filepath.Join(cfg.BaseDir, "log")
 	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
 	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
 	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 
-	cfg.PeerPort, cfg.RPCPort = generateListeningPorts()
+	cfg.P2PPort, cfg.RPCPort = generateListeningPorts()
 
-	lndArgs = append(lndArgs, "--externalip=127.0.0.1:"+
-		strconv.Itoa(cfg.PeerPort))
-	lndArgs = append(lndArgs, "--noencryptwallet")
+	nodeNum := numActiveNodes
+	numActiveNodes++
 
 	return &lightningNode{
-		cfg:               cfg,
-		p2pAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
-		rpcAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
-		rpcCert:           btcrpcConfig.Certificates,
+		cfg:               &cfg,
 		nodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
 		processExit:       make(chan struct{}),
 		quit:              make(chan struct{}),
-		extraArgs:         lndArgs,
 	}, nil
-}
-
-// genArgs generates a slice of command line arguments from the lightningNode's
-// current config struct.
-func (l *lightningNode) genArgs() []string {
-	var args []string
-
-	encodedCert := hex.EncodeToString(l.rpcCert)
-	args = append(args, "--bitcoin.active")
-	args = append(args, "--bitcoin.simnet")
-	args = append(args, "--nobootstrap")
-	args = append(args, "--debuglevel=debug")
-	args = append(args, fmt.Sprintf("--bitcoin.rpchost=%v", l.cfg.Bitcoin.RPCHost))
-	args = append(args, fmt.Sprintf("--bitcoin.rpcuser=%v", l.cfg.Bitcoin.RPCUser))
-	args = append(args, fmt.Sprintf("--bitcoin.rpcpass=%v", l.cfg.Bitcoin.RPCPass))
-	args = append(args, fmt.Sprintf("--bitcoin.rawrpccert=%v", encodedCert))
-	args = append(args, fmt.Sprintf("--rpcport=%v", l.cfg.RPCPort))
-	args = append(args, fmt.Sprintf("--peerport=%v", l.cfg.PeerPort))
-	args = append(args, fmt.Sprintf("--logdir=%v", l.cfg.LogDir))
-	args = append(args, fmt.Sprintf("--datadir=%v", l.cfg.DataDir))
-	args = append(args, fmt.Sprintf("--tlscertpath=%v", l.cfg.TLSCertPath))
-	args = append(args, fmt.Sprintf("--tlskeypath=%v", l.cfg.TLSKeyPath))
-	args = append(args, fmt.Sprintf("--configfile=%v", l.cfg.DataDir))
-	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", l.cfg.AdminMacPath))
-	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", l.cfg.ReadMacPath))
-	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
-
-	if l.extraArgs != nil {
-		args = append(args, l.extraArgs...)
-	}
-
-	return args
 }
 
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
 func (l *lightningNode) Start(lndError chan<- error) error {
-	args := l.genArgs()
-
+	args := l.cfg.genArgs()
 	l.cmd = exec.Command("lnd", args...)
 
 	// Redirect stderr output to buffer
@@ -251,7 +266,7 @@ func (l *lightningNode) Start(lndError chan<- error) error {
 
 // writePidFile writes the process ID of the running lnd process to a .pid file.
 func (l *lightningNode) writePidFile() error {
-	filePath := filepath.Join(l.cfg.DataDir, fmt.Sprintf("%v.pid", l.nodeID))
+	filePath := filepath.Join(l.cfg.BaseDir, fmt.Sprintf("%v.pid", l.nodeID))
 
 	pid, err := os.Create(filePath)
 	if err != nil {
@@ -307,19 +322,7 @@ func (l *lightningNode) connectRPC() (*grpc.ClientConn, error) {
 
 // cleanup cleans up all the temporary files created by the node's process.
 func (l *lightningNode) cleanup() error {
-	dirs := []string{
-		l.cfg.LogDir,
-		l.cfg.DataDir,
-	}
-
-	var err error
-	for _, dir := range dirs {
-		if removeErr := os.RemoveAll(dir); removeErr != nil {
-			log.Printf("Cannot remove dir %s: %v", dir, removeErr)
-			err = removeErr
-		}
-	}
-	return err
+	return os.RemoveAll(l.cfg.BaseDir)
 }
 
 // Stop attempts to stop the active lnd process.

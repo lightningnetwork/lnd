@@ -1,19 +1,41 @@
 package lntest
 
-// networkHarness is an integration testing harness for the lightning network.
+import (
+	"fmt"
+	"io/ioutil"
+	"sync"
+	"time"
+
+	"golang.org/x/net/context"
+	"google.golang.org/grpc/grpclog"
+
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
+	"github.com/roasbeef/btcd/txscript"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
+)
+
+// NetworkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
-type networkHarness struct {
+type NetworkHarness struct {
 	rpcConfig rpcclient.ConnConfig
 	netParams *chaincfg.Params
-	Miner     *rpctest.Harness
 
-	activeNodes map[int]*lightningNode
+	// Miner is a reference to a running full node that can be used to create
+	// new blocks on the network.
+	Miner *rpctest.Harness
+
+	activeNodes map[int]*HarnessNode
 
 	// Alice and Bob are the initial seeder nodes that are automatically
 	// created to be the initial participants of the test network.
-	Alice *lightningNode
-	Bob   *lightningNode
+	Alice *HarnessNode
+	Bob   *HarnessNode
 
 	seenTxns             chan chainhash.Hash
 	bitcoinWatchRequests chan *txWatchRequest
@@ -27,13 +49,13 @@ type networkHarness struct {
 	sync.Mutex
 }
 
-// newNetworkHarness creates a new network test harness.
+// NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This'll save developers from having to manually `go install`
 // within the repo each time before changes
-func newNetworkHarness() (*networkHarness, error) {
-	return &networkHarness{
-		activeNodes:          make(map[int]*lightningNode),
+func NewNetworkHarness() (*NetworkHarness, error) {
+	return &NetworkHarness{
+		activeNodes:          make(map[int]*HarnessNode),
 		seenTxns:             make(chan chainhash.Hash),
 		bitcoinWatchRequests: make(chan *txWatchRequest),
 		lndErrorChan:         make(chan error),
@@ -44,10 +66,10 @@ func newNetworkHarness() (*networkHarness, error) {
 // InitializeSeedNodes initializes alice and bob nodes given an already
 // running instance of btcd's rpctest harness and extra command line flags,
 // which should be formatted properly - "--arg=value".
-func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []string) error {
+func (n *NetworkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []string) error {
 	n.netParams = r.ActiveNet
 	n.Miner = r
-	n.rpcConfig = nodeConfig
+	n.rpcConfig = r.RPCConfig()
 
 	config := nodeConfig{
 		RPCConfig: &n.rpcConfig,
@@ -56,17 +78,17 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []strin
 	}
 
 	var err error
-	n.Alice, err = newLightningNode(config)
+	n.Alice, err = newNode(config)
 	if err != nil {
 		return err
 	}
-	n.Bob, err = newLightningNode(config)
+	n.Bob, err = newNode(config)
 	if err != nil {
 		return err
 	}
 
-	n.activeNodes[n.Alice.nodeID] = n.Alice
-	n.activeNodes[n.Bob.nodeID] = n.Bob
+	n.activeNodes[n.Alice.NodeID] = n.Alice
+	n.activeNodes[n.Bob.NodeID] = n.Bob
 
 	return err
 }
@@ -74,7 +96,7 @@ func (n *networkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []strin
 // ProcessErrors returns a channel used for reporting any fatal process errors.
 // If any of the active nodes within the harness' test network incur a fatal
 // error, that error is sent over this channel.
-func (n *networkHarness) ProcessErrors() <-chan error {
+func (n *NetworkHarness) ProcessErrors() <-chan error {
 	return n.lndErrorChan
 }
 
@@ -93,7 +115,7 @@ func (f *fakeLogger) Println(args ...interface{})               {}
 // node's wallets will be funded wallets with ten 1 BTC outputs each. Finally
 // rpc clients capable of communicating with the initial seeder nodes are
 // created.
-func (n *networkHarness) SetUp() error {
+func (n *NetworkHarness) SetUp() error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
@@ -105,13 +127,13 @@ func (n *networkHarness) SetUp() error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if err := n.Alice.Start(n.lndErrorChan); err != nil {
+		if err := n.Alice.start(n.lndErrorChan); err != nil {
 			errChan <- err
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		if err := n.Bob.Start(n.lndErrorChan); err != nil {
+		if err := n.Bob.start(n.lndErrorChan); err != nil {
 			errChan <- err
 		}
 	}()
@@ -200,7 +222,7 @@ out:
 }
 
 // TearDownAll tears down all active nodes within the test lightning network.
-func (n *networkHarness) TearDownAll() error {
+func (n *NetworkHarness) TearDownAll() error {
 	for _, node := range n.activeNodes {
 		if err := node.Shutdown(); err != nil {
 			return err
@@ -213,14 +235,14 @@ func (n *networkHarness) TearDownAll() error {
 	return nil
 }
 
-// NewNode fully initializes a returns a new lightningNode binded to the
+// NewNode fully initializes a returns a new HarnessNode binded to the
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
-func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
+func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 	n.Lock()
 	defer n.Unlock()
 
-	node, err := newLightningNode(nodeConfig{
+	node, err := newNode(nodeConfig{
 		RPCConfig: &n.rpcConfig,
 		NetParams: n.netParams,
 		ExtraArgs: extraArgs,
@@ -231,9 +253,9 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 
 	// Put node in activeNodes to ensure Shutdown is called even if Start
 	// returns an error.
-	n.activeNodes[node.nodeID] = node
+	n.activeNodes[node.NodeID] = node
 
-	if err := node.Start(n.lndErrorChan); err != nil {
+	if err := node.start(n.lndErrorChan); err != nil {
 		return nil, err
 	}
 
@@ -246,7 +268,7 @@ func (n *networkHarness) NewNode(extraArgs []string) (*lightningNode, error) {
 //
 // NOTE: This function may block for up to 15-seconds as it will not return
 // until the new connection is detected as being known to both nodes.
-func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) error {
+func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) error {
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
@@ -288,7 +310,7 @@ func (n *networkHarness) ConnectNodes(ctx context.Context, a, b *lightningNode) 
 
 // DisconnectNodes disconnects node a from node b by sending RPC message
 // from a node to b node
-func (n *networkHarness) DisconnectNodes(ctx context.Context, a, b *lightningNode) error {
+func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode) error {
 	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
 	if err != nil {
 		return err
@@ -315,8 +337,8 @@ func (n *networkHarness) DisconnectNodes(ctx context.Context, a, b *lightningNod
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
 // crashes, etc.
-func (n *networkHarness) RestartNode(node *lightningNode, callback func() error) error {
-	return node.Restart(n.lndErrorChan, callback)
+func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
+	return node.restart(n.lndErrorChan, callback)
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?
@@ -335,7 +357,7 @@ type txWatchRequest struct {
 // bitcoinNetworkWatcher is a goroutine which accepts async notification
 // requests for the broadcast of a target transaction, and then dispatches the
 // transaction once its seen on the Bitcoin network.
-func (n *networkHarness) networkWatcher() {
+func (n *NetworkHarness) networkWatcher() {
 	seenTxns := make(map[chainhash.Hash]struct{})
 	clients := make(map[chainhash.Hash][]chan struct{})
 
@@ -381,7 +403,7 @@ func (n *networkHarness) networkWatcher() {
 
 // OnTxAccepted is a callback to be called each time a new transaction has been
 // broadcast on the network.
-func (n *networkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) {
+func (n *NetworkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) {
 	// Return immediately if harness has been torn down.
 	select {
 	case <-n.quit:
@@ -398,11 +420,11 @@ func (n *networkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) 
 // the transaction isn't seen within the network before the passed timeout,
 // then an error is returned.
 // TODO(roasbeef): add another method which creates queue of all seen transactions
-func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.Hash) error {
+func (n *NetworkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.Hash) error {
 	// Return immediately if harness has been torn down.
 	select {
 	case <-n.quit:
-		return fmt.Errorf("networkHarness has been torn down")
+		return fmt.Errorf("NetworkHarness has been torn down")
 	default:
 	}
 
@@ -417,7 +439,7 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 	case <-eventChan:
 		return nil
 	case <-n.quit:
-		return fmt.Errorf("networkHarness has been torn down")
+		return fmt.Errorf("NetworkHarness has been torn down")
 	case <-ctx.Done():
 		return fmt.Errorf("tx not seen before context timeout")
 	}
@@ -427,8 +449,8 @@ func (n *networkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 // passed channel funding parameters. If the passed context has a timeout, then
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned.
-func (n *networkHarness) OpenChannel(ctx context.Context,
-	srcNode, destNode *lightningNode, amt btcutil.Amount,
+func (n *NetworkHarness) OpenChannel(ctx context.Context,
+	srcNode, destNode *HarnessNode, amt btcutil.Amount,
 	pushAmt btcutil.Amount) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	// Wait until srcNode and destNode have the latest chain synced.
@@ -489,8 +511,8 @@ func (n *networkHarness) OpenChannel(ctx context.Context,
 // passed channel funding parameters. If the passed context has a timeout, then
 // if the timeout is reached before the channel pending notification is
 // received, an error is returned.
-func (n *networkHarness) OpenPendingChannel(ctx context.Context,
-	srcNode, destNode *lightningNode, amt btcutil.Amount,
+func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
+	srcNode, destNode *HarnessNode, amt btcutil.Amount,
 	pushAmt btcutil.Amount) (*lnrpc.PendingUpdate, error) {
 
 	// Wait until srcNode and destNode have blockchain synced
@@ -549,7 +571,7 @@ func (n *networkHarness) OpenPendingChannel(ctx context.Context,
 // consuming a message from the past open channel stream. If the passed context
 // has a timeout, then if the timeout is reached before the channel has been
 // opened, then an error is returned.
-func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelOpen(ctx context.Context,
 	openChanStream lnrpc.Lightning_OpenChannelClient) (*lnrpc.ChannelPoint, error) {
 
 	errChan := make(chan error)
@@ -585,8 +607,8 @@ func (n *networkHarness) WaitForChannelOpen(ctx context.Context,
 // passed channel point, initiated by the passed lnNode. If the passed context
 // has a timeout, then if the timeout is reached before the channel close is
 // pending, then an error is returned.
-func (n *networkHarness) CloseChannel(ctx context.Context,
-	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
+func (n *NetworkHarness) CloseChannel(ctx context.Context,
+	lnNode *HarnessNode, cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
 
 	// Create a channel outpoint that we can use to compare to channels
@@ -684,7 +706,7 @@ CheckActive:
 // stream that the node has deemed the channel has been fully closed. If the
 // passed context has a timeout, then if the timeout is reached before the
 // notification is received then an error is returned.
-func (n *networkHarness) WaitForChannelClose(ctx context.Context,
+func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
 	closeChanStream lnrpc.Lightning_CloseChannelClient) (*chainhash.Hash, error) {
 
 	errChan := make(chan error)
@@ -720,8 +742,8 @@ func (n *networkHarness) WaitForChannelClose(ctx context.Context,
 
 // AssertChannelExists asserts that an active channel identified by
 // channelPoint is known to exist from the point-of-view of node..
-func (n *networkHarness) AssertChannelExists(ctx context.Context,
-	node *lightningNode, chanPoint *wire.OutPoint) error {
+func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
+	node *HarnessNode, chanPoint *wire.OutPoint) error {
 
 	req := &lnrpc.ListChannelsRequest{}
 	resp, err := node.ListChannels(ctx, req)
@@ -743,7 +765,7 @@ func (n *networkHarness) AssertChannelExists(ctx context.Context,
 // of a particular node in the case of a test failure.
 // Logs from lightning node being generated with delay - you should
 // add time.Sleep() in order to get all logs.
-func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
+func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
 	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.cfg.LogDir)
 
 	buf, err := ioutil.ReadFile(logFile)
@@ -756,8 +778,8 @@ func (n *networkHarness) DumpLogs(node *lightningNode) (string, error) {
 
 // SendCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node.
-func (n *networkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
-	target *lightningNode) error {
+func (n *NetworkHarness) SendCoins(ctx context.Context, amt btcutil.Amount,
+	target *HarnessNode) error {
 
 	balReq := &lnrpc.WalletBalanceRequest{}
 	initialBalance, err := target.WalletBalance(ctx, balReq)

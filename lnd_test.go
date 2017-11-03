@@ -917,7 +917,7 @@ peersPoll:
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 
 	// Clean up carol's node.
-	if err := carol.Shutdown(); err != nil {
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 }
@@ -2218,13 +2218,13 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 
-	// Finally, shutdown the nodes we created for the duration of the
-	// tests, only leaving the two seed nodes (Alice and Bob) within our
-	// test network.
-	if err := carol.Shutdown(); err != nil {
+	// Finally, shutdown the nodes we created for the duration of the tests,
+	// only leaving the two seed nodes (Alice and Bob) within our test
+	// network.
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
-	if err := dave.Shutdown(); err != nil {
+	if err := net.ShutdownNode(dave); err != nil {
 		t.Fatalf("unable to shutdown dave: %v", err)
 	}
 }
@@ -2456,7 +2456,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Finally, shutdown the node we created for the duration of the tests,
 	// only leaving the two seed nodes (Alice and Bob) within our test
 	// network.
-	if err := carol.Shutdown(); err != nil {
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 }
@@ -3546,7 +3546,7 @@ out:
 	// We'll attempt to complete the original invoice we created with Carol
 	// above, but before we do so, Carol will go offline, resulting in a
 	// failed payment.
-	if err := carol.Shutdown(); err != nil {
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 	// TODO(roasbeef): mission control
@@ -3804,7 +3804,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	close(quit)
 
 	// Finally, shutdown carol as our test has concluded successfully.
-	if err := carol.Shutdown(); err != nil {
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 }
@@ -3882,7 +3882,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, false)
 
-	if err := dave.Shutdown(); err != nil {
+	if err := net.ShutdownNode(dave); err != nil {
 		t.Fatalf("unable to shutdown dave: %v", err)
 	}
 }
@@ -3953,7 +3953,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Clean up carol's node.
-	if err := carol.Shutdown(); err != nil {
+	if err := net.ShutdownNode(carol); err != nil {
 		t.Fatalf("unable to shutdown carol: %v", err)
 	}
 

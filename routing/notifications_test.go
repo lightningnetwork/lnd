@@ -390,8 +390,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
 	var waitingFor = map[Vertex]int{
-		newVertex(node1.PubKey): 1,
-		newVertex(node2.PubKey): 2,
+		NewVertex(node1.PubKey): 1,
+		NewVertex(node2.PubKey): 2,
 	}
 
 	const numEdgePolicies = 2
@@ -406,7 +406,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			}
 
 			edgeUpdate := ntfn.ChannelEdgeUpdates[0]
-			nodeVertex := newVertex(edgeUpdate.AdvertisingNode)
+			nodeVertex := NewVertex(edgeUpdate.AdvertisingNode)
 
 			if idx, ok := waitingFor[nodeVertex]; ok {
 				switch idx {
@@ -549,8 +549,8 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
 	var waitingFor = map[Vertex]int{
-		newVertex(node1.PubKey): 1,
-		newVertex(node2.PubKey): 2,
+		NewVertex(node1.PubKey): 1,
+		NewVertex(node2.PubKey): 2,
 	}
 
 	// Exactly two notifications should be sent, each corresponding to the
@@ -567,7 +567,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 			}
 
 			nodeUpdate := ntfn.NodeUpdates[0]
-			nodeVertex := newVertex(nodeUpdate.IdentityKey)
+			nodeVertex := NewVertex(nodeUpdate.IdentityKey)
 			if idx, ok := waitingFor[nodeVertex]; ok {
 				switch idx {
 				case 1:

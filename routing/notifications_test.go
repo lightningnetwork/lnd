@@ -147,7 +147,9 @@ func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	return nil, m.bestHeight, nil
+	blockHash := m.blockIndex[uint32(m.bestHeight)]
+
+	return &blockHash, m.bestHeight, nil
 }
 
 func (m *mockChain) GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error) {
@@ -162,7 +164,6 @@ func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	if !ok {
 		return nil, fmt.Errorf("can't find block hash, for "+
 			"height %v", blockHeight)
-
 	}
 
 	return &hash, nil
@@ -185,9 +186,9 @@ func (m *mockChain) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
 	return &utxo, nil
 }
 
-func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32) {
+func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) {
 	m.Lock()
-	block.Header.Nonce = height
+	block.Header.Nonce = nonce
 	hash := block.Header.BlockHash()
 	m.blocks[hash] = block
 	m.blockIndex[height] = hash
@@ -250,6 +251,19 @@ func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
 	}
 }
 
+func (m *mockChainView) notifyStaleBlock(hash chainhash.Hash, height uint32,
+	txns []*wire.MsgTx) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	m.staleBlocks <- &chainview.FilteredBlock{
+		Hash:         hash,
+		Height:       height,
+		Transactions: txns,
+	}
+}
+
 func (m *mockChainView) FilteredBlocks() <-chan *chainview.FilteredBlock {
 	return m.newBlocks
 }
@@ -259,7 +273,7 @@ func (m *mockChainView) DisconnectedBlocks() <-chan *chainview.FilteredBlock {
 }
 
 func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.FilteredBlock, error) {
-	return nil, nil
+	return &chainview.FilteredBlock{}, nil
 }
 
 func (m *mockChainView) Start() error {
@@ -295,7 +309,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
@@ -477,7 +491,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Create two nodes acting as endpoints in the created channel, and use
 	// them to trigger notifications by sending updated node announcement
@@ -658,7 +672,7 @@ func TestNotificationCancellation(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// We'll create a fresh new node topology update to feed to the channel
 	// router.
@@ -743,7 +757,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
@@ -797,7 +811,7 @@ func TestChannelCloseNotification(t *testing.T) {
 			},
 		},
 	}
-	ctx.chain.addBlock(newBlock, blockHeight)
+	ctx.chain.addBlock(newBlock, blockHeight, blockHeight)
 	ctx.chainView.notifyBlock(newBlock.Header.BlockHash(), blockHeight,
 		newBlock.Transactions)
 

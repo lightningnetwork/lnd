@@ -18,12 +18,19 @@ type FilteredChainView interface {
 	// FilteredBlocks returns the channel that filtered blocks are to be
 	// sent over. Each time a block is connected to the end of a main
 	// chain, and appropriate FilteredBlock which contains the transactions
-	// which mutate our watched UTXO set is to be returned.
+	// which mutate our watched UTXO set is to be returned. In case of a
+	// UpdateFilter call with a updateHeight lower than the current best
+	// height, blocks with the updated filter will be resent, and must be
+	// handled by the receiver as an update to an already known block, NOT
+	// as a new block being connected to the chain.
 	FilteredBlocks() <-chan *FilteredBlock
 
 	// DisconnectedBlocks returns a receive only channel which will be sent
 	// upon with the empty filtered blocks of blocks which are disconnected
 	// from the main chain in the case of a re-org.
+	// NOTE: In case of a reorg, connected blocks will not be available to
+	// read from the FilteredBlocks() channel before all disconnected block
+	// have been received.
 	DisconnectedBlocks() <-chan *FilteredBlock
 
 	// UpdateFilter updates the UTXO filter which is to be consulted when
@@ -32,7 +39,9 @@ type FilteredChainView interface {
 	// _expand_ the size of the UTXO sub-set currently being watched.  If
 	// the set updateHeight is _lower_ than the best known height of the
 	// implementation, then the state should be rewound to ensure all
-	// relevant notifications are dispatched.
+	// relevant notifications are dispatched, meaning blocks with a height
+	// lower than the best known height might be sent over the
+	// FilteredBlocks() channel.
 	UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error
 
 	// FilterBlock takes a block hash, and returns a FilteredBlocks which

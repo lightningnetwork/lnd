@@ -19,8 +19,8 @@ import (
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/walletdb"
 
+	"github.com/roasbeef/btcwallet/walletdb"
 	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 )
 
@@ -124,7 +124,8 @@ func assertFilteredBlock(t *testing.T, fb *FilteredBlock, expectedHeight int32,
 }
 
 func testFilterBlockNotifications(node *rpctest.Harness,
-	chainView FilteredChainView, t *testing.T) {
+	chainView FilteredChainView, chainViewInit chainViewInitFunc,
+	t *testing.T) {
 
 	// To start the test, we'll create to fresh outputs paying to the
 	// private key that we generated above.
@@ -253,7 +254,8 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	}
 }
 
-func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainView,
+func testUpdateFilterBackTrack(node *rpctest.Harness,
+	chainView FilteredChainView, chainViewInit chainViewInitFunc,
 	t *testing.T) {
 
 	// To start, we'll create a fresh output paying to the height generated
@@ -321,6 +323,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 	// After the block has been mined+notified we'll update the filter with
 	// a _prior_ height so a "rewind" occurs.
 	filter := []wire.OutPoint{*outPoint}
+
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to update filter: %v", err)
@@ -338,7 +341,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness, chainView FilteredChainVie
 }
 
 func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
-	t *testing.T) {
+	chainViewInit chainViewInitFunc, t *testing.T) {
 
 	// In this test, we'll test the manual filtration of blocks, which can
 	// be used by clients to manually rescan their sub-set of the UTXO set.
@@ -451,9 +454,211 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 		expectedTxns)
 }
 
+// testFilterBlockDisconnected triggers a reorg all the way back to genesis,
+// and a small 5 block reorg, ensuring the chainView notifies about
+// disconnected and connected blocks in the order we expect.
+func testFilterBlockDisconnected(node *rpctest.Harness,
+	chainView FilteredChainView, chainViewInit chainViewInitFunc,
+	t *testing.T) {
+
+	// Create a node that has a shorter chain than the main chain, so we
+	// can trigger a reorg.
+	reorgNode, err := rpctest.New(netParams, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	defer reorgNode.TearDown()
+
+	// This node's chain will be 105 blocks.
+	if err := reorgNode.SetUp(true, 5); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+
+	// Init a chain view that has this node as its block source.
+	cleanUpFunc, reorgView, err := chainViewInit(reorgNode.RPCConfig(),
+		reorgNode.P2PAddress())
+	if err != nil {
+		t.Fatalf("unable to create chain view: %v", err)
+	}
+	defer func() {
+		if cleanUpFunc != nil {
+			cleanUpFunc()
+		}
+	}()
+
+	if err = reorgView.Start(); err != nil {
+		t.Fatalf("unable to start btcd chain view: %v", err)
+	}
+	defer reorgView.Stop()
+
+	newBlocks := reorgView.FilteredBlocks()
+	disconnectedBlocks := reorgView.DisconnectedBlocks()
+
+	_, oldHeight, err := reorgNode.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// Now connect the node with the short chain to the main node, and wait
+	// for their chains to synchronize. The short chain will be reorged all
+	// the way back to genesis.
+	if err := rpctest.ConnectNode(reorgNode, node); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice := []*rpctest.Harness{node, reorgNode}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	_, newHeight, err := reorgNode.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// We should be getting oldHeight number of blocks marked as
+	// stale/disconnected. We expect to first get all stale blocks,
+	// then the new blocks. We also ensure a strict ordering.
+	for i := int32(0); i < oldHeight+newHeight; i++ {
+		select {
+		case block := <-newBlocks:
+			if i < oldHeight {
+				t.Fatalf("did not expect to get new block "+
+					"in iteration %d", i)
+			}
+			expectedHeight := uint32(i - oldHeight + 1)
+			if block.Height != expectedHeight {
+				t.Fatalf("expected to receive connected "+
+					"block at height %d, instead got at %d",
+					expectedHeight, block.Height)
+			}
+		case block := <-disconnectedBlocks:
+			if i >= oldHeight {
+				t.Fatalf("did not expect to get stale block "+
+					"in iteration %d", i)
+			}
+			expectedHeight := uint32(oldHeight - i)
+			if block.Height != expectedHeight {
+				t.Fatalf("expected to receive disconencted "+
+					"block at height %d, instead got at %d",
+					expectedHeight, block.Height)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timeout waiting for block")
+		}
+	}
+
+	// Now we trigger a small reorg, by disconnecting the nodes, mining
+	// a few blocks on each, then connecting them again.
+	peers, err := reorgNode.Node.GetPeerInfo()
+	if err != nil {
+		t.Fatalf("unable to get peer info: %v", err)
+	}
+	numPeers := len(peers)
+
+	// Disconnect the nodes.
+	err = reorgNode.Node.AddNode(node.P2PAddress(), rpcclient.ANRemove)
+	if err != nil {
+		t.Fatalf("unable to disconnect mining nodes: %v", err)
+	}
+
+	// Wait for disconnection
+	for {
+		peers, err = reorgNode.Node.GetPeerInfo()
+		if err != nil {
+			t.Fatalf("unable to get peer info: %v", err)
+		}
+		if len(peers) < numPeers {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Mine 10 blocks on the main chain, 5 on the chain that will be
+	// reorged out,
+	node.Node.Generate(10)
+	reorgNode.Node.Generate(5)
+
+	// 5 new blocks should get notified.
+	for i := uint32(0); i < 5; i++ {
+		select {
+		case block := <-newBlocks:
+			expectedHeight := uint32(newHeight) + i + 1
+			if block.Height != expectedHeight {
+				t.Fatalf("expected to receive connected "+
+					"block at height %d, instead got at %d",
+					expectedHeight, block.Height)
+			}
+		case <-disconnectedBlocks:
+			t.Fatalf("did not expect to get stale block "+
+				"in iteration %d", i)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("did not get connected block")
+		}
+	}
+
+	_, oldHeight, err = reorgNode.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// Now connect the two nodes, and wait for their chains to sync up.
+	if err := rpctest.ConnectNode(reorgNode, node); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	_, newHeight, err = reorgNode.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// We should get 5 disconnected, 10 connected blocks.
+	for i := uint32(0); i < 15; i++ {
+		select {
+		case block := <-newBlocks:
+			if i < 5 {
+				t.Fatalf("did not expect to get new block "+
+					"in iteration %d", i)
+			}
+			// The expected height for the connected block will be
+			// oldHeight - 5 (the 5 disconnected blocks) + (i-5)
+			// (subtract 5 since the 5 first iterations consumed
+			// disconnected blocks) + 1
+			expectedHeight := uint32(oldHeight) - 9 + i
+			if block.Height != expectedHeight {
+				t.Fatalf("expected to receive connected "+
+					"block at height %d, instead got at %d",
+					expectedHeight, block.Height)
+			}
+		case block := <-disconnectedBlocks:
+			if i >= 5 {
+				t.Fatalf("did not expect to get stale block "+
+					"in iteration %d", i)
+			}
+			expectedHeight := uint32(oldHeight) - i
+			if block.Height != expectedHeight {
+				t.Fatalf("expected to receive disconnected "+
+					"block at height %d, instead got at %d",
+					expectedHeight, block.Height)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("did not get disconnected block")
+		}
+	}
+
+	// Time for db access to finish between testcases.
+	time.Sleep(time.Millisecond * 500)
+}
+
+type chainViewInitFunc func(rpcInfo rpcclient.ConnConfig,
+	p2pAddr string) (func(), FilteredChainView, error)
+
 type testCase struct {
 	name string
-	test func(*rpctest.Harness, FilteredChainView, *testing.T)
+	test func(*rpctest.Harness, FilteredChainView, chainViewInitFunc,
+		*testing.T)
 }
 
 var chainViewTests = []testCase{
@@ -469,12 +674,15 @@ var chainViewTests = []testCase{
 		name: "fitler single block",
 		test: testFilterSingleBlock,
 	},
+	{
+		name: "filter block disconnected",
+		test: testFilterBlockDisconnected,
+	},
 }
 
 var interfaceImpls = []struct {
 	name          string
-	chainViewInit func(rpcInfo rpcclient.ConnConfig,
-		p2pAddr string) (func(), FilteredChainView, error)
+	chainViewInit chainViewInitFunc
 }{
 	{
 		name: "p2p_neutrino",
@@ -569,9 +777,9 @@ func TestFilteredChainView(t *testing.T) {
 		for _, chainViewTest := range chainViewTests {
 			testName := fmt.Sprintf("%v: %v", chainViewImpl.name,
 				chainViewTest.name)
-
 			success := t.Run(testName, func(t *testing.T) {
-				chainViewTest.test(miner, chainView, t)
+				chainViewTest.test(miner, chainView,
+					chainViewImpl.chainViewInit, t)
 			})
 
 			if !success {

@@ -3,8 +3,10 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"net"
 	"time"
 
@@ -86,12 +88,17 @@ var (
 	// number of channels, etc.
 	graphMetaBucket = []byte("graph-meta")
 
-	// pruneTipKey is a key within the above graphMetaBucket that stores
-	// the best known blockhash+height that the channel graph has been
-	// known to be pruned to. Once a new block is discovered, any channels
-	// that have been closed (by spending the outpoint) can safely be
-	// removed from the graph.
-	pruneTipKey = []byte("prune-tip")
+	// pruneLogBucket is a bucket within the graphMetaBucket that stores
+	// a mapping from the block height to the hash for the blocks used to
+	// prune the graph.
+	// Once a new block is discovered, any channels that have been closed
+	// (by spending the outpoint) can safely be removed from the graph, and
+	// the block is added to the prune log. We need to keep such a log for
+	// the case where a reorg happens, and we must "rewind" the state of the
+	// graph by removing channels that were previously confirmed. In such a
+	// case we'll remove all entries from the prune log with a block height
+	// that no longer exists.
+	pruneLogBucket = []byte("prune-log")
 
 	edgeBloomKey = []byte("edge-bloom")
 	nodeBloomKey = []byte("node-bloom")
@@ -560,11 +567,12 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *ChannelEdgeInfo) error {
 }
 
 const (
-	// pruneTipBytes is the total size of the value which stores the
-	// current prune tip of the graph. The prune tip indicates if the
-	// channel graph is in sync with the current UTXO state. The structure
-	// is: blockHash || blockHeight, taking 36 bytes total.
-	pruneTipBytes = 32 + 4
+	// pruneTipBytes is the total size of the value which stores a prune
+	// entry of the graph in the prune log. The "prune tip" is the last
+	// entry in the prune log, and indicates if the channel graph is in
+	// sync with the current UTXO state. The structure of the value
+	// is: blockHash, taking 32 bytes total.
+	pruneTipBytes = 32
 )
 
 // PruneGraph prunes newly closed channels from the channel graph in response
@@ -641,14 +649,21 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			return err
 		}
 
-		// With the graph pruned, update the current "prune tip" which
-		// can be used to check if the graph is fully synced with the
-		// current UTXO state.
+		pruneBucket, err := metaBucket.CreateBucketIfNotExists(pruneLogBucket)
+		if err != nil {
+			return err
+		}
+
+		// With the graph pruned, add a new entry to the prune log,
+		// which can be used to check if the graph is fully synced with
+		// the current UTXO state.
+		var blockHeightBytes [4]byte
+		byteOrder.PutUint32(blockHeightBytes[:], blockHeight)
+
 		var newTip [pruneTipBytes]byte
 		copy(newTip[:], blockHash[:])
-		byteOrder.PutUint32(newTip[32:], blockHeight)
 
-		return metaBucket.Put(pruneTipKey, newTip[:])
+		return pruneBucket.Put(blockHeightBytes[:], newTip[:])
 	})
 	if err != nil {
 		return nil, err
@@ -657,15 +672,115 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	return chansClosed, nil
 }
 
+// DisconnectBlockAtHeight is used to indicate that the block specified
+// by the passed height has been disconnected from the main chain. This
+// will "rewind" the graph back to the height below, deleting channels
+// that are no longer confirmed from the graph. The prune log will be
+// set to the last prune height valid for the remaining chain.
+// Channels that were removed from the graph resulting from the
+// disconnected block are returned.
+func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInfo,
+	error) {
+
+	// Every channel having a ShortChannelID starting at 'height'
+	// will no longer be confirmed.
+	startShortChanID := lnwire.ShortChannelID{
+		BlockHeight: height,
+	}
+
+	// Delete everything after this height from the db.
+	endShortChanID := lnwire.ShortChannelID{
+		BlockHeight: math.MaxUint32 & 0x00ffffff,
+		TxIndex:     math.MaxUint32 & 0x00ffffff,
+		TxPosition:  math.MaxUint16,
+	}
+	// The block height will be the 3 first bytes of the channel IDs.
+	var chanIDStart [8]byte
+	byteOrder.PutUint64(chanIDStart[:], startShortChanID.ToUint64())
+	var chanIDEnd [8]byte
+	byteOrder.PutUint64(chanIDEnd[:], endShortChanID.ToUint64())
+
+	// Keep track of the channels that are removed from the graph.
+	var removedChans []*ChannelEdgeInfo
+
+	if err := c.db.Update(func(tx *bolt.Tx) error {
+		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
+		if err != nil {
+			return err
+		}
+
+		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
+		if err != nil {
+			return err
+		}
+
+		// Scan from chanIDStart to chanIDEnd, deleting every
+		// found edge.
+		cursor := edgeIndex.Cursor()
+		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
+
+			edgeInfoReader := bytes.NewReader(v)
+			edgeInfo, err := deserializeChanEdgeInfo(edgeInfoReader)
+			if err != nil {
+				return err
+			}
+			err = delChannelByEdge(edges, edgeIndex, chanIndex,
+				&edgeInfo.ChannelPoint)
+			if err != nil && err != ErrEdgeNotFound {
+				return err
+			}
+
+			removedChans = append(removedChans, edgeInfo)
+		}
+
+		// Delete all the entries in the prune log having a height
+		// greater or equal to the block disconnected.
+		metaBucket, err := tx.CreateBucketIfNotExists(graphMetaBucket)
+		if err != nil {
+			return err
+		}
+
+		pruneBucket, err := metaBucket.CreateBucketIfNotExists(pruneLogBucket)
+		if err != nil {
+			return err
+		}
+
+		var pruneKeyStart [4]byte
+		byteOrder.PutUint32(pruneKeyStart[:], height)
+
+		var pruneKeyEnd [4]byte
+		byteOrder.PutUint32(pruneKeyEnd[:], math.MaxUint32)
+
+		pruneCursor := pruneBucket.Cursor()
+		for k, _ := pruneCursor.Seek(pruneKeyStart[:]); k != nil &&
+			bytes.Compare(k, pruneKeyEnd[:]) <= 0; k, _ = pruneCursor.Next() {
+			if err := pruneCursor.Delete(); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return removedChans, nil
+}
+
 // PruneTip returns the block height and hash of the latest block that has been
 // used to prune channels in the graph. Knowing the "prune tip" allows callers
 // to tell if the graph is currently in sync with the current best known UTXO
 // state.
 func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 	var (
-		currentTip [pruneTipBytes]byte
-		tipHash    chainhash.Hash
-		tipHeight  uint32
+		tipHash   chainhash.Hash
+		tipHeight uint32
 	)
 
 	err := c.db.View(func(tx *bolt.Tx) error {
@@ -673,23 +788,30 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 		if graphMeta == nil {
 			return ErrGraphNotFound
 		}
-
-		tipBytes := graphMeta.Get(pruneTipKey)
-		if tipBytes == nil {
+		pruneBucket := graphMeta.Bucket(pruneLogBucket)
+		if pruneBucket == nil {
 			return ErrGraphNeverPruned
 		}
-		copy(currentTip[:], tipBytes)
+
+		pruneCursor := pruneBucket.Cursor()
+
+		// The prune key with the largest block height will be our
+		// prune tip.
+		k, v := pruneCursor.Last()
+		if k == nil {
+			return ErrGraphNeverPruned
+		}
+
+		// Once we have the prune tip, the value will be the block hash,
+		// and the key the block height.
+		copy(tipHash[:], v[:])
+		tipHeight = byteOrder.Uint32(k[:])
 
 		return nil
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-
-	// Once we have the prune tip, the first 32 bytes are the block hash,
-	// with the latter 4 bytes being the block height.
-	copy(tipHash[:], currentTip[:32])
-	tipHeight = byteOrder.Uint32(currentTip[32:])
 
 	return &tipHash, tipHeight, nil
 }
@@ -778,6 +900,10 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 	// the keys which house both of the directed edges for this
 	// channel.
 	nodeKeys := edgeIndex.Get(chanID)
+	if nodeKeys == nil {
+		return fmt.Errorf("could not find nodekeys for chanID %v",
+			chanID)
+	}
 
 	// The edge key is of the format pubKey || chanID. First we
 	// construct the latter half, populating the channel ID.

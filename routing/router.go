@@ -185,8 +185,13 @@ type ChannelRouter struct {
 	routeCache    map[routeTuple][]*Route
 
 	// newBlocks is a channel in which new blocks connected to the end of
-	// the main chain are sent over.
+	// the main chain are sent over, and blocks updated after a call to
+	// UpdateFilter.
 	newBlocks <-chan *chainview.FilteredBlock
+
+	// staleBlocks is a channel in which blocks disconnected fromt the end
+	// of our currently known best chain are sent over.
+	staleBlocks <-chan *chainview.FilteredBlock
 
 	// networkUpdates is a channel that carries new topology updates
 	// messages from outside the ChannelRouter to be processed by the
@@ -266,6 +271,7 @@ func (r *ChannelRouter) Start() error {
 	// Once the instance is active, we'll fetch the channel we'll receive
 	// notifications over.
 	r.newBlocks = r.cfg.ChainView.FilteredBlocks()
+	r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
 
 	// Before we begin normal operation of the router, we first need to
 	// synchronize the channel graph to the latest state of the UTXO set.
@@ -350,6 +356,46 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	// prune the channel graph as we're already fully in sync.
 	case bestHash.IsEqual(pruneHash) && uint32(bestHeight) == pruneHeight:
 		return nil
+	}
+
+	// If the main chain blockhash at prune height is different from the
+	// prune hash, this might indicate the database is on a stale branch.
+	mainBlockHash, err := r.cfg.Chain.GetBlockHash(int64(pruneHeight))
+	if err != nil {
+		return err
+	}
+
+	// While we are on a stale branch of the chain, walk backwards to find
+	// first common block.
+	for !pruneHash.IsEqual(mainBlockHash) {
+		log.Infof("channel graph is stale. Disconnecting block %v "+
+			"(hash=%v)", pruneHeight, pruneHash)
+		// Prune the graph for every channel that was opened at height
+		// >= pruneHeigth.
+		_, err := r.cfg.Graph.DisconnectBlockAtHeight(pruneHeight)
+		if err != nil {
+			return err
+		}
+
+		pruneHash, pruneHeight, err = r.cfg.Graph.PruneTip()
+		if err != nil {
+			switch {
+			// If at this point the graph has never been pruned, we
+			// can exit as this entails we are back to the point
+			// where it hasn't seen any block or created channels,
+			// alas there's nothing left to prune.
+			case err == channeldb.ErrGraphNeverPruned:
+				return nil
+			case err == channeldb.ErrGraphNotFound:
+				return nil
+			default:
+				return err
+			}
+		}
+		mainBlockHash, err = r.cfg.Chain.GetBlockHash(int64(pruneHeight))
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Infof("Syncing channel graph from height=%v (hash=%v) to height=%v "+
@@ -448,6 +494,35 @@ func (r *ChannelRouter) networkHandler() {
 			// TODO(roasbeef): remove all unconnected vertexes
 			// after N blocks pass with no corresponding
 			// announcements.
+
+		case chainUpdate, ok := <-r.staleBlocks:
+			// If the channel has been closed, then this indicates
+			// the daemon is shutting down, so we exit ourselves.
+			if !ok {
+				return
+			}
+
+			// Since this block is stale, we update our best height
+			// to the previous block.
+			blockHeight := uint32(chainUpdate.Height)
+			r.bestHeight = blockHeight - 1
+
+			// Update the channel graph to reflect that this block
+			// was disconnected.
+			_, err := r.cfg.Graph.DisconnectBlockAtHeight(blockHeight)
+			if err != nil {
+				log.Errorf("unable to prune graph with stale "+
+					"block: %v", err)
+				continue
+			}
+
+			// Invalidate the route cache, as some channels might
+			// not be confirmed anymore.
+			r.routeCacheMtx.Lock()
+			r.routeCache = make(map[routeTuple][]*Route)
+			r.routeCacheMtx.Unlock()
+
+			// TODO(halseth): notify client about the reorg?
 
 		// A new block has arrived, so we can prune the channel graph
 		// of any channels which were closed in the block.

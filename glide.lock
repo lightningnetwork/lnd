@@ -1,4 +1,4 @@
-hash: 455c5f00a9528a6b9be73e74ab7fbd8b184c5b53a4f3db409033af31721c275b
+hash: 68c736061d5d8b10cfc314a86b8ed8cb63208d7dca7008d740f230b51b824374
 updated: 2017-10-30T19:08:26.782081708-07:00
 imports:
 - name: github.com/aead/chacha20
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 01dcf832a5783e57ca6bc8d7f06c3456d2e00d88
+  version: 2fb43209a6f54fbf78ba71b50623503db611c371
   subpackages:
   - filterdb
   - headerfs
@@ -87,7 +87,7 @@ imports:
   subpackages:
   - internal/socket
 - name: github.com/roasbeef/btcd
-  version: a64d018fd91151b842522d64771610712565d30a
+  version: be2fceadae0af7355eca1eb3716c6f9c88d4fc20
   subpackages:
   - addrmgr
   - blockchain
@@ -105,7 +105,7 @@ imports:
 - name: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - name: github.com/roasbeef/btcutil
-  version: 1584022350b4400b511beab6a013f0189adeef40
+  version: c4646eb27366f887b9e034ce91510fe720a31201
   subpackages:
   - base58
   - bech32
@@ -116,7 +116,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: fbd5b82e8efe29729e2c7ebed5900a210e931df2
+  version: ba1ef885d5d280a5fd222bdf78f708c855f22c81
   subpackages:
   - chain
   - internal/helpers

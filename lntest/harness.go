@@ -224,7 +224,7 @@ out:
 // TearDownAll tears down all active nodes within the test lightning network.
 func (n *NetworkHarness) TearDownAll() error {
 	for _, node := range n.activeNodes {
-		if err := node.Shutdown(); err != nil {
+		if err := n.ShutdownNode(node); err != nil {
 			return err
 		}
 	}
@@ -339,6 +339,17 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 // crashes, etc.
 func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
 	return node.restart(n.lndErrorChan, callback)
+}
+
+// ShutdownNode stops an active lnd process and returns when the process has
+// exited and any temporary directories have been cleaned up.
+func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
+	if err := node.shutdown(); err != nil {
+		return err
+	}
+
+	delete(n.activeNodes, node.NodeID)
+	return nil
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?

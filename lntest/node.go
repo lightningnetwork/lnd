@@ -415,9 +415,9 @@ func (hn *HarnessNode) restart(errChan chan error, callback func() error) error 
 	return hn.start(errChan)
 }
 
-// Shutdown stops the active lnd process and clean up any temporary directories
+// shutdown stops the active lnd process and cleans up any temporary directories
 // created along the way.
-func (hn *HarnessNode) Shutdown() error {
+func (hn *HarnessNode) shutdown() error {
 	if err := hn.stop(); err != nil {
 		return err
 	}

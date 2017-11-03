@@ -572,6 +572,8 @@ func testOpenChannelAfterReorg(net *networkHarness, t *harnessTest) {
 			"be on the same height", newNodeHeight, orgNodeHeight)
 	}
 
+	time.Sleep(time.Second * 2)
+
 	// Since the fundingtx was reorged out, Alice should now have no edges
 	// in her graph.
 	req = &lnrpc.ChannelGraphRequest{}

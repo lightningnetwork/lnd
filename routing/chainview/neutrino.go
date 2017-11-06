@@ -313,20 +313,19 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint,
 	updateHeight uint32) error {
+
 	log.Debugf("Updating chain filter with new UTXO's: %v", ops)
 
-	// First, we'll update the current chain view, by
-	// adding any new UTXO's, ignoring duplicates in the
-	// process.
+	// First, we'll update the current chain view, by adding any new
+	// UTXO's, ignoring duplicates in the process.
 	c.filterMtx.Lock()
 	for _, op := range ops {
 		c.chainFilter[op] = struct{}{}
 	}
 	c.filterMtx.Unlock()
 
-	// With our internal chain view update, we'll craft a
-	// new update to the chainView which includes our new
-	// UTXO's, and current update height.
+	// With our internal chain view update, we'll craft a new update to the
+	// chainView which includes our new UTXO's, and current update height.
 	rescanUpdate := []neutrino.UpdateOption{
 		neutrino.AddOutPoints(ops...),
 		neutrino.Rewind(updateHeight),

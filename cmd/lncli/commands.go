@@ -22,6 +22,8 @@ import (
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -54,6 +56,31 @@ func printRespJSON(resp proto.Message) {
 	fmt.Println(jsonStr)
 }
 
+// actionDecorator is used to add additional information and error handling
+// to command actions.
+func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
+	return func(c *cli.Context) error {
+		if err := f(c); err != nil {
+			// lnd might be active, but not possible to contact
+			// using RPC if the wallet is encrypted. If we get
+			// error code Unimplemented, it means that lnd is
+			// running, but the RPC server is not active yet (only
+			// WalletUnlocker server active) and most likely this
+			// is because of an encrypted wallet.
+			s, ok := status.FromError(err)
+			if ok && s.Code() == codes.Unimplemented {
+				return fmt.Errorf("Wallet is encrypted. " +
+					"Please unlock using 'lncli unlock', " +
+					"or set password using 'lncli create'" +
+					" if this is the first time starting " +
+					"lnd.")
+			}
+			return err
+		}
+		return nil
+	}
+}
+
 var newAddressCommand = cli.Command{
 	Name:      "newaddress",
 	Usage:     "generates a new address.",
@@ -62,7 +89,7 @@ var newAddressCommand = cli.Command{
 		"   - p2wkh:  Push to witness key hash\n" +
 		"   - np2wkh: Push to nested witness key hash\n" +
 		"   - p2pkh:  Push to public key hash (can't be used to fund channels)",
-	Action: newAddress,
+	Action: actionDecorator(newAddress),
 }
 
 func newAddress(ctx *cli.Context) error {
@@ -115,7 +142,7 @@ var sendCoinsCommand = cli.Command{
 			Usage: "the number of bitcoin denominated in satoshis to send",
 		},
 	},
-	Action: sendCoins,
+	Action: actionDecorator(sendCoins),
 }
 
 func sendCoins(ctx *cli.Context) error {
@@ -180,7 +207,7 @@ var sendManyCommand = cli.Command{
 		"   'send-json-string' decodes addresses and the amount to send " +
 		"respectively in the following format.\n" +
 		`   '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'`,
-	Action: sendMany,
+	Action: actionDecorator(sendMany),
 }
 
 func sendMany(ctx *cli.Context) error {
@@ -218,7 +245,7 @@ var connectCommand = cli.Command{
 				"           If not, the call will be synchronous.",
 		},
 	},
-	Action: connectPeer,
+	Action: actionDecorator(connectPeer),
 }
 
 func connectPeer(ctx *cli.Context) error {
@@ -262,7 +289,7 @@ var disconnectCommand = cli.Command{
 				"to disconnect from",
 		},
 	},
-	Action: disconnectPeer,
+	Action: actionDecorator(disconnectPeer),
 }
 
 func disconnectPeer(ctx *cli.Context) error {
@@ -329,7 +356,7 @@ var openChannelCommand = cli.Command{
 			Usage: "block and wait until the channel is fully open",
 		},
 	},
-	Action: openChannel,
+	Action: actionDecorator(openChannel),
 }
 
 func openChannel(ctx *cli.Context) error {
@@ -478,7 +505,7 @@ var closeChannelCommand = cli.Command{
 			Usage: "block until the channel is closed",
 		},
 	},
-	Action: closeChannel,
+	Action: actionDecorator(closeChannel),
 }
 
 func closeChannel(ctx *cli.Context) error {
@@ -583,7 +610,7 @@ func closeChannel(ctx *cli.Context) error {
 var listPeersCommand = cli.Command{
 	Name:   "listpeers",
 	Usage:  "List all active, currently connected peers.",
-	Action: listPeers,
+	Action: actionDecorator(listPeers),
 }
 
 func listPeers(ctx *cli.Context) error {
@@ -604,7 +631,7 @@ func listPeers(ctx *cli.Context) error {
 var createCommand = cli.Command{
 	Name:   "create",
 	Usage:  "used to set the wallet password at lnd startup",
-	Action: create,
+	Action: actionDecorator(create),
 }
 
 func create(ctx *cli.Context) error {
@@ -644,7 +671,7 @@ func create(ctx *cli.Context) error {
 var unlockCommand = cli.Command{
 	Name:   "unlock",
 	Usage:  "unlock encrypted wallet at lnd startup",
-	Action: unlock,
+	Action: actionDecorator(unlock),
 }
 
 func unlock(ctx *cli.Context) error {
@@ -680,7 +707,7 @@ var walletBalanceCommand = cli.Command{
 				"calculating the wallet's balance",
 		},
 	},
-	Action: walletBalance,
+	Action: actionDecorator(walletBalance),
 }
 
 func walletBalance(ctx *cli.Context) error {
@@ -703,7 +730,7 @@ func walletBalance(ctx *cli.Context) error {
 var channelBalanceCommand = cli.Command{
 	Name:   "channelbalance",
 	Usage:  "returns the sum of the total available channel balance across all open channels",
-	Action: channelBalance,
+	Action: actionDecorator(channelBalance),
 }
 
 func channelBalance(ctx *cli.Context) error {
@@ -724,7 +751,7 @@ func channelBalance(ctx *cli.Context) error {
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
 	Usage:  "returns basic information related to the active daemon",
-	Action: getInfo,
+	Action: actionDecorator(getInfo),
 }
 
 func getInfo(ctx *cli.Context) error {
@@ -760,7 +787,7 @@ var pendingChannelsCommand = cli.Command{
 				"process of being opened or closed",
 		},
 	},
-	Action: pendingChannels,
+	Action: actionDecorator(pendingChannels),
 }
 
 func pendingChannels(ctx *cli.Context) error {
@@ -788,7 +815,7 @@ var listChannelsCommand = cli.Command{
 			Usage: "only list channels which are currently active",
 		},
 	},
-	Action: listChannels,
+	Action: actionDecorator(listChannels),
 }
 
 func listChannels(ctx *cli.Context) error {
@@ -965,7 +992,7 @@ var payInvoiceCommand = cli.Command{
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
 	},
-	Action: payInvoice,
+	Action: actionDecorator(payInvoice),
 }
 
 func payInvoice(ctx *cli.Context) error {
@@ -1037,7 +1064,7 @@ var addInvoiceCommand = cli.Command{
 				"is implied.",
 		},
 	},
-	Action: addInvoice,
+	Action: actionDecorator(addInvoice),
 }
 
 func addInvoice(ctx *cli.Context) error {
@@ -1125,7 +1152,7 @@ var lookupInvoiceCommand = cli.Command{
 				"should be a hex-encoded string",
 		},
 	},
-	Action: lookupInvoice,
+	Action: actionDecorator(lookupInvoice),
 }
 
 func lookupInvoice(ctx *cli.Context) error {
@@ -1174,7 +1201,7 @@ var listInvoicesCommand = cli.Command{
 				"those that are currently unsettled",
 		},
 	},
-	Action: listInvoices,
+	Action: actionDecorator(listInvoices),
 }
 
 func listInvoices(ctx *cli.Context) error {
@@ -1211,7 +1238,7 @@ var describeGraphCommand = cli.Command{
 			Usage: "If set, then an image of graph will be generated and displayed. The generated image is stored within the current directory with a file name of 'graph.svg'",
 		},
 	},
-	Action: describeGraph,
+	Action: actionDecorator(describeGraph),
 }
 
 func describeGraph(ctx *cli.Context) error {
@@ -1386,7 +1413,7 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 var listPaymentsCommand = cli.Command{
 	Name:   "listpayments",
 	Usage:  "list all outgoing payments",
-	Action: listPayments,
+	Action: actionDecorator(listPayments),
 }
 
 func listPayments(ctx *cli.Context) error {
@@ -1416,7 +1443,7 @@ var getChanInfoCommand = cli.Command{
 			Usage: "the 8-byte compact channel ID to query for",
 		},
 	},
-	Action: getChanInfo,
+	Action: actionDecorator(getChanInfo),
 }
 
 func getChanInfo(ctx *cli.Context) error {
@@ -1463,7 +1490,7 @@ var getNodeInfoCommand = cli.Command{
 				"node",
 		},
 	},
-	Action: getNodeInfo,
+	Action: actionDecorator(getNodeInfo),
 }
 
 func getNodeInfo(ctx *cli.Context) error {
@@ -1512,7 +1539,7 @@ var queryRoutesCommand = cli.Command{
 			Usage: "the amount to send expressed in satoshis",
 		},
 	},
-	Action: queryRoutes,
+	Action: actionDecorator(queryRoutes),
 }
 
 func queryRoutes(ctx *cli.Context) error {
@@ -1569,7 +1596,7 @@ var getNetworkInfoCommand = cli.Command{
 	Usage: "getnetworkinfo",
 	Description: "returns a set of statistics pertaining to the known channel " +
 		"graph",
-	Action: getNetworkInfo,
+	Action: actionDecorator(getNetworkInfo),
 }
 
 func getNetworkInfo(ctx *cli.Context) error {
@@ -1602,7 +1629,7 @@ var debugLevelCommand = cli.Command{
 			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with logging levels for each",
 		},
 	},
-	Action: debugLevel,
+	Action: actionDecorator(debugLevel),
 }
 
 func debugLevel(ctx *cli.Context) error {
@@ -1634,7 +1661,7 @@ var decodePayReqComamnd = cli.Command{
 			Usage: "the bech32 encoded payment request",
 		},
 	},
-	Action: decodePayReq,
+	Action: actionDecorator(decodePayReq),
 }
 
 func decodePayReq(ctx *cli.Context) error {
@@ -1668,7 +1695,7 @@ var listChainTxnsCommand = cli.Command{
 	Name:        "listchaintxns",
 	Usage:       "List transactions from the wallet.",
 	Description: "List all transactions an address of the wallet was involved in.",
-	Action:      listChainTxns,
+	Action:      actionDecorator(listChainTxns),
 }
 
 func listChainTxns(ctx *cli.Context) error {
@@ -1690,7 +1717,7 @@ var stopCommand = cli.Command{
 	Name:        "stop",
 	Usage:       "Stop and shutdown the daemon.",
 	Description: "Gracefully stop all daemon subsystems before stopping the daemon itself. This is equivalent to stopping it using CTRL-C.",
-	Action:      stopDaemon,
+	Action:      actionDecorator(stopDaemon),
 }
 
 func stopDaemon(ctx *cli.Context) error {
@@ -1718,7 +1745,7 @@ var signMessageCommand = cli.Command{
 			Usage: "the message to sign",
 		},
 	},
-	Action: signMessage,
+	Action: actionDecorator(signMessage),
 }
 
 func signMessage(ctx *cli.Context) error {
@@ -1764,7 +1791,7 @@ var verifyMessageCommand = cli.Command{
 			Usage: "the zbase32 encoded signature of the message",
 		},
 	},
-	Action: verifyMessage,
+	Action: actionDecorator(verifyMessage),
 }
 
 func verifyMessage(ctx *cli.Context) error {
@@ -1814,7 +1841,7 @@ var feeReportCommand = cli.Command{
 	Description: "Returns the current fee policies of all active " +
 		"channels. Fee policies can be updated using the " +
 		"updateFees command. ",
-	Action: feeReport,
+	Action: actionDecorator(feeReport),
 }
 
 func feeReport(ctx *cli.Context) error {
@@ -1861,7 +1888,7 @@ var updateFeesCommand = cli.Command{
 				"will be updated. Takes the form of: txid:output_index",
 		},
 	},
-	Action: updateFees,
+	Action: actionDecorator(updateFees),
 }
 
 func updateFees(ctx *cli.Context) error {

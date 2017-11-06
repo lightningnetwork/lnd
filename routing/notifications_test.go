@@ -213,6 +213,8 @@ type mockChainView struct {
 	staleBlocks chan *chainview.FilteredBlock
 
 	filter map[wire.OutPoint]struct{}
+
+	quit chan struct{}
 }
 
 // A compile time check to ensure mockChainView implements the
@@ -224,6 +226,7 @@ func newMockChainView() *mockChainView {
 		newBlocks:   make(chan *chainview.FilteredBlock, 10),
 		staleBlocks: make(chan *chainview.FilteredBlock, 10),
 		filter:      make(map[wire.OutPoint]struct{}),
+		quit:        make(chan struct{}),
 	}
 }
 
@@ -244,10 +247,14 @@ func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
 	m.RLock()
 	defer m.RUnlock()
 
-	m.newBlocks <- &chainview.FilteredBlock{
+	select {
+	case m.newBlocks <- &chainview.FilteredBlock{
 		Hash:         hash,
 		Height:       height,
 		Transactions: txns,
+	}:
+	case <-m.quit:
+		return
 	}
 }
 
@@ -257,10 +264,14 @@ func (m *mockChainView) notifyStaleBlock(hash chainhash.Hash, height uint32,
 	m.RLock()
 	defer m.RUnlock()
 
-	m.staleBlocks <- &chainview.FilteredBlock{
+	select {
+	case m.staleBlocks <- &chainview.FilteredBlock{
 		Hash:         hash,
 		Height:       height,
 		Transactions: txns,
+	}:
+	case <-m.quit:
+		return
 	}
 }
 

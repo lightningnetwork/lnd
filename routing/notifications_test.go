@@ -212,6 +212,8 @@ type mockChainView struct {
 	newBlocks   chan *chainview.FilteredBlock
 	staleBlocks chan *chainview.FilteredBlock
 
+	chain lnwallet.BlockChainIO
+
 	filter map[wire.OutPoint]struct{}
 
 	quit chan struct{}
@@ -221,13 +223,21 @@ type mockChainView struct {
 // chainview.FilteredChainView.
 var _ chainview.FilteredChainView = (*mockChainView)(nil)
 
-func newMockChainView() *mockChainView {
+func newMockChainView(chain lnwallet.BlockChainIO) *mockChainView {
 	return &mockChainView{
+		chain:       chain,
 		newBlocks:   make(chan *chainview.FilteredBlock, 10),
 		staleBlocks: make(chan *chainview.FilteredBlock, 10),
 		filter:      make(map[wire.OutPoint]struct{}),
 		quit:        make(chan struct{}),
 	}
+}
+
+func (m *mockChainView) Reset() {
+	m.filter = make(map[wire.OutPoint]struct{})
+	m.quit = make(chan struct{})
+	m.newBlocks = make(chan *chainview.FilteredBlock, 10)
+	m.staleBlocks = make(chan *chainview.FilteredBlock, 10)
 }
 
 func (m *mockChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
@@ -316,6 +326,7 @@ func (m *mockChainView) Start() error {
 }
 
 func (m *mockChainView) Stop() error {
+	close(m.quit)
 	return nil
 }
 

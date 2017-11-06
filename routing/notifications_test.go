@@ -273,7 +273,31 @@ func (m *mockChainView) DisconnectedBlocks() <-chan *chainview.FilteredBlock {
 }
 
 func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.FilteredBlock, error) {
-	return &chainview.FilteredBlock{}, nil
+
+	block, err := m.chain.GetBlock(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredBlock := &chainview.FilteredBlock{}
+	for _, tx := range block.Transactions {
+		for _, txIn := range tx.TxIn {
+			prevOp := txIn.PreviousOutPoint
+			if _, ok := m.filter[prevOp]; ok {
+				filteredBlock.Transactions = append(
+					filteredBlock.Transactions, tx,
+				)
+
+				m.Lock()
+				delete(m.filter, prevOp)
+				m.Unlock()
+
+				break
+			}
+		}
+	}
+
+	return filteredBlock, nil
 }
 
 func (m *mockChainView) Start() error {

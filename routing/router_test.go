@@ -104,7 +104,7 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 	// any p2p functionality, the peer send and switch send messages won't
 	// be populated.
 	chain := newMockChain(startingHeight)
-	chainView := newMockChainView()
+	chainView := newMockChainView(chain)
 	router, err := New(Config{
 		Graph:     graph,
 		Chain:     chain,
@@ -123,18 +123,20 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 		return nil, nil, fmt.Errorf("unable to start router: %v", err)
 	}
 
-	cleanUp := func() {
-		router.Stop()
-		cleanup()
-	}
-
-	return &testCtx{
+	ctx := &testCtx{
 		router:    router,
 		graph:     graph,
 		aliases:   aliasMap,
 		chain:     chain,
 		chainView: chainView,
-	}, cleanUp, nil
+	}
+
+	cleanUp := func() {
+		ctx.router.Stop()
+		cleanup()
+	}
+
+	return ctx, cleanUp, nil
 }
 
 // TestFindRoutesFeeSorting asserts that routes found by the FindRoutes method
@@ -956,8 +958,8 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 
 }
 
-// TestDisconnectedBlocks checks that the router handles a reorg happening
-// when it is active.
+// TestDisconnectedBlocks checks that the router handles a reorg happening when
+// it is active.
 func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -970,11 +972,8 @@ func TestDisconnectedBlocks(t *testing.T) {
 
 	const chanValue = 10000
 
-	// chanID1 will not be reorged out.
-	var chanID1 uint64
-
-	// chanID2 will be reorged out.
-	var chanID2 uint64
+	// chanID1 will not be reorged out, while chanID2 will be reorged out.
+	var chanID1, chanID2 uint64
 
 	// Create 10 common blocks, confirming chanID1.
 	for i := uint32(1); i <= 10; i++ {
@@ -1101,10 +1100,9 @@ func TestDisconnectedBlocks(t *testing.T) {
 		t.Fatalf("could not find edge in graph")
 	}
 
-	// Create a 15 block fork. We first let the chainView notify the
-	// router about stale blocks, before sending the now connected
-	// blocks. We do this because we expect this order from the
-	// chainview.
+	// Create a 15 block fork. We first let the chainView notify the router
+	// about stale blocks, before sending the now connected blocks. We do
+	// this because we expect this order from the chainview.
 	for i := len(minorityChain) - 1; i >= 0; i-- {
 		block := minorityChain[i]
 		height := uint32(forkHeight) + uint32(i) + 1
@@ -1125,8 +1123,8 @@ func TestDisconnectedBlocks(t *testing.T) {
 	// Give time to process new blocks
 	time.Sleep(time.Millisecond * 500)
 
-	// The  with chanID2 should not be in the database anymore, since it is
-	// not confirmed on the longest chain. chanID1 should still be.
+	// chanID2 should not be in the database anymore, since it is not
+	// confirmed on the longest chain. chanID1 should still be.
 	_, _, has, err = ctx.graph.HasChannelEdge(chanID1)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)

@@ -273,14 +273,10 @@ func (r *ChannelRouter) Start() error {
 	r.newBlocks = r.cfg.ChainView.FilteredBlocks()
 	r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
 
-	// Before we begin normal operation of the router, we first need to
-	// synchronize the channel graph to the latest state of the UTXO set.
-	if err := r.syncGraphWithChain(); err != nil {
-		return err
-	}
-
-	// Once we've concluded our manual block pruning, we'll constrcut and
+	// Before we perform our manual block pruning, we'll construct and
 	// apply a fresh chain filter to the active FilteredChainView instance.
+	// We do this before, as otherwise we may miss on-chain events as the
+	// filter hasn't properly been applied.
 	channelView, err := r.cfg.Graph.ChannelView()
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		return err
@@ -288,6 +284,12 @@ func (r *ChannelRouter) Start() error {
 	log.Infof("Filtering chain using %v channels active", len(channelView))
 	err = r.cfg.ChainView.UpdateFilter(channelView, r.bestHeight)
 	if err != nil {
+		return err
+	}
+
+	// Before we begin normal operation of the router, we first need to
+	// synchronize the channel graph to the latest state of the UTXO set.
+	if err := r.syncGraphWithChain(); err != nil {
 		return err
 	}
 
@@ -371,7 +373,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		log.Infof("channel graph is stale. Disconnecting block %v "+
 			"(hash=%v)", pruneHeight, pruneHash)
 		// Prune the graph for every channel that was opened at height
-		// >= pruneHeigth.
+		// >= pruneHeight.
 		_, err := r.cfg.Graph.DisconnectBlockAtHeight(pruneHeight)
 		if err != nil {
 			return err
@@ -431,7 +433,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		// With the spent outputs gathered, attempt to prune the
 		// channel graph, also passing in the hash+height of the block
 		// being pruned so the prune tip can be updated.
-		closedChans, err := r.cfg.Graph.PruneGraph(spentOutputs, nextHash,
+		closedChans, err := r.cfg.Graph.PruneGraph(spentOutputs,
+			nextHash,
 			nextHeight)
 		if err != nil {
 			return err

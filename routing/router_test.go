@@ -1234,7 +1234,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 	if chainHeight != 107 {
 		t.Fatalf("incorrect chain height: expected %v, got %v",
-			chainHeight)
+			107, chainHeight)
 	}
 
 	// Next, we'll "shut down" the router in order to simulate downtime.
@@ -1276,7 +1276,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 	if chainHeight != 112 {
 		t.Fatalf("incorrect chain height: expected %v, got %v",
-			chainHeight)
+			112, chainHeight)
 	}
 
 	// Now we'll re-start the ChannelRouter. It should recognize that it's

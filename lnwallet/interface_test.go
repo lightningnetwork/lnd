@@ -1177,17 +1177,29 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	// one block on the passed miner and two on the created miner,
 	// connecting them, and waiting for them to sync.
 	for i := 0; i < 5; i++ {
+		peers, err := r2.Node.GetPeerInfo()
+		if err != nil {
+			t.Fatalf("unable to get peer info: %v", err)
+		}
+		numPeers := len(peers)
 		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANRemove)
 		if err != nil {
 			t.Fatalf("unable to disconnect mining nodes: %v", err)
 		}
 		// Wait for disconnection
+		timeout := time.After(30 * time.Second)
 		for true {
-			peers, err := r2.Node.GetPeerInfo()
+			// Allow for timeout
+			select {
+			case <-timeout:
+				t.Fatalf("timeout waiting for miner disconnect")
+			default:
+			}
+			peers, err = r2.Node.GetPeerInfo()
 			if err != nil {
 				t.Fatalf("unable to get peer info: %v", err)
 			}
-			if len(peers) == 0 {
+			if len(peers) < numPeers {
 				break
 			}
 			time.Sleep(100 * time.Millisecond)

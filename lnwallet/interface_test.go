@@ -1391,7 +1391,7 @@ func TestLightningWallet(t *testing.T) {
 		walletType := walletDriver.WalletType
 		switch walletType {
 		case "btcwallet":
-			aliceChainRpc, err := chain.NewRPCClient(netParams,
+			aliceChainRPC, err := chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
 			if err != nil {
@@ -1402,7 +1402,7 @@ func TestLightningWallet(t *testing.T) {
 				HdSeed:       aliceHDSeed[:],
 				DataDir:      tempTestDirAlice,
 				NetParams:    netParams,
-				ChainSource:  aliceChainRpc,
+				ChainSource:  aliceChainRPC,
 				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
 			}
 			aliceWalletController, err = walletDriver.New(aliceWalletConfig)
@@ -1411,7 +1411,7 @@ func TestLightningWallet(t *testing.T) {
 			}
 			aliceSigner = aliceWalletController.(*btcwallet.BtcWallet)
 
-			bobChainRpc, err := chain.NewRPCClient(netParams,
+			bobChainRPC, err := chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
 			if err != nil {
@@ -1422,7 +1422,7 @@ func TestLightningWallet(t *testing.T) {
 				HdSeed:       bobHDSeed[:],
 				DataDir:      tempTestDirBob,
 				NetParams:    netParams,
-				ChainSource:  bobChainRpc,
+				ChainSource:  bobChainRPC,
 				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
 			}
 			bobWalletController, err = walletDriver.New(bobWalletConfig)

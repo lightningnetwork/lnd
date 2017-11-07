@@ -1142,3 +1142,155 @@ func TestDisconnectedBlocks(t *testing.T) {
 	}
 
 }
+
+// TestChansClosedOfflinePruneGraph tests that if channels we know of are
+// closed while we're offline, then once we resume operation of the
+// ChannelRouter, then the channels are properly pruned.
+func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	const chanValue = 10000
+
+	// First, we'll create a channel, to be mined shortly at height 102.
+	block102 := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{},
+	}
+	nextHeight := startingBlockHeight + 1
+	fundingTx1, chanUTXO, chanID1, err := createChannelEdge(ctx,
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		chanValue, uint32(nextHeight))
+	if err != nil {
+		t.Fatalf("unable create channel edge: %v", err)
+	}
+	block102.Transactions = append(block102.Transactions, fundingTx1)
+	ctx.chain.addBlock(block102, uint32(nextHeight), rand.Uint32())
+	ctx.chain.setBestBlock(int32(nextHeight))
+	ctx.chainView.notifyBlock(block102.BlockHash(), uint32(nextHeight),
+		[]*wire.MsgTx{})
+
+	// We'll now create the edges and nodes within the database required
+	// for the ChannelRouter to properly recognize the channel we added
+	// above.
+	node1, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	node2, err := createTestNode()
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	edge1 := &channeldb.ChannelEdgeInfo{
+		ChannelID:   chanID1.ToUint64(),
+		NodeKey1:    node1.PubKey,
+		NodeKey2:    node2.PubKey,
+		BitcoinKey1: bitcoinKey1,
+		BitcoinKey2: bitcoinKey2,
+		AuthProof: &channeldb.ChannelAuthProof{
+			NodeSig1:    testSig,
+			NodeSig2:    testSig,
+			BitcoinSig1: testSig,
+			BitcoinSig2: testSig,
+		},
+	}
+	if err := ctx.router.AddEdge(edge1); err != nil {
+		t.Fatalf("unable to add edge: %v", err)
+	}
+
+	// The router should now be aware of the channel we created above.
+	_, _, hasChan, err := ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if !hasChan {
+		t.Fatalf("could not find edge in graph")
+	}
+
+	// With the transaction included, and the router's database state
+	// updated, we'll now mine 5 additional blocks on top of it.
+	for i := 0; i < 5; i++ {
+		nextHeight++
+
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+		ctx.chain.addBlock(block, uint32(nextHeight), rand.Uint32())
+		ctx.chain.setBestBlock(int32(nextHeight))
+		ctx.chainView.notifyBlock(block.BlockHash(), uint32(nextHeight),
+			[]*wire.MsgTx{})
+	}
+
+	// At this point, our starting height should be 107.
+	_, chainHeight, err := ctx.chain.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get best block: %v", err)
+	}
+	if chainHeight != 107 {
+		t.Fatalf("incorrect chain height: expected %v, got %v",
+			chainHeight)
+	}
+
+	// Next, we'll "shut down" the router in order to simulate downtime.
+	if err := ctx.router.Stop(); err != nil {
+		t.Fatalf("unable to shutdown router: %v", err)
+	}
+
+	// While the router is "offline" we'll mine 5 additional blocks, with
+	// the second block closing the channel we created above.
+	for i := 0; i < 5; i++ {
+		nextHeight++
+
+		block := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+		}
+
+		if i == 2 {
+			// For the second block, we'll add a transaction that
+			// closes the channel we created above by spending the
+			// output.
+			closingTx := wire.NewMsgTx(2)
+			closingTx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: *chanUTXO,
+			})
+			block.Transactions = append(block.Transactions,
+				closingTx)
+		}
+
+		ctx.chain.addBlock(block, uint32(nextHeight), rand.Uint32())
+		ctx.chain.setBestBlock(int32(nextHeight))
+		ctx.chainView.notifyBlock(block.BlockHash(), uint32(nextHeight),
+			[]*wire.MsgTx{})
+	}
+
+	// At this point, our starting height should be 112.
+	_, chainHeight, err = ctx.chain.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get best block: %v", err)
+	}
+	if chainHeight != 112 {
+		t.Fatalf("incorrect chain height: expected %v, got %v",
+			chainHeight)
+	}
+
+	// Now we'll re-start the ChannelRouter. It should recognize that it's
+	// behind the main chain and prune all the blocks that it missed while
+	// it was down.
+	ctx.RestartRouter()
+
+	// At this point, the channel that was pruned should no longer be known
+	// by the router.
+	_, _, hasChan, err = ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	if err != nil {
+		t.Fatalf("error looking for edge: %v", chanID1)
+	}
+	if hasChan {
+		t.Fatalf("channel was found in graph but shouldn't have been")
+	}
+}

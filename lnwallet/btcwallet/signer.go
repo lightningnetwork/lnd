@@ -1,8 +1,6 @@
 package btcwallet
 
 import (
-	"fmt"
-
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
@@ -72,8 +70,7 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 		}
 	}
 
-	// TODO(roasbeef): use the errors.wrap package
-	return nil, fmt.Errorf("address not found")
+	return nil, errors.Errorf("address not found")
 }
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the

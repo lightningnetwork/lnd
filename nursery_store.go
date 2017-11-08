@@ -25,19 +25,18 @@ import (
 //   |
 //   |   LAST PURGED + FINALIZED HEIGHTS
 //   |
-//   |   Each nursery store tracks a "last purged height", which records the
-//   |   most recent block height for which the nursery store has purged all
-//   |   state. This value lags behind the best block height for reorg safety,
-//   |   and serves as a starting height for rescans after a restart. It also
-//   |   tracks a "last finalized height", which records the last block height
-//   |   that the nursery attempted to graduate. If a finalized height has
-//   |   kindergarten outputs, the sweep txn for these outputs will be stored in
-//   |   the height bucket. This ensure that the same txid will be used after
-//   |   restarts.  Otherwise, the nursery will be unable to recover the txid
-//   |   of kindergarten sweep transaction it has already broadcast.
+//   |   Each nursery store tracks a "last graduated height", which records the
+//   |   most recent block height for which the nursery store has successfully
+//   |   graduated all outputs. It also tracks a "last finalized height", which
+//   |   records the last block height that the nursery attempted to graduate
+//   |   If a finalized height has kindergarten outputs, the sweep txn for these
+//   |   outputs will be stored in the height bucket. This ensure that the same
+//   |   txid will be used after restarts. Otherwise, the nursery will be unable
+//   |   to recover the txid of kindergarten sweep transaction it has already
+//   |   broadcast.
 //   |
-//   ├── last-purged-height-key: <last-purged-height>
 //   ├── last-finalized-height-key: <last-finalized-height>
+//   ├── last-graduated-height-key: <last-graduated-height>
 //   |
 //   |   CHANNEL INDEX
 //   |
@@ -142,13 +141,17 @@ type NurseryStore interface {
 	// nursery store finalized a kindergarten class.
 	LastFinalizedHeight() (uint32, error)
 
-	// PurgeHeight deletes specified the height bucket if it exists, and
-	// records it as that last purged height.
-	PurgeHeight(height uint32) error
+	// GraduateHeight records the provided height as the last height for
+	// which the nursery store successfully graduated all outputs.
+	GraduateHeight(height uint32) error
 
-	// LastPurgedHeight returns the last block height for which the nursery
-	// store has purged all persistent state.
-	LastPurgedHeight() (uint32, error)
+	// LastGraduatedHeight returns the last block height for which the
+	// nursery store successfully graduated all outputs.
+	LastGraduatedHeight() (uint32, error)
+
+	// HeightsBelowOrEqual returns the lowest non-empty heights in the
+	// height index, that exist at or below the provided upper bound.
+	HeightsBelowOrEqual(height uint32) ([]uint32, error)
 
 	// ForChanOutputs iterates over all outputs being incubated for a
 	// particular channel point. This method accepts a callback that allows
@@ -179,9 +182,9 @@ var (
 	// last finalized height.
 	lastFinalizedHeightKey = []byte("last-finalized-height")
 
-	// lastPurgedHeightKey is a static key used to retrieve the height of
-	// the last bucket that was purged.
-	lastPurgedHeightKey = []byte("last-purged-height")
+	// lastGraduatedHeightKey is a static key used to retrieve the height of
+	// the last bucket that successfully graduated all outputs.
+	lastGraduatedHeightKey = []byte("last-graduated-height")
 
 	// channelIndexKey is a static key used to lookup the bucket containing
 	// all of the nursery's active channels.
@@ -557,10 +560,10 @@ func (ns *nurseryStore) GraduateKinder(height uint32) error {
 	})
 }
 
-// FinalizeKinder accepts a block height as a parameter and purges its
-// persistent state for all outputs at that height. During a restart, the utxo
-// nursery will begin it's recovery procedure from the next height that has
-// yet to be finalized.
+// FinalizeKinder accepts a block height and a finalized kindergarten sweep
+// transaction, persisting the transaction at the appropriate height bucket. The
+// nursery store's last finalized height is also updated with the provided
+// height.
 func (ns *nurseryStore) FinalizeKinder(height uint32,
 	finalTx *wire.MsgTx) error {
 
@@ -569,17 +572,12 @@ func (ns *nurseryStore) FinalizeKinder(height uint32,
 	})
 }
 
-// PurgeHeight accepts a block height as a parameter and purges its persistent
-// state for all outputs at that height. During a restart, the utxo nursery will
-// begin it's recovery procedure from the next height that has yet to be
-// finalized.
-func (ns *nurseryStore) PurgeHeight(height uint32) error {
-	return ns.db.Update(func(tx *bolt.Tx) error {
-		if err := ns.purgeHeightBucket(tx, height); err != nil {
-			return err
-		}
+// GraduateHeight persists the provided height as the nursery store's last
+// graduated height.
+func (ns *nurseryStore) GraduateHeight(height uint32) error {
 
-		return ns.putLastPurgedHeight(tx, height)
+	return ns.db.Update(func(tx *bolt.Tx) error {
+		return ns.putLastGraduatedHeight(tx, height)
 	})
 }
 
@@ -725,6 +723,45 @@ func (ns *nurseryStore) FetchPreschools() ([]kidOutput, error) {
 	return kids, nil
 }
 
+// HeightsBelowOrEqual returns a slice of all non-empty heights in the height
+// index at or below the provided upper bound.
+func (ns *nurseryStore) HeightsBelowOrEqual(height uint32) ([]uint32, error) {
+	var activeHeights []uint32
+	err := ns.db.View(func(tx *bolt.Tx) error {
+		// Ensure that the chain bucket for this nursery store exists.
+		chainBucket := tx.Bucket(ns.pfxChainKey)
+		if chainBucket == nil {
+			return nil
+		}
+
+		// Ensure that the height index has been properly initialized for this
+		// chain.
+		hghtIndex := chainBucket.Bucket(heightIndexKey)
+		if hghtIndex == nil {
+			return nil
+		}
+
+		// Serialize the provided height, as this will form the name of the
+		// bucket.
+		var lower, upper [4]byte
+		byteOrder.PutUint32(upper[:], height)
+
+		c := hghtIndex.Cursor()
+		for k, _ := c.Seek(lower[:]); bytes.Compare(k, upper[:]) <= 0 &&
+			len(k) == 4; k, _ = c.Next() {
+
+			activeHeights = append(activeHeights, byteOrder.Uint32(k))
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return activeHeights, nil
+}
+
 // ForChanOutputs iterates over all outputs being incubated for a particular
 // channel point. This method accepts a callback that allows the caller to
 // process each key-value pair. The key will be a prefixed outpoint, and the
@@ -863,8 +900,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 }
 
 // LastFinalizedHeight returns the last block height for which the nursery
-// store has purged all persistent state. This occurs after a fixed interval
-// for reorg safety.
+// store has finalized a kindergarten class.
 func (ns *nurseryStore) LastFinalizedHeight() (uint32, error) {
 	var lastFinalizedHeight uint32
 	err := ns.db.View(func(tx *bolt.Tx) error {
@@ -876,18 +912,17 @@ func (ns *nurseryStore) LastFinalizedHeight() (uint32, error) {
 	return lastFinalizedHeight, err
 }
 
-// LastPurgedHeight returns the last block height for which the nursery store
-// has purged all persistent state. This occurs after a fixed interval for reorg
-// safety.
-func (ns *nurseryStore) LastPurgedHeight() (uint32, error) {
-	var lastPurgedHeight uint32
+// LastGraduatedHeight returns the last block height for which the nursery
+// store has successfully graduated all outputs.
+func (ns *nurseryStore) LastGraduatedHeight() (uint32, error) {
+	var lastGraduatedHeight uint32
 	err := ns.db.View(func(tx *bolt.Tx) error {
 		var err error
-		lastPurgedHeight, err = ns.getLastPurgedHeight(tx)
+		lastGraduatedHeight, err = ns.getLastGraduatedHeight(tx)
 		return err
 	})
 
-	return lastPurgedHeight, err
+	return lastGraduatedHeight, err
 }
 
 // Helper Methods
@@ -1089,24 +1124,6 @@ func (ns *nurseryStore) getHeightBucket(tx *bolt.Tx,
 	_, _, hghtBucket := ns.getHeightBucketPath(tx, height)
 
 	return hghtBucket
-}
-
-// purgeHeightBucket ensures that the height bucket at the provided index is
-// purged from the nursery store.
-func (ns *nurseryStore) purgeHeightBucket(tx *bolt.Tx, height uint32) error {
-	// Ensure that the height bucket already exists.
-	_, hghtIndex, hghtBucket := ns.getHeightBucketPath(tx, height)
-	if hghtBucket == nil {
-		return nil
-	}
-
-	// Serialize the provided height, as this will form the name of the
-	// bucket.
-	var heightBytes [4]byte
-	byteOrder.PutUint32(heightBytes[:], height)
-
-	// Finally, delete the bucket in question.
-	return removeBucketIfExists(hghtIndex, heightBytes[:])
 }
 
 // createHeightChanBucket creates or retrieves an existing height-channel bucket
@@ -1365,29 +1382,29 @@ func (ns *nurseryStore) getFinalizedTxn(tx *bolt.Tx,
 	return txn, nil
 }
 
-// getLastPurgedHeight is a helper method that retrieves the last height for
-// which the database purged its persistent state.
-func (ns *nurseryStore) getLastPurgedHeight(tx *bolt.Tx) (uint32, error) {
+// getLastGraduatedHeight is a helper method that retrieves the last height for
+// which the database graduated all outputs successfully.
+func (ns *nurseryStore) getLastGraduatedHeight(tx *bolt.Tx) (uint32, error) {
 	// Retrieve the chain bucket associated with the given nursery store.
 	chainBucket := tx.Bucket(ns.pfxChainKey)
 	if chainBucket == nil {
 		return 0, nil
 	}
 
-	// Lookup the last purged height in the top-level chain bucket.
-	heightBytes := chainBucket.Get(lastPurgedHeightKey)
+	// Lookup the last graduated height in the top-level chain bucket.
+	heightBytes := chainBucket.Get(lastGraduatedHeightKey)
 	if heightBytes == nil {
-		// We have never purged before, return height 0.
+		// We have never graduated before, return height 0.
 		return 0, nil
 	}
 
-	// Otherwise, parse the bytes and return the last purged height.
+	// Otherwise, parse the bytes and return the last graduated height.
 	return byteOrder.Uint32(heightBytes), nil
 }
 
-// pubLastPurgedHeight is a helper method that writes the provided height under
-// the last purged height key.
-func (ns *nurseryStore) putLastPurgedHeight(tx *bolt.Tx, height uint32) error {
+// pubLastGraduatedHeight is a helper method that writes the provided height under
+// the last graduated height key.
+func (ns *nurseryStore) putLastGraduatedHeight(tx *bolt.Tx, height uint32) error {
 
 	// Ensure that the chain bucket for this nursery store exists.
 	chainBucket, err := tx.CreateBucketIfNotExists(ns.pfxChainKey)
@@ -1395,12 +1412,12 @@ func (ns *nurseryStore) putLastPurgedHeight(tx *bolt.Tx, height uint32) error {
 		return err
 	}
 
-	// Serialize the provided last-purged height, and store it in the
+	// Serialize the provided last-gradauted height, and store it in the
 	// top-level chain bucket for this nursery store.
 	var lastHeightBytes [4]byte
 	byteOrder.PutUint32(lastHeightBytes[:], height)
 
-	return chainBucket.Put(lastPurgedHeightKey, lastHeightBytes[:])
+	return chainBucket.Put(lastGraduatedHeightKey, lastHeightBytes[:])
 }
 
 // errBucketNotEmpty signals that an attempt to prune a particular

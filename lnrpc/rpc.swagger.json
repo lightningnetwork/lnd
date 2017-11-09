@@ -732,8 +732,19 @@
         },
         "blocks_til_maturity": {
           "type": "integer",
+          "format": "int32",
+          "description": "Remaining # of blocks until the commitment output can be swept.\nNegative values indicate how many blocks have passed since becoming\nmature."
+        },
+        "recovered_balance": {
+          "type": "string",
           "format": "int64",
-          "title": "/ Remaining # of blocks until funds can be sweeped into the wallet"
+          "title": "/ The total value of funds successfully recovered from this channel"
+        },
+        "pending_htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPendingHTLC"
+          }
         }
       }
     },
@@ -1740,6 +1751,40 @@
             "$ref": "#/definitions/PendingChannelResponseForceClosedChannel"
           },
           "title": "/ Channels pending force closing"
+        }
+      }
+    },
+    "lnrpcPendingHTLC": {
+      "type": "object",
+      "properties": {
+        "incoming": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ The direction within the channel that the htlc was sent"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The total value of the htlc"
+        },
+        "outpoint": {
+          "type": "string",
+          "title": "/ The final output to be swept back to the user's wallet"
+        },
+        "maturity_height": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ The next block height at which we can spend the current stage"
+        },
+        "blocks_til_maturity": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nThe number of blocks remaining until the current stage can be swept.\nNegative values indicate how many blocks have passed since becoming\nmature."
+        },
+        "stage": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Indicates whether the htlc is in its first or second stage of recovery"
         }
       }
     },

@@ -604,6 +604,86 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	}
 }
 
+// Test the case of a notification consumer having forget or being delayed in
+// checking for a confirmation. This should not cause the notifier to stop
+// working
+func testLazyNtfnConsumer(miner *rpctest.Harness,
+	notifier chainntnfs.ChainNotifier, t *testing.T) {
+
+	// Create a transaction to be notified about. We'll register for
+	// notifications on this transaction but won't be prompt in checking them
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	_, currentHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	numConfs := uint32(3)
+
+	// Add a block right before registering, this makes race conditions
+	// between the historical dispatcher and the normal dispatcher more obvious
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	firstConfIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
+		uint32(currentHeight))
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	// Generate another 2 blocks, this should dispatch the confirm notification
+	if _, err := miner.Node.Generate(2); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	// Now make another transaction, just because we haven't checked to see
+	// if the first transaction has confirmed doesn't mean that we shouldn't
+	// be able to see if this transaction confirms first
+	txid, err = getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	_, currentHeight, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	numConfs = 1
+
+	secondConfIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
+		uint32(currentHeight))
+
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	select {
+	case <-secondConfIntent.Confirmed:
+		// Successfully receive the second notification
+		break
+	case <-time.After(30 * time.Second):
+		t.Fatalf("Second confirmation notification never received")
+	}
+
+	// Make sure the first tx confirmed successfully
+	select {
+	case <-firstConfIntent.Confirmed:
+		break
+	case <-time.After(30 * time.Second):
+		t.Fatalf("First confirmation notification never received")
+	}
+}
+
 // Tests the case in which a spend notification is requested for a spend that
 // has already been included in a block. In this case, the spend notification
 // should be dispatched immediately.
@@ -899,6 +979,10 @@ var ntfnTests = []testCase{
 	{
 		name: "cancel epoch ntfn",
 		test: testCancelEpochNtfn,
+	},
+	{
+		name: "lazy ntfn consumer",
+		test: testLazyNtfnConsumer,
 	},
 }
 

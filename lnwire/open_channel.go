@@ -8,6 +8,17 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+// FundingFlag represents the possible bit mask values for the ChannelFlags
+// field within the OpenChannel struct.
+type FundingFlag uint8
+
+const (
+	// FFAnnounceChannel is a FundingFlag that when set, indicates the
+	// initiator of a funding flow wishes to announce the channel to the
+	// greater network.
+	FFAnnounceChannel FundingFlag = 1 << iota
+)
+
 // OpenChannel is the message Alice sends to Bob if we should like to create a
 // channel with Bob where she's the sole provider of funds to the channel.
 // Single funder channels simplify the initial funding workflow, are supported
@@ -101,7 +112,7 @@ type OpenChannel struct {
 	// channel to specify further behavior surrounding the channel.
 	// Currently, the least significant bit of this bit field indicates the
 	// initiator of the channel wishes to advertise this channel publicly.
-	ChannelFlags byte
+	ChannelFlags FundingFlag
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message

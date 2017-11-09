@@ -86,6 +86,12 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case FundingFlag:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case uint16:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], e)
@@ -388,6 +394,12 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = b[0]
+	case *FundingFlag:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = FundingFlag(b[0])
 	case *uint16:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

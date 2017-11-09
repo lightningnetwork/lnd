@@ -154,7 +154,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				FeePerKiloWeight: uint32(r.Int63()),
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
-				ChannelFlags:     byte(r.Int31()),
+				ChannelFlags:     FundingFlag(uint8(r.Int31())),
 			}
 
 			if _, err := r.Read(req.ChainHash[:]); err != nil {

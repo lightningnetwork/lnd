@@ -2088,6 +2088,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		PaymentPoint:         ourContribution.PaymentBasePoint,
 		DelayedPaymentPoint:  ourContribution.DelayBasePoint,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
+		ChannelFlags:         lnwire.FFAnnounceChannel,
 	}
 	if err := f.cfg.SendToPeer(peerKey, &fundingOpen); err != nil {
 		fndgLog.Errorf("Unable to send funding request message: %v", err)

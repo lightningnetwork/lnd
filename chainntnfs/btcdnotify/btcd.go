@@ -418,6 +418,8 @@ out:
 // attemptHistoricalDispatch tries to use historical information to decide if a
 // notification ca be dispatched immediately, or is partially confirmed so it
 // can skip straight to the confirmations heap.
+//
+// Returns true if the transaction was either partially or completely confirmed
 func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 	currentHeight int32) bool {
 
@@ -489,7 +491,7 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 	}
 	heap.Push(b.confHeap, heapEntry)
 
-	return false
+	return true
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

@@ -1243,6 +1243,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			// we can ultimately sweep the funds into the wallet.
 			if nurseryInfo != nil {
 				forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
+				forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
 				forceClose.MaturityHeight = nurseryInfo.maturityHeight
 
 				// If the transaction has been confirmed, then
@@ -1251,6 +1252,28 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 					forceClose.BlocksTilMaturity =
 						int32(forceClose.MaturityHeight) -
 							currentHeight
+				}
+
+				for _, htlcReport := range nurseryInfo.htlcs {
+					// TODO(conner) set incoming flag
+					// appropriately after handling incoming
+					// incubation
+					htlc := &lnrpc.PendingHTLC{
+						Incoming:       false,
+						Amount:         int64(htlcReport.amount),
+						Outpoint:       htlcReport.outpoint.String(),
+						MaturityHeight: htlcReport.maturityHeight,
+						Stage:          htlcReport.stage,
+					}
+
+					if htlc.MaturityHeight != 0 {
+						htlc.BlocksTilMaturity =
+							int32(htlc.MaturityHeight) -
+								currentHeight
+					}
+
+					forceClose.PendingHtlcs = append(forceClose.PendingHtlcs,
+						htlc)
 				}
 
 				resp.TotalLimboBalance += int64(nurseryInfo.limboBalance)

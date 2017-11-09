@@ -295,7 +295,7 @@ out:
 				// If the notification can be partially or
 				// fully dispatched, then we can skip the first
 				// phase for ntfns.
-				if b.attemptHistoricalDispatch(msg, currentHeight) {
+				if b.attemptHistoricalDispatch(msg) {
 					continue
 				}
 
@@ -420,8 +420,8 @@ out:
 // can skip straight to the confirmations heap.
 //
 // Returns true if the transaction was either partially or completely confirmed
-func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
-	currentHeight int32) bool {
+func (b *BtcdNotifier) attemptHistoricalDispatch(
+	msg *confirmationsNotification) bool {
 
 	chainntnfs.Log.Infof("Attempting to trigger dispatch for %v from "+
 		"historical chain", msg.txid)
@@ -482,8 +482,8 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(msg *confirmationsNotification,
 
 	// Otherwise, the transaction has only been *partially* confirmed, so
 	// we need to insert it into the confirmation heap.
-	confsLeft := msg.numConfirmations - uint32(tx.Confirmations)
-	confHeight := uint32(currentHeight) + confsLeft
+	// Find the block height at which this transaction will be confirmed
+	confHeight := uint32(block.Height) + msg.numConfirmations - 1
 	heapEntry := &confEntry{
 		msg,
 		confDetails,

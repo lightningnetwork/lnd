@@ -19,6 +19,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -84,7 +85,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now that we have a txid, register a confirmation notiication with
+	// Now that we have a txid, register a confirmation notification with
 	// the chainntfn source.
 	numConfs := uint32(1)
 	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
@@ -961,6 +962,147 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 	}
 }
 
+func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
+	t *testing.T) {
+
+	// Set up a new miner that we can use to cause a reorg.
+	miner2, err := rpctest.New(netParams, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	if err := miner2.SetUp(false, 0); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer miner2.TearDown()
+
+	// We start by connecting the new miner to our original miner,
+	// such that it will sync to our original chain.
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice := []*rpctest.Harness{miner, miner2}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	// The two should be on the same blockheight.
+	_, nodeHeight1, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, nodeHeight2, err := miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if nodeHeight1 != nodeHeight2 {
+		t.Fatalf("expected both miners to be on the same height",
+			nodeHeight1, nodeHeight2)
+	}
+
+	// We disconnect the two nodes, such that we can start mining on them
+	// individually without the other one learning about the new blocks.
+	err = miner.Node.AddNode(miner2.P2PAddress(), rpcclient.ANRemove)
+	if err != nil {
+		t.Fatalf("unable to remove node: %v", err)
+	}
+
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	_, currentHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// Now that we have a txid, register a confirmation notification with
+	// the chainntfn source.
+	numConfs := uint32(2)
+	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
+		uint32(currentHeight))
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	// Now generate a single block, the transaction should be included.
+	_, err = miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// Transaction only has one confirmation, and the notification is registered
+	// with 2 confirmations, so we should not be notified yet.
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatal("tx was confirmed unexpectedly")
+	case <-time.After(1 * time.Second):
+	}
+
+	// Reorganize transaction out of the chain by generating a longer fork
+	// from the other miner. The transaction is not included in this fork.
+	miner2.Node.Generate(2)
+
+	// Reconnect nodes to reach consensus on the longest chain. miner2's chain
+	// should win and become active on miner1.
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice = []*rpctest.Harness{miner, miner2}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	_, nodeHeight1, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, nodeHeight2, err = miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if nodeHeight1 != nodeHeight2 {
+		t.Fatalf("expected both miners to be on the same height",
+			nodeHeight1, nodeHeight2)
+	}
+
+	// Even though there is one block above the height of the block that the
+	// transaction was included in, it is not the active chain so the
+	// notification should not be sent.
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatal("tx was confirmed unexpectedly")
+	case <-time.After(1 * time.Second):
+	}
+
+	// Now confirm the transaction on the longest chain and verify that we
+	// receive the notification.
+	tx, err := miner.Node.GetRawTransaction(txid)
+	if err != nil {
+		t.Fatalf("unable to get raw tx: %v", err)
+	}
+
+	_, err = miner2.Node.SendRawTransaction(tx.MsgTx(), false)
+	if err != nil {
+		t.Fatalf("unable to get send tx: %v", err)
+	}
+
+	_, err = miner.Node.Generate(3)
+	if err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	select {
+	case <-confIntent.Confirmed:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("confirmation notification never received")
+	}
+}
+
 type testCase struct {
 	name string
 
@@ -1011,6 +1153,10 @@ var ntfnTests = []testCase{
 	{
 		name: "lazy ntfn consumer",
 		test: testLazyNtfnConsumer,
+	},
+	{
+		name: "reorg conf",
+		test: testReorgConf,
 	},
 }
 

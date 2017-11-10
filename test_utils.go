@@ -136,23 +136,53 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	// TODO(roasbeef): need to factor in commit fee?
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
-		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
-		CommitTx:                *aliceCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
+	}
+	bobChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            bobCfg,
+		RemoteChanCfg:           aliceCfg,
+		IdentityPub:             bobKeyPub,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		IsInitiator:             false,
+		Capacity:                channelCapacity,
+		RemoteCurrentRevocation: aliceCommitPoint,
+		RevocationProducer:      bobPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
+		Db:                      dbBob,
 	}
 
 	addr := &net.TCPAddr{
@@ -162,25 +192,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	if err := aliceChannelState.SyncPending(addr, 0); err != nil {
 		return nil, nil, nil, nil, err
-	}
-
-	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
-		IdentityPub:             bobKeyPub,
-		FeePerKw:                feePerKw,
-		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunder,
-		IsInitiator:             false,
-		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
-		CommitTx:                *bobCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
-		RemoteCurrentRevocation: aliceCommitPoint,
-		RevocationProducer:      bobPreimageProducer,
-		RevocationStore:         shachain.NewRevocationStore(),
-		Db:                      dbBob,
 	}
 
 	addr = &net.TCPAddr{

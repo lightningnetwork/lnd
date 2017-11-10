@@ -400,9 +400,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 // we need to keep track of the indexes of each HTLC in order to properly write
 // the current state to disk, and also to locate the PaymentDescriptor
 // corresponding to HTLC outputs in the commitment transaction.
-func (c *commitment) populateHtlcIndexes(ourCommitTx bool,
-	dustLimit btcutil.Amount) error {
-
+func (c *commitment) populateHtlcIndexes() error {
 	// First, we'll set up some state to allow us to locate the output
 	// index of the all the HTLC's within the commitment transaction. We
 	// must keep this index so we can validate the HTLC signatures sent to
@@ -414,29 +412,30 @@ func (c *commitment) populateHtlcIndexes(ourCommitTx bool,
 	// populateIndex is a helper function that populates the necessary
 	// indexes within the commitment view for a particular HTLC.
 	populateIndex := func(htlc *PaymentDescriptor, incoming bool) error {
-		isDust := htlcIsDust(incoming, ourCommitTx, c.feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit)
+		isDust := htlcIsDust(incoming, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit)
 
 		var err error
 		switch {
 
 		// If this is our commitment transaction, and this is a dust
 		// output then we mark it as such using a -1 index.
-		case ourCommitTx && isDust:
+		case c.isOurs && isDust:
 			htlc.localOutputIndex = -1
 
 		// If this is the commitment transaction of the remote party,
 		// and this is a dust output then we mark it as such using a -1
 		// index.
-		case !ourCommitTx && isDust:
+		case !c.isOurs && isDust:
 			htlc.remoteOutputIndex = -1
 
 		// If this is our commitment transaction, then we'll need to
 		// locate the output and the index so we can verify an HTLC
 		// signatures.
-		case ourCommitTx:
-			htlc.localOutputIndex, err = locateOutputIndex(htlc, c.txn,
-				ourCommitTx, dups)
+		case c.isOurs:
+			htlc.localOutputIndex, err = locateOutputIndex(
+				htlc, c.txn, c.isOurs, dups,
+			)
 			if err != nil {
 				return err
 			}
@@ -454,9 +453,10 @@ func (c *commitment) populateHtlcIndexes(ourCommitTx bool,
 		// Otherwise, this is there remote party's commitment
 		// transaction and we only need to populate the remote output
 		// index within the HTLC index.
-		case !ourCommitTx:
-			htlc.remoteOutputIndex, err = locateOutputIndex(htlc, c.txn,
-				ourCommitTx, dups)
+		case !c.isOurs:
+			htlc.remoteOutputIndex, err = locateOutputIndex(
+				htlc, c.txn, c.isOurs, dups,
+			)
 			if err != nil {
 				return err
 			}
@@ -1973,7 +1973,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// Finally, we'll populate all the HTLC indexes so we can track the
 	// locations of each HTLC in the commitment state.
-	if err := c.populateHtlcIndexes(ourCommitTx, dustLimit); err != nil {
+	if err := c.populateHtlcIndexes(); err != nil {
 		return nil, err
 	}
 

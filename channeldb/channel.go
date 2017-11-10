@@ -871,32 +871,40 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	})
 }
 
-// FetchCommitDiff...
-func FetchCommitDiff(db *DB, fundingOutpoint *wire.OutPoint) (*CommitDiff, error) {
-	var diff *CommitDiff
-	err := db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(commitDiffBucket)
-		if bucket == nil {
-			return errors.New("commit diff bucket haven't been found")
-		}
-
-		var outpoint bytes.Buffer
-		if err := writeOutpoint(&outpoint, fundingOutpoint); err != nil {
+// RemoteCommitChainTip returns the "tip" of the current remote commitment
+// chain. This value will be non-nil iff, we've created a new commitment for
+// the remote party that they haven't yet ACK'd. In this case, their commitment
+// chain will have a length of two: their current unrevoked commitment, and
+// this new pending commitment. Once they revoked their prior state, we'll swap
+// these pointers, causing the tip and the tail to point to the same entry.
+func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
+	var cd *CommitDiff
+	err := c.Db.View(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
 			return err
 		}
 
-		key := []byte("cdf")
-		key = append(key, outpoint.Bytes()...)
-		data := bucket.Get(key)
-		if data == nil {
-			return errors.New("unable to find commit diff")
+		tipBytes := chanBucket.Get(commitDiffKey)
+		if tipBytes == nil {
+			return ErrNoPendingCommit
 		}
 
-		diff = &CommitDiff{}
-		return diff.encode(bytes.NewReader(data))
-	})
+		tipReader := bytes.NewReader(tipBytes)
+		dcd, err := deserializeCommitDiff(tipReader)
+		if err != nil {
+			return err
+		}
 
-	return diff, err
+		cd = dcd
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return cd, err
 }
 
 // InsertNextRevocation inserts the _next_ commitment point (revocation) into

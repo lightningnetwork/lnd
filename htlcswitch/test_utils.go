@@ -358,8 +358,10 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 		chanID = msg.ChanID
 	case *lnwire.ChannelReestablish:
 		chanID = msg.ChanID
+	case *lnwire.FundingLocked:
+		chanID = msg.ChanID
 	default:
-		return chanID, errors.New("unknown type")
+		return chanID, fmt.Errorf("unknown type: %T", msg)
 	}
 
 	return chanID, nil

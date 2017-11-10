@@ -757,18 +757,16 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// First, send this 1 BTC payment over the three hops, the payment
 	// should succeed, and all balances should be updated accordingly.
-	invoice, err := n.makePayment(n.aliceServer, n.carolServer,
+	payResp, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
 		htlcExpiry).Wait(10 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -811,7 +809,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// in Bob's new fee policy.
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry)
+		htlcExpiry).Wait(10 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should've been rejected")
 	}
@@ -834,8 +832,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*5,
-		btcutil.SatoshiPerBitcoin*3)
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
 	if err != nil {
 		t.Fatalf("unable to create channel: %v", err)
 	}
@@ -853,6 +851,9 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	secondBobBandwidthBefore := n.secondBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
 
+	// We'll attempt to send 4 BTC although the alice-to-bob channel only
+	// has 3 BTC total capacity. As a result, this payment should be
+	// rejected.
 	amount := lnwire.NewMSatFromSatoshis(4 * btcutil.SatoshiPerBitcoin)
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)

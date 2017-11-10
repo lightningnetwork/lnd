@@ -7,6 +7,8 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -290,42 +292,54 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	estimator := &StaticFeeEstimator{24, 6}
 	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
 	commitFee := calcStaticFee(0)
+
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
-		CommitFee:               commitFee,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
-		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal - commitFee),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
-		CommitTx:                *aliceCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
-		FeePerKw:                feePerKw,
-		CommitFee:               commitFee,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal - commitFee),
-		CommitTx:                *bobCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
 	}
 
@@ -342,6 +356,13 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	channelBob, err := NewLightningChannel(bobSigner, notifier,
 		estimator, bobChannelState)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if err := channelAlice.channelState.FullSync(); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := channelBob.channelState.FullSync(); err != nil {
 		return nil, nil, nil, err
 	}
 

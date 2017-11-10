@@ -1007,9 +1007,9 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 func (l *channelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 	snapshot := l.channel.StateSnapshot()
 
-	return snapshot.NumUpdates,
-		snapshot.TotalMilliSatoshisSent,
-		snapshot.TotalMilliSatoshisReceived
+	return snapshot.ChannelCommitment.CommitHeight,
+		snapshot.TotalMSatSent,
+		snapshot.TotalMSatReceived
 }
 
 // String returns the string representation of channel link.

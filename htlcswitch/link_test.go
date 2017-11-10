@@ -1890,8 +1890,8 @@ func TestChannelRetransmission(t *testing.T) {
 		htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 			n.firstBobChannelLink)
 
-		// Send payment which should fail because we intercept the update and
-		// commit messages.
+		// Send payment which should fail because we intercept the
+		// update and commit messages.
 		receiver := n.bobServer
 		rhash, err := n.makePayment(n.aliceServer, receiver,
 			n.bobServer.PubKey(), hops, amount, htlcAmt,
@@ -1900,10 +1900,11 @@ func TestChannelRetransmission(t *testing.T) {
 			t.Fatalf("payment shouldn't haven been finished")
 		}
 
-		// Stop network cluster and create new one, with the old channels
-		// states. Also do the *hack* - save the payment receiver to pass it
-		// in new channel link, otherwise payment will be failed because of the
-		// unknown payment hash. Hack will be removed with sphinx payment.
+		// Stop network cluster and create new one, with the old
+		// channels states. Also do the *hack* - save the payment
+		// receiver to pass it in new channel link, otherwise payment
+		// will be failed because of the unknown payment hash. Hack
+		// will be removed with sphinx payment.
 		bobRegistry := n.bobServer.registry
 		n.stop()
 
@@ -1947,15 +1948,17 @@ func TestChannelRetransmission(t *testing.T) {
 				continue
 			}
 
-			if aliceBandwidthBefore-amount != n.aliceChannelLink.Bandwidth() {
-				err = errors.Errorf("alice bandwidth should have been increased" +
-					" on payment amount")
+			aliceExpectedBandwidth := aliceBandwidthBefore - htlcAmt
+			if aliceExpectedBandwidth != n.aliceChannelLink.Bandwidth() {
+				err = errors.Errorf("expected alice to have %v, instead has %v",
+					aliceExpectedBandwidth, n.aliceChannelLink.Bandwidth())
 				continue
 			}
 
+			bobExpectedBandwidth := bobBandwidthBefore + htlcAmt
 			if bobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
-				err = errors.Errorf("bob bandwidth should have been increased " +
-					"on payment amount")
+				err = errors.Errorf("expected bob to have %v, instead has %v",
+					bobExpectedBandwidth, n.firstBobChannelLink.Bandwidth())
 				continue
 			}
 
@@ -1965,7 +1968,6 @@ func TestChannelRetransmission(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-
 	}
 
 	for _, test := range retransmissionTests {

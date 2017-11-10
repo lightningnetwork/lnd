@@ -24,6 +24,7 @@ import:
   - txscript
   - wire
   - connmgr
+- package: github.com/pebbe/zmq4
 - package: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil

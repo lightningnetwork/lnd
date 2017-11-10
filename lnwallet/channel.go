@@ -3082,21 +3082,37 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 	return updates, nil
 }
 
-// LastCounters returns the historical length of the local commimemnt
-// transaction chain and the historical number of the the revocked commiment
-// transactions, whicha are needed in order to generate the channel
-// reestablish message.
-func (lc *LightningChannel) LastCounters() (uint64, uint64) {
-	// As far we store on last commitment transaction we should rely on the
-	// height of the commitment transaction in order to calculate the length.
-	numberLocalCommitments := lc.localCommitChain.tip().height + 1
+// ChanSyncMsg returns the ChannelReestablish message that should be sent upon
+// reconnection with the remote peer that we're maintaining this channel with.
+// The information contained within this message is necessary to re-sync our
+// commitment chains in the case of a last or only partially processed message.
+// When the remote party receiver this message one of three things may happen:
+//
+//   1. We're fully synced and no messages need to be sent.
+//   2. We didn't get the lat CommitSig message they sent, to they'll re-send
+//      it.
+//   3. We didn't get the last RevokeAndAck message they sent, so they'll
+//      re-send it.
+func (lc *LightningChannel) ChanSyncMsg() *lnwire.ChannelReestablish {
+	// The remote commitment height that we we'll send in the
+	// ChannelReestablish message is our current commitment height plus
+	// one. If the receiver thinks that our commitment height is actually
+	// *equal* to this value, then they'll re-send the last commitment that
+	// they sent but we never fully processed.
+	nextLocalCommitHeight := lc.localCommitChain.tip().height + 1
 
-	// Number of the revocations might be calculated as the height of the
-	// commitment transactions which will be revoked next minus one. And plus
-	// one because height starts from zero.
-	numberRemoteRevocations := lc.remoteCommitChain.tail().height - 1 + 1
+	// The second value we'll send is the height of the remote commitment
+	// from our PoV. If the receiver thinks that their height is actually
+	// *one plus* this value, then they'll re-send their last revocation.
+	remoteChainTipHeight := lc.remoteCommitChain.tail().height
 
-	return numberLocalCommitments, numberRemoteRevocations
+	return &lnwire.ChannelReestablish{
+		ChanID: lnwire.NewChanIDFromOutPoint(
+			&lc.channelState.FundingOutpoint,
+		),
+		NextLocalCommitHeight:  nextLocalCommitHeight,
+		RemoteCommitTailHeight: remoteChainTipHeight,
+	}
 }
 
 // validateCommitmentSanity is used to validate that on current state the commitment

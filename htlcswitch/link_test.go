@@ -1299,6 +1299,9 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 		{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
+		{"alice", "bob", &lnwire.FundingLocked{}, false},
+		{"bob", "alice", &lnwire.FundingLocked{}, false},
+
 		{"alice", "bob", &lnwire.UpdateAddHTLC{}, false},
 		{"alice", "bob", &lnwire.CommitSig{}, false},
 		{"bob", "alice", &lnwire.RevokeAndAck{}, false},

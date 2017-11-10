@@ -610,79 +610,33 @@ func (c *OpenChannel) SyncPending(addr *net.TCPAddr, pendingHeight uint32) error
 	})
 }
 
-// UpdateCommitment updates the on-disk state of our currently broadcastable
-// commitment state. This method is to be called once we have revoked our prior
-// commitment state, accepting the new state as defined by the passed
-// parameters.
-func (c *OpenChannel) UpdateCommitment(newCommitment *wire.MsgTx,
-	newSig []byte, delta *ChannelDelta) error {
-
+// UpdateCommitment updates the commitment state for the specified party
+// (remote or local). The commitment stat completely describes the balance
+// state at this point in the commitment chain. This method its to be called on
+// two occasions: when we revoke our prior commitment state, and when the
+// remote party revokes their prior commitment state.
+func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Update(func(tx *bolt.Tx) error {
-		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
+	err := c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
 		if err != nil {
 			return err
 		}
 
-		id := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
-		if err != nil {
-			return err
-		}
-
-		// TODO(roasbeef): modify the funcs below to take values
-		// directly, otherwise need to roll back to prior state. Could
-		// also make copy above, then modify to pass in.
-		c.CommitTx = *newCommitment
-		c.CommitSig = newSig
-		c.LocalBalance = delta.LocalBalance
-		c.RemoteBalance = delta.RemoteBalance
-		c.NumUpdates = delta.UpdateNum
-		c.OurMessageIndex = delta.OurMessageIndex
-		c.TheirMessageIndex = delta.TheirMessageIndex
-		c.Htlcs = delta.Htlcs
-		c.CommitFee = delta.CommitFee
-		c.FeePerKw = delta.FeePerKw
-
-		// First we'll write out the current latest dynamic channel
-		// state: the current channel balance, the number of updates,
-		// and our latest commitment transaction+sig.
-		// TODO(roasbeef): re-make schema s.t this is a single put
-		if err := putChanCapacity(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putChanAmountsTransferred(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putChanNumUpdates(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putOurMessageIndex(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putTheirMessageIndex(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putChanCommitFee(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putChanFeePerKw(chanBucket, c); err != nil {
-			return err
-		}
-		if err := putChanCommitTxns(nodeChanBucket, c); err != nil {
-			return err
-		}
-		if err := putCurrentHtlcs(nodeChanBucket, delta.Htlcs,
-			&c.FundingOutpoint); err != nil {
-			return err
-		}
-
-		return nil
+		// With the proper bucket fetched, we'll now write toe latest
+		// commitment state to dis for the target party.
+		return putChanCommitment(chanBucket, newCommitment, true)
 	})
+	if err != nil {
+		return err
+	}
 
+	c.LocalCommitment = *newCommitment
 
+	return nil
 }
 
 // HTLC is the on-disk representation of a hash time-locked contract. HTLCs are

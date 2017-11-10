@@ -60,7 +60,7 @@ const (
 	// should be attempted.
 	CloseRegular ChannelCloseType = iota
 
-	// CloseBreach indicates that a channel breach has been dtected, and
+	// CloseBreach indicates that a channel breach has been detected, and
 	// the link should immediately be marked as unavailable.
 	CloseBreach
 )
@@ -464,7 +464,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			go source.HandleSwitchPacket(newFailPacket(
+			source.HandleSwitchPacket(newFailPacket(
 				packet.src,
 				&lnwire.UpdateFailHTLC{
 					Reason: reason,
@@ -504,7 +504,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			go source.HandleSwitchPacket(newFailPacket(
+			source.HandleSwitchPacket(newFailPacket(
 				packet.src,
 				&lnwire.UpdateFailHTLC{
 					Reason: reason,
@@ -538,7 +538,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				return err
 			}
 
-			go source.HandleSwitchPacket(newFailPacket(
+			source.HandleSwitchPacket(newFailPacket(
 				packet.src,
 				&lnwire.UpdateFailHTLC{
 					Reason: reason,

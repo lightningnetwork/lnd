@@ -38,14 +38,22 @@ type InvoiceDatabase interface {
 //       |
 //
 type ChannelLink interface {
+	// TODO(roasbeef): modify interface to embed mail boxes?
+
 	// HandleSwitchPacket handles the switch packets. This packets might be
 	// forwarded to us from another channel link in case the htlc update
 	// came from another peer or if the update was created by user
 	// initially.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
 	HandleSwitchPacket(*htlcPacket)
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
 	HandleChannelUpdate(lnwire.Message)
 
 	// ChanID returns the channel ID for the channel link. The channel ID

@@ -936,62 +936,85 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 	return nil
 }
 
-// AppendToRevocationLog records the new state transition within an on-disk
+// AdvanceCommitChainTail records the new state transition within an on-disk
 // append-only log which records all state transitions by the remote peer. In
 // the case of an uncooperative broadcast of a prior state by the remote peer,
 // this log can be consulted in order to reconstruct the state needed to
-// rectify the situation.
-func (c *OpenChannel) AppendToRevocationLog(delta *ChannelDelta) error {
-	return c.Db.Update(func(tx *bolt.Tx) error {
-		chanBucket, err := tx.CreateBucketIfNotExists(openChannelBucket)
-		if err != nil {
-			return err
-		}
+// rectify the situation. This method will add the current commitment for the
+// remote party to the revocation log, and promote the current pending
+// commitment to the current remove commitment.
+func (c *OpenChannel) AdvanceCommitChainTail() error {
+	c.Lock()
+	defer c.Unlock()
 
-		id := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket, err := chanBucket.CreateBucketIfNotExists(id)
+	var newRemoteCommit *ChannelCommitment
+
+	err := c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
 		if err != nil {
 			return err
 		}
 
 		// Persist the latest preimage state to disk as the remote peer
-		// has just added to our local preimage store, and
-		// given us a new pending revocation key.
-		if err := putChanRevocationState(nodeChanBucket, c); err != nil {
+		// has just added to our local preimage store, and given us a
+		// new pending revocation key.
+		if err := putChanRevocationState(chanBucket, c); err != nil {
 			return err
 		}
 
 		// With the current preimage producer/store state updated,
-		// append a new log entry recording this the delta of this state
-		// transition.
+		// append a new log entry recording this the delta of this
+		// state transition.
+		//
 		// TODO(roasbeef): could make the deltas relative, would save
 		// space, but then tradeoff for more disk-seeks to recover the
 		// full state.
-		logKey := channelLogBucket
-		logBucket, err := nodeChanBucket.CreateBucketIfNotExists(logKey)
+		logKey := revocationLogBucket
+		logBucket, err := chanBucket.CreateBucketIfNotExists(logKey)
 		if err != nil {
 			return err
 		}
 
-		// ...
-		diffBucket := tx.Bucket(commitDiffBucket)
-		if diffBucket != nil {
-			var outpoint bytes.Buffer
-			if err := writeOutpoint(&outpoint, &c.FundingOutpoint); err != nil {
-				return err
-			}
-
-			key := []byte("cdf")
-			key = append(key, outpoint.Bytes()...)
-			if diffBucket.Get(key) != nil {
-				if err := diffBucket.Delete(key); err != nil {
-					return err
-				}
-			}
+		// Before we append this revoked state to the revocation log,
+		// we'll swap out what's currently the tail of the commit tip,
+		// with the current locked-in commitment for the remote party.
+		tipBytes := chanBucket.Get(commitDiffKey)
+		tipReader := bytes.NewReader(tipBytes)
+		newCommit, err := deserializeCommitDiff(tipReader)
+		if err != nil {
+			return err
+		}
+		err = putChanCommitment(chanBucket, &newCommit.Commitment, false)
+		if err != nil {
+			return err
+		}
+		if err := chanBucket.Delete(commitDiffKey); err != nil {
+			return err
 		}
 
-		return appendChannelLogEntry(logBucket, delta, &c.FundingOutpoint)
+		// With the commitment pointer swapped, we can now add the
+		// revoked (prior) state to the revocation log.
+		//
+		// TODO(roasbeef): store less
+		err = appendChannelLogEntry(logBucket, &c.RemoteCommitment)
+		if err != nil {
+			return err
+		}
+
+		newRemoteCommit = &newCommit.Commitment
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// With the db transaction complete, we'll swap over the in-memory
+	// pointer of the new remote commitment, which was previously the tip
+	// of the commit chain.
+	c.RemoteCommitment = *newRemoteCommit
+
+	return nil
 }
 
 // RevocationLogTail returns the "tail", or the end of the current revocation

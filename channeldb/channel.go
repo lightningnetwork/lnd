@@ -566,9 +566,11 @@ func (c *OpenChannel) UpdateHTLCs(htlcs []*HTLC) error {
 	})
 }
 
-// HTLC is the on-disk representation of a hash time-locked contract. HTLCs
-// are contained within ChannelDeltas which encode the current state of the
+// HTLC is the on-disk representation of a hash time-locked contract. HTLCs are
+// contained within ChannelDeltas which encode the current state of the
 // commitment between state updates.
+//
+// TODO(roasbeef): save space by using smaller ints at tail end?
 type HTLC struct {
 	// Signature is the signature for the second level covenant transaction
 	// for this HTLC. The second level transaction is a timeout tx in the
@@ -600,8 +602,17 @@ type HTLC struct {
 	// routing.
 	OnionBlob []byte
 
-	// AddLocalInclusionHeight...
-	AddLocalInclusionHeight uint64
+	// HtlcIndex is the HTLC counter index of this active, outstanding
+	// HTLC. This differs from the LogIndex, as the HtlcIndex is only
+	// incremented for each offered HTLC, while they LogIndex is
+	// incremented for each update (includes settle+fail).
+	HtlcIndex uint64
+
+	// LogIndex is the cumulative log index of this this HTLC. This differs
+	// from the HtlcIndex as this will be incremented for each new log
+	// update added.
+	LogIndex uint64
+}
 
 	// AddRemoteInclusionHeight...
 	AddRemoteInclusionHeight uint64

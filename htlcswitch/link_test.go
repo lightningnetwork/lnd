@@ -1463,6 +1463,10 @@ func assertLinkBandwidth(t *testing.T, link ChannelLink,
 func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	t.Parallel()
 
+	// TODO(roasbeef): replace manual bit twiddling with concept of
+	// resource cost for packets?
+	//  * or also able to consult link
+
 	// We'll start the test by creating a single instance of
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
 	aliceLink, cleanUp, err := newSingleLinkTestHarness(chanAmt)
@@ -1476,6 +1480,15 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		coreChan               = aliceLink.(*channelLink).channel
 		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
 		aliceStartingBandwidth = aliceLink.Bandwidth()
+	)
+
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate:      24,
+		Confirmation: 6,
+	}
+	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		btcutil.Amount((int64(feePerKw) * lnwallet.HtlcWeight) / 1000),
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -1496,7 +1509,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
@@ -1520,7 +1533,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
 
 	// With that processed, we'll now generate an HTLC fail (sent by the
 	// remote peer) to cancel the HTLC we just added. This should return us
@@ -1535,7 +1548,8 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,
 	// with an ID of 0 as this is their first HTLC. The bandwidth should
-	// remain unchanged.
+	// remain unchanged (but Alice will need to pay the fee for the extra
+	// HTLC).
 	updateMsg := &lnwire.UpdateAddHTLC{
 		Amount:      htlcAmt,
 		Expiry:      9,
@@ -1543,7 +1557,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	aliceLink.HandleChannelUpdate(updateMsg)
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// Next, we'll settle the HTLC with our knowledge of the pre-image that
 	// we eventually learn (simulating a multi-hop payment). The bandwidth
@@ -1567,7 +1581,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	aliceLink.HandleChannelUpdate(htlcAdd)
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcFee)
 	failPkt := htlcPacket{
 		htlc: &lnwire.UpdateFailHTLC{
 			ID: 3,

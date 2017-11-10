@@ -556,9 +556,9 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	}
 }
 
-// TestLinkForwardMinHTLCPolicyMismatch tests that if a node is an intermediate
-// node in a multi-hop payment, and receives an HTLC which violates its
-// specified multi-hop policy, then the HTLC is rejected.
+// TestLinkForwardTimelockPolicyMismatch tests that if a node is an
+// intermediate node in a multi-hop payment, and receives an HTLC which
+// violates its specified multi-hop policy, then the HTLC is rejected.
 func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	t.Parallel()
 

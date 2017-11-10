@@ -2842,6 +2842,7 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 
 	// Determine the last update on the remote log that has been locked in.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
+	remoteHtlcIndex := lc.localCommitChain.tail().theirHtlcIndex
 
 	// Before we extend this new commitment to the remote commitment chain,
 	// ensure that we aren't violating any of the constraints the remote
@@ -2939,26 +2940,24 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 		htlcSigs = append(htlcSigs, jobResp.sig)
 	}
 
-	// Extend the remote commitment chain by one with the addition of our
-	// latest commitment update.
-	lc.remoteCommitChain.addCommitment(newCommitView)
-
-	// ...
-	commitDiff, err := lc.createCommitDiff(newCommitView)
+	// As we're about to proposer a new commitment state for the remote
+	// party, we'll write this pending state to disk before we exit, so we
+	// can retransmit it if necessary.
+	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// ...
-	if err := channeldb.AddCommitDiff(lc.channelState.Db,
-		&lc.channelState.FundingOutpoint,
-		commitDiff); err != nil {
+	if lc.channelState.AppendRemoteCommitChain(commitDiff); err != nil {
 		return nil, nil, err
 	}
 
-	if err := lc.channelState.UpdateHTLCs(newCommitView.htlcs(false)); err != nil {
-		return nil, nil, err
-	}
+	// TODO(roasbeef): check that one eclair bug
+	//  * need to retransmit on first state still?
+	//  * after initial reconnect
+
+	// Extend the remote commitment chain by one with the addition of our
+	// latest commitment update.
+	lc.remoteCommitChain.addCommitment(newCommitView)
 
 	// If we are the channel initiator then we would have signed any sent
 	// fee update at this point, so mark this update as pending ACK, and

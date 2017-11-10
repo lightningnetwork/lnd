@@ -212,6 +212,76 @@ type ChannelConfig struct {
 	DelayBasePoint *btcec.PublicKey
 }
 
+// ChannelCommitment is a snapshot of the commitment state at a particular
+// point in the commitment chain. With each state transition, a snapshot of the
+// current state along with all non-settled HTLCs are recorded. These snapshots
+// detail the state of the _remote_ party's commitment at a particular state
+// number.  For ourselves (the local node) we ONLY store our most recent
+// (unrevoked) state for safety purposes.
+type ChannelCommitment struct {
+	// CommitHeight is the update number that this ChannelDelta represents
+	// the total number of commitment updates to this point. This can be
+	// viewed as sort of a "commitment height" as this number is
+	// monotonically increasing.
+	CommitHeight uint64
+
+	// LocalLogIndex is the cumulative log index index of the local node at
+	// this point in the commitment chain. This value will be incremented
+	// for each _update_ added to the local update log.
+	LocalLogIndex uint64
+
+	// LocalHtlcIndex is the current local running HTLC index. This value
+	// will be incremented for each outgoing HTLC the local node offers.
+	LocalHtlcIndex uint64
+
+	// RemoteLogIndex is the cumulative log index index of the remote node
+	// at this point in the commitment chain. This value will be
+	// incremented for each _update_ added to the remote update log.
+	RemoteLogIndex uint64
+
+	// RemoteHtlcIndex is the current remote running HTLC index. This value
+	// will be incremented for each outgoing HTLC the remote node offers.
+	RemoteHtlcIndex uint64
+
+	// LocalBalance is the current available settled balance within the
+	// channel directly spendable by us.
+	LocalBalance lnwire.MilliSatoshi
+
+	// RemoteBalance is the current available settled balance within the
+	// channel directly spendable by the remote node.
+	RemoteBalance lnwire.MilliSatoshi
+
+	// CommitFee is the amount calculated to be paid in fees for the
+	// current set of commitment transactions. The fee amount is persisted
+	// with the channel in order to allow the fee amount to be removed and
+	// recalculated with each channel state update, including updates that
+	// happen after a system restart.
+	CommitFee btcutil.Amount
+
+	// FeePerKw is the min satoshis/kilo-weight that should be paid within
+	// the commitment transaction for the entire duration of the channel's
+	// lifetime. This field may be updated during normal operation of the
+	// channel as on-chain conditions change.
+	FeePerKw btcutil.Amount
+
+	// CommitTx is the latest version of the commitment state, broadcast
+	// able by us.
+	CommitTx *wire.MsgTx
+
+	// CommitSig is one half of the signature required to fully complete
+	// the script for the commitment transaction above. This is the
+	// signature signed by the remote party for our version of the
+	// commitment transactions.
+	CommitSig []byte
+
+	// Htlcs is the set of HTLC's that are pending at this particular
+	// commitment height.
+	Htlcs []HTLC
+
+	// TODO(roasbeef): pending commit pointer?
+	//  * lets just walk thru
+}
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)

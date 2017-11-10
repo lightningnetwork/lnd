@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	flags "github.com/btcsuite/go-flags"
+	"github.com/btcsuite/go-flags"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
@@ -29,10 +29,11 @@ const (
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
+	defaultRPCHost            = "localhost"
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
-	defaultRPCHost            = "localhost"
+	defaultBtcdRPCHost        = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNumChanConfs       = 1
 	defaultNoEncryptWallet    = false
@@ -112,12 +113,13 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
-	PeerPort           int  `long:"peerport" description:"The port to listen on for incoming p2p connections"`
-	RPCPort            int  `long:"rpcport" description:"The port for the rpc server"`
-	RESTPort           int  `long:"restport" description:"The port for the REST server"`
-	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
-	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
-	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	PeerPort           int    `long:"peerport" description:"The port to listen on for incoming p2p connections"`
+	RPCHost            string `long:"rpchost" description:"The host for the rpc server"`
+	RPCPort            int    `long:"rpcport" description:"The port for the rpc server"`
+	RESTPort           int    `long:"restport" description:"The port for the REST server"`
+	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
+	HodlHTLC           bool   `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
+	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
@@ -152,17 +154,18 @@ func loadConfig() (*config, error) {
 		ReadMacPath:         defaultReadMacPath,
 		LogDir:              defaultLogDir,
 		PeerPort:            defaultPeerPort,
+		RPCHost:             defaultRPCHost,
 		RPCPort:             defaultRPCPort,
 		RESTPort:            defaultRESTPort,
 		MaxPendingChannels:  defaultMaxPendingChannels,
 		DefaultNumChanConfs: defaultNumChanConfs,
 		NoEncryptWallet:     defaultNoEncryptWallet,
 		Bitcoin: &chainConfig{
-			RPCHost: defaultRPCHost,
+			RPCHost: defaultBtcdRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		Litecoin: &chainConfig{
-			RPCHost: defaultRPCHost,
+			RPCHost: defaultBtcdRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
 		},
 		Autopilot: &autoPilotConfig{

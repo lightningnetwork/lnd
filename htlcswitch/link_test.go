@@ -1610,8 +1610,15 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 
 	var (
 		coreLink               = aliceLink.(*channelLink)
+		defaultCommitFee       = coreLink.channel.StateSnapshot().CommitFee
 		aliceStartingBandwidth = aliceLink.Bandwidth()
 	)
+
+	estimator := &lnwallet.StaticFeeEstimator{
+		FeeRate:      24,
+		Confirmation: 6,
+	}
+	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
 
 	addLinkHTLC := func(amt lnwire.MilliSatoshi) [32]byte {
 		invoice, htlc, err := generatePayment(amt, amt, 5, mockBlob)
@@ -1619,7 +1626,8 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 			t.Fatalf("unable to create payment: %v", err)
 		}
 		addPkt := htlcPacket{
-			htlc: htlc,
+			htlc:   htlc,
+			amount: amt,
 		}
 		aliceLink.HandleSwitchPacket(&addPkt)
 
@@ -1640,8 +1648,13 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		totalHtlcAmt += htlcAmt
 	}
 
-	time.Sleep(time.Millisecond * 100)
-	expectedBandwidth := aliceStartingBandwidth - totalHtlcAmt
+	time.Sleep(time.Second * 1)
+	commitWeight := lnwallet.CommitWeight + lnwallet.HtlcWeight*numHTLCs
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		btcutil.Amount((int64(feePerKw) * commitWeight) / 1000),
+	)
+	expectedBandwidth := aliceStartingBandwidth - totalHtlcAmt - htlcFee
+	expectedBandwidth += lnwire.NewMSatFromSatoshis(defaultCommitFee)
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// The overflow queue should be empty at this point, as the commitment
@@ -1653,7 +1666,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 
 	// At this point, the commitment transaction should now be fully
 	// saturated. We'll continue adding HTLC's, and asserting that the
-	// bandwidth account is done properly.
+	// bandwidth accounting is done properly.
 	const numOverFlowHTLCs = 20
 	for i := 0; i < numOverFlowHTLCs; i++ {
 		preImage := addLinkHTLC(htlcAmt)
@@ -1662,11 +1675,9 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		totalHtlcAmt += htlcAmt
 	}
 
-	time.Sleep(time.Millisecond * 100)
-	expectedBandwidth = aliceStartingBandwidth - totalHtlcAmt
+	time.Sleep(time.Second * 2)
+	expectedBandwidth -= (numOverFlowHTLCs * htlcAmt)
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
-
-	aliceEndBandwidth := aliceLink.Bandwidth()
 
 	// With the extra HTLC's added, the overflow queue should now be
 	// populated with our 10 additional HTLC's.
@@ -1688,12 +1699,14 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 
 		aliceLink.HandleChannelUpdate(htlcSettle)
 		time.Sleep(time.Millisecond * 50)
-		assertLinkBandwidth(t, aliceLink, aliceEndBandwidth)
 
 		// As we're not actually initiating a full state update, we'll
 		// trigger a free-slot signal manually here.
 		coreLink.overflowQueue.SignalFreeSlot()
 	}
+
+	time.Sleep(time.Millisecond * 200)
+	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Finally, at this point, the queue itself should be fully empty. As
 	// enough slots have been drained from the commitment transaction to

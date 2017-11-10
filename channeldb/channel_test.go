@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -157,30 +158,41 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
 
 	return &OpenChannel{
-		ChanType:                SingleFunder,
-		ChainHash:               key,
-		FundingOutpoint:         *testOutpoint,
-		ShortChanID:             chanID,
-		IsInitiator:             true,
-		IsPending:               true,
-		IdentityPub:             pubKey,
-		LocalChanCfg:            localCfg,
-		RemoteChanCfg:           remoteCfg,
-		CommitFee:               btcutil.Amount(rand.Int63()),
-		FeePerKw:                btcutil.Amount(5000),
-		Capacity:                btcutil.Amount(10000),
-		LocalBalance:            lnwire.MilliSatoshi(3000),
-		RemoteBalance:           lnwire.MilliSatoshi(9000),
-		CommitTx:                *testTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
+		ChanType:          SingleFunder,
+		ChainHash:         key,
+		FundingOutpoint:   *testOutpoint,
+		ShortChanID:       chanID,
+		IsInitiator:       true,
+		IsPending:         true,
+		IdentityPub:       pubKey,
+		Capacity:          btcutil.Amount(10000),
+		LocalChanCfg:      localCfg,
+		RemoteChanCfg:     remoteCfg,
+		TotalMSatSent:     8,
+		TotalMSatReceived: 2,
+		LocalCommitment: ChannelCommitment{
+			CommitHeight:  0,
+			LocalBalance:  lnwire.MilliSatoshi(9000),
+			RemoteBalance: lnwire.MilliSatoshi(3000),
+			CommitFee:     btcutil.Amount(rand.Int63()),
+			FeePerKw:      btcutil.Amount(5000),
+			CommitTx:      testTx,
+			CommitSig:     bytes.Repeat([]byte{1}, 71),
+		},
+		RemoteCommitment: ChannelCommitment{
+			CommitHeight:  0,
+			LocalBalance:  lnwire.MilliSatoshi(3000),
+			RemoteBalance: lnwire.MilliSatoshi(9000),
+			CommitFee:     btcutil.Amount(rand.Int63()),
+			FeePerKw:      btcutil.Amount(5000),
+			CommitTx:      testTx,
+			CommitSig:     bytes.Repeat([]byte{1}, 71),
+		},
 		NumConfsRequired:        4,
 		RemoteCurrentRevocation: privKey.PubKey(),
 		RemoteNextRevocation:    privKey.PubKey(),
 		RevocationProducer:      producer,
 		RevocationStore:         store,
-		NumUpdates:              0,
-		TotalMSatSent:           8,
-		TotalMSatReceived:       2,
 		Db:                      cdb,
 	}, nil
 }
@@ -200,14 +212,24 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create channel state: %v", err)
 	}
-	state.Htlcs = []*HTLC{
+	state.LocalCommitment.Htlcs = []HTLC{
 		{
 			Signature:     testSig.Serialize(),
 			Incoming:      true,
 			Amt:           10,
 			RHash:         key,
 			RefundTimeout: 1,
-			OnionBlob:       []byte("onionblob"),
+			OnionBlob:     []byte("onionblob"),
+		},
+	}
+	state.RemoteCommitment.Htlcs = []HTLC{
+		{
+			Signature:     testSig.Serialize(),
+			Incoming:      false,
+			Amt:           10,
+			RHash:         key,
+			RefundTimeout: 1,
+			OnionBlob:     []byte("onionblob"),
 		},
 	}
 	if err := state.FullSync(); err != nil {
@@ -311,6 +333,14 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if len(openChans) != 0 {
 		t.Fatalf("all channels not deleted, found %v", len(openChans))
+	}
+}
+
+func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
+	if !reflect.DeepEqual(a, b) {
+		_, _, line, _ := runtime.Caller(1)
+		t.Fatalf("line %v: commitments don't match: %v vs %v",
+			line, spew.Sdump(a), spew.Sdump(b))
 	}
 }
 
@@ -603,7 +633,7 @@ func TestFetchPendingChannels(t *testing.T) {
 		TxIndex:     10,
 		TxPosition:  15,
 	}
-	err = cdb.MarkChannelAsOpen(&pendingChannels[0].FundingOutpoint, chanOpenLoc)
+	err = pendingChannels[0].MarkAsOpen(chanOpenLoc)
 	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
@@ -670,7 +700,7 @@ func TestFetchClosedChannels(t *testing.T) {
 		TxIndex:     10,
 		TxPosition:  15,
 	}
-	err = cdb.MarkChannelAsOpen(&state.FundingOutpoint, chanOpenLoc)
+	err = state.MarkAsOpen(chanOpenLoc)
 	if err != nil {
 		t.Fatalf("unable to mark channel as open: %v", err)
 	}
@@ -682,8 +712,8 @@ func TestFetchClosedChannels(t *testing.T) {
 		ClosingTXID:       rev,
 		RemotePub:         state.IdentityPub,
 		Capacity:          state.Capacity,
-		SettledBalance:    state.LocalBalance.ToSatoshis(),
-		TimeLockedBalance: state.LocalBalance.ToSatoshis() + 10000,
+		SettledBalance:    state.LocalCommitment.LocalBalance.ToSatoshis(),
+		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
 		CloseType:         ForceClose,
 		IsPending:         true,
 	}
@@ -719,7 +749,7 @@ func TestFetchClosedChannels(t *testing.T) {
 			spew.Sdump(summary), spew.Sdump(closed[0]))
 	}
 
-	// Mark the channel as fully closed
+	// Mark the channel as fully closed.
 	err = cdb.MarkChanFullyClosed(&state.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("failed fully closing channel: %v", err)

@@ -1972,7 +1972,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := commitWeight + (htlcWeight * numHTLCs)
+	totalCommitWeight := CommitWeight + (HtlcWeight * numHTLCs)
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.

@@ -39,9 +39,6 @@ const (
 	// TODO(roasbeef): should instead be child to make room for future
 	// rotations, etc.
 	identityKeyIndex = hdkeychain.HardenedKeyStart + 2
-
-	commitWeight int64 = 724
-	htlcWeight   int64 = 172
 )
 
 var (

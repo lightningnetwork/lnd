@@ -144,7 +144,7 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := btcutil.Amount((int64(feePerKw) * commitWeight) / 1000)
+	commitFee := btcutil.Amount((int64(feePerKw) * CommitWeight) / 1000)
 
 	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)

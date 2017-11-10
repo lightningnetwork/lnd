@@ -746,71 +746,101 @@ func (h *HTLC) Copy() HTLC {
 	return clone
 }
 
+// LogUpdate represents a pending update to the remote commitment chain. The
+// log update may be an add, fail, or settle entry. We maintain this data in
+// order to be able to properly retransmit our proposed
+// state if necessary.
+type LogUpdate struct {
+	// LogIndex is the log index of this proposed commitment update entry.
+	LogIndex uint64
 
+	// UpdateMsg is the update message that was included within the our
+	// local update log. The LogIndex value denotes the log index of this
+	// update which will be used when restoring our local update log if
+	// we're left with a dangling update on restart.
+	UpdateMsg lnwire.Message
 }
 
-// CommitDiff...
+// CommitDiff represents the delta needed to apply the state transition between
+// two subsequent commitment states. Given state N and state N+1, one is able
+// to apply the set of messages contained within the CommitDiff to N to arrive
+// at state N+1. Each time a new commitment is extended, we'll write a new
+// commitment (along with the full commitment state) to disk so we can
+// re-transmit the state in the case of a connection loss or message drop.
 type CommitDiff struct {
-	// PendingHeight...
-	PendingHeight uint64
+	// ChannelCommitment is the full commitment state that one would arrive
+	// at by applying the set of messages contained in the UpdateDiff to
+	// the prior accepted commitment.
+	Commitment ChannelCommitment
 
-	// PendingCommitment...
-	PendingCommitment *ChannelDelta
+	// LogUpdates is the set of messages sent prior to the commitment state
+	// transition in question. Upon reconnection, if we detect that they
+	// don't have the commitment, then we re-send this along with the
+	// proper signature.
+	LogUpdates []LogUpdate
 
-	// Updates...
-	Updates []lnwire.Message
+	// CommitSig is the exact CommitSig message that should be sent after
+	// the set of LogUpdates above has been retransmitted. The signatures
+	// within this message should properly cover the new commitment state
+	// and also the HTLC's within the new commitment state.
+	CommitSig *lnwire.CommitSig
 }
 
-// decode...
-func (d *CommitDiff) decode(w io.Writer) error {
-	if err := binary.Write(w, byteOrder, d.PendingHeight); err != nil {
+func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
+	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
 	}
 
-	if err := serializeChannelDelta(w, d.PendingCommitment); err != nil {
+	if err := diff.CommitSig.Encode(w, 0); err != nil {
 		return err
 	}
 
-	if err := binary.Write(w, byteOrder, uint16(len(d.Updates))); err != nil {
+	numUpdates := uint16(len(diff.LogUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
 		return err
 	}
 
-	for _, msg := range d.Updates {
-		if _, err := lnwire.WriteMessage(w, msg, 0); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// encode...
-func (d *CommitDiff) encode(r io.Reader) error {
-	if err := binary.Read(r, byteOrder, &d.PendingHeight); err != nil {
-		return err
-	}
-
-	delta, err := deserializeChannelDelta(r)
-	if err != nil {
-		return err
-	}
-	d.PendingCommitment = delta
-
-	var length uint16
-	if err := binary.Read(r, byteOrder, &length); err != nil {
-		return err
-	}
-	d.Updates = make([]lnwire.Message, length)
-
-	for i, _ := range d.Updates {
-		msg, err := lnwire.ReadMessage(r, 0)
+	for _, diff := range diff.LogUpdates {
+		err := writeElements(w, diff.LogIndex, diff.UpdateMsg)
 		if err != nil {
 			return err
 		}
-		d.Updates[i] = msg
 	}
 
 	return nil
+}
+func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
+	var (
+		d   CommitDiff
+		err error
+	)
+
+	d.Commitment, err = deserializeChanCommit(r)
+	if err != nil {
+		return nil, err
+	}
+
+	d.CommitSig = &lnwire.CommitSig{}
+	if err := d.CommitSig.Decode(r, 0); err != nil {
+		return nil, err
+	}
+
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	d.LogUpdates = make([]LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := readElements(r,
+			&d.LogUpdates[i].LogIndex, &d.LogUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &d, nil
 }
 
 // AddCommitDiff...

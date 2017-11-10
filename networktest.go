@@ -348,11 +348,13 @@ func (l *lightningNode) Stop() error {
 	default:
 	}
 
-	// Don't watch for error because sometimes the RPC connection gets
-	// closed before a response is returned.
-	req := lnrpc.StopRequest{}
-	ctx := context.Background()
-	l.LightningClient.StopDaemon(ctx, &req)
+	if l.LightningClient != nil {
+		// Don't watch for error because sometimes the RPC connection gets
+		// closed before a response is returned.
+		req := lnrpc.StopRequest{}
+		ctx := context.Background()
+		l.LightningClient.StopDaemon(ctx, &req)
+	}
 
 	close(l.quit)
 	l.wg.Wait()

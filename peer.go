@@ -1722,6 +1722,7 @@ func (p *peer) handleClosingSigned(localReq *htlcswitch.ChanClose,
 	chanInfo := channel.StateSnapshot()
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:      *chanPoint,
+		ChainHash:      chanInfo.ChainHash,
 		ClosingTXID:    closingTxid,
 		RemotePub:      &chanInfo.RemoteIdentity,
 		Capacity:       chanInfo.Capacity,

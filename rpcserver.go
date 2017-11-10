@@ -918,6 +918,7 @@ func (r *rpcServer) forceCloseChan(channel *lnwallet.LightningChannel) (*chainha
 	chanInfo := channel.StateSnapshot()
 	closeInfo := &channeldb.ChannelCloseSummary{
 		ChanPoint:   *chanPoint,
+		ChainHash:   chanInfo.ChainHash,
 		ClosingTXID: closeTx.TxHash(),
 		RemotePub:   &chanInfo.RemoteIdentity,
 		Capacity:    chanInfo.Capacity,

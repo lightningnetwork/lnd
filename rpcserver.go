@@ -1038,8 +1038,8 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		// peer.
 		chans := serverPeer.ChannelSnapshots()
 		for _, c := range chans {
-			satSent += int64(c.TotalMilliSatoshisSent.ToSatoshis())
-			satRecv += int64(c.TotalMilliSatoshisReceived.ToSatoshis())
+			satSent += int64(c.TotalMSatSent.ToSatoshis())
+			satRecv += int64(c.TotalMSatReceived.ToSatoshis())
 		}
 
 		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
@@ -1112,7 +1112,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	var balance btcutil.Amount
 	for _, channel := range channels {
 		if !channel.IsPending {
-			balance += channel.LocalBalance.ToSatoshis()
+			balance += channel.LocalCommitment.LocalBalance.ToSatoshis()
 		}
 	}
 
@@ -1157,7 +1157,8 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// broadcast.
 		// TODO(roasbeef): query for funding tx from wallet, display
 		// that also?
-		utx := btcutil.NewTx(&pendingChan.CommitTx)
+		localCommitment := pendingChan.LocalCommitment
+		utx := btcutil.NewTx(localCommitment.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
@@ -1166,12 +1167,12 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				RemoteNodePub: hex.EncodeToString(pub),
 				ChannelPoint:  pendingChan.FundingOutpoint.String(),
 				Capacity:      int64(pendingChan.Capacity),
-				LocalBalance:  int64(pendingChan.LocalBalance.ToSatoshis()),
-				RemoteBalance: int64(pendingChan.RemoteBalance.ToSatoshis()),
+				LocalBalance:  int64(localCommitment.LocalBalance.ToSatoshis()),
+				RemoteBalance: int64(localCommitment.RemoteBalance.ToSatoshis()),
 			},
 			CommitWeight: commitWeight,
-			CommitFee:    int64(pendingChan.CommitFee),
-			FeePerKw:     int64(pendingChan.FeePerKw),
+			CommitFee:    int64(localCommitment.CommitFee),
+			FeePerKw:     int64(localCommitment.FeePerKw),
 			// TODO(roasbeef): need to track confirmation height
 		}
 	}
@@ -1311,7 +1312,8 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// estimated weight of the witness to calculate the weight of
 		// the transaction if it were to be immediately unilaterally
 		// broadcast.
-		utx := btcutil.NewTx(&dbChannel.CommitTx)
+		localCommit := dbChannel.LocalCommitment
+		utx := btcutil.NewTx(localCommit.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
@@ -1321,18 +1323,18 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,
 			Capacity:              int64(dbChannel.Capacity),
-			LocalBalance:          int64(dbChannel.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(dbChannel.RemoteBalance.ToSatoshis()),
-			CommitFee:             int64(dbChannel.CommitFee),
+			LocalBalance:          int64(localCommit.LocalBalance.ToSatoshis()),
+			RemoteBalance:         int64(localCommit.RemoteBalance.ToSatoshis()),
+			CommitFee:             int64(localCommit.CommitFee),
 			CommitWeight:          commitWeight,
-			FeePerKw:              int64(dbChannel.FeePerKw),
+			FeePerKw:              int64(localCommit.FeePerKw),
 			TotalSatoshisSent:     int64(dbChannel.TotalMSatSent.ToSatoshis()),
 			TotalSatoshisReceived: int64(dbChannel.TotalMSatReceived.ToSatoshis()),
-			NumUpdates:            dbChannel.NumUpdates,
-			PendingHtlcs:          make([]*lnrpc.HTLC, len(dbChannel.Htlcs)),
+			NumUpdates:            localCommit.CommitHeight,
+			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
 		}
 
-		for i, htlc := range dbChannel.Htlcs {
+		for i, htlc := range localCommit.Htlcs {
 			channel.PendingHtlcs[i] = &lnrpc.HTLC{
 				Incoming:         htlc.Incoming,
 				Amount:           int64(htlc.Amt),

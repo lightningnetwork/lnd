@@ -1921,7 +1921,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// If this is our commitment transaction, then we can exit here as we
 	// don't have any further processing we need to do (we can't cheat
 	// ourselves :p).
-	commitmentHash := lc.channelState.CommitTx.TxHash()
+	commitmentHash := lc.channelState.LocalCommitment.CommitTx.TxHash()
 	isOurCommitment := commitSpend.SpenderTxHash.IsEqual(&commitmentHash)
 	if isOurCommitment {
 		return
@@ -1968,7 +1968,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			ClosingTXID:    *commitSpend.SpenderTxHash,
 			RemotePub:      lc.channelState.IdentityPub,
 			Capacity:       lc.Capacity,
-			SettledBalance: lc.channelState.LocalBalance.ToSatoshis(),
+			SettledBalance: lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 			CloseType:      channeldb.ForceClose,
 			IsPending:      true,
 		}
@@ -1987,9 +1987,9 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// Next, we'll obtain HTLC resolutions for all the outgoing
 		// HTLC's we had on their commitment transaction.
 		htlcResolutions, err := extractHtlcResolutions(
-			lc.channelState.FeePerKw, false, lc.signer,
-			lc.channelState.Htlcs, keyRing,
-			lc.localChanCfg, lc.remoteChanCfg,
+			lc.channelState.LocalCommitment.FeePerKw, false,
+			lc.signer, lc.channelState.LocalCommitment.Htlcs,
+			keyRing, lc.localChanCfg, lc.remoteChanCfg,
 			*commitSpend.SpenderTxHash)
 		if err != nil {
 			walletLog.Errorf("unable to create htlc "+
@@ -2023,12 +2023,13 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		var selfSignDesc *SignDescriptor
 		if selfPoint != nil {
 			localPayBase := lc.localChanCfg.PaymentBasePoint
+			localBalance := lc.channelState.LocalCommitment.LocalBalance.ToSatoshis()
 			selfSignDesc = &SignDescriptor{
 				PubKey:        localPayBase,
 				SingleTweak:   keyRing.localKeyTweak,
 				WitnessScript: selfP2WKH,
 				Output: &wire.TxOut{
-					Value:    int64(lc.channelState.LocalBalance.ToSatoshis()),
+					Value:    int64(localBalance),
 					PkScript: selfP2WKH,
 				},
 				HashType: txscript.SigHashAll,
@@ -2187,7 +2188,7 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 // commitment updates. A fully populated commitment is returned which reflects
 // the proper balances for both sides at this point in the commitment chain.
 func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
-	ourLogIndex, theirLogIndex uint64,
+	ourLogIndex, ourHtlcIndex, theirLogIndex, theirHtlcIndex uint64,
 	keyRing *commitmentKeyRing) (*commitment, error) {
 
 	commitChain := lc.localCommitChain
@@ -2195,7 +2196,6 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		commitChain = lc.remoteCommitChain
 	}
 
-	ourCommitTx := !remoteChain
 	ourBalance := commitChain.tip().ourBalance
 	theirBalance := commitChain.tip().theirBalance
 
@@ -2214,7 +2214,6 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// Run through all the HTLCs that will be covered by this transaction
 	// in order to update their commitment addition height, and to adjust
 	// the balances on the commitment transaction accordingly.
-	// TODO(roasbeef): error if log empty?
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
 	filteredHTLCView := lc.evaluateHTLCView(htlcView, &ourBalance,
 		&theirBalance, nextHeight, remoteChain)
@@ -2264,11 +2263,13 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	c := &commitment{
-		height:            nextHeight,
 		ourBalance:        ourBalance,
-		ourMessageIndex:   ourLogIndex,
-		theirMessageIndex: theirLogIndex,
 		theirBalance:      theirBalance,
+		ourMessageIndex:   ourLogIndex,
+		ourHtlcIndex:      ourHtlcIndex,
+		theirMessageIndex: theirLogIndex,
+		theirHtlcIndex:    theirHtlcIndex,
+		height:            nextHeight,
 		feePerKw:          feePerKw,
 		dustLimit:         dustLimit,
 		isOurs:            !remoteChain,
@@ -2539,7 +2540,7 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 	*addHeight = nextHeight
 }
 
-// processRemoveEntry processes a log entry which settles or timesout a
+// processRemoveEntry processes a log entry which settles or times out a
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
@@ -2777,10 +2778,10 @@ func (lc *LightningChannel) createCommitDiff(commitment *commitment) (*channeldb
 // decrements the available revocation window by 1. After a successful method
 // call, the remote party's commitment chain is extended by a new commitment
 // which includes all updates to the HTLC log prior to this method invocation.
-// The first return parameter is the signature for the commitment
-// transaction itself, while the second parameter is a slice of all
-// HTLC signatures (if any). The HTLC signatures are sorted according to
-// the BIP 69 order of the HTLC's on the commitment transaction.
+// The first return parameter is the signature for the commitment transaction
+// itself, while the second parameter is a slice of all HTLC signatures (if
+// any). The HTLC signatures are sorted according to the BIP 69 order of the
+// HTLC's on the commitment transaction.
 func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Signature, error) {
 	lc.Lock()
 	defer lc.Unlock()
@@ -2819,14 +2820,18 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// HTLC log entries. When we creating a new remote view, we include
 	// _all_ of our changes (pending or committed) but only the remote
 	// node's changes up to the last change we've ACK'd.
-	newCommitView, err := lc.fetchCommitmentView(true,
-		lc.localUpdateLog.logIndex, remoteACKedIndex, keyRing)
+	newCommitView, err := lc.fetchCommitmentView(
+		true, lc.localUpdateLog.logIndex, lc.localUpdateLog.htlcCounter,
+		remoteACKedIndex, remoteHtlcIndex, keyRing,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	walletLog.Tracef("ChannelPoint(%v): extending remote chain to height %v",
-		lc.channelState.FundingOutpoint, newCommitView.height)
+	walletLog.Tracef("ChannelPoint(%v): extending remote chain to height %v, "+
+		"local_log=%v, remote_log=%v",
+		lc.channelState.FundingOutpoint, newCommitView.height,
+		lc.localUpdateLog.logIndex, remoteACKedIndex)
 
 	walletLog.Tracef("ChannelPoint(%v): remote chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v",
@@ -3299,14 +3304,19 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	// With the current commitment point re-calculated, construct the new
 	// commitment view which includes all the entries we know of in their
 	// HTLC log, and up to ourLogIndex in our HTLC log.
-	localCommitmentView, err := lc.fetchCommitmentView(false,
-		localACKedIndex, lc.remoteUpdateLog.logIndex, keyRing)
+	localCommitmentView, err := lc.fetchCommitmentView(
+		false, localACKedIndex, localHtlcIndex,
+		lc.remoteUpdateLog.logIndex, lc.remoteUpdateLog.htlcCounter,
+		keyRing,
+	)
 	if err != nil {
 		return err
 	}
 
-	walletLog.Tracef("ChannelPoint(%v): extending local chain to height %v",
-		lc.channelState.FundingOutpoint, localCommitmentView.height)
+	walletLog.Tracef("ChannelPoint(%v): extending local chain to height %v, "+
+		"local_log=%v, remote_log=%v",
+		lc.channelState.FundingOutpoint, localCommitmentView.height,
+		localACKedIndex, lc.remoteUpdateLog.logIndex)
 
 	walletLog.Tracef("ChannelPoint(%v): local chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v", lc.channelState.FundingOutpoint,

@@ -1372,7 +1372,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	defer cleanUp()
 
 	const numHtlcs = 4
-	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
+	htlcAmt := lnwire.NewMSatFromSatoshis(5000)
 
 	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
 	var alicePreimage [32]byte

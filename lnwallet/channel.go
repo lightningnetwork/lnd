@@ -3555,13 +3555,9 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 	// At this point, the revocation has been accepted, and we've rotated
 	// the current revocation key+hash for the remote party. Therefore we
 	// sync now to ensure the revocation producer state is consistent with
-	// the current commitment height.
-	tail := lc.remoteCommitChain.tail()
-	delta, err := tail.toChannelDelta(false)
-	if err != nil {
-		return nil, err
-	}
-	if err := lc.channelState.AppendToRevocationLog(delta); err != nil {
+	// the current commitment height and also to advance the on-disk
+	// commitment chain.
+	if err := lc.channelState.AdvanceCommitChainTail(); err != nil {
 		return nil, err
 	}
 
@@ -3583,13 +3579,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 			continue
 		}
 
-		// TODO(roasbeef): re-visit after adding persistence to HTLCs
-		//  * either record add height, or set to N - 1
 		uncomitted := (htlc.addCommitHeightRemote == 0 ||
 			htlc.addCommitHeightLocal == 0)
-		fmt.Println(remoteChainTail, localChainTail,
-			htlc.addCommitHeightRemote,
-			htlc.addCommitHeightLocal)
 		if htlc.EntryType == Add && uncomitted {
 			continue
 		}

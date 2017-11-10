@@ -2972,120 +2972,111 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	return sig, htlcSigs, nil
 }
 
-// ReceiveReestablish is used to handle the remote channel reestablish message
-// and generate the set of updates which are have to be sent to remote side
-// to synchronize the states of the channels.
-func (lc *LightningChannel) ReceiveReestablish(msg *lnwire.ChannelReestablish) (
-	[]lnwire.Message, error) {
-
+// ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
+// connection upon re establishment of our connection with them. This method
+// will return a single message if we are currently out of sync, otherwise a
+// nil lnwire.Message will be returned. If it is decided that our level of
+// de-synchronization is irreconcilable, then an error indicating the issue
+// will be returned. In this case that an error is returned, the channel should
+// be force closed, as we cannot continue updates.
+//
+// One of two message sets will be returned:
+//
+//  * CommitSig+Updates: if we have a pending remote commit which they claim to
+//    have not received
+//  * RevokeAndAck: if we sent a revocation message that they claim to have
+//    not received
+func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) ([]lnwire.Message, error) {
 	lc.Lock()
 	defer lc.Unlock()
+
+	// We owe them a commitment if they have an un-acked commitment and the
+	// tip of their chain (from our Pov) is equal to what they think their
+	// next commit height should be.
+	remoteChainTip := lc.remoteCommitChain.tip()
+	oweCommitment := (lc.remoteCommitChain.hasUnackedCommitment() &&
+		msg.NextLocalCommitHeight == remoteChainTip.height)
+
+	// We owe them a revocation if the tail of our current commitment is
+	// one greater than what they _think_ our commitment tail is.
+	localChainTail := lc.localCommitChain.tail()
+	oweRevocation := localChainTail.height == msg.RemoteCommitTailHeight+1
+
+	// Now we'll examine the state we have, vs what was contained in the
+	// chain sync message. If we're de-synchronized, then we'll send a
+	// batch of messages which when applied will kick start the chain
+	// resync.
 	var updates []lnwire.Message
 
-	// As far we store on last commitment transaction we should rely on the
-	// height of the commitment transaction in order to calculate the length.
-	numberRemoteCommitments := lc.remoteCommitChain.tip().height + 1
-
-	// Number of the revocations might be calculated as the height of the
-	// commitment transactions which will be revoked next minus one. And plus
-	// one because height starts from zero.
-	numberRemoteRevocations := lc.localCommitChain.tail().height - 1 + 1
-
-	revocationsnumberDiff := msg.NextRemoteRevocationNumber - numberRemoteRevocations
-	if revocationsnumberDiff == 0 {
-		// If remote side expects as receive revocation which we already
-		// consider as last, than it means that they aren't received our
-		// last revocation message.
-		revocationMsg, err := lc.generateRevocation(lc.currentHeight - 1)
+	// If we owe the remote party a revocation message, then we'll re-send
+	// the last revocation message that we sent. This will be the
+	// revocation message for our prior chain tail.
+	if oweRevocation {
+		revocationMsg, err := lc.generateRevocation(
+			localChainTail.height - 1,
+		)
 		if err != nil {
 			return nil, err
 		}
 		updates = append(updates, revocationMsg)
-	} else if revocationsnumberDiff < 0 {
-		// Remote node claims that it received the revoke_and_ack message
-		// which we did not send.
-		return nil, errors.New("remote side claims that it haven't received " +
-			"acked revoke and ack message")
+
+		// Next, as a precaution, we'll check a special edge case. If
+		// they initiated a state transition, we sent the revocation,
+		// but died before the signature was sent. We re-transmit our
+		// revocation, but also initiate a state transition to re-sync
+		// them.
+		if lc.localCommitChain.tip().height >
+			lc.remoteCommitChain.tip().height {
+
+			commitSig, htlcSigs, err := lc.SignNextCommitment()
+			if err != nil {
+				return nil, err
+			}
+			updates = append(updates, &lnwire.CommitSig{
+				ChanID: lnwire.NewChanIDFromOutPoint(
+					&lc.channelState.FundingOutpoint,
+				),
+				CommitSig: commitSig,
+				HtlcSigs:  htlcSigs,
+			})
+		}
+
+	} else if !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight {
+		// If we don't owe them a revocation, and the height of our
+		// commitment chain reported by the remote party is not equal
+		// to our chain tail, then we cannot sync.
+		return nil, ErrCannotSyncCommitChains
 	}
 
-	commitmentChainDiff := msg.NextLocalCommitmentNumber - numberRemoteCommitments
-	if commitmentChainDiff == 0 {
-		// If remote side expects as receive commitment which we already
-		// consider as last, than it means that they aren't received our
-		// last commit sig message.
-		commitment := lc.remoteCommitChain.tip()
-		chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
-
-		// TODO: Read from update log, which will contains settle/fail
-		// updates also.
-		for _, htlc := range commitment.outgoingHTLCs {
-			// If htlc is included in the local commitment chain (have been
-			// included by remote side) or htlc is included in remote chain, but
-			// not in the last commimemnt transaction than we should skip it,
-			// because we need resend only updates which haven't been received
-			// by remotes side.
-			if htlc.addCommitHeightLocal != 0 ||
-				(htlc.addCommitHeightLocal != 0 &&
-					htlc.addCommitHeightLocal <= commitment.height) {
-				continue
-			}
-
-			switch htlc.EntryType {
-			case Add:
-				var onionBlob [lnwire.OnionPacketSize]byte
-				copy(onionBlob[:], htlc.OnionBlob)
-				updates = append(updates, &lnwire.UpdateAddHTLC{
-					ChanID:      chanID,
-					ID:          htlc.Index,
-					Expiry:      htlc.Timeout,
-					Amount:      htlc.Amount,
-					PaymentHash: htlc.RHash,
-					OnionBlob:   onionBlob,
-				})
-			case Fail:
-				updates = append(updates, &lnwire.UpdateFailHTLC{
-					ChanID: chanID,
-					ID:     htlc.Index,
-					Reason: lnwire.OpaqueReason([]byte{}),
-				})
-			case MalformedFail:
-				updates = append(updates, &lnwire.UpdateFailMalformedHTLC{
-					ChanID:       chanID,
-					ID:           htlc.Index,
-					ShaOnionBlob: htlc.ShaOnionBlob,
-					FailureCode:  htlc.FailCode,
-				})
-			case Settle:
-				updates = append(updates, &lnwire.UpdateFufillHTLC{
-					ChanID:          chanID,
-					ID:              htlc.Index,
-					PaymentPreimage: htlc.RPreimage,
-				})
-			}
-		}
-
-		// Generate last sent commit sig message by signing the transaction and
-		// creating the signature.
-		lc.signDesc.SigHashes = txscript.NewTxSigHashes(commitment.txn)
-		sig, err := lc.signer.SignOutputRaw(commitment.txn, lc.signDesc)
+	// If we owe them a commitment, then we'll read from disk our
+	// commitment diff, so we can re-send them to the remote party.
+	if oweCommitment {
+		// Grab the current remote chain tip from the database. This
+		// commit diff contains all the information required to re-sync
+		// our states.
+		commitDiff, err := lc.channelState.RemoteCommitChainTip()
 		if err != nil {
 			return nil, err
 		}
 
-		commitSig, err := btcec.ParseSignature(sig, btcec.S256())
-		if err != nil {
-			return nil, err
+		// Next, we'll need to send over any updates we sent as part of
+		// this new proposed commitment state.
+		for _, logUpdate := range commitDiff.LogUpdates {
+			updates = append(updates, logUpdate.UpdateMsg)
 		}
-		updates = append(updates, &lnwire.CommitSig{
-			ChanID:    chanID,
-			CommitSig: commitSig,
-		})
 
-	} else if commitmentChainDiff < 0 {
-		// Remote node claims that it received the commit sig message which we
-		// did not send.
-		return nil, errors.New("remote side claims that it haven't received " +
-			"acked commit sig message")
+		// With the batch of updates accumulated, we'll now re-send the
+		// original CommitSig message required to re-sync their remote
+		// commitment chain with our local version of their chain.
+		updates = append(updates, commitDiff.CommitSig)
+
+	} else if !oweCommitment && remoteChainTip.height+1 !=
+		msg.NextLocalCommitHeight {
+
+		// If we don't owe them a commitment, yet the tip of their
+		// chain isn't one more than the next local commit height they
+		// report, we'll fail the channel.
+		return nil, ErrCannotSyncCommitChains
 	}
 
 	return updates, nil

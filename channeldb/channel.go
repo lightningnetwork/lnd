@@ -490,6 +490,9 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 // MarkAsOpen marks a channel as fully open given a locator that uniquely
 // describes its location within the chain.
 func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
 			&c.FundingOutpoint, c.ChainHash)
@@ -850,6 +853,9 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 // sufficient to retransmit the updates and signature needed to reconstruct the
 // state in full, in the case that we need to retransmit.
 func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		// First, we'll grab the writeable bucket where this channel's
 		// data resides.
@@ -1023,6 +1029,9 @@ func (c *OpenChannel) AdvanceCommitChainTail() error {
 // one state behind the most current (unrevoked) state of the remote node's
 // commitment chain.
 func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	// If we haven't created any state updates yet, then we'll exit erly as
 	// there's nothing to be found on disk in the revocation bucket.
 	if c.RemoteCommitment.CommitHeight == 0 {
@@ -1072,6 +1081,9 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 // order to allow multiple instances of a particular open channel to obtain a
 // consistent view of the number of channel updates to data.
 func (c *OpenChannel) CommitmentHeight() (uint64, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	var height uint64
 	err := c.Db.View(func(tx *bolt.Tx) error {
 		// Get the bucket dedicated to storing the metadata for open
@@ -1103,6 +1115,9 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
 func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, error) {
+	c.RLock()
+	defer c.RUnlock()
+
 	var commit ChannelCommitment
 	err := c.Db.View(func(tx *bolt.Tx) error {
 		chanBucket, err := readChanBucket(tx, c.IdentityPub,
@@ -1218,6 +1233,9 @@ type ChannelCloseSummary struct {
 // channel at closing, this compact representation will be the only component
 // of a channel left over after a full closing.
 func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.Db.Update(func(tx *bolt.Tx) error {
 		openChanBucket := tx.Bucket(openChannelBucket)
 		if openChanBucket == nil {

@@ -1167,6 +1167,10 @@ type ChannelCloseSummary struct {
 	// and is used as a unique identifier for the channel.
 	ChanPoint wire.OutPoint
 
+	// ChainHash is the hash of the genesis block that this channel resides
+	// within.
+	ChainHash chainhash.Hash
+
 	// ClosingTXID is the txid of the transaction which ultimately closed
 	// this channel.
 	ClosingTXID chainhash.Hash

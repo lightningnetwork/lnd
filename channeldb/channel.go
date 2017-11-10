@@ -1022,24 +1022,22 @@ func (c *OpenChannel) AdvanceCommitChainTail() error {
 // commitment chain. The ChannelDelta returned by this method will always lag
 // one state behind the most current (unrevoked) state of the remote node's
 // commitment chain.
-func (c *OpenChannel) RevocationLogTail() (*ChannelDelta, error) {
+func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 	// If we haven't created any state updates yet, then we'll exit erly as
 	// there's nothing to be found on disk in the revocation bucket.
-	if c.NumUpdates == 0 {
+	if c.RemoteCommitment.CommitHeight == 0 {
 		return nil, nil
 	}
 
-	var delta *ChannelDelta
+	var commit ChannelCommitment
 	if err := c.Db.View(func(tx *bolt.Tx) error {
-		chanBucket := tx.Bucket(openChannelBucket)
-
-		nodePub := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket := chanBucket.Bucket(nodePub)
-		if nodeChanBucket == nil {
-			return ErrNoActiveChannels
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
 		}
 
-		logBucket := nodeChanBucket.Bucket(channelLogBucket)
+		logBucket := chanBucket.Bucket(revocationLogBucket)
 		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
@@ -1055,7 +1053,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelDelta, error) {
 		// Once we have the entry, we'll decode it into the channel
 		// delta pointer we created above.
 		var dbErr error
-		delta, dbErr = deserializeChannelDelta(logEntryReader)
+		commit, dbErr = deserializeChanCommit(logEntryReader)
 		if dbErr != nil {
 			return dbErr
 		}
@@ -1065,7 +1063,7 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelDelta, error) {
 		return nil, err
 	}
 
-	return delta, nil
+	return &commit, nil
 }
 
 // CommitmentHeight returns the current commitment height. The commitment

@@ -661,9 +661,9 @@ func newCommitmentChain(initialHeight uint64) *commitmentChain {
 }
 
 // addCommitment extends the commitment chain by a single commitment. This
-// added commitment represents a state update propsed by either party. Once the
-// commitment prior to this commitment is revoked, the commitment becomes the
-// new defacto state within the channel.
+// added commitment represents a state update proposed by either party. Once
+// the commitment prior to this commitment is revoked, the commitment becomes
+// the new defacto state within the channel.
 func (s *commitmentChain) addCommitment(c *commitment) {
 	s.commitments.PushBack(c)
 }
@@ -697,8 +697,6 @@ func (s *commitmentChain) hasUnackedCommitment() bool {
 // changes are stored before they're committed to the chain. Once an entry has
 // been committed in both the local and remote commitment chain, then it can be
 // removed from this log.
-
-// TODO(roasbeef): update with offer vs update distinction
 //
 // TODO(roasbeef): create lightning package, move commitment and update to
 // package?
@@ -730,20 +728,33 @@ type updateLog struct {
 }
 
 // newUpdateLog creates a new updateLog instance.
-func newUpdateLog(logIndex, ackedIndex uint64) *updateLog {
+func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 	return &updateLog{
 		List:        list.New(),
 		updateIndex: make(map[uint64]*list.Element),
 		htlcIndex:   make(map[uint64]*list.Element),
 		logIndex:    logIndex,
-		ackedIndex:  ackedIndex,
+		htlcCounter: htlcCounter,
 	}
+}
+
+// restoreHtlc will "restore" a prior HTLC to the updateLog. We say restore as
+// this method is intended to be used when re-covering a prior commitment
+// state. This function differs from appendHtlc in that it won't increment
+// either of log's counters. If the HTLC is already present, then it is
+// ignored.
+func (u *updateLog) restoreHtlc(pd *PaymentDescriptor) {
+	if _, ok := u.htlcIndex[pd.HtlcIndex]; ok {
+		return
+	}
+
+	u.htlcIndex[pd.HtlcIndex] = u.PushBack(pd)
 }
 
 // appendUpdate appends a new update to the tip of the updateLog. The entry is
 // also added to index accordingly.
 func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
-	u.updateIndex[pd.Index] = u.PushBack(pd)
+	u.updateIndex[u.logIndex] = u.PushBack(pd)
 	u.logIndex++
 }
 
@@ -793,9 +804,9 @@ func compactLogs(ourLog, theirLog *updateLog,
 	compactLog := func(logA, logB *updateLog) {
 		var nextA *list.Element
 		for e := logA.Front(); e != nil; e = nextA {
-			// Assign next iteration element at top of loop because we may
-			// remove the current element from the list, which can change the
-			// iterated sequence.
+			// Assign next iteration element at top of loop because
+			// we may remove the current element from the list,
+			// which can change the iterated sequence.
 			nextA = e.Next()
 
 			htlc := e.Value.(*PaymentDescriptor)
@@ -825,7 +836,6 @@ func compactLogs(ourLog, theirLog *updateLog,
 	}
 
 	compactLog(ourLog, theirLog)
-
 	compactLog(theirLog, ourLog)
 }
 

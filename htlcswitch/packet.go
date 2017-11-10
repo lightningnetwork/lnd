@@ -51,6 +51,7 @@ type htlcPacket struct {
 func newInitPacket(destNode [33]byte, htlc *lnwire.UpdateAddHTLC) *htlcPacket {
 	return &htlcPacket{
 		destNode: destNode,
+		amount:   htlc.Amount,
 		htlc:     htlc,
 	}
 }
@@ -61,6 +62,7 @@ func newAddPacket(src, dest lnwire.ShortChannelID,
 	htlc *lnwire.UpdateAddHTLC, e ErrorEncrypter) *htlcPacket {
 
 	return &htlcPacket{
+		amount:     htlc.Amount,
 		dest:       dest,
 		src:        src,
 		htlc:       htlc,

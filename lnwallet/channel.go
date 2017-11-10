@@ -347,41 +347,6 @@ type commitment struct {
 	incomingHTLCIndex map[int32]*PaymentDescriptor
 }
 
-// commitmentKeyRing holds all derived keys needed to construct commitment and
-// HTLC transactions. The keys are derived differently depending whether the
-// commitment transaction is ours or the remote peer's. Private keys associated
-// with each key may belong to the commitment owner or the "other party" which
-// is referred to in the field comments, regardless of which is local and which
-// is remote.
-type commitmentKeyRing struct {
-	// commitPoint is the "per commitment point" used to derive the tweak for
-	// each base point.
-	commitPoint *btcec.PublicKey
-
-	// localKeyTweak is the tweak used to derive the local public key from the
-	// local payment base point or the local private key from the base point
-	// secret. This may be included in a SignDescriptor to generate signatures
-	// for the local payment key.
-	localKeyTweak []byte
-
-	// delayKey is the commitment transaction owner's key which is included in
-	// HTLC success and timeout transaction scripts.
-	delayKey *btcec.PublicKey
-
-	// paymentKey is the other party's payment key in the commitment tx.
-	paymentKey *btcec.PublicKey
-
-	// revocationKey is the key that can be used by the other party to redeem
-	// outputs from a revoked commitment transaction if it were to be published.
-	revocationKey *btcec.PublicKey
-
-	// localKey is this node's payment key in the commitment tx.
-	localKey *btcec.PublicKey
-
-	// remoteKey is the remote node's payment key in the commitment tx.
-	remoteKey *btcec.PublicKey
-}
-
 // locateOutputIndex is a small helper function to locate the output index of a
 // particular HTLC within the current commitment transaction. The duplicate map
 // massed in is to be retained for each output within the commitment
@@ -597,9 +562,74 @@ func (c *commitment) htlcs(ourCommit bool) []*channeldb.HTLC {
 
 	for _, htlc := range c.incomingHTLCs {
 		htlcs = append(htlcs, pdToHtlc(true, htlc))
-	}
+// commitmentKeyRing holds all derived keys needed to construct commitment and
+// HTLC transactions. The keys are derived differently depending whether the
+// commitment transaction is ours or the remote peer's. Private keys associated
+// with each key may belong to the commitment owner or the "other party" which
+// is referred to in the field comments, regardless of which is local and which
+// is remote.
+type commitmentKeyRing struct {
+	// commitPoint is the "per commitment point" used to derive the tweak for
+	// each base point.
+	commitPoint *btcec.PublicKey
 
-	return htlcs
+	// localKeyTweak is the tweak used to derive the local public key from the
+	// local payment base point or the local private key from the base point
+	// secret. This may be included in a SignDescriptor to generate signatures
+	// for the local payment key.
+	localKeyTweak []byte
+
+	// delayKey is the commitment transaction owner's key which is included in
+	// HTLC success and timeout transaction scripts.
+	delayKey *btcec.PublicKey
+
+	// paymentKey is the other party's payment key in the commitment tx.
+	paymentKey *btcec.PublicKey
+
+	// revocationKey is the key that can be used by the other party to redeem
+	// outputs from a revoked commitment transaction if it were to be published.
+	revocationKey *btcec.PublicKey
+
+	// localKey is this node's payment key in the commitment tx.
+	localKey *btcec.PublicKey
+
+	// remoteKey is the remote node's payment key in the commitment tx.
+	remoteKey *btcec.PublicKey
+}
+
+// deriveCommitmentKey generates a new commitment key set using the base points
+// and commitment point. The keys are derived differently depending whether the
+// commitment transaction is ours or the remote peer's.
+func deriveCommitmentKeys(commitPoint *btcec.PublicKey, isOurCommit bool,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *commitmentKeyRing {
+	keyRing := new(commitmentKeyRing)
+
+	keyRing.commitPoint = commitPoint
+	keyRing.localKeyTweak = SingleTweakBytes(commitPoint,
+		localChanCfg.PaymentBasePoint)
+	keyRing.localKey = TweakPubKeyWithTweak(localChanCfg.PaymentBasePoint,
+		keyRing.localKeyTweak)
+	keyRing.remoteKey = TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
+
+	// We'll now compute the delay, payment and revocation key based on the
+	// current commitment point. All keys are tweaked each state in order
+	// to ensure the keys from each state are unlinkable. TO create the
+	// revocation key, we take the opposite party's revocation base point
+	// and combine that with the current commitment point.
+	var delayBasePoint, revocationBasePoint *btcec.PublicKey
+	if isOurCommit {
+		keyRing.paymentKey = keyRing.remoteKey
+		delayBasePoint = localChanCfg.DelayBasePoint
+		revocationBasePoint = remoteChanCfg.RevocationBasePoint
+	} else {
+		keyRing.paymentKey = keyRing.localKey
+		delayBasePoint = remoteChanCfg.DelayBasePoint
+		revocationBasePoint = localChanCfg.RevocationBasePoint
+	}
+	keyRing.delayKey = TweakPubKey(delayBasePoint, commitPoint)
+	keyRing.revocationKey = DeriveRevocationPubkey(revocationBasePoint, commitPoint)
+
+	return keyRing
 }
 
 // commitmentChain represents a chain of unrevoked commitments. The tail of the
@@ -4304,39 +4334,4 @@ func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	defer lc.Unlock()
 
 	return lc.channelState.RemoteNextRevocation
-}
-
-// deriveCommitmentKey generates a new commitment key set using the base points
-// and commitment point. The keys are derived differently depending whether the
-// commitment transaction is ours or the remote peer's.
-func deriveCommitmentKeys(commitPoint *btcec.PublicKey, isOurCommit bool,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *commitmentKeyRing {
-	keyRing := new(commitmentKeyRing)
-
-	keyRing.commitPoint = commitPoint
-	keyRing.localKeyTweak = SingleTweakBytes(commitPoint,
-		localChanCfg.PaymentBasePoint)
-	keyRing.localKey = TweakPubKeyWithTweak(localChanCfg.PaymentBasePoint,
-		keyRing.localKeyTweak)
-	keyRing.remoteKey = TweakPubKey(remoteChanCfg.PaymentBasePoint, commitPoint)
-
-	// We'll now compute the delay, payment and revocation key based on the
-	// current commitment point. All keys are tweaked each state in order
-	// to ensure the keys from each state are unlinkable. TO create the
-	// revocation key, we take the opposite party's revocation base point
-	// and combine that with the current commitment point.
-	var delayBasePoint, revocationBasePoint *btcec.PublicKey
-	if isOurCommit {
-		keyRing.paymentKey = keyRing.remoteKey
-		delayBasePoint = localChanCfg.DelayBasePoint
-		revocationBasePoint = remoteChanCfg.RevocationBasePoint
-	} else {
-		keyRing.paymentKey = keyRing.localKey
-		delayBasePoint = remoteChanCfg.DelayBasePoint
-		revocationBasePoint = localChanCfg.RevocationBasePoint
-	}
-	keyRing.delayKey = TweakPubKey(delayBasePoint, commitPoint)
-	keyRing.revocationKey = DeriveRevocationPubkey(revocationBasePoint, commitPoint)
-
-	return keyRing
 }

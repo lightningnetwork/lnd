@@ -1102,34 +1102,33 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 // intended to be used for obtaining the relevant data needed to claim all
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
-func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelDelta, error) {
-	delta := &ChannelDelta{}
-
+func (c *OpenChannel) FindPreviousState(updateNum uint64) (*ChannelCommitment, error) {
+	var commit ChannelCommitment
 	err := c.Db.View(func(tx *bolt.Tx) error {
-		chanBucket := tx.Bucket(openChannelBucket)
-
-		nodePub := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket := chanBucket.Bucket(nodePub)
-		if nodeChanBucket == nil {
-			return ErrNoActiveChannels
+		chanBucket, err := readChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
 		}
 
-		logBucket := nodeChanBucket.Bucket(channelLogBucket)
+		logBucket := chanBucket.Bucket(revocationLogBucket)
 		if logBucket == nil {
 			return ErrNoPastDeltas
 		}
 
-		var err error
-		delta, err = fetchChannelLogEntry(logBucket, &c.FundingOutpoint,
-			updateNum)
+		c, err := fetchChannelLogEntry(logBucket, updateNum)
+		if err != nil {
+			return err
+		}
 
-		return err
+		commit = c
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return delta, nil
+	return &commit, nil
 }
 
 // ClosureType is an enum like structure that details exactly _how_ a channel

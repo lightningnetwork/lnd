@@ -1470,8 +1470,6 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The state update logs of the new channels and the old channels
 	// should now be identical other than the height the HTLCs were added.
-	//
-	// TODO(roasbeef): check for HTLC index as well!!!!!
 	if aliceChannel.localUpdateLog.logIndex !=
 		aliceChannelNew.localUpdateLog.logIndex {
 		t.Fatalf("alice log counter: expected %v, got %v",
@@ -1623,6 +1621,25 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if bobChannelNew.channelState.TotalMSatReceived != htlcAmt*3 {
 		t.Fatalf("expected %v bob satoshis sent, got %v",
 			htlcAmt*3, bobChannel.channelState.TotalMSatReceived)
+	}
+
+	// As a final test, we'll ensure that the HTLC counters for both sides
+	// has been persisted properly. If we instruct Alice to add a new HTLC,
+	// it should have an index of 3. If we instruct Bob to do the
+	// same, it should have an index of 1.
+	aliceHtlcIndex, err := aliceChannel.AddHTLC(bobh)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if aliceHtlcIndex != 3 {
+		t.Fatalf("wrong htlc index: expected %v, got %v", 3, aliceHtlcIndex)
+	}
+	bobHtlcIndex, err := bobChannel.AddHTLC(bobh)
+	if err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if bobHtlcIndex != 1 {
+		t.Fatalf("wrong htlc index: expected %v, got %v", 1, aliceHtlcIndex)
 	}
 }
 

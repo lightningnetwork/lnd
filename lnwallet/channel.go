@@ -1662,7 +1662,7 @@ type BreachRetribution struct {
 
 	// PendingHTLCs is a slice of the HTLCs which were pending at this
 	// point within the channel's history transcript.
-	PendingHTLCs []*channeldb.HTLC
+	PendingHTLCs []channeldb.HTLC
 
 	// LocalOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature necessary to sweep the output within the
@@ -2720,55 +2720,102 @@ func genRemoteHtlcSigJobs(keyRing *commitmentKeyRing,
 	return sigBatch, cancelChan, nil
 }
 
-// createCommitDiff
-func (lc *LightningChannel) createCommitDiff(commitment *commitment) (*channeldb.CommitDiff,
-	error) {
+// createCommitDiff will create a commit diff given a new pending commitment
+// for the remote party and the necessary signatures for the remote party to
+// validate this new state. This function is called right before sending the
+// new commitment to the remote party. The commit diff returned contains all
+// information necessary for retransmission.
+func (lc *LightningChannel) createCommitDiff(
+	newCommit *commitment, commitSig *btcec.Signature,
+	htlcSigs []*btcec.Signature) (*channeldb.CommitDiff, error) {
 
+	// First, we need to convert the funding outpoint into the ID that's
+	// used on the wire to identify this channel. We'll use this shortly
+	// when recording the exact CommitSig message that we'll be sending
+	// out.
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
-	var htlcs []lnwire.Message
+
+	// We'll now run through our local update log to locate the items which
+	// were only just committed within this pending state. This will be the
+	// set of items we need to retransmit if we reconnect and find that
+	// they didn't process this new state fully.
+	var logUpdates []channeldb.LogUpdate
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
 		pd := e.Value.(*PaymentDescriptor)
 
-		// ...
-		var htlc lnwire.Message
-		if pd.addCommitHeightRemote == commitment.height {
-			switch pd.EntryType {
-			case Add:
-				continue
-			case Settle:
-				htlc = &lnwire.UpdateFufillHTLC{
-					ChanID:          chanID,
-					ID:              pd.Index,
-					PaymentPreimage: pd.RPreimage,
-				}
-			case Fail:
-				htlc = &lnwire.UpdateFailHTLC{
-					ChanID: chanID,
-					ID:     pd.Index,
-					Reason: pd.FailReason,
-				}
-			case MalformedFail:
-				htlc = &lnwire.UpdateFailMalformedHTLC{
-					ChanID:       chanID,
-					ID:           pd.Index,
-					ShaOnionBlob: pd.ShaOnionBlob,
-					FailureCode:  pd.FailCode,
-				}
+		// If this entry wasn't committed at the exact height of this
+		// remote commitment, then we'll skip it as it was already
+		// lingering in the log.
+		if pd.addCommitHeightRemote != newCommit.height &&
+			pd.removeCommitHeightRemote != newCommit.height {
+
+			continue
+		}
+
+		// Knowing that this update is a part of this new commitment,
+		// we'll create a log update and not it's index in the log so
+		// we can later restore it properly if a restart occurs.
+		logUpdate := channeldb.LogUpdate{
+			LogIndex: pd.LogIndex,
+		}
+
+		// We'll map the type of the PaymentDescriptor to one of the
+		// four messages that it corresponds to. With this set of
+		// messages obtained, we can simply read from disk and re-send
+		// them in the case of a needed channel sync.
+		switch pd.EntryType {
+		case Add:
+			htlc := &lnwire.UpdateAddHTLC{
+				ChanID:      chanID,
+				ID:          pd.HtlcIndex,
+				Amount:      pd.Amount,
+				Expiry:      pd.Timeout,
+				PaymentHash: pd.RHash,
+			}
+			copy(htlc.OnionBlob[:], pd.OnionBlob)
+			logUpdate.UpdateMsg = htlc
+
+		case Settle:
+			logUpdate.UpdateMsg = &lnwire.UpdateFufillHTLC{
+				ChanID:          chanID,
+				ID:              pd.ParentIndex,
+				PaymentPreimage: pd.RPreimage,
 			}
 
-			htlcs = append(htlcs, htlc)
+		case Fail:
+			logUpdate.UpdateMsg = &lnwire.UpdateFailHTLC{
+				ChanID: chanID,
+				ID:     pd.ParentIndex,
+				Reason: pd.FailReason,
+			}
+
+		case MalformedFail:
+			logUpdate.UpdateMsg = &lnwire.UpdateFailMalformedHTLC{
+				ChanID:       chanID,
+				ID:           pd.ParentIndex,
+				ShaOnionBlob: pd.ShaOnionBlob,
+				FailureCode:  pd.FailCode,
+			}
 		}
+
+		logUpdates = append(logUpdates, logUpdate)
 	}
 
-	delta, err := commitment.toChannelDelta(false)
-	if err != nil {
-		return nil, err
-	}
+	// With the set of log updates mapped into wire messages, we'll now
+	// convert the in-memory commit into a format suitable for writing to
+	// disk.
+	diskCommit := newCommit.toDiskCommit(false)
 
 	return &channeldb.CommitDiff{
-		PendingHeight:     commitment.height,
-		PendingCommitment: delta,
-		Updates:           htlcs,
+		Commitment: *diskCommit,
+		CommitSig: &lnwire.CommitSig{
+			ChanID: lnwire.NewChanIDFromOutPoint(
+				&lc.channelState.FundingOutpoint,
+			),
+			CommitSig: commitSig,
+			HtlcSigs:  htlcSigs,
+		},
+		LogUpdates: logUpdates,
 	}, nil
 }
 

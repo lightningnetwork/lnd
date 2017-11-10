@@ -273,6 +273,7 @@ func (s *mockServer) intersect(f messageInterceptor) {
 }
 
 func (s *mockServer) SendMessage(message lnwire.Message) error {
+
 	select {
 	case s.messages <- message:
 	case <-s.quit:
@@ -304,6 +305,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	case *lnwire.ChannelReestablish:
 		targetChan = msg.ChanID
 	default:
+		return fmt.Errorf("unknown message type: %T", msg)
 	}
 
 	// Dispatch the commitment update message to the proper
@@ -315,6 +317,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 
 	// Create goroutine for this, in order to be able to properly stop
 	// the server when handler stacked (server unavailable)
+	link.HandleChannelUpdate(message)
 
 	return nil
 }
@@ -326,6 +329,7 @@ func (s *mockServer) PubKey() [33]byte {
 func (s *mockServer) Disconnect(reason error) {
 	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
 
+	s.t.Fatalf("server %v was disconnected: %v", s.name, reason)
 }
 
 func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {

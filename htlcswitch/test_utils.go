@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"testing"
 	"time"
 
@@ -186,50 +187,61 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		Port: 18556,
 	}
 
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
-		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(bobAmount),
-		CommitFee:               commitFee,
-		CommitTx:                *aliceCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		ShortChanID:             chanID,
 		Db:                      dbAlice,
-	}
-
-	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
-		return nil, nil, nil, nil, err
 	}
 
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
-		FeePerKw:                feePerKw,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(bobAmount),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
-		CommitFee:               commitFee,
-		CommitTx:                *bobCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
 		ShortChanID:             chanID,
 		Db:                      dbBob,
+	}
+
+	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	if err := bobChannelState.SyncPending(aliceAddr, broadcastHeight); err != nil {

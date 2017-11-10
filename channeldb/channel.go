@@ -843,28 +843,31 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	return &d, nil
 }
 
-// AddCommitDiff...
-func AddCommitDiff(db *DB, fundingOutpoint *wire.OutPoint,
-	diff *CommitDiff) error {
-	return db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(commitDiffBucket)
+// AppendRemoteCommitChain appends a new CommitDiff to the end of the
+// commitment chain for the remote party. This method is to be used once we
+// have prepared a new commitment state for the remote party, but before we
+// transmit it to the remote party. The contents of the argument should be
+// sufficient to retransmit the updates and signature needed to reconstruct the
+// state in full, in the case that we need to retransmit.
+func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		// First, we'll grab the writeable bucket where this channel's
+		// data resides.
+		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
 		if err != nil {
 			return err
 		}
 
+		// TODO(roasbeef): use seqno to derive key for later LCP
+
+		// With the bucket retrieved, we'll now serialize the commit
+		// diff itself, and write it to disk.
 		var b bytes.Buffer
-		if err := diff.decode(&b); err != nil {
+		if err := serializeCommitDiff(&b, diff); err != nil {
 			return err
 		}
-
-		var outpoint bytes.Buffer
-		if err := writeOutpoint(&outpoint, fundingOutpoint); err != nil {
-			return err
-		}
-
-		key := []byte("cdf")
-		key = append(key, outpoint.Bytes()...)
-		return bucket.Put(key, b.Bytes())
+		return chanBucket.Put(commitDiffKey, b.Bytes())
 	})
 }
 

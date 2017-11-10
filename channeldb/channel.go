@@ -487,6 +487,18 @@ func (c *OpenChannel) fullSync(tx *bolt.Tx) error {
 	return putOpenChannel(chanBucket, c)
 }
 
+// MarkAsOpen marks a channel as fully open given a locator that uniquely
+// describes its location within the chain.
+func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
+	return c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
 			return err
 		}
 

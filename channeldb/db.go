@@ -358,52 +358,6 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 	return channels, err
 }
 
-// MarkChannelAsOpen records the finalization of the funding process and marks
-// a channel as available for use. Additionally the height in which this
-// channel as opened will also be recorded within the database.
-func (d *DB) MarkChannelAsOpen(outpoint *wire.OutPoint,
-	openLoc lnwire.ShortChannelID) error {
-
-	return d.Update(func(tx *bolt.Tx) error {
-		openChanBucket := tx.Bucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoActiveChannels
-		}
-
-		// Generate the database key, which will consist of the
-		// IsPending prefix followed by the channel's outpoint.
-		var b bytes.Buffer
-		if err := writeOutpoint(&b, outpoint); err != nil {
-			return err
-		}
-		keyPrefix := make([]byte, 3+b.Len())
-		copy(keyPrefix[3:], b.Bytes())
-		copy(keyPrefix[:3], isPendingPrefix)
-
-		// For the database value, store a zero, since the channel is
-		// no longer pending.
-		scratch := make([]byte, 4)
-		byteOrder.PutUint16(scratch[:2], uint16(0))
-		if err := openChanBucket.Put(keyPrefix, scratch[:2]); err != nil {
-			return err
-		}
-
-		// Finally, we'll also store the opening height for this
-		// channel as well.
-		confInfoKey := make([]byte, len(confInfoPrefix)+len(b.Bytes()))
-		copy(confInfoKey[:len(confInfoPrefix)], confInfoPrefix)
-		copy(confInfoKey[len(confInfoPrefix):], b.Bytes())
-
-		confInfoBytes := openChanBucket.Get(confInfoKey)
-		infoCopy := make([]byte, len(confInfoBytes))
-		copy(infoCopy[:], confInfoBytes)
-
-		byteOrder.PutUint64(infoCopy[4:], openLoc.ToUint64())
-
-		return openChanBucket.Put(confInfoKey, infoCopy)
-	})
-}
-
 // FetchClosedChannels attempts to fetch all closed channels from the database.
 // The pendingOnly bool toggles if channels that aren't yet fully closed should
 // be returned int he response or not. When a channel was cooperatively closed,

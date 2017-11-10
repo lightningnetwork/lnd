@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -17,7 +19,10 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
 
+	"github.com/lightninglabs/neutrino"
 	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/walletdb"
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -25,10 +30,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/roasbeef/btcd/btcjson"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/integration/rpctest"
@@ -76,7 +81,7 @@ var (
 		0x69, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
 
-	netParams = &chaincfg.SimNetParams
+	netParams = &chaincfg.RegressionNetParams
 	chainHash = netParams.GenesisHash
 
 	_, alicePub = btcec.PrivKeyFromBytes(btcec.S256(), testHdSeed[:])
@@ -145,6 +150,12 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	numOutputs, btcPerOutput int) error {
 
+	// For initial neutrino connection, wait a second.
+	// TODO(aakselrod): Eliminate the need for this.
+	switch w.BackEnd() {
+	case "neutrino":
+		time.Sleep(time.Second)
+	}
 	// Using the mining node, spend from a coinbase output numOutputs to
 	// give us btcPerOutput with each output.
 	satoshiPerOutput := int64(btcPerOutput * 1e8)
@@ -188,6 +199,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Wait until the wallet has finished syncing up to the main chain.
 	ticker := time.NewTicker(100 * time.Millisecond)
+	timeout := time.After(30 * time.Second)
 
 	for range ticker.C {
 		balance, err := w.ConfirmedBalance(1, false)
@@ -196,6 +208,17 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 		}
 		if balance == expectedBalance {
 			break
+		}
+		select {
+		case <-timeout:
+			synced, err := w.IsSynced()
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("timed out after 30 seconds "+
+				"waiting for balance %v, current balance %v, "+
+				"synced: %t", expectedBalance, balance, synced)
+		default:
 		}
 	}
 	ticker.Stop()
@@ -222,7 +245,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		WalletController: wc,
 		Signer:           signer,
 		ChainIO:          bio,
-		FeeEstimator:     lnwallet.StaticFeeEstimator{FeeRate: 250},
+		FeeEstimator:     lnwallet.StaticFeeEstimator{FeeRate: 10},
 		DefaultConstraints: channeldb.ChannelConstraints{
 			DustLimit:        500,
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) * 100,
@@ -343,6 +366,9 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		bobFundingSigs, bobCommitSig,
 	)
 	if err != nil {
+		for _, in := range aliceChanReservation.FinalFundingTx().TxIn {
+			fmt.Println(in.PreviousOutPoint.String())
+		}
 		t.Fatalf("unable to consume alice's sigs: %v", err)
 	}
 	_, err = bobChanReservation.CompleteReservation(
@@ -384,6 +410,10 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 
 	// Mine a single block, the funding transaction should be included
 	// within this block.
+	err = waitForMempoolTx(miner, &fundingSha)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
 	blockHashes, err := miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -402,6 +432,16 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 
 	assertReservationDeleted(aliceChanReservation, t)
 	assertReservationDeleted(bobChanReservation, t)
+
+	// Wait for wallets to catch up to prevent issues in subsequent tests.
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("unable to sync alice: %v", err)
+	}
+	err = waitForWalletSync(miner, bob)
+	if err != nil {
+		t.Fatalf("unable to sync bob: %v", err)
+	}
 }
 
 func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
@@ -759,6 +799,10 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 
 	// Mine a single block, the funding transaction should be included
 	// within this block.
+	err = waitForMempoolTx(miner, &fundingSha)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
 	blockHashes, err := miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
@@ -768,7 +812,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		t.Fatalf("unable to find block: %v", err)
 	}
 	if len(block.Transactions) != 2 {
-		t.Fatalf("funding transaction wasn't mined: %v", err)
+		t.Fatalf("funding transaction wasn't mined: %d",
+			len(block.Transactions))
 	}
 	blockTx := block.Transactions[1]
 	if blockTx.TxHash() != fundingSha {
@@ -815,8 +860,10 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	}
 
 	// Next, fetch all the current transaction details.
-	// TODO(roasbeef): use ntfn client here instead?
-	time.Sleep(time.Second * 2)
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
+	}
 	txDetails, err := alice.ListTransactionDetails()
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -905,6 +952,10 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("unable to create burn tx: %v", err)
 	}
+	err = waitForMempoolTx(miner, burnTXID)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
 	burnBlock, err := miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to mine block: %v", err)
@@ -912,7 +963,10 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Fetch the transaction details again, the new transaction should be
 	// shown as debiting from the wallet's balance.
-	time.Sleep(time.Second * 2)
+	err = waitForWalletSync(miner, alice)
+	if err != nil {
+		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
+	}
 	txDetails, err = alice.ListTransactionDetails()
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -955,7 +1009,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	// implementation of the WalletController.
 	txClient, err := alice.SubscribeTransactions()
 	if err != nil {
-		t.Fatalf("unable to generate tx subscription: %v", err)
+		t.Skipf("unable to generate tx subscription: %v", err)
 	}
 	defer txClient.Cancel()
 
@@ -964,25 +1018,33 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		numTxns   = 3
 	)
 	unconfirmedNtfns := make(chan struct{})
-	go func() {
-		for i := 0; i < numTxns; i++ {
-			txDetail := <-txClient.UnconfirmedTransactions()
-			if txDetail.NumConfirmations != 0 {
-				t.Fatalf("incorrect number of confs, expected %v got %v",
-					0, txDetail.NumConfirmations)
+	switch alice.BackEnd() {
+	case "neutrino":
+		// Neutrino doesn't listen for unconfirmed transactions.
+	default:
+		go func() {
+			for i := 0; i < numTxns; i++ {
+				txDetail := <-txClient.UnconfirmedTransactions()
+				if txDetail.NumConfirmations != 0 {
+					t.Fatalf("incorrect number of confs, "+
+						"expected %v got %v", 0,
+						txDetail.NumConfirmations)
+				}
+				if txDetail.Value != outputAmt {
+					t.Fatalf("incorrect output amt, "+
+						"expected %v got %v", outputAmt,
+						txDetail.Value)
+				}
+				if txDetail.BlockHash != nil {
+					t.Fatalf("block hash should be nil, "+
+						"is instead %v",
+						txDetail.BlockHash)
+				}
 			}
-			if txDetail.Value != outputAmt {
-				t.Fatalf("incorrect output amt, expected %v got %v",
-					outputAmt, txDetail.Value)
-			}
-			if txDetail.BlockHash != nil {
-				t.Fatalf("block hash should be nil, is instead %v",
-					txDetail.BlockHash)
-			}
-		}
 
-		close(unconfirmedNtfns)
-	}()
+			close(unconfirmedNtfns)
+		}()
+	}
 
 	// Next, fetch a fresh address from the wallet, create 3 new outputs
 	// with the pkScript.
@@ -1000,17 +1062,27 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 			Value:    outputAmt,
 			PkScript: script,
 		}
-		if _, err := miner.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
+		txid, err := miner.SendOutputs([]*wire.TxOut{output}, 10)
+		if err != nil {
 			t.Fatalf("unable to send coinbase: %v", err)
+		}
+		err = waitForMempoolTx(miner, txid)
+		if err != nil {
+			t.Fatalf("tx not relayed to miner: %v", err)
 		}
 	}
 
-	// We should receive a notification for all three transactions
-	// generated above.
-	select {
-	case <-time.After(time.Second * 5):
-		t.Fatalf("transactions not received after 3 seconds")
-	case <-unconfirmedNtfns: // Fall through on successs
+	switch alice.BackEnd() {
+	case "neutrino":
+		// Neutrino doesn't listen for on unconfirmed transactions.
+	default:
+		// We should receive a notification for all three transactions
+		// generated above.
+		select {
+		case <-time.After(time.Second * 10):
+			t.Fatalf("transactions not received after 10 seconds")
+		case <-unconfirmedNtfns: // Fall through on successs
+		}
 	}
 
 	confirmedNtfns := make(chan struct{})
@@ -1018,12 +1090,12 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		for i := 0; i < numTxns; i++ {
 			txDetail := <-txClient.ConfirmedTransactions()
 			if txDetail.NumConfirmations != 1 {
-				t.Fatalf("incorrect number of confs, expected %v got %v",
-					1, txDetail.NumConfirmations)
+				t.Fatalf("incorrect number of confs for %s, expected %v got %v",
+					txDetail.Hash, 1, txDetail.NumConfirmations)
 			}
 			if txDetail.Value != outputAmt {
-				t.Fatalf("incorrect output amt, expected %v got %v",
-					outputAmt, txDetail.Value)
+				t.Fatalf("incorrect output amt, expected %v got %v in txid %s",
+					outputAmt, txDetail.Value, txDetail.Hash)
 			}
 		}
 		close(confirmedNtfns)
@@ -1039,7 +1111,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	// since they should be mined in the next block.
 	select {
 	case <-time.After(time.Second * 5):
-		t.Fatalf("transactions not received after 3 seconds")
+		t.Fatalf("transactions not received after 5 seconds")
 	case <-confirmedNtfns: // Fall through on success
 	}
 }
@@ -1088,7 +1160,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 		// generate a regular p2wkh from that.
 		pubkeyHash := btcutil.Hash160(tweakedKey.SerializeCompressed())
 		keyAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
-			&chaincfg.SimNetParams)
+			&chaincfg.RegressionNetParams)
 		if err != nil {
 			t.Fatalf("unable to create addr: %v", err)
 		}
@@ -1110,6 +1182,10 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 
 		// Query for the transaction generated above so we can located
 		// the index of our output.
+		err = waitForMempoolTx(r, txid)
+		if err != nil {
+			t.Fatalf("tx not relayed to miner: %v", err)
+		}
 		tx, err := r.Node.GetRawTransaction(txid)
 		if err != nil {
 			t.Fatalf("unable to query for tx: %v", err)
@@ -1197,7 +1273,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 
 	// Give wallet time to catch up.
-	err = waitForWalletSync(w)
+	err = waitForWalletSync(r, w)
 	if err != nil {
 		t.Fatalf("unable to sync wallet: %v", err)
 	}
@@ -1222,8 +1298,13 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		Value:    1e8,
 		PkScript: script,
 	}
-	if _, err = w.SendOutputs([]*wire.TxOut{output}, 10); err != nil {
+	txid, err := w.SendOutputs([]*wire.TxOut{output}, 10)
+	if err != nil {
 		t.Fatalf("unable to send outputs: %v", err)
+	}
+	err = waitForMempoolTx(r, txid)
+	if err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
 	}
 	_, err = r.Node.Generate(50)
 	if err != nil {
@@ -1231,7 +1312,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 
 	// Give wallet time to catch up.
-	err = waitForWalletSync(w)
+	err = waitForWalletSync(r, w)
 	if err != nil {
 		t.Fatalf("unable to sync wallet: %v", err)
 	}
@@ -1277,32 +1358,34 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	// one block on the passed miner and two on the created miner,
 	// connecting them, and waiting for them to sync.
 	for i := 0; i < 5; i++ {
-		peers, err := r2.Node.GetPeerInfo()
-		if err != nil {
-			t.Fatalf("unable to get peer info: %v", err)
-		}
-		numPeers := len(peers)
-		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANRemove)
-		if err != nil {
-			t.Fatalf("unable to disconnect mining nodes: %v", err)
-		}
 		// Wait for disconnection
 		timeout := time.After(30 * time.Second)
-		for true {
+		stillConnected := true
+		var peers []btcjson.GetPeerInfoResult
+		for stillConnected {
 			// Allow for timeout
+			time.Sleep(100 * time.Millisecond)
 			select {
 			case <-timeout:
 				t.Fatalf("timeout waiting for miner disconnect")
 			default:
 			}
+			err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANRemove)
+			if err != nil {
+				t.Fatalf("unable to disconnect mining nodes: %v",
+					err)
+			}
 			peers, err = r2.Node.GetPeerInfo()
 			if err != nil {
 				t.Fatalf("unable to get peer info: %v", err)
 			}
-			if len(peers) < numPeers {
-				break
+			stillConnected = false
+			for _, peer := range peers {
+				if peer.Addr == r.P2PAddress() {
+					stillConnected = true
+					break
+				}
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 		_, err = r.Node.Generate(2)
 		if err != nil {
@@ -1318,8 +1401,16 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// Step 5: Reconnect the miners and wait for them to synchronize.
 		err = r2.Node.AddNode(r.P2PAddress(), rpcclient.ANAdd)
 		if err != nil {
-			t.Fatalf("unable to connect mining nodes together: %v",
-				err)
+			switch err := err.(type) {
+			case *btcjson.RPCError:
+				if err.Code != -8 {
+					t.Fatalf("unable to connect mining "+
+						"nodes together: %v", err)
+				}
+			default:
+				t.Fatalf("unable to connect mining nodes "+
+					"together: %v", err)
+			}
 		}
 		err = rpctest.JoinNodes([]*rpctest.Harness{r2, r},
 			rpctest.Blocks)
@@ -1328,7 +1419,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		}
 
 		// Give wallet time to catch up.
-		err = waitForWalletSync(w)
+		err = waitForWalletSync(r, w)
 		if err != nil {
 			t.Fatalf("unable to sync wallet: %v", err)
 		}
@@ -1405,21 +1496,78 @@ func clearWalletStates(a, b *lnwallet.LightningWallet) error {
 	return b.Cfg.Database.Wipe()
 }
 
-func waitForWalletSync(w *lnwallet.LightningWallet) error {
-	var synced bool
+func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
+	var found bool
+	var tx *btcutil.Tx
 	var err error
 	timeout := time.After(10 * time.Second)
-	for !synced {
-		synced, err = w.IsSynced()
-		if err != nil {
-			return err
-		}
+	for !found {
+		// Do a short wait
 		select {
 		case <-timeout:
 			return fmt.Errorf("timeout after 10s")
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
+
+		// Check for the harness' knowledge of the txid
+		tx, err = r.Node.GetRawTransaction(txid)
+		if err != nil {
+			switch e := err.(type) {
+			case *btcjson.RPCError:
+				if e.Code == btcjson.ErrRPCNoTxInfo {
+					continue
+				}
+			default:
+			}
+			return err
+		}
+		if tx != nil && tx.MsgTx().TxHash() == *txid {
+			found = true
+		}
+	}
+	return nil
+}
+
+func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
+	var synced bool
+	var err error
+	var bestHash, knownHash *chainhash.Hash
+	var bestHeight, knownHeight int32
+	timeout := time.After(10 * time.Second)
+	for !synced {
+		// Do a short wait
+		select {
+		case <-timeout:
+			return fmt.Errorf("timeout after 10s")
+		default:
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		// Check whether the chain source of the wallet is caught up to
+		// the harness it's supposed to be catching up to.
+		bestHash, bestHeight, err = r.Node.GetBestBlock()
+		if err != nil {
+			return err
+		}
+		knownHash, knownHeight, err = w.Cfg.ChainIO.GetBestBlock()
+		if err != nil {
+			return err
+		}
+		if knownHeight != bestHeight {
+			continue
+		}
+		if *knownHash != *bestHash {
+			return fmt.Errorf("hash at height %d doesn't match: "+
+				"expected %s, got %s", bestHeight, bestHash,
+				knownHash)
+		}
+
+		// Check for synchronization.
+		synced, err = w.IsSynced()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1454,7 +1602,7 @@ func TestLightningWallet(t *testing.T) {
 	}
 
 	// Next mine enough blocks in order for segwit and the CSV package
-	// soft-fork to activate on SimNet.
+	// soft-fork to activate on RegNet.
 	numBlocks := netParams.MinerConfirmationWindow * 2
 	if _, err := miningNode.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
@@ -1470,6 +1618,22 @@ func TestLightningWallet(t *testing.T) {
 		t.Fatalf("unable to start notifier: %v", err)
 	}
 
+	for _, walletDriver := range lnwallet.RegisteredWallets() {
+		for _, backEnd := range walletDriver.BackEnds() {
+			runTests(t, walletDriver, backEnd, miningNode,
+				rpcConfig, chainNotifier)
+		}
+	}
+}
+
+// runTests runs all of the tests for a single interface implementation and
+// chain back-end combination. This makes it easier to use `defer` as well as
+// factoring out the test logic from the loop which cycles through the
+// interface implementations.
+func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
+	backEnd string, miningNode *rpctest.Harness,
+	rpcConfig rpcclient.ConnConfig,
+	chainNotifier *btcdnotify.BtcdNotifier) {
 	var (
 		bio lnwallet.BlockChainIO
 
@@ -1478,107 +1642,230 @@ func TestLightningWallet(t *testing.T) {
 
 		aliceWalletController lnwallet.WalletController
 		bobWalletController   lnwallet.WalletController
+
+		feeEstimator lnwallet.FeeEstimator
 	)
-	for _, walletDriver := range lnwallet.RegisteredWallets() {
-		tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
-		if err != nil {
-			t.Fatalf("unable to create temp directory: %v", err)
-		}
-		defer os.RemoveAll(tempTestDirAlice)
 
-		tempTestDirBob, err := ioutil.TempDir("", "lnwallet")
-		if err != nil {
-			t.Fatalf("unable to create temp directory: %v", err)
-		}
-		defer os.RemoveAll(tempTestDirBob)
+	tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
+	if err != nil {
+		t.Fatalf("unable to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempTestDirAlice)
 
-		walletType := walletDriver.WalletType
-		switch walletType {
-		case "btcwallet":
-			aliceChainRPC, err := chain.NewRPCClient(netParams,
+	tempTestDirBob, err := ioutil.TempDir("", "lnwallet")
+	if err != nil {
+		t.Fatalf("unable to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempTestDirBob)
+
+	walletType := walletDriver.WalletType
+	switch walletType {
+	case "btcwallet":
+		var aliceClient, bobClient chain.Interface
+		switch backEnd {
+		case "btcd":
+			feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
+				rpcConfig, 250)
+			if err != nil {
+				t.Fatalf("unable to create btcd fee estimator: %v",
+					err)
+			}
+			aliceClient, err = chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
-			aliceWalletConfig := &btcwallet.Config{
-				PrivatePass:  []byte("alice-pass"),
-				HdSeed:       aliceHDSeed[:],
-				DataDir:      tempTestDirAlice,
-				NetParams:    netParams,
-				ChainSource:  aliceChainRPC,
-				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
-			}
-			aliceWalletController, err = walletDriver.New(aliceWalletConfig)
-			if err != nil {
-				t.Fatalf("unable to create btcwallet: %v", err)
-			}
-			aliceSigner = aliceWalletController.(*btcwallet.BtcWallet)
-
-			bobChainRPC, err := chain.NewRPCClient(netParams,
+			bobClient, err = chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
-			bobWalletConfig := &btcwallet.Config{
-				PrivatePass:  []byte("bob-pass"),
-				HdSeed:       bobHDSeed[:],
-				DataDir:      tempTestDirBob,
-				NetParams:    netParams,
-				ChainSource:  bobChainRPC,
-				FeeEstimator: lnwallet.StaticFeeEstimator{FeeRate: 250},
-			}
-			bobWalletController, err = walletDriver.New(bobWalletConfig)
+		case "neutrino":
+			feeEstimator = lnwallet.StaticFeeEstimator{FeeRate: 250}
+			// Set some package-level variable to speed up
+			// operation for tests.
+			neutrino.WaitForMoreCFHeaders = time.Millisecond * 100
+			neutrino.BanDuration = time.Millisecond * 100
+			neutrino.QueryTimeout = time.Millisecond * 500
+			neutrino.QueryNumRetries = 2
+			// Start Alice - open a database, start a neutrino
+			// instance, and initialize a btcwallet driver for it.
+			aliceDB, err := walletdb.Create("bdb",
+				tempTestDirAlice+"/neutrino.db")
 			if err != nil {
-				t.Fatalf("unable to create btcwallet: %v", err)
+				t.Fatalf("unable to create DB: %v", err)
 			}
-			bobSigner = bobWalletController.(*btcwallet.BtcWallet)
-			bio = bobWalletController.(*btcwallet.BtcWallet)
+			defer aliceDB.Close()
+			aliceChain, err := neutrino.NewChainService(
+				neutrino.Config{
+					DataDir:     tempTestDirAlice,
+					Database:    aliceDB,
+					Namespace:   []byte("alice"),
+					ChainParams: *netParams,
+					ConnectPeers: []string{
+						miningNode.P2PAddress(),
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("unable to make neutrino: %v", err)
+			}
+			aliceChain.Start()
+			defer aliceChain.Stop()
+			aliceClient = chain.NewNeutrinoClient(aliceChain)
+
+			// Start Bob - open a database, start a neutrino
+			// instance, and initialize a btcwallet driver for it.
+			bobDB, err := walletdb.Create("bdb",
+				tempTestDirBob+"/neutrino.db")
+			if err != nil {
+				t.Fatalf("unable to create DB: %v", err)
+			}
+			defer bobDB.Close()
+			bobChain, err := neutrino.NewChainService(
+				neutrino.Config{
+					DataDir:     tempTestDirBob,
+					Database:    bobDB,
+					Namespace:   []byte("bob"),
+					ChainParams: *netParams,
+					ConnectPeers: []string{
+						miningNode.P2PAddress(),
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("unable to make neutrino: %v", err)
+			}
+			bobChain.Start()
+			defer bobChain.Stop()
+			bobClient = chain.NewNeutrinoClient(bobChain)
+		case "bitcoind":
+			feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
+				rpcConfig, 250)
+			if err != nil {
+				t.Fatalf("unable to create bitcoind fee estimator: %v",
+					err)
+			}
+			// Start a bitcoind instance.
+			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+			if err != nil {
+				t.Fatalf("unable to create temp directory: %v", err)
+			}
+			zmqPath := "ipc:///" + tempBitcoindDir + "/weks.socket"
+			defer os.RemoveAll(tempBitcoindDir)
+			rpcPort := rand.Int()%(65536-1024) + 1024
+			bitcoind := exec.Command(
+				"bitcoind",
+				"-datadir="+tempBitcoindDir,
+				"-regtest",
+				"-connect="+miningNode.P2PAddress(),
+				"-txindex",
+				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
+					"d$507c670e800a95284294edb5773b05544b"+
+					"220110063096c221be9933c82d38e1",
+				fmt.Sprintf("-rpcport=%d", rpcPort),
+				"-disablewallet",
+				"-zmqpubrawblock="+zmqPath,
+				"-zmqpubrawtx="+zmqPath,
+			)
+			err = bitcoind.Start()
+			if err != nil {
+				t.Fatalf("couldn't start bitcoind: %v", err)
+			}
+			defer bitcoind.Wait()
+			defer bitcoind.Process.Kill()
+
+			// Start an Alice btcwallet bitcoind back end instance.
+			aliceClient, err = chain.NewBitcoindClient(netParams,
+				fmt.Sprintf("127.0.0.1:%d", rpcPort), "weks",
+				"weks", zmqPath, 100*time.Millisecond)
+			if err != nil {
+				t.Fatalf("couldn't start alice client: %v", err)
+			}
+
+			// Start a Bob btcwallet bitcoind back end instance.
+			bobClient, err = chain.NewBitcoindClient(netParams,
+				fmt.Sprintf("127.0.0.1:%d", rpcPort), "weks",
+				"weks", zmqPath, 100*time.Millisecond)
+			if err != nil {
+				t.Fatalf("couldn't start bob client: %v", err)
+			}
 		default:
-			// TODO(roasbeef): add neutrino case
-			t.Fatalf("unknown wallet driver: %v", walletType)
+			t.Fatalf("unknown chain driver: %v", backEnd)
 		}
 
-		// Funding via 20 outputs with 4BTC each.
-		alice, err := createTestWallet(tempTestDirAlice, miningNode,
-			netParams, chainNotifier, aliceWalletController,
-			aliceSigner, bio)
+		aliceWalletConfig := &btcwallet.Config{
+			PrivatePass:  []byte("alice-pass"),
+			HdSeed:       aliceHDSeed[:],
+			DataDir:      tempTestDirAlice,
+			NetParams:    netParams,
+			ChainSource:  aliceClient,
+			FeeEstimator: feeEstimator,
+		}
+		aliceWalletController, err = walletDriver.New(aliceWalletConfig)
 		if err != nil {
-			t.Fatalf("unable to create test ln wallet: %v", err)
+			t.Fatalf("unable to create btcwallet: %v", err)
 		}
-		defer alice.Shutdown()
+		aliceSigner = aliceWalletController.(*btcwallet.BtcWallet)
 
-		bob, err := createTestWallet(tempTestDirBob, miningNode,
-			netParams, chainNotifier, bobWalletController,
-			bobSigner, bio)
+		bobWalletConfig := &btcwallet.Config{
+			PrivatePass:  []byte("bob-pass"),
+			HdSeed:       bobHDSeed[:],
+			DataDir:      tempTestDirBob,
+			NetParams:    netParams,
+			ChainSource:  bobClient,
+			FeeEstimator: feeEstimator,
+		}
+		bobWalletController, err = walletDriver.New(bobWalletConfig)
 		if err != nil {
-			t.Fatalf("unable to create test ln wallet: %v", err)
+			t.Fatalf("unable to create btcwallet: %v", err)
 		}
-		defer bob.Shutdown()
+		bobSigner = bobWalletController.(*btcwallet.BtcWallet)
+		bio = bobWalletController.(*btcwallet.BtcWallet)
+	default:
+		t.Fatalf("unknown wallet driver: %v", walletType)
+	}
 
-		// Both wallets should now have 80BTC available for spending.
-		assertProperBalance(t, alice, 1, 80)
-		assertProperBalance(t, bob, 1, 80)
+	// Funding via 20 outputs with 4BTC each.
+	alice, err := createTestWallet(tempTestDirAlice, miningNode, netParams,
+		chainNotifier, aliceWalletController, aliceSigner, bio)
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer alice.Shutdown()
 
-		// Execute every test, clearing possibly mutated wallet state
-		// after each step.
-		for _, walletTest := range walletTests {
-			testName := fmt.Sprintf("%v:%v", walletType,
-				walletTest.name)
-			success := t.Run(testName, func(t *testing.T) {
-				walletTest.test(miningNode, alice, bob, t)
-			})
-			if !success {
-				break
-			}
+	bob, err := createTestWallet(tempTestDirBob, miningNode, netParams,
+		chainNotifier, bobWalletController, bobSigner, bio)
+	if err != nil {
+		t.Fatalf("unable to create test ln wallet: %v", err)
+	}
+	defer bob.Shutdown()
 
-			// TODO(roasbeef): possible reset mining node's
-			// chainstate to initial level, cleanly wipe buckets
-			if err := clearWalletStates(alice, bob); err != nil &&
-				err != bolt.ErrBucketNotFound {
-				t.Fatalf("unable to wipe wallet state: %v", err)
-			}
+	// Both wallets should now have 80BTC available for
+	// spending.
+	assertProperBalance(t, alice, 1, 80)
+	assertProperBalance(t, bob, 1, 80)
+
+	// Execute every test, clearing possibly mutated
+	// wallet state after each step.
+	for _, walletTest := range walletTests {
+		testName := fmt.Sprintf("%v/%v:%v", walletType, backEnd,
+			walletTest.name)
+		success := t.Run(testName, func(t *testing.T) {
+			walletTest.test(miningNode, alice, bob, t)
+		})
+		if !success {
+			break
+		}
+
+		// TODO(roasbeef): possible reset mining
+		// node's chainstate to initial level, cleanly
+		// wipe buckets
+		if err := clearWalletStates(alice, bob); err !=
+			nil && err != bolt.ErrBucketNotFound {
+			t.Fatalf("unable to wipe wallet state: %v", err)
 		}
 	}
 }

@@ -1,5 +1,5 @@
-hash: 8438e391bed32638a8e14402992af50b7656b380f69741cf8422584c2e1f2b31
-updated: 2017-12-13T15:13:22.311098343-08:00
+hash: d145c16f2f9cfdf4937eb8b7cdd65919a8c351593a179acc23f2cbca5b42f34b
+updated: 2017-12-22T23:45:25.148488338-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -86,6 +86,8 @@ imports:
   version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
   subpackages:
   - internal/socket
+- name: github.com/pebbe/zmq4
+  version: 90d69e412a09549f2e90bac70fbb449081f1e5c1
 - name: github.com/roasbeef/btcd
   version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:

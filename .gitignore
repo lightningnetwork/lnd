@@ -45,3 +45,9 @@ profile.cov
 profile.tmp
 
 .DS_Store
+
+# lnd specific ignore. Exclude logs which were genereted during integration
+# test run.
+output0.log
+output1.log
+output2.log

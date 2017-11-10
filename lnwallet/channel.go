@@ -3331,6 +3331,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 
 	// Determine the last update on the local log that has been locked in.
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
+	localHtlcIndex := lc.remoteCommitChain.tail().ourHtlcIndex
 
 	// Ensure that this new local update from the remote node respects all
 	// the constraints we specified during initial channel setup. If not,
@@ -3456,17 +3457,12 @@ func (lc *LightningChannel) FullySynced() bool {
 
 	oweCommitment := lastLocalCommit.height > lastRemoteCommit.height
 
-	localUpdatesSynced :=
-		lastLocalCommit.ourMessageIndex == lastRemoteCommit.ourMessageIndex
+	localUpdatesSynced := (lastLocalCommit.ourMessageIndex ==
+		lastRemoteCommit.ourMessageIndex)
 
-	remoteUpdatesSynced :=
-		lastLocalCommit.theirMessageIndex == lastRemoteCommit.theirMessageIndex
+	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
+		lastRemoteCommit.theirMessageIndex)
 
-	fmt.Println("remote, our:", lc.remoteCommitChain.tip().ourMessageIndex,
-		"local, our:", lc.localCommitChain.tip().ourMessageIndex)
-	fmt.Println("remote, their:", lc.remoteCommitChain.tip().theirMessageIndex,
-		"local, their:", lc.localCommitChain.tip().theirMessageIndex)
-	fmt.Println(!oweCommitment, localUpdatesSynced, remoteUpdatesSynced)
 	return !oweCommitment && localUpdatesSynced && remoteUpdatesSynced
 }
 
@@ -3484,8 +3480,9 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 		return nil, err
 	}
 
-	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v", lc.channelState.FundingOutpoint,
-		lc.localCommitChain.tail().height, lc.currentHeight+1)
+	walletLog.Tracef("ChannelPoint(%v): revoking height=%v, now at height=%v",
+		lc.channelState.FundingOutpoint, lc.localCommitChain.tail().height,
+		lc.currentHeight+1)
 
 	// Advance our tail, as we've revoked our previous state.
 	lc.localCommitChain.advanceTail()
@@ -3493,20 +3490,17 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, err
 
 	// Additionally, generate a channel delta for this state transition for
 	// persistent storage.
-	tail := lc.localCommitChain.tail()
-	delta, err := tail.toChannelDelta(true)
-	if err != nil {
-		return nil, err
-	}
-	err = lc.channelState.UpdateCommitment(tail.txn, tail.sig, delta)
+	chainTail := lc.localCommitChain.tail()
+	newCommitment := chainTail.toDiskCommit(true)
+	err = lc.channelState.UpdateCommitment(newCommitment)
 	if err != nil {
 		return nil, err
 	}
 
 	walletLog.Tracef("ChannelPoint(%v): state transition accepted: "+
 		"our_balance=%v, their_balance=%v",
-		lc.channelState.FundingOutpoint, tail.ourBalance,
-		tail.theirBalance)
+		lc.channelState.FundingOutpoint, chainTail.ourBalance,
+		chainTail.theirBalance)
 
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
 		&lc.channelState.FundingOutpoint,

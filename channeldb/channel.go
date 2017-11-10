@@ -1212,74 +1212,73 @@ type ChannelCloseSummary struct {
 	// TODO(roasbeef): also store short_chan_id?
 }
 
-// CloseChannel closes a previously active lightning channel. Closing a channel
+// CloseChannel closes a previously active Lightning channel. Closing a channel
 // entails deleting all saved state within the database concerning this
 // channel. This method also takes a struct that summarizes the state of the
 // channel at closing, this compact representation will be the only component
 // of a channel left over after a full closing.
 func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 	return c.Db.Update(func(tx *bolt.Tx) error {
-		// First fetch the top level bucket which stores all data
-		// related to current, active channels.
-		chanBucket := tx.Bucket(openChannelBucket)
-		if chanBucket == nil {
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
 			return ErrNoChanDBExists
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to
-		// storing open channel data specific to the remote node.
 		nodePub := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket := chanBucket.Bucket(nodePub)
+		nodeChanBucket := openChanBucket.Bucket(nodePub)
 		if nodeChanBucket == nil {
 			return ErrNoActiveChannels
 		}
 
-		// Delete this channel ID from the node's active channel index.
-		chanIndexBucket := nodeChanBucket.Bucket(chanIDBucket)
-		if chanIndexBucket == nil {
+		chainBucket := nodeChanBucket.Bucket(c.ChainHash[:])
+		if chainBucket == nil {
 			return ErrNoActiveChannels
 		}
 
-		var b bytes.Buffer
-		if err := writeOutpoint(&b, &c.FundingOutpoint); err != nil {
+		var chanPointBuf bytes.Buffer
+		chanPointBuf.Grow(outPointSize)
+		err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint)
+		if err != nil {
 			return err
 		}
-
-		// If this channel isn't found within the channel index bucket,
-		// then it has already been deleted. So we can exit early as
-		// there isn't any more work for us to do here.
-		outPointBytes := b.Bytes()
-		if chanIndexBucket.Get(outPointBytes) == nil {
-			return nil
-		}
-
-		// Otherwise, we can safely delete the channel from the index
-		// without running into any boltdb related errors by repeated
-		// deletion attempts.
-		if err := chanIndexBucket.Delete(outPointBytes); err != nil {
-			return err
+		chanBucket := chainBucket.Bucket(chanPointBuf.Bytes())
+		if chanBucket == nil {
+			return ErrNoActiveChannels
 		}
 
 		// Now that the index to this channel has been deleted, purge
 		// the remaining channel metadata from the database.
-		if err := deleteOpenChannel(chanBucket, nodeChanBucket,
-			outPointBytes, &c.FundingOutpoint); err != nil {
+		err = deleteOpenChannel(chanBucket, chanPointBuf.Bytes())
+		if err != nil {
 			return err
 		}
 
-		// With the base channel data deleted, attempt to delte the
+		// With the base channel data deleted, attempt to delete the
 		// information stored within the revocation log.
-		logBucket := nodeChanBucket.Bucket(channelLogBucket)
+		logBucket := chanBucket.Bucket(revocationLogBucket)
 		if logBucket != nil {
-			err := wipeChannelLogEntries(logBucket, &c.FundingOutpoint)
+			err := wipeChannelLogEntries(logBucket)
+			if err != nil {
+				return err
+			}
+			err = chanBucket.DeleteBucket(revocationLogBucket)
 			if err != nil {
 				return err
 			}
 		}
 
+		err = chainBucket.DeleteBucket(chanPointBuf.Bytes())
+		if err != nil {
+			return err
+		}
+		err = nodeChanBucket.DeleteBucket(c.ChainHash[:])
+		if err != nil {
+			return err
+		}
+
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.
-		return putChannelCloseSummary(tx, outPointBytes, summary)
+		return putChannelCloseSummary(tx, chanPointBuf.Bytes(), summary)
 	})
 }
 

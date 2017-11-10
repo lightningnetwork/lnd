@@ -3,7 +3,6 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -19,89 +18,73 @@ import (
 )
 
 var (
-	// openChanBucket stores all the currently open channels. This bucket
-	// has a second, nested bucket which is keyed by a node's ID. Additionally,
-	// at the base level of this bucket several prefixed keys are stored which
-	// house channel metadata such as total satoshis sent, number of updates
-	// etc. These fields are stored at this top level rather than within a
-	// node's channel bucket in order to facilitate sequential prefix scans
-	// to gather stats such as total satoshis received.
-	openChannelBucket = []byte("ocb")
-
-	// chanIDBucket is a third-level bucket stored within a node's ID bucket
-	// in the open channel bucket. The resolution path looks something like:
-	// ocb -> nodeID -> cib. This bucket contains a series of keys with no
-	// values, these keys are the channel ID's of all the active channels
-	// we currently have with a specified nodeID. This bucket acts as an
-	// additional indexing allowing random access and sequential scans over
-	// active channels.
-	chanIDBucket = []byte("cib")
-
-	// commitDiffBucket...
-	commitDiffBucket = []byte("cdb")
-
 	// closedChannelBucket stores summarization information concerning
 	// previously open, but now closed channels.
-	closedChannelBucket = []byte("ccb")
+	closedChannelBucket = []byte("closed-chan-bucket")
 
-	// channelLogBucket is dedicated for storing the necessary delta state
-	// between channel updates required to re-construct a past state in
-	// order to punish a counterparty attempting a non-cooperative channel
-	// closure. A channel log bucket is created for each node and is nested
-	// within a node's ID bucket.
-	channelLogBucket = []byte("clb")
+	// openChanBucket stores all the currently open channels. This bucket
+	// has a second, nested bucket which is keyed by a node's ID. Within
+	// that node ID bucket, all attributes required to track, update, and
+	// close a channel are stored.
+	//
+	// openChan -> nodeID -> chanPoint
+	//
+	// TODO(roasbeef): flesh out comment
+	openChannelBucket = []byte("open-chan-bucket")
 
-	// identityKey is the key for storing this node's current LD identity
-	// key.
-	identityKey = []byte("idk")
+	// chanInfoKey can be accessed within the bucket for a channel
+	// (identified by it's chanPoint). This key stores all the static
+	// information for a channel which is decided at the end of  the
+	// funding flow.
+	chanInfoKey = []byte("chan-info-key")
 
-	// The following prefixes are stored at the base level within the
-	// openChannelBucket. In order to retrieve a particular field for an
-	// active, or historic channel, append the channels ID to the prefix:
-	// key = prefix || chanID. Storing certain fields at the top level
-	// using a prefix scheme serves two purposes: first to facilitate
-	// sequential prefix scans, and second to eliminate write amplification
-	// caused by serializing/deserializing the *entire* struct with each
-	// update.
-	chanCapacityPrefix = []byte("ccp")
-	selfBalancePrefix  = []byte("sbp")
-	theirBalancePrefix = []byte("tbp")
-	minFeePerKwPrefix  = []byte("mfp")
-	chanConfigPrefix   = []byte("chan-config")
-	updatePrefix       = []byte("uup")
-	ourIndexPrefix     = []byte("tip")
-	theirIndexPrefix   = []byte("oip")
-	satSentPrefix      = []byte("ssp")
-	satReceivedPrefix  = []byte("srp")
-	commitFeePrefix    = []byte("cfp")
-	isPendingPrefix    = []byte("pdg")
-	confInfoPrefix     = []byte("conf-info")
-
-	// chanIDKey stores the node, and channelID for an active channel.
-	chanIDKey = []byte("cik")
-
-	// commitKeys stores both commitment keys (ours, and theirs) for an
-	// active channel. Our private key is stored in an encrypted format
-	// using channeldb's currently registered cryptoSystem.
-	commitKeys = []byte("ckk")
-
-	// commitTxnsKey stores the full version of both current, non-revoked
-	// commitment transactions in addition to the csvDelay for both.
-	commitTxnsKey = []byte("ctk")
-
-	// currentHtlcKey stores the set of fully locked-in HTLCs on our latest
-	// commitment state.
-	currentHtlcKey = []byte("chk")
-
-	// fundingTxnKey stores the funding output, the multi-sig keys used in
-	// the funding output, and further information detailing if the
-	// transaction is "open", or not and how many confirmations required
-	// until it's considered open.
-	fundingTxnKey = []byte("fsk")
+	// chanCommitmentKey can be accessed within the sub-bucket for a
+	// particular channel. This key stores the up to date commitment state
+	// for a particular channel party. Appending a 0 to the end of this key
+	// indicates it's the commitment for the local party, and appending a 1
+	// to the end of this key indicates it's the commitment for the remote
+	// party.
+	chanCommitmentKey = []byte("chan-commitment-key")
 
 	// revocationStateKey stores their current revocation hash, our
 	// preimage producer and their preimage store.
-	revocationStateKey = []byte("esk")
+	revocationStateKey = []byte("revocation-state-key")
+
+	// commitDiffKey stores the current pending commitment state we've
+	// extended to the remote party (if any). Each time we propose a new
+	// state, we store the information necessary to reconstruct this state
+	// from the prior commitment. This allows us to resync the remote party
+	// to their expected state in the case of message loss.
+	//
+	// TODO(roasbeef): rename to commit chain?
+	commitDiffKey = []byte("commit-diff-key")
+
+	// revocationLogBucket is dedicated for storing the necessary delta
+	// state between channel updates required to re-construct a past state
+	// in order to punish a counterparty attempting a non-cooperative
+	// channel closure. This key should be accessed from within the
+	// sub-bucket of a target channel, identified by its channel point.
+	revocationLogBucket = []byte("revocation-log-key")
+)
+
+var (
+	// ErrNoCommitmentsFound is returned when a channel has not set
+	// commitment states.
+	ErrNoCommitmentsFound = fmt.Errorf("no commitments found")
+
+	// ErrNoChanInfoFound is returned when a particular channel does not
+	// have any channels state.
+	ErrNoChanInfoFound = fmt.Errorf("no chan info found")
+
+	// ErrNoRevocationsFound is returned when revocation state for a
+	// particular channel cannot be found.
+	ErrNoRevocationsFound = fmt.Errorf("no revocations found")
+
+	// ErrNoPendingCommit is returned when there is not a pending
+	// commitment for a remote party. A new commitment is written to disk
+	// each time we write a new state in order to be properly fault
+	// tolerant.
+	ErrNoPendingCommit = fmt.Errorf("no pending commits found")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -133,7 +116,7 @@ const (
 // constraints is static for the duration of the channel, meaning the channel
 // must be teared down for them to change.
 type ChannelConstraints struct {
-	// DustLimit is the threhsold (in satoshis) below which any outputs
+	// DustLimit is the threshold (in satoshis) below which any outputs
 	// should be trimmed. When an output is trimmed, it isn't materialized
 	// as an actual output, but is instead burned to miner's fees.
 	DustLimit btcutil.Amount
@@ -148,9 +131,6 @@ type ChannelConstraints struct {
 	// this node CANNOT dip below the reservation amount. This acts as a
 	// defense against costless attacks when either side no longer has any
 	// skin in the game.
-	//
-	// TODO(roasbeef): need to swap above, i tell them what reserve, then
-	// other way around
 	ChanReserve btcutil.Amount
 
 	// MinHTLC is the minimum HTLC accepted for a direction of the channel.
@@ -174,7 +154,7 @@ type ChannelConstraints struct {
 // time lock parameters.
 type ChannelConfig struct {
 	// ChannelConstraints is the set of constraints that must be upheld for
-	// the duration of the channel for ths owner of this channel
+	// the duration of the channel for the owner of this channel
 	// configuration. Constraints govern a number of flow control related
 	// parameters, also including the smallest HTLC that will be accepted
 	// by a participant.
@@ -325,9 +305,25 @@ type OpenChannel struct {
 	// been confirmed before a certain height.
 	FundingBroadcastHeight uint32
 
+	// NumConfsRequired is the number of confirmations a channel's funding
+	// transaction must have received in order to be considered available
+	// for normal transactional use.
+	NumConfsRequired uint16
+
 	// IdentityPub is the identity public key of the remote node this
 	// channel has been established with.
 	IdentityPub *btcec.PublicKey
+
+	// Capacity is the total capacity of this channel.
+	Capacity btcutil.Amount
+
+	// TotalMSatSent is the total number of milli-satoshis we've sent
+	// within this channel.
+	TotalMSatSent lnwire.MilliSatoshi
+
+	// TotalMSatReceived is the total number of milli-satoshis we've
+	// received within this channel.
+	TotalMSatReceived lnwire.MilliSatoshi
 
 	// LocalChanCfg is the channel configuration for the local node.
 	LocalChanCfg ChannelConfig
@@ -335,44 +331,17 @@ type OpenChannel struct {
 	// RemoteChanCfg is the channel configuration for the remote node.
 	RemoteChanCfg ChannelConfig
 
-	// FeePerKw is the min satoshis/kilo-weight that should be paid within
-	// the commitment transaction for the entire duration of the channel's
-	// lifetime. This field may be updated during normal operation of the
-	// channel as on-chain conditions change.
-	FeePerKw btcutil.Amount
+	// LocalCommitment is the current local commitment state for the local
+	// party. This is stored distinct from the state of of the remote party
+	// as there are certain asymmetric parameters which affect the
+	// structure of each commitment.
+	LocalCommitment ChannelCommitment
 
-	// Capacity is the total capacity of this channel.
-	Capacity btcutil.Amount
-
-	// LocalBalance is the current available settled balance within the
-	// channel directly spendable by us.
-	LocalBalance lnwire.MilliSatoshi
-
-	// RemoteBalance is the current available settled balance within the
-	// channel directly spendable by the remote node.
-	RemoteBalance lnwire.MilliSatoshi
-
-	// CommitFee is the amount calculated to be paid in fees for the
-	// current set of commitment transactions. The fee amount is persisted
-	// with the channel in order to allow the fee amount to be removed and
-	// recalculated with each channel state update, including updates that
-	// happen after a system restart.
-	CommitFee btcutil.Amount
-
-	// CommitKey is the latest version of the commitment state, broadcast
-	// able by us.
-	CommitTx wire.MsgTx
-
-	// CommitSig is one half of the signature required to fully complete
-	// the script for the commitment transaction above. This is the
-	// signature signed by the remote party for our version of the
-	// commitment transactions.
-	CommitSig []byte
-
-	// NumConfsRequired is the number of confirmations a channel's funding
-	// transaction must have received in order to be considered available
-	// for normal transactional use.
-	NumConfsRequired uint16
+	// RemoteCommitment is the current remote commitment state for the
+	// remote party. This is stored distinct from the state of of the local
+	// party as there are certain asymmetric parameters which affect the
+	// structure of each commitment.
+	RemoteCommitment ChannelCommitment
 
 	// RemoteCurrentRevocation is the current revocation for their
 	// commitment transaction. However, since this the derived public key,
@@ -396,41 +365,6 @@ type OpenChannel struct {
 	// previous channels states sent to us by remote side. Current
 	// implementation of secret store is shachain store.
 	RevocationStore shachain.Store
-
-	// NumUpdates is the total number of updates conducted within this
-	// channel.
-	NumUpdates uint64
-
-	// OurMessageIndex...
-	OurMessageIndex uint64
-
-	// TheirMessageIndex...
-	TheirMessageIndex uint64
-
-	// OurMessageIndex...
-	OurAckedIndex uint64
-
-	// TheirMessageIndex...
-	TheirAckedIndex uint64
-
-	// TotalSatoshisSent is the total number of satoshis we've sent within
-	// this channel.
-	TotalSatoshisSent uint64
-
-	// TotalMSatSent is the total number of milli-satoshis we've sent
-	// within this channel.
-	TotalMSatSent lnwire.MilliSatoshi
-
-	// TotalMSatReceived is the total number of milli-satoshis we've
-	// received within this channel.
-	TotalMSatReceived lnwire.MilliSatoshi
-
-	// Htlcs is the list of active, uncleared HTLCs currently pending
-	// within the channel.
-	Htlcs []*HTLC
-
-	// LastUpdates...
-	LastUpdates lnwire.Message
 
 	// TODO(roasbeef): eww
 	Db *DB

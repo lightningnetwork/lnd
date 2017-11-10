@@ -673,13 +673,12 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 //
 func newThreeHopNetwork(t *testing.T, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
-	serverErr chan error,
 	startingHeight uint32) *threeHopNetwork {
 
 	// Create three peers/servers.
-	aliceServer := newMockServer("alice", serverErr)
-	bobServer := newMockServer("bob", serverErr)
-	carolServer := newMockServer("carol", serverErr)
+	aliceServer := newMockServer(t, "alice")
+	bobServer := newMockServer(t, "bob")
+	carolServer := newMockServer(t, "carol")
 
 	// Create mock decoder instead of sphinx one in order to mock the
 	// route which htlc should follow.

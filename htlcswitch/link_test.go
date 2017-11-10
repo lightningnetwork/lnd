@@ -60,9 +60,9 @@ func messageToString(msg lnwire.Message) string {
 	return spew.Sdump(msg)
 }
 
-// expectedMessage struct hols the message which travels from one peer to
-// another, and additional information like, should this message we skipped
-// for handling.
+// expectedMessage struct holds the message which travels from one peer to
+// another, and additional information like, should this message we skipped for
+// handling.
 type expectedMessage struct {
 	from    string
 	to      string
@@ -111,8 +111,9 @@ func createInterceptorFunc(prefix, receiver string, messages []expectedMessage,
 
 		if messageChanID == chanID {
 			if len(expectToReceive) == 0 {
-				return false, errors.Errorf("received unexpected message out "+
-					"of range: %v", m.MsgType())
+				return false, errors.Errorf("%v received "+
+					"unexpected message out of range: %v",
+					receiver, m.MsgType())
 			}
 
 			expectedMessage := expectToReceive[0]
@@ -160,16 +161,15 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
 	defer n.stop()
 
-	bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
 	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+	bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
 
 	debug := false
 	if debug {
@@ -209,7 +209,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	// links was changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if !invoice.Terms.Settled {
 		t.Fatal("alice invoice wasn't settled")
@@ -221,7 +221,9 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	}
 
 	if bobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
-		t.Fatal("bob bandwidth isn't match")
+		t.Fatalf("bob bandwidth isn't match: expected %v, got %v",
+			bobBandwidthBefore+amount,
+			n.firstBobChannelLink.Bandwidth())
 	}
 }
 
@@ -239,9 +241,8 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -366,9 +367,8 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -474,9 +474,8 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -527,9 +526,8 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -572,9 +570,8 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -628,9 +625,8 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -685,9 +681,8 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -743,9 +738,8 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -847,9 +841,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
@@ -930,9 +923,8 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
@@ -1020,9 +1012,8 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}
@@ -1037,7 +1028,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
 		n.firstBobChannelLink, n.carolChannelLink)
 
-	davePub := newMockServer("save", serverErr).PubKey()
+	davePub := newMockServer(t, "dave").PubKey()
 	receiver := n.bobServer
 	rhash, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
 		amount, htlcAmt, totalTimelock).Wait(10 * time.Second)
@@ -1096,9 +1087,8 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
@@ -1188,10 +1178,9 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	const startingHeight = 200
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, startingHeight)
+		channels.bobToCarol, channels.carolToBob, startingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
@@ -1245,10 +1234,9 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	const startingHeight = 200
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, startingHeight)
+		channels.bobToCarol, channels.carolToBob, startingHeight)
 	if err := n.start(); err != nil {
 		t.Fatalf("unable to start three hop network: %v", err)
 	}
@@ -1301,9 +1289,8 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	}
 	defer cleanUp()
 
-	serverErr := make(chan error, 4)
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-		channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
 
 	chanID := n.aliceChannelLink.ChanID()
 
@@ -1358,8 +1345,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	// * settle request to be sent back from bob to alice.
 	// * alice<->bob commitment state to be updated.
 	// * user notification to be sent.
-	receiver := n.bobServer
-	_, err = n.makePayment(n.aliceServer, receiver,
+	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
 		totalTimelock).Wait(10 * time.Second)
 	if err != nil {
@@ -1406,7 +1392,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(4)
-	aliceChannel, _, fCleanUp, err := createTestChannel(
+	aliceChannel, _, fCleanUp, _, err := createTestChannel(
 		alicePrivKey, bobPrivKey, chanAmt, chanAmt, chanID,
 	)
 	if err != nil {
@@ -1833,8 +1819,11 @@ func TestChannelRetransmission(t *testing.T) {
 			"bob", messages, chanID, true)
 
 		// Add interceptor to check the order of Bob and Alice messages.
-		n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-			channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+		n := newThreeHopNetwork(t,
+			channels.aliceToBob, channels.bobToAlice,
+			channels.bobToCarol, channels.carolToBob,
+			testStartingHeight,
+		)
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
 		if err := n.start(); err != nil {
@@ -1872,7 +1861,7 @@ func TestChannelRetransmission(t *testing.T) {
 		}
 
 		n = newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
-			channels.bobToCarol, channels.carolToBob, serverErr, testStartingHeight)
+			channels.bobToCarol, channels.carolToBob, testStartingHeight)
 		n.firstBobChannelLink.cfg.Registry = bobRegistry
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
@@ -1894,8 +1883,8 @@ func TestChannelRetransmission(t *testing.T) {
 				t.Fatalf("server error: %v", serverErr)
 			}
 
-			// Check that alice invoice wasn't settled and bandwidth of htlc
-			// links hasn't been changed.
+			// Check that alice invoice wasn't settled and
+			// bandwidth of htlc links hasn't been changed.
 			invoice, err = receiver.registry.LookupInvoice(rhash)
 			if err != nil {
 				err = errors.Errorf("unable to get invoice: %v", err)

@@ -34,9 +34,8 @@ func TestSwitchForward(t *testing.T) {
 
 	var packet *htlcPacket
 
-	serverErr := make(chan error, 4)
-	alicePeer := newMockServer("alice", serverErr)
-	bobPeer := newMockServer("bob", serverErr)
+	alicePeer := newMockServer(t, "alice")
+	bobPeer := newMockServer(t, "bob")
 
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
@@ -113,9 +112,8 @@ func TestSwitchCancel(t *testing.T) {
 
 	var request *htlcPacket
 
-	serverErr := make(chan error, 4)
-	alicePeer := newMockServer("alice", serverErr)
-	bobPeer := newMockServer("bob", serverErr)
+	alicePeer := newMockServer(t, "alice")
+	bobPeer := newMockServer(t, "bob")
 
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
@@ -190,9 +188,8 @@ func TestSwitchAddSamePayment(t *testing.T) {
 
 	var request *htlcPacket
 
-	serverErr := make(chan error, 4)
-	alicePeer := newMockServer("alice", serverErr)
-	bobPeer := newMockServer("bob", serverErr)
+	alicePeer := newMockServer(t, "alice")
+	bobPeer := newMockServer(t, "bob")
 
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 	bobChannelLink := newMockChannelLink(chanID2, bobChanID, bobPeer)
@@ -290,8 +287,7 @@ func TestSwitchAddSamePayment(t *testing.T) {
 func TestSwitchSendPayment(t *testing.T) {
 	t.Parallel()
 
-	serverErr := make(chan error, 4)
-	alicePeer := newMockServer("alice", serverErr)
+	alicePeer := newMockServer(t, "alice")
 	aliceChannelLink := newMockChannelLink(chanID1, aliceChanID, alicePeer)
 
 	s := New(Config{})

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"testing"
 
 	"io"
 	"sync/atomic"
@@ -29,6 +30,8 @@ type mockServer struct {
 	wg       sync.WaitGroup
 	quit     chan struct{}
 
+	t *testing.T
+
 	name     string
 	messages chan lnwire.Message
 
@@ -43,13 +46,13 @@ type mockServer struct {
 
 var _ Peer = (*mockServer)(nil)
 
-func newMockServer(name string, errChan chan error) *mockServer {
+func newMockServer(t *testing.T, name string) *mockServer {
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
 	return &mockServer{
-		errChan:          errChan,
+		t:                t,
 		id:               id,
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
@@ -85,8 +88,8 @@ func (s *mockServer) Start() error {
 				for _, interceptor := range s.interceptorFuncs {
 					skip, err := interceptor(msg)
 					if err != nil {
-						s.fail(errors.Errorf("%v: error in the "+
-							"interceptor: %v", s.name, err))
+						s.t.Fatalf("%v: error in the "+
+							"interceptor: %v", s.name, err)
 						return
 					}
 					shouldSkip = shouldSkip || skip
@@ -97,7 +100,7 @@ func (s *mockServer) Start() error {
 				}
 
 				if err := s.readHandler(msg); err != nil {
-					s.fail(err)
+					s.t.Fatal(err)
 					return
 				}
 			case <-s.quit:
@@ -107,16 +110,6 @@ func (s *mockServer) Start() error {
 	}()
 
 	return nil
-}
-
-func (s *mockServer) fail(err error) {
-	go func() {
-		s.Stop()
-	}()
-
-	go func() {
-		s.errChan <- errors.Errorf("%v server error: %v", s.name, err)
-	}()
 }
 
 // mockHopIterator represents the test version of hop iterator which instead
@@ -311,7 +304,6 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	case *lnwire.ChannelReestablish:
 		targetChan = msg.ChanID
 	default:
-		return errors.New("unknown message type")
 	}
 
 	// Dispatch the commitment update message to the proper
@@ -323,15 +315,6 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 
 	// Create goroutine for this, in order to be able to properly stop
 	// the server when handler stacked (server unavailable)
-	done := make(chan struct{})
-	go func() {
-		link.HandleChannelUpdate(message)
-		done <- struct{}{}
-	}()
-	select {
-	case <-done:
-	case <-s.quit:
-	}
 
 	return nil
 }
@@ -343,7 +326,6 @@ func (s *mockServer) PubKey() [33]byte {
 func (s *mockServer) Disconnect(reason error) {
 	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
 
-	s.fail(errors.Errorf("server %v was disconnected: %v", s.name, reason))
 }
 
 func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {

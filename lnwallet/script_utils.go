@@ -191,6 +191,7 @@ func ripemd160H(d []byte) []byte {
 //         OP_DROP 2 OP_SWAP <sender key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
+//         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
 func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,

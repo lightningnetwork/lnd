@@ -777,6 +777,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 		// BreachClose.
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:      *chanPoint,
+			ChainHash:      breachInfo.ChainHash,
 			ClosingTXID:    breachInfo.BreachTransaction.TxHash(),
 			RemotePub:      &chanInfo.RemoteIdentity,
 			Capacity:       chanInfo.Capacity,
@@ -918,6 +919,7 @@ var _ SpendableOutput = (*breachedOutput)(nil)
 type retributionInfo struct {
 	commitHash chainhash.Hash
 	chanPoint  wire.OutPoint
+	chainHash  chainhash.Hash
 
 	// TODO(conner): remove the following group of fields after decoupling
 	// the breach arbiter from the wallet.
@@ -1007,6 +1009,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	return &retributionInfo{
 		commitHash:      breachInfo.BreachTransaction.TxHash(),
+		chainHash:       chanInfo.ChainHash,
 		chanPoint:       *chanPoint,
 		remoteIdentity:  &chanInfo.RemoteIdentity,
 		capacity:        chanInfo.Capacity,
@@ -1325,6 +1328,10 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 		return err
 	}
 
+	if _, err := w.Write(ret.chainHash[:]); err != nil {
+		return err
+	}
+
 	if _, err := w.Write(
 		ret.remoteIdentity.SerializeCompressed()); err != nil {
 		return err
@@ -1370,6 +1377,15 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	if err := readOutpoint(r, &ret.chanPoint); err != nil {
 		return err
 	}
+
+	if _, err := io.ReadFull(r, scratch[:32]); err != nil {
+		return err
+	}
+	chainHash, err := chainhash.NewHash(scratch[:32])
+	if err != nil {
+		return err
+	}
+	ret.chainHash = *chainHash
 
 	if _, err = io.ReadFull(r, scratch[:33]); err != nil {
 		return err

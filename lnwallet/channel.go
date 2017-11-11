@@ -3000,8 +3000,6 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 //  * RevokeAndAck: if we sent a revocation message that they claim to have
 //    not received
 func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) ([]lnwire.Message, error) {
-	lc.Lock()
-	defer lc.Unlock()
 
 	// We owe them a commitment if they have an un-acked commitment and the
 	// tip of their chain (from our Pov) is equal to what they think their

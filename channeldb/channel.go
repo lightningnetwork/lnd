@@ -629,9 +629,19 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 			return err
 		}
 
+		if err = putChanInfo(chanBucket, c); err != nil {
+			return fmt.Errorf("unable to store chan info: %v", err)
+		}
+
 		// With the proper bucket fetched, we'll now write toe latest
 		// commitment state to dis for the target party.
-		return putChanCommitment(chanBucket, newCommitment, true)
+		err = putChanCommitment(chanBucket, newCommitment, true)
+		if err != nil {
+			return fmt.Errorf("unable to store chan "+
+				"revocations: %v", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return err

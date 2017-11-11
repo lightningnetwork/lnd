@@ -3663,7 +3663,8 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	// To ensure that we can actually fully accept this new HTLC, we'll
 	// calculate the current available bandwidth, and subtract the value
 	// ofthe HTLC from it.
-	availableBalance := lc.availableBalance()
+	initialBalance := lc.availableBalance()
+	availableBalance := initialBalance
 	availableBalance -= htlc.Amount
 
 	feePerKw := lc.channelState.LocalCommitment.FeePerKw
@@ -3685,6 +3686,9 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	// reject it with an error.
 	if availableBalance < 0 {
 		// TODO(roasbeef): also needs to respect reservation
+		//  * expand to add context err msg
+		walletLog.Errorf("Unable to carry added HTLC: amt=%v, bal=%v",
+			htlc.Amount, availableBalance)
 		return 0, ErrInsufficientBalance
 	}
 

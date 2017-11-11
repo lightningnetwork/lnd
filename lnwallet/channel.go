@@ -2938,16 +2938,19 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// gather each of the signatures in order.
 	htlcSigs := make([]*btcec.Signature, 0, len(sigBatch))
 	for _, htlcSigJob := range sigBatch {
-		jobResp := <-htlcSigJob.resp
+		select {
+		case jobResp := <-htlcSigJob.resp:
+			// If an error occurred, then we'll cancel any other
+			// active jobs.
+			if jobResp.err != nil {
+				close(cancelChan)
+				return nil, nil, err
+			}
 
-		// If an error occurred, then we'll cancel any other active
-		// jobs.
-		if jobResp.err != nil {
-			close(cancelChan)
-			return nil, nil, err
+			htlcSigs = append(htlcSigs, jobResp.sig)
+		case <-lc.quit:
+			return nil, nil, fmt.Errorf("channel shutting down")
 		}
-
-		htlcSigs = append(htlcSigs, jobResp.sig)
 	}
 
 	// As we're about to proposer a new commitment state for the remote
@@ -3432,9 +3435,14 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	for i := 0; i < len(verifyJobs); i++ {
 		// In the case that a single signature is invalid, we'll exit
 		// early and cancel all the outstanding verification jobs.
-		if err := <-verifyResps; err != nil {
-			close(cancelChan)
-			return fmt.Errorf("invalid htlc signature: %v", err)
+		select {
+		case err := <-verifyResps:
+			if err != nil {
+				close(cancelChan)
+				return fmt.Errorf("invalid htlc signature: %v", err)
+			}
+		case <-lc.quit:
+			return fmt.Errorf("channel shutting down")
 		}
 	}
 

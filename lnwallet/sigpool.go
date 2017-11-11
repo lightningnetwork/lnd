@@ -191,6 +191,8 @@ func (s *sigPool) poolWorker() {
 					continue
 				case <-sigMsg.cancel:
 					continue
+				case <-s.quit:
+					return
 				}
 			}
 
@@ -202,6 +204,8 @@ func (s *sigPool) poolWorker() {
 			}:
 			case <-sigMsg.cancel:
 				continue
+			case <-s.quit:
+				return
 			}
 
 		// We've just received a new verification job from the outside
@@ -226,11 +230,15 @@ func (s *sigPool) poolWorker() {
 				select {
 				case verifyMsg.errResp <- err:
 				case <-verifyMsg.cancel:
+				case <-s.quit:
+					return
 				}
 			} else {
 				select {
 				case verifyMsg.errResp <- nil:
 				case <-verifyMsg.cancel:
+				case <-s.quit:
+					return
 				}
 			}
 

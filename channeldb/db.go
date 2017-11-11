@@ -442,14 +442,17 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 
 		chanID := b.Bytes()
 
-		closedChanBucket, err := tx.CreateBucketIfNotExists(closedChannelBucket)
+		closedChanBucket, err := tx.CreateBucketIfNotExists(
+			closedChannelBucket,
+		)
 		if err != nil {
 			return err
 		}
 
 		chanSummaryBytes := closedChanBucket.Get(chanID)
 		if chanSummaryBytes == nil {
-			return fmt.Errorf("no closed channel by that chanID found")
+			return fmt.Errorf("no closed channel by that chanID " +
+				"found")
 		}
 
 		chanSummaryReader := bytes.NewReader(chanSummaryBytes)
@@ -472,9 +475,9 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 	})
 }
 
-// syncVersions function is used for safe db version synchronization. It applies
-// migration functions to the current database and recovers the previous
-// state of db if at least one error/panic appeared during migration.
+// syncVersions function is used for safe db version synchronization. It
+// applies migration functions to the current database and recovers the
+// previous state of db if at least one error/panic appeared during migration.
 func (d *DB) syncVersions(versions []version) error {
 	meta, err := d.FetchMeta(nil)
 	if err != nil {

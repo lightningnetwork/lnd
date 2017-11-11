@@ -40,7 +40,7 @@ const (
 	MsgCommitSig                           = 132
 	MsgRevokeAndAck                        = 133
 	MsgUpdateFailMalformedHTLC             = 135
-	MsgChannelReestablish                    = 136
+	MsgChannelReestablish                  = 136
 	MsgUpdateFee                           = 137
 	MsgChannelAnnouncement                 = 256
 	MsgNodeAnnouncement                    = 257

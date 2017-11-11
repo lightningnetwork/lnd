@@ -553,7 +553,7 @@ func TestChannelStateTransition(t *testing.T) {
 	commitDiff.Commitment.RemoteBalance += htlcAmt
 	commitDiff.LogUpdates = []LogUpdate{}
 	if err := channel.AppendRemoteCommitChain(commitDiff); err != nil {
-		t.Fatal("unable to add to commit chain: %v", err)
+		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 	if err := channel.AdvanceCommitChainTail(); err != nil {
 		t.Fatalf("unable to append to revocation log: %v", err)

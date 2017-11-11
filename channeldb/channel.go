@@ -1299,10 +1299,6 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 		if err != nil {
 			return err
 		}
-		err = nodeChanBucket.DeleteBucket(c.ChainHash[:])
-		if err != nil {
-			return err
-		}
 
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.

@@ -885,6 +885,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			pubKey = chanInfo.NodeKey1
 		case 1:
 			pubKey = chanInfo.NodeKey2
+		default:
+			rErr := errors.Errorf("unknown flags=%v for "+
+				"short_chan_id=%v", msg.Flags, shortChanID)
+			log.Error(rErr)
+			nMsg.err <- rErr
+			return nil
 		}
 
 		// Validate the channel announcement with the expected public

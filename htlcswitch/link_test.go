@@ -216,7 +216,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	receiver := n.bobServer
 	rhash, err := n.makePayment(n.aliceServer, receiver,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(10 * time.Second)
+		totalTimelock).Wait(30 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 
 			_, r.err = n.makePayment(n.aliceServer, n.bobServer,
 				n.bobServer.PubKey(), hopsForwards, amt, htlcAmt,
-				totalTimelock).Wait(30 * time.Second)
+				totalTimelock).Wait(5 * time.Minute)
 			resultChan <- r
 		}(i)
 	}
@@ -325,7 +325,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 
 			_, r.err = n.makePayment(n.bobServer, n.aliceServer,
 				n.aliceServer.PubKey(), hopsBackwards, amt, htlcAmt,
-				totalTimelock).Wait(30 * time.Second)
+				totalTimelock).Wait(5 * time.Minute)
 			resultChan <- r
 		}(i)
 	}
@@ -340,7 +340,7 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 		select {
 		case r := <-resultChan:
 			if r.err != nil {
-				t.Fatalf("unable to make the payment: %v", r.err)
+				t.Fatalf("unable to make payment: %v", r.err)
 			}
 
 			delay := time.Since(r.start)
@@ -437,7 +437,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	receiver := n.carolServer
 	rhash, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(10 * time.Second)
+		totalTimelock).Wait(30 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	}
@@ -566,7 +566,7 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	} else if err.Error() != lnwire.CodeIncorrectPaymentAmount.String() {
@@ -612,7 +612,7 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 	// specified parameters to the first hop in the route.
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
 	if err == nil {
@@ -667,7 +667,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	// specified parameters to the first hop in the route.
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amountNoFee, amountNoFee,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation.
@@ -723,7 +723,7 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 	// specified parameters to the first hop in the route.
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 
 	// We should get an error, and that error should indicate that the HTLC
 	// should be rejected due to a policy violation (below min HTLC).
@@ -780,7 +780,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// should succeed, and all balances should be updated accordingly.
 	payResp, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -830,7 +830,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// in Bob's new fee policy.
 	_, err = n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amountNoFee, htlcAmt,
-		htlcExpiry).Wait(10 * time.Second)
+		htlcExpiry).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should've been rejected")
 	}
@@ -889,7 +889,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	receiver := n.carolServer
 	rhash, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(10 * time.Second)
+		totalTimelock).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if !strings.Contains(err.Error(), "insufficient capacity") {
@@ -1053,7 +1053,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	davePub := newMockServer(t, "dave").PubKey()
 	receiver := n.bobServer
 	rhash, err := n.makePayment(n.aliceServer, n.bobServer, davePub, hops,
-		amount, htlcAmt, totalTimelock).Wait(10 * time.Second)
+		amount, htlcAmt, totalTimelock).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	} else if err.Error() != lnwire.CodeUnknownNextPeer.String() {
@@ -1134,7 +1134,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	receiver := n.carolServer
 	rhash, err := n.makePayment(n.aliceServer, n.carolServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(10 * time.Second)
+		totalTimelock).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
 	}
@@ -1218,7 +1218,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	// Now we'll send out the payment from Alice to Bob.
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(time.Second)
+		totalTimelock).Wait(30 * time.Second)
 
 	// The payment should've failed as the time lock value was in the
 	// _past_.
@@ -1229,7 +1229,8 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 
 	ferr, ok := err.(*ForwardingError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ForwardingError, instead got: %T %v",
+			err, err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -1275,7 +1276,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 	// Now we'll send out the payment from Alice to Bob.
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(time.Second)
+		totalTimelock).Wait(30 * time.Second)
 
 	// The payment should've failed as the time lock value was in the
 	// _past_.
@@ -1286,7 +1287,7 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 
 	ferr, ok := err.(*ForwardingError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ForwardingError, instead got: %T: %v", err, err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -1372,7 +1373,7 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 	// * user notification to be sent.
 	_, err = n.makePayment(n.aliceServer, n.bobServer,
 		n.bobServer.PubKey(), hops, amount, htlcAmt,
-		totalTimelock).Wait(10 * time.Second)
+		totalTimelock).Wait(30 * time.Second)
 	if err != nil {
 		t.Fatalf("unable to make the payment: %v", err)
 	}
@@ -1891,10 +1892,11 @@ func TestChannelRetransmission(t *testing.T) {
 		bobInterceptor := createInterceptorFunc("[alice] --> [bob]",
 			"bob", messages, chanID, false)
 
-		// Add interceptor to check the order of Bob and Alice messages.
-		n := newThreeHopNetwork(t,
 		ct := newConcurrentTester(t)
 
+		// Add interceptor to check the order of Bob and Alice
+		// messages.
+		n := newThreeHopNetwork(ct,
 			channels.aliceToBob, channels.bobToAlice,
 			channels.bobToCarol, channels.carolToBob,
 			testStartingHeight,
@@ -1902,7 +1904,7 @@ func TestChannelRetransmission(t *testing.T) {
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
 		if err := n.start(); err != nil {
-			t.Fatalf("unable to start three hop network: %v", err)
+			ct.Fatalf("unable to start three hop network: %v", err)
 		}
 		defer n.stop()
 
@@ -1915,12 +1917,14 @@ func TestChannelRetransmission(t *testing.T) {
 
 		// Send payment which should fail because we intercept the
 		// update and commit messages.
+		//
+		// TODO(roasbeef); increase timeout?
 		receiver := n.bobServer
 		rhash, err := n.makePayment(n.aliceServer, receiver,
 			n.bobServer.PubKey(), hops, amount, htlcAmt,
-			totalTimelock).Wait(time.Millisecond * 100)
+			totalTimelock).Wait(time.Second * 5)
 		if err == nil {
-			t.Fatalf("payment shouldn't haven been finished")
+			ct.Fatalf("payment shouldn't haven been finished")
 		}
 
 		// Stop network cluster and create new one, with the old
@@ -1933,17 +1937,17 @@ func TestChannelRetransmission(t *testing.T) {
 
 		channels, err = restoreChannelsFromDb()
 		if err != nil {
-			t.Fatalf("unable to restore channels from database: %v", err)
+			ct.Fatalf("unable to restore channels from database: %v", err)
 		}
 
-		n = newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		n = newThreeHopNetwork(ct, channels.aliceToBob, channels.bobToAlice,
 			channels.bobToCarol, channels.carolToBob, testStartingHeight)
 		n.firstBobChannelLink.cfg.Registry = bobRegistry
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
 
 		if err := n.start(); err != nil {
-			t.Fatalf("unable to start three hop network: %v", err)
+			ct.Fatalf("unable to start three hop network: %v", err)
 		}
 		defer n.stop()
 
@@ -1956,7 +1960,7 @@ func TestChannelRetransmission(t *testing.T) {
 			select {
 			case <-time.After(time.Millisecond * 200):
 			case serverErr := <-serverErr:
-				t.Fatalf("server error: %v", serverErr)
+				ct.Fatalf("server error: %v", serverErr)
 			}
 
 			// Check that alice invoice wasn't settled and
@@ -1979,7 +1983,7 @@ func TestChannelRetransmission(t *testing.T) {
 			}
 
 			bobExpectedBandwidth := bobBandwidthBefore + htlcAmt
-			if bobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
+			if bobExpectedBandwidth != n.firstBobChannelLink.Bandwidth() {
 				err = errors.Errorf("expected bob to have %v, instead has %v",
 					bobExpectedBandwidth, n.firstBobChannelLink.Bandwidth())
 				continue
@@ -1989,7 +1993,7 @@ func TestChannelRetransmission(t *testing.T) {
 		}
 
 		if err != nil {
-			t.Fatal(err)
+			ct.Fatal(err)
 		}
 	}
 

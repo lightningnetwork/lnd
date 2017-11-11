@@ -419,15 +419,15 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.In
 }
 
 func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+	i.Lock()
+	defer i.Unlock()
 
-	invoice, err := i.LookupInvoice(rhash)
-	if err != nil {
-		return err
+	invoice, ok := i.invoices[rhash]
+	if !ok {
+		return errors.New("can't find mock invoice")
 	}
 
-	i.Lock()
 	invoice.Terms.Settled = true
-	i.Unlock()
 
 	return nil
 }

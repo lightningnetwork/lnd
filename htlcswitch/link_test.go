@@ -1994,8 +1994,13 @@ func TestChannelRetransmission(t *testing.T) {
 	}
 
 	for _, test := range retransmissionTests {
-		t.Run(test.name, func(t *testing.T) {
+		passed := t.Run(test.name, func(t *testing.T) {
 			paymentWithRestart(t, test.messages)
 		})
+
+		if !passed {
+			break
+		}
 	}
+
 }

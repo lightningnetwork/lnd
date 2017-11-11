@@ -608,7 +608,6 @@ func (n *threeHopNetwork) stop() {
 	}
 }
 
-// clusterChannels...
 type clusterChannels struct {
 	aliceToBob *lnwallet.LightningChannel
 	bobToAlice *lnwallet.LightningChannel
@@ -685,7 +684,7 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 // alice                   first bob    second bob              carol
 // channel link	    	  channel link   channel link		channel link
 //
-func newThreeHopNetwork(t *testing.T, aliceChannel, firstBobChannel,
+func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *threeHopNetwork {
 

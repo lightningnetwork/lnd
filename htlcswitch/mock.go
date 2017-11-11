@@ -30,7 +30,7 @@ type mockServer struct {
 	wg       sync.WaitGroup
 	quit     chan struct{}
 
-	t *testing.T
+	t testing.TB
 
 	name     string
 	messages chan lnwire.Message
@@ -46,7 +46,7 @@ type mockServer struct {
 
 var _ Peer = (*mockServer)(nil)
 
-func newMockServer(t *testing.T, name string) *mockServer {
+func newMockServer(t testing.TB, name string) *mockServer {
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])

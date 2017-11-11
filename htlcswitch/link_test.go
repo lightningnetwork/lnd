@@ -27,6 +27,27 @@ const (
 	testStartingHeight = 100
 )
 
+// concurrentTester is a thread-safe wrapper around the Fatalf method of a
+// *testing.T instance. With this wrapper multiple goroutines can safely
+// attempt to fail a test concurrently.
+type concurrentTester struct {
+	mtx sync.Mutex
+	*testing.T
+}
+
+func newConcurrentTester(t *testing.T) *concurrentTester {
+	return &concurrentTester{
+		T: t,
+	}
+}
+
+func (c *concurrentTester) Fatalf(format string, args ...interface{}) {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	c.T.Fatalf(format, args)
+}
+
 // messageToString is used to produce less spammy log messages in trace mode by
 // setting the 'Curve" parameter to nil. Doing this avoids printing out each of
 // the field elements in the curve parameters for secp256k1.
@@ -1872,6 +1893,8 @@ func TestChannelRetransmission(t *testing.T) {
 
 		// Add interceptor to check the order of Bob and Alice messages.
 		n := newThreeHopNetwork(t,
+		ct := newConcurrentTester(t)
+
 			channels.aliceToBob, channels.bobToAlice,
 			channels.bobToCarol, channels.carolToBob,
 			testStartingHeight,

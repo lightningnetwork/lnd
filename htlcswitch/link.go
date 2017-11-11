@@ -297,7 +297,10 @@ func (l *channelLink) Stop() {
 //
 // NOTE: This MUST be run as a goroutine.
 func (l *channelLink) htlcManager() {
-	defer l.wg.Done()
+	defer func() {
+		l.wg.Done()
+		log.Infof("ChannelLink(%v) has exited", l)
+	}()
 
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
@@ -367,6 +370,8 @@ func (l *channelLink) htlcManager() {
 			// In any case, we'll then process their ChanSync
 			// message.
 			l.handleUpstreamMsg(msg)
+		case <-l.quit:
+			return
 		case <-chanSyncDeadline:
 			l.fail("didn't receive ChannelReestablish before " +
 				"deadline")
@@ -534,8 +539,6 @@ out:
 			break out
 		}
 	}
-
-	log.Infof("ChannelLink(%v) has exited", l)
 }
 
 // handleDownStreamPkt processes an HTLC packet sent from the downstream HTLC

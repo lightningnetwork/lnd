@@ -273,6 +273,18 @@ func (r *ChannelRouter) Start() error {
 	r.newBlocks = r.cfg.ChainView.FilteredBlocks()
 	r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
 
+	_, pruneHeight, err := r.cfg.Graph.PruneTip()
+	if err != nil {
+		switch {
+		// If the graph has never been pruned, or hasn't fully been
+		// created yet, then we don't treat this as an explicit error.
+		case err == channeldb.ErrGraphNeverPruned:
+		case err == channeldb.ErrGraphNotFound:
+		default:
+			return err
+		}
+	}
+
 	// Before we perform our manual block pruning, we'll construct and
 	// apply a fresh chain filter to the active FilteredChainView instance.
 	// We do this before, as otherwise we may miss on-chain events as the
@@ -281,8 +293,9 @@ func (r *ChannelRouter) Start() error {
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 		return err
 	}
+
 	log.Infof("Filtering chain using %v channels active", len(channelView))
-	err = r.cfg.ChainView.UpdateFilter(channelView, r.bestHeight)
+	err = r.cfg.ChainView.UpdateFilter(channelView, pruneHeight)
 	if err != nil {
 		return err
 	}
@@ -331,6 +344,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		return err
 	}
 	r.bestHeight = uint32(bestHeight)
+
 	pruneHash, pruneHeight, err := r.cfg.Graph.PruneTip()
 	if err != nil {
 		switch {

@@ -1475,12 +1475,11 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 func putChanCommitment(chanBucket *bolt.Bucket, c *ChannelCommitment,
 	local bool) error {
 
-	var key []byte
-	copy(key[:], chanCommitmentKey)
+	var commitKey []byte
 	if local {
-		key = append(key, byte(0x00))
+		commitKey = append(chanCommitmentKey, byte(0x00))
 	} else {
-		key = append(key, byte(0x01))
+		commitKey = append(chanCommitmentKey, byte(0x01))
 	}
 
 	var b bytes.Buffer
@@ -1488,7 +1487,7 @@ func putChanCommitment(chanBucket *bolt.Bucket, c *ChannelCommitment,
 		return err
 	}
 
-	return chanBucket.Put(key, b.Bytes())
+	return chanBucket.Put(commitKey, b.Bytes())
 }
 
 func putChanCommitments(chanBucket *bolt.Bucket, channel *OpenChannel) error {
@@ -1581,15 +1580,14 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 }
 
 func fetchChanCommitment(chanBucket *bolt.Bucket, local bool) (ChannelCommitment, error) {
-	var key []byte
-	copy(key[:], chanCommitmentKey)
+	var commitKey []byte
 	if local {
-		key = append(key, byte(0x00))
+		commitKey = append(chanCommitmentKey, byte(0x00))
 	} else {
-		key = append(key, byte(0x01))
+		commitKey = append(chanCommitmentKey, byte(0x01))
 	}
 
-	commitBytes := chanBucket.Get(key)
+	commitBytes := chanBucket.Get(commitKey)
 	if commitBytes == nil {
 		return ChannelCommitment{}, ErrNoCommitmentsFound
 	}

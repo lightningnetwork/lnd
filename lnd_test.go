@@ -3019,7 +3019,7 @@ out:
 	// Alice's side, leaving on 10k satoshis of available balance for bob.
 	// There's a max payment amount, so we'll have to do this
 	// incrementally.
-	amtToSend := int64(chanAmt) - 10000
+	amtToSend := int64(chanAmt) - 20000
 	amtSent := int64(0)
 	for amtSent != amtToSend {
 		// We'll send in chunks of the max payment amount. If we're

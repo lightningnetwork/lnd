@@ -366,12 +366,12 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 					continue
 				}
 
-				// If no block was returned from the rescan,
-				// it means no maching transactions were found.
+				// If no block was returned from the rescan, it
+				// means no matching transactions were found.
 				if len(rescanned) != 1 {
-					log.Debugf("no matching block found "+
-						"for rescan of hash %v",
-						blockHash)
+					log.Tracef("rescan of block %v at "+
+						"height=%d yielded no "+
+						"transactions", blockHash, i)
 					continue
 				}
 				decoded, err := decodeJSONBlock(

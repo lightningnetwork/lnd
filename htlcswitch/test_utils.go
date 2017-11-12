@@ -549,7 +549,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	rhash = fastsha256.Sum256(invoice.Terms.PaymentPreimage[:])
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(invoice); err != nil {
+	if err := receiver.registry.AddInvoice(*invoice); err != nil {
 		paymentErr <- err
 		return &paymentResponse{
 			rhash: rhash,

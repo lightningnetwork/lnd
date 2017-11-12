@@ -2029,7 +2029,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 			return spew.Sdump(invoice)
 		}))
 
-	rpcInvoice, err := createRPCInvoice(invoice)
+	rpcInvoice, err := createRPCInvoice(&invoice)
 	if err != nil {
 		return nil, err
 	}

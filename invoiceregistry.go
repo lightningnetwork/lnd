@@ -98,7 +98,7 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
 // lookupInvoice looks up an invoice by its payment hash (R-Hash), if found
 // then we're able to pull the funds pending within an HTLC.
 // TODO(roasbeef): ignore if settled?
-func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
+func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	i.RLock()
@@ -107,12 +107,17 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoic
 
 	// If found, then simply return the invoice directly.
 	if ok {
-		return invoice, nil
+		return *invoice, nil
 	}
 
 	// Otherwise, we'll check the database to see if there's an existing
 	// matching invoice.
-	return i.cdb.LookupInvoice(rHash)
+	invoice, err := i.cdb.LookupInvoice(rHash)
+	if err != nil {
+		return channeldb.Invoice{}, err
+	}
+
+	return *invoice, nil
 }
 
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a

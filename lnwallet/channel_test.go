@@ -3359,7 +3359,10 @@ func TestChanSyncUnableToSync(t *testing.T) {
 	}
 }
 
-// TestChanAvailableBandwidth...
+// TestChanAvailableBandwidth tests the accuracy of the AvailableBalance()
+// method. The value returned from this message should reflect the value
+// returned within the commitment state of a channel after the transition is
+// initiated.
 func TestChanAvailableBandwidth(t *testing.T) {
 	t.Parallel()
 

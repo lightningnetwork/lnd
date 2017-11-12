@@ -397,22 +397,22 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 
 type mockInvoiceRegistry struct {
 	sync.Mutex
-	invoices map[chainhash.Hash]*channeldb.Invoice
+	invoices map[chainhash.Hash]channeldb.Invoice
 }
 
 func newMockRegistry() *mockInvoiceRegistry {
 	return &mockInvoiceRegistry{
-		invoices: make(map[chainhash.Hash]*channeldb.Invoice),
+		invoices: make(map[chainhash.Hash]channeldb.Invoice),
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
 	i.Lock()
 	defer i.Unlock()
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return nil, errors.New("can't find mock invoice")
+		return channeldb.Invoice{}, errors.New("can't find mock invoice")
 	}
 
 	return invoice, nil
@@ -428,11 +428,12 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 	}
 
 	invoice.Terms.Settled = true
+	i.invoices[rhash] = invoice
 
 	return nil
 }
 
-func (i *mockInvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice) error {
 	i.Lock()
 	defer i.Unlock()
 

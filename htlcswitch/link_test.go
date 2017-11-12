@@ -978,7 +978,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	invoice.Terms.PaymentPreimage[0] ^= byte(255)
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := n.carolServer.registry.AddInvoice(invoice); err != nil {
+	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
@@ -1955,7 +1955,7 @@ func TestChannelRetransmission(t *testing.T) {
 		// TODO(andrew.shvv) Will be removed if we move the notification center
 		// to the channel link itself.
 
-		var invoice *channeldb.Invoice
+		var invoice channeldb.Invoice
 		for i := 0; i < 20; i++ {
 			select {
 			case <-time.After(time.Millisecond * 200):

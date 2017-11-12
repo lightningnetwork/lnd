@@ -12,7 +12,7 @@ import (
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to it's 32
 	// byte payment hash.
-	LookupInvoice(chainhash.Hash) (*channeldb.Invoice, error)
+	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
 
 	// SettleInvoice attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.

@@ -736,7 +736,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		// If it's been a full day since we've re-broadcasted the
 		// channel, add the channel to the set of edges we need to
 		// update.
-		if timeElapsed >= broadcastInterval {
+		if timeElapsed >= broadcastInterval && info.AuthProof != nil {
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,
@@ -1104,6 +1104,26 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 			nMsg.err <- err
 			return nil
+		}
+
+		// If this is a local ChannelUpdate announcement, send it to
+		// our peer.
+		if !nMsg.isRemote {
+			// Get our peer's public key
+			var remotePeer *btcec.PublicKey
+			switch msg.Flags {
+			case 0:
+				remotePeer = chanInfo.NodeKey2
+			case 1:
+				remotePeer = chanInfo.NodeKey1
+			}
+
+			// Send ChannelUpdate to remotePeer
+			if err = d.cfg.SendToPeer(remotePeer, msg); err != nil {
+				log.Errorf("unable to send channel update "+
+					"message to peer: %x",
+					remotePeer.SerializeCompressed())
+			}
 		}
 
 		// Channel update announcement was successfully processed and

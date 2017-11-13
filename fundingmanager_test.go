@@ -210,7 +210,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		SignMessage: func(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error) {
 			return nil, nil
 		},
-		SendAnnouncement: func(msg lnwire.Message) error {
+		SendLocalAnnouncement: func(msg lnwire.Message) error {
 			select {
 			case sentAnnouncements <- msg:
 			case <-shutdownChan:
@@ -308,7 +308,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			msg []byte) (*btcec.Signature, error) {
 			return nil, nil
 		},
-		SendAnnouncement: func(msg lnwire.Message) error {
+		SendLocalAnnouncement: func(msg lnwire.Message) error {
 			select {
 			case aliceAnnounceChan <- msg:
 			case <-shutdownChan:
@@ -398,7 +398,7 @@ func tearDownFundingManagers(t *testing.T, a, b *testNode) {
 // transaction is confirmed on-chain. Returns the funding out point.
 func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, numConfs uint32,
-	updateChan chan *lnrpc.OpenStatusUpdate) *wire.OutPoint {
+	updateChan chan *lnrpc.OpenStatusUpdate, private bool) *wire.OutPoint {
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
 	initReq := &openChanReq{
@@ -407,6 +407,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		chainHash:       *activeNetParams.GenesisHash,
 		localFundingAmt: localFundingAmt,
 		pushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
+		private:         private,
 		updates:         updateChan,
 		err:             errChan,
 	}
@@ -624,15 +625,72 @@ func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
 	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 }
 
-func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
-	// After the FundingLocked message is sent, the channel will be announced.
-	// A chanAnnouncement consists of three distinct messages:
+func assertPrivateAnnouncement(t *testing.T, node *testNode) {
+	// After the FundingLocked message is sent, Alice and Bob will each
+	// send three private announcement messages:
 	//	1) ChannelAnnouncement
 	//	2) ChannelUpdate
-	//	3) AnnounceSignatures
-	// that will be announced in no particular order.
-	// A node announcement will also be sent.
-	announcements := make([]lnwire.Message, 4)
+	// 	3) ChannelUpdate
+	// The only message of the three that will reach the peer is the second
+	// ChannelUpdate message. The second channel update is sent via
+	// SendToPeer. In the test case, the second channel update will not be
+	// sent because the tests don't use the gossiper.
+	privateAnns := make([]lnwire.Message, 2)
+	for i := 0; i < len(privateAnns); i++ {
+		select {
+		case privateAnns[i] = <-node.announceChan:
+		case <-time.After(time.Second * 5):
+			t.Fatalf("node did not send private announcement: %v", i)
+		}
+	}
+
+	gotPrivateChannelAnnouncement := false
+	gotPrivateChannelUpdate := false
+	for _, msg := range privateAnns {
+		switch msg.(type) {
+		case *lnwire.ChannelAnnouncement:
+			gotPrivateChannelAnnouncement = true
+		case *lnwire.ChannelUpdate:
+			gotPrivateChannelUpdate = true
+		}
+	}
+
+	if !gotPrivateChannelAnnouncement {
+		t.Fatalf("did not get private ChannelAnnouncement from node")
+	}
+	if !gotPrivateChannelUpdate {
+		t.Fatalf("did not get private ChannelUpdate from node")
+	}
+}
+
+func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
+	fundingOutPoint *wire.OutPoint) {
+	state, _, err := alice.fundingMgr.getChannelOpeningState(fundingOutPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel state: %v", err)
+	}
+
+	if state != addedToRouterGraph {
+		t.Fatalf("expected state to be addedToRouterGraph, was %v", state)
+	}
+	state, _, err = bob.fundingMgr.getChannelOpeningState(fundingOutPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel state: %v", err)
+	}
+
+	if state != addedToRouterGraph {
+		t.Fatalf("expected state to be addedToRouterGraph, was %v", state)
+	}
+}
+
+func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
+	// After the FundingLocked message is sent and six confirmations have
+	// been reached, the channel will be announced to the greater network.
+	// Two distinct messages will be sent:
+	//	1) AnnouncementSignatures
+	//	2) NodeAnnouncement
+	// These may arrive in no particular order.
+	announcements := make([]lnwire.Message, 2)
 	for i := 0; i < len(announcements); i++ {
 		select {
 		case announcements[i] = <-alice.announceChan:
@@ -641,17 +699,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 		}
 	}
 
-	gotChannelAnnouncement := false
-	gotChannelUpdate := false
 	gotAnnounceSignatures := false
 	gotNodeAnnouncement := false
 
 	for _, msg := range announcements {
 		switch msg.(type) {
-		case *lnwire.ChannelAnnouncement:
-			gotChannelAnnouncement = true
-		case *lnwire.ChannelUpdate:
-			gotChannelUpdate = true
 		case *lnwire.AnnounceSignatures:
 			gotAnnounceSignatures = true
 		case *lnwire.NodeAnnouncement:
@@ -659,12 +711,6 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 		}
 	}
 
-	if !gotChannelAnnouncement {
-		t.Fatalf("did not get ChannelAnnouncement from Alice")
-	}
-	if !gotChannelUpdate {
-		t.Fatalf("did not get ChannelUpdate from Alice")
-	}
 	if !gotAnnounceSignatures {
 		t.Fatalf("did not get AnnounceSignatures from Alice")
 	}
@@ -681,17 +727,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 		}
 	}
 
-	gotChannelAnnouncement = false
-	gotChannelUpdate = false
 	gotAnnounceSignatures = false
 	gotNodeAnnouncement = false
 
 	for _, msg := range announcements {
 		switch msg.(type) {
-		case *lnwire.ChannelAnnouncement:
-			gotChannelAnnouncement = true
-		case *lnwire.ChannelUpdate:
-			gotChannelUpdate = true
 		case *lnwire.AnnounceSignatures:
 			gotAnnounceSignatures = true
 		case *lnwire.NodeAnnouncement:
@@ -699,12 +739,6 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode) {
 		}
 	}
 
-	if !gotChannelAnnouncement {
-		t.Fatalf("did not get ChannelAnnouncement from Bob")
-	}
-	if !gotChannelUpdate {
-		t.Fatalf("did not get ChannelUpdate from Bob")
-	}
 	if !gotAnnounceSignatures {
 		t.Fatalf("did not get AnnounceSignatures from Bob")
 	}
@@ -799,7 +833,8 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// Notify that transaction was mined
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
@@ -819,6 +854,20 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
 	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
@@ -849,7 +898,8 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// After the funding transaction gets mined, both nodes will send the
 	// fundingLocked message to the other peer. If the funding node fails
@@ -899,9 +949,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// sending the fundingLocked message.
 	recreateAliceFundingManager(t, alice)
 
-	// Intetionally make the next channel announcement fail
-	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message) error {
-		return fmt.Errorf("intentional error in SendAnnouncement")
+	// Intentionally make the channel announcements fail
+	alice.fundingMgr.cfg.SendLocalAnnouncement = func(msg lnwire.Message) error {
+		return fmt.Errorf("intentional error in SendLocalAnnouncement")
 	}
 
 	fundingLockedAlice := checkNodeSendingFundingLocked(t, alice)
@@ -918,9 +968,30 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		// Expected
 	}
 
-	// Next up, we check that the Alice rebroadcasts the announcement
-	// messages on restart. Bob should as expected send announcements.
+	// Next up, we check that Alice rebroadcasts the private announcement
+	// messages on restart. Bob should as expected send private announcements.
 	recreateAliceFundingManager(t, alice)
+	time.Sleep(300 * time.Millisecond)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Next, we check that Alice rebroadcasts the channel announcement
+	// messages on restart. Bob should as expected send channel announcements.
+	recreateAliceFundingManager(t, alice)
+	time.Sleep(300 * time.Millisecond)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+
 	assertChannelAnnouncements(t, alice, bob)
 
 	// The internal state-machine should now have deleted the channelStates
@@ -948,7 +1019,8 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// After the funding transaction gets mined, both nodes will send the
 	// fundingLocked message to the other peer. If the funding node fails
@@ -994,7 +1066,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// While Bob successfully sent fundingLocked.
 	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
 
-	// Alice should be waiting for the server to notify when Bob somes back online.
+	// Alice should be waiting for the server to notify when Bob comes back online.
 	var peer *btcec.PublicKey
 	var con chan<- struct{}
 	select {
@@ -1036,6 +1108,20 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+
+	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
 
 	// The funding process is now finished, wait for the
@@ -1067,7 +1153,7 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_ = openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	_ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, false)
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -1111,7 +1197,8 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// Notify that transaction was mined
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
@@ -1131,6 +1218,20 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
 	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
@@ -1199,7 +1300,8 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// Notify that transaction was mined
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
@@ -1219,6 +1321,20 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Check that the state machine is updated accordingly
 	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
 	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
@@ -1245,10 +1361,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	assertHandleFundingLocked(t, alice, bob)
 }
 
-// TestFundingManagerRestartAfterReceivingFundingLocked checks that the
-// fundingManager continues to operate as expected after it has received
+// TestFundingManagerProcessingAfterReceivingFundingLocked checks that the
+// fundingManager continues to operate as expected after it has processed
 // fundingLocked and then gets restarted.
-func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
+func TestFundingManagerRestartAfterProcessingFundingLocked(t *testing.T) {
 	disableFndgLogger(t)
 
 	alice, bob := setupFundingManagers(t)
@@ -1259,7 +1375,8 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan)
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		false)
 
 	// Notify that transaction was mined
 	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
@@ -1283,20 +1400,32 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	// Let Alice immediately get the fundingLocked message.
 	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
 
-	// She will block waiting for local channel announcements to finish
-	// before sending the new channel state to the peer.
-	select {
-	case <-alice.peer.newChannels:
-		t.Fatalf("did not expect alice to handle the fundinglocked")
-	case <-time.After(time.Millisecond * 300):
-	}
+	// Also let Bob get the fundingLocked message.
+	bob.fundingMgr.processFundingLocked(fundingLockedAlice, aliceAddr)
 
-	// At this point we restart Alice's fundingManager. Bob will resend
-	// the fundingLocked after the connection is re-established.
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleFundingLocked(t, alice, bob)
+
+	// Sleep since handleFundingLocked is in a goroutine.
+	time.Sleep(300 * time.Millisecond)
+
+	// At this point we restart Alice's fundingManager.
 	recreateAliceFundingManager(t, alice)
 
-	// Simulate Bob resending the message when Alice is back up.
-	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
+
+	// Notify that six confirmations has been reached on funding transaction.
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
 
 	// Make sure both fundingManagers send the expected channel announcements.
 	assertChannelAnnouncements(t, alice, bob)
@@ -1304,8 +1433,199 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
 	assertNoChannelState(t, alice, bob, fundingOutPoint)
+}
 
-	// Also let Bob get the fundingLocked message.
+// TestFundingManagerPrivateChannel tests that if we open a private channel,
+// the announcement_signatures nor the node_announcement messages are sent.
+func TestFundingManagerPrivateChannel(t *testing.T) {
+	disableFndgLogger(t)
+
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// We will consume the channel updates as we go, so no buffering is needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run through the process of opening the channel, up until the funding
+	// transaction is broadcasted.
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		true)
+
+	// Notify that transaction was mined
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+
+	// Give fundingManager time to process the newly mined tx and write
+	//state to database.
+	time.Sleep(300 * time.Millisecond)
+
+	// The funding transaction was mined, so assert that both funding
+	// managers now have the state of this channel 'markedOpen' in their
+	// internal state machine.
+	assertMarkedOpen(t, alice, bob, fundingOutPoint)
+
+	// After the funding transaction is mined, Alice will send
+	// fundingLocked to Bob.
+	fundingLockedAlice := checkNodeSendingFundingLocked(t, alice)
+
+	// And similarly Bob will send funding locked to Alice.
+	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Notify that six confirmations has been reached on the funding
+	// transaction. This won't actually succeed since annAfterSixConfs is
+	// never called, so this is called in a goroutine to not pause the
+	// main thread.
+	go func() {
+		alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+		bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	}()
+
+	// Since this is a private channel, we shouldn't receive the public
+	// channel announcement messages announcement_signatures or
+	// node_announcement.
+	select {
+	case ann := <-alice.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	default:
+		// Expected
+	}
+
+	select {
+	case ann := <-bob.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	default:
+		// Expected
+	}
+
+	// The funding process is now finished, wait for the
+	// OpenStatusUpdate_ChanOpen update
+	waitForOpenUpdate(t, updateChan)
+
+	// The internal state-machine should now have deleted the channelStates
+	// from the database, as the channel is announced.
+	time.Sleep(300 * time.Millisecond)
+	assertNoChannelState(t, alice, bob, fundingOutPoint)
+
+	// Exchange the fundingLocked messages.
+	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
+	bob.fundingMgr.processFundingLocked(fundingLockedAlice, aliceAddr)
+
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleFundingLocked(t, alice, bob)
+}
+
+// TestFundingManagerPrivateRestart tests that the privacy guarantees granted
+// by the private channel persist even on restart. This means that the
+// announcement_signatures nor the node_announcement messages are sent upon
+// restart.
+func TestFundingManagerPrivateRestart(t *testing.T) {
+	disableFndgLogger(t)
+
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// We will consume the channel updates as we go, so no buffering is needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run through the process of opening the channel, up until the funding
+	// transaction is broadcasted.
+	fundingOutPoint := openChannel(t, alice, bob, 500000, 0, 1, updateChan,
+		true)
+
+	// Notify that transaction was mined
+	alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+
+	// Give fundingManager time to process the newly mined tx and write
+	//state to database.
+	time.Sleep(300 * time.Millisecond)
+
+	// The funding transaction was mined, so assert that both funding
+	// managers now have the state of this channel 'markedOpen' in their
+	// internal state machine.
+	assertMarkedOpen(t, alice, bob, fundingOutPoint)
+
+	// After the funding transaction is mined, Alice will send
+	// fundingLocked to Bob.
+	fundingLockedAlice := checkNodeSendingFundingLocked(t, alice)
+
+	// And similarly Bob will send funding locked to Alice.
+	fundingLockedBob := checkNodeSendingFundingLocked(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Check that the state machine is updated accordingly
+	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+
+	// Restart Alice's fundingManager so we can prove that the public
+	// channel announcements are not sent upon restart and that the private
+	// setting persists upon restart.
+	recreateAliceFundingManager(t, alice)
+	time.Sleep(300 * time.Millisecond)
+
+	// Make sure both fundingManagers send the expected private announcements.
+	assertPrivateAnnouncement(t, alice)
+	assertPrivateAnnouncement(t, bob)
+
+	// Sleep to make sure database write is finished.
+	time.Sleep(300 * time.Millisecond)
+
+	// Restart again.
+	recreateAliceFundingManager(t, alice)
+	time.Sleep(300 * time.Millisecond)
+
+	// Notify that six confirmations has been reached on the funding
+	// transaction. This won't actually succeed since annAfterSixConfs is
+	// never called, so this is called in a goroutine to not pause the
+	// main thread.
+	go func() {
+		alice.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+		bob.mockNotifier.confChannel <- &chainntnfs.TxConfirmation{}
+	}()
+
+	// Since this is a private channel, we shouldn't receive the public
+	// channel announcement messages announcement_signatures or
+	// node_announcement.
+	select {
+	case ann := <-alice.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	default:
+		// Expected
+	}
+
+	select {
+	case ann := <-bob.announceChan:
+		t.Fatalf("unexpectedly got channel announcement message: %v", ann)
+	default:
+		// Expected
+	}
+
+	// The internal state-machine should now have deleted the channelStates
+	// from the database, as the channel is announced.
+	// Note: We don't check for the addedToRouterGraph state because in
+	// the private channel mode, the state is quickly changed from
+	// addedToRouterGraph to deleted from the database since the public
+	// announcement phase is skipped.
+	time.Sleep(300 * time.Millisecond)
+	assertNoChannelState(t, alice, bob, fundingOutPoint)
+
+	// Exchange the fundingLocked messages.
+	alice.fundingMgr.processFundingLocked(fundingLockedBob, bobAddr)
 	bob.fundingMgr.processFundingLocked(fundingLockedAlice, aliceAddr)
 
 	// Check that they notify the breach arbiter and peer about the new

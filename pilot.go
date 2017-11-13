@@ -90,7 +90,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		return err
 	}
 	updateStream, errChan := c.server.OpenChannel(-1, target, amt, 0,
-		feePerWeight)
+		feePerWeight, false)
 
 	select {
 	case err := <-errChan:

@@ -120,7 +120,7 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) {
 	// Unless the transaction is finalized, include transaction information in
 	// confNotifications and confTxsByInitialHeight in case the tx gets
 	// reorganized out of the chain.
-	if txConf.BlockHeight > tcn.currentHeight-tcn.reorgSafetyLimit {
+	if txConf.BlockHeight+tcn.reorgSafetyLimit > tcn.currentHeight {
 		tcn.confNotifications[*ntfn.TxID] =
 			append(tcn.confNotifications[*ntfn.TxID], ntfn)
 		tcn.confTxsByInitialHeight[txConf.BlockHeight] =
@@ -182,11 +182,13 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	// Clear entries from confNotifications and confTxsByInitialHeight. We
 	// assume that reorgs deeper than the reorg safety limit do not happen, so
 	// we can clear out entries for the block that is now mature.
-	matureBlockHeight := tcn.currentHeight - tcn.reorgSafetyLimit
-	for _, txHash := range tcn.confTxsByInitialHeight[matureBlockHeight] {
-		delete(tcn.confNotifications, *txHash)
+	if tcn.currentHeight >= tcn.reorgSafetyLimit {
+		matureBlockHeight := tcn.currentHeight - tcn.reorgSafetyLimit
+		for _, txHash := range tcn.confTxsByInitialHeight[matureBlockHeight] {
+			delete(tcn.confNotifications, *txHash)
+		}
+		delete(tcn.confTxsByInitialHeight, matureBlockHeight)
 	}
-	delete(tcn.confTxsByInitialHeight, matureBlockHeight)
 
 	return nil
 }

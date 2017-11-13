@@ -1609,6 +1609,11 @@
           "type": "string",
           "format": "int64",
           "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "*\nWhether this channel is private and if so, should not be announced to the\ngreater network"
         }
       }
     },

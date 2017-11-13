@@ -876,6 +876,12 @@ message OpenChannelRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
     int64 sat_per_byte = 7;
+
+    /**
+    Whether this channel is private and if so, should not be announced to the
+    greater network
+    */
+    bool private = 8 [json_name = "private"];
 }
 message OpenStatusUpdate {
     oneof update {

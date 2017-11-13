@@ -103,6 +103,11 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 
 	select {
 	case confInfo := <-confIntent.Confirmed:
+		if !confInfo.BlockHash.IsEqual(blockHash[0]) {
+			t.Fatalf("mismatched block hashes: expected %v, got %v",
+				blockHash[0], confInfo.BlockHash)
+		}
+
 		// Finally, we'll verify that the tx index returned is the exact same
 		// as the tx index of the transaction within the block itself.
 		msgBlock, err := miner.Node.GetBlock(blockHash[0])

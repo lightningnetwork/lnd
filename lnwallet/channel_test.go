@@ -2427,6 +2427,10 @@ func TestChanSyncFullySynced(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// If we exchange channel sync messages from the get-go , then both
+	// sides should conclude that no further synchronization is needed.
+	assertNoChanSyncNeeded(t, aliceChannel, bobChannel)
+
 	// Next, we'll create an HTLC for Alice to extend to Bob.
 	var paymentPreimage [32]byte
 	copy(paymentPreimage[:], bytes.Repeat([]byte{1}, 32))

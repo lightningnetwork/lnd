@@ -45,6 +45,14 @@ func New(authSvc *bakery.Service, chainDir string,
 func (u *UnlockerService) CreateWallet(ctx context.Context,
 	in *lnrpc.CreateWalletRequest) (*lnrpc.CreateWalletResponse, error) {
 
+	// Require the provided password to have a length of at
+	// least 8 characters.
+	password := in.Password
+	if len(password) < 8 {
+		return nil, fmt.Errorf("password must have " +
+			"at least 8 characters")
+	}
+
 	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
 	loader := wallet.NewLoader(u.netParams, netDir)
 
@@ -61,7 +69,7 @@ func (u *UnlockerService) CreateWallet(ctx context.Context,
 
 	// We send the password over the CreatePasswords channel, such that it
 	// can be used by lnd to open or create the wallet.
-	u.CreatePasswords <- in.Password
+	u.CreatePasswords <- password
 
 	return &lnrpc.CreateWalletResponse{}, nil
 }

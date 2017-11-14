@@ -154,10 +154,12 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 		t.Fatalf("unable to open channel: %v", err)
 	}
 
-	// Mine a block, then wait for Alice's node to notify us that the
+	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
-	// within the newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	// within the first newly mined block. We mine 6 blocks to make sure
+	// the channel is public, as it will not be announced to the network
+	// before the funding transaction is 6 blocks deep.
+	block := mineBlocks(t, net, 6)[0]
 
 	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
 	if err != nil {
@@ -582,6 +584,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("alice didn't advertise channel before "+
 			"timeout: %v", err)
 	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't advertise channel before "+
@@ -698,7 +701,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, numConfs)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
 	// At this point, the channel should be fully opened and there should
@@ -1999,17 +2002,14 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 	ctxb := context.Background()
 	timeout := time.Duration(time.Second * 5)
+	var networkChans []*lnrpc.ChannelPoint
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	ctxt, _ := context.WithTimeout(ctxb, timeout)
 	chanPointAlice := openChannelAndAssert(ctxt, t, net, net.Alice,
 		net.Bob, chanAmt, 0)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't advertise her channel: %v", err)
-	}
+	networkChans = append(networkChans, chanPointAlice)
 
 	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
 	if err != nil {
@@ -2041,7 +2041,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointDave := openChannelAndAssert(ctxt, t, net, dave,
 		net.Alice, chanAmt, 0)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	networkChans = append(networkChans, chanPointDave)
 	daveChanTXID, err := chainhash.NewHash(chanPointDave.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
@@ -2067,7 +2067,8 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	chanPointCarol := openChannelAndAssert(ctxt, t, net, carol,
 		dave, chanAmt, 0)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	networkChans = append(networkChans, chanPointCarol)
+
 	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
@@ -2075,6 +2076,17 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	carolFundPoint := wire.OutPoint{
 		Hash:  *carolChanTXID,
 		Index: chanPointCarol.OutputIndex,
+	}
+
+	// Wait for all nodes to have seen all channels.
+	for _, chanPoint := range networkChans {
+		for _, node := range []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave} {
+			ctxt, _ = context.WithTimeout(ctxb, timeout)
+			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
+			if err != nil {
+				t.Fatalf("timeout waiting for channel open: %v", err)
+			}
+		}
 	}
 
 	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
@@ -2405,10 +2417,11 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// with other tests we should clean up - complete opening of the
 	// channel and then close it.
 
-	// Mine a block, then wait for node's to notify us that the channel has
+	// Mine 6 blocks, then wait for node's to notify us that the channel has
 	// been opened. The funding transactions should be found within the
-	// newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	// first newly mined block. 6 blocks make sure the funding transaction
+	// has enouught confirmations to be announced publicly.
+	block := mineBlocks(t, net, 6)[0]
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
 	for i, stream := range openStreams {

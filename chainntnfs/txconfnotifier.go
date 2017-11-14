@@ -57,6 +57,11 @@ type TxConfNotifier struct {
 	// The coinbase maturity period is a reasonable value to use.
 	reorgSafetyLimit uint32
 
+	// reorgDepth is the depth of a chain organization that this system is being
+	// informed of. This is incremented as long as a sequence of blocks are
+	// disconnected without being interrupted by a new block.
+	reorgDepth uint32
+
 	// confNotifications is an index of notification requests by transaction
 	// hash.
 	confNotifications map[chainhash.Hash][]*ConfNtfn
@@ -142,6 +147,7 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 			tcn.currentHeight, blockHeight)
 	}
 	tcn.currentHeight++
+	tcn.reorgDepth = 0
 
 	// Record any newly confirmed transactions in ntfnsByConfirmHeight so that
 	// notifications get dispatched when the tx gets sufficient confirmations.
@@ -204,9 +210,26 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 			tcn.currentHeight, blockHeight)
 	}
 	tcn.currentHeight--
+	tcn.reorgDepth++
 
 	for _, txHash := range tcn.confTxsByInitialHeight[blockHeight] {
 		for _, ntfn := range tcn.confNotifications[*txHash] {
+			// If notification has been dispatched with sufficient
+			// confirmations, notify of the reversal.
+			if ntfn.dispatched {
+				select {
+				case <-ntfn.Event.Confirmed:
+					// Drain confirmation notification instead of sending
+					// negative conf if the receiver has not processed it yet.
+					// This ensures sends to the Confirmed channel are always
+					// non-blocking.
+				default:
+					ntfn.Event.NegativeConf <- int32(tcn.reorgDepth)
+				}
+				ntfn.dispatched = false
+				continue
+			}
+
 			confHeight := blockHeight + ntfn.NumConfirmations - 1
 			ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
 			if !exists {

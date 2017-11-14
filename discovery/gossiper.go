@@ -729,6 +729,17 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		info *channeldb.ChannelEdgeInfo,
 		edge *channeldb.ChannelEdgePolicy) error {
 
+		// If there's no auth proof attaced to this edge, it
+		// means that it is a private channel not meant to be
+		// announced to the greater network, so avoid sending
+		// channel updates for this channel to not leak its
+		// existence.
+		if info.AuthProof == nil {
+			log.Debugf("Skipping retransmission of channel "+
+				"without AuthProof: %v", info)
+			return nil
+		}
+
 		const broadcastInterval = time.Hour * 24
 
 		timeElapsed := time.Since(edge.LastUpdate)
@@ -736,7 +747,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		// If it's been a full day since we've re-broadcasted the
 		// channel, add the channel to the set of edges we need to
 		// update.
-		if timeElapsed >= broadcastInterval && info.AuthProof != nil {
+		if timeElapsed >= broadcastInterval {
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,
@@ -1106,23 +1117,27 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			return nil
 		}
 
-		// If this is a local ChannelUpdate announcement, send it to
-		// our peer.
-		if !nMsg.isRemote {
-			// Get our peer's public key
+		// If this is a local ChannelUpdate without an AuthProof, it means
+		// it is an update to a channel that is not (yet) supposed to be
+		// announced to the greater network. However, our channel counter
+		// party will need to be given the update, so we'll try sending
+		// the update directly to the remote peer.
+		if !nMsg.isRemote && chanInfo.AuthProof == nil {
+			// Get our peer's public key.
 			var remotePeer *btcec.PublicKey
-			switch msg.Flags {
-			case 0:
+			switch {
+			case msg.Flags&lnwire.ChanUpdateDirection == 0:
 				remotePeer = chanInfo.NodeKey2
-			case 1:
+			case msg.Flags&lnwire.ChanUpdateDirection == 1:
 				remotePeer = chanInfo.NodeKey1
 			}
 
-			// Send ChannelUpdate to remotePeer
+			// Send ChannelUpdate directly to remotePeer.
+			// TODO(halseth): make reliable send?
 			if err = d.cfg.SendToPeer(remotePeer, msg); err != nil {
 				log.Errorf("unable to send channel update "+
-					"message to peer: %x",
-					remotePeer.SerializeCompressed())
+					"message to peer %x: %v",
+					remotePeer.SerializeCompressed(), err)
 			}
 		}
 
@@ -1149,7 +1164,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			prefix = "remote"
 		}
 
-		log.Infof("Received new channel announcement: %v", spew.Sdump(msg))
+		log.Infof("Received new %v channel announcement: %v", prefix,
+			spew.Sdump(msg))
 
 		// By the specification, channel announcement proofs should be
 		// sent after some number of confirmations after channel was
@@ -1351,6 +1367,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 				remotePeer = chanInfo.NodeKey1
 			}
 
+			log.Debugf("Sending local AnnounceSignatures message "+
+				"to peer(%x)", remotePeer.SerializeCompressed())
 			if err = d.cfg.SendToPeer(remotePeer, msg); err != nil {
 				log.Errorf("unable to send announcement "+
 					"message to peer: %x",

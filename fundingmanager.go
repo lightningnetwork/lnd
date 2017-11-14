@@ -410,6 +410,7 @@ func (f *fundingManager) Start() error {
 						"confirmation failed")
 					return
 				}
+
 				// Success, funding transaction was confirmed.
 				err := f.handleFundingConfirmation(ch, shortChanID)
 				if err != nil {
@@ -1513,6 +1514,10 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 	}
 	defer lnChannel.Stop()
 
+	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+
+	fndgLog.Debugf("ChannelID(%v) is now fully confirmed!", chanID)
+
 	err = f.sendFundingLocked(completeChan, lnChannel, shortChanID)
 	if err != nil {
 		return fmt.Errorf("failed sending fundingLocked: %v", err)
@@ -1534,6 +1539,8 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+
+	fndgLog.Debugf("Sending FundingLocked for ChannelID(%v)", chanID)
 
 	// Next, we'll send over the funding locked message which marks that we
 	// consider the channel open by presenting the remote party with our
@@ -1617,9 +1624,8 @@ func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenCha
 		return fmt.Errorf("channel announcement failed: %v", err)
 	}
 
-	// After the channel is successfully announced from the
-	// fundingManager, we delete the channel from our internal database.
-	// We can do this
+	// After the channel is successfully announced from the fundingManager,
+	// we delete the channel from our internal database.  We can do this
 	// because we assume the AuthenticatedGossiper queues the announcement
 	// messages, and persists them in case of a daemon shutdown.
 	err = f.deleteChannelOpeningState(&completeChan.FundingOutpoint)

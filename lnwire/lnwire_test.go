@@ -453,6 +453,31 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgChannelReestablish: func(v []reflect.Value, r *rand.Rand) {
+			req := ChannelReestablish{
+				NextLocalCommitHeight:  uint64(r.Int63()),
+				RemoteCommitTailHeight: uint64(r.Int63()),
+			}
+
+			// With a 50/50 probability, we'll include the
+			// additional fields so we can test our ability to
+			// properly parse, and write out the optional fields.
+			if r.Int()%2 == 0 {
+				_, err := r.Read(req.LastRemoteCommitSecret[:])
+				if err != nil {
+					t.Fatalf("unable to read commit secret: %v", err)
+					return
+				}
+
+				req.LocalUnrevokedCommitPoint, err = randPubKey()
+				if err != nil {
+					t.Fatalf("unable to generate key: %v", err)
+					return
+				}
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of

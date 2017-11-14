@@ -316,6 +316,10 @@ type OpenChannel struct {
 	// for normal transactional use.
 	NumConfsRequired uint16
 
+	// ChannelFlags holds the flags that were sent as part of the
+	// open_channel message.
+	ChannelFlags lnwire.FundingFlag
+
 	// IdentityPub is the identity public key of the remote node this
 	// channel has been established with.
 	IdentityPub *btcec.PublicKey
@@ -1442,8 +1446,8 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChanID, channel.IsPending, channel.IsInitiator,
 		channel.FundingBroadcastHeight, channel.NumConfsRequired,
-		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.ChannelFlags, channel.IdentityPub, channel.Capacity,
+		channel.TotalMSatSent, channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
@@ -1542,8 +1546,8 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChanID, &channel.IsPending, &channel.IsInitiator,
 		&channel.FundingBroadcastHeight, &channel.NumConfsRequired,
-		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived,
+		&channel.ChannelFlags, &channel.IdentityPub, &channel.Capacity,
+		&channel.TotalMSatSent, &channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}

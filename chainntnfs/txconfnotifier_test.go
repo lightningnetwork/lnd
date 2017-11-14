@@ -277,6 +277,16 @@ func TestTxConfChainReorg(t *testing.T) {
 	}
 
 	select {
+	case reorgDepth := <-ntfn2.Event.NegativeConf:
+		if reorgDepth != 1 {
+			t.Fatalf("Incorrect value for negative conf notification: "+
+				"expected %d, got %d", 1, reorgDepth)
+		}
+	default:
+		t.Fatalf("Expected negative conf notification for tx1")
+	}
+
+	select {
 	case txConf := <-ntfn1.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx1: %v", txConf)
 	default:

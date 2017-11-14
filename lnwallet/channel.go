@@ -57,6 +57,18 @@ var (
 	// message, the state machine deems that is unable to properly
 	// synchronize states with the remote peer.
 	ErrCannotSyncCommitChains = fmt.Errorf("unable to sync commit chains")
+
+	// ErrInvalidLastCommitSecret is returned in the case that the
+	// commitment secret sent by the remote party in their
+	// ChannelReestablish message doesn't match the last secret we sent.
+	ErrInvalidLastCommitSecret = fmt.Errorf("commit secret is incorrect")
+
+	// ErrCommitSyncDataLoss is returned in the case that we receive a
+	// valid commit secret within the ChannelReestablish message from the
+	// remote node AND they advertise a RemoteCommitTailHeight higher than
+	// our current known height.
+	ErrCommitSyncDataLoss = fmt.Errorf("possible commitment state data " +
+		"loss")
 )
 
 // channelState is an enum like type which represents the current state of a
@@ -2022,6 +2034,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 				err)
 		}
 
+		// TODO(roasbeef): need to handle case of if >
+
 		// First, we'll generate the commitment point and the
 		// revocation point so we can re-construct the HTLC state and
 		// also our payment key.
@@ -3054,10 +3068,41 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 	// resync.
 	var updates []lnwire.Message
 
+	// If the remote party included the optional fields, then we'll verify
+	// their correctness first, as it will influence our decisions below.
+	hasRecoveryOptions := msg.LocalUnrevokedCommitPoint != nil
+	commitSecretCorrect := true
+	if hasRecoveryOptions && msg.RemoteCommitTailHeight != 0 {
+		// We'll check that they've really sent a valid commit
+		// secret from our shachain for our prior height, but only if
+		// this isn't the first state.
+		heightSecret, err := lc.channelState.RevocationProducer.AtIndex(
+			msg.RemoteCommitTailHeight - 1,
+		)
+		if err != nil {
+			return nil, err
+		}
+		commitSecretCorrect = bytes.Equal(
+			heightSecret[:], msg.LastRemoteCommitSecret[:],
+		)
+	}
+
+	// TODO(roasbeef): check validity of commitment point after the fact
+
+	// If the commit secret they sent is incorrect then we'll fail the
+	// channel as the remote node has an inconsistent state.
+	if !commitSecretCorrect {
+		// In this case, we'll return an error to indicate the remote
+		// node sent us the wrong values. This will let the caller act
+		// accordingly.
+		return nil, ErrInvalidLastCommitSecret
+	}
+
+	switch {
 	// If we owe the remote party a revocation message, then we'll re-send
 	// the last revocation message that we sent. This will be the
 	// revocation message for our prior chain tail.
-	if oweRevocation {
+	case oweRevocation:
 		revocationMsg, err := lc.generateRevocation(
 			localChainTail.height - 1,
 		)
@@ -3087,10 +3132,21 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 			})
 		}
 
-	} else if !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight {
-		// If we don't owe them a revocation, and the height of our
-		// commitment chain reported by the remote party is not equal
-		// to our chain tail, then we cannot sync.
+	// If we don't owe the remote party a revocation, but their value for
+	// what our remote chain tail should be doesn't match up, and their
+	// purported commitment secrete matches up, then we'll behind!
+	case (msg.RemoteCommitTailHeight > localChainTail.height &&
+		hasRecoveryOptions && commitSecretCorrect):
+
+		// In this case, we've likely lost data and shouldn't proceed
+		// with channel updates. So we'll return the appropriate error
+		// to signal to the caller the current state.
+		return nil, ErrCommitSyncDataLoss
+
+	// If we don't owe them a revocation, and the height of our commitment
+	// chain reported by the remote party is not equal to our chain tail,
+	// then we cannot sync.
+	case !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight:
 		return nil, ErrCannotSyncCommitChains
 	}
 

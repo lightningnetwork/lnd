@@ -3407,6 +3407,97 @@ func TestChanSyncUnableToSync(t *testing.T) {
 	}
 }
 
+// TestChanSyncInvalidLastSecret ensures that if Alice and Bob have completed
+// state transitions in an existing channel, and then send a ChannelReestablish
+// message after a restart, the following holds: if Alice has lost data, so she
+// sends an invalid commit secret then both parties recognize this as possible
+// data loss.
+func TestChanSyncInvalidLastSecret(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We'll create a new instances of Alice before doing any state updates
+	// such that we have the initial in memory state at the start of the
+	// channel.
+	aliceOld, err := restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart alice")
+	}
+
+	// First, we'll add an HTLC, and then initiate a state transition
+	// between the two parties such that we actually have a prior
+	// revocation to send.
+	var paymentPreimage [32]byte
+	copy(paymentPreimage[:], bytes.Repeat([]byte{1}, 32))
+	paymentHash := sha256.Sum256(paymentPreimage[:])
+	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: paymentHash,
+		Amount:      htlcAmt,
+		Expiry:      uint32(5),
+	}
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Then we'll initiate a state transition to lock in this new HTLC.
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete alice's state transition: %v", err)
+	}
+
+	// Next, we'll restart both parties in order to simulate a connection
+	// re-establishment.
+	aliceChannel, err = restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
+	}
+	bobChannel, err = restartChannel(bobChannel)
+	if err != nil {
+		t.Fatalf("unable to restart bob: %v", err)
+	}
+
+	// Next, we'll produce the ChanSync messages for both parties.
+	aliceChanSync, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to generate chan sync msg: %v", err)
+	}
+	bobChanSync, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to generate chan sync msg: %v", err)
+	}
+
+	// We'll modify Alice's sync message to have an invalid commitment
+	// secret.
+	aliceChanSync.LastRemoteCommitSecret[4] ^= 0x01
+
+	// Alice's former self should conclude that she possibly lost data as
+	// Bob is sending a valid commit secret for the latest state.
+	_, err = aliceOld.ProcessChanSyncMsg(bobChanSync)
+	if err != ErrCommitSyncDataLoss {
+		t.Fatalf("wrong error, expected ErrCommitSyncDataLoss "+
+			"instead got: %v", err)
+	}
+
+	// Bob should conclude that he should force close the channel, as Alice
+	// cannot continue operation.
+	_, err = bobChannel.ProcessChanSyncMsg(aliceChanSync)
+	if err != ErrInvalidLastCommitSecret {
+		t.Fatalf("wrong error, expected ErrInvalidLastCommitSecret, "+
+			"instead got: %v", err)
+	}
+}
+
 // TestChanAvailableBandwidth tests the accuracy of the AvailableBalance()
 // method. The value returned from this message should reflect the value
 // returned within the commitment state of a channel after the transition is

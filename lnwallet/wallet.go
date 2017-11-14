@@ -108,6 +108,10 @@ type initFundingReserveMsg struct {
 	// the responder as part of the initial channel creation.
 	pushMSat lnwire.MilliSatoshi
 
+	// flags are the channel flags specified by the initiator in the
+	// open_channel message.
+	flags lnwire.FundingFlag
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -449,7 +453,7 @@ func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
 	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
 	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
-	chainHash *chainhash.Hash) (*ChannelReservation, error) {
+	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -463,6 +467,7 @@ func (l *LightningWallet) InitChannelReservation(
 		commitFeePerKw:      commitFeePerKw,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushMSat:            pushMSat,
+		flags:               flags,
 		err:                 errChan,
 		resp:                respChan,
 	}
@@ -493,7 +498,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.commitFeePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
+		req.commitFeePerKw, l, id, req.pushMSat,
+		l.Cfg.NetParams.GenesisHash, req.flags)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil

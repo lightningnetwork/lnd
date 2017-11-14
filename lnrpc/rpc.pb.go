@@ -1547,9 +1547,7 @@ type OpenChannelRequest struct {
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf" json:"target_conf,omitempty"`
 	// / A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte" json:"sat_per_byte,omitempty"`
-	// *
-	// Whether this channel is private and if so, should not be announced to the
-	// greater network
+	// / Whether this channel should be private, not announced to the greater network.
 	Private bool `protobuf:"varint,8,opt,name=private" json:"private,omitempty"`
 }
 

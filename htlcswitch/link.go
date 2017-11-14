@@ -317,7 +317,12 @@ func (l *channelLink) htlcManager() {
 		// First, we'll generate our ChanSync message to send to the
 		// other side. Based on this message, the remote party will
 		// decide if they need to retransmit any data or not.
-		localChanSyncMsg := l.channel.ChanSyncMsg()
+		localChanSyncMsg, err := l.channel.ChanSyncMsg()
+		if err != nil {
+			l.fail("unable to generate chan sync message for "+
+				"ChannelPoint(%v)", l.channel.ChannelPoint())
+			return
+		}
 		if err := l.cfg.Peer.SendMessage(localChanSyncMsg); err != nil {
 			l.fail("Unable to send chan sync message for "+
 				"ChannelPoint(%v)", l.channel.ChannelPoint())
@@ -706,6 +711,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// need to re-transmit any messages to the remote party.
 		msgsToReSend, err := l.channel.ProcessChanSyncMsg(msg)
 		if err != nil {
+			// TODO(roasbeef): check conrete type of error, act
+			// accordingly
 			l.fail("unable to handle upstream reestablish "+
 				"message: %v", err)
 			return

@@ -358,16 +358,20 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 		}
 	}
 
+	// TODO(roasbeef): should instead consume async notifications from both
+	// links
 	time.Sleep(time.Second * 2)
 
 	// At the end Bob and Alice balances should be the same as previous,
 	// because they sent the equal amount of money to each other.
 	if aliceBandwidthBefore != n.aliceChannelLink.Bandwidth() {
-		t.Fatal("alice bandwidth shouldn't have changed")
+		t.Fatalf("alice bandwidth shouldn't have changed: expected %v, got %x",
+			aliceBandwidthBefore, n.aliceChannelLink.Bandwidth())
 	}
 
 	if bobBandwidthBefore != n.firstBobChannelLink.Bandwidth() {
-		t.Fatal("bob bandwidth shouldn't have changed")
+		t.Fatalf("bob bandwidth shouldn't have changed: expected %v, got %v",
+			bobBandwidthBefore, n.firstBobChannelLink.Bandwidth())
 	}
 
 	t.Logf("Max waiting: %v", maxDelay)

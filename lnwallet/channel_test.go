@@ -2378,24 +2378,37 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 	bobChannel *LightningChannel) {
 
-	aliceChanSyncMsg := aliceChannel.ChanSyncMsg()
+	_, _, line, _ := runtime.Caller(1)
+
+	aliceChanSyncMsg, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
+			line, err)
+	}
 	bobMsgsToSend, err := bobChannel.ProcessChanSyncMsg(aliceChanSyncMsg)
 	if err != nil {
-		t.Fatalf("unable to process ChannelReestablish msg: %v", err)
+		t.Fatalf("line #%v: unable to process ChannelReestablish "+
+			"msg: %v", line, err)
 	}
 	if len(bobMsgsToSend) != 0 {
-		t.Fatalf("bob shouldn't have to send any messages, instead wants "+
-			"to send: %v", spew.Sdump(bobMsgsToSend))
+		t.Fatalf("line #%v: bob shouldn't have to send any messages, "+
+			"instead wants to send: %v", line, spew.Sdump(bobMsgsToSend))
 	}
 
-	bobChanSyncMsg := bobChannel.ChanSyncMsg()
+	bobChanSyncMsg, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
+			line, err)
+	}
 	aliceMsgsToSend, err := aliceChannel.ProcessChanSyncMsg(bobChanSyncMsg)
 	if err != nil {
-		t.Fatalf("unable to process ChannelReestablish msg: %v", err)
+		t.Fatalf("line #%v: unable to process ChannelReestablish "+
+			"msg: %v", line, err)
 	}
 	if len(bobMsgsToSend) != 0 {
-		t.Fatalf("alice shouldn't have to send any messages, instead wants "+
-			"to send: %v", spew.Sdump(aliceMsgsToSend))
+		t.Fatalf("line #%v: alice shouldn't have to send any "+
+			"messages, instead wants to send: %v", line,
+			spew.Sdump(aliceMsgsToSend))
 	}
 }
 
@@ -2489,7 +2502,9 @@ func TestChanSyncFullySynced(t *testing.T) {
 	assertNoChanSyncNeeded(t, aliceChannelNew, bobChannelNew)
 }
 
-// restartChannel...
+// restartChannel reads the passe channel from disk, and returns a newly
+// initialized instance. This simulates one party restarting and losing their
+// in memory state.
 func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	nodePub := channelOld.channelState.IdentityPub
 	nodeChannels, err := channelOld.channelState.Db.FetchOpenChannels(
@@ -2596,8 +2611,14 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
 	// while Bob should think he's properly synchronized.
-	aliceSyncMsg := aliceChannel.ChanSyncMsg()
-	bobSyncMsg := bobChannel.ChanSyncMsg()
+	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
+	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
 
 	// This is a helper function that asserts Alice concludes that she
 	// needs to retransmit the exact commitment that we failed to send
@@ -2787,7 +2808,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 
 	// At this point, the final balances of both parties should properly
-	// reflect
+	// reflect the amount of HTLC's sent.
 	bobMsatSent := numBobHtlcs * htlcAmt
 	if aliceChannel.channelState.TotalMSatSent != htlcAmt {
 		t.Fatalf("wrong value for msat sent: expected %v, got %v",
@@ -2902,8 +2923,14 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	// If we fetch the channel sync messages at this state, then Alice
 	// should report that she owes Bob a revocation message, while Bob
 	// thinks they're fully in sync.
-	aliceSyncMsg := aliceChannel.ChanSyncMsg()
-	bobSyncMsg := bobChannel.ChanSyncMsg()
+	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
+	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
 
 	assertAliceOwesRevoke := func() {
 		aliceMsgsToSend, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
@@ -3063,8 +3090,14 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	// If we now attempt to resync, then Alice should conclude that she
 	// doesn't need any further updates, while Bob concludes that he needs
 	// to re-send both his revocation and commit sig message.
-	aliceSyncMsg := aliceChannel.ChanSyncMsg()
-	bobSyncMsg := bobChannel.ChanSyncMsg()
+	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
+	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
 
 	aliceMsgsToSend, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
 	if err != nil {
@@ -3221,8 +3254,14 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	// Now if we attempt to synchronize states at this point, Alice should
 	// detect that she owes nothing, while Bob should re-send both his
 	// RevokeAndAck as well as his commitment message.
-	aliceSyncMsg := aliceChannel.ChanSyncMsg()
-	bobSyncMsg := bobChannel.ChanSyncMsg()
+	aliceSyncMsg, err := aliceChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
+	bobSyncMsg, err := bobChannel.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("unable to produce chan sync msg: %v", err)
+	}
 
 	aliceMsgsToSend, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
 	if err != nil {

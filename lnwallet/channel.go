@@ -3139,18 +3139,43 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
-func (lc *LightningChannel) ChanSyncMsg() *lnwire.ChannelReestablish {
+func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	// The remote commitment height that we we'll send in the
 	// ChannelReestablish message is our current commitment height plus
 	// one. If the receiver thinks that our commitment height is actually
 	// *equal* to this value, then they'll re-send the last commitment that
 	// they sent but we never fully processed.
-	nextLocalCommitHeight := lc.localCommitChain.tip().height + 1
+	localHeight := lc.localCommitChain.tip().height
+	nextLocalCommitHeight := localHeight + 1
 
 	// The second value we'll send is the height of the remote commitment
 	// from our PoV. If the receiver thinks that their height is actually
 	// *one plus* this value, then they'll re-send their last revocation.
 	remoteChainTipHeight := lc.remoteCommitChain.tail().height
+
+	// If this channel has undergone a commitment update, then in order to
+	// prove to the remote party our knwoeldge of their prior commitment
+	// state, we'll also send over the last commitment secret that the
+	// remote party sent.
+	var lastCommitSecret [32]byte
+	if remoteChainTipHeight != 0 {
+		remoteSecret, err := lc.channelState.RevocationStore.LookUp(
+			remoteChainTipHeight - 1,
+		)
+		if err != nil {
+			return nil, err
+		}
+		lastCommitSecret = [32]byte(*remoteSecret)
+	}
+
+	// Additionally, we'll send over the current unrevoked commitment on
+	// our local commitment transaction.
+	currentCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+		localHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
@@ -3158,7 +3183,11 @@ func (lc *LightningChannel) ChanSyncMsg() *lnwire.ChannelReestablish {
 		),
 		NextLocalCommitHeight:  nextLocalCommitHeight,
 		RemoteCommitTailHeight: remoteChainTipHeight,
-	}
+		LastRemoteCommitSecret: lastCommitSecret,
+		LocalUnrevokedCommitPoint: ComputeCommitmentPoint(
+			currentCommitSecret[:],
+		),
+	}, nil
 }
 
 // validateCommitmentSanity is used to validate that on current state the commitment

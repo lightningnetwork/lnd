@@ -1613,7 +1613,7 @@
         "private": {
           "type": "boolean",
           "format": "boolean",
-          "title": "*\nWhether this channel is private and if so, should not be announced to the\ngreater network"
+          "description": "/ Whether this channel should be private, not announced to the greater network."
         }
       }
     },

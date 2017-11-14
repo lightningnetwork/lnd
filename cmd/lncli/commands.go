@@ -422,6 +422,14 @@ var openChannelCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		cli.BoolFlag{
+			Name: "private",
+			Usage: "make the channel private, such that it won't " +
+				"be announced to the greater network, and " +
+				"nodes other than the two channel endpoints " +
+				"must be explicitly told about it to be able " +
+				"to route through it",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -492,6 +500,8 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode push amt: %v", err)
 		}
 	}
+
+	req.Private = ctx.Bool("private")
 
 	stream, err := client.OpenChannel(ctxb, req)
 	if err != nil {

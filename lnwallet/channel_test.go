@@ -3160,6 +3160,7 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
+	defer bobChannel.Stop()
 	assertBobSendsRevokeAndCommit()
 
 	// We'll now finish the state transition by having Alice process both
@@ -3308,6 +3309,7 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
+	defer bobChannel.Stop()
 	if len(bobMsgsToSend) != 2 {
 		t.Fatalf("expected bob to send %v messages, instead "+
 			"sends: %v", 2, spew.Sdump(bobMsgsToSend))

@@ -185,17 +185,17 @@ func ripemd160H(d []byte) []byte {
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
-//     <recv key>
+//     <recv htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_NOTIF
-//         OP_DROP 2 OP_SWAP <sender key> 2 OP_CHECKMULTISIG
+//         OP_DROP 2 OP_SWAP <sender htlc key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
-	paymentHash []byte) ([]byte, error) {
+func senderHTLCScript(senderHtlcKey, receiverHtlcKey,
+	revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -222,7 +222,7 @@ func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
 	// the stack. This will be needed later if we decide that this is the
 	// sender activating the time out clause with the HTLC timeout
 	// transaction.
-	builder.AddData(receiverKey.SerializeCompressed())
+	builder.AddData(receiverHtlcKey.SerializeCompressed())
 
 	// Atm, the top item of the stack is the receiverKey's so we use a swap
 	// to expose what is either the payment pre-image or a signature.
@@ -245,7 +245,7 @@ func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(senderKey.SerializeCompressed())
+	builder.AddData(senderHtlcKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
 
@@ -381,7 +381,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //     of the HTLC has passed.
 //
 // Possible Input Scripts:
-//    RECVR: <0> <sender sig> <recvr sig> <preimage>
+//    RECVR: <0> <sender sig> <recvr sig> <preimage> (spend using HTLC success transaction)
 //    REVOK: <sig> <key>
 //    SENDR: <sig> 0
 //
@@ -390,18 +390,19 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
-//     <sendr key>
+//     <sendr htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_IF
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
-//         2 OP_SWAP <recvr key> 2 OP_CHECKMULTISIG
+//         2 OP_SWAP <recvr htlc key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
 //         OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func receiverHTLCScript(cltvExipiry uint32, senderKey,
-	receiverKey, revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
+func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
+	receiverHtlcKey, revocationKey *btcec.PublicKey,
+	paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -429,7 +430,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// the stack. This will be needed later if we decide that this is the
 	// receiver transitioning the output to the claim state using their
 	// second-level HTLC success transaction.
-	builder.AddData(senderKey.SerializeCompressed())
+	builder.AddData(senderHtlcKey.SerializeCompressed())
 
 	// Atm, the top item of the stack is the sender's key so we use a swap
 	// to expose what is either the payment pre-image or something else.
@@ -460,7 +461,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// this output, but only by the HTLC success transaction.
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(receiverKey.SerializeCompressed())
+	builder.AddData(receiverHtlcKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
 
@@ -475,7 +476,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// With that item dropped off, we can now enforce the absolute
 	// lock-time required to timeout the HTLC. If the time has passed, then
 	// we'll proceed with a checksig to ensure that this is actually the
-	// sender of he original HLTC.
+	// sender of he original HTLC.
 	builder.AddInt64(int64(cltvExipiry))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)

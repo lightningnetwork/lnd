@@ -74,7 +74,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	keyRing := &commitmentKeyRing{
 		delayKey:      aliceDelayKey,
 		revocationKey: revokePubKey,
-		paymentKey:    bobPayKey,
+		noDelayKey:    bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, keyRing, csvTimeout,
 		channelBalance, channelBalance, DefaultDustLimit())

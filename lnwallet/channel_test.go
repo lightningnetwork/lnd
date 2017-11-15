@@ -225,6 +225,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
+	// TODO(roasbeef): use distinct keys
 	aliceCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
 			DustLimit:        aliceDustLimit,
@@ -238,6 +239,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		RevocationBasePoint: aliceKeyPub,
 		PaymentBasePoint:    aliceKeyPub,
 		DelayBasePoint:      aliceKeyPub,
+		HtlcBasePoint:       aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -252,6 +254,7 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 		RevocationBasePoint: bobKeyPub,
 		PaymentBasePoint:    bobKeyPub,
 		DelayBasePoint:      bobKeyPub,
+		HtlcBasePoint:       bobKeyPub,
 	}
 
 	bobRoot := DeriveRevocationRoot(bobKeyPriv, testHdSeed, aliceKeyPub)

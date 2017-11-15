@@ -836,6 +836,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 			RevocationBasePoint: copyPubKey(msg.RevocationPoint),
 			PaymentBasePoint:    copyPubKey(msg.PaymentPoint),
 			DelayBasePoint:      copyPubKey(msg.DelayedPaymentPoint),
+			HtlcBasePoint:       copyPubKey(msg.HtlcPoint),
 		},
 	}
 	err = reservation.ProcessSingleContribution(remoteContribution)
@@ -868,6 +869,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		RevocationPoint:      ourContribution.RevocationBasePoint,
 		PaymentPoint:         ourContribution.PaymentBasePoint,
 		DelayedPaymentPoint:  ourContribution.DelayBasePoint,
+		HtlcPoint:            ourContribution.HtlcBasePoint,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 	}
 	err = f.cfg.SendToPeer(fmsg.peerAddress.IdentityKey, &fundingAccept)
@@ -948,6 +950,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 			RevocationBasePoint: copyPubKey(msg.RevocationPoint),
 			PaymentBasePoint:    copyPubKey(msg.PaymentPoint),
 			DelayBasePoint:      copyPubKey(msg.DelayedPaymentPoint),
+			HtlcBasePoint:       copyPubKey(msg.HtlcPoint),
 		},
 	}
 	remoteContribution.CsvDelay = f.cfg.RequiredRemoteDelay(resCtx.chanAmt)
@@ -2086,6 +2089,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FundingKey:           ourContribution.MultiSigKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint,
 		PaymentPoint:         ourContribution.PaymentBasePoint,
+		HtlcPoint:            ourContribution.HtlcBasePoint,
 		DelayedPaymentPoint:  ourContribution.DelayBasePoint,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 		ChannelFlags:         lnwire.FFAnnounceChannel,

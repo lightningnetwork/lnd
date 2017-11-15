@@ -188,6 +188,11 @@ func TestLightningWireProtocol(t *testing.T) {
 				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
+			req.HtlcPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
 			req.FirstCommitmentPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
@@ -229,6 +234,11 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 			req.DelayedPaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.HtlcPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return

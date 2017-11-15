@@ -102,6 +102,12 @@ type OpenChannel struct {
 	// where they claim funds.
 	DelayedPaymentPoint *btcec.PublicKey
 
+	// HtlcPoint is the base point used to derive the set of keys for this
+	// party that will be used within the HTLC public key scripts.  This
+	// value is combined with the receiver's revocation base point in order
+	// to derive the keys that are used within HTLC scripts.
+	HtlcPoint *btcec.PublicKey
+
 	// FirstCommitmentPoint is the first commitment point for the sending
 	// party. This value should be combined with the receiver's revocation
 	// base point in order to derive the revocation keys that are placed
@@ -141,6 +147,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.RevocationPoint,
 		o.PaymentPoint,
 		o.DelayedPaymentPoint,
+		o.HtlcPoint,
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
 	)
@@ -168,6 +175,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.RevocationPoint,
 		&o.PaymentPoint,
 		&o.DelayedPaymentPoint,
+		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
 	)
@@ -186,6 +194,6 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 5) + 1
-	return 286
+	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
+	return 319
 }

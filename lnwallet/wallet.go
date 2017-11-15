@@ -518,8 +518,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	// Next, we'll grab a series of keys from the wallet which will be used
 	// for the duration of the channel. The keys include: our multi-sig
-	// key, the base revocation key, the base payment key, and the delayed
-	// payment key.
+	// key, the base revocation key, the base htlc key,the base payment
+	// key, and the delayed payment key.
 	var err error
 	reservation.ourContribution.MultiSigKey, err = l.NewRawKey()
 	if err != nil {
@@ -533,6 +533,15 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 		req.resp <- nil
 		return
 	}
+	reservation.ourContribution.HtlcBasePoint, err = l.NewRawKey()
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
+	// TODO(roasbeef); allow for querying to extract key distinct from HD
+	// chain
+	//  * allows for offline commitment keys
 	reservation.ourContribution.PaymentBasePoint, err = l.NewRawKey()
 	if err != nil {
 		req.err <- err

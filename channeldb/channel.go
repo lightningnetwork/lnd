@@ -177,19 +177,25 @@ type ChannelConfig struct {
 	// unique revocation key for each state.
 	RevocationBasePoint *btcec.PublicKey
 
-	// PaymentBasePoint is the based public key to be used when deriving
+	// PaymentBasePoint is the base public key to be used when deriving
 	// the key used within the non-delayed pay-to-self output on the
 	// commitment transaction for a node. This will be combined with a
 	// tweak derived from the per-commitment point to ensure unique keys
 	// for each commitment transaction.
 	PaymentBasePoint *btcec.PublicKey
 
-	// DelayBasePoint is the based public key to be used when deriving the
+	// DelayBasePoint is the base public key to be used when deriving the
 	// key used within the delayed pay-to-self output on the commitment
 	// transaction for a node. This will be combined with a tweak derived
 	// from the per-commitment point to ensure unique keys for each
 	// commitment transaction.
 	DelayBasePoint *btcec.PublicKey
+
+	// HtlcBasePoint is the base public key to be used when deriving the
+	// local HTLC key. The derived key (combined with the tweak derived
+	// from the per-commitment point) is used within the "to self" clause
+	// within any HTLC output scripts.
+	HtlcBasePoint *btcec.PublicKey
 }
 
 // ChannelCommitment is a snapshot of the commitment state at a particular
@@ -1447,6 +1453,7 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 			c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
 			c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
 			c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
+			c.HtlcBasePoint,
 		)
 	}
 	if err := writeChanConfig(&w, &channel.LocalChanCfg); err != nil {
@@ -1547,6 +1554,7 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 			&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
 			&c.MultiSigKey, &c.RevocationBasePoint,
 			&c.PaymentBasePoint, &c.DelayBasePoint,
+			&c.HtlcBasePoint,
 		)
 	}
 	if err := readChanConfig(r, &channel.LocalChanCfg); err != nil {

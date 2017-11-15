@@ -139,6 +139,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationBasePoint: privKey.PubKey(),
 		PaymentBasePoint:    privKey.PubKey(),
 		DelayBasePoint:      privKey.PubKey(),
+		HtlcBasePoint:       privKey.PubKey(),
 	}
 	remoteCfg := ChannelConfig{
 		ChannelConstraints: ChannelConstraints{
@@ -153,6 +154,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 		RevocationBasePoint: privKey.PubKey(),
 		PaymentBasePoint:    privKey.PubKey(),
 		DelayBasePoint:      privKey.PubKey(),
+		HtlcBasePoint:       privKey.PubKey(),
 	}
 
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
@@ -246,33 +248,6 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// The decoded channel state should be identical to what we stored
 	// above.
 	if !reflect.DeepEqual(state, newState) {
-		state.LocalChanCfg.MultiSigKey.Curve = nil
-		state.LocalChanCfg.RevocationBasePoint.Curve = nil
-		state.LocalChanCfg.PaymentBasePoint.Curve = nil
-		state.LocalChanCfg.DelayBasePoint.Curve = nil
-
-		state.RemoteChanCfg.MultiSigKey.Curve = nil
-		state.RemoteChanCfg.RevocationBasePoint.Curve = nil
-		state.RemoteChanCfg.PaymentBasePoint.Curve = nil
-		state.RemoteChanCfg.DelayBasePoint.Curve = nil
-
-		state.IdentityPub.Curve = nil
-		state.RemoteNextRevocation.Curve = nil
-		state.RemoteCurrentRevocation.Curve = nil
-
-		newState.LocalChanCfg.MultiSigKey.Curve = nil
-		newState.LocalChanCfg.RevocationBasePoint.Curve = nil
-		newState.LocalChanCfg.PaymentBasePoint.Curve = nil
-		newState.LocalChanCfg.DelayBasePoint.Curve = nil
-
-		newState.RemoteChanCfg.MultiSigKey.Curve = nil
-		newState.RemoteChanCfg.RevocationBasePoint.Curve = nil
-		newState.RemoteChanCfg.PaymentBasePoint.Curve = nil
-		newState.RemoteChanCfg.DelayBasePoint.Curve = nil
-
-		newState.IdentityPub.Curve = nil
-		newState.RemoteCurrentRevocation.Curve = nil
-		newState.RemoteNextRevocation.Curve = nil
 		t.Fatalf("channel state doesn't match:: %v vs %v",
 			spew.Sdump(state), spew.Sdump(newState))
 	}

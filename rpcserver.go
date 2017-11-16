@@ -1337,7 +1337,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		for i, htlc := range localCommit.Htlcs {
 			channel.PendingHtlcs[i] = &lnrpc.HTLC{
 				Incoming:         htlc.Incoming,
-				Amount:           int64(htlc.Amt),
+				Amount:           int64(htlc.Amt.ToSatoshis()),
 				HashLock:         htlc.RHash[:],
 				ExpirationHeight: htlc.RefundTimeout,
 			}

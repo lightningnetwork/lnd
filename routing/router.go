@@ -295,9 +295,11 @@ func (r *ChannelRouter) Start() error {
 	}
 
 	log.Infof("Filtering chain using %v channels active", len(channelView))
-	err = r.cfg.ChainView.UpdateFilter(channelView, pruneHeight)
-	if err != nil {
-		return err
+	if len(channelView) != 0 {
+		err = r.cfg.ChainView.UpdateFilter(channelView, pruneHeight)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Before we begin normal operation of the router, we first need to

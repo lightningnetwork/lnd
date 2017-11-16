@@ -1,5 +1,5 @@
-hash: c0408e1d484c36a8021dc114eb7dd51fb2eb2f77cf9990d1729a2ff2506131e8
-updated: 2017-11-03T12:33:21.957818574-07:00
+hash: 06b9d21ff69d730a98227d382174fc66444088451575134a2e2ef2315c24bcad
+updated: 2017-11-16T18:32:52.63843+02:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -86,6 +86,17 @@ imports:
   version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
   subpackages:
   - internal/socket
+- name: github.com/NebulousLabs/fastrand
+  version: 60b615657d85339c105efb2170327a2d948d4b17
+- name: github.com/NebulousLabs/go-upnp
+  version: 1be4557baab2f9e7b29a892cd9eb1ae96fdf091d
+  subpackages:
+  - goupnp
+  - goupnp/dcps/internetgateway1
+  - goupnp/httpu
+  - goupnp/scpd
+  - goupnp/soap
+  - goupnp/ssdp
 - name: github.com/roasbeef/btcd
   version: 2cabbb06420ead94822468af58c0cb82e9e17ffc
   subpackages:
@@ -142,6 +153,7 @@ imports:
 - name: golang.org/x/crypto
   version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
+  - blake2b
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
   - curve25519
@@ -159,6 +171,9 @@ imports:
   version: 1087133bc4af3073e18add999345c6ae75918503
   subpackages:
   - context
+  - html
+  - html/atom
+  - html/charset
   - http2
   - http2/hpack
   - idna
@@ -173,6 +188,20 @@ imports:
 - name: golang.org/x/text
   version: c01e4764d870b77f8abe5096ee19ad20d80e8075
   subpackages:
+  - encoding
+  - encoding/charmap
+  - encoding/htmlindex
+  - encoding/internal
+  - encoding/internal/identifier
+  - encoding/japanese
+  - encoding/korean
+  - encoding/simplifiedchinese
+  - encoding/traditionalchinese
+  - encoding/unicode
+  - internal/tag
+  - internal/utf8internal
+  - language
+  - runes
   - secure/bidirule
   - transform
   - unicode/bidi

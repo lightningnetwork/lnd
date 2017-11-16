@@ -1246,8 +1246,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				// If the transaction has been confirmed, then
 				// we can compute how many blocks it has left.
 				if forceClose.MaturityHeight != 0 {
-					forceClose.BlocksTilMaturity = (forceClose.MaturityHeight -
-						uint32(currentHeight))
+					forceClose.BlocksTilMaturity =
+						int32(forceClose.MaturityHeight) -
+							currentHeight
 				}
 
 				resp.TotalLimboBalance += int64(nurseryInfo.limboBalance)

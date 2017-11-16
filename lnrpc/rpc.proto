@@ -840,6 +840,31 @@ message OpenStatusUpdate {
     }
 }
 
+message PendingHTLC {
+
+    /// The direction within the channel that the htlc was sent
+    bool incoming = 1 [ json_name = "incoming" ];
+
+    /// The total value of the htlc
+    int64 amount = 2 [ json_name = "amount" ];
+
+    /// The final output to be swept back to the user's wallet
+    string outpoint = 3 [ json_name = "outpoint" ];
+
+    /// The next block height at which we can spend the current stage
+    uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+
+    /**
+       The number of blocks remaining until the current stage can be swept.
+       Negative values indicate how many blocks have passed since becoming
+       mature.
+    */
+    int32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+
+    /// Indicates whether the htlc is in its first or second stage of recovery
+    uint32 stage = 6 [ json_name = "stage" ];
+}
+
 message PendingChannelRequest {}
 message PendingChannelResponse {
     message PendingChannel {
@@ -894,8 +919,6 @@ message PendingChannelResponse {
         /// The pending channel to be force closed
         PendingChannel channel = 1 [ json_name = "channel" ];
 
-        // TODO(roasbeef): HTLC's as well?
-
         /// The transaction id of the closing transaction
         string closing_txid = 2 [ json_name = "closing_txid" ];
 
@@ -905,8 +928,17 @@ message PendingChannelResponse {
         /// The height at which funds can be sweeped into the wallet
         uint32 maturity_height = 4 [ json_name = "maturity_height" ];
 
-        /// Remaining # of blocks until funds can be sweeped into the wallet
-        uint32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+        /*
+          Remaining # of blocks until the commitment output can be swept.
+          Negative values indicate how many blocks have passed since becoming
+          mature.
+        */
+        int32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+
+        /// The total value of funds successfully recovered from this channel
+        int64 recovered_balance = 6 [ json_name = "recovered_balance" ];
+
+        repeated PendingHTLC pending_htlcs = 8 [ json_name = "pending_htlcs" ];
     }
 
     /// The balance in satoshis encumbered in pending channels

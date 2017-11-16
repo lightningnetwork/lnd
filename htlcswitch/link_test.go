@@ -358,6 +358,8 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 		}
 	}
 
+	time.Sleep(time.Second * 2)
+
 	// At the end Bob and Alice balances should be the same as previous,
 	// because they sent the equal amount of money to each other.
 	if aliceBandwidthBefore != n.aliceChannelLink.Bandwidth() {

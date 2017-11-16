@@ -279,7 +279,22 @@ func (r *ChannelRouter) Start() error {
 		// If the graph has never been pruned, or hasn't fully been
 		// created yet, then we don't treat this as an explicit error.
 		case err == channeldb.ErrGraphNeverPruned:
+			fallthrough
 		case err == channeldb.ErrGraphNotFound:
+			// If the graph has never been pruned, then we'll set
+			// the prune height to the current best height of the
+			// chain backend.
+			bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
+			if err != nil {
+				return err
+			}
+
+			_, err = r.cfg.Graph.PruneGraph(
+				nil, bestHash, uint32(bestHeight),
+			)
+			if err != nil {
+				return err
+			}
 		default:
 			return err
 		}

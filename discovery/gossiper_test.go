@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 
 	prand "math/rand"
@@ -17,6 +18,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -838,25 +840,22 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	}
 }
 
-// TestDeDuplicatedAnnouncements ensures that the deDupedAnnouncements
-// struct properly stores and delivers the set of de-duplicated
-// announcements.
+// TestDeDuplicatedAnnouncements ensures that the deDupedAnnouncements struct
+// properly stores and delivers the set of de-duplicated announcements.
 func TestDeDuplicatedAnnouncements(t *testing.T) {
 	t.Parallel()
 
 	announcements := deDupedAnnouncements{}
 	announcements.Reset()
 
-	// Ensure that after new deDupedAnnouncements struct is created
-	// and reset that storage of each announcement type is empty.
+	// Ensure that after new deDupedAnnouncements struct is created and
+	// reset that storage of each announcement type is empty.
 	if len(announcements.channelAnnouncements) != 0 {
 		t.Fatal("channel announcements map not empty after reset")
 	}
-
 	if len(announcements.channelUpdates) != 0 {
 		t.Fatal("channel updates map not empty after reset")
 	}
-
 	if len(announcements.nodeAnnouncements) != 0 {
 		t.Fatal("node announcements map not empty after reset")
 	}
@@ -864,103 +863,90 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Ensure that remote channel announcements are properly stored
 	// and de-duplicated.
 	ca, err := createRemoteChannelAnnouncement(0)
-
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-
 	announcements.AddMsg(ca)
-
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("new channel announcement not stored in batch")
 	}
 
+	// We'll create a second instance of the same announcement with the
+	// same channel ID. Adding this shouldn't cause an increase in the
+	// number of items as they should be de-duplicated.
 	ca2, err := createRemoteChannelAnnouncement(0)
 
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-
 	announcements.AddMsg(ca2)
-
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("channel announcement not replaced in batch")
 	}
 
-	// Ensure that channel update announcements are properly stored
-	// and de-duplicated.
+	// Next, we'll ensure that channel update announcements are properly
+	// stored and de-duplicated. We do this by creating two updates
+	// announcements with the same short ID and flag.
 	ua, err := createUpdateAnnouncement(0)
-
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-
 	announcements.AddMsg(ua)
-
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("new channel update not stored in batch")
 	}
 
+	// Adding the very same announcement shouldn't cause an increase in the
+	// number of ChannelUpdate announcements stored.
 	ua2, err := createUpdateAnnouncement(0)
-
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-
 	announcements.AddMsg(ua2)
-
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("channel update not replaced in batch")
 	}
 
-	// Ensure that node announcements are properly stored and de-duplicated.
+	// Next well ensure that node announcements are properly de-duplicated.
+	// We'll first add a single instance with a node's private key.
 	na, err := createNodeAnnouncement(nodeKeyPriv1)
-
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-
 	announcements.AddMsg(na)
-
 	if len(announcements.nodeAnnouncements) != 1 {
 		t.Fatal("new node announcement not stored in batch")
 	}
 
+	// We'll now add another node to the batch.
 	na2, err := createNodeAnnouncement(nodeKeyPriv2)
-
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-
 	announcements.AddMsg(na2)
-
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not stored in batch")
 	}
 
+	// Adding a new instance of the _same_ node shouldn't increase the size
+	// of the node ann batch.
 	na3, err := createNodeAnnouncement(nodeKeyPriv2)
-
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-
 	announcements.AddMsg(na3)
-
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced in batch")
 	}
 
-	// Ensure that node announcement with different pointer to
-	// same public key is still de-duplicated.
+	// Ensure that node announcement with different pointer to same public
+	// key is still de-duplicated.
 	newNodeKeyPointer := nodeKeyPriv2
 	na4, err := createNodeAnnouncement(newNodeKeyPointer)
-
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-
 	announcements.AddMsg(na4)
-
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced again in batch")
 	}
@@ -968,39 +954,43 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Ensure that announcement batch delivers channel announcements,
 	// channel updates, and node announcements in proper order.
 	batch := announcements.Batch()
-
 	if len(batch) != 4 {
 		t.Fatal("announcement batch incorrect length")
 	}
 
-	if batch[0] != ca2 {
-		t.Fatal("channel announcement not first in batch")
+	if !reflect.DeepEqual(batch[0], ca2) {
+		t.Fatal("channel announcement not first in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[0]), spew.Sdump(ca2))
 	}
 
-	if batch[1] != ua2 {
-		t.Fatal("channel update not next in batch")
+	if !reflect.DeepEqual(batch[1], ua2) {
+		t.Fatal("channel update not next in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[1]), spew.Sdump(ua2))
 	}
 
-	if batch[2] != na && batch[3] != na {
-		t.Fatal("first node announcement not in last part of batch")
+	// We'll ensure that both node announcements are present. We check both
+	// indexes as due to the randomized order of map iteration they may be
+	// in either place.
+	if !reflect.DeepEqual(batch[2], na) && !reflect.DeepEqual(batch[3], na) {
+		t.Fatal("first node announcement not in last part of batch: "+
+			"got %v, expected %v", batch[2],
+			na)
 	}
-
-	if batch[2] != na4 && batch[3] != na4 {
-		t.Fatal("second node announcement not in last part of batch")
+	if !reflect.DeepEqual(batch[2], na4) && !reflect.DeepEqual(batch[3], na4) {
+		t.Fatalf("second node announcement not in last part of batch: "+
+			"got %v, expected %v", batch[3],
+			na2)
 	}
 
 	// Ensure that after reset, storage of each announcement type
 	// in deDupedAnnouncements struct is empty again.
 	announcements.Reset()
-
 	if len(announcements.channelAnnouncements) != 0 {
 		t.Fatal("channel announcements map not empty after reset")
 	}
-
 	if len(announcements.channelUpdates) != 0 {
 		t.Fatal("channel updates map not empty after reset")
 	}
-
 	if len(announcements.nodeAnnouncements) != 0 {
 		t.Fatal("node announcements map not empty after reset")
 	}

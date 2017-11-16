@@ -86,6 +86,17 @@ imports:
   version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
   subpackages:
   - internal/socket
+- name: github.com/NebulousLabs/fastrand
+  version: 60b615657d85339c105efb2170327a2d948d4b17
+- name: github.com/NebulousLabs/go-upnp
+  version: 1be4557baab2f9e7b29a892cd9eb1ae96fdf091d
+  subpackages:
+  - goupnp
+  - goupnp/dcps/internetgateway1
+  - goupnp/httpu
+  - goupnp/scpd
+  - goupnp/soap
+  - goupnp/ssdp
 - name: github.com/roasbeef/btcd
   version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:

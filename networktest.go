@@ -64,7 +64,7 @@ var (
 
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
-	trickleDelay = 300
+	trickleDelay = 50
 )
 
 // generateListeningPorts returns two strings representing ports to listen on

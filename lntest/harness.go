@@ -37,7 +37,7 @@ type NetworkHarness struct {
 	Alice *HarnessNode
 	Bob   *HarnessNode
 
-	seenTxns             chan chainhash.Hash
+	seenTxns             chan *chainhash.Hash
 	bitcoinWatchRequests chan *txWatchRequest
 
 	// Channel for transmitting stderr output from failed lightning node
@@ -46,51 +46,26 @@ type NetworkHarness struct {
 
 	quit chan struct{}
 
-	sync.Mutex
+	mtx sync.Mutex
 }
 
 // NewNetworkHarness creates a new network test harness.
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This'll save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness() (*NetworkHarness, error) {
-	return &NetworkHarness{
+func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
+	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
-		seenTxns:             make(chan chainhash.Hash),
+		seenTxns:             make(chan *chainhash.Hash),
 		bitcoinWatchRequests: make(chan *txWatchRequest),
 		lndErrorChan:         make(chan error),
+		netParams:            r.ActiveNet,
+		Miner:                r,
+		rpcConfig:            r.RPCConfig(),
 		quit:                 make(chan struct{}),
-	}, nil
-}
-
-// InitializeSeedNodes initializes alice and bob nodes given an already
-// running instance of btcd's rpctest harness and extra command line flags,
-// which should be formatted properly - "--arg=value".
-func (n *NetworkHarness) InitializeSeedNodes(r *rpctest.Harness, lndArgs []string) error {
-	n.netParams = r.ActiveNet
-	n.Miner = r
-	n.rpcConfig = r.RPCConfig()
-
-	config := nodeConfig{
-		RPCConfig: &n.rpcConfig,
-		NetParams: n.netParams,
-		ExtraArgs: lndArgs,
 	}
-
-	var err error
-	n.Alice, err = newNode(config)
-	if err != nil {
-		return err
-	}
-	n.Bob, err = newNode(config)
-	if err != nil {
-		return err
-	}
-
-	n.activeNodes[n.Alice.NodeID] = n.Alice
-	n.activeNodes[n.Bob.NodeID] = n.Bob
-
-	return err
+	go n.networkWatcher()
+	return &n, nil
 }
 
 // ProcessErrors returns a channel used for reporting any fatal process errors.
@@ -114,8 +89,9 @@ func (f *fakeLogger) Println(args ...interface{})               {}
 // SetUp starts the initial seeder nodes within the test harness. The initial
 // node's wallets will be funded wallets with ten 1 BTC outputs each. Finally
 // rpc clients capable of communicating with the initial seeder nodes are
-// created.
-func (n *NetworkHarness) SetUp() error {
+// created. Nodes are initialized with the given extra command line flags, which
+// should be formatted properly - "--arg=value".
+func (n *NetworkHarness) SetUp(lndArgs []string) error {
 	// Swap out grpc's default logger with out fake logger which drops the
 	// statements on the floor.
 	grpclog.SetLogger(&fakeLogger{})
@@ -127,15 +103,21 @@ func (n *NetworkHarness) SetUp() error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if err := n.Alice.start(n.lndErrorChan); err != nil {
+		node, err := n.NewNode(lndArgs)
+		if err != nil {
 			errChan <- err
+			return
 		}
+		n.Alice = node
 	}()
 	go func() {
 		defer wg.Done()
-		if err := n.Bob.start(n.lndErrorChan); err != nil {
+		node, err := n.NewNode(lndArgs)
+		if err != nil {
 			errChan <- err
+			return
 		}
+		n.Bob = node
 	}()
 	wg.Wait()
 	select {
@@ -214,10 +196,6 @@ out:
 		}
 	}
 
-	// Now that the initial test network has been initialized, launch the
-	// network watcher.
-	go n.networkWatcher()
-
 	return nil
 }
 
@@ -239,9 +217,6 @@ func (n *NetworkHarness) TearDownAll() error {
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
-	n.Lock()
-	defer n.Unlock()
-
 	node, err := newNode(nodeConfig{
 		RPCConfig: &n.rpcConfig,
 		NetParams: n.netParams,
@@ -253,7 +228,9 @@ func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 
 	// Put node in activeNodes to ensure Shutdown is called even if Start
 	// returns an error.
+	n.mtx.Lock()
 	n.activeNodes[node.NodeID] = node
+	n.mtx.Unlock()
 
 	if err := node.start(n.lndErrorChan); err != nil {
 		return nil, err
@@ -403,11 +380,11 @@ func (n *NetworkHarness) networkWatcher() {
 			// we're able to dispatch any notifications for this
 			// txid which arrive *after* it's seen within the
 			// network.
-			seenTxns[txid] = struct{}{}
+			seenTxns[*txid] = struct{}{}
 
 			// If there isn't a registered notification for this
 			// transaction then ignore it.
-			txClients, ok := clients[txid]
+			txClients, ok := clients[*txid]
 			if !ok {
 				continue
 			}
@@ -417,24 +394,19 @@ func (n *NetworkHarness) networkWatcher() {
 			for _, client := range txClients {
 				close(client)
 			}
-			delete(clients, txid)
+			delete(clients, *txid)
 		}
 	}
 }
 
 // OnTxAccepted is a callback to be called each time a new transaction has been
 // broadcast on the network.
-func (n *NetworkHarness) OnTxAccepted(hash *chainhash.Hash, amt btcutil.Amount) {
-	// Return immediately if harness has been torn down.
+func (n *NetworkHarness) OnTxAccepted(hash *chainhash.Hash) {
 	select {
+	case n.seenTxns <- hash:
 	case <-n.quit:
 		return
-	default:
 	}
-
-	go func() {
-		n.seenTxns <- *hash
-	}()
 }
 
 // WaitForTxBroadcast blocks until the target txid is seen on the network. If

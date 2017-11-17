@@ -136,8 +136,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 		invoices: newInvoiceRegistry(chanDB),
 
-		utxoNursery: newUtxoNursery(chanDB, cc.chainNotifier, cc.wallet),
-
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
 
@@ -306,6 +304,26 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
+	utxnStore, err := newNurseryStore(&bitcoinGenesis, chanDB)
+	if err != nil {
+		srvrLog.Errorf("unable to create nursery store: %v", err)
+		return nil, err
+	}
+
+	s.utxoNursery = newUtxoNursery(&NurseryConfig{
+		ChainIO:   cc.chainIO,
+		ConfDepth: 1,
+		DB:        chanDB,
+		Estimator: cc.feeEstimator,
+		GenSweepScript: func() ([]byte, error) {
+			return newSweepPkScript(cc.wallet)
+		},
+		Notifier:           cc.chainNotifier,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		Signer:             cc.wallet.Cfg.Signer,
+		Store:              utxnStore,
+	})
+
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
 	closeLink := func(chanPoint *wire.OutPoint,
 		closureType htlcswitch.ChannelCloseType) {
@@ -315,17 +333,17 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
-		Signer:             cc.wallet.Cfg.Signer,
-		DB:                 chanDB,
-		PublishTransaction: cc.wallet.PublishTransaction,
-		Notifier:           cc.chainNotifier,
-		ChainIO:            s.cc.chainIO,
-		Estimator:          s.cc.feeEstimator,
-		CloseLink:          closeLink,
-		Store:              newRetributionStore(chanDB),
+		ChainIO:   s.cc.chainIO,
+		CloseLink: closeLink,
+		DB:        chanDB,
+		Estimator: s.cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
+		Notifier:           cc.chainNotifier,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		Signer:             cc.wallet.Cfg.Signer,
+		Store:              newRetributionStore(chanDB),
 	})
 
 	// Create the connection manager which will be responsible for

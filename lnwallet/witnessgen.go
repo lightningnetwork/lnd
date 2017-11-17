@@ -13,17 +13,18 @@ import (
 type WitnessType uint16
 
 const (
-	// CommitmentTimeLock is a witness that allows us to spend the output of a
-	// commitment transaction after a relative lock-time lockout.
+	// CommitmentTimeLock is a witness that allows us to spend the output of
+	// a commitment transaction after a relative lock-time lockout.
 	CommitmentTimeLock WitnessType = 0
 
-	// CommitmentNoDelay is a witness that allows us to spend a settled no-delay
-	// output immediately on a counterparty's commitment transaction.
+	// CommitmentNoDelay is a witness that allows us to spend a settled
+	// no-delay output immediately on a counterparty's commitment
+	// transaction.
 	CommitmentNoDelay WitnessType = 1
 
-	// CommitmentRevoke is a witness that allows us to sweep the settled output
-	// of a malicious counterparty's who broadcasts a revoked commitment
-	// transaction.
+	// CommitmentRevoke is a witness that allows us to sweep the settled
+	// output of a malicious counterparty's who broadcasts a revoked
+	// commitment transaction.
 	CommitmentRevoke WitnessType = 2
 
 	// HtlcOfferedRevoke is a witness that allows us to sweep an HTLC
@@ -33,6 +34,15 @@ const (
 	// HtlcAcceptedRevoke is a witness that allows us to sweep an HTLC
 	// output that we accepted from the counterparty.
 	HtlcAcceptedRevoke WitnessType = 4
+
+	// HtlcOfferedTimeout is a witness that allows us to sweep an HTLC
+	// output that we extended to a party, but was never fulfilled.
+	HtlcOfferedTimeout WitnessType = 5
+
+	// HtlcAcceptedSuccess is a witness that allows us to sweep an HTLC
+	// output that was offered to us, and for which we have a payment
+	// preimage.
+	HtlcAcceptedSuccess WitnessType = 6
 )
 
 // WitnessGenerator represents a function which is able to generate the final
@@ -64,6 +74,8 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 			return ReceiverHtlcSpendRevoke(signer, desc, tx)
 		case HtlcAcceptedRevoke:
 			return SenderHtlcSpendRevoke(signer, desc, tx)
+		case HtlcOfferedTimeout:
+			return HtlcSpendSuccess(signer, desc, tx)
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)
 		}

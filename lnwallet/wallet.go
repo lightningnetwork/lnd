@@ -1425,7 +1425,7 @@ func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
 		// The difference between the selected amount and the amount
 		// requested will be used to pay fees, and generate a change
 		// output with the remaining.
-		overShootAmt := totalSat - amtNeeded
+		overShootAmt := totalSat - amt
 
 		// Based on the estimated size and fee rate, if the excess
 		// amount isn't enough to pay fees, then increase the requested

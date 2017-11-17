@@ -34,8 +34,8 @@ var _ Message = (*Init)(nil)
 // This is part of the lnwire.Message interface.
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&msg.LocalFeatures,
 		&msg.GlobalFeatures,
+		&msg.LocalFeatures,
 	)
 }
 
@@ -45,8 +45,8 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (msg *Init) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		msg.LocalFeatures,
 		msg.GlobalFeatures,
+		msg.LocalFeatures,
 	)
 }
 

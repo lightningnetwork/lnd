@@ -16,9 +16,9 @@ import (
 type FeatureBit uint16
 
 const (
-	// InitialRoutingSync is a local feature bit meaning that the receiving node
-	// should send a complete dump of routing information when a new connection
-	// is established.
+	// InitialRoutingSync is a local feature bit meaning that the receiving
+	// node should send a complete dump of routing information when a new
+	// connection is established.
 	InitialRoutingSync FeatureBit = 3
 
 	// maxAllowedSize is a maximum allowed size of feature vector.
@@ -51,10 +51,10 @@ var LocalFeatures = map[FeatureBit]string{
 // description of these feature bits is provided in the BOLT-09 specification.
 var GlobalFeatures map[FeatureBit]string
 
-// RawFeatureVector represents a set of feature bits as defined in BOLT-09.
-// A RawFeatureVector itself just stores a set of bit flags but can be used to
+// RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A
+// RawFeatureVector itself just stores a set of bit flags but can be used to
 // construct a FeatureVector which binds meaning to each bit. Feature vectors
-//can be serialized and deserialized to/from a byte representation that is
+// can be serialized and deserialized to/from a byte representation that is
 // transmitted in Lightning network messages.
 type RawFeatureVector struct {
 	features map[FeatureBit]bool
@@ -169,9 +169,9 @@ type FeatureVector struct {
 	featureNames map[FeatureBit]string
 }
 
-// NewFeatureVector constructs a new FeatureVector from a raw feature vector and
-// mapping of feature definitions. If the feature vector argument is nil, a new
-// one will be constructed with no enabled features.
+// NewFeatureVector constructs a new FeatureVector from a raw feature vector
+// and mapping of feature definitions. If the feature vector argument is nil, a
+// new one will be constructed with no enabled features.
 func NewFeatureVector(featureVector *RawFeatureVector,
 	featureNames map[FeatureBit]string) *FeatureVector {
 
@@ -194,9 +194,9 @@ func (fv *FeatureVector) HasFeature(feature FeatureBit) bool {
 		(fv.isFeatureBitPair(feature) && fv.IsSet(feature^1))
 }
 
-// UnknownRequiredFeatures returns a list of feature bits set in the vector that
-// are unknown and in an even bit position. Feature bits with an even index must
-// be known to a node receiving the feature vector in a message.
+// UnknownRequiredFeatures returns a list of feature bits set in the vector
+// that are unknown and in an even bit position. Feature bits with an even
+// index must be known to a node receiving the feature vector in a message.
 func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 	var unknown []FeatureBit
 	for feature := range fv.features {

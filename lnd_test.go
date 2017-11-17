@@ -4478,29 +4478,33 @@ var testsCases = []*testCase{
 func TestLightningNetworkDaemon(t *testing.T) {
 	ht := newHarnessTest(t)
 
+	var lndHarness *lntest.NetworkHarness
+
+	// First create an instance of the btcd's rpctest.Harness. This will be
+	// used to fund the wallets of the nodes within the test network and to
+	// drive blockchain related events within the network. Revert the default
+	// setting of accepting non-standard transactions on simnet to reject them.
+	// Transactions on the lightning network should always be standard to get
+	// better guarantees of getting included in to blocks.
+	args := []string{"--rejectnonstd"}
+	handlers := &rpcclient.NotificationHandlers{
+		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
+			lndHarness.OnTxAccepted(hash)
+		},
+	}
+	btcdHarness, err := rpctest.New(harnessNetParams, handlers, args)
+	if err != nil {
+		ht.Fatalf("unable to create mining node: %v", err)
+	}
+	defer btcdHarness.TearDown()
+
 	// First create the network harness to gain access to its
 	// 'OnTxAccepted' call back.
-	lndHarness, err := lntest.NewNetworkHarness()
+	lndHarness, err = lntest.NewNetworkHarness(btcdHarness)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}
-
-	// Set up teardowns. While it's easier to set up the lnd harness before
-	// the btcd harness, they should be torn down in reverse order to
-	// prevent certain types of hangs.
-	var btcdHarness *rpctest.Harness
-	defer func() {
-		if lndHarness != nil {
-			lndHarness.TearDownAll()
-		}
-		if btcdHarness != nil {
-			btcdHarness.TearDown()
-		}
-	}()
-
-	handlers := &rpcclient.NotificationHandlers{
-		OnTxAccepted: lndHarness.OnTxAccepted,
-	}
+	defer lndHarness.TearDownAll()
 
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
@@ -4517,18 +4521,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			}
 		}
 	}()
-
-	// First create an instance of the btcd's rpctest.Harness. This will be
-	// used to fund the wallets of the nodes within the test network and to
-	// drive blockchain related events within the network. Revert the default
-	// setting of accepting non-standard transactions on simnet to reject them.
-	// Transactions on the lightning network should always be standard to get
-	// better guarantees of getting included in to blocks.
-	args := []string{"--rejectnonstd"}
-	btcdHarness, err = rpctest.New(harnessNetParams, handlers, args)
-	if err != nil {
-		ht.Fatalf("unable to create mining node: %v", err)
-	}
 
 	// Turn off the btcd rpc logging, otherwise it will lead to panic.
 	// TODO(andrew.shvv|roasbeef) Remove the hack after re-work the way the log
@@ -4553,10 +4545,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// initialization of the network. args - list of lnd arguments,
 	// example: "--debuglevel=debug"
 	// TODO(roasbeef): create master balanced channel with all the monies?
-	if err := lndHarness.InitializeSeedNodes(btcdHarness, nil); err != nil {
-		ht.Fatalf("unable to initialize seed nodes: %v", err)
-	}
-	if err = lndHarness.SetUp(); err != nil {
+	if err = lndHarness.SetUp(nil); err != nil {
 		ht.Fatalf("unable to set up test lightning network: %v", err)
 	}
 

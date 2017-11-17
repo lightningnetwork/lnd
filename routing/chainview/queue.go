@@ -72,7 +72,6 @@ func (b *blockEventQueue) Stop() {
 	close(b.quit)
 
 	b.queueCond.Signal()
-	b.wg.Wait()
 }
 
 // queueCoordinator is the queue's main loop, handling incoming block events

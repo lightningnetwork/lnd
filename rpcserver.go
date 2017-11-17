@@ -2173,7 +2173,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		}
 	}
 
-	// TODO(btcsuite): add pagination support
+	// TODO(roasbeef): add pagination support
 	transactions, err := r.server.cc.wallet.ListTransactionDetails()
 	if err != nil {
 		return nil, err

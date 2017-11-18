@@ -268,26 +268,6 @@ type MessageSigner interface {
 	SignMessage(pubKey *btcec.PublicKey, msg []byte) (*btcec.Signature, error)
 }
 
-// FeeEstimator provides the ability to estimate on-chain transaction fees for
-// various combinations of transaction sizes and desired confirmation time
-// (measured by number of blocks).
-type FeeEstimator interface {
-	// EstimateFeePerByte takes in a target for the number of blocks until
-	// an initial confirmation and returns the estimated fee expressed in
-	// satoshis/byte.
-	EstimateFeePerByte(numBlocks uint32) uint64
-
-	// EstimateFeePerWeight takes in a target for the number of blocks until
-	// an initial confirmation and returns the estimated fee expressed in
-	// satoshis/weight.
-	EstimateFeePerWeight(numBlocks uint32) uint64
-
-	// EstimateConfirmation will return the number of blocks expected for a
-	// transaction to be confirmed given a fee rate in satoshis per
-	// byte.
-	EstimateConfirmation(satPerByte int64) uint32
-}
-
 // WalletDriver represents a "driver" for a particular concrete
 // WalletController implementation. A driver is identified by a globally unique
 // string identifier along with a 'New()' method which is responsible for

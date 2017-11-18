@@ -1445,28 +1445,3 @@ func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
 		return selectedUtxos, changeAmt, nil
 	}
 }
-
-// StaticFeeEstimator will return a static value for all fee calculation
-// requests. It is designed to be replaced by a proper fee calculation
-// implementation.
-type StaticFeeEstimator struct {
-	FeeRate      uint64
-	Confirmation uint32
-}
-
-// EstimateFeePerByte will return a static value for fee calculations.
-func (e StaticFeeEstimator) EstimateFeePerByte(numBlocks uint32) uint64 {
-	return e.FeeRate
-}
-
-// EstimateFeePerWeight will return a static value for fee calculations.
-func (e StaticFeeEstimator) EstimateFeePerWeight(numBlocks uint32) uint64 {
-	return e.FeeRate / 4
-}
-
-// EstimateConfirmation will return a static value representing the estimated
-// number of blocks that will be required to confirm a transaction for the
-// given fee rate.
-func (e StaticFeeEstimator) EstimateConfirmation(satPerByte int64) uint32 {
-	return e.Confirmation
-}

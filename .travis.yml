@@ -8,10 +8,12 @@ install:
   - GLIDE_DOWNLOAD="https://github.com/Masterminds/glide/releases/download/$GLIDE_TAG/glide-$GLIDE_TAG-linux-amd64.tar.gz"
   - curl -L $GLIDE_DOWNLOAD | tar -xvz
   - export PATH=$PATH:$PWD/linux-amd64/
+  - BTCD_VERSION=$(cat glide.yaml | grep -A1 btcd | tail -n1 | awk '{ print $2}')
   - mkdir -p $GOPATH/src/github.com/roasbeef/
   - pushd $GOPATH/src/github.com/roasbeef/
   - git clone https://github.com/roasbeef/btcd
   - pushd btcd
+  - git checkout $BTCD_VERSION
   - glide install
   - go install . ./cmd/...
   - popd

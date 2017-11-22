@@ -1333,6 +1333,12 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			peerOnline = true
 		}
 
+		channelID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+		var linkActive bool
+		if _, err := r.server.htlcSwitch.GetLink(channelID); err == nil {
+			linkActive = true
+		}
+
 		// As this is required for display purposes, we'll calculate
 		// the weight of the commitment transaction. We also add on the
 		// estimated weight of the witness to calculate the weight of
@@ -1344,7 +1350,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
 		channel := &lnrpc.ActiveChannel{
-			Active:                peerOnline,
+			Active:                peerOnline && linkActive,
 			RemotePubkey:          nodeID,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,

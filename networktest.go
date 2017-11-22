@@ -1270,6 +1270,45 @@ func (n *networkHarness) CloseChannel(ctx context.Context,
 	lnNode *lightningNode, cp *lnrpc.ChannelPoint,
 	force bool) (lnrpc.Lightning_CloseChannelClient, *chainhash.Hash, error) {
 
+	// Create a channel outpoint that we can use to compare to channels
+	// from the ListChannelsResponse.
+	fundingTxID, err := chainhash.NewHash(cp.FundingTxid)
+	if err != nil {
+		return nil, nil, err
+	}
+	chanPoint := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: cp.OutputIndex,
+	}
+
+	// If we are not force closing the channel, wait for channel to become
+	// active before attempting to close it.
+	numTries := 10
+CheckActive:
+	for i := 0; !force && i < numTries; i++ {
+		listReq := &lnrpc.ListChannelsRequest{}
+		listResp, err := lnNode.ListChannels(ctx, listReq)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable fetch node's "+
+				"channels: %v", err)
+		}
+
+		for _, c := range listResp.Channels {
+			if c.ChannelPoint == chanPoint.String() && c.Active {
+				break CheckActive
+			}
+		}
+
+		if i == numTries-1 {
+			// Last iteration, and channel is still not active.
+			return nil, nil, fmt.Errorf("channel did not become " +
+				"active")
+		}
+
+		// Sleep, and try again.
+		time.Sleep(300 * time.Millisecond)
+	}
+
 	closeReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: cp,
 		Force:        force,

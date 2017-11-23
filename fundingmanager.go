@@ -35,7 +35,7 @@ const (
 	// maxFundingAmount is a soft-limit of the maximum channel size
 	// accepted within the Lightning Protocol Currently. This limit is
 	// currently defined in BOLT-0002, and serves as an initial
-	// precaturioary limit while implementations are battle tested in the
+	// precautionary limit while implementations are battle tested in the
 	// real world.
 	//
 	// TODO(roasbeef): add command line param to modify
@@ -2017,23 +2017,25 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		ourDustLimit)
 
 	// First, we'll query the fee estimator for a fee that should get the
-	// commitment transaction into the next block (conf target of 1). We
-	// target the next block here to ensure that we'll be able to execute a
-	// timely unilateral channel closure if needed.
-	//
-	// TODO(roasbeef): shouldn't be targeting next block
-	feePerWeight := btcutil.Amount(f.cfg.FeeEstimator.EstimateFeePerWeight(1))
+	// commitment transaction confirmed by the next few blocks (conf target
+	// of 3). We target the near blocks here to ensure that we'll be able
+	// to execute a timely unilateral channel closure if needed.
+	feePerWeight, err := f.cfg.FeeEstimator.EstimateFeePerWeight(3)
+	if err != nil {
+		msg.err <- err
+		return
+	}
 
 	// The protocol currently operates on the basis of fee-per-kw, so we'll
 	// multiply the computed sat/weight by 1000 to arrive at fee-per-kw.
-	feePerKw := feePerWeight * 1000
+	commitFeePerKw := feePerWeight * 1000
 
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
 	reservation, err := f.cfg.Wallet.InitChannelReservation(capacity,
-		localAmt, msg.pushAmt, feePerKw, peerKey,
-		msg.peerAddress.Address, &msg.chainHash)
+		localAmt, msg.pushAmt, commitFeePerKw, msg.fundingFeePerWeight,
+		peerKey, msg.peerAddress.Address, &msg.chainHash)
 	if err != nil {
 		msg.err <- err
 		return
@@ -2043,8 +2045,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// reservation throughout its lifetime.
 	chanID := f.nextPendingChanID()
 
-	fndgLog.Infof("Target sat/kw for pendingID(%x): %v", chanID,
-		int64(feePerKw))
+	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
+		int64(commitFeePerKw))
 
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
@@ -2089,7 +2091,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
 		HtlcMinimum:          ourContribution.MinHTLC,
-		FeePerKiloWeight:     uint32(feePerKw),
+		FeePerKiloWeight:     uint32(commitFeePerKw),
 		CsvDelay:             uint16(remoteCsvDelay),
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey,

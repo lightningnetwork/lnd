@@ -877,15 +877,18 @@ func (u *utxoNursery) sweepCsvSpendableOutputsTxn(txWeight uint64,
 	}
 
 	// Using the txn weight estimate, compute the required txn fee.
-	feePerWeight := u.cfg.Estimator.EstimateFeePerWeight(1)
-	txFee := btcutil.Amount(txWeight * feePerWeight)
+	feePerWeight, err := u.cfg.Estimator.EstimateFeePerWeight(6)
+	if err != nil {
+		return nil, err
+	}
+	txFee := btcutil.Amount(txWeight) * feePerWeight
 
 	// Sweep as much possible, after subtracting txn fees.
 	sweepAmt := int64(totalSum - txFee)
 
-	// Create the sweep transaction that we will be building. We use version
-	// 2 as it is required for CSV. The txn will sweep the amount after fees
-	// to the pkscript generated above.
+	// Create the sweep transaction that we will be building. We use
+	// version 2 as it is required for CSV. The txn will sweep the amount
+	// after fees to the pkscript generated above.
 	sweepTx := wire.NewMsgTx(2)
 	sweepTx.AddTxOut(&wire.TxOut{
 		PkScript: pkScript,

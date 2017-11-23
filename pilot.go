@@ -85,7 +85,12 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	updateStream, errChan := c.server.OpenChannel(-1, target, amt, 0)
+	feePerWeight, err := c.server.cc.feeEstimator.EstimateFeePerWeight(3)
+	if err != nil {
+		return err
+	}
+	updateStream, errChan := c.server.OpenChannel(-1, target, amt, 0,
+		feePerWeight)
 
 	select {
 	case err := <-errChan:

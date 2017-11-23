@@ -141,7 +141,9 @@ func (m *mockWalletController) NewRawKey() (*btcec.PublicKey, error) {
 func (m *mockWalletController) FetchRootKey() (*btcec.PrivateKey, error) {
 	return m.rootKey, nil
 }
-func (*mockWalletController) SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash, error) {
+func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
+	_ btcutil.Amount) (*chainhash.Hash, error) {
+
 	return nil, nil
 }
 

@@ -472,41 +472,31 @@ func (f *fundingManager) Start() error {
 			// successfully send the fundingLocked message to the
 			// peer, so let's do that now.
 			f.wg.Add(1)
-			go func() {
+			go func(dbChan *channeldb.OpenChannel) {
 				defer f.wg.Done()
 
-				err := f.handleFundingConfirmation(channel, shortChanID)
+				err := f.handleFundingConfirmation(dbChan, shortChanID)
 				if err != nil {
 					fndgLog.Errorf("failed to handle funding"+
 						"confirmation: %v", err)
 					return
 				}
-			}()
+			}(channel)
 
 		case fundingLockedSent:
 			// fundingLocked was sent to peer, but the channel
 			// announcement was not sent.
 			f.wg.Add(1)
-			go func() {
+			go func(dbChan *channeldb.OpenChannel) {
 				defer f.wg.Done()
 
-				lnChannel, err := lnwallet.NewLightningChannel(
-					nil, nil, f.cfg.FeeEstimator, channel)
-				if err != nil {
-					fndgLog.Errorf("error creating "+
-						"lightning channel: %v", err)
-					return
-				}
-				defer lnChannel.Stop()
-
-				err = f.sendChannelAnnouncement(channel, lnChannel,
-					shortChanID)
+				err = f.sendChannelAnnouncement(dbChan, shortChanID)
 				if err != nil {
 					fndgLog.Errorf("error sending channel "+
 						"announcement: %v", err)
 					return
 				}
-			}()
+			}(channel)
 
 		default:
 			fndgLog.Errorf("undefined channelState: %v",
@@ -760,7 +750,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// port with default advertised port
 	chainHash := chainhash.Hash(msg.ChainHash)
 	reservation, err := f.cfg.Wallet.InitChannelReservation(amt, 0,
-		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight),
+		msg.PushAmount, btcutil.Amount(msg.FeePerKiloWeight), 0,
 		fmsg.peerAddress.IdentityKey, fmsg.peerAddress.Address,
 		&chainHash)
 	if err != nil {
@@ -1512,7 +1502,10 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 	if err != nil {
 		return err
 	}
-	defer lnChannel.Stop()
+	defer func() {
+		lnChannel.Stop()
+		lnChannel.CancelObserver()
+	}()
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
@@ -1522,7 +1515,7 @@ func (f *fundingManager) handleFundingConfirmation(completeChan *channeldb.OpenC
 	if err != nil {
 		return fmt.Errorf("failed sending fundingLocked: %v", err)
 	}
-	err = f.sendChannelAnnouncement(completeChan, lnChannel, shortChanID)
+	err = f.sendChannelAnnouncement(completeChan, shortChanID)
 	if err != nil {
 		return fmt.Errorf("failed sending channel announcement: %v",
 			err)
@@ -1605,7 +1598,7 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 // is sent (channelState is 'fundingLockedSent') and the channel is ready to
 // be used.
 func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenChannel,
-	channel *lnwallet.LightningChannel, shortChanID *lnwire.ShortChannelID) error {
+	shortChanID *lnwire.ShortChannelID) error {
 
 	// TODO(eugene) wait for 6 confirmations here
 
@@ -1618,8 +1611,8 @@ func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenCha
 	// Register the new link with the L3 routing manager so this new
 	// channel can be utilized during path finding.
 	err := f.announceChannel(f.cfg.IDKey, completeChan.IdentityPub,
-		channel.LocalFundingKey, channel.RemoteFundingKey,
-		*shortChanID, chanID)
+		completeChan.LocalChanCfg.MultiSigKey,
+		completeChan.RemoteChanCfg.MultiSigKey, *shortChanID, chanID)
 	if err != nil {
 		return fmt.Errorf("channel announcement failed: %v", err)
 	}

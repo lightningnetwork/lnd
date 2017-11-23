@@ -1932,22 +1932,20 @@ func (p *peer) sendShutdown(channel *lnwallet.LightningChannel,
 	// Prevent the HTLC switch from receiving additional HTLCs for this
 	// channel.
 	p.server.htlcSwitch.RemoveLink(chanID)
+// WipeChannel removes the passed channel point from all indexes associated
+// with the peer, and the switch.
+func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 
-	return nil
-}
-
-// WipeChannel removes the passed channel from all indexes associated with the
-// peer, and deletes the channel from the database.
-func (p *peer) WipeChannel(channel *lnwallet.LightningChannel) error {
-	channel.Stop()
-
-	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	p.activeChanMtx.Lock()
-	delete(p.activeChannels, chanID)
+	if channel, ok := p.activeChannels[chanID]; ok {
+		channel.Stop()
+		delete(p.activeChannels, chanID)
+	}
 	p.activeChanMtx.Unlock()
 
-	// Instruct the Htlc Switch to close this link as the channel is no
+	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
 	if err := p.server.htlcSwitch.RemoveLink(chanID); err != nil {
 		if err == htlcswitch.ErrChannelLinkNotFound {

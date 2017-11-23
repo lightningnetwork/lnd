@@ -85,8 +85,9 @@ func New(cfg Config) (*BtcWallet, error) {
 			return nil, err
 		}
 	} else {
-		// Wallet has been created and been initialized at this point, open it
-		// along with all the required DB namepsaces, and the DB itself.
+		// Wallet has been created and been initialized at this point,
+		// open it along with all the required DB namepsaces, and the
+		// DB itself.
 		wallet, err = loader.OpenExistingWallet(pubPass, false)
 		if err != nil {
 			return nil, err
@@ -107,14 +108,6 @@ func New(cfg Config) (*BtcWallet, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Using the passed fee estimator, we'll compute the relay fee for all
-	// transactions made which will be scaled up according to the size of a
-	// particular transaction.
-	//
-	// TODO(roasbeef): hook in dynamic relay fees
-	relayFee := cfg.FeeEstimator.EstimateFeePerByte(3) * 1000
-	wallet.SetRelayFee(btcutil.Amount(relayFee))
 
 	return &BtcWallet{
 		cfg:       &cfg,
@@ -310,8 +303,14 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 // outputs are non-standard, a non-nil error will be be returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash, error) {
-	return b.wallet.SendOutputs(outputs, defaultAccount, 1)
+func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
+	feeSatPerByte btcutil.Amount) (*chainhash.Hash, error) {
+
+	// The fee rate is passed in using units of sat/byte, so we'll scale
+	// this up to sat/KB as the SendOutputs method requires this unit.
+	feeSatPerKB := feeSatPerByte * 1024
+
+	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed

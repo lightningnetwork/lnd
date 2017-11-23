@@ -1997,7 +1997,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	currentStateNum := lc.currentHeight
 
 	// TODO(roasbeef): track heights distinctly?
-
 	switch {
 	// If state number spending transaction matches the current latest
 	// state, then they've initiated a unilateral close. So we'll trigger
@@ -4610,7 +4609,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 // signatures including the proper sighash byte.
 func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee uint64) (*wire.MsgTx, error) {
+	proposedFee btcutil.Amount) (*wire.MsgTx, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4629,9 +4628,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	theirBalance := localCommit.RemoteBalance.ToSatoshis()
 
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - btcutil.Amount(proposedFee)
+		ourBalance = ourBalance - proposedFee
 	} else {
-		theirBalance = theirBalance - btcutil.Amount(proposedFee)
+		theirBalance = theirBalance - proposedFee
 	}
 
 	// Create the transaction used to return the current settled balance

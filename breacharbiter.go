@@ -228,10 +228,10 @@ func (b *breachArbiter) Start() error {
 		// to be managed by the contractObserver.
 		chanPoint := chanState.FundingOutpoint
 		if closeSummary, ok := closeSummaries[chanPoint]; ok {
-			// Since this channel should not be open, we immediately
-			// notify the HTLC switch that this link should be
-			// closed, and that all activity on the link should
-			// cease.
+			// Since this channel should not be open, we
+			// immediately notify the HTLC switch that this link
+			// should be closed, and that all activity on the link
+			// should cease.
 			b.cfg.CloseLink(&chanState.FundingOutpoint,
 				htlcswitch.CloseBreach)
 
@@ -649,6 +649,7 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 	// A read from this channel indicates that the contract has been
 	// settled cooperatively so we exit as our duties are no longer needed.
 	case <-settleSignal:
+		contract.CancelObserver()
 		contract.Stop()
 		return
 
@@ -666,6 +667,10 @@ func (b *breachArbiter) breachObserver(contract *lnwallet.LightningChannel,
 			case <-b.quit:
 			}
 		}()
+
+		b.cfg.CloseLink(chanPoint, htlcswitch.CloseBreach)
+		contract.CancelObserver()
+		contract.Stop()
 
 		// Next, we'll launch a goroutine to wait until the closing
 		// transaction has been confirmed so we can mark the contract

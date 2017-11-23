@@ -172,10 +172,13 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 
 	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate:      24,
-		Confirmation: 6,
+		FeeRate: 24,
 	}
-	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	feePerKw := btcutil.Amount(feePerWeight * 1000)
 	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
 
 	const broadcastHeight = 1

@@ -1218,6 +1218,9 @@ type LightningChannel struct {
 
 	shutdown int32
 	quit     chan struct{}
+
+	observerFin  int32
+	observerQuit chan struct{}
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -1285,6 +1288,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		LocalFundingKey:       state.LocalChanCfg.MultiSigKey,
 		RemoteFundingKey:      state.RemoteChanCfg.MultiSigKey,
 		quit:                  make(chan struct{}),
+		observerQuit:          make(chan struct{}),
 	}
 
 	// With the main channel struct reconstructed, we'll now restore the
@@ -1344,7 +1348,6 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// Launch the close observer which will vigilantly watch the
 		// network for any broadcasts the current or prior commitment
 		// transactions, taking action accordingly.
-		lc.wg.Add(1)
 		go lc.closeObserver(channelCloseNtfn)
 	}
 
@@ -1364,14 +1367,21 @@ func (lc *LightningChannel) Stop() {
 		return
 	}
 
-	// TODO(roasbeef): ensure that when channel links and breach arbs exit,
-	// that they call Stop?
-
 	lc.sigPool.Stop()
 
 	close(lc.quit)
+}
 
-	lc.wg.Wait()
+// CancelObserver signals the active goroutines watching for on-chain channel
+// closes that they can exit safely.
+func (lc *LightningChannel) CancelObserver() {
+	if !atomic.CompareAndSwapInt32(&lc.observerFin, 0, 1) {
+		return
+	}
+
+	close(lc.observerQuit)
+}
+
 }
 
 // logUpdateToPayDesc converts a LogUpdate into a matching PaymentDescriptor
@@ -1931,8 +1941,6 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 //
 // NOTE: This MUST be run as a goroutine.
 func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEvent) {
-	defer lc.wg.Done()
-
 	walletLog.Infof("Close observer for ChannelPoint(%v) active",
 		lc.channelState.FundingOutpoint)
 
@@ -1949,9 +1957,9 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			return
 		}
 
-	// Otherwise, we've beeen signalled to bail out early by the
+	// Otherwise, we've been signalled to bail out early by the
 	// caller/maintainer of this channel.
-	case <-lc.quit:
+	case <-lc.observerQuit:
 		// As we're exiting before the spend notification has been
 		// triggered, we'll cancel the notification intent so the
 		// ChainNotiifer can free up the resources.
@@ -1964,6 +1972,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	lc.RLock()
 	if lc.status == channelClosed || lc.status == channelDispute ||
 		lc.status == channelClosing {
+
+		// TODO(roasbeef): if seq+lockno are zero, then is cooperative closure
 
 		lc.RUnlock()
 		return

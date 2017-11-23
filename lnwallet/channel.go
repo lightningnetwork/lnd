@@ -1382,6 +1382,13 @@ func (lc *LightningChannel) CancelObserver() {
 	close(lc.observerQuit)
 }
 
+// ResetState resets the state of the channel back to the default state. This
+// ensures that any active goroutines which need to act based on on-chain
+// events do so properly.
+func (lc *LightningChannel) ResetState() {
+	lc.Lock()
+	lc.status = channelOpen
+	lc.Unlock()
 }
 
 // logUpdateToPayDesc converts a LogUpdate into a matching PaymentDescriptor

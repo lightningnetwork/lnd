@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1273,6 +1272,10 @@ out:
 					"msg: %v", err)
 				peerLog.Error(err)
 
+				// As the negotiations failed, we'll reset the
+				// channel state to ensure we act to on-chain
+				// events as normal.
+				chanCloser.cfg.channel.ResetState()
 
 				if chanCloser.CloseRequest() != nil {
 					chanCloser.CloseRequest().Err <- err
@@ -1299,9 +1302,16 @@ out:
 			// relevant sub-systems and launching a goroutine to
 			// wait for close tx conf.
 			p.finalizeChanClosure(chanCloser)
-			}
-
 		case <-p.quit:
+
+			// As, we've been signalled to exit, we'll reset all
+			// our active channel back to their default state.
+			p.activeChanMtx.Lock()
+			for _, channel := range p.activeChannels {
+				channel.ResetState()
+			}
+			p.activeChanMtx.Unlock()
+
 			break out
 		}
 	}
@@ -1440,6 +1450,9 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			req.Err <- err
 			delete(p.activeChanCloses, chanID)
 
+			// As we were unable to shutdown the channel, we'll
+			// return it back to its normal state.
+			channel.ResetState()
 			return
 		}
 

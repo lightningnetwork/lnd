@@ -1551,8 +1551,8 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
-	localAmt btcutil.Amount,
-	pushAmt lnwire.MilliSatoshi) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
+	fundingFeePerByte btcutil.Amount) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 	errChan := make(chan error, 1)
@@ -1585,18 +1585,23 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 		return updateChan, errChan
 	}
 
+	// We'll scale the sat/byte set as the fee  rate to sat/weight as this
+	// is what's used internally when deciding upon coin selection.
+	fundingFeePerWeight := fundingFeePerByte / blockchain.WitnessScaleFactor
+
 	// Spawn a goroutine to send the funding workflow request to the
 	// funding manager. This allows the server to continue handling queries
 	// instead of blocking on this request which is exported as a
 	// synchronous request to the outside world.
 	req := &openChanReq{
-		targetPeerID:    peerID,
-		targetPubkey:    nodeKey,
-		chainHash:       *activeNetParams.GenesisHash,
-		localFundingAmt: localAmt,
-		pushAmt:         pushAmt,
-		updates:         updateChan,
-		err:             errChan,
+		targetPeerID:        peerID,
+		targetPubkey:        nodeKey,
+		chainHash:           *activeNetParams.GenesisHash,
+		localFundingAmt:     localAmt,
+		fundingFeePerWeight: fundingFeePerWeight,
+		pushAmt:             pushAmt,
+		updates:             updateChan,
+		err:                 errChan,
 	}
 
 	// TODO(roasbeef): pass in chan that's closed if/when funding succeeds

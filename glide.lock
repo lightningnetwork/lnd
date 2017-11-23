@@ -1,5 +1,5 @@
-hash: c0408e1d484c36a8021dc114eb7dd51fb2eb2f77cf9990d1729a2ff2506131e8
-updated: 2017-11-03T12:33:21.957818574-07:00
+hash: 7186bcc65ff2eb4870ec94d94cc070408f2267f6c8516f1aa720d8b01bc92636
+updated: 2017-11-18T15:25:21.362411512-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -46,7 +46,7 @@ imports:
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: 130e6b02ab059e7b717a096f397c5b60111cae74
+  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
   subpackages:
   - jsonpb
   - proto
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 2fb43209a6f54fbf78ba71b50623503db611c371
+  version: 36dd930b83e6db89495e74fa7516a9fbe5ecfd60
   subpackages:
   - filterdb
   - headerfs
@@ -87,7 +87,7 @@ imports:
   subpackages:
   - internal/socket
 - name: github.com/roasbeef/btcd
-  version: 2cabbb06420ead94822468af58c0cb82e9e17ffc
+  version: 5d9e4e1fa749fa2f1675802a4c9f10ef0ada04d1
   subpackages:
   - addrmgr
   - blockchain
@@ -116,7 +116,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 80e208085bb775908738a343e59e96193c66f5a9
+  version: dc5f6528142eab43a98fbbf8455f92427b466604
   subpackages:
   - chain
   - internal/helpers
@@ -156,7 +156,7 @@ imports:
   - scrypt
   - ssh/terminal
 - name: golang.org/x/net
-  version: 1087133bc4af3073e18add999345c6ae75918503
+  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
   subpackages:
   - context
   - http2
@@ -166,19 +166,19 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 686000749eaec0b8855b8eef5336cf63899fe51d
+  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
   subpackages:
   - unix
   - windows
 - name: golang.org/x/text
-  version: c01e4764d870b77f8abe5096ee19ad20d80e8075
+  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: f676e0f3ac6395ff1a529ae59a6670878a8371a6
+  version: ee236bd376b077c7a89f260c026c4735b195e459
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status

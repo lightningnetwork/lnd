@@ -15,7 +15,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 2cabbb06420ead94822468af58c0cb82e9e17ffc
+  version: 5d9e4e1fa749fa2f1675802a4c9f10ef0ada04d1
   subpackages:
   - blockchain
   - btcec
@@ -34,7 +34,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 80e208085bb775908738a343e59e96193c66f5a9
+  version: dc5f6528142eab43a98fbbf8455f92427b466604
   subpackages:
   - chain
   - waddrmgr
@@ -71,7 +71,7 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: 2fb43209a6f54fbf78ba71b50623503db611c371
+  version: 36dd930b83e6db89495e74fa7516a9fbe5ecfd60
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo

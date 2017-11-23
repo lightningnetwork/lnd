@@ -1,6 +1,8 @@
 package lnwallet
 
 import (
+	"github.com/roasbeef/btcd/blockchain"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -17,6 +19,14 @@ type FeeEstimator interface {
 	// until an initial confirmation and returns the estimated fee
 	// expressed in satoshis/weight.
 	EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error)
+
+	// Start signals the FeeEstimator to start any processes or goroutines
+	// it needs to perform its duty.
+	Start() error
+
+	// Stop stops any spawned goroutines and cleans up the resources used
+	// by the fee estimator.
+	Stop() error
 }
 
 // StaticFeeEstimator will return a static value for all fee calculation

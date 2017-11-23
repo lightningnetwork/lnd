@@ -94,11 +94,15 @@ type initFundingReserveMsg struct {
 	// amount of funds the remote party contributes (if any).
 	capacity btcutil.Amount
 
-	// feePerKw is the accepted satoshis/Kw fee for the funding
-	// transaction. In order to ensure timely confirmation, it is
-	// recommended that this fee should be generous, paying some multiple
-	// of the accepted base fee rate of the network.
-	feePerKw btcutil.Amount
+	// commitFeePerKw is the starting accepted satoshis/Kw fee for the set
+	// of initial commitment transactions. In order to ensure timely
+	// confirmation, it is recommended that this fee should be generous,
+	// paying some multiple of the accepted base fee rate of the network.
+	commitFeePerKw btcutil.Amount
+
+	// fundingFeePerWeight is the fee rate in satoshis per eight unit to
+	// use for the initial funding transaction.
+	fundingFeePerWeight btcutil.Amount
 
 	// pushMSat is the number of milli-satoshis that should be pushed over
 	// the responder as part of the initial channel creation.
@@ -443,7 +447,7 @@ out:
 // commitment transaction is valid.
 func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
-	feePerKw btcutil.Amount,
+	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
 	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
 	chainHash *chainhash.Hash) (*ChannelReservation, error) {
 
@@ -451,15 +455,16 @@ func (l *LightningWallet) InitChannelReservation(
 	respChan := make(chan *ChannelReservation, 1)
 
 	l.msgChan <- &initFundingReserveMsg{
-		chainHash:     chainHash,
-		nodeID:        theirID,
-		nodeAddr:      theirAddr,
-		fundingAmount: ourFundAmt,
-		capacity:      capacity,
-		feePerKw:      feePerKw,
-		pushMSat:      pushMSat,
-		err:           errChan,
-		resp:          respChan,
+		chainHash:           chainHash,
+		nodeID:              theirID,
+		nodeAddr:            theirAddr,
+		fundingAmount:       ourFundAmt,
+		capacity:            capacity,
+		commitFeePerKw:      commitFeePerKw,
+		fundingFeePerWeight: fundingFeePerWeight,
+		pushMSat:            pushMSat,
+		err:                 errChan,
+		resp:                respChan,
 	}
 
 	return <-respChan, <-errChan
@@ -488,7 +493,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.feePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
+		req.commitFeePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -501,14 +506,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
 	if req.fundingAmount != 0 {
-		// Coin selection is done on the basis of sat-per-weight, so
-		// we'll query the fee estimator for a fee to use to ensure the
-		// funding transaction gets into the _next_  block.
-		//
-		// TODO(roasbeef): shouldn't be targeting next block
-		satPerWeight := l.Cfg.FeeEstimator.EstimateFeePerWeight(1)
-		err := l.selectCoinsAndChange(satPerWeight, req.fundingAmount,
-			reservation.ourContribution)
+		// Coin selection is done on the basis of sat-per-weight, we'll
+		// use the passed sat/byte passed in to perform coin selection.
+		err := l.selectCoinsAndChange(
+			req.fundingFeePerWeight, req.fundingAmount,
+			reservation.ourContribution,
+		)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
@@ -1255,7 +1258,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 // within the passed contribution's inputs. If necessary, a change address will
 // also be generated.
 // TODO(roasbeef): remove hardcoded fees and req'd confs for outputs.
-func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight uint64,
+func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight btcutil.Amount,
 	amt btcutil.Amount, contribution *ChannelContribution) error {
 
 	// We hold the coin select mutex while querying for outputs, and
@@ -1264,8 +1267,8 @@ func (l *LightningWallet) selectCoinsAndChange(feeRatePerWeight uint64,
 	l.coinSelectMtx.Lock()
 	defer l.coinSelectMtx.Unlock()
 
-	walletLog.Infof("Performing coin selection using %v sat/weight as fee "+
-		"rate", feeRatePerWeight)
+	walletLog.Infof("Performing funding tx coin selection using %v "+
+		"sat/weight as fee rate", int64(feeRatePerWeight))
 
 	// Find all unlocked unspent witness outputs with greater than 1
 	// confirmation.
@@ -1387,7 +1390,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 // change output to fund amt satoshis, adhering to the specified fee rate. The
 // specified fee rate should be expressed in sat/byte for coin selection to
 // function properly.
-func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
+func coinSelect(feeRatePerWeight, amt btcutil.Amount,
 	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -1432,7 +1435,8 @@ func coinSelect(feeRatePerWeight uint64, amt btcutil.Amount,
 		// coin amount by the estimate required fee, performing another
 		// round of coin selection.
 		requiredFee := btcutil.Amount(
-			uint64(weightEstimate.Weight()) * feeRatePerWeight)
+			uint64(weightEstimate.Weight()) * uint64(feeRatePerWeight),
+		)
 		if overShootAmt < requiredFee {
 			amtNeeded = amt + requiredFee
 			continue

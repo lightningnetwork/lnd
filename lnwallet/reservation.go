@@ -134,7 +134,7 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
+func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
 	chainHash *chainhash.Hash) *ChannelReservation {
 
@@ -144,7 +144,9 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := btcutil.Amount((int64(feePerKw) * CommitWeight) / 1000)
+	commitFee := btcutil.Amount(
+		(int64(commitFeePerKw) * CommitWeight) / 1000,
+	)
 
 	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
@@ -213,13 +215,13 @@ func NewChannelReservation(capacity, fundingAmt, feePerKw btcutil.Amount,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      feePerKw,
+				FeePerKw:      commitFeePerKw,
 				CommitFee:     commitFee,
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
-				FeePerKw:      feePerKw,
+				FeePerKw:      commitFeePerKw,
 				CommitFee:     commitFee,
 			},
 			Db: wallet.Cfg.Database,

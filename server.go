@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/connmgr"
@@ -329,7 +330,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		closureType htlcswitch.ChannelCloseType) {
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
-		s.htlcSwitch.CloseLink(chanPoint, closureType)
+		s.htlcSwitch.CloseLink(chanPoint, closureType, 0)
 	}
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -454,6 +455,7 @@ func (s *server) Stop() error {
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
+	s.cc.feeEstimator.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
@@ -1434,6 +1436,8 @@ type openChanReq struct {
 	remoteFundingAmt btcutil.Amount
 
 	pushAmt lnwire.MilliSatoshi
+
+	fundingFeePerWeight btcutil.Amount
 
 	// TODO(roasbeef): add ability to specify channel constraints as well
 

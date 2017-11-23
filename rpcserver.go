@@ -841,7 +841,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			// TODO(roasbeef): actually get the active channel
 			// instead too?
 			//  * so only need to grab from database
-			peer.WipeChannel(channel)
+			peer.WipeChannel(channel.ChannelPoint())
 		} else {
 			chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
 			r.server.htlcSwitch.RemoveLink(chanID)

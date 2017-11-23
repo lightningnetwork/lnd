@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
+	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcwallet/chain"
 	"github.com/roasbeef/btcwallet/walletdb"
 )
@@ -268,6 +269,27 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		}
 
 		walletConfig.ChainSource = chainRPC
+
+		// If we're not in simnet mode, then we'll attempt to use a
+		// proper fee estimator for testnet.
+		if !cfg.Bitcoin.SimNet && !cfg.Litecoin.SimNet {
+			ltndLog.Infof("Initializing btcd backed fee estimator")
+
+			// Finally, we'll re-initialize the fee estimator, as
+			// if we're using btcd as a backend, then we can use
+			// live fee estimates, rather than a statically coded
+			// value.
+			fallBackFeeRate := btcutil.Amount(25)
+			cc.feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
+				*rpcConfig, fallBackFeeRate,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			if err := cc.feeEstimator.Start(); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 
 	wc, err := btcwallet.New(*walletConfig)

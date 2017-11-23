@@ -96,7 +96,10 @@ service Lightning {
 
     /** lncli: `sendcoins`
     SendCoins executes a request to send coins to a particular address. Unlike
-    SendMany, this RPC call only allows creating a single output at a time.
+    SendMany, this RPC call only allows creating a single output at a time. If
+    neither target_conf, or sat_per_byte are set, then the internal wallet will
+    consult its fee model to determine a fee for the default confirmation
+    target.
     */
     rpc SendCoins (SendCoinsRequest) returns (SendCoinsResponse) {
         option (google.api.http) = {
@@ -114,7 +117,9 @@ service Lightning {
 
     /** lncli: `sendmany`
     SendMany handles a request for a transaction that creates multiple specified
-    outputs in parallel.
+    outputs in parallel. If neither target_conf, or sat_per_byte are set, then
+    the internal wallet will consult its fee model to determine a fee for the
+    default confirmation target.
     */
     rpc SendMany (SendManyRequest) returns (SendManyResponse);
 
@@ -228,7 +233,10 @@ service Lightning {
 
     /** lncli: `openchannel`
     OpenChannel attempts to open a singly funded channel specified in the
-    request to a remote peer.
+    request to a remote peer. Users are able to specify a target number of
+    blocks that the funding transaction should be confirmed in, or a manual fee
+    rate to us for the funding transaction. If neither are specified, then a
+    lax block confirmation target is used.
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
@@ -236,7 +244,10 @@ service Lightning {
     CloseChannel attempts to close an active channel identified by its channel
     outpoint (ChannelPoint). The actions of this method can additionally be
     augmented to attempt a force close after a timeout period in the case of an
-    inactive peer.
+    inactive peer. If a non-force close (cooperative closure) is requested,
+    then the user can specify either a target number of blocks until the
+    closure transaction is confirmed, or a manual fee rate. If neither are
+    specified, then a default lax, block confirmation target is used.
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
@@ -529,6 +540,12 @@ message LightningAddress {
 message SendManyRequest {
     /// The map from addresses to amounts
     map<string, int64> AddrToAmount = 1;
+
+    /// The target number of blocks that this transaction should be confirmed by.
+    int32 target_conf = 3;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the transaction.
+    int64 sat_per_byte = 5;
 }
 message SendManyResponse {
     /// The id of the transaction
@@ -541,6 +558,12 @@ message SendCoinsRequest {
 
     /// The amount in satoshis to send
     int64 amount = 2;
+
+    /// The target number of blocks that this transaction should be confirmed by.
+    int32 target_conf = 3;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the transaction.
+    int64 sat_per_byte = 5;
 }
 message SendCoinsResponse {
     /// The transaction ID of the transaction
@@ -801,6 +824,12 @@ message CloseChannelRequest {
 
     /// If true, then the channel will be closed forcibly. This means the current commitment transaction will be signed and broadcast.
     bool force = 2;
+
+    /// The target number of blocks that the closure transaction should be confirmed by.
+    int32 target_conf = 3;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+    int64 sat_per_byte = 5;
 }
 message CloseStatusUpdate {
     oneof update {
@@ -831,6 +860,12 @@ message OpenChannelRequest {
 
     /// The number of satoshis to push to the remote side as part of the initial commitment state
     int64 push_sat = 5 [json_name = "push_sat"];
+
+    /// The target number of blocks that the closure transaction should be confirmed by.
+    int32 target_conf = 6;
+
+    /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+    int64 sat_per_byte = 7;
 }
 message OpenStatusUpdate {
     oneof update {

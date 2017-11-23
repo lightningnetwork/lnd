@@ -36,17 +36,37 @@ type StaticFeeEstimator struct {
 	// FeeRate is the static fee rate in satoshis-per-byte that will be
 	// returned by this fee estimator. Queries for the fee rate in weight
 	// units will be scaled accordingly.
-	FeeRate uint64
+	FeeRate btcutil.Amount
 }
 
 // EstimateFeePerByte will return a static value for fee calculations.
-func (e StaticFeeEstimator) EstimateFeePerByte(numBlocks uint32) uint64 {
-	return e.FeeRate
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (e StaticFeeEstimator) EstimateFeePerByte(numBlocks uint32) (btcutil.Amount, error) {
+	return e.FeeRate, nil
 }
 
 // EstimateFeePerWeight will return a static value for fee calculations.
-func (e StaticFeeEstimator) EstimateFeePerWeight(numBlocks uint32) uint64 {
-	return e.FeeRate / 4
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (e StaticFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error) {
+	return e.FeeRate / blockchain.WitnessScaleFactor, nil
+}
+
+// Start signals the FeeEstimator to start any processes or goroutines
+// it needs to perform its duty.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (e StaticFeeEstimator) Start() error {
+	return nil
+}
+
+// Stop stops any spawned goroutines and cleans up the resources used
+// by the fee estimator.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (e StaticFeeEstimator) Stop() error {
+	return nil
 }
 
 // A compile-time assertion to ensure that StaticFeeEstimator implements the

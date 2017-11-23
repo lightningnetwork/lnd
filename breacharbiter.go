@@ -1132,8 +1132,13 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight uint64,
 		totalAmt += input.Amount()
 	}
 
-	feePerWeight := b.cfg.Estimator.EstimateFeePerWeight(1)
-	txFee := btcutil.Amount(txWeight * feePerWeight)
+	// We'll actually attempt to target inclusion within the next two
+	// blocks as we'd like to sweep these funds back into our wallet ASAP.
+	feePerWeight, err := b.cfg.Estimator.EstimateFeePerWeight(2)
+	if err != nil {
+		return nil, err
+	}
+	txFee := btcutil.Amount(txWeight * uint64(feePerWeight))
 
 	sweepAmt := int64(totalAmt - txFee)
 

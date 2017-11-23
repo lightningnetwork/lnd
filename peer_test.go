@@ -14,6 +14,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
 
 func disablePeerLogger(t *testing.T) {
@@ -45,9 +46,12 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	chanID := lnwire.NewChanIDFromOutPoint(responderChan.ChannelPoint())
 
 	// We send a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer this
-	// shutdown request with a Shutdown message.
-	responder.shutdownChanReqs <- lnwire.NewShutdown(chanID, dummyDeliveryScript)
+	// node in this shutdown procedure. We first expect Alice to answer
+	// this shutdown request with a Shutdown message.
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
+	}
 
 	var msg lnwire.Message
 	select {
@@ -81,8 +85,9 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	// We accept the fee, and send a ClosingSigned with the same fee back,
 	// so she knows we agreed.
 	peerFee := responderClosingSigned.FeeSatoshis
-	initiatorSig, proposedFee, err := initiatorChan.CreateCloseProposal(
-		peerFee, dummyDeliveryScript, respDeliveryScript)
+	initiatorSig, err := initiatorChan.CreateCloseProposal(
+		peerFee, dummyDeliveryScript, respDeliveryScript,
+	)
 	if err != nil {
 		t.Fatalf("error creating close proposal: %v", err)
 	}
@@ -92,8 +97,11 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned := lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	responder.closingSignedChanReqs <- closingSigned
+	closingSigned := lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// The responder will now see that we agreed on the fee, and broadcast
 	// the closing transaction.
@@ -129,10 +137,11 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
-		CloseType: htlcswitch.CloseRegular,
-		ChanPoint: initiatorChan.ChannelPoint(),
-		Updates:   updateChan,
-		Err:       errChan,
+		CloseType:      htlcswitch.CloseRegular,
+		ChanPoint:      initiatorChan.ChannelPoint(),
+		Updates:        updateChan,
+		TargetFeePerKw: 12000,
+		Err:            errChan,
 	}
 	initiator.localCloseChanReqs <- closeCommand
 
@@ -155,13 +164,19 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	// We'll answer the shutdown message with our own Shutdown, and then a
 	// ClosingSigned message.
 	chanID := shutdownMsg.ChannelID
-	initiator.shutdownChanReqs <- lnwire.NewShutdown(chanID,
-		dummyDeliveryScript)
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(chanID,
+			dummyDeliveryScript),
+	}
 
 	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feeRate := estimator.EstimateFeePerWeight(1) * 1000
-	fee := responderChan.CalcFee(feeRate)
-	closeSig, proposedFee, err := responderChan.CreateCloseProposal(fee,
+	feeRate, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+	fee := btcutil.Amount(responderChan.CalcFee(uint64(feeRate * 1000)))
+	closeSig, err := responderChan.CreateCloseProposal(fee,
 		dummyDeliveryScript, initiatorDeliveryScript)
 	if err != nil {
 		t.Fatalf("unable to create close proposal: %v", err)
@@ -172,8 +187,11 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 
 	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
-		proposedFee, parsedSig)
-	initiator.closingSignedChanReqs <- closingSigned
+		fee, parsedSig)
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// And we expect the initiator to accept the fee, and broadcast the
 	// closing transaction.
@@ -189,9 +207,9 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	if closingSignedMsg.FeeSatoshis != proposedFee {
+	if closingSignedMsg.FeeSatoshis != fee {
 		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
-			proposedFee, closingSignedMsg.FeeSatoshis)
+			fee, closingSignedMsg.FeeSatoshis)
 	}
 
 	// The initiator will now see that we agreed on the fee, and broadcast
@@ -206,9 +224,9 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
-// TestPeerChannelClosureFeeNegotiationsResponder tests the shutdown responder's
-// behavior in the case where we must do several rounds of fee negotiation
-// before we agree on a fee.
+// TestPeerChannelClosureFeeNegotiationsResponder tests the shutdown
+// responder's behavior in the case where we must do several rounds of fee
+// negotiation before we agree on a fee.
 func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	disablePeerLogger(t)
 	t.Parallel()
@@ -228,10 +246,13 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	chanID := lnwire.NewChanIDFromOutPoint(responderChan.ChannelPoint())
 
 	// We send a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer this
-	// shutdown request with a Shutdown message.
-	responder.shutdownChanReqs <- lnwire.NewShutdown(chanID,
-		dummyDeliveryScript)
+	// node in this shutdown procedure. We first expect Alice to answer
+	// this shutdown request with a Shutdown message.
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(chanID,
+			dummyDeliveryScript),
+	}
 
 	var msg lnwire.Message
 	select {
@@ -264,8 +285,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	// We don't agree with the fee, and will send back one that's 2.5x.
 	preferredRespFee := responderClosingSigned.FeeSatoshis
-	increasedFee := uint64(float64(preferredRespFee) * 2.5)
-	initiatorSig, proposedFee, err := initiatorChan.CreateCloseProposal(
+	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
+	initiatorSig, err := initiatorChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -276,12 +297,16 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned := lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	responder.closingSignedChanReqs <- closingSigned
+	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// The responder will see the new fee we propose, but with current
-	// settings wont't accept anything over 2*FeeRate. We should get a new
-	// proposal back, which should have the average fee rate proposed.
+	// settings it won't accept it immediately as it differs too much by
+	// its ideal fee. We should get a new proposal back, which should have
+	// the average fee rate proposed.
 	select {
 	case outMsg := <-responder.outgoingQueue:
 		msg = outMsg.msg
@@ -294,16 +319,18 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	avgFee := (preferredRespFee + increasedFee) / 2
+	// The fee sent by the responder should be less than the fee we just
+	// sent as it should attempt to comrpomise.
 	peerFee := responderClosingSigned.FeeSatoshis
-	if peerFee != avgFee {
-		t.Fatalf("expected ClosingSigned with fee %v, got %v",
-			proposedFee, responderClosingSigned.FeeSatoshis)
+	if peerFee > increasedFee {
+		t.Fatalf("new fee should be less than our fee: new=%v, "+
+			"prior=%v", peerFee, increasedFee)
 	}
+	lastFeeResponder := peerFee
 
 	// We try negotiating a 2.1x fee, which should also be rejected.
-	increasedFee = uint64(float64(preferredRespFee) * 2.1)
-	initiatorSig, proposedFee, err = initiatorChan.CreateCloseProposal(
+	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
+	initiatorSig, err = initiatorChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -314,8 +341,11 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned = lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	responder.closingSignedChanReqs <- closingSigned
+	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// It still won't be accepted, and we should get a new proposal, the
 	// average of what we proposed, and what they proposed last time.
@@ -331,15 +361,21 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	avgFee = (peerFee + increasedFee) / 2
+	// The peer should inch towards our fee, in order to compromise.
+	// Additionally, this fee should be less than the fee we sent prior.
 	peerFee = responderClosingSigned.FeeSatoshis
-	if peerFee != avgFee {
-		t.Fatalf("expected ClosingSigned with fee %v, got %v",
-			proposedFee, responderClosingSigned.FeeSatoshis)
+	if peerFee < lastFeeResponder {
+		t.Fatalf("new fee should be greater than prior: new=%v, "+
+			"prior=%v", peerFee, lastFeeResponder)
+	}
+	if peerFee > increasedFee {
+		t.Fatalf("new fee should be less than our fee: new=%v, "+
+			"prior=%v", peerFee, increasedFee)
 	}
 
-	// Accept fee.
-	initiatorSig, proposedFee, err = initiatorChan.CreateCloseProposal(
+	// Finally, we'll accept the fee by echoing back the same fee that they
+	// sent to us.
+	initiatorSig, err = initiatorChan.CreateCloseProposal(
 		peerFee, dummyDeliveryScript, respDeliveryScript,
 	)
 	if err != nil {
@@ -351,8 +387,11 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned = lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	responder.closingSignedChanReqs <- closingSigned
+	closingSigned = lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
+	responder.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// The responder will now see that we agreed on the fee, and broadcast
 	// the closing transaction.
@@ -366,9 +405,9 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	notifier.confChannel <- &chainntnfs.TxConfirmation{}
 }
 
-// TestPeerChannelClosureFeeNegotiationsInitiator tests the shutdown initiator's
-// behavior in the case where we must do several rounds of fee negotiation
-// before we agree on a fee.
+// TestPeerChannelClosureFeeNegotiationsInitiator tests the shutdown
+// initiator's behavior in the case where we must do several rounds of fee
+// negotiation before we agree on a fee.
 func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	disablePeerLogger(t)
 	t.Parallel()
@@ -389,10 +428,11 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
-		CloseType: htlcswitch.CloseRegular,
-		ChanPoint: initiatorChan.ChannelPoint(),
-		Updates:   updateChan,
-		Err:       errChan,
+		CloseType:      htlcswitch.CloseRegular,
+		ChanPoint:      initiatorChan.ChannelPoint(),
+		Updates:        updateChan,
+		TargetFeePerKw: 12000,
+		Err:            errChan,
 	}
 
 	initiator.localCloseChanReqs <- closeCommand
@@ -417,13 +457,21 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// ClosingSigned message.
 	chanID := lnwire.NewChanIDFromOutPoint(initiatorChan.ChannelPoint())
 	respShutdown := lnwire.NewShutdown(chanID, dummyDeliveryScript)
-	initiator.shutdownChanReqs <- respShutdown
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: respShutdown,
+	}
 
 	estimator := lnwallet.StaticFeeEstimator{FeeRate: 50}
-	initiatorIdealFeeRate := estimator.EstimateFeePerWeight(1) * 1000
-	initiatorIdealFee := responderChan.CalcFee(initiatorIdealFeeRate)
-	increasedFee := uint64(float64(initiatorIdealFee) * 2.5)
-	closeSig, proposedFee, err := responderChan.CreateCloseProposal(
+	initiatorIdealFeeRate, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		t.Fatalf("unable to query fee estimator: %v", err)
+	}
+	initiatorIdealFee := responderChan.CalcFee(
+		uint64(initiatorIdealFeeRate * 1000),
+	)
+	increasedFee := btcutil.Amount(float64(initiatorIdealFee) * 2.5)
+	closeSig, err := responderChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
@@ -434,33 +482,61 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("unable to parse signature: %v", err)
 	}
 
-	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
-		proposedFee, parsedSig)
-	initiator.closingSignedChanReqs <- closingSigned
+	closingSigned := lnwire.NewClosingSigned(
+		shutdownMsg.ChannelID, increasedFee, parsedSig,
+	)
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
-	// And we expect the initiator to reject the fee, and suggest a lower
-	// one.
+	// We should get two closing signed messages, the first will be the
+	// ideal fee sent by the initiator in response to our shutdown request.
 	select {
 	case outMsg := <-initiator.outgoingQueue:
 		msg = outMsg.msg
 	case <-time.After(time.Second * 5):
 		t.Fatalf("did not receive closing signed")
 	}
-
 	closingSignedMsg, ok := msg.(*lnwire.ClosingSigned)
 	if !ok {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
-	avgFee := (initiatorIdealFee + increasedFee) / 2
-	peerFee := closingSignedMsg.FeeSatoshis
-	if peerFee != avgFee {
+	if uint64(closingSignedMsg.FeeSatoshis) != initiatorIdealFee {
 		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
-			avgFee, peerFee)
+			initiatorIdealFee, closingSignedMsg.FeeSatoshis)
+	}
+	lastFeeSent := closingSignedMsg.FeeSatoshis
+
+	// The second message should be the compromise fee sent in response to
+	// them receiving our fee proposal.
+	select {
+	case outMsg := <-initiator.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(time.Second * 5):
+		t.Fatalf("did not receive closing signed")
+	}
+	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
+	if !ok {
+		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
+	// The peer should inch towards our fee, in order to compromise.
+	// Additionally, this fee should be less than the fee we sent prior.
+	peerFee := closingSignedMsg.FeeSatoshis
+	if peerFee < lastFeeSent {
+		t.Fatalf("new fee should be greater than prior: new=%v, "+
+			"prior=%v", peerFee, lastFeeSent)
+	}
+	if peerFee > increasedFee {
+		t.Fatalf("new fee should be less than our fee: new=%v, "+
+			"prior=%v", peerFee, increasedFee)
+	}
+	lastFeeSent = closingSignedMsg.FeeSatoshis
+
 	// We try negotiating a 2.1x fee, which should also be rejected.
-	increasedFee = uint64(float64(initiatorIdealFee) * 2.1)
-	responderSig, proposedFee, err := responderChan.CreateCloseProposal(
+	increasedFee = btcutil.Amount(float64(initiatorIdealFee) * 2.1)
+	responderSig, err := responderChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
@@ -472,8 +548,11 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("error parsing signature: %v", err)
 	}
 
-	closingSigned = lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	initiator.closingSignedChanReqs <- closingSigned
+	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// It still won't be accepted, and we should get a new proposal, the
 	// average of what we proposed, and what they proposed last time.
@@ -489,15 +568,21 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("expected ClosingSigned message, got %T", msg)
 	}
 
-	avgFee = (peerFee + increasedFee) / 2
+	// Once again, the fee sent by the initiator should be greater than the
+	// last fee they sent, but less than the last fee we sent.
 	peerFee = initiatorClosingSigned.FeeSatoshis
-	if peerFee != avgFee {
-		t.Fatalf("expected ClosingSigned with fee %v, got %v",
-			proposedFee, initiatorClosingSigned.FeeSatoshis)
+	if peerFee < lastFeeSent {
+		t.Fatalf("new fee should be greater than prior: new=%v, "+
+			"prior=%v", peerFee, lastFeeSent)
+	}
+	if peerFee > increasedFee {
+		t.Fatalf("new fee should be less than our fee: new=%v, "+
+			"prior=%v", peerFee, increasedFee)
 	}
 
-	// Accept fee.
-	responderSig, proposedFee, err = responderChan.CreateCloseProposal(
+	// At this point, we'll accept their fee by sending back a CloseSigned
+	// message with an identical fee.
+	responderSig, err = responderChan.CreateCloseProposal(
 		peerFee, dummyDeliveryScript, initiatorDeliveryScript,
 	)
 	if err != nil {
@@ -509,8 +594,11 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing signature: %v", err)
 	}
-	closingSigned = lnwire.NewClosingSigned(chanID, proposedFee, parsedSig)
-	initiator.closingSignedChanReqs <- closingSigned
+	closingSigned = lnwire.NewClosingSigned(chanID, peerFee, parsedSig)
+	initiator.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: closingSigned,
+	}
 
 	// Wait for closing tx to be broadcasted.
 	select {

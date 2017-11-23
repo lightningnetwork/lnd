@@ -4547,8 +4547,8 @@ func (lc *LightningChannel) ForceClose() (*ForceCloseSummary, error) {
 //
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
-func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
-	localDeliveryScript, remoteDeliveryScript []byte) ([]byte, uint64, error) {
+func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
+	localDeliveryScript, remoteDeliveryScript []byte) ([]byte, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4556,7 +4556,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
 	// If we've already closed the channel, then ignore this request.
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
-		return nil, 0, ErrChanClosing
+		return nil, ErrChanClosing
 	}
 
 	// Subtract the proposed fee from the appropriate balance, taking care
@@ -4567,9 +4567,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
 	theirBalance := localCommit.RemoteBalance.ToSatoshis()
 
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - btcutil.Amount(proposedFee)
+		ourBalance = ourBalance - proposedFee
 	} else {
-		theirBalance = theirBalance - btcutil.Amount(proposedFee)
+		theirBalance = theirBalance - proposedFee
 	}
 
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
@@ -4582,7 +4582,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	// Finally, sign the completed cooperative closure transaction. As the
@@ -4592,14 +4592,14 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee uint64,
 	lc.signDesc.SigHashes = txscript.NewTxSigHashes(closeTx)
 	sig, err := lc.signer.SignOutputRaw(closeTx, lc.signDesc)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	// As everything checks out, indicate in the channel status that a
 	// channel closure has been initiated.
 	lc.status = channelClosing
 
-	return sig, proposedFee, nil
+	return sig, nil
 }
 
 // CompleteCooperativeClose completes the cooperative closure of the target

@@ -147,7 +147,7 @@
     },
     "/v1/channels/{channel_point.funding_txid}/{channel_point.output_index}": {
       "delete": {
-        "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer.",
+        "summary": "* lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
         "operationId": "CloseChannel",
         "responses": {
           "200": {
@@ -642,7 +642,7 @@
         ]
       },
       "post": {
-        "summary": "* lncli: `sendcoins`\nSendCoins executes a request to send coins to a particular address. Unlike\nSendMany, this RPC call only allows creating a single output at a time.",
+        "summary": "* lncli: `sendcoins`\nSendCoins executes a request to send coins to a particular address. Unlike\nSendMany, this RPC call only allows creating a single output at a time. If\nneither target_conf, or sat_per_byte are set, then the internal wallet will\nconsult its fee model to determine a fee for the default confirmation\ntarget.",
         "operationId": "SendCoins",
         "responses": {
           "200": {
@@ -1591,6 +1591,16 @@
           "type": "string",
           "format": "int64",
           "title": "/ The number of satoshis to push to the remote side as part of the initial commitment state"
+        },
+        "target_conf": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The target number of blocks that the closure transaction should be confirmed by."
+        },
+        "sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction."
         }
       }
     },
@@ -1872,6 +1882,16 @@
           "type": "string",
           "format": "int64",
           "title": "/ The amount in satoshis to send"
+        },
+        "target_conf": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ The target number of blocks that this transaction should be confirmed by."
+        },
+        "sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the transaction."
         }
       }
     },

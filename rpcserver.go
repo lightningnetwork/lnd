@@ -147,13 +147,53 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
-func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64) (*chainhash.Hash, error) {
+func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
+	feePerByte btcutil.Amount) (*chainhash.Hash, error) {
+
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.server.cc.wallet.SendOutputs(outputs)
+	return r.server.cc.wallet.SendOutputs(outputs, feePerByte)
+}
+
+// determineFeePerByte will determine the fee in sat/byte that should be paid
+// given an estimator, a confirmation target, and a manual value for sat/byte.
+// A value is chosen based on the two free paramters as one, or both of them
+// can be zero.
+func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
+	satPerByte int64) (btcutil.Amount, error) {
+
+	switch {
+	// If the target number of confirmations is set, then we'll use that to
+	// consult our fee estimator for an adquate fee.
+	case targetConf != 0:
+		satPerByte, err := feeEstimator.EstimateFeePerByte(
+			uint32(targetConf),
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to query fee "+
+				"estimator: %v", err)
+		}
+
+		return btcutil.Amount(satPerByte), nil
+
+	// If a manual sat/byte fee rate is set, then we'll use that diretly.
+	case satPerByte != 0:
+		return btcutil.Amount(satPerByte), nil
+
+	// Otherwise, we'll attempt a relaxed confirmation target for the
+	// transaction
+	default:
+		satPerByte, err := feeEstimator.EstimateFeePerByte(6)
+		if err != nil {
+			return 0, fmt.Errorf("unable to query fee "+
+				"estimator: %v", err)
+		}
+
+		return satPerByte, nil
+	}
 }
 
 // SendCoins executes a request to send coins to a particular address. Unlike
@@ -169,10 +209,20 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v", in.Addr, btcutil.Amount(in.Amount))
+	// Based on the passed fee related paramters, we'll determine an
+	// approriate fee rate for this transaction.
+	feePerByte, err := determineFeePerByte(
+		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/byte=%v",
+		in.Addr, btcutil.Amount(in.Amount), int64(feePerByte))
 
 	paymentMap := map[string]int64{in.Addr: in.Amount}
-	txid, err := r.sendCoinsOnChain(paymentMap)
+	txid, err := r.sendCoinsOnChain(paymentMap, feePerByte)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +245,19 @@ func (r *rpcServer) SendMany(ctx context.Context,
 		}
 	}
 
-	txid, err := r.sendCoinsOnChain(in.AddrToAmount)
+	// Based on the passed fee related paramters, we'll determine an
+	// approriate fee rate for this transaction.
+	feePerByte, err := determineFeePerByte(
+		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Infof("[sendmany] outputs=%v, sat/byte=%v",
+		spew.Sdump(in.AddrToAmount), int64(feePerByte))
+
+	txid, err := r.sendCoinsOnChain(in.AddrToAmount, feePerByte)
 	if err != nil {
 		return nil, err
 	}
@@ -547,12 +609,25 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		nodePubKeyBytes = nodePubKey.SerializeCompressed()
 	}
 
+	// Based on the passed fee related paramters, we'll determine an
+	// approriate fee rate for the funding transaction.
+	feePerByte, err := determineFeePerByte(
+		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	)
+	if err != nil {
+		return err
+	}
+
+	rpcsLog.Debugf("[openchannel]: using fee of %v sat/byte for funding "+
+		"tx", int64(feePerByte))
+
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	updateChan, errChan := r.server.OpenChannel(
 		in.TargetPeerId, nodePubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		feePerByte,
 	)
 
 	var outpoint wire.OutPoint
@@ -656,9 +731,22 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
+	// Based on the passed fee related paramters, we'll determine an
+	// approriate fee rate for the funding transaction.
+	feePerByte, err := determineFeePerByte(
+		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Tracef("[openchannel] target sat/byte for funding tx: %v",
+		int64(feePerByte))
+
 	updateChan, errChan := r.server.OpenChannel(
 		in.TargetPeerId, nodepubKey, localFundingAmt,
 		lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		feePerByte,
 	)
 
 	select {
@@ -734,7 +822,10 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		if err != nil {
 			return err
 		}
-		defer channel.Stop()
+		defer func() {
+			channel.Stop()
+			channel.CancelObserver()
+		}()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
@@ -811,12 +902,30 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				}
 			})
 	} else {
+		// Based on the passed fee related paramters, we'll determine
+		// an approriate fee rate for the cooperative closure
+		// transaction.
+		feePerByte, err := determineFeePerByte(
+			r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
+		)
+		if err != nil {
+			return err
+		}
+
+		rpcsLog.Debugf("Target sat/byte for closing transaction: %v",
+			int64(feePerByte))
+
+		// When crating commitment transaction, or closure
+		// transactions, we typically deal in fees per-kw, so we'll
+		// convert now before passing the close request to the switch.
+		feePerKw := (feePerByte / blockchain.WitnessScaleFactor) * 1000
+
 		// Otherwise, the caller has requested a regular interactive
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
-			htlcswitch.CloseRegular)
+			htlcswitch.CloseRegular, feePerKw)
 	}
 out:
 	for {

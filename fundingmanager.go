@@ -1718,6 +1718,16 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		fndgLog.Infof("Received duplicate fundingLocked for "+
 			"ChannelID(%v), ignoring.", chanID)
 		channel.Stop()
+		channel.CancelObserver()
+		return
+	}
+
+	// With the channel retrieved, we'll send the breach arbiter the new
+	// channel so it can watch for attempts to breach the channel's
+	// contract by the remote party.
+	select {
+	case f.cfg.ArbiterChan <- channel:
+	case <-f.quit:
 		return
 	}
 
@@ -1728,15 +1738,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	err = channel.InitNextRevocation(fmsg.msg.NextPerCommitmentPoint)
 	if err != nil {
 		fndgLog.Errorf("unable to insert next commitment point: %v", err)
-		return
-	}
-
-	// With the channel retrieved, we'll send the breach arbiter the new
-	// channel so it can watch for attempts to breach the channel's
-	// contract by the remote party.
-	select {
-	case f.cfg.ArbiterChan <- channel:
-	case <-f.quit:
 		return
 	}
 

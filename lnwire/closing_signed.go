@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcutil"
 )
 
 // ClosingSigned is sent by both parties to a channel once the channel is clear
@@ -21,16 +22,16 @@ type ClosingSigned struct {
 	// ChannelID serves to identify which channel is to be closed.
 	ChannelID ChannelID
 
-	// FeeSatoshis is the fee that the party to the channel would like to
-	// propose for the close transaction.
-	FeeSatoshis uint64
+	// FeeSatoshis is the total fee in satoshis that the party to the
+	// channel would like to propose for the close transaction.
+	FeeSatoshis btcutil.Amount
 
 	// Signature is for the proposed channel close transaction.
 	Signature *btcec.Signature
 }
 
 // NewClosingSigned creates a new empty ClosingSigned message.
-func NewClosingSigned(cid ChannelID, fs uint64,
+func NewClosingSigned(cid ChannelID, fs btcutil.Amount,
 	sig *btcec.Signature) *ClosingSigned {
 
 	return &ClosingSigned{

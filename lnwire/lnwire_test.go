@@ -303,7 +303,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
-				FeeSatoshis: uint64(r.Int63()),
+				FeeSatoshis: btcutil.Amount(r.Int63()),
 				Signature:   testSig,
 			}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 )
 
@@ -1396,7 +1397,7 @@ func (m *mockPeer) SendMessage(msg lnwire.Message) error {
 	m.Unlock()
 	return nil
 }
-func (m *mockPeer) WipeChannel(*lnwallet.LightningChannel) error {
+func (m *mockPeer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
 func (m *mockPeer) PubKey() [33]byte {

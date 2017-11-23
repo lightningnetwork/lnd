@@ -332,7 +332,7 @@ func (s *mockServer) Disconnect(reason error) {
 	s.t.Fatalf("server %v was disconnected: %v", s.name, reason)
 }
 
-func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {
+func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
 

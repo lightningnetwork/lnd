@@ -422,13 +422,14 @@ out:
 
 			// TODO(roasbeef): remove all together
 			go func() {
-				if err := l.cfg.Peer.WipeChannel(l.channel); err != nil {
+				chanPoint := l.channel.ChannelPoint()
+				if err := l.cfg.Peer.WipeChannel(chanPoint); err != nil {
 					log.Errorf("unable to wipe channel %v", err)
 				}
 
 				// TODO(roasbeef): need to send HTLC outputs to nursery
 				// TODO(roasbeef): or let the arb sweep?
-				l.cfg.SettledContracts <- l.channel.ChannelPoint()
+				l.cfg.SettledContracts <- chanPoint
 			}()
 
 			break out

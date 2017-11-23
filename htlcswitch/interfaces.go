@@ -2,9 +2,9 @@ package htlcswitch
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -97,9 +97,9 @@ type Peer interface {
 	// SendMessage sends message to remote peer.
 	SendMessage(lnwire.Message) error
 
-	// WipeChannel removes the passed channel from all indexes associated
-	// with the peer.
-	WipeChannel(*lnwallet.LightningChannel) error
+	// WipeChannel removes the channel uniquely identified by its channel
+	// point from all indexes associated with the peer.
+	WipeChannel(*wire.OutPoint) error
 
 	// PubKey returns the serialize public key of the source peer.
 	PubKey() [33]byte

@@ -189,7 +189,7 @@ func (b *BtcWallet) ConfirmedBalance(confs int32, witness bool) (btcutil.Amount,
 }
 
 // NewAddress returns the next external or internal address for the wallet
-// dicatated by the value of the `change` paramter. If change is true, then an
+// dictated by the value of the `change` parameter. If change is true, then an
 // internal address will be returned, otherwise an external address should be
 // returned.
 //

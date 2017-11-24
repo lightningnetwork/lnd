@@ -852,7 +852,11 @@ func testListTransactionDetails(miner *rpctest.Harness,
 			t.Fatalf("num confs incorrect, got %v expected %v",
 				txDetail.NumConfirmations, 1)
 		}
-		if txDetail.Value != -outputAmt {
+
+		// We assert that the value is greater than the amount we
+		// attempted to send, as the wallet should've paid some amount
+		// of network fees.
+		if txDetail.Value >= -outputAmt {
 			fmt.Println(spew.Sdump(txDetail))
 			t.Fatalf("tx value incorrect, got %v expected %v",
 				int64(txDetail.Value), -int64(outputAmt))

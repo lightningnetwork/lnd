@@ -5023,8 +5023,27 @@ func (lc *LightningChannel) CalcFee(feeRate uint64) uint64 {
 
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation.
 func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
-	lc.Lock()
-	defer lc.Unlock()
+	lc.RLock()
+	defer lc.RUnlock()
 
 	return lc.channelState.RemoteNextRevocation
+}
+
+// IsInitiator returns true if we were the ones that initiated the funding
+// workflow which led to the creation of this channel. Otherwise, it returns
+// false.
+func (lc *LightningChannel) IsInitiator() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.IsInitiator
+}
+
+// CommitFeeRate returns the current fee rate of the commitment transaction in
+// units of sat-per-kw.
+func (lc *LightningChannel) CommitFeeRate() btcutil.Amount {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalCommitment.FeePerKw
 }

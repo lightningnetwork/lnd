@@ -1,5 +1,5 @@
-hash: 7186bcc65ff2eb4870ec94d94cc070408f2267f6c8516f1aa720d8b01bc92636
-updated: 2017-11-18T15:25:21.362411512-08:00
+hash: b4a16dcf64d1bfe2962795f75e8ba7ccef7da1ae12d71827e2223953b8d42505
+updated: 2017-11-23T16:14:24.585857155-06:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -116,7 +116,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: dc5f6528142eab43a98fbbf8455f92427b466604
+  version: 3037a033935cca719ba3c472870e7d080443a82f
   subpackages:
   - chain
   - internal/helpers

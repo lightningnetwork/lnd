@@ -22,7 +22,43 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 )
+
+type mockFeeEstimator struct {
+	byteFeeIn   chan btcutil.Amount
+	weightFeeIn chan btcutil.Amount
+
+	quit chan struct{}
+}
+
+func (m *mockFeeEstimator) EstimateFeePerByte(numBlocks uint32) (btcutil.Amount, error) {
+	select {
+	case feeRate := <-m.byteFeeIn:
+		return feeRate, nil
+	case <-m.quit:
+		return 0, fmt.Errorf("exiting")
+	}
+}
+
+func (m *mockFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error) {
+	select {
+	case feeRate := <-m.weightFeeIn:
+		return feeRate, nil
+	case <-m.quit:
+		return 0, fmt.Errorf("exiting")
+	}
+}
+
+func (m *mockFeeEstimator) Start() error {
+	return nil
+}
+func (m *mockFeeEstimator) Stop() error {
+	close(m.quit)
+	return nil
+}
+
+var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
 
 type mockServer struct {
 	started  int32
@@ -303,6 +339,8 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 		// Ignore
 		return nil
 	case *lnwire.ChannelReestablish:
+		targetChan = msg.ChanID
+	case *lnwire.UpdateFee:
 		targetChan = msg.ChanID
 	default:
 		return fmt.Errorf("unknown message type: %T", msg)

@@ -118,6 +118,11 @@ type ChannelLinkConfig struct {
 	// in thread-safe manner.
 	Registry InvoiceDatabase
 
+	// FeeEstimator is an instance of a live fee estimator which will be
+	// used to dynamically regulate the current fee of the commitment
+	// transaction to ensure timely confirmation.
+	FeeEstimator lnwallet.FeeEstimator
+
 	// BlockEpochs is an active block epoch event stream backed by an
 	// active ChainNotifier instance. The ChannelLink will use new block
 	// notifications sent over this channel to decide when a _new_ HTLC is
@@ -138,6 +143,7 @@ type ChannelLinkConfig struct {
 	// HodlHTLC should be active if you want this node to refrain from
 	// settling all incoming HTLCs with the sender if it finds itself to be
 	// the exit node.
+	//
 	// NOTE: HodlHTLC should be active in conjunction with DebugHTLC.
 	HodlHTLC bool
 
@@ -286,6 +292,27 @@ func (l *channelLink) Stop() {
 	l.cfg.BlockEpochs.Cancel()
 }
 
+// sampleNetworkFee samples the current fee rate on the network to get into the
+// chain in a timely manner. The returned value is expressed in fee-per-kw, as
+// this is the native rate used when computing the fee for commitment
+// transactions, and the second-level HTLC transactions.
+func (l *channelLink) sampleNetworkFee() (btcutil.Amount, error) {
+	// We'll first query for the sat/weight recommended to be confirmed
+	// within 3blocks.
+	feePerWeight, err := l.cfg.FeeEstimator.EstimateFeePerWeight(3)
+	if err != nil {
+		return 0, err
+	}
+
+	// Once we have this fee rate, we'll convert to sat-per-kw.
+	feePerKw := feePerWeight * 1000
+
+	log.Debugf("ChannelLink(%v): sampled fee rate for 3 block conf: %v "+
+		"sat/kw", l, int64(feePerKw))
+
+	return feePerKw, nil
+}
+
 // shouldAdjustCommitFee returns true if we should update our commitment fee to
 // match that of the network fee. We'll only update our commitment fee if the
 // network fee is +/- 10% to our network fee.
@@ -417,21 +444,44 @@ func (l *channelLink) htlcManager() {
 out:
 	for {
 		select {
-		// A new block has arrived, we'll examine all the active HTLC's
-		// to see if any of them have expired, and also update our
+		// A new block has arrived, we'll check the network fee to see
+		// if we should adjust our commitment fee , and also update our
 		// track of the best current height.
 		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
 			if !ok {
 				break out
 			}
 
-			log.Tracef("ChannelPoint(%v): new block(height=%v, "+
-				"hash=%v) examining active HTLC's",
-				l.channel.ChannelPoint(), blockEpoch.Height,
-				blockEpoch.Hash)
-
-			// TODO(roasbeef): check HTLC's for expiry
 			l.bestHeight = uint32(blockEpoch.Height)
+
+			// If we're not the initiator of the channel, don't we
+			// don't control the fees, so we can ignore this.
+			if !l.channel.IsInitiator() {
+				continue
+			}
+
+			// If we are the initiator, then we'll sample the
+			// current fee rate to get into the chain within 3
+			// blocks.
+			feePerKw, err := l.sampleNetworkFee()
+			if err != nil {
+				log.Errorf("unable to sample network fee: %v", err)
+				continue
+			}
+
+			// We'll check to see if we should update the fee rate
+			// based on our current set fee rate.
+			commitFee := l.channel.CommitFeeRate()
+			if !shouldAdjustCommitFee(feePerKw, commitFee) {
+				continue
+			}
+
+			// If we do, then we'll send a new UpdateFee message to
+			// the remote party, to be locked in with a new update.
+			if err := l.updateChannelFee(feePerKw); err != nil {
+				log.Errorf("unable to update fee rate: %v", err)
+				continue
+			}
 
 		// The underlying channel has notified us of a unilateral close
 		// carried out by the remote peer. In the case of such an
@@ -733,7 +783,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// need to re-transmit any messages to the remote party.
 		msgsToReSend, err := l.channel.ProcessChanSyncMsg(msg)
 		if err != nil {
-			// TODO(roasbeef): check conrete type of error, act
+			// TODO(roasbeef): check concrete type of error, act
 			// accordingly
 			l.fail("unable to handle upstream reestablish "+
 				"message: %v", err)
@@ -1071,14 +1121,22 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 // updateChannelFee updates the commitment fee-per-kw on this channel by
 // committing to an update_fee message.
 func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
-	// Update local fee.
+
+	log.Infof("ChannelPoint(%v): updating commit fee to %v sat/kw", l,
+		feePerKw)
+
+	// First, we'll update the local fee on our commitment.
 	if err := l.channel.UpdateFee(feePerKw); err != nil {
 		return err
 	}
 
-	// Send fee update to remote.
+	// We'll then attempt to send a new UpdateFee message, and also lock it
+	// in immediately by triggering a commitment update.
 	msg := lnwire.NewUpdateFee(l.ChanID(), feePerKw)
-	return l.cfg.Peer.SendMessage(msg)
+	if err := l.cfg.Peer.SendMessage(msg); err != nil {
+		return err
+	}
+	return l.updateCommitTx()
 }
 
 // processLockedInHtlcs serially processes each of the log updates which have

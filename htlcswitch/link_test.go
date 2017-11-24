@@ -2119,3 +2119,148 @@ func TestShouldAdjustCommitFee(t *testing.T) {
 		}
 	}
 }
+
+// TestChannelLinkUpdateCommitFee tests that when a new block comes in, the
+// channel link properly checks to see if it should update the commitment fee.
+func TestChannelLinkUpdateCommitFee(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+
+	// First, we'll set up some message interceptors to ensure that the
+	// proper messages are sent when updating fees.
+	chanID := n.aliceChannelLink.ChanID()
+	messages := []expectedMessage{
+		{"alice", "bob", &lnwire.ChannelReestablish{}, false},
+		{"bob", "alice", &lnwire.ChannelReestablish{}, false},
+
+		{"alice", "bob", &lnwire.FundingLocked{}, false},
+		{"bob", "alice", &lnwire.FundingLocked{}, false},
+
+		{"alice", "bob", &lnwire.UpdateFee{}, false},
+
+		{"alice", "bob", &lnwire.CommitSig{}, false},
+		{"bob", "alice", &lnwire.RevokeAndAck{}, false},
+		{"bob", "alice", &lnwire.CommitSig{}, false},
+		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
+	}
+	n.aliceServer.intersect(createInterceptorFunc("[alice] <-- [bob]",
+		"alice", messages, chanID, false))
+	n.bobServer.intersect(createInterceptorFunc("[alice] --> [bob]",
+		"bob", messages, chanID, false))
+
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+	defer n.feeEstimator.Stop()
+
+	// First, we'll start off all channels at "height" 9000 by sending a
+	// new epoch to all the clients.
+	select {
+	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
+		Height: 9000,
+	}:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("link didn't read block epoch")
+	}
+	select {
+	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
+		Height: 9000,
+	}:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("link didn't read block epoch")
+	}
+
+	startingFeeRate := channels.aliceToBob.CommitFeeRate()
+
+	// Next, we'll send the first fee rate response to Alice.
+	select {
+	case n.feeEstimator.weightFeeIn <- startingFeeRate / 1000:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice didn't query for the new " +
+			"network fee")
+	}
+
+	time.Sleep(time.Millisecond * 500)
+
+	// The fee rate on the alice <-> bob channel should still be the same
+	// on both sides.
+	aliceFeeRate := channels.aliceToBob.CommitFeeRate()
+	bobFeeRate := channels.bobToAlice.CommitFeeRate()
+	if aliceFeeRate != bobFeeRate {
+		t.Fatalf("fee rates don't match: expected %v got %v",
+			aliceFeeRate, bobFeeRate)
+	}
+	if aliceFeeRate != startingFeeRate {
+		t.Fatalf("alice's fee rate shouldn't have changed: "+
+			"expected %v, got %v", aliceFeeRate, startingFeeRate)
+	}
+	if bobFeeRate != startingFeeRate {
+		t.Fatalf("bob's fee rate shouldn't have changed: "+
+			"expected %v, got %v", bobFeeRate, startingFeeRate)
+	}
+
+	// Now we'll send a new block update to all end points, with a new
+	// height THAT'S OVER 9000!!!
+	select {
+	case n.aliceBlockEpoch <- &chainntnfs.BlockEpoch{
+		Height: 9001,
+	}:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("link didn't read block epoch")
+	}
+	select {
+	case n.bobFirstBlockEpoch <- &chainntnfs.BlockEpoch{
+		Height: 9001,
+	}:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("link didn't read block epoch")
+	}
+
+	// Next, we'll set up a deliver a fee rate that's triple the current
+	// fee rate. This should cause the Alice (the initiator) to trigger a
+	// fee update.
+	newFeeRate := startingFeeRate * 3
+	select {
+	case n.feeEstimator.weightFeeIn <- newFeeRate:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice didn't query for the new " +
+			"network fee")
+	}
+
+	time.Sleep(time.Second * 1)
+
+	// At this point, Alice should've triggered a new fee update that
+	// increased the fee rate to match the new rate.
+	//
+	// We'll scale the new fee rate by 100 as we deal with units of fee
+	// per-kw.
+	expectedFeeRate := newFeeRate * 1000
+	aliceFeeRate = channels.aliceToBob.CommitFeeRate()
+	bobFeeRate = channels.bobToAlice.CommitFeeRate()
+	if aliceFeeRate != expectedFeeRate {
+		t.Fatalf("alice's fee rate didn't change: expected %v, got %v",
+			expectedFeeRate, aliceFeeRate)
+	}
+	if bobFeeRate != expectedFeeRate {
+		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
+			expectedFeeRate, aliceFeeRate)
+	}
+	if aliceFeeRate != bobFeeRate {
+		t.Fatalf("fee rates don't match: expected %v got %v",
+			aliceFeeRate, bobFeeRate)
+	}
+}

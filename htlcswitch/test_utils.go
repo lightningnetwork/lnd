@@ -365,6 +365,8 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 		chanID = msg.ChanID
 	case *lnwire.FundingLocked:
 		chanID = msg.ChanID
+	case *lnwire.UpdateFee:
+		chanID = msg.ChanID
 	default:
 		return chanID, fmt.Errorf("unknown type: %T", msg)
 	}
@@ -426,13 +428,20 @@ func generateRoute(hops ...ForwardingInfo) ([lnwire.OnionPacketSize]byte, error)
 type threeHopNetwork struct {
 	aliceServer      *mockServer
 	aliceChannelLink *channelLink
+	aliceBlockEpoch  chan *chainntnfs.BlockEpoch
 
-	firstBobChannelLink  *channelLink
+	firstBobChannelLink *channelLink
+	bobFirstBlockEpoch  chan *chainntnfs.BlockEpoch
+
 	bobServer            *mockServer
 	secondBobChannelLink *channelLink
+	bobSecondBlockEpoch  chan *chainntnfs.BlockEpoch
 
 	carolChannelLink *channelLink
 	carolServer      *mockServer
+	carolBlockEpoch  chan *chainntnfs.BlockEpoch
+
+	feeEstimator *mockFeeEstimator
 
 	globalPolicy ForwardingPolicy
 }
@@ -698,21 +707,29 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	bobServer := newMockServer(t, "bob")
 	carolServer := newMockServer(t, "carol")
 
-	// Create mock decoder instead of sphinx one in order to mock the
-	// route which htlc should follow.
+	// Create mock decoder instead of sphinx one in order to mock the route
+	// which htlc should follow.
 	decoder := &mockIteratorDecoder{}
 
-	globalEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
-		Cancel: func() {
-		},
+	feeEstimator := &mockFeeEstimator{
+		byteFeeIn:   make(chan btcutil.Amount),
+		weightFeeIn: make(chan btcutil.Amount),
+		quit:        make(chan struct{}),
 	}
+
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: 6,
 	}
 	obfuscator := newMockObfuscator()
+
+	aliceEpochChan := make(chan *chainntnfs.BlockEpoch)
+	aliceEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: aliceEpochChan,
+		Cancel: func() {
+		},
+	}
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -725,7 +742,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             aliceServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          aliceEpoch,
+			FeeEstimator:         feeEstimator,
 			SyncStates:           true,
 		},
 		aliceChannel,
@@ -735,6 +753,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		t.Fatalf("unable to add alice channel link: %v", err)
 	}
 
+	bobFirstEpochChan := make(chan *chainntnfs.BlockEpoch)
+	bobFirstEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobFirstEpochChan,
+		Cancel: func() {
+		},
+	}
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -747,7 +771,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          bobFirstEpoch,
+			FeeEstimator:         feeEstimator,
 			SyncStates:           true,
 		},
 		firstBobChannel,
@@ -757,6 +782,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		t.Fatalf("unable to add first bob channel link: %v", err)
 	}
 
+	bobSecondEpochChan := make(chan *chainntnfs.BlockEpoch)
+	bobSecondEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobSecondEpochChan,
+		Cancel: func() {
+		},
+	}
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -769,7 +800,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          bobSecondEpoch,
+			FeeEstimator:         feeEstimator,
 			SyncStates:           true,
 		},
 		secondBobChannel,
@@ -779,6 +811,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		t.Fatalf("unable to add second bob channel link: %v", err)
 	}
 
+	carolBlockEpoch := make(chan *chainntnfs.BlockEpoch)
+	carolEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobSecondEpochChan,
+		Cancel: func() {
+		},
+	}
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
@@ -791,7 +829,8 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             carolServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          carolEpoch,
+			FeeEstimator:         feeEstimator,
 			SyncStates:           true,
 		},
 		carolChannel,
@@ -802,14 +841,22 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 
 	return &threeHopNetwork{
-		aliceServer:          aliceServer,
-		aliceChannelLink:     aliceChannelLink.(*channelLink),
-		firstBobChannelLink:  firstBobChannelLink.(*channelLink),
+		aliceServer:      aliceServer,
+		aliceChannelLink: aliceChannelLink.(*channelLink),
+		aliceBlockEpoch:  aliceEpochChan,
+
+		firstBobChannelLink: firstBobChannelLink.(*channelLink),
+		bobFirstBlockEpoch:  bobFirstEpochChan,
+
 		bobServer:            bobServer,
 		secondBobChannelLink: secondBobChannelLink.(*channelLink),
-		carolChannelLink:     carolChannelLink.(*channelLink),
-		carolServer:          carolServer,
+		bobSecondBlockEpoch:  bobSecondEpochChan,
 
+		carolChannelLink: carolChannelLink.(*channelLink),
+		carolServer:      carolServer,
+		carolBlockEpoch:  carolBlockEpoch,
+
+		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,
 	}
 }

@@ -399,6 +399,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			Registry:         p.server.invoices,
 			Switch:           p.server.htlcSwitch,
 			FwrdingPolicy:    *forwardingPolicy,
+			FeeEstimator:     p.server.cc.feeEstimator,
 			BlockEpochs:      blockEpoch,
 			SyncStates:       true,
 		}
@@ -1223,6 +1224,7 @@ out:
 				Registry:         p.server.invoices,
 				Switch:           p.server.htlcSwitch,
 				FwrdingPolicy:    p.server.cc.routingPolicy,
+				FeeEstimator:     p.server.cc.feeEstimator,
 				BlockEpochs:      blockEpoch,
 				SyncStates:       false,
 			}

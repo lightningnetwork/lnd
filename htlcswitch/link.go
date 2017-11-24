@@ -286,6 +286,27 @@ func (l *channelLink) Stop() {
 	l.cfg.BlockEpochs.Cancel()
 }
 
+// shouldAdjustCommitFee returns true if we should update our commitment fee to
+// match that of the network fee. We'll only update our commitment fee if the
+// network fee is +/- 10% to our network fee.
+func shouldAdjustCommitFee(netFee, chanFee btcutil.Amount) bool {
+	switch {
+	// If the network fee is greater than the commitment fee, then we'll
+	// switch to it if it's at least 10% greater than the commit fee.
+	case netFee > chanFee && netFee >= (chanFee+(chanFee*10)/100):
+		return true
+
+	// If the network fee is less than our commitment fee, then we'll
+	// switch to it if it's at least 10% less than the commitment fee.
+	case netFee < chanFee && netFee <= (chanFee-(chanFee*10)/100):
+		return true
+
+	// Otherwise, we won't modify our fee.
+	default:
+		return false
+	}
+}
+
 // htlcManager is the primary goroutine which drives a channel's commitment
 // update state-machine in response to messages received via several channels.
 // This goroutine reads messages from the upstream (remote) peer, and also from

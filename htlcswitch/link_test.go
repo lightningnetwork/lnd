@@ -2021,3 +2021,101 @@ func TestChannelRetransmission(t *testing.T) {
 	}
 
 }
+
+// TestShouldAdjustCommitFee tests the shouldAdjustCommitFee pivot function to
+// ensure that ie behaves properly. We should only update the fee if it
+// deviates from our current fee by more 10% or more.
+func TestShouldAdjustCommitFee(t *testing.T) {
+	tests := []struct {
+		netFee       btcutil.Amount
+		chanFee      btcutil.Amount
+		shouldAdjust bool
+	}{
+
+		// The network fee is 3x lower than the current commitment
+		// transaction. As a result, we should adjust our fee to match
+		// it.
+		{
+			netFee:       100,
+			chanFee:      3000,
+			shouldAdjust: true,
+		},
+
+		// The network fee is lower than the current commitment fee,
+		// but only slightly so, so we won't update the commitment fee.
+		{
+			netFee:       2999,
+			chanFee:      3000,
+			shouldAdjust: false,
+		},
+
+		// The network fee is lower than the commitment fee, but only
+		// right before it crosses our current threshold.
+		{
+			netFee:       1000,
+			chanFee:      1099,
+			shouldAdjust: false,
+		},
+
+		// The network fee is lower than the commitment fee, and within
+		// our range of adjustment, so we should adjust.
+		{
+			netFee:       1000,
+			chanFee:      1100,
+			shouldAdjust: true,
+		},
+
+		// The network fee is 2x higher than our commitment fee, so we
+		// should adjust upwards.
+		{
+			netFee:       2000,
+			chanFee:      1000,
+			shouldAdjust: true,
+		},
+
+		// The network fee is higher than our commitment fee, but only
+		// slightly so, so we won't update.
+		{
+			netFee:       1001,
+			chanFee:      1000,
+			shouldAdjust: false,
+		},
+
+		// The network fee is higher than our commitment fee, but
+		// hasn't yet crossed our activation threshold.
+		{
+			netFee:       1100,
+			chanFee:      1099,
+			shouldAdjust: false,
+		},
+
+		// The network fee is higher than our commitment fee, and
+		// within our activation threshold, so we should update our
+		// fee.
+		{
+			netFee:       1100,
+			chanFee:      1000,
+			shouldAdjust: true,
+		},
+
+		// Our fees match exactly, so we shouldn't update it at all.
+		{
+			netFee:       1000,
+			chanFee:      1000,
+			shouldAdjust: false,
+		},
+	}
+
+	for i, test := range tests {
+		adjustedFee := shouldAdjustCommitFee(
+			test.netFee, test.chanFee,
+		)
+
+		if adjustedFee && !test.shouldAdjust {
+			t.Fatalf("test #%v failed: net_fee=%v, "+
+				"chan_fee=%v, adjust_expect=%v, adjust_returned=%v",
+				i, test.netFee, test.chanFee, test.shouldAdjust,
+				adjustedFee)
+		}
+	}
+}

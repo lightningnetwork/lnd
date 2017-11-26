@@ -3376,6 +3376,36 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	}
 }
 
+// TestFeeUpdateRejectInsaneFee tests that if the initiator tries to attach a
+// fee that would put them below their current reserve, then it's rejected by
+// the state machine.
+func TestFeeUpdateRejectInsaneFee(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Next, we'll try to add a fee rate to Alice which is 1,000,000x her
+	// starting fee rate.
+	startingFeeRate := aliceChannel.channelState.LocalCommitment.FeePerKw
+	newFeeRate := startingFeeRate * 1000000
+
+	// Both Alice and Bob should reject this new fee rate as it it far too
+	// large.
+	if err := aliceChannel.UpdateFee(newFeeRate); err == nil {
+		t.Fatalf("alice should've rejected fee update")
+	}
+	if err := bobChannel.ReceiveUpdateFee(newFeeRate); err == nil {
+		t.Fatalf("bob should've rejected fee update")
+	}
+}
+
 // TestChannelRetransmissionFeeUpdate tests that the initiator will include any
 // pending fee updates if it needs to retransmit signatures.
 func TestChannelRetransmissionFeeUpdate(t *testing.T) {

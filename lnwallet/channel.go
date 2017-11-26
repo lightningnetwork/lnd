@@ -3826,7 +3826,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	// To ensure that we can actually fully accept this new HTLC, we'll
 	// calculate the current available bandwidth, and subtract the value
 	// ofthe HTLC from it.
-	initialBalance := lc.availableBalance()
+	initialBalance, _ := lc.availableBalance()
 	availableBalance := initialBalance
 	availableBalance -= htlc.Amount
 
@@ -4732,16 +4732,18 @@ func (lc *LightningChannel) AvailableBalance() lnwire.MilliSatoshi {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.availableBalance()
+	bal, _ := lc.availableBalance()
+	return bal
 }
 
 // availableBalance is the private, non mutexed version of AvailableBalance.
 // This method is provided so methods that already hold the lock can access
-// this method.
-func (lc *LightningChannel) availableBalance() lnwire.MilliSatoshi {
+// this method. Additionally, the total weight of the next to be created
+// commitment is returned for accounting purposes.
+func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 	// First, we'll grab the current local balance. If we're the initiator
 	// of the channel then we paid the fees on the last commitment state,
-	// so we'll re apply those.
+	// so we'll re-apply those.
 	settledBalance := lc.channelState.LocalCommitment.LocalBalance
 	if lc.channelState.IsInitiator {
 		settledBalance += lnwire.NewMSatFromSatoshis(
@@ -4846,8 +4848,8 @@ func (lc *LightningChannel) availableBalance() lnwire.MilliSatoshi {
 	// If we're the initiator then we need to pay fees for this state, so
 	// taking into account the number of active HTLC's we'll calculate the
 	// fee that must be paid.
+	totalCommitWeight := CommitWeight + totalHtlcWeight
 	if lc.channelState.IsInitiator {
-		totalCommitWeight := CommitWeight + totalHtlcWeight
 		additionalFee := lnwire.NewMSatFromSatoshis(
 			btcutil.Amount((int64(feePerKw) * totalCommitWeight) / 1000),
 		)
@@ -4855,7 +4857,7 @@ func (lc *LightningChannel) availableBalance() lnwire.MilliSatoshi {
 		settledBalance -= additionalFee
 	}
 
-	return settledBalance
+	return settledBalance, totalCommitWeight
 }
 
 // StateSnapshot returns a snapshot of the current fully committed state within
@@ -4865,6 +4867,39 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 	defer lc.RUnlock()
 
 	return lc.channelState.Snapshot()
+}
+
+// validateFeeRate ensures that if the passed fee is applied to the channel,
+// and a new commitment is created (which evaluates this fee), then the
+// initiator of the channel does not dip below their reserve.
+func (lc *LightningChannel) validateFeeRate(feePerKw btcutil.Amount) error {
+	// We'll ensure that we can accommodate this new fee change, yet still
+	// be above our reserve balance. Otherwise, we'll reject the fee
+	// update.
+	availableBalance, txWeight := lc.availableBalance()
+
+	// Using the weight of the commitment transaction if we were to create
+	// a commitment now, we'll compute our remaining balance if we apply
+	// this new fee update.
+	newFee := lnwire.NewMSatFromSatoshis(
+		btcutil.Amount((int64(feePerKw) * txWeight) / 1000),
+	)
+	balanceAfterFee := availableBalance - newFee
+
+	// If this new balance is below our reserve, then we can't accommodate
+	// the fee change, so we'll reject it.
+	if balanceAfterFee.ToSatoshis() < lc.channelState.LocalChanCfg.ChanReserve {
+		return fmt.Errorf("cannot apply fee_update=%v sat/kw, "+
+			"insufficient balance: start=%v, end=%v",
+			int64(feePerKw),
+			availableBalance, balanceAfterFee)
+	}
+
+	// TODO(halseth): should fail if fee update is unreasonable,
+	// as specified in BOLT#2.
+	//  * COMMENT(roasbeef): can cross-check with our ideal fee rate
+
+	return nil
 }
 
 // UpdateFee initiates a fee update for this channel. Must only be called by
@@ -4878,6 +4913,11 @@ func (lc *LightningChannel) UpdateFee(feePerKw btcutil.Amount) error {
 	// non-initiator will fail.
 	if !lc.channelState.IsInitiator {
 		return fmt.Errorf("local fee update as non-initiator")
+	}
+
+	// Ensure that the passed fee rate meets our current requirements.
+	if err := lc.validateFeeRate(feePerKw); err != nil {
+		return err
 	}
 
 	lc.pendingFeeUpdate = &feePerKw
@@ -4897,8 +4937,11 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
 		return fmt.Errorf("received fee update as initiator")
 	}
 
-	// TODO(halseth): should fail if fee update is unreasonable,
-	// as specified in BOLT#2.
+	// Ensure that the passed fee rate meets our current requirements.
+	if err := lc.validateFeeRate(feePerKw); err != nil {
+		return err
+	}
+
 	lc.pendingFeeUpdate = &feePerKw
 
 	return nil

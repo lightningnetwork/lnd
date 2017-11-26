@@ -1036,6 +1036,12 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		return
 	}
 
+	// Next, we'll cancel all pending funding reservations with this node.
+	// If we tried to initiate any funding flows that haven't yet finished,
+	// then we need to unlock those committed outputs so they're still
+	// available for use.
+	s.fundingMgr.CancelPeerReservations(p.PubKey())
+
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
 	// with this interface should be closed.

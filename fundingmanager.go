@@ -575,6 +575,41 @@ func (f *fundingManager) PendingChannels() ([]*pendingChannel, error) {
 	return <-respChan, <-errChan
 }
 
+// CancelPeerReservations cancels all active reservations associated with the
+// passed node. This will ensure any outputs which have been pre committed,
+// (and thus locked from coin selection), are properly freed.
+func (f *fundingManager) CancelPeerReservations(nodePub [33]byte) {
+
+	fndgLog.Debugf("Cancelling all reservations for peer %x", nodePub[:])
+
+	f.resMtx.Lock()
+	defer f.resMtx.Unlock()
+
+	// We'll attempt to look up this node in the set of active
+	// reservations.  If they don't have any, then there's no further work
+	// to be done.
+	nodeReservations, ok := f.activeReservations[nodePub]
+	if !ok {
+		fndgLog.Debugf("No active reservations for node: %x", nodePub[:])
+		return
+	}
+
+	// If they do have any active reservations, then we'll cancel all of
+	// them (which releases any locked UTXO's), and also delete it from the
+	// reservation map.
+	for pendingID, resCtx := range nodeReservations {
+		if err := resCtx.reservation.Cancel(); err != nil {
+			fndgLog.Errorf("unable to cancel reservation for "+
+				"node=%x: %v", nodePub[:], err)
+		}
+
+		delete(nodeReservations, pendingID)
+	}
+
+	// Finally, we'll delete the node itself from the set of reservations.
+	delete(f.activeReservations, nodePub)
+}
+
 // failFundingFlow will fail the active funding flow with the target peer,
 // identified by it's unique temporary channel ID. This method is send an error
 // to the remote peer, and also remove the reservation from our set of pending
@@ -1089,8 +1124,8 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	f.newChanBarriers[channelID] = make(chan struct{})
 	f.barrierMtx.Unlock()
 
-	fndgLog.Infof("sending signComplete for pendingID(%x) over ChannelPoint(%v)",
-		pendingChanID[:], fundingOut)
+	fndgLog.Infof("sending FundingSigned for pendingID(%x) over "+
+		"ChannelPoint(%v)", pendingChanID[:], fundingOut)
 
 	// With their signature for our version of the commitment transaction
 	// verified, we can now send over our signature to the remote peer.

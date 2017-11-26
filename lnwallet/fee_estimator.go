@@ -173,12 +173,15 @@ func (b *BtcdFeeEstimator) fetchEstimatePerByte(confTarget uint32) (btcutil.Amou
 
 	// Next, we'll convert the returned value to satoshis, as it's
 	// currently returned in BTC.
-	satPerKB := uint64(btcPerKB * 10e8)
+	satPerKB, err := btcutil.NewAmount(btcPerKB)
+	if err != nil {
+		return 0, err
+	}
 
 	// The value returned is expressed in fees per KB, while we want
 	// fee-per-byte, so we'll divide by 1024 to map to satoshis-per-byte
 	// before returning the estimate.
-	satPerByte := btcutil.Amount(satPerKB / 1024)
+	satPerByte := satPerKB / 1024
 
 	walletLog.Debugf("Returning %v sat/byte for conf target of %v",
 		int64(satPerByte), confTarget)

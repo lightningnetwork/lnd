@@ -288,9 +288,10 @@ func (r *ChannelReservation) RemoteChanConstraints() (btcutil.Amount, lnwire.Mil
 
 	// TODO(roasbeef): move csv delay calculation into func?
 
-	// By default, we'll require them to maintain at least 1% of thee total
-	// channel capacity at all times.
-	chanReserve := (chanCapacity + 99) / 100
+	// By default, we'll require them to maintain at least 1% of the total
+	// channel capacity at all times. This is the absolute amount the
+	// settled balance of the remote party must be above at *all* times.
+	chanReserve := (chanCapacity) / 100
 
 	// We'll allow them to fully utilize the full bandwidth of the channel,
 	// minus our required reserve.

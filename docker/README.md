@@ -241,7 +241,9 @@ alice$ lncli walletbalance
 # channel:
 bob$ lncli walletbalance
 {
-    "balance": 0.0001
+    "total_balance": "0.0001",
+    "confirmed_balance": "0.0001",
+    "unconfirmed_balance": "0"
 }
 ```
 

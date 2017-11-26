@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -501,14 +502,39 @@ func testCancelNonExistantReservation(miner *rpctest.Harness,
 	}
 
 	// Create our own reservation, give it some ID.
-	res := lnwallet.NewChannelReservation(
+	res, err := lnwallet.NewChannelReservation(
 		1000, 1000, feeRate, alice, 22, 10, &testHdSeed,
 	)
+	if err != nil {
+		t.Fatalf("unable to create res: %v", err)
+	}
 
 	// Attempt to cancel this reservation. This should fail, we know
 	// nothing of it.
 	if err := res.Cancel(); err == nil {
 		t.Fatalf("cancelled non-existent reservation")
+	}
+}
+
+func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
+	alice, _ *lnwallet.LightningWallet, t *testing.T) {
+
+	// We'll attempt to create a new reservation with an extremely high fee
+	// rate. This should push our balance into the negative and result in a
+	// failure to create the reservation.
+	fundingAmount := btcutil.Amount(4 * 1e8)
+	feePerKw := btcutil.Amount(btcutil.SatoshiPerBitcoin * 10)
+	_, err := alice.InitChannelReservation(
+		fundingAmount, fundingAmount, 0, feePerKw, feePerKw, bobPub,
+		bobAddr, chainHash,
+	)
+	switch {
+	case err == nil:
+		t.Fatalf("initialization should've failed due to " +
+			"insufficient local amount")
+
+	case !strings.Contains(err.Error(), "local output is too small"):
+		t.Fatalf("incorrect error: %v", err)
 	}
 }
 
@@ -1276,6 +1302,10 @@ type walletTestCase struct {
 }
 
 var walletTests = []walletTestCase{
+	{
+		name: "insane fee reject",
+		test: testReservationInitiatorBalanceBelowDustCancel,
+	},
 	{
 		name: "single funding workflow",
 		test: testSingleFunderReservationWorkflow,

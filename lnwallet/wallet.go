@@ -492,8 +492,13 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	}
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
-	reservation := NewChannelReservation(req.capacity, req.fundingAmount,
+	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
 		req.commitFeePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
+	if err != nil {
+		req.err <- err
+		req.resp <- nil
+		return
+	}
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -523,7 +528,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 	// for the duration of the channel. The keys include: our multi-sig
 	// key, the base revocation key, the base htlc key,the base payment
 	// key, and the delayed payment key.
-	var err error
 	reservation.ourContribution.MultiSigKey, err = l.NewRawKey()
 	if err != nil {
 		req.err <- err

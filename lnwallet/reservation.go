@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"fmt"
 	"net"
 	"sync"
 
@@ -136,7 +137,7 @@ type ChannelReservation struct {
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 	wallet *LightningWallet, id uint64, pushMSat lnwire.MilliSatoshi,
-	chainHash *chainhash.Hash) *ChannelReservation {
+	chainHash *chainhash.Hash) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -179,6 +180,17 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		}
 
 		initiator = true
+	}
+
+	// If we're the initiator and our starting balance within the channel
+	// after we take account of fees is below dust, then we'll reject this
+	// channel creation request.
+	//
+	// TODO(roasbeef): reject if 30% goes to fees? dust channel
+	if initiator && ourBalance.ToSatoshis() <= DefaultDustLimit() {
+		return nil, fmt.Errorf("unable to init reservation, with "+
+			"fee=%v sat/kw, local output is too small: %v sat",
+			int64(commitFee), int64(ourBalance.ToSatoshis()))
 	}
 
 	// Next we'll set the channel type based on what we can ascertain about
@@ -231,7 +243,7 @@ func NewChannelReservation(capacity, fundingAmt, commitFeePerKw btcutil.Amount,
 		chanOpen:      make(chan *openChanDetails, 1),
 		chanOpenErr:   make(chan error, 1),
 		wallet:        wallet,
-	}
+	}, nil
 }
 
 // SetNumConfsRequired sets the number of confirmations that are required for

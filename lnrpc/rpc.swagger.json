@@ -17,7 +17,7 @@
   "paths": {
     "/v1/balance/blockchain": {
       "get": {
-        "summary": "* lncli: `walletbalance`\nWalletBalance returns the sum of all confirmed unspent outputs under control\nby the wallet. This method can be modified by having the request specify\nonly witness outputs should be factored into the final output sum.",
+        "summary": "* lncli: `walletbalance`\nWalletBalance returns total unspent outputs(confirmed and unconfirmed), all confirmed unspent outputs and all unconfirmed unspent outputs under control\nby the wallet. This method can be modified by having the request specify\nonly witness outputs should be factored into the final output sum.",
         "operationId": "WalletBalance",
         "responses": {
           "200": {
@@ -2057,10 +2057,20 @@
     "lnrpcWalletBalanceResponse": {
       "type": "object",
       "properties": {
-        "balance": {
+        "total_balance": {
           "type": "string",
           "format": "int64",
           "title": "/ The balance of the wallet"
+        },
+        "confirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The confirmed balance of a wallet(with \u003e= 1 confirmations)"
+        },
+        "unconfirmed_balance": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The unconfirmed balance of a wallet(with 0 confirmations)"
         }
       }
     }

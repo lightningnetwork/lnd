@@ -1175,10 +1175,10 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	return resp, nil
 }
 
-// WalletBalance returns the sum of all confirmed unspent outputs under control
+// WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
+// confirmed unspent outputs and all unconfirmed unspent outputs under control
 // by the wallet. This method can be modified by having the request specify
 // only witness outputs should be factored into the final output sum.
-// TODO(roasbeef): split into total and confirmed/unconfirmed
 // TODO(roasbeef): add async hooks into wallet balance changes
 func (r *rpcServer) WalletBalance(ctx context.Context,
 	in *lnrpc.WalletBalanceRequest) (*lnrpc.WalletBalanceResponse, error) {
@@ -1191,15 +1191,27 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		}
 	}
 
-	balance, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
+	// Get total balance, from txs that have >= 0 confirmations.
+	totalBal, err := r.server.cc.wallet.ConfirmedBalance(0, in.WitnessOnly)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Debugf("[walletbalance] balance=%v", balance)
+	// Get confirmed balance, from txs that have >= 1 confirmations.
+	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1, in.WitnessOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get uncomfirmed balance, from txs with 0 confirmations.
+	unconfirmedBal := totalBal - confirmedBal
+
+	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
 
 	return &lnrpc.WalletBalanceResponse{
-		Balance: int64(balance),
+		TotalBalance:       int64(totalBal),
+		ConfirmedBalance:   int64(confirmedBal),
+		UnconfirmedBalance: int64(unconfirmedBal),
 	}, nil
 }
 

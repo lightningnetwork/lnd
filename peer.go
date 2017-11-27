@@ -644,6 +644,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) readHandler() {
+	defer p.wg.Done()
 
 	// We'll stop the timer after a new messages is received, and also
 	// reset it after we process the next message.
@@ -773,8 +774,10 @@ out:
 				// we'll do so, add it to the map, and finally
 				// start it.
 				chanStream = newChanMsgStream(p, targetChan)
-				chanMsgStreams[targetChan] = chanStream
 				chanStream.Start()
+				defer chanStream.Stop()
+
+				chanMsgStreams[targetChan] = chanStream
 			}
 
 			// With the stream obtained, add the message to the
@@ -785,15 +788,11 @@ out:
 		idleTimer.Reset(idleTimeout)
 	}
 
-	p.wg.Done()
-
-	p.Disconnect(errors.New("read handler closed"))
-
-	for cid, chanStream := range chanMsgStreams {
-		chanStream.Stop()
-
+	for cid := range chanMsgStreams {
 		delete(chanMsgStreams, cid)
 	}
+
+	p.Disconnect(errors.New("read handler closed"))
 
 	peerLog.Tracef("readHandler for peer %v done", p)
 }
@@ -1002,6 +1001,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
+	defer p.wg.Done()
+
 	var exitErr error
 out:
 	for {
@@ -1038,8 +1039,6 @@ out:
 			break out
 		}
 	}
-
-	p.wg.Done()
 
 	p.Disconnect(exitErr)
 

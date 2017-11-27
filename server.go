@@ -928,7 +928,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 	// Compute the target peer's identifier.
 	targetPubBytes := target.SerializeCompressed()
 
-	srvrLog.Infof("Attempting to send msgs %v to: %x",
+	srvrLog.Infof("Attempting to send %v msgs to: %x",
 		len(msgs), targetPubBytes)
 
 	// Lookup intended target in peersByPub, returning an error to the
@@ -974,7 +974,7 @@ func (s *server) sendPeerMessages(
 	}
 
 	for _, msg := range msgs {
-		targetPeer.queueMsg(msg, nil)
+		targetPeer.SendMessage(msg)
 	}
 }
 
@@ -1628,8 +1628,8 @@ func (s *server) Peers() []*peer {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	peers := make([]*peer, 0, len(s.peersByID))
-	for _, peer := range s.peersByID {
+	peers := make([]*peer, 0, len(s.peersByPub))
+	for _, peer := range s.peersByPub {
 		peers = append(peers, peer)
 	}
 

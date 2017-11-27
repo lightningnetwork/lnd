@@ -150,6 +150,7 @@ func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*li
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 
 	cfg.PeerPort, cfg.RPCPort = generateListeningPorts()
+	cfg.RPCHost = "127.0.0.1"
 
 	lndArgs = append(lndArgs, "--externalip=127.0.0.1:"+
 		strconv.Itoa(cfg.PeerPort))
@@ -158,7 +159,7 @@ func newLightningNode(btcrpcConfig *rpcclient.ConnConfig, lndArgs []string) (*li
 	return &lightningNode{
 		cfg:               cfg,
 		p2pAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.PeerPort)),
-		rpcAddr:           net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort)),
+		rpcAddr:           net.JoinHostPort(cfg.RPCHost, strconv.Itoa(cfg.RPCPort)),
 		rpcCert:           btcrpcConfig.Certificates,
 		nodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
@@ -182,6 +183,7 @@ func (l *lightningNode) genArgs() []string {
 	args = append(args, fmt.Sprintf("--bitcoin.rpcuser=%v", l.cfg.Bitcoin.RPCUser))
 	args = append(args, fmt.Sprintf("--bitcoin.rpcpass=%v", l.cfg.Bitcoin.RPCPass))
 	args = append(args, fmt.Sprintf("--bitcoin.rawrpccert=%v", encodedCert))
+	args = append(args, fmt.Sprintf("--rpchost=%v", l.cfg.RPCHost))
 	args = append(args, fmt.Sprintf("--rpcport=%v", l.cfg.RPCPort))
 	args = append(args, fmt.Sprintf("--peerport=%v", l.cfg.PeerPort))
 	args = append(args, fmt.Sprintf("--logdir=%v", l.cfg.LogDir))
@@ -375,11 +377,13 @@ func (l *lightningNode) Stop() error {
 	default:
 	}
 
-	// Don't watch for error because sometimes the RPC connection gets
-	// closed before a response is returned.
-	req := lnrpc.StopRequest{}
-	ctx := context.Background()
-	l.LightningClient.StopDaemon(ctx, &req)
+	if l.LightningClient != nil {
+		// Don't watch for error because sometimes the RPC connection gets
+		// closed before a response is returned.
+		req := lnrpc.StopRequest{}
+		ctx := context.Background()
+		l.LightningClient.StopDaemon(ctx, &req)
+	}
 
 	close(l.quit)
 	l.wg.Wait()

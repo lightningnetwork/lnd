@@ -171,6 +171,7 @@ if [ "$NEED_COVERAGE" == "true" ] || [ "$RACE" == "false" ]; then
         LOGOUTPUT_FLAG="-logoutput=true"
     fi
 
+    check_test_ports
     go test -v -tags rpctest "$LOGOUTPUT_FLAG"
 
     test_with_coverage_profile

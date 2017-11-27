@@ -220,7 +220,7 @@ type addSingleFunderSigsMsg struct {
 // LightningWallet is a domain specific, yet general Bitcoin wallet capable of
 // executing workflow required to interact with the Lightning Network. It is
 // domain specific in the sense that it understands all the fancy scripts used
-// within the Lightning Network, channel lifetimes, etc. However, it embedds a
+// within the Lightning Network, channel lifetimes, etc. However, it embeds a
 // general purpose Bitcoin wallet within it. Therefore, it is also able to
 // serve as a regular Bitcoin wallet which uses HD keys. The wallet is highly
 // concurrent internally. All communication, and requests towards the wallet
@@ -230,7 +230,7 @@ type addSingleFunderSigsMsg struct {
 // embeddable within future projects interacting with the Lightning Network.
 //
 // NOTE: At the moment the wallet requires a btcd full node, as it's dependent
-// on btcd's websockets notifications as even triggers during the lifetime of a
+// on btcd's websockets notifications as event triggers during the lifetime of a
 // channel. However, once the chainntnfs package is complete, the wallet will
 // be compatible with multiple RPC/notification services such as Electrum,
 // Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node

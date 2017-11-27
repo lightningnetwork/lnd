@@ -815,8 +815,9 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChannelReserve, msg.ChannelFlags)
 
 	case *lnwire.AcceptChannel:
-		return fmt.Sprintf("temp_chan_id=%x, reserve=%v, csv=%v",
-			msg.PendingChannelID[:], msg.ChannelReserve, msg.CsvDelay)
+		return fmt.Sprintf("temp_chan_id=%x, reserve=%v, csv=%v, num_confs=%v",
+			msg.PendingChannelID[:], msg.ChannelReserve, msg.CsvDelay,
+			msg.MinAcceptDepth)
 
 	case *lnwire.FundingCreated:
 		return fmt.Sprintf("temp_chan_id=%x, chan_point=%v",

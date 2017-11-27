@@ -1695,7 +1695,7 @@ func (lc *LightningChannel) restoreStateLogs(
 }
 
 // HtlcRetribution contains all the items necessary to seep a revoked HTLC
-// transaction from a revoked commitment transaction broadcast by the remot
+// transaction from a revoked commitment transaction broadcast by the remote
 // party.
 type HtlcRetribution struct {
 	// SignDesc is a design descriptor capable of generating the necessary
@@ -4937,10 +4937,7 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw btcutil.Amount) error {
 		return fmt.Errorf("received fee update as initiator")
 	}
 
-	// Ensure that the passed fee rate meets our current requirements.
-	if err := lc.validateFeeRate(feePerKw); err != nil {
-		return err
-	}
+	// TODO(roasbeef): or just modify to use the other balance?
 
 	lc.pendingFeeUpdate = &feePerKw
 

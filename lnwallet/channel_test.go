@@ -3385,7 +3385,7 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
 	if err != nil {
 		t.Fatalf("unable to create test channels: %v", err)
 	}
@@ -3400,9 +3400,6 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 	// large.
 	if err := aliceChannel.UpdateFee(newFeeRate); err == nil {
 		t.Fatalf("alice should've rejected fee update")
-	}
-	if err := bobChannel.ReceiveUpdateFee(newFeeRate); err == nil {
-		t.Fatalf("bob should've rejected fee update")
 	}
 }
 

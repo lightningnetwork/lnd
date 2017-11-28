@@ -2019,7 +2019,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	obfuscator := lc.stateHintObfuscator
 	broadcastStateNum := GetStateNumHint(commitTxBroadcast, obfuscator)
 
-	currentStateNum := lc.currentHeight
+	remoteStateNum := lc.channelState.RemoteCommitment.CommitHeight
 
 	// TODO(roasbeef): track heights distinctly?
 	switch {
@@ -2033,7 +2033,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// arise when we initiate a state transition, but the remote party has
 	// a fail crash _after_ accepting the new state, but _before_ sending
 	// their signature to us.
-	case broadcastStateNum >= currentStateNum:
+	case broadcastStateNum >= remoteStateNum:
 		walletLog.Infof("Unilateral close of ChannelPoint(%v) "+
 			"detected", lc.channelState.FundingOutpoint)
 
@@ -2144,11 +2144,11 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	// CONTRACT LAID OUT WITHIN THE PAYMENT CHANNEL.  Therefore we close
 	// the signal indicating a revoked broadcast to allow subscribers to
 	// swiftly dispatch justice!!!
-	case broadcastStateNum < currentStateNum:
+	case broadcastStateNum < remoteStateNum:
 		walletLog.Warnf("Remote peer has breached the channel "+
 			"contract for ChannelPoint(%v). Revoked state #%v was "+
 			"broadcast!!!", lc.channelState.FundingOutpoint,
-			broadcastStateNum)
+			remoteStateNum)
 
 		// Create a new reach retribution struct which contains all the
 		// data needed to swiftly bring the cheating peer to justice.

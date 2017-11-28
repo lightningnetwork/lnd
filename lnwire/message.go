@@ -1,6 +1,9 @@
-package lnwire
-
+// Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2015-2016 The Decred developers
 // code derived from https://github .com/btcsuite/btcd/blob/master/wire/message.go
+// Copyright (C) 2015-2017 The Lightning Network Developers
+
+package lnwire
 
 import (
 	"bytes"

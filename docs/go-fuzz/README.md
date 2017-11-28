@@ -94,7 +94,7 @@ Wherever a `0` is returned, `go-fuzz` will ignore that input as it has reached
 an unimportant code path caused by the parser catching the error. If a `1` is
 returned, the `[]byte` input was parsed successfully and the two `lnwire.Message`
 objects were indeed equal. This `[]byte` input is then added to the corpus as
-a valid message. If a `panic` is reached, serialiation or deserialization failed
+a valid message. If a `panic` is reached, serialization or deserialization failed
 and `go-fuzz` may have found a bug.
 
 ### Conclusion ###

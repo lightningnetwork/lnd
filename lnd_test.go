@@ -4103,7 +4103,8 @@ out:
 	// Alice's side, leaving on 10k satoshis of available balance for bob.
 	// There's a max payment amount, so we'll have to do this
 	// incrementally.
-	amtToSend := int64(chanAmt) - 20000
+	chanReserve := int64(chanAmt / 100)
+	amtToSend := int64(chanAmt) - chanReserve - 20000
 	amtSent := int64(0)
 	for amtSent != amtToSend {
 		// We'll send in chunks of the max payment amount. If we're
@@ -4642,8 +4643,10 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get alice channel info: %v", err)
 	}
 
-	// Calculate the number of invoices.
-	numInvoices := int(info.LocalBalance / paymentAmt)
+	// Calculate the number of invoices. We will deplete the channel
+	// all the way down to the channel reserve.
+	chanReserve := info.LocalBalance / 100
+	numInvoices := int((info.LocalBalance - chanReserve) / paymentAmt)
 	bobAmt := int64(numInvoices * paymentAmt)
 	aliceAmt := info.LocalBalance - bobAmt
 

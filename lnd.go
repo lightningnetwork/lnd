@@ -388,6 +388,24 @@ func lndMain() error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return server.htlcSwitch.UpdateShortChanID(cid, sid)
 		},
+		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+			// By default, we'll require the remote peer to maintain
+			// at least 1% of the total channel capacity at all
+			// times.
+			return chanAmt / 100
+		},
+		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+			// By default, we'll allow the remote peer to fully
+			// utilize the full bandwidth of the channel, minus our
+			// required reserve.
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+		},
+		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			// By default, we'll permit them to utilize the full
+			// channel bandwidth.
+			return uint16(lnwallet.MaxHTLCNumber / 2)
+		},
 	})
 	if err != nil {
 		return err

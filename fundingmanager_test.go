@@ -154,13 +154,14 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 	estimator lnwallet.FeeEstimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:         cdb,
-		Notifier:         notifier,
-		WalletController: wc,
-		Signer:           signer,
-		ChainIO:          bio,
-		FeeEstimator:     estimator,
-		NetParams:        *netParams,
+		Database:           cdb,
+		Notifier:           notifier,
+		WalletController:   wc,
+		Signer:             signer,
+		ChainIO:            bio,
+		FeeEstimator:       estimator,
+		NetParams:          *netParams,
+		DefaultConstraints: defaultChannelConstraints,
 	})
 	if err != nil {
 		return nil, err

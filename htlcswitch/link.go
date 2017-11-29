@@ -1264,8 +1264,9 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	// TODO(roasbeef): subtract reserve
 	channelBandwidth := l.channel.AvailableBalance()
 	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
+	reserve := lnwire.NewMSatFromSatoshis(l.channel.GetReserve())
 
-	return channelBandwidth - overflowBandwidth
+	return channelBandwidth - overflowBandwidth - reserve
 }
 
 // policyUpdate is a message sent to a channel link when an outside sub-system

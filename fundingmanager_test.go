@@ -278,6 +278,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
 			return 4
 		},
+		RequiredRemoteChanReserve: func(chanAmt btcutil.Amount) btcutil.Amount {
+			return chanAmt / 100
+		},
+		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
+		},
+		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+			return uint16(lnwallet.MaxHTLCNumber / 2)
+		},
 		ArbiterChan: arbiterChan,
 		WatchNewChannel: func(*channeldb.OpenChannel) error {
 			return nil

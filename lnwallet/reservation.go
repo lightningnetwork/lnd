@@ -282,6 +282,54 @@ func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
 	r.Lock()
 	defer r.Unlock()
 
+	// Fail if csvDelay is excessively large.
+	if csvDelay > 10000 {
+		return fmt.Errorf("csvDelay is too large: %d", csvDelay)
+	}
+
+	// Fail if the channel reserve is set to greater than 20% of the
+	// channel capacity.
+	maxChanReserve := (r.partialState.Capacity + 4) / 5
+	if chanReserve > maxChanReserve {
+		return fmt.Errorf("chanReserve is too large: %g",
+			chanReserve.ToBTC())
+	}
+
+	// Fail if the dust limit is lower than the DefaultDustLimit()
+	if r.ourContribution.DustLimit < DefaultDustLimit() {
+		return fmt.Errorf("dust limit is too small: %g",
+			r.ourContribution.DustLimit.ToBTC())
+	}
+
+	// Fail if maxHtlcs is above the maximum allowed number of 483.
+	if maxHtlcs > uint16(MaxHTLCNumber/2) {
+		return fmt.Errorf("maxHtlcs is too large: %d", maxHtlcs)
+	}
+
+	// Fail if maxHtlcs is too small.
+	if maxHtlcs < 5 {
+		return fmt.Errorf("maxHtlcs is too small: %d", maxHtlcs)
+	}
+
+	// Fail if maxValueInFlight is too large.
+	if maxValueInFlight > lnwire.NewMSatFromSatoshis(
+		r.partialState.Capacity-chanReserve) {
+		return fmt.Errorf("maxValueInFlight is too large: %g",
+			maxValueInFlight.ToBTC())
+	}
+
+	// Fail if maxValueInFlight is too small.
+	if maxValueInFlight < r.ourContribution.MinHTLC {
+		return fmt.Errorf("maxValueInFlight is too small: %g",
+			maxValueInFlight.ToBTC())
+	}
+
+	// Fail if the minimum HTLC value is too large
+	if r.ourContribution.MinHTLC > maxValueInFlight {
+		return fmt.Errorf("minimum HTLC value is too large: %g",
+			r.ourContribution.MinHTLC.ToBTC())
+	}
+
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay
 	r.ourContribution.ChannelConfig.ChanReserve = chanReserve
 	r.ourContribution.ChannelConfig.MaxAcceptedHtlcs = maxHtlcs

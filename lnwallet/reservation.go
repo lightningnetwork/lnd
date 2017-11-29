@@ -277,90 +277,66 @@ func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
 func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
-	maxValueInFlight lnwire.MilliSatoshi, chanReserve btcutil.Amount) error {
+	maxValueInFlight, minHtlc lnwire.MilliSatoshi,
+	chanReserve btcutil.Amount) error {
 
 	r.Lock()
 	defer r.Unlock()
 
-	// Fail if csvDelay is excessively large.
+	// Fail if we consider csvDelay excessively large.
+	// TODO(halseth): find a more scientific choice of value.
 	if csvDelay > 10000 {
 		return fmt.Errorf("csvDelay is too large: %d", csvDelay)
 	}
 
-	// Fail if the channel reserve is set to greater than 20% of the
+	// Fail if we consider the channel reserve to be too large.
+	// We currently fail if it is greater than 20% of the
 	// channel capacity.
-	maxChanReserve := (r.partialState.Capacity + 4) / 5
+	maxChanReserve := r.partialState.Capacity / 5
 	if chanReserve > maxChanReserve {
 		return fmt.Errorf("chanReserve is too large: %g",
 			chanReserve.ToBTC())
 	}
 
-	// Fail if the dust limit is lower than the DefaultDustLimit()
-	if r.ourContribution.DustLimit < DefaultDustLimit() {
-		return fmt.Errorf("dust limit is too small: %g",
-			r.ourContribution.DustLimit.ToBTC())
+	// Fail if the minimum HTLC value is too large. If this is
+	// too large, the channel won't be useful for sending small
+	// payments. This limit is currently set to maxValueInFlight,
+	// effictively letting the remote setting this as large as
+	// it wants.
+	// TODO(halseth): set a reasonable/dynamic value.
+	if minHtlc > maxValueInFlight {
+		return fmt.Errorf("minimum HTLC value is too large: %g",
+			r.ourContribution.MinHTLC.ToBTC())
 	}
 
 	// Fail if maxHtlcs is above the maximum allowed number of 483.
+	// This number is specified in BOLT-02.
 	if maxHtlcs > uint16(MaxHTLCNumber/2) {
 		return fmt.Errorf("maxHtlcs is too large: %d", maxHtlcs)
 	}
 
-	// Fail if maxHtlcs is too small.
-	if maxHtlcs < 5 {
+	// Fail if we consider maxHtlcs too small. If this is too small
+	// we cannot offer many HTLCs to the remote.
+	const minNumHtlc = 5
+	if maxHtlcs < minNumHtlc {
 		return fmt.Errorf("maxHtlcs is too small: %d", maxHtlcs)
 	}
 
-	// Fail if maxValueInFlight is too large.
-	if maxValueInFlight > lnwire.NewMSatFromSatoshis(
-		r.partialState.Capacity-chanReserve) {
-		return fmt.Errorf("maxValueInFlight is too large: %g",
-			maxValueInFlight.ToBTC())
-	}
-
-	// Fail if maxValueInFlight is too small.
-	if maxValueInFlight < r.ourContribution.MinHTLC {
+	// Fail if we consider maxValueInFlight too small. We currently
+	// require the remote to at least allow minNumHtlc * minHtlc
+	// in flight.
+	if maxValueInFlight < minNumHtlc*minHtlc {
 		return fmt.Errorf("maxValueInFlight is too small: %g",
 			maxValueInFlight.ToBTC())
-	}
-
-	// Fail if the minimum HTLC value is too large
-	if r.ourContribution.MinHTLC > maxValueInFlight {
-		return fmt.Errorf("minimum HTLC value is too large: %g",
-			r.ourContribution.MinHTLC.ToBTC())
 	}
 
 	r.ourContribution.ChannelConfig.CsvDelay = csvDelay
 	r.ourContribution.ChannelConfig.ChanReserve = chanReserve
 	r.ourContribution.ChannelConfig.MaxAcceptedHtlcs = maxHtlcs
 	r.ourContribution.ChannelConfig.MaxPendingAmount = maxValueInFlight
+	r.ourContribution.ChannelConfig.MinHTLC = minHtlc
 
 	return nil
-}
-
-// RemoteChanConstraints returns our desired parameters which constraint the
-// type of commitment transactions that the remote party can extend for our
-// current state. In order to ensure that we only accept sane states, we'll
-// specify: the required reserve the remote party must uphold, the max value in
-// flight, and the maximum number of HTLC's that can propose in a state.
-func (r *ChannelReservation) RemoteChanConstraints() (btcutil.Amount, lnwire.MilliSatoshi, uint16) {
-	chanCapacity := r.partialState.Capacity
-
-	// TODO(roasbeef): move csv delay calculation into func?
-
-	// By default, we'll require them to maintain at least 1% of the total
-	// channel capacity at all times. This is the absolute amount the
-	// settled balance of the remote party must be above at *all* times.
-	chanReserve := (chanCapacity) / 100
-
-	// We'll allow them to fully utilize the full bandwidth of the channel,
-	// minus our required reserve.
-	maxValue := lnwire.NewMSatFromSatoshis(chanCapacity - chanReserve)
-
-	// Finally, we'll permit them to utilize the full channel bandwidth
-	maxHTLCs := uint16(MaxHTLCNumber / 2)
-
-	return chanReserve, maxValue, maxHTLCs
 }
 
 // OurContribution returns the wallet's fully populated contribution to the

@@ -109,7 +109,7 @@ const (
 )
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
-// limit their exposure, enact flow control and ensure that all HTLC's are
+// limit their exposure, enact flow control and ensure that all HTLCs are
 // economically relevant This struct will be mirrored for both sides of the
 // channel, as each side will enforce various constraints that MUST be adhered
 // to for the life time of the channel. The parameters for each of these
@@ -121,27 +121,28 @@ type ChannelConstraints struct {
 	// as an actual output, but is instead burned to miner's fees.
 	DustLimit btcutil.Amount
 
-	// MaxPendingAmount is the maximum pending HTLC value that can be
-	// present within the channel at a particular time. This value is set
-	// by the initiator of the channel and must be upheld at all times.
-	MaxPendingAmount lnwire.MilliSatoshi
-
-	// ChanReserve is an absolute reservation on the channel for this
-	// particular node. This means that the current settled balance for
-	// this node CANNOT dip below the reservation amount. This acts as a
-	// defense against costless attacks when either side no longer has any
-	// skin in the game.
+	// ChanReserve is an absolute reservation on the channel for the
+	// owner of this set of constraints. This means that the current
+	// settled balance for this node CANNOT dip below the reservation
+	// amount. This acts as a defense against costless attacks when
+	// either side no longer has any skin in the game.
 	ChanReserve btcutil.Amount
 
-	// MinHTLC is the minimum HTLC accepted for a direction of the channel.
-	// If any HTLC's below this amount are offered, then the HTLC will be
-	// rejected. This, in tandem with the dust limit allows a node to
-	// regulate the smallest HTLC that it deems economically relevant.
+	// MaxPendingAmount is the maximum pending HTLC value that the
+	// owner of these constraints can offer the remote node at a
+	// particular time.
+	MaxPendingAmount lnwire.MilliSatoshi
+
+	// MinHTLC is the minimum HTLC value that the the owner of these
+	// constraints can offer the remote node. If any HTLCs below this
+	// amount are offered, then the HTLC will be rejected. This, in
+	// tandem with the dust limit allows a node to regulate the
+	// smallest HTLC that it deems economically relevant.
 	MinHTLC lnwire.MilliSatoshi
 
-	// MaxAcceptedHtlcs is the maximum amount of HTLC's that are to be
-	// accepted by the owner of this set of constraints. This allows each
-	// node to limit their over all exposure to HTLC's that may need to be
+	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
+	// this set of constraints can offer the remote node. This allows each
+	// node to limit their over all exposure to HTLCs that may need to be
 	// acted upon in the case of a unilateral channel closure or a contract
 	// breach.
 	MaxAcceptedHtlcs uint16

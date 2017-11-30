@@ -757,7 +757,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process, in
 	// this case the announcement should be added in the orphan batch
-	// because we haven't announce the channel yet.
+	// because we haven't announced the channel yet.
 	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteProofAnn, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to proceed announcement: %v", err)

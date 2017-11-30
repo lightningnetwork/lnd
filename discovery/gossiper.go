@@ -584,6 +584,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 						emittedAnnouncements...,
 					)
 				}
+				continue
 			}
 
 			// We'll set up any dependant, and wait until a free

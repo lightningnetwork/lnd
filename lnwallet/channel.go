@@ -4603,10 +4603,13 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	ourBalance := localCommit.LocalBalance.ToSatoshis()
 	theirBalance := localCommit.RemoteBalance.ToSatoshis()
 
+	// We'll make sure we account for the complete balance by adding the
+	// current dangling commitment fee to the balance of the initiator.
+	commitFee := localCommit.CommitFee
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - proposedFee
+		ourBalance = ourBalance - proposedFee + commitFee
 	} else {
-		theirBalance = theirBalance - proposedFee
+		theirBalance = theirBalance - proposedFee + commitFee
 	}
 
 	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn,
@@ -4665,10 +4668,13 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	ourBalance := localCommit.LocalBalance.ToSatoshis()
 	theirBalance := localCommit.RemoteBalance.ToSatoshis()
 
+	// We'll make sure we account for the complete balance by adding the
+	// current dangling commitment fee to the balance of the initiator.
+	commitFee := localCommit.CommitFee
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - proposedFee
+		ourBalance = ourBalance - proposedFee + commitFee
 	} else {
-		theirBalance = theirBalance - proposedFee
+		theirBalance = theirBalance - proposedFee + commitFee
 	}
 
 	// Create the transaction used to return the current settled balance

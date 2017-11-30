@@ -1807,7 +1807,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// Both sides currently have over 1 BTC settled as part of their
 	// balances. As a result, performing a cooperative closure now result
 	// in both sides having an output within the closure transaction.
-	aliceFee := btcutil.Amount(aliceChannel.CalcFee(aliceFeeRate))
+	aliceFee := btcutil.Amount(aliceChannel.CalcFee(aliceFeeRate)) + 1000
 	aliceSig, err := aliceChannel.CreateCloseProposal(aliceFee,
 		aliceDeliveryScript, bobDeliveryScript)
 	if err != nil {
@@ -1815,7 +1815,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	aliceCloseSig := append(aliceSig, byte(txscript.SigHashAll))
 
-	bobFee := btcutil.Amount(bobChannel.CalcFee(bobFeeRate))
+	bobFee := btcutil.Amount(bobChannel.CalcFee(bobFeeRate)) + 1000
 	bobSig, err := bobChannel.CreateCloseProposal(bobFee,
 		bobDeliveryScript, aliceDeliveryScript)
 	if err != nil {
@@ -1874,10 +1874,12 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		t.Fatalf("close tx has wrong number of outputs: expected %v "+
 			"got %v", 1, len(closeTx.TxOut))
 	}
-	if closeTx.TxOut[0].Value != int64(aliceBal.ToSatoshis()-calcStaticFee(0)) {
+	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
+	aliceExpectedBalance := aliceBal.ToSatoshis() - aliceFee + commitFee
+	if closeTx.TxOut[0].Value != int64(aliceExpectedBalance) {
 		t.Fatalf("alice's balance is incorrect: expected %v, got %v",
-			int64(aliceBal.ToSatoshis()-calcStaticFee(0)),
-			closeTx.TxOut[0].Value)
+			aliceExpectedBalance,
+			int64(closeTx.TxOut[0].Value))
 	}
 
 	// Finally, we'll modify the current balances and dust limits such that

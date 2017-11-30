@@ -866,7 +866,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsg(ca)
+	announcements.AddMsgs(ca)
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("new channel announcement not stored in batch")
 	}
@@ -879,7 +879,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsg(ca2)
+	announcements.AddMsgs(ca2)
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("channel announcement not replaced in batch")
 	}
@@ -891,7 +891,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsg(ua)
+	announcements.AddMsgs(ua)
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("new channel update not stored in batch")
 	}
@@ -902,7 +902,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsg(ua2)
+	announcements.AddMsgs(ua2)
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("channel update not replaced in batch")
 	}
@@ -913,7 +913,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsg(na)
+	announcements.AddMsgs(na)
 	if len(announcements.nodeAnnouncements) != 1 {
 		t.Fatal("new node announcement not stored in batch")
 	}
@@ -923,7 +923,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsg(na2)
+	announcements.AddMsgs(na2)
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not stored in batch")
 	}
@@ -934,7 +934,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsg(na3)
+	announcements.AddMsgs(na3)
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced in batch")
 	}
@@ -946,14 +946,14 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsg(na4)
+	announcements.AddMsgs(na4)
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced again in batch")
 	}
 
 	// Ensure that announcement batch delivers channel announcements,
 	// channel updates, and node announcements in proper order.
-	batch := announcements.Batch()
+	batch := announcements.Emit()
 	if len(batch) != 4 {
 		t.Fatal("announcement batch incorrect length")
 	}

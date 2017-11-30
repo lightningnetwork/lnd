@@ -397,11 +397,11 @@ type channelUpdateID struct {
 	flags uint16
 }
 
-// deDupedAnnouncements de-duplicates announcements that have been
-// added to the batch. Internally, announcements are stored in three maps
+// deDupedAnnouncements de-duplicates announcements that have been added to the
+// batch. Internally, announcements are stored in three maps
 // (one each for channel announcements, channel updates, and node
-// announcements). These maps keep track of unique announcements and
-// ensure no announcements are duplicated.
+// announcements). These maps keep track of unique announcements and ensure no
+// announcements are duplicated.
 type deDupedAnnouncements struct {
 	// channelAnnouncements are identified by the short channel id field.
 	channelAnnouncements map[lnwire.ShortChannelID]lnwire.Message
@@ -411,59 +411,80 @@ type deDupedAnnouncements struct {
 
 	// nodeAnnouncements are identified by the Vertex field.
 	nodeAnnouncements map[routing.Vertex]lnwire.Message
+
+	sync.Mutex
 }
 
-// Reset operates on deDupedAnnouncements to reset storage of announcements
+// Reset operates on deDupedAnnouncements to reset the storage of
+// announcements.
 func (d *deDupedAnnouncements) Reset() {
+	d.Lock()
+	defer d.Unlock()
+
+	d.reset()
+}
+
+// reset is the private version of the Reset method. We have this so we can
+// call this method within method that are already holding the lock.
+func (d *deDupedAnnouncements) reset() {
 	// Storage of each type of announcement (channel anouncements, channel
 	// updates, node announcements) is set to an empty map where the
-	// approprate key points to the corresponding lnwire.Message.
+	// appropriate key points to the corresponding lnwire.Message.
 	d.channelAnnouncements = make(map[lnwire.ShortChannelID]lnwire.Message)
 	d.channelUpdates = make(map[channelUpdateID]lnwire.Message)
 	d.nodeAnnouncements = make(map[routing.Vertex]lnwire.Message)
 }
 
-// AddMsg adds a new message to the current batch.
-func (d *deDupedAnnouncements) AddMsg(message lnwire.Message) {
-	// Depending on the message type (channel announcement, channel
-	// update, or node announcement), the message is added to the
-	// corresponding map in deDupedAnnouncements. Because each
-	// identifying key can have at most one value, the announcements
-	// are de-duplicated, with newer ones replacing older ones.
+// addMsg adds a new message to the current batch.
+func (d *deDupedAnnouncements) addMsg(message lnwire.Message) {
+	// Depending on the message type (channel announcement, channel update,
+	// or node announcement), the message is added to the corresponding map
+	// in deDupedAnnouncements. Because each identifying key can have at
+	// most one value, the announcements are de-duplicated, with newer ones
+	// replacing older ones.
 	switch msg := message.(type) {
+
+	// Channel announcements are identified by the short channel id field.
 	case *lnwire.ChannelAnnouncement:
-		// Channel announcements are identified by the short channel
-		// id field.
 		d.channelAnnouncements[msg.ShortChannelID] = msg
+
+	// Channel updates are identified by the (short channel id, flags)
+	// tuple.
 	case *lnwire.ChannelUpdate:
-		// Channel updates are identified by the (short channel id,
-		// flags) tuple.
 		channelUpdateID := channelUpdateID{
 			msg.ShortChannelID,
 			msg.Flags,
 		}
 
 		d.channelUpdates[channelUpdateID] = msg
+
+	// Node announcements are identified by the Vertex field.  Use the
+	// NodeID to create the corresponding Vertex.
 	case *lnwire.NodeAnnouncement:
-		// Node announcements are identified by the Vertex field.
-		// Use the NodeID to create the corresponding Vertex.
 		vertex := routing.NewVertex(msg.NodeID)
 		d.nodeAnnouncements[vertex] = msg
 	}
 }
 
-// AddMsgs is a helper method to add multiple messages to the
-// announcement batch.
-func (d *deDupedAnnouncements) AddMsgs(msgs []lnwire.Message) {
+// AddMsgs is a helper method to add multiple messages to the announcement
+// batch.
+func (d *deDupedAnnouncements) AddMsgs(msgs ...lnwire.Message) {
+	d.Lock()
+	defer d.Unlock()
+
 	for _, msg := range msgs {
-		d.AddMsg(msg)
+		d.addMsg(msg)
 	}
 }
 
-// Batch returns the set of de-duplicated announcements to be sent out
-// during the next announcement epoch, in the order of channel announcements,
-// channel updates, and node announcements.
-func (d *deDupedAnnouncements) Batch() []lnwire.Message {
+// Emit returns the set of de-duplicated announcements to be sent out during
+// the next announcement epoch, in the order of channel announcements, channel
+// updates, and node announcements. Additionally, the set of stored messages
+// are reset.
+func (d *deDupedAnnouncements) Emit() []lnwire.Message {
+	d.Lock()
+	defer d.Unlock()
+
 	// Get the total number of announcements.
 	numAnnouncements := len(d.channelAnnouncements) + len(d.channelUpdates) +
 		len(d.nodeAnnouncements)
@@ -487,6 +508,8 @@ func (d *deDupedAnnouncements) Batch() []lnwire.Message {
 		announcements = append(announcements, message)
 	}
 
+	d.reset()
+
 	// Return the array of lnwire.messages.
 	return announcements
 }
@@ -499,11 +522,6 @@ func (d *deDupedAnnouncements) Batch() []lnwire.Message {
 // NOTE: This MUST be run as a goroutine.
 func (d *AuthenticatedGossiper) networkHandler() {
 	defer d.wg.Done()
-
-	// TODO(roasbeef): changes for spec compliance
-	//  * buffer recv'd node ann until after chan ann that includes is
-	//    created
-	//    * can use mostly empty struct in db as place holder
 
 	// Initialize empty deDupedAnnouncements to store announcement batch.
 	announcements := deDupedAnnouncements{}

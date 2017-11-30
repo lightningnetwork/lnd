@@ -273,8 +273,12 @@ func (r *ChannelRouter) Start() error {
 	r.newBlocks = r.cfg.ChainView.FilteredBlocks()
 	r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
 
-	_, pruneHeight, err := r.cfg.Graph.PruneTip()
+	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
+		return err
+	}
+
+	if _, _, err := r.cfg.Graph.PruneTip(); err != nil {
 		switch {
 		// If the graph has never been pruned, or hasn't fully been
 		// created yet, then we don't treat this as an explicit error.
@@ -284,11 +288,6 @@ func (r *ChannelRouter) Start() error {
 			// If the graph has never been pruned, then we'll set
 			// the prune height to the current best height of the
 			// chain backend.
-			bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
-			if err != nil {
-				return err
-			}
-
 			_, err = r.cfg.Graph.PruneGraph(
 				nil, bestHash, uint32(bestHeight),
 			)
@@ -311,7 +310,9 @@ func (r *ChannelRouter) Start() error {
 
 	log.Infof("Filtering chain using %v channels active", len(channelView))
 	if len(channelView) != 0 {
-		err = r.cfg.ChainView.UpdateFilter(channelView, pruneHeight)
+		err = r.cfg.ChainView.UpdateFilter(
+			channelView, uint32(bestHeight),
+		)
 		if err != nil {
 			return err
 		}

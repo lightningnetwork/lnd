@@ -62,6 +62,14 @@ func (c *testCtx) RestartRouter() error {
 	return nil
 }
 
+func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
+	return &btcec.PublicKey{
+		Curve: btcec.S256(),
+		X:     pub.X,
+		Y:     pub.Y,
+	}
+}
+
 func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func(), error) {
 	var (
 		graph      *channeldb.ChannelGraph
@@ -439,10 +447,10 @@ func TestAddProof(t *testing.T) {
 	// After utxo was recreated adding the edge without the proof.
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof:   nil,
 	}
 
@@ -480,7 +488,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               priv1.PubKey(),
+		PubKey:               copyPubKey(priv1.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node11",
 		AuthSig:              testSig,
@@ -540,10 +548,10 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	edge := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID.ToUint64(),
-		NodeKey1:    priv1.PubKey(),
-		NodeKey2:    priv2.PubKey(),
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(priv1.PubKey()),
+		NodeKey2:    copyPubKey(priv2.PubKey()),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof:   nil,
 	}
 	if err := ctx.router.AddEdge(edge); err != nil {
@@ -697,7 +705,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               priv1.PubKey(),
+		PubKey:               copyPubKey(priv1.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node11",
 		AuthSig:              testSig,
@@ -712,7 +720,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
-		PubKey:               priv2.PubKey(),
+		PubKey:               copyPubKey(priv2.PubKey()),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "node22",
 		AuthSig:              testSig,
@@ -847,10 +855,10 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID1,
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -865,10 +873,10 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 
 	edge2 := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID2,
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -1049,10 +1057,10 @@ func TestDisconnectedBlocks(t *testing.T) {
 
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID1,
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -1067,10 +1075,10 @@ func TestDisconnectedBlocks(t *testing.T) {
 
 	edge2 := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID2,
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,
@@ -1189,10 +1197,10 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 	edge1 := &channeldb.ChannelEdgeInfo{
 		ChannelID:   chanID1.ToUint64(),
-		NodeKey1:    node1.PubKey,
-		NodeKey2:    node2.PubKey,
-		BitcoinKey1: bitcoinKey1,
-		BitcoinKey2: bitcoinKey2,
+		NodeKey1:    copyPubKey(node1.PubKey),
+		NodeKey2:    copyPubKey(node2.PubKey),
+		BitcoinKey1: copyPubKey(bitcoinKey1),
+		BitcoinKey2: copyPubKey(bitcoinKey2),
 		AuthProof: &channeldb.ChannelAuthProof{
 			NodeSig1:    testSig,
 			NodeSig2:    testSig,

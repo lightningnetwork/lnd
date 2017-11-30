@@ -3,6 +3,7 @@ package routing
 import (
 	"bytes"
 	"fmt"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -496,35 +497,55 @@ func (r *ChannelRouter) networkHandler() {
 	graphPruneTicker := time.NewTicker(r.cfg.GraphPruneInterval)
 	defer graphPruneTicker.Stop()
 
+	// We'll use this validation barrier to ensure that we process all jobs
+	// in the proper order during parallel validation.
+	validationBarrier := NewValidationBarrier(runtime.NumCPU()*10, r.quit)
+
 	for {
 		select {
 		// A new fully validated network update has just arrived. As a
 		// result we'll modify the channel graph accordingly depending
 		// on the exact type of the message.
 		case updateMsg := <-r.networkUpdates:
-			// Process the routing update to determine if this is
-			// either a new update from our PoV or an update to a
-			// prior vertex/edge we previously accepted.
-			err := r.processUpdate(updateMsg.msg)
-			updateMsg.err <- err
-			if err != nil {
-				continue
-			}
+			// We'll set up any dependants, and wait until a free
+			// slot for this job opens up, this allow us to not
+			// have thousands of goroutines active.
+			validationBarrier.InitJobDependancies(updateMsg.msg)
 
-			// Send off a new notification for the newly accepted
-			// update.
-			topChange := &TopologyChange{}
-			err = addToTopologyChange(r.cfg.Graph, topChange,
-				updateMsg.msg)
-			if err != nil {
-				log.Errorf("unable to update topology "+
-					"change notification: %v", err)
-				continue
-			}
+			go func() {
+				defer validationBarrier.CompleteJob()
 
-			if !topChange.isEmpty() {
-				r.notifyTopologyChange(topChange)
-			}
+				// If this message has an existing dependency,
+				// then we'll wait until that has been fully
+				// validated before we proceed.
+				validationBarrier.WaitForDependants(updateMsg.msg)
+
+				// Process the routing update to determine if
+				// this is either a new update from our PoV or
+				// an update to a prior vertex/edge we
+				// previously accepted.
+				err := r.processUpdate(updateMsg.msg)
+				updateMsg.err <- err
+
+				// If this message had any dependencies, then
+				// we can now signal them to continue.
+				validationBarrier.SignalDependants(updateMsg.msg)
+
+				// Send off a new notification for the newly
+				// accepted update.
+				topChange := &TopologyChange{}
+				err = addToTopologyChange(r.cfg.Graph, topChange,
+					updateMsg.msg)
+				if err != nil {
+					log.Errorf("unable to update topology "+
+						"change notification: %v", err)
+					return
+				}
+
+				if !topChange.isEmpty() {
+					r.notifyTopologyChange(topChange)
+				}
+			}()
 
 			// TODO(roasbeef): remove all unconnected vertexes
 			// after N blocks pass with no corresponding
@@ -631,8 +652,13 @@ func (r *ChannelRouter) networkHandler() {
 			clientID := ntfnUpdate.clientID
 
 			if ntfnUpdate.cancel {
-				if client, ok := r.topologyClients[ntfnUpdate.clientID]; ok {
+				r.RLock()
+				client, ok := r.topologyClients[ntfnUpdate.clientID]
+				r.RUnlock()
+				if ok {
+					r.Lock()
 					delete(r.topologyClients, clientID)
+					r.Unlock()
 
 					close(client.exit)
 					client.wg.Wait()
@@ -643,10 +669,12 @@ func (r *ChannelRouter) networkHandler() {
 				continue
 			}
 
+			r.Lock()
 			r.topologyClients[ntfnUpdate.clientID] = &topologyClient{
 				ntfnChan: ntfnUpdate.ntfnChan,
 				exit:     make(chan struct{}),
 			}
+			r.Unlock()
 
 		// The graph prune ticker has ticked, so we'll examine the
 		// state of the known graph to filter out any zombie channels

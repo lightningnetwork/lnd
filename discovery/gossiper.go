@@ -573,6 +573,19 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			feeUpdate.errResp <- nil
 
 		case announcement := <-d.networkMsgs:
+			// Channel annoucnement signatures are the only message
+			// that we'll process serially.
+			if _, ok := announcement.msg.(*lnwire.AnnounceSignatures); ok {
+				emittedAnnouncements := d.processNetworkAnnouncement(
+					announcement,
+				)
+				if emittedAnnouncements != nil {
+					announcements.AddMsgs(
+						emittedAnnouncements...,
+					)
+				}
+			}
+
 			// We'll set up any dependant, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.

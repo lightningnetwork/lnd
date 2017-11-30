@@ -1198,7 +1198,7 @@ func (u *utxoNursery) waitForCommitConf(kid *kidOutput,
 	}
 
 	utxnLog.Infof("Commitment output %v promoted to "+
-		"kindergarten", kid.OutPoint())
+		"kindergarten, csv=%v", kid.OutPoint(), kid.BlocksToMaturity())
 }
 
 // contractMaturityReport is a report that details the maturity progress of a

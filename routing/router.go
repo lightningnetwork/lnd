@@ -531,6 +531,10 @@ func (r *ChannelRouter) networkHandler() {
 				// we can now signal them to continue.
 				validationBarrier.SignalDependants(updateMsg.msg)
 
+				if err != nil {
+					return
+				}
+
 				// Send off a new notification for the newly
 				// accepted update.
 				topChange := &TopologyChange{}

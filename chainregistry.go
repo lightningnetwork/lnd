@@ -270,9 +270,11 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 		walletConfig.ChainSource = chainRPC
 
-		// If we're not in simnet mode, then we'll attempt to use a
-		// proper fee estimator for testnet.
-		if !cfg.Bitcoin.SimNet && !cfg.Litecoin.SimNet {
+		// If we're not in simnet or regtest mode, then we'll attempt
+		// to use a proper fee estimator for testnet.
+		if !cfg.Bitcoin.SimNet && !cfg.Litecoin.SimNet &&
+			!cfg.Bitcoin.RegTest && !cfg.Litecoin.RegTest {
+
 			ltndLog.Infof("Initializing btcd backed fee estimator")
 
 			// Finally, we'll re-initialize the fee estimator, as

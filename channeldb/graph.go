@@ -967,7 +967,7 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 		// Depending on the flags value passed above, either the first
 		// or second edge policy is being updated.
 		var fromNode, toNode []byte
-		if edge.Flags == 0 {
+		if edge.Flags&lnwire.ChanUpdateDirection == 0 {
 			fromNode = nodeInfo[:33]
 			toNode = nodeInfo[33:67]
 		} else {
@@ -1336,8 +1336,7 @@ type ChannelEdgePolicy struct {
 
 	// Flags is a bitfield which signals the capabilities of the channel as
 	// well as the directed edge this update applies to.
-	// TODO(roasbeef):  make into wire struct
-	Flags uint16
+	Flags lnwire.ChanUpdateFlag
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer

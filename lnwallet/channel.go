@@ -2217,7 +2217,7 @@ func htlcIsDust(incoming, ourCommit bool,
 	// we'll be using an HTLC success transaction as they're the receiver
 	// of this HTLC.
 	case !incoming && !ourCommit:
-		htlcFee = htlcTimeoutFee(feePerKw)
+		htlcFee = htlcSuccessFee(feePerKw)
 	}
 
 	return (htlcAmt - htlcFee) < dustLimit

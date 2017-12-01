@@ -468,7 +468,13 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 
 			v := NewVertex(outEdge.Node.PubKey)
 
-			// TODO(roasbeef): skip if chan disabled
+			// If the outgoing edge is currently disabled, then
+			// we'll stop here, as we shouldn't attempt to route
+			// through it.
+			edgeFlags := lnwire.ChanUpdateFlag(outEdge.Flags)
+			if edgeFlags&lnwire.ChanUpdateDisabled == lnwire.ChanUpdateDisabled {
+				return nil
+			}
 
 			// If this Vertex or edge has been black listed, then
 			// we'll skip exploring this edge during this

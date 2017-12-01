@@ -624,6 +624,81 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	}
 }
 
+// TestRouteFailMinHTLC tests that if we attempt to route an HTLC which is
+// smaller than the advertised minHTLC of an edge, then path finding fails.
+func TestRouteFailMinHTLC(t *testing.T) {
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
+	// Goku. However, the min HTLC of Son Goku is 1k SAT, as a result, this
+	// attempt should fail.
+	target := aliases["songoku"]
+	payAmt := lnwire.MilliSatoshi(10)
+	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, payAmt)
+	if !IsError(err, ErrNoPathFound) {
+		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+}
+
+// TestRouteFailDisabledEdge tests that if we attempt to route to an edge
+// that's disabled, then that edge is disqualified, and the routing attempt
+// will fail.
+func TestRouteFailDisabledEdge(t *testing.T) {
+	graph, cleanUp, aliases, err := parseTestGraph(basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	ignoredEdges := make(map[uint64]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// First, we'll try to route from roasbeef -> songoku. This should
+	// suceed without issue, and return a single path.
+	target := aliases["songoku"]
+	payAmt := lnwire.NewMSatFromSatoshis(10000)
+	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, payAmt)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	// First, we'll modify the edge from roasbeef -> songoku, to read that
+	// it's disabled.
+	_, gokuEdge, _, err := graph.FetchChannelEdgesByID(12345)
+	if err != nil {
+		t.Fatalf("unable to fetch goku's edge: %v", err)
+	}
+	gokuEdge.Flags = lnwire.ChanUpdateDisabled
+	if err := graph.UpdateEdgePolicy(gokuEdge); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Now, if we attempt to route throuhg that edge, we should get a
+	// failure as it is no longer elligble.
+	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
+		ignoredEdges, payAmt)
+	if !IsError(err, ErrNoPathFound) {
+		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+}
+
 func TestPathInsufficientCapacityWithFee(t *testing.T) {
 	t.Parallel()
 

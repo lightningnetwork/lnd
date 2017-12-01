@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"golang.org/x/crypto/salsa20"
 
 	"github.com/boltdb/bolt"
@@ -23,7 +25,6 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -2214,9 +2215,22 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	// error back to the caller (if any), and cancel the workflow itself.
 	lnErr := lnwire.ErrorCode(protocolErr.Data[0])
 	fndgLog.Errorf("Received funding error from %x: %v",
-		peerKey.SerializeCompressed(), lnErr,
+		peerKey.SerializeCompressed(), string(protocolErr.Data),
 	)
-	resCtx.err <- grpc.Errorf(lnErr.ToGrpcCode(), lnErr.String())
+
+	// If this isn't a simple error code, then we'll display the entire
+	// thing.
+	if len(protocolErr.Data) > 0 {
+		resCtx.err <- grpc.Errorf(
+			lnErr.ToGrpcCode(), string(protocolErr.Data),
+		)
+	} else {
+		// Otherwise, we'll attempt tto display just the error code
+		// itself.
+		resCtx.err <- grpc.Errorf(
+			lnErr.ToGrpcCode(), lnErr.String(),
+		)
+	}
 
 	if _, err := f.cancelReservationCtx(peerKey, chanID); err != nil {
 		fndgLog.Warnf("unable to delete reservation: %v", err)

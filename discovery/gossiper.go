@@ -397,7 +397,7 @@ type channelUpdateID struct {
 	// Flags least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise.
-	flags uint16
+	flags lnwire.ChanUpdateFlag
 }
 
 // deDupedAnnouncements de-duplicates announcements that have been added to the
@@ -1058,20 +1058,15 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			return nil
 		}
 
-		// The flag on the channel update announcement tells us "which"
-		// side of the channels directed edge is being updated.
+		// The least-significant bit in the flag on the channel update
+		// announcement tells us "which" side of the channels directed
+		// edge is being updated.
 		var pubKey *btcec.PublicKey
-		switch msg.Flags {
-		case 0:
+		switch {
+		case msg.Flags&lnwire.ChanUpdateDirection == 0:
 			pubKey = chanInfo.NodeKey1
-		case 1:
+		case msg.Flags&lnwire.ChanUpdateDirection == 1:
 			pubKey = chanInfo.NodeKey2
-		default:
-			rErr := errors.Errorf("unknown flags=%v for "+
-				"short_chan_id=%v", msg.Flags, shortChanID)
-			log.Error(rErr)
-			nMsg.err <- rErr
-			return nil
 		}
 
 		// Validate the channel announcement with the expected public

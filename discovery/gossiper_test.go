@@ -253,11 +253,15 @@ func (m *mockNotifier) Stop() error {
 }
 
 type annBatch struct {
-	nodeAnn1       *lnwire.NodeAnnouncement
-	nodeAnn2       *lnwire.NodeAnnouncement
-	localChanAnn   *lnwire.ChannelAnnouncement
-	remoteChanAnn  *lnwire.ChannelAnnouncement
-	chanUpdAnn     *lnwire.ChannelUpdate
+	nodeAnn1 *lnwire.NodeAnnouncement
+	nodeAnn2 *lnwire.NodeAnnouncement
+
+	localChanAnn  *lnwire.ChannelAnnouncement
+	remoteChanAnn *lnwire.ChannelAnnouncement
+
+	chanUpdAnn1 *lnwire.ChannelUpdate
+	chanUpdAnn2 *lnwire.ChannelUpdate
+
 	localProofAnn  *lnwire.AnnounceSignatures
 	remoteProofAnn *lnwire.AnnounceSignatures
 }
@@ -300,14 +304,19 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	batch.localChanAnn.NodeSig1 = nil
 	batch.localChanAnn.NodeSig2 = nil
 
-	batch.chanUpdAnn, err = createUpdateAnnouncement(blockHeight)
+	batch.chanUpdAnn1, err = createUpdateAnnouncement(
+		blockHeight, 0, nodeKeyPriv1,
+	)
 	if err != nil {
 		return nil, err
 	}
-	batch.localChanAnn.BitcoinSig1 = nil
-	batch.localChanAnn.BitcoinSig2 = nil
-	batch.localChanAnn.NodeSig1 = nil
-	batch.localChanAnn.NodeSig2 = nil
+
+	batch.chanUpdAnn2, err = createUpdateAnnouncement(
+		blockHeight, 1, nodeKeyPriv2,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &batch, nil
 
@@ -339,7 +348,9 @@ func createNodeAnnouncement(priv *btcec.PrivateKey) (*lnwire.NodeAnnouncement,
 	return a, nil
 }
 
-func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdate, error) {
+func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
+	nodeKey *btcec.PrivateKey) (*lnwire.ChannelUpdate, error) {
+
 	var err error
 
 	a := &lnwire.ChannelUpdate{
@@ -348,13 +359,14 @@ func createUpdateAnnouncement(blockHeight uint32) (*lnwire.ChannelUpdate, error)
 		},
 		Timestamp:       uint32(prand.Int31()),
 		TimeLockDelta:   uint16(prand.Int63()),
+		Flags:           flags,
 		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
 	}
 
-	pub := nodeKeyPriv1.PubKey()
-	signer := mockSigner{nodeKeyPriv1}
+	pub := nodeKey.PubKey()
+	signer := mockSigner{nodeKey}
 	if a.Signature, err = SignAnnouncement(&signer, pub, a); err != nil {
 		return nil, err
 	}
@@ -527,7 +539,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	// Pretending that we received valid channel policy update from remote
 	// side, and check that we broadcasted it to the other network, and
 	// added updates to the router.
-	ua, err := createUpdateAnnouncement(0)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -588,7 +600,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	// remote side, but block height of this announcement is greater than
 	// highest know to us, for that reason it should be added to the
 	// repeat/premature batch.
-	ua, err := createUpdateAnnouncement(1)
+	ua, err := createUpdateAnnouncement(1, 0, nodeKeyPriv1)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -660,7 +672,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1, localKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -670,7 +682,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -790,7 +802,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn, localKey)
+	err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1, localKey)
 	if err != nil {
 		t.Fatalf("unable to process: %v", err)
 	}
@@ -800,7 +812,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn, remoteKey)
+	err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.chanUpdAnn2, remoteKey)
 	if err != nil {
 		t.Fatalf("unable to process: %v", err)
 	}
@@ -887,7 +899,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Next, we'll ensure that channel update announcements are properly
 	// stored and de-duplicated. We do this by creating two updates
 	// announcements with the same short ID and flag.
-	ua, err := createUpdateAnnouncement(0)
+	ua, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
@@ -898,7 +910,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Adding the very same announcement shouldn't cause an increase in the
 	// number of ChannelUpdate announcements stored.
-	ua2, err := createUpdateAnnouncement(0)
+	ua2, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1)
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}

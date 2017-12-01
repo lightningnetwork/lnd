@@ -8,6 +8,23 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
+// ChanUpdateFlag is a btifield that signals various options concerning a
+// particular channel edge. Each bit is to be examined in order to determine
+// how the ChannelUpdate message is to be interpreted.
+type ChanUpdateFlag uint16
+
+const (
+	// ChanUpdateDirection indicates the direction of a channel update. If
+	// this bit is set to 0 if Node1 (the node with the "smaller" Node ID)
+	// is updating the channel, and to 1 otherwise.
+	ChanUpdateDirection ChanUpdateFlag = 1 << iota
+
+	// ChanUpdateDisabled is a bit that indicates if the channel edge
+	// selected by the ChanUpdateDirection bit is to be treated as being
+	// disabled.
+	ChanUpdateDisabled
+)
+
 // ChannelUpdate message is used after channel has been initially announced.
 // Each side independently announces its fees and minimum expiry for HTLCs and
 // other parameters. Also this message is used to redeclare initially setted
@@ -31,10 +48,13 @@ type ChannelUpdate struct {
 	// the last-received.
 	Timestamp uint32
 
-	// Flags least-significant bit must be set to 0 if the creating node
+	// Flags is a bitfield that describes additional meta-data concerning
+	// how the update is to be interpreted. Currently, the
+	// least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
-	// announcement and 1 otherwise.
-	Flags uint16
+	// announcement and 1 otherwise. If the second bit is set, then the
+	// channel is set to be disabled.
+	Flags ChanUpdateFlag
 
 	// TimeLockDelta is the minimum number of blocks this node requires to
 	// be added to the expiry of HTLCs. This is a security parameter

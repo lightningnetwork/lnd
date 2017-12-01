@@ -1,10 +1,6 @@
 package lnwire
 
-import (
-	"io"
-
-	"github.com/roasbeef/btcutil"
-)
+import "io"
 
 // UpdateFee is the message the channel initiator sends to the other peer if
 // the channel commitment fee needs to be updated.
@@ -14,11 +10,11 @@ type UpdateFee struct {
 
 	// FeePerKw is the fee-per-kw on commit transactions that the sender of
 	// this message wants to use for this channel.
-	FeePerKw btcutil.Amount
+	FeePerKw uint32
 }
 
 // NewUpdateFee creates a new UpdateFee message.
-func NewUpdateFee(chanID ChannelID, feePerKw btcutil.Amount) *UpdateFee {
+func NewUpdateFee(chanID ChannelID, feePerKw uint32) *UpdateFee {
 	return &UpdateFee{
 		ChanID:   chanID,
 		FeePerKw: feePerKw,
@@ -64,6 +60,6 @@ func (c *UpdateFee) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) MaxPayloadLength(uint32) uint32 {
-	// 32 + 8
-	return 40
+	// 32 + 4
+	return 36
 }

@@ -41,8 +41,8 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// networkMsgs.
 
 	// Since it's up to a node's policy as to whether they advertise the
-	// edge in dire direction, we don't create an advertisement if the edge
-	// is nil.
+	// edge in a direction, we don't create an advertisement if the edge is
+	// nil.
 	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
 	if e1 != nil {
 		edge1Ann = &lnwire.ChannelUpdate{
@@ -50,7 +50,7 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e1.LastUpdate.Unix()),
-			Flags:           0,
+			Flags:           e1.Flags,
 			TimeLockDelta:   e1.TimeLockDelta,
 			HtlcMinimumMsat: e1.MinHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
@@ -63,7 +63,7 @@ func createChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e2.LastUpdate.Unix()),
-			Flags:           1,
+			Flags:           e2.Flags,
 			TimeLockDelta:   e2.TimeLockDelta,
 			HtlcMinimumMsat: e2.MinHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),

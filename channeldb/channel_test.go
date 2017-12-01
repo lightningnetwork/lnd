@@ -121,7 +121,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			return nil, err
 		}
 
-		if store.AddNextEntry(preImage); err != nil {
+		if err := store.AddNextEntry(preImage); err != nil {
 			return nil, err
 		}
 	}

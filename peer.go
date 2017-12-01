@@ -864,7 +864,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChanID, msg.ID, msg.FailureCode)
 
 	case *lnwire.Error:
-		return fmt.Sprintf("chan_id=%v, err=%v", msg.ChanID, msg.Data)
+		return fmt.Sprintf("chan_id=%v, err=%v", msg.ChanID, string(msg.Data))
 
 	case *lnwire.AnnounceSignatures:
 		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,

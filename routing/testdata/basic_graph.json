@@ -64,7 +64,7 @@
             "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
             "flags": 0, 
             "expiry": 1,
-            "min_htlc": 1, 
+            "min_htlc": 1000, 
             "fee_base_msat": 10, 
             "fee_rate": 1000, 
             "capacity": 100000

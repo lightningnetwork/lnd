@@ -490,12 +490,11 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// record the new better distance, and also populate
 			// our "next hop" map with this edge. We'll also shave
 			// off irrelevant edges by adding the sufficient
-			// capacity of an edge to our relaxation condition.
+			// capacity of an edge and clearing their min-htlc
+			// amount to our relaxation condition.
 			if tempDist < distance[v].dist &&
-				edgeInfo.Capacity >= amt.ToSatoshis() {
-
-				// TODO(roasbeef): need to also account
-				// for min HTLC
+				edgeInfo.Capacity >= amt.ToSatoshis() &&
+				amt >= outEdge.MinHTLC {
 
 				distance[v] = nodeWithDist{
 					dist: tempDist,
@@ -517,6 +516,8 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 				// to further explore down this edge.
 				heap.Push(&nodeHeap, distance[v])
 			}
+
+			// TODO(roasbeef): return min HTLC as error in end?
 
 			return nil
 		})

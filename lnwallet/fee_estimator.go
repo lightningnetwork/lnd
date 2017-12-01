@@ -159,7 +159,15 @@ func (b *BtcdFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amoun
 
 	// We'll scale down the fee per byte to fee per weight, as for each raw
 	// byte, there's 1/4 unit of weight mapped to it.
-	return btcutil.Amount(feePerByte / blockchain.WitnessScaleFactor), nil
+	satWeight := feePerByte / blockchain.WitnessScaleFactor
+
+	// If this ends up scaling down to a zero sat/weight amount, then we'll
+	// use the default fallback fee rate.
+	if satWeight == 0 {
+		return b.fallBackFeeRate / blockchain.WitnessScaleFactor, nil
+	}
+
+	return satWeight, nil
 }
 
 // fetchEstimate returns a fee estimate for a transaction be be confirmed in

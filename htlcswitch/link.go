@@ -960,7 +960,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
-		fee := msg.FeePerKw
+		fee := btcutil.Amount(msg.FeePerKw)
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
 			l.fail("error receiving fee update: %v", err)
 			return
@@ -1132,7 +1132,7 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 
 	// We'll then attempt to send a new UpdateFee message, and also lock it
 	// in immediately by triggering a commitment update.
-	msg := lnwire.NewUpdateFee(l.ChanID(), feePerKw)
+	msg := lnwire.NewUpdateFee(l.ChanID(), uint32(feePerKw))
 	if err := l.cfg.Peer.SendMessage(msg); err != nil {
 		return err
 	}

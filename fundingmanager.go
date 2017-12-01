@@ -1650,11 +1650,18 @@ func (f *fundingManager) sendChannelAnnouncement(completeChan *channeldb.OpenCha
 	fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 		&fundingPoint, spew.Sdump(shortChanID))
 
+	// We'll obtain their min HTLC as we'll use this value within our
+	// ChannelUpdate. We use this value isn't of ours, as the remote party
+	// will be the one that's carrying the HTLC towards us.
+	remoteMinHTLC := completeChan.RemoteChanCfg.MinHTLC
+
 	// Register the new link with the L3 routing manager so this new
 	// channel can be utilized during path finding.
 	err := f.announceChannel(f.cfg.IDKey, completeChan.IdentityPub,
 		completeChan.LocalChanCfg.MultiSigKey,
-		completeChan.RemoteChanCfg.MultiSigKey, *shortChanID, chanID)
+		completeChan.RemoteChanCfg.MultiSigKey, *shortChanID, chanID,
+		remoteMinHTLC,
+	)
 	if err != nil {
 		return fmt.Errorf("channel announcement failed: %v", err)
 	}
@@ -1853,8 +1860,8 @@ type chanAnnouncement struct {
 // channel.
 func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.PublicKey,
 	localFundingKey, remoteFundingKey *btcec.PublicKey,
-	shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID) (*chanAnnouncement, error) {
+	shortChanID lnwire.ShortChannelID, chanID lnwire.ChannelID,
+	remoteMinHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -1871,7 +1878,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	// being updated within the ChannelUpdateAnnouncement announcement
 	// below. A value of zero means it's the edge of the "first" node and 1
 	// being the other node.
-	var chanFlags uint16
+	var chanFlags lnwire.ChanUpdateFlag
 
 	// The lexicographical ordering of the two identity public keys of the
 	// nodes indicates which of the nodes is "first". If our serialized
@@ -1900,14 +1907,18 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 	}
 
 	chanUpdateAnn := &lnwire.ChannelUpdate{
-		ShortChannelID:  shortChanID,
-		ChainHash:       chainHash,
-		Timestamp:       uint32(time.Now().Unix()),
-		Flags:           chanFlags,
-		TimeLockDelta:   uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
-		HtlcMinimumMsat: f.cfg.DefaultRoutingPolicy.MinHTLC,
-		BaseFee:         uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
-		FeeRate:         uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
+		ShortChannelID: shortChanID,
+		ChainHash:      chainHash,
+		Timestamp:      uint32(time.Now().Unix()),
+		Flags:          chanFlags,
+		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
+
+		// We use the *remote* party's HtlcMinimumMsat, as they'll be
+		// the ones carrying the HTLC routed *towards* us.
+		HtlcMinimumMsat: remoteMinHTLC,
+
+		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
+		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
 	}
 
 	// With the channel update announcement constructed, we'll generate a
@@ -1972,14 +1983,16 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 // finish, either successfully or with an error.
 func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID) error {
+	chanID lnwire.ChannelID, remoteMinHTLC lnwire.MilliSatoshi) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
 	// itself, the channel update announcement, and our half of the channel
 	// proof needed to fully authenticate the channel.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
-		localFundingKey, remoteFundingKey, shortChanID, chanID)
+		localFundingKey, remoteFundingKey, shortChanID, chanID,
+		remoteMinHTLC,
+	)
 	if err != nil {
 		fndgLog.Errorf("can't generate channel announcement: %v", err)
 		return err

@@ -271,7 +271,7 @@ func parseTestGraph(path string) (*channeldb.ChannelGraph, func(), aliasMap, err
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			Signature:                 testSig,
-			Flags:                     edge.Flags,
+			Flags:                     lnwire.ChanUpdateFlag(edge.Flags),
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                time.Now(),
 			TimeLockDelta:             edge.Expiry,

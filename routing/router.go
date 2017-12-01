@@ -940,11 +940,11 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// the direction of the edge they control. Therefore we first
 		// check if we already have the most up to date information for
 		// that edge. If so, then we can exit early.
-		switch msg.Flags {
+		switch {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
-		case 0:
+		case msg.Flags&lnwire.ChanUpdateDirection == 0:
 			if edge1Timestamp.After(msg.LastUpdate) ||
 				edge1Timestamp.Equal(msg.LastUpdate) {
 				return newErrf(ErrIgnored, "Ignoring update "+
@@ -955,7 +955,7 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
-		case 1:
+		case msg.Flags&lnwire.ChanUpdateDirection == 1:
 			if edge2Timestamp.After(msg.LastUpdate) ||
 				edge2Timestamp.Equal(msg.LastUpdate) {
 

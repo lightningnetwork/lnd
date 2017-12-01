@@ -1671,7 +1671,8 @@ func (lc *LightningChannel) restoreStateLogs(
 		// entry within the updateLog, so we'll just apply it and move
 		// on.
 		if feeUpdate, ok := logUpdate.UpdateMsg.(*lnwire.UpdateFee); ok {
-			lc.pendingAckFeeUpdate = &feeUpdate.FeePerKw
+			newFeeRate := btcutil.Amount(feeUpdate.FeePerKw)
+			lc.pendingAckFeeUpdate = &newFeeRate
 			continue
 		}
 
@@ -2827,7 +2828,7 @@ func (lc *LightningChannel) createCommitDiff(
 		logUpdates = append(logUpdates, channeldb.LogUpdate{
 			UpdateMsg: &lnwire.UpdateFee{
 				ChanID:   chanID,
-				FeePerKw: *lc.pendingFeeUpdate,
+				FeePerKw: uint32(*lc.pendingFeeUpdate),
 			},
 		})
 	}

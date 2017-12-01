@@ -3498,9 +3498,9 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	}
 
 	// The fee should match exactly the new fee update we applied above.
-	if retransFeeMsg.FeePerKw != newFeeRate {
+	if retransFeeMsg.FeePerKw != uint32(newFeeRate) {
 		t.Fatalf("fee update doesn't match: expected %v, got %v",
-			newFeeRate, retransFeeMsg)
+			uint32(newFeeRate), retransFeeMsg)
 	}
 
 	// The second, should be a CommitSig message, and be identical to the

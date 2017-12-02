@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"bytes"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -8,10 +10,10 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
-// validateChannelAnn validates the channel announcement message and checks
+// ValidateChannelAnn validates the channel announcement message and checks
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
-func (d *AuthenticatedGossiper) validateChannelAnn(a *lnwire.ChannelAnnouncement) error {
+func ValidateChannelAnn(a *lnwire.ChannelAnnouncement) error {
 	// First, we'll compute the digest (h) which is to be signed by each of
 	// the keys included within the node announcement message. This hash
 	// digest includes all the keys, so the (up to 4 signatures) will
@@ -48,10 +50,10 @@ func (d *AuthenticatedGossiper) validateChannelAnn(a *lnwire.ChannelAnnouncement
 
 }
 
-// validateNodeAnn validates the node announcement by ensuring that the
+// ValidateNodeAnn validates the node announcement by ensuring that the
 // attached signature is needed a signature of the node announcement under the
 // specified node public key.
-func (d *AuthenticatedGossiper) validateNodeAnn(a *lnwire.NodeAnnouncement) error {
+func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 	// Reconstruct the data of announcement which should be covered by the
 	// signature so we can verify the signature shortly below
 	data, err := a.DataToSign()
@@ -63,16 +65,23 @@ func (d *AuthenticatedGossiper) validateNodeAnn(a *lnwire.NodeAnnouncement) erro
 	// return an error so this node announcement can be rejected.
 	dataHash := chainhash.DoubleHashB(data)
 	if !a.Signature.Verify(dataHash, copyPubKey(a.NodeID)) {
-		return errors.New("signature on node announcement is invalid")
+		var msgBuf bytes.Buffer
+		if _, err := lnwire.WriteMessage(&msgBuf, a, 0); err != nil {
+			return err
+		}
+
+		return errors.Errorf("signature on NodeAnnouncement(%x) is "+
+			"invalid: %x", a.NodeID.SerializeCompressed(),
+			msgBuf.Bytes())
 	}
 
 	return nil
 }
 
-// validateChannelUpdateAnn validates the channel update announcement by
+// ValidateChannelUpdateAnn validates the channel update announcement by
 // checking that the included signature covers he announcement and has been
 // signed by the node's private key.
-func (d *AuthenticatedGossiper) validateChannelUpdateAnn(pubKey *btcec.PublicKey,
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey,
 	a *lnwire.ChannelUpdate) error {
 
 	data, err := a.DataToSign()

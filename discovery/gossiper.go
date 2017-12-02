@@ -861,7 +861,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 	// updating previously advertised information.
 	case *lnwire.NodeAnnouncement:
 		if nMsg.isRemote {
-			if err := d.validateNodeAnn(msg); err != nil {
+			if err := ValidateNodeAnn(msg); err != nil {
 				err := errors.Errorf("unable to validate "+
 					"node announcement: %v", err)
 				log.Error(err)
@@ -941,7 +941,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// formed.
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
-			if err := d.validateChannelAnn(msg); err != nil {
+			if err := ValidateChannelAnn(msg); err != nil {
 				err := errors.Errorf("unable to validate "+
 					"announcement: %v", err)
 
@@ -1072,7 +1072,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 		// Validate the channel announcement with the expected public
 		// key, In the case of an invalid channel , we'll return an
 		// error to the caller and exit early.
-		if err := d.validateChannelUpdateAnn(pubKey, msg); err != nil {
+		if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
 			rErr := errors.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
@@ -1268,7 +1268,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 
 		// With all the necessary components assembled validate the
 		// full channel announcement proof.
-		if err := d.validateChannelAnn(chanAnn); err != nil {
+		if err := ValidateChannelAnn(chanAnn); err != nil {
 			err := errors.Errorf("channel  announcement proof "+
 				"for short_chan_id=%v isn't valid: %v",
 				shortChanID, err)
@@ -1377,7 +1377,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = d.validateChannelUpdateAnn(d.selfKey, chanUpdate)
+	err = ValidateChannelUpdateAnn(d.selfKey, chanUpdate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)

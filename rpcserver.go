@@ -824,7 +824,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 		defer func() {
 			channel.Stop()
-			channel.CancelObserver()
 		}()
 
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
@@ -871,6 +870,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				},
 			},
 		}
+
+		channel.CancelObserver()
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.chainNotifier

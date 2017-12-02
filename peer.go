@@ -947,12 +947,14 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 		m.RevocationPoint.Curve = nil
 		m.PaymentPoint.Curve = nil
 		m.DelayedPaymentPoint.Curve = nil
+		m.HtlcPoint.Curve = nil
 		m.FirstCommitmentPoint.Curve = nil
 	case *lnwire.OpenChannel:
 		m.FundingKey.Curve = nil
 		m.RevocationPoint.Curve = nil
 		m.PaymentPoint.Curve = nil
 		m.DelayedPaymentPoint.Curve = nil
+		m.HtlcPoint.Curve = nil
 		m.FirstCommitmentPoint.Curve = nil
 	case *lnwire.FundingLocked:
 		m.NextPerCommitmentPoint.Curve = nil

@@ -1466,6 +1466,12 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		normalizedCapacity := normalize(edge.Capacity)
 		edgeThickness := strconv.FormatFloat(normalizedCapacity, 'f', -1, 64)
 
+		// If there's only a single channel in the graph, then we'll
+		// just set the edge thickness to 1 for everything.
+		if math.IsNaN(normalizedCapacity) {
+			edgeThickness = "1"
+		}
+
 		// TODO(roasbeef): color code based on percentile capacity
 		graphCanvas.AddEdge(src, dest, false, gographviz.Attrs{
 			"penwidth": edgeThickness,

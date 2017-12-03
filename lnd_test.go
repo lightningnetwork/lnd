@@ -2100,7 +2100,10 @@ func testMultiHopPayments(net *networkHarness, t *harnessTest) {
 			err)
 	}
 
-	// Using Carol as the source, pay to the 5 invoices from Bob created above.
+	time.Sleep(time.Millisecond * 50)
+
+	// Using Carol as the source, pay to the 5 invoices from Bob created
+	// above.
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	err = completePaymentRequests(ctxt, carol, payReqs, true)
 	if err != nil {

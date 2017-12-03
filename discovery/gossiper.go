@@ -251,6 +251,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 			NodeID:    node.PubKey,
 			Alias:     alias,
 			Features:  node.Features.RawFeatureVector,
+			RGBColor:  node.Color,
 		}
 		announceMessages = append(announceMessages, ann)
 

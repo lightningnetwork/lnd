@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"image/color"
 	"math"
 	"math/big"
@@ -61,6 +62,15 @@ func randRawKey() ([33]byte, error) {
 	copy(n[:], priv.PubKey().SerializeCompressed())
 
 	return n, nil
+}
+
+func randDeliveryAddress(r *rand.Rand) (DeliveryAddress, error) {
+	// Generate size minimum one. Empty scripts should be tested specifically.
+	size := r.Intn(deliveryAddressMaxSize) + 1
+	da := DeliveryAddress(make([]byte, size))
+
+	_, err := r.Read(da)
+	return da, err
 }
 
 func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
@@ -193,6 +203,9 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 // TestLightningWireProtocol uses the testing/quick package to create a series
 // of fuzz tests to attempt to break a primary scenario which is implemented as
 // property based testing scenario.
+//
+// Debug help: when the message payload can reach a size larger than the return
+// value of MaxPayloadLength, the test can panic without a helpful message.
 func TestLightningWireProtocol(t *testing.T) {
 	t.Parallel()
 
@@ -305,6 +318,17 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 1/2 chance empty upfront shutdown address
+			if r.Intn(2) == 0 {
+				req.UpfrontShutdownAddress, err = randDeliveryAddress(r)
+				if err != nil {
+					t.Fatalf("unable to generate delivery address: %v", err)
+					return
+				}
+			} else {
+				req.UpfrontShutdownAddress = []byte{}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgAcceptChannel: func(v []reflect.Value, r *rand.Rand) {
@@ -353,6 +377,17 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
+			}
+
+			// 1/2 chance empty upfront shutdown address
+			if r.Intn(2) == 0 {
+				req.UpfrontShutdownAddress, err = randDeliveryAddress(r)
+				if err != nil {
+					t.Fatalf("unable to generate delivery address: %v", err)
+					return
+				}
+			} else {
+				req.UpfrontShutdownAddress = []byte{}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -930,23 +965,28 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 	}
-	for _, test := range tests {
-		var config *quick.Config
+	for _, tst := range tests {
+		test := tst
+		t.Run(fmt.Sprintf("%s", test.msgType), func(t *testing.T) {
+			t.Parallel()
 
-		// If the type defined is within the custom type gen map above,
-		// then we'll modify the default config to use this Value
-		// function that knows how to generate the proper types.
-		if valueGen, ok := customTypeGen[test.msgType]; ok {
-			config = &quick.Config{
-				Values: valueGen,
+			var config *quick.Config
+
+			// If the type defined is within the custom type gen map above,
+			// then we'll modify the default config to use this Value
+			// function that knows how to generate the proper types.
+			if valueGen, ok := customTypeGen[test.msgType]; ok {
+				config = &quick.Config{
+					Values: valueGen,
+				}
 			}
-		}
 
-		t.Logf("Running fuzz tests for msgType=%v", test.msgType)
-		if err := quick.Check(test.scenario, config); err != nil {
-			t.Fatalf("fuzz checks for msg=%v failed: %v",
-				test.msgType, err)
-		}
+			t.Logf("Running fuzz tests for msgType=%v", test.msgType)
+			if err := quick.Check(test.scenario, config); err != nil {
+				t.Fatalf("fuzz checks for msg=%v failed: %v",
+					test.msgType, err)
+			}
+		})
 	}
 
 }

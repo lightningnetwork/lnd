@@ -46,6 +46,11 @@ const (
 	// efficient network view reconciliation.
 	GossipQueriesOptional FeatureBit = 7
 
+	// UpfrontShutdownScript indicates that the node supports committing upfront
+	// to the shutdown script when opening channels.  This prevents a node that
+	// has been compromised from having all the channel funds stolen.
+	UpfrontShutdownScript FeatureBit = 4
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -72,6 +77,7 @@ var LocalFeatures = map[FeatureBit]string{
 	InitialRoutingSync:      "initial-routing-sync",
 	GossipQueriesRequired:   "gossip-queries-required",
 	GossipQueriesOptional:   "gossip-queries-optional",
+	UpfrontShutdownScript:   "option-upfront-shutdown-script",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

@@ -86,6 +86,11 @@ type AcceptChannel struct {
 	// base point in order to derive the revocation keys that are placed
 	// within the commitment transaction of the sender.
 	FirstCommitmentPoint *btcec.PublicKey
+
+	// UpfrontShutdownAddress is the script to which the channel funds should
+	// be paid when mutually closing the channel.  This is to be enforced by
+	// the remote node even if this node is compromised later.
+	UpfrontShutdownAddress DeliveryAddress
 }
 
 // A compile time check to ensure AcceptChannel implements the lnwire.Message
@@ -113,6 +118,7 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.DelayedPaymentPoint,
 		a.HtlcPoint,
 		a.FirstCommitmentPoint,
+		a.UpfrontShutdownAddress,
 	)
 }
 
@@ -137,6 +143,7 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		&a.DelayedPaymentPoint,
 		&a.HtlcPoint,
 		&a.FirstCommitmentPoint,
+		&a.UpfrontShutdownAddress,
 	)
 }
 
@@ -153,6 +160,13 @@ func (a *AcceptChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
+	var length uint32
+
 	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 6)
-	return 270
+	length = 270 // base length
+
+	// Upfront shutdown script
+	length += 2 + deliveryAddressMaxSize
+
+	return length
 }

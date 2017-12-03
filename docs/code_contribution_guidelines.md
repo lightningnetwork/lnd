@@ -39,7 +39,7 @@ far more dire consequences than in typical projects where having a small bug is
 minimal by comparison.  In the world of cryptocurrencies, even the smallest bug
 in the wrong area can cost people a significant amount of money.  For this
 reason, the Lightning Network Daemon (lnd) has a formalized and rigorous
-development process (heavily insipred by
+development process (heavily inspired by
 [btcsuite](https://github.com/btcsuite)) which is outlined on this page.
 
 We highly encourage code contributions, however it is imperative that you adhere
@@ -97,7 +97,7 @@ above may be a bit out of date. Many implementers are currently working on an
 initial [Version 1 Specification](https://medium.com/@lightningnetwork/lightning-network-meeting-on-interoperability-and-specifications-ea49e47696a4).
 Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
-be recommened for newcomers to read first in order to get up to speed. 
+be recommended for newcomers to read first in order to get up to speed. 
 
 <a name="DevelopmentPractices" />
 
@@ -286,7 +286,7 @@ all short-[commit messages are to be prefixed according to the convention
 outlined in the Go project](https://golang.org/doc/contribute.html#change). All
 commits should begin with the subsystem or package primarily affected by the
 change. In the case of a widespread change, the packages are to be delimited by
-either a '+' or a ','. This prefix seems minor but can be extremly helpful in
+either a '+' or a ','. This prefix seems minor but can be extremely helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
 commit which introduced a bug or regression. 
 

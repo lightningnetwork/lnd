@@ -1,7 +1,7 @@
 As part of [the `lnd` 0.3-alpha
 release](https://github.com/lightningnetwork/lnd/releases/tag/v0.3-alpha), we
 have addressed [issue 20](https://github.com/lightningnetwork/lnd/issues/20),
-which is RPC authentictaion. Until this was implemented, all RPC calls to `lnd`
+which is RPC authentication. Until this was implemented, all RPC calls to `lnd`
 were unauthenticated. To fix this, we've utilized
 [macaroons](https://research.google.com/pubs/pub41892.html), which are similar
 to cookies but more capable. This brief overview explains, at a basic level,

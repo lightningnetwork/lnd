@@ -1415,6 +1415,9 @@
           "items": {
             "$ref": "#/definitions/lnrpcNodeAddress"
           }
+        },
+        "color": {
+          "type": "string"
         }
       },
       "description": "*\nAn individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."

@@ -1098,6 +1098,7 @@ message LightningNode {
     string pub_key = 2 [ json_name = "pub_key" ];
     string alias = 3 [ json_name = "alias" ];
     repeated NodeAddress addresses = 4 [ json_name = "addresses" ];
+    string color = 5 [ json_name = "color" ];
 }
 
 message NodeAddress {

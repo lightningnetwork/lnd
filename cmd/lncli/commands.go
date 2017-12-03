@@ -1429,7 +1429,13 @@ func drawChannelGraph(graph *lnrpc.ChannelGraph) error {
 		// TODO(roasbeef): should be able to get around this?
 		nodeID := fmt.Sprintf(`"%v"`, truncateStr(node.PubKey, numKeyChars))
 
-		graphCanvas.AddNode(graphName, nodeID, gographviz.Attrs{})
+		attrs := gographviz.Attrs{}
+
+		if node.Color != "" {
+			attrs["color"] = fmt.Sprintf(`"%v"`, node.Color)
+		}
+
+		graphCanvas.AddNode(graphName, nodeID, attrs)
 	}
 
 	normalize := normalizeFunc(graph.Edges, 3)

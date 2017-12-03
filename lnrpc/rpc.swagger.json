@@ -785,7 +785,7 @@
         },
         "blocks_till_open": {
           "type": "integer",
-          "format": "int64",
+          "format": "int32",
           "title": "/ The number of blocks until this channel is open"
         },
         "commit_fee": {

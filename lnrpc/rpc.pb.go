@@ -1906,7 +1906,7 @@ type PendingChannelResponse_PendingOpenChannel struct {
 	// / The height at which this channel will be confirmed
 	ConfirmationHeight uint32 `protobuf:"varint,2,opt,name=confirmation_height" json:"confirmation_height,omitempty"`
 	// / The number of blocks until this channel is open
-	BlocksTillOpen uint32 `protobuf:"varint,3,opt,name=blocks_till_open" json:"blocks_till_open,omitempty"`
+	BlocksTillOpen int32 `protobuf:"varint,3,opt,name=blocks_till_open" json:"blocks_till_open,omitempty"`
 	// *
 	// The amount calculated to be paid in fees for the current set of
 	// commitment transactions. The fee amount is persisted with the channel

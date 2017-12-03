@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"net"
 	"strconv"
 	"sync"
@@ -219,6 +220,12 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 
 	chanGraph := chanDB.ChannelGraph()
 
+	defaultColor := color.RGBA{ // #3399FF
+		R: 51,
+		G: 153,
+		B: 255,
+	}
+
 	// TODO(roasbeef): make alias configurable
 	alias, err := lnwire.NewNodeAlias(hex.EncodeToString(serializedPubKey[:10]))
 	if err != nil {
@@ -231,6 +238,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		PubKey:               privKey.PubKey(),
 		Alias:                alias.String(),
 		Features:             s.globalFeatures,
+		Color:                defaultColor,
 	}
 
 	// If our information has changed since our last boot, then we'll
@@ -244,6 +252,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		NodeID:    selfNode.PubKey,
 		Alias:     alias,
 		Features:  selfNode.Features.RawFeatureVector,
+		RGBColor:  defaultColor,
 	}
 	selfNode.AuthSig, err = discovery.SignAnnouncement(s.nodeSigner,
 		s.identityPriv.PubKey(), nodeAnn,

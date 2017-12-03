@@ -2375,11 +2375,14 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			}
 			nodeAddrs = append(nodeAddrs, nodeAddr)
 		}
+
+		nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     hex.EncodeToString(node.PubKey.SerializeCompressed()),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
+			Color:      nodeColor,
 		})
 
 		return nil
@@ -2539,12 +2542,15 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		nodeAddrs = append(nodeAddrs, nodeAddr)
 	}
 	// TODO(roasbeef): list channels as well?
+
+	nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     in.PubKey,
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
+			Color:      nodeColor,
 		},
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapcity),
@@ -2724,7 +2730,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	}
 
 	// If we don't have any channels, then reset the minChannelSize to zero
-	// to avoid outputting NaN in encoded JSOn.
+	// to avoid outputting NaN in encoded JSON.
 	if numChannels == 0 {
 		minChannelSize = 0
 	}

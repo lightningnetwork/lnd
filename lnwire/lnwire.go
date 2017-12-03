@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"image/color"
 	"io"
 	"math"
 
@@ -355,8 +356,8 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 		}
-	case RGB:
-		if err := writeElements(w, e.red, e.green, e.blue); err != nil {
+	case color.RGBA:
+		if err := writeElements(w, e.R, e.G, e.B); err != nil {
 			return err
 		}
 
@@ -689,11 +690,11 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = addresses
-	case *RGB:
+	case *color.RGBA:
 		err := readElements(r,
-			&e.red,
-			&e.green,
-			&e.blue,
+			&e.R,
+			&e.G,
+			&e.B,
 		)
 		if err != nil {
 			return err

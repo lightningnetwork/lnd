@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
+	"image/color"
 	"math"
 	"math/big"
 	"math/rand"
@@ -404,10 +405,10 @@ func TestLightningWireProtocol(t *testing.T) {
 				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
 				Alias:     a,
-				RGBColor: RGB{
-					red:   uint8(r.Int31()),
-					green: uint8(r.Int31()),
-					blue:  uint8(r.Int31()),
+				RGBColor: color.RGBA{
+					R: uint8(r.Int31()),
+					G: uint8(r.Int31()),
+					B: uint8(r.Int31()),
 				},
 				// TODO(roasbeef): proper gen rand addrs
 				Addresses: testAddrs,

@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"io"
 	"net"
 	"unicode/utf8"
@@ -14,14 +15,6 @@ var (
 	startPort uint16 = 1024
 	endPort   uint16 = 49151
 )
-
-// RGB is used to represent the "color" of a particular node encoded as a 24
-// bit value.
-type RGB struct {
-	red   uint8
-	green uint8
-	blue  uint8
-}
 
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
@@ -69,7 +62,7 @@ type NodeAnnouncement struct {
 
 	// RGBColor is used to customize their node's appearance in maps and
 	// graphs
-	RGBColor RGB
+	RGBColor color.RGBA
 
 	// Alias is used to customize their node's appearance in maps and
 	// graphs

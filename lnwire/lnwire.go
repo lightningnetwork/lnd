@@ -401,6 +401,11 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case DeliveryAddress:
+		// If there is no delivery address, do not write anything.
+		if len(e) == 0 {
+			return nil
+		}
+
 		var length [2]byte
 		binary.BigEndian.PutUint16(length[:], uint16(len(e)))
 		if _, err := w.Write(length[:]); err != nil {

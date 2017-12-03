@@ -35,6 +35,11 @@ const (
 	// connection is established.
 	InitialRoutingSync FeatureBit = 3
 
+	// UpfrontShutdownScript indicates that the node supports committing upfront
+	// to the shutdown script when opening channels.  This prevents a node that
+	// has been compromised from having all the channel funds stolen.
+	UpfrontShutdownScript FeatureBit = 5
+
 	// GossipQueriesRequired is a feature bit that indicates that the
 	// receiving peer MUST know of the set of features that allows nodes to
 	// more efficiently query the network view of peers on the network for
@@ -89,6 +94,7 @@ var LocalFeatures = map[FeatureBit]string{
 	InitialRoutingSync:      "initial-routing-sync",
 	GossipQueriesRequired:   "gossip-queries",
 	GossipQueriesOptional:   "gossip-queries",
+	UpfrontShutdownScript:   "option-upfront-shutdown-script",
 }
 
 // GlobalFeatures is a mapping of known global feature bits to a descriptive

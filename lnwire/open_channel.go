@@ -122,6 +122,11 @@ type OpenChannel struct {
 	// Currently, the least significant bit of this bit field indicates the
 	// initiator of the channel wishes to advertise this channel publicly.
 	ChannelFlags FundingFlag
+
+	// UpfrontShutdownScript is the script to which the channel funds should
+	// be paid when mutually closing the channel.  This is to be enforced by
+	// the remote node even if this node is compromised later.
+	UpfrontShutdownScript DeliveryAddress
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message
@@ -153,6 +158,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.HtlcPoint,
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
+		o.UpfrontShutdownScript,
 	)
 }
 
@@ -162,7 +168,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	if err := ReadElements(r,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		&o.FundingAmount,
@@ -181,7 +187,18 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
-	)
+	); err != nil {
+		return err
+	}
+
+	// Check for the optional upfront shutdown script field. If it is not there,
+	// silence the EOF error.
+	err := ReadElement(r, &o.UpfrontShutdownScript)
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
@@ -197,6 +214,13 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
+	var length uint32
+
 	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
-	return 319
+	length = 319 // base length
+
+	// Upfront shutdown script
+	length += 2 + deliveryAddressMaxSize
+
+	return length
 }

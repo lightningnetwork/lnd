@@ -879,6 +879,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []l
 			Alias:                msg.Alias.String(),
 			AuthSig:              msg.Signature,
 			Features:             features,
+			Color:                msg.RGBColor,
 		}
 
 		if err := d.cfg.Router.AddNode(node); err != nil {

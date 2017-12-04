@@ -284,7 +284,10 @@ out:
 				if err != nil {
 					chainntnfs.Log.Error(err)
 				}
-				b.txConfNotifier.Register(&msg.ConfNtfn, txConf)
+				err = b.txConfNotifier.Register(&msg.ConfNtfn, txConf)
+				if err != nil {
+					chainntnfs.Log.Error(err)
+				}
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				b.blockEpochClients[msg.epochID] = msg

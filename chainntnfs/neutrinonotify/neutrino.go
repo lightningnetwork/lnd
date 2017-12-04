@@ -316,7 +316,10 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					}
 				}
 
-				n.txConfNotifier.Register(&msg.ConfNtfn, txConf)
+				err = n.txConfNotifier.Register(&msg.ConfNtfn, txConf)
+				if err != nil {
+					chainntnfs.Log.Error(err)
+				}
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")

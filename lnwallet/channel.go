@@ -1353,7 +1353,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 
 	// Finally, we'll kick of the signature job pool to handle any upcoming
 	// commitment state generation and validation.
-	if lc.sigPool.Start(); err != nil {
+	if err := lc.sigPool.Start(); err != nil {
 		return nil, err
 	}
 

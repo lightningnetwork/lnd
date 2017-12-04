@@ -64,7 +64,7 @@ message UnlockWalletResponse {}
 
 service Lightning {
     /** lncli: `walletbalance`
-    WalletBalance returns the sum of all confirmed unspent outputs under control
+    WalletBalance returns total unspent outputs(confirmed and unconfirmed), all confirmed unspent outputs and all unconfirmed unspent outputs under control
     by the wallet. This method can be modified by having the request specify
     only witness outputs should be factored into the final output sum.
     */
@@ -995,7 +995,13 @@ message WalletBalanceRequest {
 }
 message WalletBalanceResponse {
     /// The balance of the wallet
-    int64 balance = 1 [json_name = "balance"];
+    int64 total_balance = 1 [json_name = "total_balance"];
+
+    /// The confirmed balance of a wallet(with >= 1 confirmations)
+    int64 confirmed_balance = 2 [json_name = "confirmed_balance"];
+
+    /// The unconfirmed balance of a wallet(with 0 confirmations)
+    int64 unconfirmed_balance = 3 [json_name = "unconfirmed_balance"];
 }
 
 message ChannelBalanceRequest {

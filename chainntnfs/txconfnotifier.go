@@ -75,6 +75,10 @@ type TxConfNotifier struct {
 	// ntfnsByConfirmHeight is an index of notification requests by the height
 	// at which the transaction will have sufficient confirmations.
 	ntfnsByConfirmHeight map[uint32]map[*ConfNtfn]struct{}
+
+	// quit is closed in order to signal that the notifier is gracefully
+	// exiting.
+	quit chan struct{}
 }
 
 // NewTxConfNotifier creates a TxConfNotifier. The current height of the
@@ -86,6 +90,7 @@ func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32) *TxConfNotif
 		confNotifications:      make(map[chainhash.Hash][]*ConfNtfn),
 		confTxsByInitialHeight: make(map[uint32][]*chainhash.Hash),
 		ntfnsByConfirmHeight:   make(map[uint32]map[*ConfNtfn]struct{}),
+		quit:                   make(chan struct{}),
 	}
 }
 
@@ -95,12 +100,18 @@ func NewTxConfNotifier(startHeight uint32, reorgSafetyLimit uint32) *TxConfNotif
 // confirmation details must be given as the txConf argument, otherwise it
 // should be nil. If the transaction already has the sufficient number of
 // confirmations, this dispatches the notification immediately.
-func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) {
+func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) error {
+	select {
+	case <-tcn.quit:
+		return fmt.Errorf("TxConfNotifier is exiting")
+	default:
+	}
+
 	if txConf == nil || txConf.BlockHeight > tcn.currentHeight {
 		// Transaction is unconfirmed.
 		tcn.confNotifications[*ntfn.TxID] =
 			append(tcn.confNotifications[*ntfn.TxID], ntfn)
-		return
+		return nil
 	}
 
 	// If the transaction already has the required confirmations, dispatch
@@ -110,8 +121,12 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) {
 	if confHeight <= tcn.currentHeight {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
-		ntfn.Event.Confirmed <- txConf
-		ntfn.dispatched = true
+		select {
+		case <-tcn.quit:
+			return fmt.Errorf("TxConfNotifier is exiting")
+		case ntfn.Event.Confirmed <- txConf:
+			ntfn.dispatched = true
+		}
 	} else {
 		ntfn.details = txConf
 		ntfnSet, exists := tcn.ntfnsByConfirmHeight[confHeight]
@@ -131,6 +146,8 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) {
 		tcn.confTxsByInitialHeight[txConf.BlockHeight] =
 			append(tcn.confTxsByInitialHeight[txConf.BlockHeight], ntfn.TxID)
 	}
+
+	return nil
 }
 
 // ConnectTip handles a new block extending the current chain. This checks each
@@ -140,6 +157,12 @@ func (tcn *TxConfNotifier) Register(ntfn *ConfNtfn, txConf *TxConfirmation) {
 // notifications.
 func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	blockHeight uint32, txns []*btcutil.Tx) error {
+
+	select {
+	case <-tcn.quit:
+		return fmt.Errorf("TxConfNotifier is exiting")
+	default:
+	}
 
 	if blockHeight != tcn.currentHeight+1 {
 		return fmt.Errorf("Received blocks out of order: "+
@@ -180,8 +203,12 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 	for ntfn := range tcn.ntfnsByConfirmHeight[tcn.currentHeight] {
 		Log.Infof("Dispatching %v conf notification for %v",
 			ntfn.NumConfirmations, ntfn.TxID)
-		ntfn.Event.Confirmed <- ntfn.details
-		ntfn.dispatched = true
+		select {
+		case ntfn.Event.Confirmed <- ntfn.details:
+			ntfn.dispatched = true
+		case <-tcn.quit:
+			return fmt.Errorf("TxConfNotifier is exiting")
+		}
 	}
 	delete(tcn.ntfnsByConfirmHeight, tcn.currentHeight)
 
@@ -204,6 +231,12 @@ func (tcn *TxConfNotifier) ConnectTip(blockHash *chainhash.Hash,
 // block, internal structures are updated to ensure a confirmation notification
 // is not sent unless the transaction is included in the new chain.
 func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
+	select {
+	case <-tcn.quit:
+		return fmt.Errorf("TxConfNotifier is exiting")
+	default:
+	}
+
 	if blockHeight != tcn.currentHeight {
 		return fmt.Errorf("Received blocks out of order: "+
 			"current height=%d, disconnected height=%d",
@@ -223,8 +256,9 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 					// negative conf if the receiver has not processed it yet.
 					// This ensures sends to the Confirmed channel are always
 					// non-blocking.
-				default:
-					ntfn.Event.NegativeConf <- int32(tcn.reorgDepth)
+				case ntfn.Event.NegativeConf <- int32(tcn.reorgDepth):
+				case <-tcn.quit:
+					return fmt.Errorf("TxConfNotifier is exiting")
 				}
 				ntfn.dispatched = false
 				continue
@@ -247,6 +281,8 @@ func (tcn *TxConfNotifier) DisconnectTip(blockHeight uint32) error {
 // This closes the event channels of all registered notifications that have
 // not been dispatched yet.
 func (tcn *TxConfNotifier) TearDown() {
+	close(tcn.quit)
+
 	for _, ntfns := range tcn.confNotifications {
 		for _, ntfn := range ntfns {
 			if ntfn.dispatched {

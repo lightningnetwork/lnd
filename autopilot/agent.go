@@ -177,13 +177,17 @@ type chanOpenUpdate struct {
 	newChan Channel
 }
 
+// chanOpenFailureUpdate is a type of external state update that indicates
+// a previous channel open failed, and that it might be possible to try again.
+type chanOpenFailureUpdate struct{}
+
 // chanCloseUpdate is a type of external state update that indicates that the
 // backing Lightning Node has closed a previously open channel.
 type chanCloseUpdate struct {
 	closedChans []lnwire.ShortChannelID
 }
 
-// OnBalanceChange is a callback that should be executed each the balance of
+// OnBalanceChange is a callback that should be executed each time the balance of
 // the backing wallet changes.
 func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
 	go func() {
@@ -200,6 +204,15 @@ func (a *Agent) OnChannelOpen(c Channel) {
 		a.stateUpdates <- &chanOpenUpdate{
 			newChan: c,
 		}
+	}()
+}
+
+// OnChannelOpenFailure is a callback that should be executed when the
+// autopilot has attempted to open a channel, but failed. In this case we can
+// retry channel creation with a different node.
+func (a *Agent) OnChannelOpenFailure() {
+	go func() {
+		a.stateUpdates <- &chanOpenFailureUpdate{}
 	}()
 }
 
@@ -293,6 +306,11 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 					"update of: %v", update.balanceDelta)
 
 				a.totalBalance += update.balanceDelta
+
+			// The channel we tried to open previously failed for
+			// whatever reason.
+			case *chanOpenFailureUpdate:
+				log.Debug("Retrying after previous channel open failure.")
 
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
@@ -412,6 +430,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 						delete(pendingOpens, nID)
 						pendingMtx.Unlock()
 
+						// Trigger the autopilot controller to
+						// re-evaluate everything and possibly
+						// retry with a different node.
+						a.OnChannelOpenFailure()
 					}
 
 				}(chanCandidate)

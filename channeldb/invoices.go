@@ -100,6 +100,9 @@ type Invoice struct {
 	// CreationDate is the exact time the invoice was created.
 	CreationDate time.Time
 
+	// SettleDate is the exact time the invoice was settled.
+	SettleDate time.Time
+
 	// Terms are the contractual payment terms of the invoice. Once
 	// all the terms have been satisfied by the payer, then the invoice can
 	// be considered fully fulfilled.
@@ -330,7 +333,17 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 	if err != nil {
 		return err
 	}
+
 	if err := wire.WriteVarBytes(w, 0, birthBytes); err != nil {
+		return err
+	}
+
+	settleBytes, err := i.SettleDate.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	if err := wire.WriteVarBytes(w, 0, settleBytes); err != nil {
 		return err
 	}
 
@@ -389,6 +402,14 @@ func deserializeInvoice(r io.Reader) (*Invoice, error) {
 		return nil, err
 	}
 
+	settledBytes, err := wire.ReadVarBytes(r, 0, 300, "settled")
+	if err != nil {
+		return nil, err
+	}
+	if err := invoice.SettleDate.UnmarshalBinary(settledBytes); err != nil {
+		return nil, err
+	}
+
 	if _, err := io.ReadFull(r, invoice.Terms.PaymentPreimage[:]); err != nil {
 		return nil, err
 	}
@@ -412,13 +433,12 @@ func settleInvoice(invoices *bolt.Bucket, invoiceNum []byte) error {
 	}
 
 	invoice.Terms.Settled = true
+	invoice.SettleDate = time.Now()
 
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, invoice); err != nil {
 		return nil
 	}
-
-	// TODO(roasbeef): add timestamp
 
 	return invoices.Put(invoiceNum[:], buf.Bytes())
 }

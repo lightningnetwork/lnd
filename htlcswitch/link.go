@@ -662,22 +662,18 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// machine, as a result, we'll signal the switch to
 			// cancel the pending payment.
 			default:
+				log.Warnf("Unable to handle downstream add HTLC: %v", err)
+
 				var (
-					isObfuscated bool
+					localFailure = false
 					reason       lnwire.OpaqueReason
 				)
 
-				// We'll parse the sphinx packet enclosed so we
-				// can obtain the shared secret required to
-				// encrypt the error back to the source.
 				failure := lnwire.NewTemporaryChannelFailure(nil)
-				onionReader := bytes.NewReader(htlc.OnionBlob[:])
-				obfuscator, failCode := l.cfg.DecodeOnionObfuscator(onionReader)
 
-				switch {
-				// If we were unable to parse the onion blob,
-				// then we'll send an error back to the source.
-				case failCode != lnwire.CodeNone:
+				// Encrypt the error back to the source unless the payment was
+				// generated locally.
+				if pkt.obfuscator == nil {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
 					if err != nil {
@@ -685,24 +681,22 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 						return
 					}
 					reason = lnwire.OpaqueReason(b.Bytes())
-					isObfuscated = false
-
-				// Otherwise, we'll send back a proper failure
-				// message.
-				default:
-					reason, err = obfuscator.EncryptFirstHop(failure)
+					localFailure = true
+				} else {
+					var err error
+					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
 					if err != nil {
 						log.Errorf("unable to obfuscate error: %v", err)
 						return
 					}
-					isObfuscated = true
 				}
 
 				failPkt := &htlcPacket{
 					incomingChanID: pkt.incomingChanID,
 					incomingHTLCID: pkt.incomingHTLCID,
 					amount:         htlc.Amount,
-					isObfuscated:   isObfuscated,
+					isRouted:       true,
+					localFailure:   localFailure,
 					htlc: &lnwire.UpdateFailHTLC{
 						Reason: reason,
 					},
@@ -711,7 +705,6 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 				// TODO(roasbeef): need to identify if sent
 				// from switch so don't need to obfuscate
 				go l.cfg.Switch.forward(failPkt)
-				log.Infof("Unable to handle downstream add HTLC: %v", err)
 				return
 			}
 		}
@@ -1214,7 +1207,6 @@ func (l *channelLink) processLockedInHtlcs(
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,
 				amount:         pd.Amount,
-				isObfuscated:   false,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: lnwire.OpaqueReason(pd.FailReason),
 				},

@@ -33,7 +33,6 @@ func TestMailBoxCouriers(t *testing.T) {
 			outgoingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
 			incomingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
 			amount:         lnwire.MilliSatoshi(prand.Int63()),
-			isObfuscated:   i%2 == 0,
 		}
 		sentPackets[i] = pkt
 

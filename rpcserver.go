@@ -2123,6 +2123,11 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		fallbackAddr = decoded.FallbackAddr.String()
 	}
 
+	settleDate := int64(0)
+	if !invoice.SettleDate.IsZero() {
+		settleDate = invoice.SettleDate.Unix()
+	}
+
 	// Expiry time will default to 3600 seconds if not specified
 	// explicitly.
 	expiry := int64(decoded.Expiry().Seconds())
@@ -2140,6 +2145,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		RPreimage:       preimage[:],
 		Value:           int64(satAmt),
 		CreationDate:    invoice.CreationDate.Unix(),
+		SettleDate:      settleDate,
 		Settled:         invoice.Terms.Settled,
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,

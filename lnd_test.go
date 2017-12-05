@@ -2262,10 +2262,14 @@ func testInvoiceSubscriptions(net *networkHarness, t *harnessTest) {
 		}
 
 		// The invoice update should exactly match the invoice created
-		// above, but should now be settled.
+		// above, but should now be settled and have SettleDate
 		if !invoiceUpdate.Settled {
 			t.Fatalf("invoice not settled but shoudl be")
 		}
+		if invoiceUpdate.SettleDate == 0 {
+			t.Fatalf("invoice should have non zero settle date, but doesn't")
+		}
+
 		if !bytes.Equal(invoiceUpdate.RPreimage, invoice.RPreimage) {
 			t.Fatalf("payment preimages don't match: expected %v, got %v",
 				invoice.RPreimage, invoiceUpdate.RPreimage)

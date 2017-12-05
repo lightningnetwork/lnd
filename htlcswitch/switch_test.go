@@ -270,7 +270,6 @@ func TestSwitchCancel(t *testing.T) {
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
 		amount:         1,
-		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
 
@@ -373,7 +372,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
 		amount:         1,
-		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
 
@@ -397,7 +395,6 @@ func TestSwitchAddSamePayment(t *testing.T) {
 		outgoingChanID: bobChannelLink.ShortChanID(),
 		outgoingHTLCID: 1,
 		amount:         1,
-		isObfuscated:   true,
 		htlc:           &lnwire.UpdateFailHTLC{},
 	}
 
@@ -500,7 +497,6 @@ func TestSwitchSendPayment(t *testing.T) {
 		outgoingChanID: aliceChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,
 		amount:         1,
-		isObfuscated:   true,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
 		},
@@ -522,7 +518,6 @@ func TestSwitchSendPayment(t *testing.T) {
 	packet = &htlcPacket{
 		outgoingChanID: aliceChannelLink.ShortChanID(),
 		outgoingHTLCID: 1,
-		isObfuscated:   true,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
 		},

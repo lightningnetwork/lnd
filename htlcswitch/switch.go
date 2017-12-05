@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -435,23 +436,39 @@ func (s *Switch) handleLocalDispatch(packet *htlcPacket) error {
 	// We've just received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		// We'll attempt to fully decrypt the onion encrypted error. If
-		// we're unable to then we'll bail early.
-		failure, err := payment.deobfuscator.DecryptError(htlc.Reason)
-		if err != nil {
-			userErr := fmt.Sprintf("unable to de-obfuscate "+
-				"onion failure, htlc with hash(%x): %v",
-				payment.paymentHash[:], err)
-			log.Error(userErr)
-			payment.err <- &ForwardingError{
+		var failure *ForwardingError
+		if packet.localFailure {
+			var userErr string
+			r := bytes.NewReader(htlc.Reason)
+			failureMsg, err := lnwire.DecodeFailure(r, 0)
+			if err != nil {
+				userErr = fmt.Sprintf("unable to decode onion failure, "+
+					"htlc with hash(%x): %v", payment.paymentHash[:], err)
+				log.Error(userErr)
+				failureMsg = lnwire.NewTemporaryChannelFailure(nil)
+			}
+			failure = &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,
 				ExtraMsg:       userErr,
-				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+				FailureMessage: failureMsg,
 			}
 		} else {
-			payment.err <- failure
+			// We'll attempt to fully decrypt the onion encrypted error. If
+			// we're unable to then we'll bail early.
+			failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
+			if err != nil {
+				userErr := fmt.Sprintf("unable to de-obfuscate onion failure, "+
+					"htlc with hash(%x): %v", payment.paymentHash[:], err)
+				log.Error(userErr)
+				failure = &ForwardingError{
+					ErrorSource:    s.cfg.SelfKey,
+					ExtraMsg:       userErr,
+					FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+				}
+			}
 		}
 
+		payment.err <- failure
 		payment.preimage <- zeroPreimage
 		s.removePendingPayment(packet.incomingHTLCID)
 
@@ -503,7 +520,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			source.HandleSwitchPacket(&htlcPacket{
 				incomingChanID: packet.incomingChanID,
 				incomingHTLCID: packet.incomingHTLCID,
-				isObfuscated:   true,
+				isRouted:       true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
@@ -551,7 +568,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			source.HandleSwitchPacket(&htlcPacket{
 				incomingChanID: packet.incomingChanID,
 				incomingHTLCID: packet.incomingHTLCID,
-				isObfuscated:   true,
+				isRouted:       true,
 				htlc: &lnwire.UpdateFailHTLC{
 					Reason: reason,
 				},
@@ -573,7 +590,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit by forwarding the settle msg to the channel from
 	// which htlc add packet was initially received.
 	case *lnwire.UpdateFufillHTLC, *lnwire.UpdateFailHTLC:
-		if packet.incomingChanID == (lnwire.ShortChannelID{}) {
+		if !packet.isRouted {
 			// Use circuit map to find the link to forward settle/fail to.
 			circuit := s.circuits.LookupByHTLC(packet.outgoingChanID,
 				packet.outgoingHTLCID)
@@ -603,18 +620,20 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			packet.incomingChanID = circuit.IncomingChanID
 			packet.incomingHTLCID = circuit.IncomingHTLCID
 
-			// A blank IncomingChanID in a circuit indicates that it is a
-			// pending user-initiated payment.
-			if circuit.IncomingChanID == (lnwire.ShortChannelID{}) {
-				return s.handleLocalDispatch(packet)
-			}
-
 			// Obfuscate the error message for fail updates before sending back
-			// through the circuit.
-			if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok && !packet.isObfuscated {
-				htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-					htlc.Reason)
+			// through the circuit unless the payment was generated locally.
+			if circuit.ErrorEncrypter != nil {
+				if htlc, ok := htlc.(*lnwire.UpdateFailHTLC); ok {
+					htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
+						htlc.Reason)
+				}
 			}
+		}
+
+		// A blank IncomingChanID in a circuit indicates that it is a pending
+		// user-initiated payment.
+		if packet.incomingChanID == (lnwire.ShortChannelID{}) {
+			return s.handleLocalDispatch(packet)
 		}
 
 		source, err := s.getLinkByShortID(packet.incomingChanID)

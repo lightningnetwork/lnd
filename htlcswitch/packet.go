@@ -37,11 +37,13 @@ type htlcPacket struct {
 	// any forwarded errors in an additional layer of encryption.
 	obfuscator ErrorEncrypter
 
-	// isObfuscated is set to true if an error occurs as soon as the switch
-	// forwards a packet to the link. If so, and this is an error packet,
-	// then this allows the switch to avoid doubly encrypting the error.
-	//
-	// TODO(andrew.shvv) revisit after refactoring the way of returning
-	// errors inside the htlcswitch packet.
-	isObfuscated bool
+	// localFailure is set to true if an HTLC fails for a local payment before
+	// the first hop. In this case, the failure reason is simply encoded, not
+	// encrypted with any shared secret.
+	localFailure bool
+
+	// isRouted is set to true if the incomingChanID and incomingHTLCID fields
+	// of a forwarded fail packet are already set and do not need to be looked
+	// up in the circuit map.
+	isRouted bool
 }

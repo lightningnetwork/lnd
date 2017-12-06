@@ -1494,6 +1494,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			TotalSatoshisReceived: int64(dbChannel.TotalMSatReceived.ToSatoshis()),
 			NumUpdates:            localCommit.CommitHeight,
 			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
+			CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
 		}
 
 		for i, htlc := range localCommit.Htlcs {

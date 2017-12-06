@@ -366,7 +366,9 @@ func (s *Switch) handleLocalDispatch(payment *pendingPayment, packet *htlcPacket
 		)
 		for _, link := range links {
 			bandwidth := link.Bandwidth()
-			if bandwidth > largestBandwidth {
+			if link.EligibleToForward() &&
+				bandwidth > largestBandwidth {
+
 				largestBandwidth = bandwidth
 			}
 
@@ -488,7 +490,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// bandwidth.
 		var destination ChannelLink
 		for _, link := range interfaceLinks {
-			if link.Bandwidth() >= htlc.Amount {
+			if link.EligibleToForward() &&
+				link.Bandwidth() >= htlc.Amount {
+
 				destination = link
 				break
 			}

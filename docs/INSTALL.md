@@ -70,7 +70,7 @@ go install . ./cmd/...
 
 To check that `lnd` was installed properly run the following command:
 ```
-go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/')
+go install; go test -v -p 1 $(go list ./... | grep -v  '/vendor/') | grep FAIL
 ```
 
 ### Installing btcd

@@ -38,7 +38,7 @@ const (
 	defaultPeerPort           = 9735
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
-	defaultNumChanConfs       = 1
+	defaultNumChanConfs       = 3
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
 )

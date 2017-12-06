@@ -292,6 +292,14 @@ func (l *channelLink) Stop() {
 	l.cfg.BlockEpochs.Cancel()
 }
 
+// EligibleToForward returns a bool indicating if the channel is able to
+// actively accept requests to forward HTLC's. We're able to forward HTLC's if
+// we know the remote party's next revocation point. Otherwise, we can't
+// initiate new channel state.
+func (l *channelLink) EligibleToForward() bool {
+	return l.channel.RemoteNextRevocation() != nil
+}
+
 // sampleNetworkFee samples the current fee rate on the network to get into the
 // chain in a timely manner. The returned value is expressed in fee-per-kw, as
 // this is the native rate used when computing the fee for commitment

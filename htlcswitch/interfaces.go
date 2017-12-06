@@ -85,6 +85,13 @@ type ChannelLink interface {
 	// the channel link opened.
 	Peer() Peer
 
+	// EligibleToForward returns a bool indicating if the channel is able
+	// to actively accept requests to forward HTLC's. A channel may be
+	// active, but not able to forward HTLC's if it hasn't yet finalized
+	// the pre-channel operation protocol with the remote peer. The switch
+	// will use this function in forwarding decisions accordingly.
+	EligibleToForward() bool
+
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.
 	Start() error

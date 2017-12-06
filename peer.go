@@ -1171,13 +1171,46 @@ out:
 
 			// Make sure this channel is not already active.
 			p.activeChanMtx.Lock()
-			if _, ok := p.activeChannels[chanID]; ok {
+			if currentChan, ok := p.activeChannels[chanID]; ok {
 				peerLog.Infof("Already have ChannelPoint(%v), "+
 					"ignoring.", chanPoint)
+
 				p.activeChanMtx.Unlock()
 				close(newChanReq.done)
 				newChanReq.channel.Stop()
 				newChanReq.channel.CancelObserver()
+
+				// We'll re-send our current channel to the
+				// breachArbiter to ensure that it has the most
+				// up to date version.
+				select {
+				case p.server.breachArbiter.newContracts <- currentChan:
+				case <-p.server.quit:
+					return
+				case <-p.quit:
+					return
+				}
+
+				// If we're being sent a new channel, and our
+				// existing channel doesn't have the next
+				// revocation, then we need to update the
+				// current exsiting channel.
+				if currentChan.RemoteNextRevocation() != nil {
+					continue
+				}
+
+				peerLog.Infof("Processing retransmitted "+
+					"FundingLocked for ChannelPoint(%v)",
+					chanPoint)
+
+				nextRevoke := newChan.RemoteNextRevocation()
+				err := currentChan.InitNextRevocation(nextRevoke)
+				if err != nil {
+					peerLog.Errorf("unable to init chan "+
+						"revocation: %v", err)
+					continue
+				}
+
 				continue
 			}
 

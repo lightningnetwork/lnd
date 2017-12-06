@@ -565,7 +565,7 @@ func (r *ChannelRouter) networkHandler() {
 			// Since this block is stale, we update our best height
 			// to the previous block.
 			blockHeight := uint32(chainUpdate.Height)
-			r.bestHeight = blockHeight - 1
+			atomic.StoreUint32(&r.bestHeight, blockHeight-1)
 
 			// Update the channel graph to reflect that this block
 			// was disconnected.
@@ -596,7 +596,7 @@ func (r *ChannelRouter) networkHandler() {
 			// Once a new block arrives, we update our running
 			// track of the height of the chain tip.
 			blockHeight := uint32(chainUpdate.Height)
-			r.bestHeight = blockHeight
+			atomic.StoreUint32(&r.bestHeight, blockHeight)
 			log.Infof("Pruning channel graph using block %v (height=%v)",
 				chainUpdate.Hash, blockHeight)
 
@@ -919,7 +919,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// FilteredChainView so we are notified if/when this channel is
 		// closed.
 		filterUpdate := []wire.OutPoint{*fundingPoint}
-		err = r.cfg.ChainView.UpdateFilter(filterUpdate, r.bestHeight)
+		err = r.cfg.ChainView.UpdateFilter(
+			filterUpdate, atomic.LoadUint32(&r.bestHeight),
+		)
 		if err != nil {
 			return errors.Errorf("unable to update chain "+
 				"view: %v", err)

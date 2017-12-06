@@ -395,13 +395,10 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 
 // extractBalanceDelta extracts the net balance delta from the PoV of the
 // wallet given a TransactionSummary.
-func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, error) {
-	tx := wire.NewMsgTx(1)
-	txReader := bytes.NewReader(txSummary.Transaction)
-	if err := tx.Deserialize(txReader); err != nil {
-		return -1, nil
-	}
-
+func extractBalanceDelta(
+	txSummary base.TransactionSummary,
+	tx *wire.MsgTx,
+) (btcutil.Amount, error) {
 	// For each input we debit the wallet's outflow for this transaction,
 	// and for each output we credit the wallet's inflow for this
 	// transaction.
@@ -418,11 +415,32 @@ func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, err
 
 // minedTransactionsToDetails is a helper function which converts a summary
 // information about mined transactions to a TransactionDetail.
-func minedTransactionsToDetails(currentHeight int32,
-	block base.Block) ([]*lnwallet.TransactionDetail, error) {
+func minedTransactionsToDetails(
+	currentHeight int32,
+	block base.Block,
+	chainParams *chaincfg.Params,
+) ([]*lnwallet.TransactionDetail, error) {
 
 	details := make([]*lnwallet.TransactionDetail, 0, len(block.Transactions))
 	for _, tx := range block.Transactions {
+		wireTx := &wire.MsgTx{}
+		txReader := bytes.NewReader(tx.Transaction)
+
+		if err := wireTx.Deserialize(txReader); err != nil {
+			return nil, err
+		}
+
+		var destAddresses []btcutil.Address
+		for _, txOut := range wireTx.TxOut {
+			_, outAddresses, _, err :=
+				txscript.ExtractPkScriptAddrs(txOut.PkScript, chainParams)
+			if err != nil {
+				return nil, err
+			}
+
+			destAddresses = append(destAddresses, outAddresses...)
+		}
+
 		txDetail := &lnwallet.TransactionDetail{
 			Hash:             *tx.Hash,
 			NumConfirmations: currentHeight - block.Height + 1,
@@ -430,9 +448,10 @@ func minedTransactionsToDetails(currentHeight int32,
 			BlockHeight:      block.Height,
 			Timestamp:        block.Timestamp,
 			TotalFees:        int64(tx.Fee),
+			DestAddresses:    destAddresses,
 		}
 
-		balanceDelta, err := extractBalanceDelta(tx)
+		balanceDelta, err := extractBalanceDelta(tx, wireTx)
 		if err != nil {
 			return nil, err
 		}
@@ -444,16 +463,25 @@ func minedTransactionsToDetails(currentHeight int32,
 	return details, nil
 }
 
-// unminedTransactionsToDetail is a helper funciton which converts a summary
+// unminedTransactionsToDetail is a helper function which converts a summary
 // for a unconfirmed transaction to a transaction detail.
-func unminedTransactionsToDetail(summary base.TransactionSummary) (*lnwallet.TransactionDetail, error) {
+func unminedTransactionsToDetail(
+	summary base.TransactionSummary,
+) (*lnwallet.TransactionDetail, error) {
+	wireTx := &wire.MsgTx{}
+	txReader := bytes.NewReader(summary.Transaction)
+
+	if err := wireTx.Deserialize(txReader); err != nil {
+		return nil, err
+	}
+
 	txDetail := &lnwallet.TransactionDetail{
 		Hash:      *summary.Hash,
 		TotalFees: int64(summary.Fee),
 		Timestamp: summary.Timestamp,
 	}
 
-	balanceDelta, err := extractBalanceDelta(summary)
+	balanceDelta, err := extractBalanceDelta(summary, wireTx)
 	if err != nil {
 		return nil, err
 	}
@@ -487,7 +515,7 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	// TransactionDetail which re-packages the data returned by the base
 	// wallet.
 	for _, blockPackage := range txns.MinedTransactions {
-		details, err := minedTransactionsToDetails(currentHeight, blockPackage)
+		details, err := minedTransactionsToDetails(currentHeight, blockPackage, b.netParams)
 		if err != nil {
 			return nil, err
 		}
@@ -562,7 +590,7 @@ out:
 			// notifications for any newly confirmed transactions.
 			go func() {
 				for _, block := range txNtfn.AttachedBlocks {
-					details, err := minedTransactionsToDetails(currentHeight, block)
+					details, err := minedTransactionsToDetails(currentHeight, block, t.w.ChainParams())
 					if err != nil {
 						continue
 					}

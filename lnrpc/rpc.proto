@@ -717,6 +717,13 @@ message ActiveChannel {
     The list of active, uncleared HTLCs currently pending within the channel.
     */
     repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
+
+    /**
+    The CSV delay expressed in relative blocks. If the channel is force
+    closed, we'll need to wait for this many blocks before we can regain our
+    funds.
+    */
+    uint32 csv_delay = 16 [ json_name = "csv_delay" ];
 }
 
 message ListChannelsRequest {

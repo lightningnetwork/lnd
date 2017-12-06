@@ -882,6 +882,11 @@
             "$ref": "#/definitions/lnrpcHTLC"
           },
           "description": "*\nThe list of active, uncleared HTLCs currently pending within the channel."
+        },
+        "csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force\nclosed, we'll need to wait for this many blocks before we can regain our\nfunds."
         }
       }
     },

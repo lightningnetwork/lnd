@@ -79,6 +79,9 @@ type TransactionDetail struct {
 
 	// TotalFees is the total fee in satoshis paid by this transaction.
 	TotalFees int64
+
+	// DestAddresses are the destinations for a transaction
+	DestAddresses []btcutil.Address
 }
 
 // TransactionSubscription is an interface which describes an object capable of

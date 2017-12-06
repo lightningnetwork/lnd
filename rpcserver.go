@@ -2346,6 +2346,11 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		Transactions: make([]*lnrpc.Transaction, len(transactions)),
 	}
 	for i, tx := range transactions {
+		var destAddresses []string
+		for _, destAddress := range tx.DestAddresses {
+			destAddresses = append(destAddresses, destAddress.EncodeAddress())
+		}
+
 		txDetails.Transactions[i] = &lnrpc.Transaction{
 			TxHash:           tx.Hash.String(),
 			Amount:           int64(tx.Value),
@@ -2354,6 +2359,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 			BlockHeight:      tx.BlockHeight,
 			TimeStamp:        tx.Timestamp,
 			TotalFees:        tx.TotalFees,
+			DestAddresses:    destAddresses,
 		}
 	}
 

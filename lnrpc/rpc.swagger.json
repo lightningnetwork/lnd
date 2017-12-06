@@ -2018,6 +2018,13 @@
           "type": "string",
           "format": "int64",
           "title": "/ Fees paid for this transaction"
+        },
+        "dest_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "/ Addresses that received funds for this transaction"
         }
       }
     },

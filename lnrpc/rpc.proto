@@ -479,6 +479,9 @@ message Transaction {
 
     /// Fees paid for this transaction
     int64 total_fees = 7 [ json_name = "total_fees" ];
+
+    /// Addresses that received funds for this transaction
+    repeated string dest_addresses = 8 [ json_name = "dest_addresses" ];
 }
 message GetTransactionsRequest {
 }

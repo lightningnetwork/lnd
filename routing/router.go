@@ -593,6 +593,19 @@ func (r *ChannelRouter) networkHandler() {
 				return
 			}
 
+			// We'll ensure that any new blocks received attach
+			// directly to the end of our main chain. If not, then
+			// we've somehow missed some blocks. We don't process
+			// this block as otherwise, we may miss on-chain
+			// events.
+			currentHeight := atomic.LoadUint32(&r.bestHeight)
+			if chainUpdate.Height != currentHeight+1 {
+				log.Errorf("out of order block: expecting "+
+					"height=%v, got height=%v", currentHeight+1,
+					chainUpdate.Height)
+				continue
+			}
+
 			// Once a new block arrives, we update our running
 			// track of the height of the chain tip.
 			blockHeight := uint32(chainUpdate.Height)

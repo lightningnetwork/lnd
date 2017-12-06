@@ -308,17 +308,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		chanPoint := &dbChan.FundingOutpoint
 
-		// If the channel we read form disk has a nil next revocation
-		// key, then we'll skip loading this channel. We must do this
-		// as it doesn't yet have the needed items required to initiate
-		// a local state transition, or one triggered by forwarding an
-		// HTLC.
-		if lnChan.RemoteNextRevocation() == nil {
-			peerLog.Debugf("Skipping ChannelPoint(%v), lacking "+
-				"next commit point", chanPoint)
-			continue
-		}
-
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 		p.activeChanMtx.Lock()

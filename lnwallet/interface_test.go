@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -816,6 +817,10 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("unable to fetch tx details: %v", err)
 	}
 
+	// This is a mapping from:
+	// blockHash -> transactionHash -> transactionOutputs
+	blockTxOuts := make(map[chainhash.Hash]map[chainhash.Hash][]*wire.TxOut)
+
 	// Each of the transactions created above should be found with the
 	// proper details populated.
 	for _, txDetail := range txDetails {
@@ -831,9 +836,49 @@ func testListTransactionDetails(miner *rpctest.Harness,
 			t.Fatalf("tx value incorrect, got %v expected %v",
 				txDetail.Value, outputAmt)
 		}
+
 		if !bytes.Equal(txDetail.BlockHash[:], blocks[0][:]) {
 			t.Fatalf("block hash mismatch, got %v expected %v",
 				txDetail.BlockHash, blocks[0])
+		}
+
+		// This fetches the transactions in a block so that we can compare the
+		// txouts stored in the mined transaction against the ones in the transaction
+		// details
+		if _, ok := blockTxOuts[*txDetail.BlockHash]; !ok {
+			fetchedBlock, err := alice.Cfg.ChainIO.GetBlock(txDetail.BlockHash)
+			if err != nil {
+				t.Fatalf("err fetching block: %s", err)
+			}
+
+			transactions :=
+				make(map[chainhash.Hash][]*wire.TxOut, len(fetchedBlock.Transactions))
+			for _, tx := range fetchedBlock.Transactions {
+				transactions[tx.TxHash()] = tx.TxOut
+			}
+
+			blockTxOuts[fetchedBlock.BlockHash()] = transactions
+		}
+
+		if txOuts, ok := blockTxOuts[*txDetail.BlockHash][txDetail.Hash]; !ok {
+			t.Fatalf("tx (%v) not found in block (%v)",
+				txDetail.Hash, txDetail.BlockHash)
+		} else {
+			var destinationAddresses []btcutil.Address
+
+			for _, txOut := range txOuts {
+				_, addrs, _, err :=
+					txscript.ExtractPkScriptAddrs(txOut.PkScript, &alice.Cfg.NetParams)
+				if err != nil {
+					t.Fatalf("err extract script addresses: %s", err)
+				}
+				destinationAddresses = append(destinationAddresses, addrs...)
+			}
+
+			if !reflect.DeepEqual(txDetail.DestAddresses, destinationAddresses) {
+				t.Fatalf("destination addresses mismatch, got %v expected %v",
+					txDetail.DestAddresses, destinationAddresses)
+			}
 		}
 
 		delete(txids, txDetail.Hash)

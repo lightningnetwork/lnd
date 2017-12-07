@@ -5115,3 +5115,12 @@ func (lc *LightningChannel) CommitFeeRate() btcutil.Amount {
 
 	return lc.channelState.LocalCommitment.FeePerKw
 }
+
+// IsPending returns true if the channel's funding transaction has been fully
+// confirmed, and false otherwise.
+func (lc *LightningChannel) IsPending() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.IsPending
+}

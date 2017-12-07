@@ -405,10 +405,12 @@ func (l *channelLink) htlcManager() {
 			// this, as at this point we can't be sure if they've
 			// really received the FundingLocked message.
 			if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
-				localChanSyncMsg.NextLocalCommitHeight == 1 {
+				localChanSyncMsg.NextLocalCommitHeight == 1 &&
+				!l.channel.IsPending() {
 
-				log.Debugf("Resending fundingLocked message " +
-					"to peer")
+				log.Infof("ChannelPoint(%v): resending "+
+					"FundingLocked message to peer",
+					l.channel.ChannelPoint())
 
 				nextRevocation, err := l.channel.NextRevocationKey()
 				if err != nil {
@@ -453,7 +455,7 @@ out:
 	for {
 		select {
 		// A new block has arrived, we'll check the network fee to see
-		// if we should adjust our commitment fee , and also update our
+		// if we should adjust our commitment fee, and also update our
 		// track of the best current height.
 		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
 			if !ok {

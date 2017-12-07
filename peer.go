@@ -583,13 +583,25 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		fmt.Sprintf("Update stream for ChannelID(%x) created", cid),
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid),
 		func(msg lnwire.Message) {
-			// We'll send a message to the funding manager and wait iff an
-			// active funding process for this channel hasn't yet completed.
-			// We do this in order to account for the following scenario: we
-			// send the funding locked message to the other side, they
-			// immediately send a channel update message, but we haven't yet
-			// sent the channel to the channelManager.
-			p.server.fundingMgr.waitUntilChannelOpen(cid)
+			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
+
+			// If this is the chanSync message, then we'll develri
+			// it imemdately to the active link.
+			if !isChanSycMsg {
+				// We'll send a message to the funding manager
+				// and wait iff an active funding process for
+				// this channel hasn't yet completed.  We do
+				// this in order to account for the following
+				// scenario: we send the funding locked message
+				// to the other side, they immediately send a
+				// channel update message, but we haven't yet
+				// sent the channel to the channelManager.
+				peerLog.Infof("waiting on chan open to deliver: %v",
+					spew.Sdump(msg))
+				p.server.fundingMgr.waitUntilChannelOpen(cid)
+			}
+
+			// TODO(roasbeef): only wait if not chan sync
 
 			// Dispatch the commitment update message to the proper active
 			// goroutine dedicated to this channel.

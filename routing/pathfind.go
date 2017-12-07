@@ -302,6 +302,8 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		}
 		edge.Node.PubKey.Curve = nil
 
+		route.TotalFees += nextHop.Fee
+
 		// As a sanity check, we ensure that the selected channel has
 		// enough capacity to forward the required amount which
 		// includes the fee dictated at each hop.

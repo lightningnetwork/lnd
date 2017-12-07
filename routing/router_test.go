@@ -186,7 +186,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 			routes[0].TotalFees)
 	}
 	if routes[1].TotalFees == 0 {
-		t.Fatalf("total fees not set in second route: ",
+		t.Fatalf("total fees not set in second route: %v",
 			spew.Sdump(routes[0]))
 	}
 

@@ -294,12 +294,6 @@ func (p *peer) Start() error {
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
-		// If the channel isn't yet open, then we don't need to process
-		// it any further.
-		if dbChan.IsPending {
-			continue
-		}
-
 		lnChan, err := lnwallet.NewLightningChannel(p.server.cc.signer,
 			p.server.cc.chainNotifier, p.server.cc.feeEstimator, dbChan)
 		if err != nil {

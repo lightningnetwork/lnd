@@ -175,8 +175,19 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 
 	// Exactly, two such paths should be found.
 	if len(routes) != 2 {
-		t.Fatalf("2 routes shouldn't been selected, instead %v were: %v",
+		t.Fatalf("2 routes should've been selected, instead %v were: %v",
 			len(routes), spew.Sdump(routes))
+	}
+
+	// We shouldn't pay a fee for the fist route, but the second route
+	// should have a fee intact.
+	if routes[0].TotalFees != 0 {
+		t.Fatalf("incorrect fees for first route, expected 0 got: %v",
+			routes[0].TotalFees)
+	}
+	if routes[1].TotalFees == 0 {
+		t.Fatalf("total fees not set in second route: ",
+			spew.Sdump(routes[0]))
 	}
 
 	// The paths should properly be ranked according to their total fee

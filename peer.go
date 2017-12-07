@@ -922,6 +922,8 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	}))
 
 	switch m := msg.(type) {
+	case *lnwire.ChannelReestablish:
+		m.LocalUnrevokedCommitPoint.Curve = nil
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
 	case *lnwire.NodeAnnouncement:

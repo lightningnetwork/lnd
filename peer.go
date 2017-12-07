@@ -294,12 +294,6 @@ func (p *peer) Start() error {
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
-		// If the channel isn't yet open, then we don't need to process
-		// it any further.
-		if dbChan.IsPending {
-			continue
-		}
-
 		lnChan, err := lnwallet.NewLightningChannel(p.server.cc.signer,
 			p.server.cc.chainNotifier, p.server.cc.feeEstimator, dbChan)
 		if err != nil {
@@ -307,17 +301,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		}
 
 		chanPoint := &dbChan.FundingOutpoint
-
-		// If the channel we read form disk has a nil next revocation
-		// key, then we'll skip loading this channel. We must do this
-		// as it doesn't yet have the needed items required to initiate
-		// a local state transition, or one triggered by forwarding an
-		// HTLC.
-		if lnChan.RemoteNextRevocation() == nil {
-			peerLog.Debugf("Skipping ChannelPoint(%v), lacking "+
-				"next commit point", chanPoint)
-			continue
-		}
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -600,13 +583,25 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		fmt.Sprintf("Update stream for ChannelID(%x) created", cid),
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid),
 		func(msg lnwire.Message) {
-			// We'll send a message to the funding manager and wait iff an
-			// active funding process for this channel hasn't yet completed.
-			// We do this in order to account for the following scenario: we
-			// send the funding locked message to the other side, they
-			// immediately send a channel update message, but we haven't yet
-			// sent the channel to the channelManager.
-			p.server.fundingMgr.waitUntilChannelOpen(cid)
+			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
+
+			// If this is the chanSync message, then we'll develri
+			// it imemdately to the active link.
+			if !isChanSycMsg {
+				// We'll send a message to the funding manager
+				// and wait iff an active funding process for
+				// this channel hasn't yet completed.  We do
+				// this in order to account for the following
+				// scenario: we send the funding locked message
+				// to the other side, they immediately send a
+				// channel update message, but we haven't yet
+				// sent the channel to the channelManager.
+				peerLog.Infof("waiting on chan open to deliver: %v",
+					spew.Sdump(msg))
+				p.server.fundingMgr.waitUntilChannelOpen(cid)
+			}
+
+			// TODO(roasbeef): only wait if not chan sync
 
 			// Dispatch the commitment update message to the proper active
 			// goroutine dedicated to this channel.
@@ -933,6 +928,8 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	}))
 
 	switch m := msg.(type) {
+	case *lnwire.ChannelReestablish:
+		m.LocalUnrevokedCommitPoint.Curve = nil
 	case *lnwire.RevokeAndAck:
 		m.NextRevocationKey.Curve = nil
 	case *lnwire.NodeAnnouncement:
@@ -1182,13 +1179,46 @@ out:
 
 			// Make sure this channel is not already active.
 			p.activeChanMtx.Lock()
-			if _, ok := p.activeChannels[chanID]; ok {
+			if currentChan, ok := p.activeChannels[chanID]; ok {
 				peerLog.Infof("Already have ChannelPoint(%v), "+
 					"ignoring.", chanPoint)
+
 				p.activeChanMtx.Unlock()
 				close(newChanReq.done)
 				newChanReq.channel.Stop()
 				newChanReq.channel.CancelObserver()
+
+				// We'll re-send our current channel to the
+				// breachArbiter to ensure that it has the most
+				// up to date version.
+				select {
+				case p.server.breachArbiter.newContracts <- currentChan:
+				case <-p.server.quit:
+					return
+				case <-p.quit:
+					return
+				}
+
+				// If we're being sent a new channel, and our
+				// existing channel doesn't have the next
+				// revocation, then we need to update the
+				// current exsiting channel.
+				if currentChan.RemoteNextRevocation() != nil {
+					continue
+				}
+
+				peerLog.Infof("Processing retransmitted "+
+					"FundingLocked for ChannelPoint(%v)",
+					chanPoint)
+
+				nextRevoke := newChan.RemoteNextRevocation()
+				err := currentChan.InitNextRevocation(nextRevoke)
+				if err != nil {
+					peerLog.Errorf("unable to init chan "+
+						"revocation: %v", err)
+					continue
+				}
+
 				continue
 			}
 

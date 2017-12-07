@@ -1465,8 +1465,11 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 		channelID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 		var linkActive bool
-		if _, err := r.server.htlcSwitch.GetLink(channelID); err == nil {
-			linkActive = true
+		if link, err := r.server.htlcSwitch.GetLink(channelID); err == nil {
+			// A channel is only considered active if it is known
+			// by the switch *and* able to forward
+			// incoming/outgoing payments.
+			linkActive = link.EligibleToForward()
 		}
 
 		// As this is required for display purposes, we'll calculate

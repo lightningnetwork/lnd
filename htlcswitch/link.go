@@ -292,6 +292,14 @@ func (l *channelLink) Stop() {
 	l.cfg.BlockEpochs.Cancel()
 }
 
+// EligibleToForward returns a bool indicating if the channel is able to
+// actively accept requests to forward HTLC's. We're able to forward HTLC's if
+// we know the remote party's next revocation point. Otherwise, we can't
+// initiate new channel state.
+func (l *channelLink) EligibleToForward() bool {
+	return l.channel.RemoteNextRevocation() != nil
+}
+
 // sampleNetworkFee samples the current fee rate on the network to get into the
 // chain in a timely manner. The returned value is expressed in fee-per-kw, as
 // this is the native rate used when computing the fee for commitment
@@ -397,10 +405,12 @@ func (l *channelLink) htlcManager() {
 			// this, as at this point we can't be sure if they've
 			// really received the FundingLocked message.
 			if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
-				localChanSyncMsg.NextLocalCommitHeight == 1 {
+				localChanSyncMsg.NextLocalCommitHeight == 1 &&
+				!l.channel.IsPending() {
 
-				log.Debugf("Resending fundingLocked message " +
-					"to peer")
+				log.Infof("ChannelPoint(%v): resending "+
+					"FundingLocked message to peer",
+					l.channel.ChannelPoint())
 
 				nextRevocation, err := l.channel.NextRevocationKey()
 				if err != nil {
@@ -445,7 +455,7 @@ out:
 	for {
 		select {
 		// A new block has arrived, we'll check the network fee to see
-		// if we should adjust our commitment fee , and also update our
+		// if we should adjust our commitment fee, and also update our
 		// track of the best current height.
 		case blockEpoch, ok := <-l.cfg.BlockEpochs.Epochs:
 			if !ok {

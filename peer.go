@@ -596,8 +596,6 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				// to the other side, they immediately send a
 				// channel update message, but we haven't yet
 				// sent the channel to the channelManager.
-				peerLog.Infof("waiting on chan open to deliver: %v",
-					spew.Sdump(msg))
 				p.server.fundingMgr.waitUntilChannelOpen(cid)
 			}
 

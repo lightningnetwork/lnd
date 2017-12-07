@@ -2220,7 +2220,7 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 
 	// If this isn't a simple error code, then we'll display the entire
 	// thing.
-	if len(protocolErr.Data) > 0 {
+	if len(protocolErr.Data) > 1 {
 		resCtx.err <- grpc.Errorf(
 			lnErr.ToGrpcCode(), string(protocolErr.Data),
 		)

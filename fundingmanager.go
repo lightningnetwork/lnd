@@ -1576,8 +1576,6 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
-	fndgLog.Debugf("Sending FundingLocked for ChannelID(%v)", chanID)
-
 	// Next, we'll send over the funding locked message which marks that we
 	// consider the channel open by presenting the remote party with our
 	// next revocation key. Without the revocation key, the remote party
@@ -1600,6 +1598,10 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	// send fundingLocked until we succeed, or the fundingManager is shut
 	// down.
 	for {
+		fndgLog.Debugf("Sending FundingLocked for ChannelID(%v) to "+
+			"peer %x", chanID,
+			completeChan.IdentityPub.SerializeCompressed())
+
 		err = f.cfg.SendToPeer(completeChan.IdentityPub,
 			fundingLockedMsg)
 		if err == nil {
@@ -1616,6 +1618,11 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, connected)
 		select {
 		case <-connected:
+			fndgLog.Infof("Peer(%x) came back online, will retry "+
+				"sending FundingLocked for ChannelID(%v)",
+				completeChan.IdentityPub.SerializeCompressed(),
+				chanID)
+
 			// Retry sending.
 		case <-f.quit:
 			return fmt.Errorf("shutting down unable to send")
@@ -1704,6 +1711,9 @@ func (f *fundingManager) processFundingLocked(msg *lnwire.FundingLocked,
 // channel to enter normal operating mode.
 func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	defer f.wg.Done()
+	fndgLog.Debugf("Received FundingLocked for ChannelID(%v) from "+
+		"peer %x", fmsg.msg.ChanID,
+		fmsg.peerAddress.IdentityKey.SerializeCompressed())
 
 	// If we are currently in the process of handling a funding locked
 	// message for this channel, ignore.
@@ -2011,12 +2021,15 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	// network, and/ if either fails we consider the announcement
 	// unsuccessful.
 	if err = f.cfg.SendAnnouncement(ann.chanAnn); err != nil {
+		fndgLog.Errorf("Unable to send channel announcement: %v", err)
 		return err
 	}
 	if err = f.cfg.SendAnnouncement(ann.chanUpdateAnn); err != nil {
+		fndgLog.Errorf("Unable to send channel update: %v", err)
 		return err
 	}
 	if err = f.cfg.SendAnnouncement(ann.chanProof); err != nil {
+		fndgLog.Errorf("Unable to send channel proof: %v", err)
 		return err
 	}
 
@@ -2031,6 +2044,7 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	}
 
 	if err = f.cfg.SendAnnouncement(&nodeAnn); err != nil {
+		fndgLog.Errorf("Unable to send node announcement: %v", err)
 		return err
 	}
 	return nil

@@ -1618,7 +1618,7 @@ func (f *fundingManager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 		case <-connected:
 			// Retry sending.
 		case <-f.quit:
-			return nil
+			return fmt.Errorf("shutting down unable to send")
 		}
 	}
 

@@ -577,10 +577,14 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	// will generate the confirmations in chunks.
 	numConfs = 6
 
+	time.Sleep(time.Second * 2)
+
 	// First, generate 2 confirmations.
 	if _, err := miner.Node.Generate(2); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
+
+	time.Sleep(time.Second * 2)
 
 	// Next, register for the notification *after* the transition has
 	// already been partially confirmed.
@@ -590,9 +594,33 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	// With the notification registered, generate another 4 blocks, this
-	// should dispatch the notification.
-	if _, err := miner.Node.Generate(4); err != nil {
+	// We shouldn't receive a notification at this point, as the
+	// transaction hasn't yet been fully confirmed.
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatalf("received confirmation notification but shouldn't " +
+			"have")
+	default:
+		// Expected case
+	}
+
+	// With the notification registered, generate another 3 blocks, this
+	// shouldn't yet dispatch the notification.
+	if _, err := miner.Node.Generate(3); err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatalf("received confirmation notification but shouldn't " +
+			"have")
+	default:
+		// Expected case
+	}
+
+	// Finally, we'll mine the final block which should dispatch the
+	// notification.
+	if _, err := miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 

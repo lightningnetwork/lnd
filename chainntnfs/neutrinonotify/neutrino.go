@@ -419,10 +419,7 @@ func (n *NeutrinoNotifier) attemptHistoricalDispatch(msg *confirmationsNotificat
 
 	targetHash := msg.txid
 
-	var (
-		confDetails *chainntnfs.TxConfirmation
-		scanHeight  uint32
-	)
+	var confDetails *chainntnfs.TxConfirmation
 
 	chainntnfs.Log.Infof("Attempting to trigger dispatch for %v from "+
 		"historical chain", msg.txid)
@@ -503,20 +500,21 @@ chainScan:
 	// Otherwise, we'll calculate the number of confirmations that the
 	// transaction has so we can decide if it has reached the desired
 	// number of confirmations or not.
-	txConfs := currentHeight - scanHeight
+	txConfs := currentHeight - confDetails.BlockHeight + 1
 
 	// If the transaction has more that enough confirmations, then we can
 	// dispatch it immediately after obtaining for information w.r.t
 	// exactly *when* if got all its confirmations.
 	if uint32(txConfs) >= msg.numConfirmations {
+		chainntnfs.Log.Infof("Dispatching %v conf notification, "+
+			"height=%v", msg.numConfirmations, currentHeight)
 		msg.finConf <- confDetails
 		return true
 	}
 
 	// Otherwise, the transaction has only been *partially* confirmed, so
 	// we need to insert it into the confirmation heap.
-	confsLeft := msg.numConfirmations - uint32(txConfs)
-	confHeight := uint32(currentHeight) + confsLeft
+	confHeight := confDetails.BlockHeight + msg.numConfirmations - 1
 	heapEntry := &confEntry{
 		msg,
 		confDetails,
@@ -524,7 +522,7 @@ chainScan:
 	}
 	heap.Push(n.confHeap, heapEntry)
 
-	return false
+	return true
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
@@ -573,6 +571,9 @@ func (n *NeutrinoNotifier) notifyConfs(newBlockHeight int32) {
 	// if another is eligible until there are no more eligible entries.
 	nextConf := heap.Pop(n.confHeap).(*confEntry)
 	for nextConf.triggerHeight <= uint32(newBlockHeight) {
+
+		chainntnfs.Log.Infof("Dispatching %v conf notification, "+
+			"height=%v", nextConf.numConfirmations, newBlockHeight)
 
 		nextConf.finConf <- nextConf.initialConfDetails
 

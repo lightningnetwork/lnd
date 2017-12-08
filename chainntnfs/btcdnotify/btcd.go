@@ -445,6 +445,8 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(
 	// dispatch it immediately after obtaining for information w.r.t
 	// exactly *when* if got all its confirmations.
 	if uint32(tx.Confirmations) >= msg.numConfirmations {
+		chainntnfs.Log.Infof("Dispatching %v conf notification",
+			msg.numConfirmations)
 		msg.finConf <- confDetails
 		return true
 	}
@@ -513,8 +515,8 @@ func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
 	// is eligible until there are no more eligible entries.
 	nextConf := heap.Pop(b.confHeap).(*confEntry)
 	for nextConf.triggerHeight <= uint32(newBlockHeight) {
-		// TODO(roasbeef): shake out possible of by one in height calc
-		// for historical dispatches
+		chainntnfs.Log.Infof("Dispatching %v conf notification, "+
+			"height=%v", nextConf.numConfirmations, newBlockHeight)
 		nextConf.finConf <- nextConf.initialConfDetails
 
 		if b.confHeap.Len() == 0 {

@@ -300,6 +300,7 @@ out:
 					chainntnfs.Log.Warnf("Received blocks out of order: "+
 						"current height=%d, new height=%d",
 						currentHeight, update.blockHeight)
+					continue
 				}
 
 				currentHeight = update.blockHeight
@@ -321,22 +322,24 @@ out:
 				if err != nil {
 					chainntnfs.Log.Error(err)
 				}
-			} else {
-				if update.blockHeight != currentHeight {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, disconnected height=%d",
-						currentHeight, update.blockHeight)
-				}
+				continue
+			}
 
-				currentHeight = update.blockHeight - 1
+			if update.blockHeight != currentHeight {
+				chainntnfs.Log.Warnf("Received blocks out of order: "+
+					"current height=%d, disconnected height=%d",
+					currentHeight, update.blockHeight)
+				continue
+			}
 
-				chainntnfs.Log.Infof("Block disconnected from main chain: "+
-					"height=%v, sha=%v", update.blockHeight, update.blockHash)
+			currentHeight = update.blockHeight - 1
 
-				err := b.txConfNotifier.DisconnectTip(uint32(update.blockHeight))
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+			chainntnfs.Log.Infof("Block disconnected from main chain: "+
+				"height=%v, sha=%v", update.blockHeight, update.blockHash)
+
+			err := b.txConfNotifier.DisconnectTip(uint32(update.blockHeight))
+			if err != nil {
+				chainntnfs.Log.Error(err)
 			}
 
 		case item := <-b.txUpdates.ChanOut():

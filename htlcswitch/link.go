@@ -1140,6 +1140,14 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 		return err
 	}
 
+	// We skip sending the update_fee message if the channel is not currently
+	// eligable to forward messages
+	if !l.EligibleToForward() {
+		log.Infof("ChannelPoint(%v): skipping transmission of update_fee. " +
+			"channel is not eligable for forwarding messages")
+		return nil
+	}
+
 	// We'll then attempt to send a new UpdateFee message, and also lock it
 	// in immediately by triggering a commitment update.
 	msg := lnwire.NewUpdateFee(l.ChanID(), uint32(feePerKw))

@@ -334,6 +334,8 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					chainntnfs.Log.Warnf("Received blocks out of order: "+
 						"current height=%d, new height=%d",
 						n.bestHeight, update.height)
+					n.heightMtx.Unlock()
+					continue
 				}
 
 				n.bestHeight = update.height
@@ -346,25 +348,29 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				if err != nil {
 					chainntnfs.Log.Error(err)
 				}
-			} else {
-				n.heightMtx.Lock()
-				if update.height != n.bestHeight {
-					chainntnfs.Log.Warnf("Received blocks out of order: "+
-						"current height=%d, disconnected height=%d",
-						n.bestHeight, update.height)
-				}
-
-				n.bestHeight = update.height - 1
-				n.heightMtx.Unlock()
-
-				chainntnfs.Log.Infof("Block disconnected from main chain: "+
-					"height=%v, sha=%v", update.height, update.hash)
-
-				err := n.txConfNotifier.DisconnectTip(update.height)
-				if err != nil {
-					chainntnfs.Log.Error(err)
-				}
+				continue
 			}
+
+			n.heightMtx.Lock()
+			if update.height != n.bestHeight {
+				chainntnfs.Log.Warnf("Received blocks out of order: "+
+					"current height=%d, disconnected height=%d",
+					n.bestHeight, update.height)
+				n.heightMtx.Unlock()
+				continue
+			}
+
+			n.bestHeight = update.height - 1
+			n.heightMtx.Unlock()
+
+			chainntnfs.Log.Infof("Block disconnected from main chain: "+
+				"height=%v, sha=%v", update.height, update.hash)
+
+			err := n.txConfNotifier.DisconnectTip(update.height)
+			if err != nil {
+				chainntnfs.Log.Error(err)
+			}
+
 		case err := <-n.rescanErr:
 			chainntnfs.Log.Errorf("Error during rescan: %v", err)
 

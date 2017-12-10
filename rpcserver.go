@@ -829,7 +829,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 
 	// Creation of channels before the wallet syncs up is currently
 	// disallowed.
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, _, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, err
 	}
@@ -1166,7 +1166,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		return nil, fmt.Errorf("unable to get best block info: %v", err)
 	}
 
-	isSynced, err := r.server.cc.wallet.IsSynced()
+	isSynced, bestHeaderTimestamp, err := r.server.cc.wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
@@ -1192,17 +1192,18 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
-		IdentityPubkey:     encodedIDPub,
-		NumPendingChannels: nPendingChannels,
-		NumActiveChannels:  activeChannels,
-		NumPeers:           uint32(len(serverPeers)),
-		BlockHeight:        uint32(bestHeight),
-		BlockHash:          bestHash.String(),
-		SyncedToChain:      isSynced,
-		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
-		Chains:             activeChains,
-		Uris:               uris,
-		Alias:              nodeAnn.Alias.String(),
+		IdentityPubkey:      encodedIDPub,
+		NumPendingChannels:  nPendingChannels,
+		NumActiveChannels:   activeChannels,
+		NumPeers:            uint32(len(serverPeers)),
+		BlockHeight:         uint32(bestHeight),
+		BlockHash:           bestHash.String(),
+		SyncedToChain:       isSynced,
+		Testnet:             activeNetParams.Params == &chaincfg.TestNet3Params,
+		Chains:              activeChains,
+		Uris:                uris,
+		Alias:               nodeAnn.Alias.String(),
+		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 	}, nil
 }
 

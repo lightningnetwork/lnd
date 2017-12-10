@@ -198,7 +198,9 @@ type WalletController interface {
 
 	// IsSynced returns a boolean indicating if from the PoV of the wallet,
 	// it has fully synced to the current best block in the main chain.
-	IsSynced() (bool, error)
+	// It also returns an int64 indicating the timestamp of the best block
+	// known to the wallet, expressed in Unix epoch time
+	IsSynced() (bool, int64, error)
 
 	// Start initializes the wallet, making any necessary connections,
 	// starting up required goroutines etc.

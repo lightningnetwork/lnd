@@ -1225,6 +1225,11 @@
             "type": "string"
           },
           "description": "/ The URIs of the current node."
+        },
+        "best_header_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ Timestamp of the block best known to the wallet"
         }
       }
     },
@@ -2007,7 +2012,7 @@
         "amount": {
           "type": "string",
           "format": "int64",
-          "title": "/ The transaction amount, denominated in satoshis"
+          "title": "/ The transaction ammount, denominated in satoshis"
         },
         "num_confirmations": {
           "type": "integer",

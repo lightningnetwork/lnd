@@ -801,6 +801,9 @@ message GetInfoResponse {
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
+
+    /// Timestamp of the block best known to the wallet
+    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
 }
 
 message ConfirmationUpdate {

@@ -1159,6 +1159,8 @@ type GetInfoResponse struct {
 	Chains []string `protobuf:"bytes,11,rep,name=chains" json:"chains,omitempty"`
 	// / The URIs of the current node.
 	Uris []string `protobuf:"bytes,12,rep,name=uris" json:"uris,omitempty"`
+	// / Timestamp of the best block known to the wallet
+	BestHeaderTimestamp int64 `protobuf:"varint,12,opt,name=best_header_timestamp" json:"best_header_timestamp,omitempty"`
 }
 
 func (m *GetInfoResponse) Reset()                    { *m = GetInfoResponse{} }
@@ -1241,6 +1243,13 @@ func (m *GetInfoResponse) GetUris() []string {
 		return m.Uris
 	}
 	return nil
+}
+
+func (m *GetInfoResponse) GetBestHeaderTimestamp() int64 {
+	if m != nil {
+		return m.BestHeaderTimestamp
+	}
+	return 0
 }
 
 type ConfirmationUpdate struct {

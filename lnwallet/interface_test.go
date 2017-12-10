@@ -1410,7 +1410,7 @@ func waitForWalletSync(w *lnwallet.LightningWallet) error {
 	var err error
 	timeout := time.After(10 * time.Second)
 	for !synced {
-		synced, err = w.IsSynced()
+		synced, _, err = w.IsSynced()
 		if err != nil {
 			return err
 		}

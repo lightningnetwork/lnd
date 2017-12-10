@@ -656,14 +656,20 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 // it has fully synced to the current best block in the main chain.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) IsSynced() (bool, error) {
+func (b *BtcWallet) IsSynced() (bool, int64, error) {
+	var err error
 	// Grab the best chain state the wallet is currently aware of.
+	// also grab the timestamp of the best block to return for determining
+	// sync progress
 	syncState := b.wallet.Manager.SyncedTo()
+	walletBestHeader, err := b.chain.GetBlockHeader(&syncState.Hash)
+	if err != nil {
+		return false, walletBestHeader.Timestamp.Unix(), err
+	}
 
 	var (
 		bestHash   *chainhash.Hash
 		bestHeight int32
-		err        error
 	)
 
 	// Next, query the chain backend to grab the info about the tip of the
@@ -672,7 +678,7 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	case *chain.NeutrinoClient:
 		header, height, err := backend.CS.BlockHeaders.ChainTip()
 		if err != nil {
-			return false, err
+			return false, walletBestHeader.Timestamp.Unix(), err
 		}
 
 		bh := header.BlockHash()
@@ -682,14 +688,14 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	case *chain.RPCClient:
 		bestHash, bestHeight, err = backend.GetBestBlock()
 		if err != nil {
-			return false, err
+			return false, walletBestHeader.Timestamp.Unix(), err
 		}
 	}
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
 	// then we're not yet fully synced.
 	if syncState.Height < bestHeight {
-		return false, nil
+		return false, walletBestHeader.Timestamp.Unix(), nil
 	}
 
 	// If the wallet is on par with the current best chain tip, then we
@@ -702,19 +708,19 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	case *chain.NeutrinoClient:
 		bh, _, err := backend.CS.BlockHeaders.FetchHeader(bestHash)
 		if err != nil {
-			return false, err
+			return false, walletBestHeader.Timestamp.Unix(), err
 		}
 		blockHeader = bh
 
 	case *chain.RPCClient:
 		blockHeader, err = backend.GetBlockHeader(bestHash)
 		if err != nil {
-			return false, err
+			return false, walletBestHeader.Timestamp.Unix(), err
 		}
 	}
 
 	// If the timestamp no the best header is more than 2 hours in the
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
-	return !blockHeader.Timestamp.Before(minus24Hours), nil
+	return !blockHeader.Timestamp.Before(minus24Hours), walletBestHeader.Timestamp.Unix(), nil
 }

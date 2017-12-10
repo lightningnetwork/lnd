@@ -1224,7 +1224,12 @@
             "type": "string"
           },
           "description": "/ The URIs of the current node."
-        }
+        },
+        "best_header_timestamp": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Timestamp of the best block known to the wallet"
+        },
       }
     },
     "lnrpcGraphTopologyUpdate": {

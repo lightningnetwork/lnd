@@ -321,7 +321,9 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 				}
 			}
 
+			pendingMtx.Lock()
 			log.Debugf("Pending channels: %v", spew.Sdump(pendingOpens))
+			pendingMtx.Unlock()
 
 			// With all the updates applied, we'll obtain a set of
 			// the current active channels (confirmed channels),

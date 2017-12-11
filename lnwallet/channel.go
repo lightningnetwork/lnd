@@ -643,7 +643,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate btcutil.Amount,
 	// If this is a pending commit, then the HTLC was only included in the
 	// commitment of the remote party, so we only set that commit height.
 	// Otherwise, we'll set the commit height for both chains as the HTLC
-	// was written to dis after it was fully locked in.
+	// was written to disk after it was fully locked in.
 	if isPendingCommit {
 		pd.addCommitHeightRemote = commitHeight
 	} else {
@@ -1427,6 +1427,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			LogIndex:              logUpdate.LogIndex,
 			addCommitHeightRemote: commitHeight,
 		}
+		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
 
 		isDustRemote := htlcIsDust(false, false, feeRate,

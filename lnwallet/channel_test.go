@@ -1381,6 +1381,9 @@ func TestStateUpdatePersistence(t *testing.T) {
 	const numHtlcs = 4
 	htlcAmt := lnwire.NewMSatFromSatoshis(5000)
 
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+
 	// Alice adds 3 HTLCs to the update log, while Bob adds a single HTLC.
 	var alicePreimage [32]byte
 	copy(alicePreimage[:], bytes.Repeat([]byte{0xaa}, 32))
@@ -1392,6 +1395,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 			PaymentHash: rHash,
 			Amount:      htlcAmt,
 			Expiry:      uint32(10),
+			OnionBlob:   fakeOnionBlob,
 		}
 
 		if _, err := aliceChannel.AddHTLC(h); err != nil {
@@ -1406,6 +1410,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		PaymentHash: rHash,
 		Amount:      htlcAmt,
 		Expiry:      uint32(10),
+		OnionBlob:   fakeOnionBlob,
 	}
 	if _, err := bobChannel.AddHTLC(bobh); err != nil {
 		t.Fatalf("unable to add bob's htlc: %v", err)
@@ -1530,7 +1535,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// proper pk scripts
 
 	// Newly generated pkScripts for HTLCs should be the same as in the old channel.
-	for _, entry := range aliceChannel.localUpdateLog.updateIndex {
+	for _, entry := range aliceChannel.localUpdateLog.htlcIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := aliceChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
@@ -1542,7 +1547,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range aliceChannel.remoteUpdateLog.updateIndex {
+	for _, entry := range aliceChannel.remoteUpdateLog.htlcIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
@@ -1554,7 +1559,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range bobChannel.localUpdateLog.updateIndex {
+	for _, entry := range bobChannel.localUpdateLog.htlcIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := bobChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
@@ -1566,7 +1571,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range bobChannel.remoteUpdateLog.updateIndex {
+	for _, entry := range bobChannel.remoteUpdateLog.htlcIndex {
 		htlc := entry.Value.(*PaymentDescriptor)
 		restoredHtlc := bobChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
@@ -2550,6 +2555,9 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 	defer cleanUp()
 
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+
 	// We'll start off the scenario with Bob sending 3 HTLC's to Alice in a
 	// single state update.
 	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
@@ -2562,6 +2570,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 			PaymentHash: rHash,
 			Amount:      htlcAmt,
 			Expiry:      uint32(10),
+			OnionBlob:   fakeOnionBlob,
 		}
 
 		if _, err := bobChannel.AddHTLC(h); err != nil {
@@ -2602,6 +2611,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 		PaymentHash: rHash,
 		Amount:      htlcAmt,
 		Expiry:      uint32(10),
+		OnionBlob:   fakeOnionBlob,
 	}
 	if _, err := aliceChannel.AddHTLC(aliceHtlc); err != nil {
 		t.Fatalf("unable to add alice's htlc: %v", err)

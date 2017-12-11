@@ -1484,20 +1484,19 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance
-		commitFee := localCommit.CommitFee
 
 		// As an artefact of our usage of mSAT internally, either party
 		// may end up in a state where they're holding a fractional
 		// amount of satoshis which can't be expressed within the
 		// actual commitment output. Since we round down when going
 		// from mSAT -> SAT, we may at any point be adding an
-		// additional SAT to miners fees. We'll detect this, and
-		// display the proper commitment fee in this case.
-		externalCommitFee := (dbChannel.Capacity - localBalance.ToSatoshis() -
-			remoteBalance.ToSatoshis())
-		if commitFee != externalCommitFee {
-			commitFee = externalCommitFee
+		// additional SAT to miners fees. As a result, we display a
+		// commitment fee that accounts for this externally.
+		var sumOutputs btcutil.Amount
+		for _, txOut := range localCommit.CommitTx.TxOut {
+			sumOutputs += btcutil.Amount(txOut.Value)
 		}
+		externalCommitFee := dbChannel.Capacity - sumOutputs
 
 		channel := &lnrpc.ActiveChannel{
 			Active:                peerOnline && linkActive,
@@ -1507,7 +1506,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			Capacity:              int64(dbChannel.Capacity),
 			LocalBalance:          int64(localBalance.ToSatoshis()),
 			RemoteBalance:         int64(remoteBalance.ToSatoshis()),
-			CommitFee:             int64(commitFee),
+			CommitFee:             int64(externalCommitFee),
 			CommitWeight:          commitWeight,
 			FeePerKw:              int64(localCommit.FeePerKw),
 			TotalSatoshisSent:     int64(dbChannel.TotalMSatSent.ToSatoshis()),

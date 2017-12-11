@@ -1790,7 +1790,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 				err = paymentStream.Send(&lnrpc.SendResponse{
 					PaymentPreimage: preImage[:],
-					PaymentRoute:    marshalRoute(route),
+					PaymentRoute:    marshallRoute(route),
 				})
 				if err != nil {
 					errChan <- err
@@ -1925,7 +1925,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 	return &lnrpc.SendResponse{
 		PaymentPreimage: preImage[:],
-		PaymentRoute:    marshalRoute(route),
+		PaymentRoute:    marshallRoute(route),
 	}, nil
 }
 
@@ -2648,13 +2648,13 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		Routes: make([]*lnrpc.Route, len(routes)),
 	}
 	for i, route := range routes {
-		routeResp.Routes[i] = marshalRoute(route)
+		routeResp.Routes[i] = marshallRoute(route)
 	}
 
 	return routeResp, nil
 }
 
-func marshalRoute(route *routing.Route) *lnrpc.Route {
+func marshallRoute(route *routing.Route) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees.ToSatoshis()),

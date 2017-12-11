@@ -2930,10 +2930,13 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're awaiting for an ACK to a commitment signature, then we're
-	// unable to create new states. Basically we don't want to advance the
-	// commitment chain by more than one at a time.
-	if lc.remoteCommitChain.hasUnackedCommitment() {
+	// If we're awaiting for an ACK to a commitment signature, or if we
+	// don't yet have the initial next revocation point of the remote
+	// party, then we're unable to create new states. Each time we create a
+	// new state, we consume a prior revocation point.
+	if lc.remoteCommitChain.hasUnackedCommitment() ||
+		lc.channelState.RemoteCurrentRevocation == nil {
+
 		return nil, nil, ErrNoWindow
 	}
 

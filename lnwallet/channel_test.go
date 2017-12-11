@@ -3832,4 +3832,31 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	// TODO(roasbeef): additional tests from diff starting conditions
 }
 
+// TestSignCommitmentFailNotLockedIn tests that a channel will not attempt to
+// create a new state if it doesn't yet know of the next revocation point for
+// the remote party.
+func TestSignCommitmentFailNotLockedIn(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, _, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Next, we'll modify Alice's internal state to omit knowledge of Bob's
+	// next revocation point.
+	aliceChannel.channelState.RemoteCurrentRevocation = nil
+
+	// If we now try to initiate a state update, then it should fail as
+	// Alice is unable to actually create a new state.
+	_, _, err = aliceChannel.SignNextCommitment()
+	if err != ErrNoWindow {
+		t.Fatalf("expected ErrNoWindow, instead have: %v", err)
+	}
+}
+
 // TODO(roasbeef): testing.Quick test case for retrans!!!

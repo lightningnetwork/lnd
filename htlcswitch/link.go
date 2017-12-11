@@ -1135,17 +1135,17 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 	log.Infof("ChannelPoint(%v): updating commit fee to %v sat/kw", l,
 		feePerKw)
 
+	// We skip sending the UpdateFee message if the channel is not
+	// currently eligable to forward messages.
+	if !l.EligibleToForward() {
+		log.Debugf("ChannelPoint(%v): skipping fee update for " +
+			"inactive channel")
+		return nil
+	}
+
 	// First, we'll update the local fee on our commitment.
 	if err := l.channel.UpdateFee(feePerKw); err != nil {
 		return err
-	}
-
-	// We skip sending the update_fee message if the channel is not currently
-	// eligable to forward messages
-	if !l.EligibleToForward() {
-		log.Infof("ChannelPoint(%v): skipping transmission of update_fee. " +
-			"channel is not eligable for forwarding messages")
-		return nil
 	}
 
 	// We'll then attempt to send a new UpdateFee message, and also lock it

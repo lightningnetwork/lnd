@@ -397,16 +397,19 @@ type mockChannelLink struct {
 	peer Peer
 
 	packets chan *htlcPacket
+
+	eligible bool
 }
 
 func newMockChannelLink(chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID,
-	peer Peer) *mockChannelLink {
+	peer Peer, eligible bool) *mockChannelLink {
 
 	return &mockChannelLink{
 		chanID:      chanID,
 		shortChanID: shortChanID,
 		packets:     make(chan *htlcPacket, 1),
 		peer:        peer,
+		eligible:    eligible,
 	}
 }
 
@@ -430,7 +433,7 @@ func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi     { return 99999999 
 func (f *mockChannelLink) Peer() Peer                         { return f.peer }
 func (f *mockChannelLink) Start() error                       { return nil }
 func (f *mockChannelLink) Stop()                              {}
-func (f *mockChannelLink) EligibleToForward() bool            { return true }
+func (f *mockChannelLink) EligibleToForward() bool            { return f.eligible }
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 

@@ -1482,15 +1482,32 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
+		localBalance := localCommit.LocalBalance
+		remoteBalance := localCommit.RemoteBalance
+		commitFee := localCommit.CommitFee
+
+		// As an artefact of our usage of mSAT internally, either party
+		// may end up in a state where they're holding a fractional
+		// amount of satoshis which can't be expressed within the
+		// actual commitment output. Since we round down when going
+		// from mSAT -> SAT, we may at any point be adding an
+		// additional SAT to miners fees. We'll detect this, and
+		// display the proper commitment fee in this case.
+		externalCommitFee := (dbChannel.Capacity - localBalance.ToSatoshis() -
+			remoteBalance.ToSatoshis())
+		if commitFee != externalCommitFee {
+			commitFee = externalCommitFee
+		}
+
 		channel := &lnrpc.ActiveChannel{
 			Active:                peerOnline && linkActive,
 			RemotePubkey:          nodeID,
 			ChannelPoint:          chanPoint.String(),
 			ChanId:                chanID,
 			Capacity:              int64(dbChannel.Capacity),
-			LocalBalance:          int64(localCommit.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(localCommit.RemoteBalance.ToSatoshis()),
-			CommitFee:             int64(localCommit.CommitFee),
+			LocalBalance:          int64(localBalance.ToSatoshis()),
+			RemoteBalance:         int64(remoteBalance.ToSatoshis()),
+			CommitFee:             int64(commitFee),
 			CommitWeight:          commitWeight,
 			FeePerKw:              int64(localCommit.FeePerKw),
 			TotalSatoshisSent:     int64(dbChannel.TotalMSatSent.ToSatoshis()),

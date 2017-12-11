@@ -2935,8 +2935,8 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// don't yet have the initial next revocation point of the remote
 	// party, then we're unable to create new states. Each time we create a
 	// new state, we consume a prior revocation point.
-	if lc.remoteCommitChain.hasUnackedCommitment() ||
-		lc.channelState.RemoteCurrentRevocation == nil {
+	commitPoint := lc.channelState.RemoteNextRevocation
+	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
 
 		return nil, nil, ErrNoWindow
 	}
@@ -2958,7 +2958,6 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
-	commitPoint := lc.channelState.RemoteNextRevocation
 	keyRing := deriveCommitmentKeys(commitPoint, false, lc.localChanCfg,
 		lc.remoteChanCfg)
 

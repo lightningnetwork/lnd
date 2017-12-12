@@ -2935,8 +2935,8 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// don't yet have the initial next revocation point of the remote
 	// party, then we're unable to create new states. Each time we create a
 	// new state, we consume a prior revocation point.
-	if lc.remoteCommitChain.hasUnackedCommitment() ||
-		lc.channelState.RemoteCurrentRevocation == nil {
+	commitPoint := lc.channelState.RemoteNextRevocation
+	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
 
 		return nil, nil, ErrNoWindow
 	}
@@ -2958,7 +2958,6 @@ func (lc *LightningChannel) SignNextCommitment() (*btcec.Signature, []*btcec.Sig
 	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
-	commitPoint := lc.channelState.RemoteNextRevocation
 	keyRing := deriveCommitmentKeys(commitPoint, false, lc.localChanCfg,
 		lc.remoteChanCfg)
 
@@ -3162,16 +3161,30 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 			lc.remoteCommitChain.tip().height {
 
 			commitSig, htlcSigs, err := lc.SignNextCommitment()
-			if err != nil {
+			switch {
+
+			// If we signed this state, then we'll accumulate
+			// another update to send over.
+			case err == nil:
+				updates = append(updates, &lnwire.CommitSig{
+					ChanID: lnwire.NewChanIDFromOutPoint(
+						&lc.channelState.FundingOutpoint,
+					),
+					CommitSig: commitSig,
+					HtlcSigs:  htlcSigs,
+				})
+
+			// If we get a failure due to not knowing their next
+			// point, then this is fine as they'll either send
+			// FundingLocked, or revoke their next state to allow
+			// us to continue forwards.
+			case err == ErrNoWindow:
+
+			// Otherwise, this is an error and we'll treat it as
+			// such.
+			default:
 				return nil, err
 			}
-			updates = append(updates, &lnwire.CommitSig{
-				ChanID: lnwire.NewChanIDFromOutPoint(
-					&lc.channelState.FundingOutpoint,
-				),
-				CommitSig: commitSig,
-				HtlcSigs:  htlcSigs,
-			})
 		}
 
 	// If we don't owe the remote party a revocation, but their value for

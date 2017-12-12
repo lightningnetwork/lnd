@@ -3859,7 +3859,7 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 
 	// Next, we'll modify Alice's internal state to omit knowledge of Bob's
 	// next revocation point.
-	aliceChannel.channelState.RemoteCurrentRevocation = nil
+	aliceChannel.channelState.RemoteNextRevocation = nil
 
 	// If we now try to initiate a state update, then it should fail as
 	// Alice is unable to actually create a new state.

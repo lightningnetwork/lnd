@@ -729,6 +729,9 @@ out:
 		case *lnwire.UpdateFufillHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID
+		case *lnwire.UpdateFailMalformedHTLC:
+			isChanUpdate = true
+			targetChan = msg.ChanID
 		case *lnwire.UpdateFailHTLC:
 			isChanUpdate = true
 			targetChan = msg.ChanID

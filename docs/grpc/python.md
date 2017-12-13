@@ -54,7 +54,7 @@ import grpc
 
 # Lnd cert is at ~/.lnd/tls.cert on Linux and
 # ~/Library/Application Support/Lnd/tls.cert on Mac
-cert = open('~/.lnd/tls.cert').read()
+cert = open(os.path.expanduser('~/.lnd/tls.cert')).read()
 creds = grpc.ssl_channel_credentials(cert)
 channel = grpc.secure_channel('localhost:10009', creds)
 stub = lnrpc.LightningStub(channel)

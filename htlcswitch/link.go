@@ -859,10 +859,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				OnionSHA256: msg.ShaOnionBlob,
 			}
 		default:
-			// TODO(roasbeef): fail channel here?
-			log.Errorf("unable to understand code of received " +
-				"malformed error")
-			return
+			log.Errorf("Unknown failure code: %v", msg.FailureCode)
+			failure = &lnwire.FailTemporaryChannelFailure{}
 		}
 
 		// With the error parsed, we'll convert the into it's opaque

@@ -1208,7 +1208,8 @@ type LightningChannel struct {
 
 	sync.RWMutex
 
-	wg sync.WaitGroup
+	cowg sync.WaitGroup
+	wg   sync.WaitGroup
 
 	shutdown int32
 	quit     chan struct{}
@@ -1342,6 +1343,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// Launch the close observer which will vigilantly watch the
 		// network for any broadcasts the current or prior commitment
 		// transactions, taking action accordingly.
+		lc.cowg.Add(1)
 		go lc.closeObserver(channelCloseNtfn)
 	}
 
@@ -1374,6 +1376,11 @@ func (lc *LightningChannel) CancelObserver() {
 	}
 
 	close(lc.observerQuit)
+}
+
+// WaitForClose blocks until the channel's close observer has terminated.
+func (lc *LightningChannel) WaitForClose() {
+	lc.cowg.Wait()
 }
 
 // ResetState resets the state of the channel back to the default state. This
@@ -1962,6 +1969,8 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 //
 // NOTE: This MUST be run as a goroutine.
 func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEvent) {
+	defer lc.cowg.Done()
+
 	walletLog.Infof("Close observer for ChannelPoint(%v) active",
 		lc.channelState.FundingOutpoint)
 
@@ -2169,8 +2178,9 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			"broadcast!!!", lc.channelState.FundingOutpoint,
 			remoteStateNum)
 
-		if err := lc.channelState.MarkBorked(true); err != nil {
-			walletLog.Errorf("unable to mark channel as borked: %v", err)
+		if err := lc.channelState.MarkBorked(); err != nil {
+			walletLog.Errorf("unable to mark channel as borked: %v",
+				err)
 			return
 		}
 
@@ -2231,7 +2241,8 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 
 		err = lc.DeleteState(&closeSummary)
 		if err != nil {
-			walletLog.Errorf("unable to delete channel state: %v", err)
+			walletLog.Errorf("unable to delete channel state: %v",
+				err)
 			return
 		}
 
@@ -3271,7 +3282,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 	// chain reported by the remote party is not equal to our chain tail,
 	// then we cannot sync.
 	case !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight:
-		if err := lc.channelState.MarkBorked(true); err != nil {
+		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, err
 		}
 
@@ -3303,7 +3314,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 	} else if !oweCommitment && remoteChainTip.height+1 !=
 		msg.NextLocalCommitHeight {
 
-		if err := lc.channelState.MarkBorked(true); err != nil {
+		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, err
 		}
 

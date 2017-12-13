@@ -1579,6 +1579,7 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	var (
 		targetPeer  *peer
 		pubKeyBytes []byte
+		err         error
 	)
 
 	// If the user is targeting the peer by public key, then we'll need to
@@ -1607,6 +1608,17 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	// We'll scale the sat/byte set as the fee  rate to sat/weight as this
 	// is what's used internally when deciding upon coin selection.
 	fundingFeePerWeight := fundingFeePerByte / blockchain.WitnessScaleFactor
+
+	// If the fee rate wasn't high enough to cleanly convert to weight,
+	// then we'll use a default confirmation target.
+	if fundingFeePerWeight == 0 {
+		estimator := s.cc.feeEstimator
+		fundingFeePerWeight, err = estimator.EstimateFeePerWeight(6)
+		if err != nil {
+			errChan <- err
+			return updateChan, errChan
+		}
+	}
 
 	// Spawn a goroutine to send the funding workflow request to the
 	// funding manager. This allows the server to continue handling queries

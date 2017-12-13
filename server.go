@@ -364,7 +364,6 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		OnAccept:       s.InboundPeerConnected,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
-		GetNewAddress:  nil,
 		Dial:           noiseDial(s.identityPriv),
 		OnConnection:   s.OutboundPeerConnected,
 	})
@@ -1087,6 +1086,12 @@ func (s *server) peerTerminationWatcher(p *peer) {
 	pubStr := string(p.addr.IdentityKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
+		// We'll only need to re-launch a connection request if one
+		// isn't already currently pending.
+		if _, ok := s.persistentConnReqs[pubStr]; ok {
+			return
+		}
+
 		srvrLog.Debugf("Attempting to re-establish persistent "+
 			"connection to peer %v", p)
 
@@ -1096,12 +1101,6 @@ func (s *server) peerTerminationWatcher(p *peer) {
 		connReq := &connmgr.ConnReq{
 			Addr:      p.addr,
 			Permanent: true,
-		}
-
-		// We'll only need to re-launch a connection requests if one
-		// isn't already currently pending.
-		if _, ok := s.persistentConnReqs[pubStr]; ok {
-			return
 		}
 
 		// Otherwise, we'll launch a new connection requests in order

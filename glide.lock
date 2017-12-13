@@ -1,5 +1,5 @@
-hash: 61308ab312ec324ca9377c488879ef88312ba6d8066a9d9ea4f31e027f193906
-updated: 2017-11-23T23:32:06.04472113-06:00
+hash: 8438e391bed32638a8e14402992af50b7656b380f69741cf8422584c2e1f2b31
+updated: 2017-12-13T15:13:22.311098343-08:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -70,7 +70,7 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: 36dd930b83e6db89495e74fa7516a9fbe5ecfd60
+  version: 5560001600544391c68e02bd1cc7cdbd25318030
   subpackages:
   - filterdb
   - headerfs
@@ -87,7 +87,7 @@ imports:
   subpackages:
   - internal/socket
 - name: github.com/roasbeef/btcd
-  version: 300370be8e0a44dedc4eea6319c56c1df7014325
+  version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
   - addrmgr
   - blockchain

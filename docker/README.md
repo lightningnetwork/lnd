@@ -160,7 +160,7 @@ Create the `Alice<->Bob` channel.
 alice$ lncli openchannel --node_key=<bob_identity_pubkey> --local_amt=1000000
 
 # Include funding transaction in block thereby open the channel:
-$ docker-compose run btcctl generate 1
+$ docker-compose run btcctl generate 3
 
 # Check that channel with "Bob" was created:
 alice$ lncli listchannels
@@ -232,7 +232,7 @@ alice$ lncli listchannels
 alice$ lncli closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
 # Include close transaction in block thereby close the channel:
-$ docker-compose run btcctl generate 1
+$ docker-compose run btcctl generate 3
 
 # Check "Alice" on-chain balance was credited by her settled amount in the channel:
 alice$ lncli walletbalance

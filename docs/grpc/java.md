@@ -9,7 +9,7 @@ with lnd in Java. We'll be using Maven as our build tool.
  - running btcd
 
 ### Setup and Installation
-####Project Structure
+#### Project Structure
 ```
 .
 ├── pom.xml
@@ -95,7 +95,7 @@ In the build section,  we'll need to configure the following things :
     </plugins>
 </build>
 ```
-####Main.java
+#### Main.java
 ```java
 import io.grpc.ManagedChannel;
 import io.grpc.netty.GrpcSslContexts;
@@ -124,7 +124,7 @@ public class Main {
     }
 }
 ```
-####Running the example
+#### Running the example
 ```
 mvn compile
 ```

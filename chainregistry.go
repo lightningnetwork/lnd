@@ -30,7 +30,7 @@ import (
 // defaultBitcoinForwardingPolicy is the default forwarding policy used for
 // Bitcoin channels.
 var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
-	MinHTLC:       1,
+	MinHTLC:       lnwire.NewMSatFromSatoshis(1),
 	BaseFee:       lnwire.NewMSatFromSatoshis(1),
 	FeeRate:       1,
 	TimeLockDelta: 144,
@@ -39,7 +39,7 @@ var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 // defaultLitecoinForwardingPolicy is the default forwarding policy used for
 // Litecoin channels.
 var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
-	MinHTLC:       1,
+	MinHTLC:       lnwire.NewMSatFromSatoshis(1),
 	BaseFee:       1,
 	FeeRate:       1,
 	TimeLockDelta: 576,

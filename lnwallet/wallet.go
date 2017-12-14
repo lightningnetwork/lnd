@@ -1146,6 +1146,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		fundingTxIn,
 	)
+	if err != nil {
+		req.err <- err
+		req.completeChan <- nil
+		return
+	}
 
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within

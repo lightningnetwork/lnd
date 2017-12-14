@@ -3199,12 +3199,21 @@ type Payment struct {
 	Path []string `protobuf:"bytes,4,rep,name=path" json:"path,omitempty"`
 	// / The fee paid for this payment in satoshis
 	Fee int64 `protobuf:"varint,5,opt,name=fee" json:"fee,omitempty"`
+	// / The payment preimage
+	PaymentPreimage string `protobuf:"bytes,6,opt,name=payment_preimage" json:"payment_preimage,omitempty"`
 }
 
 func (m *Payment) Reset()                    { *m = Payment{} }
 func (m *Payment) String() string            { return proto.CompactTextString(m) }
 func (*Payment) ProtoMessage()               {}
 func (*Payment) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{80} }
+
+func (m *Payment) GetPaymentPreimage() string {
+	if m != nil {
+		return m.PaymentPreimage
+	}
+	return ""
+}
 
 func (m *Payment) GetPaymentHash() string {
 	if m != nil {

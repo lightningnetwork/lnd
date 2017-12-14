@@ -626,23 +626,23 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
 	if !ok {
-		// TODO(roasbeef): make new error, "unkown funding state" or something
+		// TODO(roasbeef): make new error, "unknown funding state" or something
 		req.err <- fmt.Errorf("attempted to cancel non-existent funding state")
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thead-safety
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// Mark all previously locked outpoints as usuable for future funding
+	// Mark all previously locked outpoints as useable for future funding
 	// requests.
 	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
 		delete(l.lockedOutPoints, unusedInput.PreviousOutPoint)
 		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
 	}
 
-	// TODO(roasbeef): is it even worth it to keep track of unsed keys?
+	// TODO(roasbeef): is it even worth it to keep track of unused keys?
 
 	// TODO(roasbeef): Is it possible to mark the unused change also as
 	// available?

@@ -258,6 +258,16 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 	r.partialState.NumConfsRequired = numConfs
 }
 
+// RegisterMinHTLC registers our desired amount for the smallest acceptable
+// HTLC we'll accept within this channel. Any HTLC's that are extended which
+// are below this value will SHOULD be rejected.
+func (r *ChannelReservation) RegisterMinHTLC(minHTLC lnwire.MilliSatoshi) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.ourContribution.MinHTLC = minHTLC
+}
+
 // CommitConstraints takes the constraints that the remote party specifies for
 // the type of commitments that we can generate for them. These constraints
 // include several parameters that serve as flow control restricting the amount

@@ -1676,6 +1676,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ The fee paid for this payment in satoshis"
+        },
+        "payment_preimage": {
+          "type": "string",
+          "title": "/ The payment preimage"
         }
       }
     },

@@ -1337,6 +1337,7 @@ message InvoiceSubscription {
 message Payment {
     /// The payment hash
     string payment_hash = 1 [json_name = "payment_hash"];
+
     /// The value of the payment in satoshis
     int64 value = 2 [json_name = "value"];
 
@@ -1348,6 +1349,9 @@ message Payment {
 
     /// The fee paid for this payment in satoshis
     int64 fee = 5 [json_name = "fee"];
+
+    /// The payment preimage
+    string payment_preimage = 6 [json_name = "payment_preimage"];
 }
 
 message ListPaymentsRequest {

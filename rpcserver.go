@@ -1473,7 +1473,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 // savePayment saves a successfully completed payment to the database for
 // historical record keeping.
-func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi, rHash []byte) error {
+func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi, preImage []byte) error {
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
@@ -1492,7 +1492,7 @@ func (r *rpcServer) savePayment(route *routing.Route, amount lnwire.MilliSatoshi
 		Fee:            route.TotalFees,
 		TimeLockLength: route.TotalTimeLock,
 	}
-	copy(payment.PaymentHash[:], rHash)
+	copy(payment.PaymentPreimage[:], preImage)
 
 	return r.server.chanDB.AddPayment(payment)
 }
@@ -1742,7 +1742,7 @@ func (r *rpcServer) SendPayment(paymentStream lnrpc.Lightning_SendPaymentServer)
 
 				// Save the completed payment to the database
 				// for record keeping purposes.
-				if err := r.savePayment(route, p.msat, rHash[:]); err != nil {
+				if err := r.savePayment(route, p.msat, preImage[:]); err != nil {
 					errChan <- err
 					return
 				}
@@ -1885,7 +1885,7 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 
 	// With the payment completed successfully, we now ave the details of
 	// the completed payment to the database for historical record keeping.
-	if err := r.savePayment(route, amtMSat, rHash[:]); err != nil {
+	if err := r.savePayment(route, amtMSat, preImage[:]); err != nil {
 		return nil, err
 	}
 
@@ -2933,11 +2933,13 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			path[i] = hex.EncodeToString(hop[:])
 		}
 
+		paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
 		paymentsResp.Payments[i] = &lnrpc.Payment{
-			PaymentHash:  hex.EncodeToString(payment.PaymentHash[:]),
-			Value:        int64(payment.Terms.Value.ToSatoshis()),
-			CreationDate: payment.CreationDate.Unix(),
-			Path:         path,
+			PaymentHash:     hex.EncodeToString(paymentHash[:]),
+			Value:           int64(payment.Terms.Value.ToSatoshis()),
+			CreationDate:    payment.CreationDate.Unix(),
+			Path:            path,
+			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
 		}
 	}
 

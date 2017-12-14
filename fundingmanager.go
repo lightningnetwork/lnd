@@ -825,6 +825,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		)
 		return
 	}
+	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
 
 	fndgLog.Infof("Requiring %v confirmations for pendingChan(%x): "+
 		"amt=%v, push_amt=%v", numConfsReq, fmsg.msg.PendingChannelID,
@@ -2136,6 +2137,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
+	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
 	ourContribution := reservation.OurContribution()
 
 	// Finally, we'll use the current value of the channels and our default

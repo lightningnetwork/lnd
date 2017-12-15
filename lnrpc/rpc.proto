@@ -441,11 +441,11 @@ service Lightning {
         };
     }
 
-    /** lncli: `updatefees`
-    UpdateFees allows the caller to update the fee schedule for all channels
-    globally, or a particular channel.
+    /** lncli: `updatechanpolicy`
+    UpdateChannelPolicy allows the caller to update the fee schedule and
+    channel policies for all channels globally, or a particular channel.
     */
-    rpc UpdateFees(FeeUpdateRequest) returns (FeeUpdateResponse) {
+    rpc UpdateChannelPolicy(PolicyUpdateRequest) returns (PolicyUpdateResponse) {
         option (google.api.http) = {
             post: "/v1/fees"
             body: "*"
@@ -1401,12 +1401,12 @@ message FeeReportResponse {
     repeated ChannelFeeReport channel_fees = 1 [json_name = "channel_fees"];
 }
 
-message FeeUpdateRequest {
+message PolicyUpdateRequest {
     oneof scope {
-        /// If set, then this fee update applies to all currently active channels.
+        /// If set, then this update applies to all currently active channels.
         bool global = 1 [json_name = "global"] ;
 
-        /// If set, this fee update will target a specific channel.
+        /// If set, this update will target a specific channel.
         ChannelPoint chan_point = 2 [json_name = "chan_point"];
     }
 
@@ -1415,6 +1415,9 @@ message FeeUpdateRequest {
 
     /// The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6.
     double fee_rate = 4 [json_name = "fee_rate"];
+
+    /// The required timelock delta for HTLCs forwarded over the channel.
+    uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
 }
-message FeeUpdateResponse {
+message PolicyUpdateResponse {
 }

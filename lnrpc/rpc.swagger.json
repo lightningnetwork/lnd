@@ -222,13 +222,13 @@
         ]
       },
       "post": {
-        "summary": "* lncli: `updatefees`\nUpdateFees allows the caller to update the fee schedule for all channels\nglobally, or a particular channel.",
-        "operationId": "UpdateFees",
+        "summary": "* lncli: `updatechanpolicy`\nUpdateChannelPolicy allows the caller to update the fee schedule and\nchannel policies for all channels globally, or a particular channel.",
+        "operationId": "UpdateChannelPolicy",
         "responses": {
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcFeeUpdateResponse"
+              "$ref": "#/definitions/lnrpcPolicyUpdateResponse"
             }
           }
         },
@@ -238,7 +238,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/lnrpcFeeUpdateRequest"
+              "$ref": "#/definitions/lnrpcPolicyUpdateRequest"
             }
           }
         ],
@@ -1166,33 +1166,6 @@
         }
       }
     },
-    "lnrpcFeeUpdateRequest": {
-      "type": "object",
-      "properties": {
-        "global": {
-          "type": "boolean",
-          "format": "boolean",
-          "description": "/ If set, then this fee update applies to all currently active channels."
-        },
-        "chan_point": {
-          "$ref": "#/definitions/lnrpcChannelPoint",
-          "description": "/ If set, this fee update will target a specific channel."
-        },
-        "base_fee_msat": {
-          "type": "string",
-          "format": "int64",
-          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
-        },
-        "fee_rate": {
-          "type": "number",
-          "format": "double",
-          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
-        }
-      }
-    },
-    "lnrpcFeeUpdateResponse": {
-      "type": "object"
-    },
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
@@ -1825,6 +1798,38 @@
           "format": "int64"
         }
       }
+    },
+    "lnrpcPolicyUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "global": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ If set, then this update applies to all currently active channels."
+        },
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "/ If set, this update will target a specific channel."
+        },
+        "base_fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The base fee charged regardless of the number of milli-satoshis sent."
+        },
+        "fee_rate": {
+          "type": "number",
+          "format": "double",
+          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The required timelock delta for HTLCs forwarded over the channel."
+        }
+      }
+    },
+    "lnrpcPolicyUpdateResponse": {
+      "type": "object"
     },
     "lnrpcQueryRoutesResponse": {
       "type": "object",

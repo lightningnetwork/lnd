@@ -42,13 +42,13 @@ type networkMsg struct {
 	err chan error
 }
 
-// feeUpdateRequest is a request that is sent to the server when a caller
-// wishes to update the fees for a particular set of channels. New UpdateFee
-// messages will be crafted to be sent out during the next broadcast epoch and
-// the fee updates committed to the lower layer.
-type feeUpdateRequest struct {
+// chanPolicyUpdateRequest is a request that is sent to the server when a caller
+// wishes to update the channel policy (fees e.g.) for a particular set of
+// channels. New ChannelUpdate messages will be crafted to be sent out during
+// the next broadcast epoch and the fee updates committed to the lower layer.
+type chanPolicyUpdateRequest struct {
 	targetChans []wire.OutPoint
-	newSchema   routing.FeeSchema
+	newSchema   routing.ChannelPolicy
 
 	errResp chan error
 }
@@ -175,9 +175,9 @@ type AuthenticatedGossiper struct {
 	// networkHandler.
 	networkMsgs chan *networkMsg
 
-	// feeUpdates is a channel that requests to update the fee schedule of
-	// a set of channels is sent over.
-	feeUpdates chan *feeUpdateRequest
+	// chanPolicyUpdates is a channel that requests to update the forwarding
+	// policy of a set of channels is sent over.
+	chanPolicyUpdates chan *chanPolicyUpdateRequest
 
 	// bestHeight is the height of the block at the tip of the main chain
 	// as we know it.
@@ -202,7 +202,7 @@ func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
 		cfg:                     &cfg,
 		networkMsgs:             make(chan *networkMsg),
 		quit:                    make(chan struct{}),
-		feeUpdates:              make(chan *feeUpdateRequest),
+		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
 		prematureAnnouncements:  make(map[uint32][]*networkMsg),
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		waitingProofs:           storage,
@@ -296,24 +296,24 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 	return d.cfg.SendToPeer(pub, announceMessages...)
 }
 
-// PropagateFeeUpdate signals the AuthenticatedGossiper to update the fee
-// schema for the specified channels. If no channels are specified, then the
-// fee update will be applied to all outgoing channels from the source node.
-// Fee updates are done in two stages: first, the AuthenticatedGossiper ensures
-// the updated has been committed by dependant sub-systems, then it signs and
-// broadcasts new updates to the network.
-func (d *AuthenticatedGossiper) PropagateFeeUpdate(newSchema routing.FeeSchema,
-	chanPoints ...wire.OutPoint) error {
+// PropagateChanPolicyUpdate signals the AuthenticatedGossiper to update the
+// channel forwarding policies for the specified channels. If no channels are
+// specified, then the update will be applied to all outgoing channels from the
+// source node. Policy updates are done in two stages: first, the
+// AuthenticatedGossiper ensures the update has been committed by dependant
+// sub-systems, then it signs and broadcasts new updates to the network.
+func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
+	newSchema routing.ChannelPolicy, chanPoints ...wire.OutPoint) error {
 
 	errChan := make(chan error, 1)
-	feeUpdate := &feeUpdateRequest{
+	policyUpdate := &chanPolicyUpdateRequest{
 		targetChans: chanPoints,
 		newSchema:   newSchema,
 		errResp:     errChan,
 	}
 
 	select {
-	case d.feeUpdates <- feeUpdate:
+	case d.chanPolicyUpdates <- policyUpdate:
 		return <-errChan
 	case <-d.quit:
 		return fmt.Errorf("AuthenticatedGossiper shutting down")
@@ -823,17 +823,18 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 	for {
 		select {
-		// A new fee update has arrived. We'll commit it to the
+		// A new policy update has arrived. We'll commit it to the
 		// sub-systems below us, then craft, sign, and broadcast a new
 		// ChannelUpdate for the set of affected clients.
-		case feeUpdate := <-d.feeUpdates:
+		case policyUpdate := <-d.chanPolicyUpdates:
 			// First, we'll now create new fully signed updates for
 			// the affected channels and also update the underlying
 			// graph with the new state.
-			newChanUpdates, err := d.processFeeChanUpdate(feeUpdate)
+			newChanUpdates, err := d.processChanPolicyUpdate(policyUpdate)
 			if err != nil {
-				log.Errorf("Unable to craft fee updates: %v", err)
-				feeUpdate.errResp <- err
+				log.Errorf("Unable to craft policy updates: %v",
+					err)
+				policyUpdate.errResp <- err
 				continue
 			}
 
@@ -842,7 +843,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// start of the next epoch.
 			announcements.AddMsgs(newChanUpdates...)
 
-			feeUpdate.errResp <- nil
+			policyUpdate.errResp <- nil
 
 		case announcement := <-d.networkMsgs:
 			// Channel annoucnement signatures are the only message
@@ -1072,18 +1073,19 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 	return nil
 }
 
-// processFeeChanUpdate generates a new set of channel updates with the new fee
-// schema applied for each specified channel identified by its channel point.
-// In the case that no channel points are specified, then the fee update will
+// processChanPolicyUpdate generates a new set of channel updates with the new
+// channel policy applied for each specified channel identified by its channel
+// point. In the case that no channel points are specified, then the update will
 // be applied to all channels. Finally, the backing ChannelGraphSource is
-// updated with the latest information reflecting the applied fee updates.
+// updated with the latest information reflecting the applied updates.
 //
 // TODO(roasbeef): generalize into generic for any channel update
-func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest) ([]networkMsg, error) {
+func (d *AuthenticatedGossiper) processChanPolicyUpdate(
+	policyUpdate *chanPolicyUpdateRequest) ([]networkMsg, error) {
 	// First, we'll construct a set of all the channels that need to be
 	// updated.
 	chansToUpdate := make(map[wire.OutPoint]struct{})
-	for _, chanPoint := range feeUpdate.targetChans {
+	for _, chanPoint := range policyUpdate.targetChans {
 		chansToUpdate[chanPoint] = struct{}{}
 	}
 
@@ -1104,10 +1106,13 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 		}
 
 		// Apply the new fee schema to the edge.
-		edge.FeeBaseMSat = feeUpdate.newSchema.BaseFee
+		edge.FeeBaseMSat = policyUpdate.newSchema.BaseFee
 		edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
-			feeUpdate.newSchema.FeeRate,
+			policyUpdate.newSchema.FeeRate,
 		)
+
+		// Apply the new TimeLockDelta.
+		edge.TimeLockDelta = uint16(policyUpdate.newSchema.TimeLockDelta)
 
 		// Re-sign and update the backing ChannelGraphSource, and
 		// retrieve our ChannelUpdate to broadcast.

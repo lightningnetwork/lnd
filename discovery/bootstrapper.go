@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
@@ -441,8 +442,8 @@ search:
 				// Finally we'll convert the host:port peer to
 				// a proper TCP address to use within the
 				// lnwire.NetAddress.
-				addr := fmt.Sprintf("%v:%v", addrs[0],
-					nodeSrv.Port)
+				addr := net.JoinHostPort(addrs[0],
+					strconv.FormatUint(uint64(nodeSrv.Port), 10))
 				tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 				if err != nil {
 					return nil, err

@@ -1141,6 +1141,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
 		Chains:             activeChains,
 		Uris:               uris,
+		Alias:              nodeAnn.Alias.String(),
 	}, nil
 }
 

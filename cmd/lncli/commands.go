@@ -1970,7 +1970,7 @@ var feeReportCommand = cli.Command{
 	Usage: "display the current fee policies of all active channels",
 	Description: `
 	Returns the current fee policies of all active channels. 
-	Fee policies can be updated using the updateFees command.`,
+	Fee policies can be updated using the updatechanpolicy command.`,
 	Action: actionDecorator(feeReport),
 }
 
@@ -1989,13 +1989,13 @@ func feeReport(ctx *cli.Context) error {
 	return nil
 }
 
-var updateFeesCommand = cli.Command{
-	Name:      "updatefees",
-	Usage:     "update the fee policy for all channels, or a single channel",
-	ArgsUsage: "base_fee_msat fee_rate [channel_point]",
+var updateChannelPolicyCommand = cli.Command{
+	Name:      "updatechanpolicy",
+	Usage:     "update the channel policy for all channels, or a single channel",
+	ArgsUsage: "base_fee_msat fee_rate time_lock_delta [channel_point]",
 	Description: `
-	Updates the fee policy for all channels, or just a particular channel 
-	identified by it's channel point. The fee update will be committed, and 
+	Updates the channel policy for all channels, or just a particular channel
+	identified by its channel point. The update will be committed, and
 	broadcast to the rest of the network within the next batch.
 	Channel points are encoded as: funding_txid:output_index`,
 	Flags: []cli.Flag{
@@ -2011,6 +2011,11 @@ var updateFeesCommand = cli.Command{
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0.000001",
 		},
+		cli.Int64Flag{
+			Name: "time_lock_delta",
+			Usage: "the CLTV delta that will be applied to all " +
+				"forwarded HTLCs",
+		},
 		cli.StringFlag{
 			Name: "chan_point",
 			Usage: "The channel whose fee policy should be " +
@@ -2018,18 +2023,19 @@ var updateFeesCommand = cli.Command{
 				"will be updated. Takes the form of: txid:output_index",
 		},
 	},
-	Action: actionDecorator(updateFees),
+	Action: actionDecorator(updateChannelPolicy),
 }
 
-func updateFees(ctx *cli.Context) error {
+func updateChannelPolicy(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	var (
-		baseFee int64
-		feeRate float64
-		err     error
+		baseFee       int64
+		feeRate       float64
+		timeLockDelta int64
+		err           error
 	)
 	args := ctx.Args()
 
@@ -2060,10 +2066,26 @@ func updateFees(ctx *cli.Context) error {
 		return fmt.Errorf("fee_rate argument missing")
 	}
 
+	switch {
+	case ctx.IsSet("time_lock_delta"):
+		timeLockDelta = ctx.Int64("time_lock_delta")
+	case args.Present():
+		timeLockDelta, err = strconv.ParseInt(args.First(), 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode time_lock_delta: %v",
+				err)
+		}
+
+		args = args.Tail()
+	default:
+		return fmt.Errorf("time_lock_delta argument missing")
+	}
+
 	var (
 		chanPoint    *lnrpc.ChannelPoint
 		chanPointStr string
 	)
+
 	switch {
 	case ctx.IsSet("chan_point"):
 		chanPointStr = ctx.String("chan_point")
@@ -2093,22 +2115,23 @@ func updateFees(ctx *cli.Context) error {
 		}
 	}
 
-	req := &lnrpc.FeeUpdateRequest{
-		BaseFeeMsat: baseFee,
-		FeeRate:     feeRate,
+	req := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       feeRate,
+		TimeLockDelta: uint32(timeLockDelta),
 	}
 
 	if chanPoint != nil {
-		req.Scope = &lnrpc.FeeUpdateRequest_ChanPoint{
+		req.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
 			ChanPoint: chanPoint,
 		}
 	} else {
-		req.Scope = &lnrpc.FeeUpdateRequest_Global{
+		req.Scope = &lnrpc.PolicyUpdateRequest_Global{
 			Global: true,
 		}
 	}
 
-	resp, err := client.UpdateFees(ctxb, req)
+	resp, err := client.UpdateChannelPolicy(ctxb, req)
 	if err != nil {
 		return err
 	}

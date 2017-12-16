@@ -877,6 +877,9 @@ message OpenChannelRequest {
 
     /// Whether this channel should be private, not announced to the greater network.
     bool private = 8 [json_name = "private"];
+
+    /// The minimum value in millisatoshi we will require for incoming HTLCs on the channel.
+    int64 min_htlc_msat = 9 [json_name = "min_htlc_msat"];
 }
 message OpenStatusUpdate {
     oneof update {

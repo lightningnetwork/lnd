@@ -1589,6 +1589,11 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether this channel should be private, not announced to the greater network."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The minimum value in millisatoshi we will require for incoming HTLCs on the channel."
         }
       }
     },

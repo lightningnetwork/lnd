@@ -431,6 +431,11 @@ var openChannelCommand = cli.Command{
 				"must be explicitly told about it to be able " +
 				"to route through it",
 		},
+		cli.Int64Flag{
+			Name: "min_htlc_msat",
+			Usage: "(optional) the minimum value we will require " +
+				"for incoming HTLCs on the channel",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -456,8 +461,9 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.OpenChannelRequest{
-		TargetConf: int32(ctx.Int64("conf_target")),
-		SatPerByte: ctx.Int64("sat_per_byte"),
+		TargetConf:  int32(ctx.Int64("conf_target")),
+		SatPerByte:  ctx.Int64("sat_per_byte"),
+		MinHtlcMsat: ctx.Int64("min_htlc_msat"),
 	}
 
 	switch {

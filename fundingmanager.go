@@ -2101,6 +2101,8 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		chanFlags = 1
 	}
 
+	// We announce the channel with the default values. Some of
+	// these values can later be changed by crafting a new ChannelUpdate.
 	chanUpdateAnn := &lnwire.ChannelUpdate{
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
@@ -2252,6 +2254,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteAmt    = msg.remoteFundingAmt
 		capacity     = localAmt + remoteAmt
 		ourDustLimit = lnwallet.DefaultDustLimit()
+		minHtlc      = msg.minHtlc
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
@@ -2321,9 +2324,14 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// delay we require given the total amount of funds within the channel.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(capacity)
 
+	// If no minimum HTLC value was specified, use the default one.
+	if minHtlc == 0 {
+		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
+	}
+
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
-	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
+	reservation.RegisterMinHTLC(minHtlc)
 	ourContribution := reservation.OurContribution()
 
 	// Finally, we'll use the current value of the channels and our default

@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
@@ -27,28 +26,11 @@ import (
 	"github.com/roasbeef/btcwallet/walletdb"
 )
 
-// defaultBitcoinForwardingPolicy is the default forwarding policy used for
-// Bitcoin channels.
-var defaultBitcoinForwardingPolicy = htlcswitch.ForwardingPolicy{
-	MinHTLC:       lnwire.NewMSatFromSatoshis(1),
-	BaseFee:       lnwire.NewMSatFromSatoshis(1),
-	FeeRate:       1,
-	TimeLockDelta: 144,
-}
-
-// defaultLitecoinForwardingPolicy is the default forwarding policy used for
-// Litecoin channels.
-var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
-	MinHTLC:       lnwire.NewMSatFromSatoshis(1),
-	BaseFee:       1,
-	FeeRate:       1,
-	TimeLockDelta: 576,
-}
-
 // defaultChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a channel.
 //
 // TODO(roasbeef): have one for both chains
+// TODO(halseth): make configurable at startup?
 var defaultChannelConstraints = channeldb.ChannelConstraints{
 	DustLimit:        lnwallet.DefaultDustLimit(),
 	MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
@@ -119,12 +101,22 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 	switch registeredChains.PrimaryChain() {
 	case bitcoinChain:
-		cc.routingPolicy = defaultBitcoinForwardingPolicy
+		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+			MinHTLC:       cfg.Bitcoin.MinHTLC,
+			BaseFee:       cfg.Bitcoin.BaseFee,
+			FeeRate:       cfg.Bitcoin.FeeRate,
+			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
+		}
 		cc.feeEstimator = lnwallet.StaticFeeEstimator{
 			FeeRate: 50,
 		}
 	case litecoinChain:
-		cc.routingPolicy = defaultLitecoinForwardingPolicy
+		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+			MinHTLC:       cfg.Litecoin.MinHTLC,
+			BaseFee:       cfg.Litecoin.BaseFee,
+			FeeRate:       cfg.Litecoin.FeeRate,
+			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
+		}
 		cc.feeEstimator = lnwallet.StaticFeeEstimator{
 			FeeRate: 100,
 		}

@@ -919,12 +919,21 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// When crating commitment transaction, or closure
 		// transactions, we typically deal in fees per-kw, so we'll
 		// convert now before passing the close request to the switch.
-		feePerKw := (feePerByte / blockchain.WitnessScaleFactor) * 1000
+		feePerWeight := (feePerByte / blockchain.WitnessScaleFactor)
+		if feePerWeight == 0 {
+			// If the fee rate returned isn't usable, then we'll
+			// fall back to an lax fee estimate.
+			feePerWeight, err = r.server.cc.feeEstimator.EstimateFeePerWeight(6)
+			if err != nil {
+				return err
+			}
+		}
 
 		// Otherwise, the caller has requested a regular interactive
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
+		feePerKw := feePerWeight * 1000
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(chanPoint,
 			htlcswitch.CloseRegular, feePerKw)
 	}

@@ -11,7 +11,7 @@ import (
 // once the target transaction gets sufficient confirmations. The client is
 // asynchronously notified via the ConfirmationEvent channels.
 type ConfNtfn struct {
-	// TxID is the hash of the transaction for which confirmatino notifications
+	// TxID is the hash of the transaction for which confirmation notifications
 	// are requested.
 	TxID *chainhash.Hash
 

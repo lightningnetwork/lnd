@@ -585,8 +585,8 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		func(msg lnwire.Message) {
 			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
 
-			// If this is the chanSync message, then we'll develri
-			// it imemdately to the active link.
+			// If this is the chanSync message, then we'll deliver
+			// it immediately to the active link.
 			if !isChanSycMsg {
 				// We'll send a message to the funding manager
 				// and wait iff an active funding process for
@@ -1205,7 +1205,7 @@ out:
 				// If we're being sent a new channel, and our
 				// existing channel doesn't have the next
 				// revocation, then we need to update the
-				// current exsiting channel.
+				// current existing channel.
 				if currentChan.RemoteNextRevocation() != nil {
 					continue
 				}
@@ -1514,8 +1514,8 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 // finalizeChanClosure performs the final clean up steps once the cooperative
 // closure transaction has been fully broadcast. The finalized closing state
-// machine should be passed in. Once the transaction has been suffuciently
-// confirmed, the channel will be marked as fully closed within the databaes,
+// machine should be passed in. Once the transaction has been sufficiently
+// confirmed, the channel will be marked as fully closed within the database,
 // and any clients will be notified of updates to the closing state.
 func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	closeReq := chanCloser.CloseRequest()

@@ -23,7 +23,7 @@ type CommitSig struct {
 	// additional data due to the piggybacking of Bob's next revocation
 	// hash in his prior RevokeAndAck message, as well as the canonical
 	// ordering used for all inputs/outputs within commitment transactions.
-	// If initiating a new commitment state, this signature shoud ONLY
+	// If initiating a new commitment state, this signature should ONLY
 	// cover all of the sending party's pending log updates, and the log
 	// updates of the remote party that have been ACK'd.
 	CommitSig *btcec.Signature

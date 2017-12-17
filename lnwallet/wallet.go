@@ -364,7 +364,7 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	return outPoints
 }
 
-// ResetReservations reset the volatile wallet state which trakcs all currently
+// ResetReservations reset the volatile wallet state which tracks all currently
 // active reservations.
 func (l *LightningWallet) ResetReservations() {
 	l.nextFundingID = 0
@@ -377,7 +377,7 @@ func (l *LightningWallet) ResetReservations() {
 }
 
 // ActiveReservations returns a slice of all the currently active
-// (non-cancalled) reservations.
+// (non-cancelled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {

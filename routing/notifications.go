@@ -51,7 +51,7 @@ type topologyClientUpdate struct {
 }
 
 // SubscribeTopology returns a new topology client which can be used by the
-// caller to receive notifications when ever a change in the channel graph
+// caller to receive notifications whenever a change in the channel graph
 // topology occurs. Changes that will be sent at notifications include: new
 // nodes appearing, node updating their attributes, new channels, channels
 // closing, and updates in the routing policies of a channel's directed edges.

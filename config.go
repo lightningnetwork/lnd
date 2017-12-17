@@ -63,7 +63,7 @@ var (
 
 type chainConfig struct {
 	Active   bool   `long:"active" description:"If the chain should be active or not."`
-	ChainDir string `long:"chaindir" description:"The directory to store the chains's data within."`
+	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
 
 	RPCHost    string `long:"rpchost" description:"The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used."`
 	RPCUser    string `long:"rpcuser" description:"Username for RPC connections"`
@@ -415,7 +415,7 @@ func cleanAndExpandPath(path string) string {
 // the levels accordingly. An appropriate error is returned if anything is
 // invalid.
 func parseAndSetDebugLevels(debugLevel string) error {
-	// When the specified string doesn't have any delimters, treat it as
+	// When the specified string doesn't have any delimiters, treat it as
 	// the log level for all subsystems.
 	if !strings.Contains(debugLevel, ",") && !strings.Contains(debugLevel, "=") {
 		// Validate debug log level.

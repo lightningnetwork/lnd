@@ -41,6 +41,20 @@ const (
 	defaultNumChanConfs       = 3
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
+
+	// minTimeLockDelta is the minimum timelock we require for incoming
+	// HTLCs on our channels.
+	minTimeLockDelta = 4
+
+	defaultBitcoinMinHTLCMSat   = 1000
+	defaultBitcoinBaseFeeMSat   = 1000
+	defaultBitcoinFeeRate       = 1
+	defaultBitcoinTimeLockDelta = 144
+
+	defaultLitecoinMinHTLCMSat   = 1000
+	defaultLitecoinBaseFeeMSat   = 1000
+	defaultLitecoinFeeRate       = 1
+	defaultLitecoinTimeLockDelta = 576
 )
 
 var (
@@ -74,6 +88,11 @@ type chainConfig struct {
 	TestNet3 bool `long:"testnet" description:"Use the test network"`
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 	RegTest  bool `long:"regtest" description:"Use the regression test network"`
+
+	MinHTLC       lnwire.MilliSatoshi `long:"minhtlc" description:"The smallest HTLC we are willing to forward on our channels, in millisatoshi"`
+	BaseFee       lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
+	FeeRate       lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
+	TimeLockDelta uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
 }
 
 type neutrinoConfig struct {
@@ -165,12 +184,20 @@ func loadConfig() (*config, error) {
 		DefaultNumChanConfs: defaultNumChanConfs,
 		NoEncryptWallet:     defaultNoEncryptWallet,
 		Bitcoin: &chainConfig{
-			RPCHost: defaultRPCHost,
-			RPCCert: defaultBtcdRPCCertFile,
+			RPCHost:       defaultRPCHost,
+			RPCCert:       defaultBtcdRPCCertFile,
+			MinHTLC:       defaultBitcoinMinHTLCMSat,
+			BaseFee:       defaultBitcoinBaseFeeMSat,
+			FeeRate:       defaultBitcoinFeeRate,
+			TimeLockDelta: defaultBitcoinTimeLockDelta,
 		},
 		Litecoin: &chainConfig{
-			RPCHost: defaultRPCHost,
-			RPCCert: defaultLtcdRPCCertFile,
+			RPCHost:       defaultRPCHost,
+			RPCCert:       defaultLtcdRPCCertFile,
+			MinHTLC:       defaultLitecoinMinHTLCMSat,
+			BaseFee:       defaultLitecoinBaseFeeMSat,
+			FeeRate:       defaultLitecoinFeeRate,
+			TimeLockDelta: defaultLitecoinTimeLockDelta,
 		},
 		Autopilot: &autoPilotConfig{
 			MaxChannels: 5,
@@ -256,6 +283,11 @@ func loadConfig() (*config, error) {
 			return nil, fmt.Errorf(str, funcName)
 		}
 
+		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
+			return nil, fmt.Errorf("timelockdelta must be at least %v",
+				minTimeLockDelta)
+		}
+
 		// The litecoin chain is the current active chain. However
 		// throughout the codebase we required chiancfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
@@ -303,6 +335,11 @@ func loadConfig() (*config, error) {
 				"used together -- choose one of the three"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
+		}
+
+		if cfg.Bitcoin.TimeLockDelta < minTimeLockDelta {
+			return nil, fmt.Errorf("timelockdelta must be at least %v",
+				minTimeLockDelta)
 		}
 
 		if !cfg.NeutrinoMode.Active {

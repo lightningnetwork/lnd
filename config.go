@@ -38,7 +38,6 @@ const (
 	defaultPeerPort           = 9735
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
-	defaultNumChanConfs       = 3
 	defaultNoEncryptWallet    = false
 	defaultTrickleDelay       = 30 * 1000
 
@@ -89,10 +88,12 @@ type chainConfig struct {
 	SimNet   bool `long:"simnet" description:"Use the simulation test network"`
 	RegTest  bool `long:"regtest" description:"Use the regression test network"`
 
-	MinHTLC       lnwire.MilliSatoshi `long:"minhtlc" description:"The smallest HTLC we are willing to forward on our channels, in millisatoshi"`
-	BaseFee       lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
-	FeeRate       lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
-	TimeLockDelta uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
+	DefaultNumChanConfs int                 `long:"defaultchanconfs" description:"The default number of confirmations a channel must have before it's considered open. If this is not set, we will scale the value according to the channel size."`
+	DefaultRemoteDelay  int                 `long:"defaultremotedelay" description:"The default number of blocks we will require our channel counterparty to wait before accessing its funds in case of unilateral close. If this is not set, we will scale the value according to the channel size."`
+	MinHTLC             lnwire.MilliSatoshi `long:"minhtlc" description:"The smallest HTLC we are willing to forward on our channels, in millisatoshi"`
+	BaseFee             lnwire.MilliSatoshi `long:"basefee" description:"The base fee in millisatoshi we will charge for forwarding payments on our channels"`
+	FeeRate             lnwire.MilliSatoshi `long:"feerate" description:"The fee rate used when forwarding payments on our channels. The total fee charged is basefee + (amount * feerate / 1000000), where amount is the forwarded amount."`
+	TimeLockDelta       uint32              `long:"timelockdelta" description:"The CLTV delta we will subtract from a forwarded HTLC's timelock value"`
 }
 
 type neutrinoConfig struct {
@@ -146,8 +147,6 @@ type config struct {
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
 
-	DefaultNumChanConfs int `long:"defaultchanconfs" description:"The default number of confirmations a channel must have before it's considered open."`
-
 	NeutrinoMode *neutrinoConfig `group:"neutrino" namespace:"neutrino"`
 
 	Autopilot *autoPilotConfig `group:"autopilot" namespace:"autopilot"`
@@ -169,20 +168,19 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		ConfigFile:          defaultConfigFile,
-		DataDir:             defaultDataDir,
-		DebugLevel:          defaultLogLevel,
-		TLSCertPath:         defaultTLSCertPath,
-		TLSKeyPath:          defaultTLSKeyPath,
-		AdminMacPath:        defaultAdminMacPath,
-		ReadMacPath:         defaultReadMacPath,
-		LogDir:              defaultLogDir,
-		PeerPort:            defaultPeerPort,
-		RPCPort:             defaultRPCPort,
-		RESTPort:            defaultRESTPort,
-		MaxPendingChannels:  defaultMaxPendingChannels,
-		DefaultNumChanConfs: defaultNumChanConfs,
-		NoEncryptWallet:     defaultNoEncryptWallet,
+		ConfigFile:         defaultConfigFile,
+		DataDir:            defaultDataDir,
+		DebugLevel:         defaultLogLevel,
+		TLSCertPath:        defaultTLSCertPath,
+		TLSKeyPath:         defaultTLSKeyPath,
+		AdminMacPath:       defaultAdminMacPath,
+		ReadMacPath:        defaultReadMacPath,
+		LogDir:             defaultLogDir,
+		PeerPort:           defaultPeerPort,
+		RPCPort:            defaultRPCPort,
+		RESTPort:           defaultRESTPort,
+		MaxPendingChannels: defaultMaxPendingChannels,
+		NoEncryptWallet:    defaultNoEncryptWallet,
 		Bitcoin: &chainConfig{
 			RPCHost:       defaultRPCHost,
 			RPCCert:       defaultBtcdRPCCertFile,

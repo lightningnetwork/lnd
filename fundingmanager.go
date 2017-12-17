@@ -32,8 +32,6 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	defaultCsvDelay = 4
-
 	// maxFundingAmount is a soft-limit of the maximum channel size
 	// accepted within the Lightning Protocol Currently. This limit is
 	// currently defined in BOLT-0002, and serves as an initial
@@ -42,6 +40,13 @@ const (
 	//
 	// TODO(roasbeef): add command line param to modify
 	maxFundingAmount = btcutil.Amount(1 << 24)
+
+	// minRemoteDelay and maxRemoteDelay is the extremes of the CSV delay
+	// we will require the remote to use for its commitment transaction.
+	// The actual delay we will require will be somewhere between these
+	// values, depending on channel size.
+	minRemoteDelay = 144
+	maxRemoteDelay = 2016
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting about

@@ -2258,9 +2258,17 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to subscribe to bob's invoice updates: %v", err)
 	}
 
+	quit := make(chan struct{})
 	updateSent := make(chan struct{})
 	go func() {
 		invoiceUpdate, err := bobInvoiceSubscription.Recv()
+		select {
+		case <-quit:
+			// Received cancellation
+			return
+		default:
+		}
+
 		if err != nil {
 			t.Fatalf("unable to recv invoice update: %v", err)
 		}
@@ -2289,6 +2297,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		// TODO(roasbeef): will need to make num blocks to advertise a
 		// node param
+		close(quit)
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
@@ -2300,15 +2309,18 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
 	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
 	if err != nil {
+		close(quit)
 		t.Fatalf("unable to send payment: %v", err)
 	}
 	if resp.PaymentError != "" {
+		close(quit)
 		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
 	}
 
 	select {
-	case <-time.After(time.Second * 5):
-		t.Fatalf("update not sent after 5 seconds")
+	case <-time.After(time.Second * 10):
+		close(quit)
+		t.Fatalf("update not sent after 10 seconds")
 	case <-updateSent: // Fall through on success
 	}
 

@@ -1168,25 +1168,6 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		return aliceChannelInfo.Channels[0], nil
 	}
 
-	// Open up a payment stream to Alice that we'll use to send payment to
-	// Carol. We also create a small helper function to send payments to
-	// Carol, consuming the payment hashes we generated above.
-	alicePayStream, err := net.Alice.SendPayment(ctxb)
-	if err != nil {
-		t.Fatalf("unable to create payment stream for alice: %v", err)
-	}
-	sendPayments := func(start, stop int) error {
-		for i := start; i < stop; i++ {
-			sendReq := &lnrpc.SendRequest{
-				PaymentRequest: carolPaymentReqs[i],
-			}
-			if err := alicePayStream.Send(sendReq); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
 	_, curHeight, err := net.Miner.Node.GetBestBlock()
@@ -1206,7 +1187,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// Send payments from Alice to Carol, since Carol is htlchodl mode,
 	// the htlc outputs should be left unsettled, and should be swept by the
 	// utxo nursery.
-	if err := sendPayments(0, numInvoices); err != nil {
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	err = completePaymentRequests(ctxt, net.Alice, carolPaymentReqs, false)
+	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 	time.Sleep(200 * time.Millisecond)

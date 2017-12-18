@@ -46,6 +46,7 @@ var (
 	// roPermissions is a slice of method names that are considered "read-only"
 	// for authorization purposes, all lowercase.
 	roPermissions = []string{
+		"addinvoice",
 		"verifymessage",
 		"getinfo",
 		"listpeers",

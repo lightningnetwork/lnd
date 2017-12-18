@@ -392,7 +392,7 @@ func fetchChannels(d *DB, pendingOnly bool) ([]*OpenChannel, error) {
 
 // FetchClosedChannels attempts to fetch all closed channels from the database.
 // The pendingOnly bool toggles if channels that aren't yet fully closed should
-// be returned int he response or not. When a channel was cooperatively closed,
+// be returned in the response or not. When a channel was cooperatively closed,
 // it becomes fully closed after a single confirmation.  When a channel was
 // forcibly closed, it will become fully closed after _all_ the pending funds
 // (if any) have been swept.

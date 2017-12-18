@@ -344,7 +344,7 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
 // information. Note that this method is expected to only be called to update
-// an already present node from a node annoucement, or to insert a node found
+// an already present node from a node announcement, or to insert a node found
 // in a channel update.
 //
 // TODO(roasbeef): also need sig of announcement
@@ -939,7 +939,7 @@ func delChannelByEdge(edges *bolt.Bucket, edgeIndex *bolt.Bucket,
 // the ChannelEdgePolicy determines which of the directed edges are being
 // updated. If the flag is 1, then the first node's information is being
 // updated, otherwise it's the second node's information. The node ordering is
-// determined tby the lexicographical ordering of the identity public keys of
+// determined by the lexicographical ordering of the identity public keys of
 // the nodes on either side of the channel.
 func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 	return c.db.Update(func(tx *bolt.Tx) error {
@@ -990,7 +990,7 @@ type LightningNode struct {
 	// used to authenticated any advertisements/updates sent by the node.
 	PubKey *btcec.PublicKey
 
-	// HaveNodeAnnouncement indicates whether we received a node annoucement
+	// HaveNodeAnnouncement indicates whether we received a node announcement
 	// for this particular node. If true, the remaining fields will be set,
 	// if false only the PubKey is known for this node.
 	HaveNodeAnnouncement bool

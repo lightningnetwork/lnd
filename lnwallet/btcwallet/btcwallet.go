@@ -215,7 +215,7 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	return b.wallet.NewAddress(defaultAccount, addrType)
 }
 
-// GetPrivKey retrives the underlying private key associated with the passed
+// GetPrivKey retrieves the underlying private key associated with the passed
 // address. If the we're unable to locate the proper private key, then a
 // non-nil error will be returned.
 //
@@ -324,7 +324,7 @@ func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 }
 
 // UnlockOutpoint unlocks an previously locked output, marking it eligible for
-// coin seleciton.
+// coin selection.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {

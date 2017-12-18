@@ -75,7 +75,7 @@ var _ FeeEstimator = (*StaticFeeEstimator)(nil)
 
 // BtcdFeeEstimator is an implementation of the FeeEstimator interface backed
 // by the RPC interface of an active btcd node. This implementation will proxy
-// any fee estimation requests to btcd's RPC interace.
+// any fee estimation requests to btcd's RPC interface.
 type BtcdFeeEstimator struct {
 	// fallBackFeeRate is the fall back fee rate in satoshis per byte that
 	// is returned if the fee estimator does not yet have enough data to

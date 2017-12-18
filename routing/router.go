@@ -32,9 +32,9 @@ const (
 	DefaultFinalCLTVDelta = 9
 )
 
-// ChannelGraphSource represent the source of information about the topology of
-// lightning network, it responsible for addition of nodes, edges
-// and applying edges updates, return the current block with with out
+// ChannelGraphSource represents the source of information about the topology of
+// the lightning network. It's responsible for the addition of nodes, edges,
+// applying edge updates, and returning the current block height with which the
 // topology is synchronized.
 type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
@@ -56,7 +56,7 @@ type ChannelGraphSource interface {
 	UpdateEdge(policy *channeldb.ChannelEdgePolicy) error
 
 	// ForAllOutgoingChannels is used to iterate over all channels
-	// eminating from the "source" node which is the center of the
+	// emanating from the "source" node which is the center of the
 	// star-graph.
 	ForAllOutgoingChannels(cb func(c *channeldb.ChannelEdgeInfo,
 		e *channeldb.ChannelEdgePolicy) error) error
@@ -79,7 +79,7 @@ type ChannelGraphSource interface {
 }
 
 // FeeSchema is the set fee configuration for a Lighting Node on the network.
-// Using the coefficients described within he schema, the required fee to
+// Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
 type FeeSchema struct {
 	// BaseFee is the base amount of milli-satoshis that will be chained
@@ -1331,7 +1331,7 @@ type LightningPayment struct {
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
 	// of at least: currentHeight + FinalCLTVDelta. If this value is
-	// unspcified, then a default value of DefaultFinalCLTVDelta will be
+	// unspecified, then a default value of DefaultFinalCLTVDelta will be
 	// used.
 	FinalCLTVDelta *uint16
 
@@ -1740,7 +1740,7 @@ func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) err
 	})
 }
 
-// ForAllOutgoingChannels is used to iterate over all outgiong channel owned by
+// ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
 // the router.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

@@ -32,7 +32,7 @@ type OutgoingPayment struct {
 	// from the second-to-last hop to the destination.
 	TimeLockLength uint32
 
-	// Path encodes the path the payment took throuhg the network. The path
+	// Path encodes the path the payment took through the network. The path
 	// excludes the outgoing node and consists of the hex-encoded
 	// compressed public key of each of the nodes involved in the payment.
 	Path [][33]byte

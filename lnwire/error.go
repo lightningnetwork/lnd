@@ -62,7 +62,7 @@ type ErrorData []byte
 // TODO(roasbeef): remove the error code
 type Error struct {
 	// ChanID references the active channel in which the error occurred
-	// within. If the ChanID is all zeroes, then this error applies to the
+	// within. If the ChanID is all zeros, then this error applies to the
 	// entire established connection.
 	ChanID ChannelID
 

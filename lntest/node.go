@@ -147,7 +147,7 @@ func (cfg nodeConfig) genArgs() []string {
 }
 
 // HarnessNode represents an instance of lnd running within our test network
-// harness. Each HarnessNode instance also fully embedds an RPC client in
+// harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.
 type HarnessNode struct {
 	cfg *nodeConfig

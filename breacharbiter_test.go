@@ -678,7 +678,7 @@ func testRetributionStoreAdds(
 	// testing the store under failures, we restart the store and verify
 	// that the contents are the same.
 	for i, retInfo := range retributions {
-		// Snapshot number of entires before and after the addition.
+		// Snapshot number of entries before and after the addition.
 		nbefore := countRetributions(t, frs)
 		if err := frs.Add(&retInfo); err != nil {
 			t.Fatalf("unable to add to retribution %v to store: %v",
@@ -719,7 +719,7 @@ func testRetributionStoreRemoves(
 	// testing the store under failures, we restart the store and verify
 	// that the contents are the same.
 	for i, retInfo := range retributions {
-		// Snapshot number of entires before and after the removal.
+		// Snapshot number of entries before and after the removal.
 		nbefore := countRetributions(t, frs)
 		if err := frs.Remove(&retInfo.chanPoint); err != nil {
 			t.Fatalf("unable to remove to retribution %v "+
@@ -809,7 +809,7 @@ restartCheck:
 			err)
 	}
 
-	// Check that retribution store emits nrets entires
+	// Check that retribution store emits nrets entries
 	if count := countRetributions(t, frs); count != nrets {
 		t.Fatalf("expected %v retributions, found %v", nrets, count)
 	}

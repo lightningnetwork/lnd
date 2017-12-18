@@ -166,7 +166,7 @@ type PaymentDescriptor struct {
 	// the preimage to this hash is presented.
 	RHash PaymentHash
 
-	// RPreimage is the preimage that settles the HTLC pointed to wthin the
+	// RPreimage is the preimage that settles the HTLC pointed to within the
 	// log by the ParentIndex.
 	RPreimage PaymentHash
 
@@ -1121,7 +1121,7 @@ type LightningChannel struct {
 	// commitment and cooperative close transactions.
 	feeEstimator FeeEstimator
 
-	// Capcity is the total capacity of this channel.
+	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
 	// stateHintObfuscator is a 48-bit state hint that's used to obfsucate
@@ -1400,7 +1400,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 
 	// For offered HTLC's, we'll map that to a PaymentDescriptor with the
 	// type Add, ensuring we restore the necessary fields. From the PoV of
-	// the commitment chain, this HTLC was included int he remote chain,
+	// the commitment chain, this HTLC was included in the remote chain,
 	// but not the local chain.
 	case *lnwire.UpdateAddHTLC:
 		// First, we'll map all the relevant fields in the
@@ -3234,7 +3234,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 // When the remote party receiver this message one of three things may happen:
 //
 //   1. We're fully synced and no messages need to be sent.
-//   2. We didn't get the lat CommitSig message they sent, to they'll re-send
+//   2. We didn't get the last CommitSig message they sent, to they'll re-send
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
@@ -4250,9 +4250,9 @@ type UnilateralCloseSummary struct {
 	HtlcResolutions []OutgoingHtlcResolution
 }
 
-// OutgoingHtlcResolution houses the information necessary to sweep any outging
+// OutgoingHtlcResolution houses the information necessary to sweep any outgoing
 // HTLC's after their contract has expired. This struct will be needed in one
-// of tow cases: the local party force closes the commitment transaction or the
+// of two cases: the local party force closes the commitment transaction or the
 // remote party unilaterally closes with their version of the commitment
 // transaction.
 type OutgoingHtlcResolution struct {

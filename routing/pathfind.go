@@ -109,7 +109,7 @@ type Route struct {
 
 	// TotalFees is the sum of the fees paid at each hop within the final
 	// route. In the case of a one-hop payment, this value will be zero as
-	// we don't need to pay a fee it ourself.
+	// we don't need to pay a fee to ourself.
 	TotalFees lnwire.MilliSatoshi
 
 	// TotalAmount is the total amount of funds required to complete a

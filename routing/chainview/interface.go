@@ -5,7 +5,7 @@ import (
 	"github.com/roasbeef/btcd/wire"
 )
 
-// FilteredChainView repersents a subscription to a certain subset of of the
+// FilteredChainView represents a subscription to a certain subset of of the
 // UTXO set for a particular chain. This interface is useful from the point of
 // view of maintaining an up-to-date channel graph for the Lighting Network.
 // The subset of the UTXO to be subscribed is that of all the currently opened

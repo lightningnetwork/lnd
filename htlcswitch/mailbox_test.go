@@ -87,7 +87,7 @@ func TestMailBoxCouriers(t *testing.T) {
 	}
 
 	// Additionally, the set of packets should match exactly, as we should
-	// have received the packets int he exact same ordering that we added.
+	// have received the packets in the exact same ordering that we added.
 	if !reflect.DeepEqual(sentPackets, recvdPackets) {
 		t.Fatalf("recvd packets mismatched: expected %v, got %v",
 			spew.Sdump(sentPackets), spew.Sdump(recvdPackets))

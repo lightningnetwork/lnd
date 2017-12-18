@@ -160,7 +160,7 @@ func (n *NeutrinoNotifier) Start() error {
 	return nil
 }
 
-// Stop shutsdown the NeutrinoNotifier.
+// Stop shuts down the NeutrinoNotifier.
 func (n *NeutrinoNotifier) Stop() error {
 	// Already shutting down?
 	if atomic.AddInt32(&n.stopped, 1) != 1 {

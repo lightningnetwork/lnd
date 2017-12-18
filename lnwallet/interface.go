@@ -12,7 +12,7 @@ import (
 )
 
 // ErrNotMine is an error denoting that a WalletController instance is unable
-// to spend a specifid output.
+// to spend a specified output.
 var ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 
 // AddressType is a enum-like type which denotes the possible address types
@@ -132,7 +132,7 @@ type WalletController interface {
 	// p2wkh, p2wsh, etc.
 	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
 
-	// GetPrivKey retrives the underlying private key associated with the
+	// GetPrivKey retrieves the underlying private key associated with the
 	// passed address. If the wallet is unable to locate this private key
 	// due to the address not being under control of the wallet, then an
 	// error should be returned.
@@ -278,13 +278,13 @@ type MessageSigner interface {
 // string identifier along with a 'New()' method which is responsible for
 // initializing a particular WalletController concrete implementation.
 type WalletDriver struct {
-	// WalletType is a string which uniquely identifes the WalletController
+	// WalletType is a string which uniquely identifies the WalletController
 	// that this driver, drives.
 	WalletType string
 
 	// New creates a new instance of a concrete WalletController
 	// implementation given a variadic set up arguments. The function takes
-	// a varidaic number of interface parameters in order to provide
+	// a variadic number of interface parameters in order to provide
 	// initialization flexibility, thereby accommodating several potential
 	// WalletController implementations.
 	New func(args ...interface{}) (WalletController, error)

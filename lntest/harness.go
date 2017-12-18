@@ -469,7 +469,7 @@ func (n *NetworkHarness) WaitForTxBroadcast(ctx context.Context, txid chainhash.
 // received, an error is returned.
 func (n *NetworkHarness) OpenChannel(ctx context.Context,
 	srcNode, destNode *HarnessNode, amt btcutil.Amount,
-	pushAmt btcutil.Amount) (lnrpc.Lightning_OpenChannelClient, error) {
+	pushAmt btcutil.Amount, private bool) (lnrpc.Lightning_OpenChannelClient, error) {
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -486,7 +486,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(amt),
 		PushSat:            int64(pushAmt),
-		Private:            false,
+		Private:            private,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

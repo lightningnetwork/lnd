@@ -318,6 +318,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			return fmt.Errorf("peer shutting down")
 		}
 
+		// Skip adding any permanently irreconcilable channels to the
+		// htlcswitch.
+		if dbChan.IsBorked {
+			continue
+		}
+
 		blockEpoch, err := p.server.cc.chainNotifier.RegisterBlockEpochNtfn()
 		if err != nil {
 			return err

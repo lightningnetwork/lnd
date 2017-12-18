@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/golang/protobuf/jsonpb"
@@ -745,14 +746,14 @@ func create(ctx *cli.Context) error {
 	defer cleanUp()
 
 	fmt.Printf("Input wallet password: ")
-	pw1, err := terminal.ReadPassword(0)
+	pw1, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}
 	fmt.Println()
 
 	fmt.Printf("Confirm wallet password: ")
-	pw2, err := terminal.ReadPassword(0)
+	pw2, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}
@@ -785,7 +786,7 @@ func unlock(ctx *cli.Context) error {
 	defer cleanUp()
 
 	fmt.Printf("Input wallet password: ")
-	pw, err := terminal.ReadPassword(0)
+	pw, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}

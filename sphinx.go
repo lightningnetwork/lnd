@@ -573,7 +573,7 @@ func (p ProcessCode) String() string {
 
 // ProcessedPacket encapsulates the resulting state generated after processing
 // an OnionPacket. A processed packet communicates to the caller what action
-// shuold be taken after processing.
+// should be taken after processing.
 type ProcessedPacket struct {
 	// Action represents the action the caller should take after processing
 	// the packet.

@@ -467,6 +467,290 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
+// testUpdateChannelPolicy tests that policy updates made to a channel
+// gets propagated to other nodes in the network.
+func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// Launch notification clients for all nodes, such that we can
+	// get notified when they discover new channels and updates
+	// in the graph.
+	aliceUpdates, aQuit := subscribeGraphNotifications(t, ctxb, net.Alice)
+	defer close(aQuit)
+	bobUpdates, bQuit := subscribeGraphNotifications(t, ctxb, net.Bob)
+	defer close(bQuit)
+
+	chanAmt := maxFundingAmount
+	pushAmt := btcutil.Amount(100000)
+
+	// Create a channel Alice->Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		chanAmt, pushAmt)
+
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("alice didn't report channel: %v", err)
+	}
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
+
+	// Create Carol and a new channel Bob->Carol.
+	carol, err := net.NewNode(nil)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	carolUpdates, cQuit := subscribeGraphNotifications(t, ctxb, carol)
+	defer close(cQuit)
+
+	if err := net.ConnectNodes(ctxb, carol, net.Bob); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPoint2 := openChannelAndAssert(ctxt, t, net, net.Bob, carol,
+		chanAmt, pushAmt)
+
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	if err != nil {
+		t.Fatalf("carol didn't report channel: %v", err)
+	}
+
+	// Update the fees for the channel Alice->Bob, and make sure
+	// all nodes learn about it.
+	const feeBase = 1000000
+	baseFee := int64(1500)
+	feeRate := int64(12)
+	timeLockDelta := uint32(66)
+
+	req := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       float64(feeRate),
+		TimeLockDelta: timeLockDelta,
+	}
+	req.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
+		ChanPoint: chanPoint,
+	}
+
+	_, err = net.Alice.UpdateChannelPolicy(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+
+	// txStr returns the string representation of the channel's
+	// funding tx.
+	txStr := func(chanPoint *lnrpc.ChannelPoint) string {
+		fundingTxID, err := chainhash.NewHash(chanPoint.FundingTxid)
+		if err != nil {
+			return ""
+		}
+		cp := wire.OutPoint{
+			Hash:  *fundingTxID,
+			Index: chanPoint.OutputIndex,
+		}
+		return cp.String()
+	}
+
+	// A closure that is used to wait for a channel updates that matches
+	// the channel policy update done by Alice.
+	waitForChannelUpdate := func(graphUpdates chan *lnrpc.GraphTopologyUpdate,
+		chanPoints ...*lnrpc.ChannelPoint) {
+		// Create a map containing all the channel points we are
+		// waiting for updates for.
+		cps := make(map[string]bool)
+		for _, chanPoint := range chanPoints {
+			cps[txStr(chanPoint)] = true
+		}
+	Loop:
+		for {
+			select {
+			case graphUpdate := <-graphUpdates:
+				if len(graphUpdate.ChannelUpdates) == 0 {
+					continue
+				}
+				chanUpdate := graphUpdate.ChannelUpdates[0]
+				fundingTxStr := txStr(chanUpdate.ChanPoint)
+				if _, ok := cps[fundingTxStr]; !ok {
+					continue
+				}
+
+				if chanUpdate.AdvertisingNode != net.Alice.PubKeyStr {
+					continue
+				}
+
+				policy := chanUpdate.RoutingPolicy
+				if policy.FeeBaseMsat != baseFee {
+					continue
+				}
+				if policy.FeeRateMilliMsat != feeRate*feeBase {
+					continue
+				}
+				if policy.TimeLockDelta != timeLockDelta {
+					continue
+				}
+
+				// We got a policy update that matched the
+				// values and channel point of what we
+				// expected, delete it from the map.
+				delete(cps, fundingTxStr)
+
+				// If we have no more channel points we are
+				// waiting for, break out of the loop.
+				if len(cps) == 0 {
+					break Loop
+				}
+			case <-time.After(20 * time.Second):
+				t.Fatalf("did not receive channel update")
+			}
+		}
+	}
+
+	// Wait for all nodes to have seen the policy update done by Alice.
+	waitForChannelUpdate(aliceUpdates, chanPoint)
+	waitForChannelUpdate(bobUpdates, chanPoint)
+	waitForChannelUpdate(carolUpdates, chanPoint)
+
+	// assertChannelPolicy asserts that the passed node's known channel
+	// policy for the passed chanPoint is consistent with Alice's current
+	// expected policy values.
+	assertChannelPolicy := func(node *lntest.HarnessNode,
+		chanPoint *lnrpc.ChannelPoint) {
+		// Get a DescribeGraph from the node.
+		descReq := &lnrpc.ChannelGraphRequest{}
+		chanGraph, err := node.DescribeGraph(ctxb, descReq)
+		if err != nil {
+			t.Fatalf("unable to query for alice's routing table: %v",
+				err)
+		}
+
+		edgeFound := false
+		for _, e := range chanGraph.Edges {
+			if e.ChanPoint == txStr(chanPoint) {
+				edgeFound = true
+				if e.Node1Pub == net.Alice.PubKeyStr {
+					if e.Node1Policy.FeeBaseMsat != baseFee {
+						t.Fatalf("expected base fee "+
+							"%v, got %v", baseFee,
+							e.Node1Policy.FeeBaseMsat)
+					}
+					if e.Node1Policy.FeeRateMilliMsat != feeRate*feeBase {
+						t.Fatalf("expected fee rate "+
+							"%v, got %v", feeRate*feeBase,
+							e.Node1Policy.FeeRateMilliMsat)
+					}
+					if e.Node1Policy.TimeLockDelta != timeLockDelta {
+						t.Fatalf("expected time lock "+
+							"delta %v, got %v",
+							timeLockDelta,
+							e.Node1Policy.TimeLockDelta)
+					}
+				} else {
+					if e.Node2Policy.FeeBaseMsat != baseFee {
+						t.Fatalf("expected base fee "+
+							"%v, got %v", baseFee,
+							e.Node2Policy.FeeBaseMsat)
+					}
+					if e.Node2Policy.FeeRateMilliMsat != feeRate*feeBase {
+						t.Fatalf("expected fee rate "+
+							"%v, got %v", feeRate*feeBase,
+							e.Node2Policy.FeeRateMilliMsat)
+					}
+					if e.Node2Policy.TimeLockDelta != timeLockDelta {
+						t.Fatalf("expected time lock "+
+							"delta %v, got %v",
+							timeLockDelta,
+							e.Node2Policy.TimeLockDelta)
+					}
+				}
+			}
+		}
+
+		if !edgeFound {
+			t.Fatalf("did not find edge")
+		}
+
+	}
+
+	// Check that all nodes now know about Alice's updated policy.
+	assertChannelPolicy(net.Alice, chanPoint)
+	assertChannelPolicy(net.Bob, chanPoint)
+	assertChannelPolicy(carol, chanPoint)
+
+	// Open channel to Carol.
+	if err := net.ConnectNodes(ctxb, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect dave to alice: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	chanPoint3 := openChannelAndAssert(ctxt, t, net, net.Alice, carol,
+		chanAmt, pushAmt)
+
+	ctxt, _ = context.WithTimeout(ctxb, time.Second*15)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint3)
+	if err != nil {
+		t.Fatalf("alice didn't report channel: %v", err)
+	}
+	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint3)
+	if err != nil {
+		t.Fatalf("bob didn't report channel: %v", err)
+	}
+
+	// Make a global update, and check that both channels'
+	// new policies get propagated.
+	baseFee = int64(800)
+	feeRate = int64(123)
+	timeLockDelta = uint32(22)
+
+	req = &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFee,
+		FeeRate:       float64(feeRate),
+		TimeLockDelta: timeLockDelta,
+	}
+	req.Scope = &lnrpc.PolicyUpdateRequest_Global{}
+
+	_, err = net.Alice.UpdateChannelPolicy(ctxb, req)
+	if err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+
+	// Wait for all nodes to have seen the policy updates
+	// for both of Alice's channels.
+	waitForChannelUpdate(aliceUpdates, chanPoint, chanPoint3)
+	waitForChannelUpdate(bobUpdates, chanPoint, chanPoint3)
+	waitForChannelUpdate(carolUpdates, chanPoint, chanPoint3)
+
+	// And finally check that all nodes remembers the policy
+	// update they received.
+	assertChannelPolicy(net.Alice, chanPoint)
+	assertChannelPolicy(net.Bob, chanPoint)
+	assertChannelPolicy(carol, chanPoint)
+
+	assertChannelPolicy(net.Alice, chanPoint3)
+	assertChannelPolicy(net.Bob, chanPoint3)
+	assertChannelPolicy(carol, chanPoint3)
+
+	// Close the channels.
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint2, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint3, false)
+	ctxt, _ = context.WithTimeout(ctxb, timeout)
+
+	// Clean up carol's node.
+	if err := net.ShutdownNode(carol); err != nil {
+		t.Fatalf("unable to shutdown carol: %v", err)
+	}
+}
+
 // testOpenChannelAfterReorg tests that in the case where we have an open
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
@@ -793,7 +1077,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// confirmation before it's open, with the current set of defaults,
 	// we'll need to create a new node instance.
 	const numConfs = 5
-	carolArgs := []string{fmt.Sprintf("--defaultchanconfs=%v", numConfs)}
+	carolArgs := []string{fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs)}
 	carol, err := net.NewNode(carolArgs)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -4689,6 +4973,10 @@ var testsCases = []*testCase{
 	{
 		name: "basic funding flow",
 		test: testBasicChannelFunding,
+	},
+	{
+		name: "update channel policy",
+		test: testUpdateChannelPolicy,
 	},
 	{
 		name: "open channel reorg test",

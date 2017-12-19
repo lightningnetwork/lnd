@@ -30,7 +30,7 @@ type OnionErrorEncrypter struct {
 	sharedSecret [sha256.Size]byte
 }
 
-// NewOnionErrorEncrypter creates new instance of the onion encryper backed by
+// NewOnionErrorEncrypter creates new instance of the onion encrypter backed by
 // the passed router, with encryption to be doing using the passed
 // ephemeralKey.
 func NewOnionErrorEncrypter(router *Router,

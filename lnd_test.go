@@ -1095,7 +1095,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// TODO(roasbeef): should check default value in config here
 	// instead, or make delay a param
 	defaultCSV := uint32(4)
-	defaultCLTV := defaultBitcoinForwardingPolicy.TimeLockDelta
+	defaultCLTV := uint32(defaultBitcoinTimeLockDelta)
 
 	// Since we'd like to test failure scenarios with outstanding htlcs,
 	// we'll introduce another node into our test network: Carol.

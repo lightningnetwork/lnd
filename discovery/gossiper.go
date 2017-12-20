@@ -1986,12 +1986,18 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement, *lnwire.ChannelUpdate, error) {
 
-	edge.LastUpdate = time.Now()
+	// Make sure timestamp is always increased, such that our update
+	// gets propagated.
+	timestamp := time.Now().Unix()
+	if timestamp <= edge.LastUpdate.Unix() {
+		timestamp = edge.LastUpdate.Unix() + 1
+	}
+	edge.LastUpdate = time.Unix(timestamp, 0)
 	chanUpdate := &lnwire.ChannelUpdate{
 		Signature:       edge.Signature,
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
-		Timestamp:       uint32(edge.LastUpdate.Unix()),
+		Timestamp:       uint32(timestamp),
 		Flags:           edge.Flags,
 		TimeLockDelta:   edge.TimeLockDelta,
 		HtlcMinimumMsat: edge.MinHTLC,

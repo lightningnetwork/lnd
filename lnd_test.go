@@ -2953,7 +2953,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// Query the mempool for Alice's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed
 	// above.
-	justiceTXID, err := waitForTxInMempool(net.Miner.Node, 5*time.Second)
+	justiceTXID, err := waitForTxInMempool(net.Miner.Node, 15*time.Second)
 	if err != nil {
 		t.Fatalf("unable to find Alice's justice tx in mempool: %v",
 			err)
@@ -3171,6 +3171,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Ensure that carol's balance still shows the amount we originally
 	// pushed to her, and that at least one more update has occurred.
+	time.Sleep(500 * time.Millisecond)
 	checkCarolBalance(pushAmt)
 	checkCarolNumUpdatesAtleast(carolStateNumPreCopy + 1)
 

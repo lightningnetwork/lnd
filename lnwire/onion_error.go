@@ -1031,7 +1031,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	case Serializable:
 		if err := f.Decode(dataReader, pver); err != nil {
 			return nil, fmt.Errorf("unable to decode error "+
-				"update: %v", err)
+				"update (%T): %v", err, failure)
 		}
 	}
 

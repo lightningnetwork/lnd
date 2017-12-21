@@ -958,6 +958,8 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 		select {
 		case err := <-errChan:
 			return err
+		case <-targetPeer.quit:
+			return fmt.Errorf("peer shutting down")
 		case <-s.quit:
 			return ErrServerShuttingDown
 		}

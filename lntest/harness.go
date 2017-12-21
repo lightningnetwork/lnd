@@ -642,32 +642,63 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		Index: cp.OutputIndex,
 	}
 
-	// If we are not force closing the channel, wait for channel to become
-	// active before attempting to close it.
-	numTries := 10
-CheckActive:
-	for i := 0; !force && i < numTries; i++ {
+	// We'll wait for *both* nodes to read the channel as active if we're
+	// performing a cooperative channel closure.
+	if !force {
+		timeout := time.Second * 15
 		listReq := &lnrpc.ListChannelsRequest{}
-		listResp, err := lnNode.ListChannels(ctx, listReq)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable fetch node's "+
-				"channels: %v", err)
-		}
 
-		for _, c := range listResp.Channels {
-			if c.ChannelPoint == chanPoint.String() && c.Active {
-				break CheckActive
+		// We define two helper functions, one two locate a particular
+		// channel, and the other to check if a channel is active or
+		// not.
+		filterChannel := func(node *HarnessNode,
+			op wire.OutPoint) (*lnrpc.ActiveChannel, error) {
+			listResp, err := node.ListChannels(ctx, listReq)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, c := range listResp.Channels {
+				if c.ChannelPoint == op.String() {
+					return c, nil
+				}
+			}
+
+			return nil, fmt.Errorf("unable to find channel")
+		}
+		activeChanPredicate := func(node *HarnessNode) func() bool {
+			return func() bool {
+				channel, err := filterChannel(node, chanPoint)
+				if err != nil {
+				}
+
+				return channel.Active
 			}
 		}
 
-		if i == numTries-1 {
-			// Last iteration, and channel is still not active.
-			return nil, nil, fmt.Errorf("channel did not become " +
-				"active")
+		// Next, we'll fetch the target channel in order to get the
+		// harness node that'll be receiving the channel close request.
+		targetChan, err := filterChannel(lnNode, chanPoint)
+		if err != nil {
+			return nil, nil, err
+		}
+		receivingNode, err := n.LookUpNodeByPub(targetChan.RemotePubkey)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		// Sleep, and try again.
-		time.Sleep(300 * time.Millisecond)
+		// Before proceeding, we'll ensure that the channel is active
+		// for both nodes.
+		err = WaitPredicate(activeChanPredicate(lnNode), timeout)
+		if err != nil {
+			return nil, nil, fmt.Errorf("channel of closing " +
+				"node not active in time")
+		}
+		err = WaitPredicate(activeChanPredicate(receivingNode), timeout)
+		if err != nil {
+			return nil, nil, fmt.Errorf("channel of receiving " +
+				"node not active in time")
+		}
 	}
 
 	closeReq := &lnrpc.CloseChannelRequest{

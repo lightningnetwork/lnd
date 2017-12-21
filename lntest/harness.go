@@ -286,28 +286,28 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 		return err
 	}
 
-	timeout := time.After(time.Second * 15)
-	for {
-
-		select {
-		case <-timeout:
-			return fmt.Errorf("peers not connected within 15 seconds")
-		default:
-		}
-
+	err = WaitPredicate(func() bool {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.
 		resp, err := a.ListPeers(ctx, &lnrpc.ListPeersRequest{})
 		if err != nil {
-			return err
+			return false
 		}
+
 		for _, peer := range resp.Peers {
 			if peer.PubKey == b.PubKeyStr {
-				return nil
+				return true
 			}
 		}
+
+		return false
+	}, time.Second*15)
+	if err != nil {
+		return fmt.Errorf("peers not connected within 15 seconds")
 	}
+
+	return nil
 }
 
 // DisconnectNodes disconnects node a from node b by sending RPC message

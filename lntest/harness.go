@@ -766,13 +766,31 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 	node *HarnessNode, chanPoint *wire.OutPoint) error {
 
 	req := &lnrpc.ListChannelsRequest{}
-	resp, err := node.ListChannels(ctx, req)
-	if err != nil {
-		return fmt.Errorf("unable fetch node's channels: %v", err)
+
+	var predErr error
+	pred := func() bool {
+		resp, err := node.ListChannels(ctx, req)
+		if err != nil {
+			predErr = fmt.Errorf("unable fetch node's channels: %v", err)
+			return false
+		}
+
+		for _, channel := range resp.Channels {
+			if channel.ChannelPoint == chanPoint.String() {
+				return true
+			}
+
+		}
+		return false
 	}
 
-	for _, channel := range resp.Channels {
-		if channel.ChannelPoint == chanPoint.String() {
+	if err := WaitPredicate(pred, time.Second*15); err != nil {
+		return fmt.Errorf("channel not found: %v", predErr)
+	}
+
+	return nil
+}
+
 // WaitPredicate is a helper test function that will wait for a timeout period
 // of time until the passed predicate returns true. This function is helpful as
 // timing doesn't always line up well when running integration tests with

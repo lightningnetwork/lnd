@@ -32,6 +32,8 @@ type NetworkHarness struct {
 
 	activeNodes map[int]*HarnessNode
 
+	nodesByPub map[string]*HarnessNode
+
 	// Alice and Bob are the initial seeder nodes that are automatically
 	// created to be the initial participants of the test network.
 	Alice *HarnessNode
@@ -56,6 +58,7 @@ type NetworkHarness struct {
 func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
 	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
+		nodesByPub:           make(map[string]*HarnessNode),
 		seenTxns:             make(chan *chainhash.Hash),
 		bitcoinWatchRequests: make(chan *txWatchRequest),
 		lndErrorChan:         make(chan error),
@@ -66,6 +69,21 @@ func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
 	}
 	go n.networkWatcher()
 	return &n, nil
+}
+
+// LookUpNodeByPub queries the set of active nodes to locate a node according
+// to its public key. The second value will be true if the node was found, and
+// false otherwise.
+func (n *NetworkHarness) LookUpNodeByPub(pubStr string) (*HarnessNode, error) {
+	n.mtx.Lock()
+	defer n.mtx.Unlock()
+
+	node, ok := n.nodesByPub[pubStr]
+	if !ok {
+		return nil, fmt.Errorf("unable to find node")
+	}
+
+	return node, nil
 }
 
 // ProcessErrors returns a channel used for reporting any fatal process errors.
@@ -201,6 +219,7 @@ out:
 
 // TearDownAll tears down all active nodes within the test lightning network.
 func (n *NetworkHarness) TearDownAll() error {
+
 	for _, node := range n.activeNodes {
 		if err := n.ShutdownNode(node); err != nil {
 			return err
@@ -235,6 +254,12 @@ func (n *NetworkHarness) NewNode(extraArgs []string) (*HarnessNode, error) {
 	if err := node.start(n.lndErrorChan); err != nil {
 		return nil, err
 	}
+
+	// With the node started, we can now record its public key within the
+	// global mapping.
+	n.mtx.Lock()
+	n.nodesByPub[node.PubKeyStr] = node
+	n.mtx.Unlock()
 
 	return node, nil
 }

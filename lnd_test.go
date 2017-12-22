@@ -3878,28 +3878,22 @@ out:
 	}
 }
 
-func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
-	const chanAmt = maxFundingAmount
-	timeout := time.Duration(time.Second * 5)
-	ctxb := context.Background()
-
-	// We'll first start by establishing a notification client to Alice which
-	// will send us notifications upon detected changes in the channel graph.
+// subscribeGraphNotifications subscribes to channel graph updates and launches
+// a goroutine that forwards these to the returned channel.
+func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
+	node *lntest.HarnessNode) (chan *lnrpc.GraphTopologyUpdate, chan struct{}) {
+	// We'll first start by establishing a notification client which will
+	// send us notifications upon detected changes in the channel graph.
 	req := &lnrpc.GraphTopologySubscription{}
-	topologyClient, err := net.Alice.SubscribeChannelGraph(ctxb, req)
+	topologyClient, err := node.SubscribeChannelGraph(ctxb, req)
 	if err != nil {
 		t.Fatalf("unable to create topology client: %v", err)
 	}
 
-	// Open a new channel between Alice and Bob.
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
-	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
-		chanAmt, 0)
-
 	// We'll launch a goroutine that'll be responsible for proxying all
 	// notifications recv'd from the client into the channel below.
 	quit := make(chan struct{})
-	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 4)
+	graphUpdates := make(chan *lnrpc.GraphTopologyUpdate, 20)
 	go func() {
 		for {
 			select {
@@ -3916,7 +3910,8 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 				if err == io.EOF {
 					return
 				} else if err != nil {
-					t.Fatalf("unable to recv graph update: %v", err)
+					t.Fatalf("unable to recv graph update: %v",
+						err)
 				}
 
 				select {
@@ -3927,6 +3922,21 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 			}
 		}
 	}()
+	return graphUpdates, quit
+}
+
+func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) {
+	const chanAmt = maxFundingAmount
+	timeout := time.Duration(time.Second * 5)
+	ctxb := context.Background()
+
+	// Let Alice subscribe to graph notifications.
+	graphUpdates, quit := subscribeGraphNotifications(t, ctxb, net.Alice)
+
+	// Open a new channel between Alice and Bob.
+	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	chanPoint := openChannelAndAssert(ctxt, t, net, net.Alice, net.Bob,
+		chanAmt, 0)
 
 	// The channel opening above should've triggered a few notifications
 	// sent to the notification client. We'll expect two channel updates,

@@ -17,6 +17,29 @@ import (
 // to signal the number of slots available, and a condition variable to allow
 // the packetQueue to know when new items have been added to the queue.
 type packetQueue struct {
+	queue []*htlcPacket
+
+	wg sync.WaitGroup
+
+	// freeSlots serves as a semaphore who's current value signals the
+	// number of available slots on the commitment transaction.
+	freeSlots chan struct{}
+
+	queueCond *sync.Cond
+	queueMtx  sync.Mutex
+
+	// outgoingPkts is a channel that the channelLink will receive on in
+	// order to drain the packetQueue as new slots become available on the
+	// commitment transaction.
+	outgoingPkts chan *htlcPacket
+
+	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
+	// residing within the overflow queue. This value should only read or
+	// modified *atomically*.
+	totalHtlcAmt int64
+
+	quit chan struct{}
+
 	// queueLen is an internal counter that reflects the size of the queue
 	// at any given instance. This value is intended to be use atomically
 	// as this value is used by internal methods to obtain the length of
@@ -24,27 +47,6 @@ type packetQueue struct {
 	// deadlock situation where the main goroutine is attempting a send
 	// with the lock held.
 	queueLen int32
-
-	// totalHtlcAmt is the sum of the value of all pending HTLC's currently
-	// residing within the overflow queue. This value should only read or
-	// modified *atomically*.
-	totalHtlcAmt int64
-
-	queueCond *sync.Cond
-	queueMtx  sync.Mutex
-	queue     []*htlcPacket
-
-	// outgoingPkts is a channel that the channelLink will receive on in
-	// order to drain the packetQueue as new slots become available on the
-	// commitment transaction.
-	outgoingPkts chan *htlcPacket
-
-	// freeSlots serves as a semaphore who's current value signals the
-	// number of available slots on the commitment transaction.
-	freeSlots chan struct{}
-
-	wg   sync.WaitGroup
-	quit chan struct{}
 }
 
 // newPacketQueue returns a new instance of the packetQueue. The maxFreeSlots

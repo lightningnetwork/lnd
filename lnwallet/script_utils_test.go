@@ -76,7 +76,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		revocationKey: revokePubKey,
 		noDelayKey:    bobPayKey,
 	}
-	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, keyRing, csvTimeout,
+	commitmentTx, err := CreateCommitTx(*fakeFundingTxIn, keyRing, csvTimeout,
 		channelBalance, channelBalance, DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

@@ -666,7 +666,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn *wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
+	fundingTxIn wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
 		ourChanCfg, theirChanCfg)
@@ -819,7 +819,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Create the txin to our commitment transaction; required to construct
 	// the commitment transactions.
-	fundingTxIn := &wire.TxIn{
+	fundingTxIn := wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
 			Hash:  fundingTxID,
 			Index: multiSigIndex,
@@ -1150,7 +1150,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		fundingTxIn,
+		*fundingTxIn,
 	)
 	if err != nil {
 		req.err <- err

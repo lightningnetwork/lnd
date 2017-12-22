@@ -1171,7 +1171,7 @@ type LightningChannel struct {
 	// that opened the channel.
 	FundingWitnessScript []byte
 
-	fundingTxIn  *wire.TxIn
+	fundingTxIn  wire.TxIn
 	fundingP2WSH []byte
 
 	// ForceCloseSignal is a channel that is closed to indicate that a
@@ -1297,7 +1297,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, err
 	}
-	lc.fundingTxIn = wire.NewTxIn(&state.FundingOutpoint, nil, nil)
+	lc.fundingTxIn = *wire.NewTxIn(&state.FundingOutpoint, nil, nil)
 	lc.fundingP2WSH = fundingPkScript
 	lc.signDesc = &SignDescriptor{
 		PubKey:        lc.localChanCfg.MultiSigKey,
@@ -4990,7 +4990,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // to the "owner" of the commitment transaction which can be spent after a
 // relative block delay or revocation event, and the other paying the
 // counterparty within the channel, which can be spent immediately.
-func CreateCommitTx(fundingOutput *wire.TxIn,
+func CreateCommitTx(fundingOutput wire.TxIn,
 	keyRing *commitmentKeyRing, csvTimeout uint32,
 	amountToSelf, amountToThem, dustLimit btcutil.Amount) (*wire.MsgTx, error) {
 
@@ -5020,7 +5020,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn,
 	// the transaction itself. We use a transaction version of 2 since CSV
 	// will fail unless the tx version is >= 2.
 	commitTx := wire.NewMsgTx(2)
-	commitTx.AddTxIn(fundingOutput)
+	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
 	if amountToSelf >= dustLimit {
@@ -5045,7 +5045,7 @@ func CreateCommitTx(fundingOutput *wire.TxIn,
 // constructing the channel is the initiator of the closure. Currently it is
 // expected that the initiator pays the transaction fees for the closing
 // transaction in full.
-func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
+func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte,
 	initiator bool) *wire.MsgTx {
@@ -5055,7 +5055,7 @@ func CreateCooperativeCloseTx(fundingTxIn *wire.TxIn,
 	// within the channel then a refund output for that particular side can
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
-	closeTx.AddTxIn(fundingTxIn)
+	closeTx.AddTxIn(&fundingTxIn)
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

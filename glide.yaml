@@ -4,7 +4,7 @@ import:
   version: ^1.2.1
 - package: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
-- package: github.com/btcsuite/go-flags
+- package: github.com/jessevdk/go-flags
 - package: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
 - package: github.com/davecgh/go-spew
@@ -24,7 +24,7 @@ import:
   - txscript
   - wire
   - connmgr
-- package: github.com/pebbe/zmq4
+- package: github.com/lightninglabs/gozmq
 - package: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil
@@ -35,7 +35,7 @@ import:
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 3037a033935cca719ba3c472870e7d080443a82f
+  version: 6c1491e092f39d6ed4e9103b9dc8322d04ca98bb
   subpackages:
   - chain
   - waddrmgr

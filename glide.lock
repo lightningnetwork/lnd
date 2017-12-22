@@ -1,5 +1,5 @@
-hash: d145c16f2f9cfdf4937eb8b7cdd65919a8c351593a179acc23f2cbca5b42f34b
-updated: 2017-12-22T23:45:25.148488338-07:00
+hash: 59d73259b4445fdb5982f2ec2538f53805e6e789c26b98b0fdfef43b7d0676a4
+updated: 2018-01-12T11:04:32.444091731-07:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -21,8 +21,8 @@ imports:
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
-- name: github.com/btcsuite/go-flags
-  version: 6c288d648c1cc1befcb90cb5511dcacf64ae8e61
+- name: github.com/jessevdk/go-flags
+  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/btcsuite/go-socks
   version: 4720035b7bfd2a9bb130b1c184f8bbe41b6f0d0f
   subpackages:
@@ -86,8 +86,8 @@ imports:
   version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
   subpackages:
   - internal/socket
-- name: github.com/pebbe/zmq4
-  version: 90d69e412a09549f2e90bac70fbb449081f1e5c1
+- name: github.com/lightninglabs/gozmq
+  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/roasbeef/btcd
   version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
@@ -118,7 +118,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 3037a033935cca719ba3c472870e7d080443a82f
+  version: 6c1491e092f39d6ed4e9103b9dc8322d04ca98bb
   subpackages:
   - chain
   - internal/helpers

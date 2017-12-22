@@ -1605,7 +1605,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxID, err := waitForTxInMempool(net.Miner.Node, 3*time.Second)
+	htlcSweepTxID, err := waitForTxInMempool(net.Miner.Node, 15*time.Second)
 	if err != nil {
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
 	}
@@ -1984,7 +1984,7 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 	ctxb := context.Background()
-	timeout := time.Duration(time.Second * 5)
+	timeout := time.Duration(time.Second * 15)
 	var networkChans []*lnrpc.ChannelPoint
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
@@ -3313,7 +3313,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 	// In this test we wish to exercise the daemon's correct parsing,
 	// handling, and propagation of errors that occur while processing a
 	// multi-hop payment.
-	timeout := time.Duration(time.Second * 5)
+	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
 	const chanAmt = maxFundingAmount
@@ -3897,7 +3897,7 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 }
 
 func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
-	timeout := time.Duration(time.Second * 5)
+	timeout := time.Duration(time.Second * 15)
 	ctxb := context.Background()
 
 	chanAmt := maxFundingAmount

@@ -2242,7 +2242,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 			"network fee")
 	}
 
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 
 	// At this point, Alice should've triggered a new fee update that
 	// increased the fee rate to match the new rate.

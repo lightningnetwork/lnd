@@ -775,13 +775,13 @@ func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 	// They should both send the new channel to the breach arbiter.
 	select {
 	case <-alice.arbiterChan:
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("alice did not send channel to breach arbiter")
 	}
 
 	select {
 	case <-bob.arbiterChan:
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("bob did not send channel to breach arbiter")
 	}
 
@@ -789,14 +789,14 @@ func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
 	select {
 	case c := <-alice.peer.newChannels:
 		close(c.done)
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("alice did not send new channel to peer")
 	}
 
 	select {
 	case c := <-bob.peer.newChannels:
 		close(c.done)
-	case <-time.After(time.Second * 5):
+	case <-time.After(time.Second * 15):
 		t.Fatalf("bob did not send new channel to peer")
 	}
 }

@@ -48,8 +48,8 @@ const (
 // a buffered channel which will be sent upon once the write is complete. This
 // buffered channel acts as a semaphore to be used for synchronization purposes.
 type outgoinMsg struct {
-	msg      lnwire.Message
-	sentChan chan struct{} // MUST be buffered.
+	msg     lnwire.Message
+	errChan chan error // MUST be buffered.
 }
 
 // newChannelMsg packages a lnwallet.LightningChannel with a channel that
@@ -585,8 +585,8 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 		func(msg lnwire.Message) {
 			_, isChanSycMsg := msg.(*lnwire.ChannelReestablish)
 
-			// If this is the chanSync message, then we'll develri
-			// it imemdately to the active link.
+			// If this is the chanSync message, then we'll deliver
+			// it immediately to the active link.
 			if !isChanSycMsg {
 				// We'll send a message to the funding manager
 				// and wait iff an active funding process for
@@ -1027,8 +1027,8 @@ out:
 			// callers to optionally synchronize sends with the
 			// writeHandler.
 			err := p.writeMessage(outMsg.msg)
-			if outMsg.sentChan != nil {
-				close(outMsg.sentChan)
+			if outMsg.errChan != nil {
+				outMsg.errChan <- err
 			}
 
 			if err != nil {
@@ -1122,12 +1122,17 @@ func (p *peer) PingTime() int64 {
 }
 
 // queueMsg queues a new lnwire.Message to be eventually sent out on the
-// wire.
-func (p *peer) queueMsg(msg lnwire.Message, doneChan chan struct{}) {
+// wire. It returns an error if we failed to queue the message. An error
+// is sent on errChan if the message fails being sent to the peer, or
+// nil otherwise.
+func (p *peer) queueMsg(msg lnwire.Message, errChan chan error) {
 	select {
-	case p.outgoingQueue <- outgoinMsg{msg, doneChan}:
+	case p.outgoingQueue <- outgoinMsg{msg, errChan}:
 	case <-p.quit:
-		return
+		peerLog.Debugf("Peer shutting down, could not enqueue msg.")
+		if errChan != nil {
+			errChan <- fmt.Errorf("peer shutting down")
+		}
 	}
 }
 
@@ -1205,7 +1210,7 @@ out:
 				// If we're being sent a new channel, and our
 				// existing channel doesn't have the next
 				// revocation, then we need to update the
-				// current exsiting channel.
+				// current existing channel.
 				if currentChan.RemoteNextRevocation() != nil {
 					continue
 				}
@@ -1514,8 +1519,8 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 // finalizeChanClosure performs the final clean up steps once the cooperative
 // closure transaction has been fully broadcast. The finalized closing state
-// machine should be passed in. Once the transaction has been suffuciently
-// confirmed, the channel will be marked as fully closed within the databaes,
+// machine should be passed in. Once the transaction has been sufficiently
+// confirmed, the channel will be marked as fully closed within the database,
 // and any clients will be notified of updates to the closing state.
 func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	closeReq := chanCloser.CloseRequest()

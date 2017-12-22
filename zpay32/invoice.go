@@ -232,7 +232,7 @@ func RoutingInfo(routingInfo []ExtraRoutingInfo) func(*Invoice) {
 }
 
 // NewInvoice creates a new Invoice object. The last parameter is a set of
-// variadic argumements for setting optional fields of the invoice.
+// variadic arguments for setting optional fields of the invoice.
 //
 // NOTE: Either Description  or DescriptionHash must be provided for the Invoice
 // to be considered valid.

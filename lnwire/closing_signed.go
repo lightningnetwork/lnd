@@ -15,7 +15,7 @@ import (
 //
 // NOTE: The responder is able to send a signature without any additional
 // messages as all transactions are assembled observing BIP 69 which defines a
-// cannonical ordering for input/outputs. Therefore, both sides are able to
+// canonical ordering for input/outputs. Therefore, both sides are able to
 // arrive at an identical closure transaction as they know the order of the
 // inputs/outputs.
 type ClosingSigned struct {

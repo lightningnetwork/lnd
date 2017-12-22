@@ -19,6 +19,7 @@ import (
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/integration/rpctest"
+	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
@@ -84,7 +85,7 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now that we have a txid, register a confirmation notiication with
+	// Now that we have a txid, register a confirmation notification with
 	// the chainntfn source.
 	numConfs := uint32(1)
 	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
@@ -102,6 +103,11 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 
 	select {
 	case confInfo := <-confIntent.Confirmed:
+		if !confInfo.BlockHash.IsEqual(blockHash[0]) {
+			t.Fatalf("mismatched block hashes: expected %v, got %v",
+				blockHash[0], confInfo.BlockHash)
+		}
+
 		// Finally, we'll verify that the tx index returned is the exact same
 		// as the tx index of the transaction within the block itself.
 		msgBlock, err := miner.Node.GetBlock(blockHash[0])
@@ -503,18 +509,29 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	// spending from a coinbase output here, so we use the dedicated
 	// function.
 
-	txid, err := getTestTxId(miner)
+	txid3, err := getTestTxId(miner)
 	if err != nil {
 		t.Fatalf("unable to create test tx: %v", err)
 	}
 
-	// Now generate one block. The notifier must check older blocks when
-	// the confirmation event is registered below to ensure that the TXID
-	// hasn't already been included in the chain, otherwise the
+	// Generate another block containing tx 3, but we won't register conf
+	// notifications for this tx until much later. The notifier must check
+	// older blocks when the confirmation event is registered below to ensure
+	// that the TXID hasn't already been included in the chain, otherwise the
 	// notification will never be sent.
-	blockHash, err := miner.Node.Generate(1)
+	_, err = miner.Node.Generate(1)
 	if err != nil {
 		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	txid1, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	txid2, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
 	}
 
 	_, currentHeight, err := miner.Node.GetBestBlock()
@@ -522,17 +539,24 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to get current height: %v", err)
 	}
 
-	// Now that we have a txid, register a confirmation notification with
-	// the chainntfn source.
-	numConfs := uint32(1)
-	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
+	// Now generate another block containing txs 1 & 2.
+	blockHash, err := miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	// Register a confirmation notification with the chainntfn source for tx2,
+	// which is included in the last block. The height hint is the height before
+	// the block is included. This notification should fire immediately since
+	// only 1 confirmation is required.
+	ntfn1, err := notifier.RegisterConfirmationsNtfn(txid1, 1,
 		uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
 	select {
-	case confInfo := <-confIntent.Confirmed:
+	case confInfo := <-ntfn1.Confirmed:
 		// Finally, we'll verify that the tx index returned is the exact same
 		// as the tx index of the transaction within the block itself.
 		msgBlock, err := miner.Node.GetBlock(blockHash[0])
@@ -544,14 +568,14 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to index into block: %v", err)
 		}
-		if !specifiedTxHash.IsEqual(txid) {
+		if !specifiedTxHash.IsEqual(txid1) {
 			t.Fatalf("mismatched tx indexes: expected %v, got %v",
-				txid, specifiedTxHash)
+				txid1, specifiedTxHash)
 		}
 
 		// We'll also ensure that the block height has been set
 		// properly.
-		if confInfo.BlockHeight != uint32(currentHeight) {
+		if confInfo.BlockHeight != uint32(currentHeight+1) {
 			t.Fatalf("incorrect block height: expected %v, got %v",
 				confInfo.BlockHeight, currentHeight)
 		}
@@ -560,75 +584,60 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("confirmation notification never received")
 	}
 
-	// Next, we want to test fully dispatching the notification for a
-	// transaction that has been *partially* confirmed. So we'll create
-	// another test txid.
-	txid, err = getTestTxId(miner)
-	if err != nil {
-		t.Fatalf("unable to create test tx: %v", err)
-	}
-
-	_, currentHeight, err = miner.Node.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current height: %v", err)
-	}
-
-	// We'll request 6 confirmations for the above generated txid, but we
-	// will generate the confirmations in chunks.
-	numConfs = 6
-
-	time.Sleep(time.Second * 2)
-
-	// First, generate 2 confirmations.
-	if _, err := miner.Node.Generate(2); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
-
-	time.Sleep(time.Second * 2)
-
-	// Next, register for the notification *after* the transition has
-	// already been partially confirmed.
-	confIntent, err = notifier.RegisterConfirmationsNtfn(txid, numConfs,
+	// Register a confirmation notification for tx2, requiring 3 confirmations.
+	// This transaction is only partially confirmed, so the notification should
+	// not fire yet.
+	ntfn2, err := notifier.RegisterConfirmationsNtfn(txid2, 3,
 		uint32(currentHeight))
 	if err != nil {
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
-	// We shouldn't receive a notification at this point, as the
-	// transaction hasn't yet been fully confirmed.
-	select {
-	case <-confIntent.Confirmed:
-		t.Fatalf("received confirmation notification but shouldn't " +
-			"have")
-	default:
-		// Expected case
-	}
-
-	// With the notification registered, generate another 3 blocks, this
-	// shouldn't yet dispatch the notification.
-	if _, err := miner.Node.Generate(3); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
+	// Fully confirm tx3.
+	_, err = miner.Node.Generate(2)
+	if err != nil {
+		t.Fatalf("unable to generate block: %v", err)
 	}
 
 	select {
-	case <-confIntent.Confirmed:
-		t.Fatalf("received confirmation notification but shouldn't " +
-			"have")
-	default:
-		// Expected case
-	}
-
-	// Finally, we'll mine the final block which should dispatch the
-	// notification.
-	if _, err := miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
-
-	select {
-	case <-confIntent.Confirmed:
-		break
-	case <-time.After(30 * time.Second):
+	case <-ntfn2.Confirmed:
+	case <-time.After(10 * time.Second):
 		t.Fatalf("confirmation notification never received")
+	}
+
+	select {
+	case <-ntfn1.Confirmed:
+		t.Fatalf("received multiple confirmations for tx")
+	case <-time.After(1 * time.Second):
+	}
+
+	// Finally register a confirmation notification for tx3, requiring 1
+	// confirmation. Ensure that conf notifications do not refire on txs
+	// 1 or 2.
+	ntfn3, err := notifier.RegisterConfirmationsNtfn(txid3, 1,
+		uint32(currentHeight-1))
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	select {
+	case <-ntfn3.Confirmed:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("confirmation notification never received")
+	}
+
+	time.Sleep(1 * time.Second)
+
+	select {
+	case <-ntfn1.Confirmed:
+		t.Fatalf("received multiple confirmations for tx")
+	default:
+	}
+
+	select {
+	case <-ntfn2.Confirmed:
+		t.Fatalf("received multiple confirmations for tx")
+	default:
 	}
 }
 
@@ -961,6 +970,147 @@ func testCancelEpochNtfn(node *rpctest.Harness, notifier chainntnfs.ChainNotifie
 	}
 }
 
+func testReorgConf(miner *rpctest.Harness, notifier chainntnfs.ChainNotifier,
+	t *testing.T) {
+
+	// Set up a new miner that we can use to cause a reorg.
+	miner2, err := rpctest.New(netParams, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to create mining node: %v", err)
+	}
+	if err := miner2.SetUp(false, 0); err != nil {
+		t.Fatalf("unable to set up mining node: %v", err)
+	}
+	defer miner2.TearDown()
+
+	// We start by connecting the new miner to our original miner,
+	// such that it will sync to our original chain.
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice := []*rpctest.Harness{miner, miner2}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	// The two should be on the same blockheight.
+	_, nodeHeight1, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, nodeHeight2, err := miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if nodeHeight1 != nodeHeight2 {
+		t.Fatalf("expected both miners to be on the same height",
+			nodeHeight1, nodeHeight2)
+	}
+
+	// We disconnect the two nodes, such that we can start mining on them
+	// individually without the other one learning about the new blocks.
+	err = miner.Node.AddNode(miner2.P2PAddress(), rpcclient.ANRemove)
+	if err != nil {
+		t.Fatalf("unable to remove node: %v", err)
+	}
+
+	txid, err := getTestTxId(miner)
+	if err != nil {
+		t.Fatalf("unable to create test tx: %v", err)
+	}
+
+	_, currentHeight, err := miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current height: %v", err)
+	}
+
+	// Now that we have a txid, register a confirmation notification with
+	// the chainntfn source.
+	numConfs := uint32(2)
+	confIntent, err := notifier.RegisterConfirmationsNtfn(txid, numConfs,
+		uint32(currentHeight))
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
+	// Now generate a single block, the transaction should be included.
+	_, err = miner.Node.Generate(1)
+	if err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	// Transaction only has one confirmation, and the notification is registered
+	// with 2 confirmations, so we should not be notified yet.
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatal("tx was confirmed unexpectedly")
+	case <-time.After(1 * time.Second):
+	}
+
+	// Reorganize transaction out of the chain by generating a longer fork
+	// from the other miner. The transaction is not included in this fork.
+	miner2.Node.Generate(2)
+
+	// Reconnect nodes to reach consensus on the longest chain. miner2's chain
+	// should win and become active on miner1.
+	if err := rpctest.ConnectNode(miner, miner2); err != nil {
+		t.Fatalf("unable to connect harnesses: %v", err)
+	}
+	nodeSlice = []*rpctest.Harness{miner, miner2}
+	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
+		t.Fatalf("unable to join node on blocks: %v", err)
+	}
+
+	_, nodeHeight1, err = miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	_, nodeHeight2, err = miner2.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
+	if nodeHeight1 != nodeHeight2 {
+		t.Fatalf("expected both miners to be on the same height",
+			nodeHeight1, nodeHeight2)
+	}
+
+	// Even though there is one block above the height of the block that the
+	// transaction was included in, it is not the active chain so the
+	// notification should not be sent.
+	select {
+	case <-confIntent.Confirmed:
+		t.Fatal("tx was confirmed unexpectedly")
+	case <-time.After(1 * time.Second):
+	}
+
+	// Now confirm the transaction on the longest chain and verify that we
+	// receive the notification.
+	tx, err := miner.Node.GetRawTransaction(txid)
+	if err != nil {
+		t.Fatalf("unable to get raw tx: %v", err)
+	}
+
+	_, err = miner2.Node.SendRawTransaction(tx.MsgTx(), false)
+	if err != nil {
+		t.Fatalf("unable to get send tx: %v", err)
+	}
+
+	_, err = miner.Node.Generate(3)
+	if err != nil {
+		t.Fatalf("unable to generate single block: %v", err)
+	}
+
+	select {
+	case <-confIntent.Confirmed:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("confirmation notification never received")
+	}
+}
+
 type testCase struct {
 	name string
 
@@ -1011,6 +1161,10 @@ var ntfnTests = []testCase{
 	{
 		name: "lazy ntfn consumer",
 		test: testLazyNtfnConsumer,
+	},
+	{
+		name: "reorg conf",
+		test: testReorgConf,
 	},
 }
 

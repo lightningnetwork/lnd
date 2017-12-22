@@ -108,6 +108,10 @@ type initFundingReserveMsg struct {
 	// the responder as part of the initial channel creation.
 	pushMSat lnwire.MilliSatoshi
 
+	// flags are the channel flags specified by the initiator in the
+	// open_channel message.
+	flags lnwire.FundingFlag
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -364,7 +368,7 @@ func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	return outPoints
 }
 
-// ResetReservations reset the volatile wallet state which trakcs all currently
+// ResetReservations reset the volatile wallet state which tracks all currently
 // active reservations.
 func (l *LightningWallet) ResetReservations() {
 	l.nextFundingID = 0
@@ -377,7 +381,7 @@ func (l *LightningWallet) ResetReservations() {
 }
 
 // ActiveReservations returns a slice of all the currently active
-// (non-cancalled) reservations.
+// (non-cancelled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {
@@ -449,7 +453,7 @@ func (l *LightningWallet) InitChannelReservation(
 	capacity, ourFundAmt btcutil.Amount, pushMSat lnwire.MilliSatoshi,
 	commitFeePerKw, fundingFeePerWeight btcutil.Amount,
 	theirID *btcec.PublicKey, theirAddr *net.TCPAddr,
-	chainHash *chainhash.Hash) (*ChannelReservation, error) {
+	chainHash *chainhash.Hash, flags lnwire.FundingFlag) (*ChannelReservation, error) {
 
 	errChan := make(chan error, 1)
 	respChan := make(chan *ChannelReservation, 1)
@@ -463,6 +467,7 @@ func (l *LightningWallet) InitChannelReservation(
 		commitFeePerKw:      commitFeePerKw,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushMSat:            pushMSat,
+		flags:               flags,
 		err:                 errChan,
 		resp:                respChan,
 	}
@@ -493,7 +498,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *initFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(req.capacity, req.fundingAmount,
-		req.commitFeePerKw, l, id, req.pushMSat, l.Cfg.NetParams.GenesisHash)
+		req.commitFeePerKw, l, id, req.pushMSat,
+		l.Cfg.NetParams.GenesisHash, req.flags)
 	if err != nil {
 		req.err <- err
 		req.resp <- nil
@@ -1146,6 +1152,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		fundingTxIn,
 	)
+	if err != nil {
+		req.err <- err
+		req.completeChan <- nil
+		return
+	}
 
 	// With both commitment transactions constructed, we can now use the
 	// generator state obfuscator to encode the current state number within

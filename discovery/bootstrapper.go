@@ -233,7 +233,7 @@ func (c *ChannelGraphBootstrapper) Name() string {
 }
 
 // DNSSeedBootstrapper as an implementation of the NetworkPeerBootstrapper
-// interface which implements peer bootstrapping via a spcial DNS seed as
+// interface which implements peer bootstrapping via a special DNS seed as
 // defined in BOLT-0010. For further details concerning Lightning's current DNS
 // boot strapping protocol, see this link:
 //     * https://github.com/lightningnetwork/lightning-rfc/blob/master/10-dns-bootstrap.md

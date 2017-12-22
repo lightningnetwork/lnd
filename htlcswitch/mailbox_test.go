@@ -30,10 +30,9 @@ func TestMailBoxCouriers(t *testing.T) {
 	sentPackets := make([]*htlcPacket, numPackets)
 	for i := 0; i < numPackets; i++ {
 		pkt := &htlcPacket{
-			dest:         lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
-			src:          lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
-			amount:       lnwire.MilliSatoshi(prand.Int63()),
-			isObfuscated: i%2 == 0,
+			outgoingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
+			incomingChanID: lnwire.NewShortChanIDFromInt(uint64(prand.Int63())),
+			amount:         lnwire.MilliSatoshi(prand.Int63()),
 		}
 		sentPackets[i] = pkt
 
@@ -88,7 +87,7 @@ func TestMailBoxCouriers(t *testing.T) {
 	}
 
 	// Additionally, the set of packets should match exactly, as we should
-	// have received the packets int he exact same ordering that we added.
+	// have received the packets in the exact same ordering that we added.
 	if !reflect.DeepEqual(sentPackets, recvdPackets) {
 		t.Fatalf("recvd packets mismatched: expected %v, got %v",
 			spew.Sdump(sentPackets), spew.Sdump(recvdPackets))

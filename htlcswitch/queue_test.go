@@ -20,12 +20,12 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 	q.Start()
 	defer q.Stop()
 
-	a := make([]lnwire.MilliSatoshi, numPkts)
+	a := make([]uint64, numPkts)
 	for i := 0; i < numPkts; i++ {
-		a[i] = lnwire.MilliSatoshi(i)
+		a[i] = uint64(i)
 		q.AddPkt(&htlcPacket{
-			amount: lnwire.MilliSatoshi(i),
-			htlc:   &lnwire.UpdateAddHTLC{},
+			incomingHTLCID: a[i],
+			htlc:           &lnwire.UpdateAddHTLC{},
 		})
 	}
 
@@ -37,13 +37,13 @@ func TestWaitingQueueThreadSafety(t *testing.T) {
 			queueLength)
 	}
 
-	var b []lnwire.MilliSatoshi
+	var b []uint64
 	for i := 0; i < numPkts; i++ {
 		q.SignalFreeSlot()
 
 		select {
 		case packet := <-q.outgoingPkts:
-			b = append(b, packet.amount)
+			b = append(b, packet.incomingHTLCID)
 
 		case <-time.After(2 * time.Second):
 			t.Fatal("timeout")

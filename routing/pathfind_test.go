@@ -690,7 +690,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	// Now, if we attempt to route throuhg that edge, we should get a
+	// Now, if we attempt to route through that edge, we should get a
 	// failure as it is no longer elligble.
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,
 		ignoredEdges, payAmt)

@@ -302,6 +302,7 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		ChainHash:        *activeNetParams.GenesisHash,
 		Broadcast:        s.BroadcastMessage,
 		SendToPeer:       s.SendToPeer,
+		NotifyWhenOnline: s.NotifyWhenOnline,
 		ProofMatureDelta: 0,
 		TrickleDelay:     time.Millisecond * time.Duration(cfg.TrickleDelay),
 		RetransmitDelay:  time.Minute * 30,
@@ -950,15 +951,27 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 		return err
 	}
 
-	s.sendPeerMessages(targetPeer, msgs, nil)
-
+	// Send messages to the peer and return any error from
+	// sending a message.
+	errChans := s.sendPeerMessages(targetPeer, msgs, nil)
+	for _, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			return err
+		case <-s.quit:
+			return ErrServerShuttingDown
+		}
+	}
 	return nil
 }
 
 // sendPeerMessages enqueues a list of messages into the outgoingQueue of the
 // `targetPeer`.  This method supports additional broadcast-level
 // synchronization by using the additional `wg` to coordinate a particular
-// broadcast.
+// broadcast. Since this method will wait for the return error from sending
+// each message, it should be run as a goroutine (see comment below) and
+// the error ignored if used for broadcasting messages, where the result
+// from sending the messages is not of importance.
 //
 // NOTE: This method must be invoked with a non-nil `wg` if it is spawned as a
 // go routine--both `wg` and the server's WaitGroup should be incremented
@@ -968,7 +981,7 @@ func (s *server) sendToPeer(target *btcec.PublicKey,
 func (s *server) sendPeerMessages(
 	targetPeer *peer,
 	msgs []lnwire.Message,
-	wg *sync.WaitGroup) {
+	wg *sync.WaitGroup) []chan error {
 
 	// If a WaitGroup is provided, we assume that this method was spawned
 	// as a go routine, and that it is being tracked by both the server's
@@ -981,9 +994,17 @@ func (s *server) sendPeerMessages(
 		defer wg.Done()
 	}
 
+	// We queue each message, creating a slice of error channels that
+	// can be inspected after every message is successfully added to
+	// the queue.
+	var errChans []chan error
 	for _, msg := range msgs {
-		targetPeer.queueMsg(msg, nil)
+		errChan := make(chan error, 1)
+		targetPeer.queueMsg(msg, errChan)
+		errChans = append(errChans, errChan)
 	}
+
+	return errChans
 }
 
 // FindPeer will return the peer that corresponds to the passed in public key.
@@ -1453,6 +1474,8 @@ type openChanReq struct {
 
 	fundingFeePerWeight btcutil.Amount
 
+	private bool
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -1570,7 +1593,8 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
-	fundingFeePerByte btcutil.Amount) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	fundingFeePerByte btcutil.Amount,
+	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 1)
 	errChan := make(chan error, 1)
@@ -1630,6 +1654,7 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 		localFundingAmt:     localAmt,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushAmt:             pushAmt,
+		private:             private,
 		updates:             updateChan,
 		err:                 errChan,
 	}

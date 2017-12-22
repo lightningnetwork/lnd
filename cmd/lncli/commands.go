@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/awalterschulze/gographviz"
 	"github.com/golang/protobuf/jsonpb"
@@ -422,6 +423,14 @@ var openChannelCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		cli.BoolFlag{
+			Name: "private",
+			Usage: "make the channel private, such that it won't " +
+				"be announced to the greater network, and " +
+				"nodes other than the two channel endpoints " +
+				"must be explicitly told about it to be able " +
+				"to route through it",
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -492,6 +501,8 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode push amt: %v", err)
 		}
 	}
+
+	req.Private = ctx.Bool("private")
 
 	stream, err := client.OpenChannel(ctxb, req)
 	if err != nil {
@@ -735,14 +746,14 @@ func create(ctx *cli.Context) error {
 	defer cleanUp()
 
 	fmt.Printf("Input wallet password: ")
-	pw1, err := terminal.ReadPassword(0)
+	pw1, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}
 	fmt.Println()
 
 	fmt.Printf("Confirm wallet password: ")
-	pw2, err := terminal.ReadPassword(0)
+	pw2, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}
@@ -775,7 +786,7 @@ func unlock(ctx *cli.Context) error {
 	defer cleanUp()
 
 	fmt.Printf("Input wallet password: ")
-	pw, err := terminal.ReadPassword(0)
+	pw, err := terminal.ReadPassword(int(syscall.Stdin))
 	if err != nil {
 		return err
 	}

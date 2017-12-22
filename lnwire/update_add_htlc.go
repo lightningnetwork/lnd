@@ -30,7 +30,7 @@ type UpdateAddHTLC struct {
 	Amount MilliSatoshi
 
 	// PaymentHash is the payment hash to be included in the HTLC this
-	// request creates. The pre-image to this HTLC must be revelaed by the
+	// request creates. The pre-image to this HTLC must be revealed by the
 	// upstream peer in order to fully settle the HTLC.
 	PaymentHash [32]byte
 

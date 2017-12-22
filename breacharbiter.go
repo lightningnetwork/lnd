@@ -1091,7 +1091,7 @@ func (b *breachArbiter) createJusticeTx(
 // craftCommitmentSweepTx creates a transaction to sweep the non-delayed output
 // within the commitment transaction that pays to us. We must manually sweep
 // this output as it uses a tweaked public key in its pkScript, so the wallet
-// won't immediacy be aware of it.
+// won't immediately be aware of it.
 //
 // TODO(roasbeef): alternative options
 //  * leave the output in the chain, use as input to future funding tx
@@ -1222,7 +1222,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight uint64,
 type RetributionStore interface {
 	// Add persists the retributionInfo to disk, using the information's
 	// chanPoint as the key. This method should overwrite any existing
-	// entires found under the same key, and an error should be raised if
+	// entries found under the same key, and an error should be raised if
 	// the addition fails.
 	Add(retInfo *retributionInfo) error
 

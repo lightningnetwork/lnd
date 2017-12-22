@@ -1448,7 +1448,7 @@ func newSingleLinkTestHarness(chanAmt btcutil.Amount) (ChannelLink, func(), erro
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy:     globalPolicy,
 		Peer:              &alicePeer,
-		Switch:            nil,
+		Switch:            New(Config{}),
 		DecodeHopIterator: decoder.DecodeHopIterator,
 		DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
@@ -1540,7 +1540,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		htlc: htlc,
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
@@ -1551,7 +1551,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		PaymentPreimage: invoice.Terms.PaymentPreimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
@@ -1564,7 +1564,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		htlc: htlc,
 	}
 	aliceLink.HandleSwitchPacket(&addPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
 
 	// With that processed, we'll now generate an HTLC fail (sent by the
@@ -1575,7 +1575,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		Reason: lnwire.OpaqueReason([]byte("nop")),
 	}
 	aliceLink.HandleChannelUpdate(failMsg)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,
@@ -1583,12 +1583,13 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// remain unchanged (but Alice will need to pay the fee for the extra
 	// HTLC).
 	updateMsg := &lnwire.UpdateAddHTLC{
+		ID:          0,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash, // Re-using the same payment hash.
 	}
 	aliceLink.HandleChannelUpdate(updateMsg)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
 
 	// Next, we'll settle the HTLC with our knowledge of the pre-image that
@@ -1601,27 +1602,27 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		},
 	}
 	aliceLink.HandleSwitchPacket(&settlePkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 
 	// Finally, we'll test the scenario of failing an HTLC received by the
 	// remote node. This should result in no perceived bandwidth changes.
 	htlcAdd := &lnwire.UpdateAddHTLC{
+		ID:          1,
 		Amount:      htlcAmt,
 		Expiry:      9,
 		PaymentHash: htlc.PaymentHash,
 	}
 	aliceLink.HandleChannelUpdate(htlcAdd)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcFee)
 	failPkt := htlcPacket{
 		htlc: &lnwire.UpdateFailHTLC{
 			ID: 3,
 		},
-		payHash: htlc.PaymentHash,
 	}
 	aliceLink.HandleSwitchPacket(&failPkt)
-	time.Sleep(time.Millisecond * 100)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
 }
 
@@ -1660,11 +1661,10 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to create payment: %v", err)
 		}
-		addPkt := htlcPacket{
+		aliceLink.HandleSwitchPacket(&htlcPacket{
 			htlc:   htlc,
 			amount: amt,
-		}
-		aliceLink.HandleSwitchPacket(&addPkt)
+		})
 
 		return invoice.Terms.PaymentPreimage
 	}
@@ -1683,6 +1683,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		totalHtlcAmt += htlcAmt
 	}
 
+	// TODO(roasbeef): increase sleep
 	time.Sleep(time.Second * 1)
 	commitWeight := lnwallet.CommitWeight + lnwallet.HtlcWeight*numHTLCs
 	htlcFee := lnwire.NewMSatFromSatoshis(
@@ -1740,7 +1741,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		coreLink.overflowQueue.SignalFreeSlot()
 	}
 
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Millisecond * 500)
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Finally, at this point, the queue itself should be fully empty. As

@@ -1,8 +1,8 @@
 package btcdnotify
 
 import (
-	"container/heap"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +20,11 @@ const (
 	// notifierType uniquely identifies this concrete implementation of the
 	// ChainNotifier interface.
 	notifierType = "btcd"
+
+	// reorgSafetyLimit is assumed maximum depth of a chain reorganization.
+	// After this many confirmation, transaction confirmation info will be
+	// pruned.
+	reorgSafetyLimit = 100
 )
 
 var (
@@ -35,6 +40,10 @@ var (
 type chainUpdate struct {
 	blockHash   *chainhash.Hash
 	blockHeight int32
+
+	// connected is true if this update is a new block and false if it is a
+	// disconnected block.
+	connect bool
 }
 
 // txUpdate encapsulates a transaction related notification sent from btcd to
@@ -65,12 +74,9 @@ type BtcdNotifier struct {
 
 	spendNotifications map[wire.OutPoint]map[uint64]*spendNotification
 
-	confNotifications map[chainhash.Hash][]*confirmationsNotification
-	confHeap          *confirmationHeap
+	txConfNotifier *chainntnfs.TxConfNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
-
-	disconnectedBlockHashes chan *blockNtfn
 
 	chainUpdates *chainntnfs.ConcurrentQueue
 	txUpdates    *chainntnfs.ConcurrentQueue
@@ -93,11 +99,6 @@ func New(config *rpcclient.ConnConfig) (*BtcdNotifier, error) {
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
 		spendNotifications: make(map[wire.OutPoint]map[uint64]*spendNotification),
-
-		confNotifications: make(map[chainhash.Hash][]*confirmationsNotification),
-		confHeap:          newConfirmationHeap(),
-
-		disconnectedBlockHashes: make(chan *blockNtfn, 20),
 
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
 		txUpdates:    chainntnfs.NewConcurrentQueue(10),
@@ -146,6 +147,9 @@ func (b *BtcdNotifier) Start() error {
 		return err
 	}
 
+	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
+		uint32(currentHeight), reorgSafetyLimit)
+
 	b.chainUpdates.Start()
 	b.txUpdates.Start()
 
@@ -179,24 +183,12 @@ func (b *BtcdNotifier) Stop() error {
 			close(spendClient.spendChan)
 		}
 	}
-	for _, confClients := range b.confNotifications {
-		for _, confClient := range confClients {
-			close(confClient.finConf)
-			close(confClient.negativeConf)
-		}
-	}
 	for _, epochClient := range b.blockEpochClients {
 		close(epochClient.epochChan)
 	}
+	b.txConfNotifier.TearDown()
 
 	return nil
-}
-
-// blockNtfn packages a notification of a connected/disconnected block along
-// with its height at the time.
-type blockNtfn struct {
-	sha    *chainhash.Hash
-	height int32
 }
 
 // onBlockConnected implements on OnBlockConnected callback for rpcclient.
@@ -205,11 +197,22 @@ type blockNtfn struct {
 func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32, t time.Time) {
 	// Append this new chain update to the end of the queue of new chain
 	// updates.
-	b.chainUpdates.ChanIn() <- &chainUpdate{hash, height}
+	b.chainUpdates.ChanIn() <- &chainUpdate{
+		blockHash:   hash,
+		blockHeight: height,
+		connect:     true,
+	}
 }
 
 // onBlockDisconnected implements on OnBlockDisconnected callback for rpcclient.
 func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32, t time.Time) {
+	// Append this new chain update to the end of the queue of new chain
+	// updates.
+	b.chainUpdates.ChanIn() <- &chainUpdate{
+		blockHash:   hash,
+		blockHeight: height,
+		connect:     false,
+	}
 }
 
 // onRedeemingTx implements on OnRedeemingTx callback for rpcclient.
@@ -273,63 +276,71 @@ out:
 			case *confirmationsNotification:
 				chainntnfs.Log.Infof("New confirmations "+
 					"subscription: txid=%v, numconfs=%v",
-					*msg.txid, msg.numConfirmations)
+					msg.TxID, msg.NumConfirmations)
 
-				// If the notification can be partially or
-				// fully dispatched, then we can skip the first
-				// phase for ntfns.
-				if b.attemptHistoricalDispatch(msg) {
-					continue
+				// Lookup whether the transaction is already included in the
+				// active chain.
+				txConf, err := b.historicalConfDetails(msg.TxID)
+				if err != nil {
+					chainntnfs.Log.Error(err)
 				}
-
-				txid := *msg.txid
-				b.confNotifications[txid] = append(b.confNotifications[txid], msg)
+				err = b.txConfNotifier.Register(&msg.ConfNtfn, txConf)
+				if err != nil {
+					chainntnfs.Log.Error(err)
+				}
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
 				b.blockEpochClients[msg.epochID] = msg
 			}
 
-		case staleBlockHash := <-b.disconnectedBlockHashes:
-			// TODO(roasbeef): re-orgs
-			//  * second channel to notify of confirmation decrementing
-			//    re-org?
-			//  * notify of negative confirmations
-			chainntnfs.Log.Warnf("Block disconnected from main "+
-				"chain: %v", staleBlockHash)
-
 		case item := <-b.chainUpdates.ChanOut():
 			update := item.(*chainUpdate)
-			currentHeight = update.blockHeight
+			if update.connect {
+				if update.blockHeight != currentHeight+1 {
+					chainntnfs.Log.Warnf("Received blocks out of order: "+
+						"current height=%d, new height=%d",
+						currentHeight, update.blockHeight)
+					continue
+				}
 
-			newBlock, err := b.chainConn.GetBlock(update.blockHash)
-			if err != nil {
-				chainntnfs.Log.Errorf("Unable to get block: %v", err)
+				currentHeight = update.blockHeight
+
+				rawBlock, err := b.chainConn.GetBlock(update.blockHash)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to get block: %v", err)
+					continue
+				}
+
+				chainntnfs.Log.Infof("New block: height=%v, sha=%v",
+					update.blockHeight, update.blockHash)
+
+				b.notifyBlockEpochs(update.blockHeight, update.blockHash)
+
+				txns := btcutil.NewBlock(rawBlock).Transactions()
+				err = b.txConfNotifier.ConnectTip(update.blockHash,
+					uint32(update.blockHeight), txns)
+				if err != nil {
+					chainntnfs.Log.Error(err)
+				}
 				continue
 			}
 
-			chainntnfs.Log.Infof("New block: height=%v, sha=%v",
-				update.blockHeight, update.blockHash)
-
-			b.notifyBlockEpochs(update.blockHeight,
-				update.blockHash)
-
-			newHeight := update.blockHeight
-			for i, tx := range newBlock.Transactions {
-				// Check if the inclusion of this transaction
-				// within a block by itself triggers a block
-				// confirmation threshold, if so send a
-				// notification. Otherwise, place the
-				// notification on a heap to be triggered in
-				// the future once additional confirmations are
-				// attained.
-				txSha := tx.TxHash()
-				b.checkConfirmationTrigger(&txSha, update, i)
+			if update.blockHeight != currentHeight {
+				chainntnfs.Log.Warnf("Received blocks out of order: "+
+					"current height=%d, disconnected height=%d",
+					currentHeight, update.blockHeight)
+				continue
 			}
 
-			// A new block has been connected to the main
-			// chain. Send out any N confirmation notifications
-			// which may have been triggered by this new block.
-			b.notifyConfs(newHeight)
+			currentHeight = update.blockHeight - 1
+
+			chainntnfs.Log.Infof("Block disconnected from main chain: "+
+				"height=%v, sha=%v", update.blockHeight, update.blockHash)
+
+			err := b.txConfNotifier.DisconnectTip(uint32(update.blockHeight))
+			if err != nil {
+				chainntnfs.Log.Error(err)
+			}
 
 		case item := <-b.txUpdates.ChanOut():
 			newSpend := item.(*txUpdate)
@@ -384,29 +395,25 @@ out:
 	b.wg.Done()
 }
 
-// attemptHistoricalDispatch tries to use historical information to decide if a
-// notification ca be dispatched immediately, or is partially confirmed so it
-// can skip straight to the confirmations heap.
-//
-// Returns true if the transaction was either partially or completely confirmed
-func (b *BtcdNotifier) attemptHistoricalDispatch(
-	msg *confirmationsNotification) bool {
-
-	chainntnfs.Log.Infof("Attempting to trigger dispatch for %v from "+
-		"historical chain", msg.txid)
+// historicalConfDetails looks up whether a transaction is already included in a
+// block in the active chain and, if so, returns details about the confirmation.
+func (b *BtcdNotifier) historicalConfDetails(txid *chainhash.Hash,
+) (*chainntnfs.TxConfirmation, error) {
 
 	// If the transaction already has some or all of the confirmations,
 	// then we may be able to dispatch it immediately.
-	tx, err := b.chainConn.GetRawTransactionVerbose(msg.txid)
+	tx, err := b.chainConn.GetRawTransactionVerbose(txid)
 	if err != nil || tx == nil || tx.BlockHash == "" {
-		jsonErr, ok := err.(*btcjson.RPCError)
-		switch {
-		case ok && jsonErr.Code == -5:
-		default:
-			chainntnfs.Log.Warnf("unable to query for txid(%v): %v",
-				msg.txid, err)
+		if err == nil {
+			return nil, nil
 		}
-		return false
+		// Do not return an error if the transaction was not found.
+		if jsonErr, ok := err.(*btcjson.RPCError); ok {
+			if jsonErr.Code == btcjson.ErrRPCNoTxInfo {
+				return nil, nil
+			}
+		}
+		return nil, fmt.Errorf("unable to query for txid(%v): %v", txid, err)
 	}
 
 	// As we need to fully populate the returned TxConfirmation struct,
@@ -414,55 +421,36 @@ func (b *BtcdNotifier) attemptHistoricalDispatch(
 	// locate its exact index within the block.
 	blockHash, err := chainhash.NewHashFromStr(tx.BlockHash)
 	if err != nil {
-		chainntnfs.Log.Errorf("unable to get block hash %v for "+
-			"historical dispatch: %v", tx.BlockHash, err)
-		return false
+		return nil, fmt.Errorf("unable to get block hash %v for historical "+
+			"dispatch: %v", tx.BlockHash, err)
 	}
 	block, err := b.chainConn.GetBlockVerbose(blockHash)
 	if err != nil {
-		chainntnfs.Log.Errorf("unable to get block hash: %v", err)
-		return false
+		return nil, fmt.Errorf("unable to get block hash: %v", err)
 	}
 
 	// If the block obtained, locate the transaction's index within the
 	// block so we can give the subscriber full confirmation details.
-	var txIndex uint32
-	targetTxidStr := msg.txid.String()
+	txIndex := -1
+	targetTxidStr := txid.String()
 	for i, txHash := range block.Tx {
 		if txHash == targetTxidStr {
-			txIndex = uint32(i)
+			txIndex = i
 			break
 		}
 	}
 
-	confDetails := &chainntnfs.TxConfirmation{
+	if txIndex == -1 {
+		return nil, fmt.Errorf("unable to locate tx %v in block %v",
+			txid, blockHash)
+	}
+
+	txConf := chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
 		BlockHeight: uint32(block.Height),
-		TxIndex:     txIndex,
+		TxIndex:     uint32(txIndex),
 	}
-
-	// If the transaction has more that enough confirmations, then we can
-	// dispatch it immediately after obtaining for information w.r.t
-	// exactly *when* if got all its confirmations.
-	if uint32(tx.Confirmations) >= msg.numConfirmations {
-		chainntnfs.Log.Infof("Dispatching %v conf notification",
-			msg.numConfirmations)
-		msg.finConf <- confDetails
-		return true
-	}
-
-	// Otherwise, the transaction has only been *partially* confirmed, so
-	// we need to insert it into the confirmation heap.
-	// Find the block height at which this transaction will be confirmed
-	confHeight := uint32(block.Height) + msg.numConfirmations - 1
-	heapEntry := &confEntry{
-		msg,
-		confDetails,
-		confHeight,
-	}
-	heap.Push(b.confHeap, heapEntry)
-
-	return true
+	return &txConf, nil
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
@@ -495,92 +483,6 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash
 			}
 
 		}(epochClient.epochChan, epochClient.cancelChan, &epochClient.wg)
-	}
-}
-
-// notifyConfs examines the current confirmation heap, sending off any
-// notifications which have been triggered by the connection of a new block at
-// newBlockHeight.
-func (b *BtcdNotifier) notifyConfs(newBlockHeight int32) {
-	// If the heap is empty, we have nothing to do.
-	if b.confHeap.Len() == 0 {
-		return
-	}
-
-	// Traverse our confirmation heap. The heap is a
-	// min-heap, so the confirmation notification which requires
-	// the smallest block-height will always be at the top
-	// of the heap. If a confirmation notification is eligible
-	// for triggering, then fire it off, and check if another
-	// is eligible until there are no more eligible entries.
-	nextConf := heap.Pop(b.confHeap).(*confEntry)
-	for nextConf.triggerHeight <= uint32(newBlockHeight) {
-		chainntnfs.Log.Infof("Dispatching %v conf notification, "+
-			"height=%v", nextConf.numConfirmations, newBlockHeight)
-		nextConf.finConf <- nextConf.initialConfDetails
-
-		if b.confHeap.Len() == 0 {
-			return
-		}
-
-		nextConf = heap.Pop(b.confHeap).(*confEntry)
-	}
-
-	heap.Push(b.confHeap, nextConf)
-}
-
-// checkConfirmationTrigger determines if the passed txSha included at blockHeight
-// triggers any single confirmation notifications. In the event that the txid
-// matches, yet needs additional confirmations, it is added to the confirmation
-// heap to be triggered at a later time.
-// TODO(roasbeef): perhaps lookup, then track by inputs instead?
-func (b *BtcdNotifier) checkConfirmationTrigger(txSha *chainhash.Hash,
-	newTip *chainUpdate, txIndex int) {
-
-	// If a confirmation notification has been registered
-	// for this txid, then either trigger a notification
-	// event if only a single confirmation notification was
-	// requested, or place the notification on the
-	// confirmation heap for future usage.
-	if confClients, ok := b.confNotifications[*txSha]; ok {
-		// Either all of the registered confirmations will be
-		// dispatched due to a single confirmation, or added to the
-		// conf head. Therefore we unconditionally delete the registered
-		// confirmations from the staging zone.
-		defer func() {
-			delete(b.confNotifications, *txSha)
-		}()
-
-		for _, confClient := range confClients {
-			confDetails := &chainntnfs.TxConfirmation{
-				BlockHash:   newTip.blockHash,
-				BlockHeight: uint32(newTip.blockHeight),
-				TxIndex:     uint32(txIndex),
-			}
-
-			if confClient.numConfirmations == 1 {
-				chainntnfs.Log.Infof("Dispatching single conf "+
-					"notification, sha=%v, height=%v", txSha,
-					newTip.blockHeight)
-				confClient.finConf <- confDetails
-				continue
-			}
-
-			// The registered notification requires more
-			// than one confirmation before triggering. So
-			// we create a heapConf entry for this notification.
-			// The heapConf allows us to easily keep track of
-			// which notification(s) we should fire off with
-			// each incoming block.
-			confClient.initialConfirmHeight = uint32(newTip.blockHeight)
-			finalConfHeight := confClient.initialConfirmHeight + confClient.numConfirmations - 1
-			heapEntry := &confEntry{
-				confClient,
-				confDetails,
-				finalConfHeight,
-			}
-			heap.Push(b.confHeap, heapEntry)
-		}
 	}
 }
 
@@ -640,9 +542,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		transaction, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
 		if err != nil {
 			jsonErr, ok := err.(*btcjson.RPCError)
-			switch {
-			case ok && jsonErr.Code == -5:
-			default:
+			if !ok || jsonErr.Code != btcjson.ErrRPCNoTxInfo {
 				return nil, err
 			}
 		}
@@ -694,13 +594,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // confirmationNotification represents a client's intent to receive a
 // notification once the target txid reaches numConfirmations confirmations.
 type confirmationsNotification struct {
-	txid *chainhash.Hash
-
-	initialConfirmHeight uint32
-	numConfirmations     uint32
-
-	finConf      chan *chainntnfs.TxConfirmation
-	negativeConf chan int32 // TODO(roasbeef): re-org funny business
+	chainntnfs.ConfNtfn
 }
 
 // RegisterConfirmationsNtfn registers a notification with BtcdNotifier
@@ -710,20 +604,18 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	numConfs, _ uint32) (*chainntnfs.ConfirmationEvent, error) {
 
 	ntfn := &confirmationsNotification{
-		txid:             txid,
-		numConfirmations: numConfs,
-		finConf:          make(chan *chainntnfs.TxConfirmation, 1),
-		negativeConf:     make(chan int32, 1),
+		chainntnfs.ConfNtfn{
+			TxID:             txid,
+			NumConfirmations: numConfs,
+			Event:            chainntnfs.NewConfirmationEvent(),
+		},
 	}
 
 	select {
 	case <-b.quit:
 		return nil, ErrChainNotifierShuttingDown
 	case b.notificationRegistry <- ntfn:
-		return &chainntnfs.ConfirmationEvent{
-			Confirmed:    ntfn.finConf,
-			NegativeConf: ntfn.negativeConf,
-		}, nil
+		return ntfn.Event, nil
 	}
 }
 

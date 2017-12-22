@@ -31,7 +31,7 @@ func (c ChannelID) String() string {
 }
 
 // NewChanIDFromOutPoint converts a target OutPoint into a ChannelID that is
-// usable within the network. In order to covert the OutPoint into a ChannelID,
+// usable within the network. In order to convert the OutPoint into a ChannelID,
 // we XOR the lower 2-bytes of the txid within the OutPoint with the big-endian
 // serialization of the Index of the OutPoint, truncated to 2-bytes.
 func NewChanIDFromOutPoint(op *wire.OutPoint) ChannelID {

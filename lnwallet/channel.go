@@ -17,8 +17,6 @@ import (
 	"github.com/roasbeef/btcd/blockchain"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 
-	"encoding/hex"
-
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
@@ -168,7 +166,7 @@ type PaymentDescriptor struct {
 	// the preimage to this hash is presented.
 	RHash PaymentHash
 
-	// RPreimage is the preimage that settles the HTLC pointed to wthin the
+	// RPreimage is the preimage that settles the HTLC pointed to within the
 	// log by the ParentIndex.
 	RPreimage PaymentHash
 
@@ -1123,7 +1121,7 @@ type LightningChannel struct {
 	// commitment and cooperative close transactions.
 	feeEstimator FeeEstimator
 
-	// Capcity is the total capacity of this channel.
+	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
 	// stateHintObfuscator is a 48-bit state hint that's used to obfsucate
@@ -1168,13 +1166,6 @@ type LightningChannel struct {
 	// not yet ACKed. This value will be nil if a fee update hasn't been
 	// initiated.
 	pendingAckFeeUpdate *btcutil.Amount
-
-	// rHashMap is a map with PaymentHashes pointing to their respective
-	// PaymentDescriptors. We insert *PaymentDescriptors whenever we
-	// receive HTLCs. When a state transition happens (settling or
-	// canceling the HTLC), rHashMap will provide an efficient
-	// way to lookup the original PaymentDescriptor.
-	rHashMap map[PaymentHash][]*PaymentDescriptor
 
 	// FundingWitnessScript is the witness script for the 2-of-2 multi-sig
 	// that opened the channel.
@@ -1278,7 +1269,6 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		remoteChanCfg:         &state.RemoteChanCfg,
 		localUpdateLog:        localUpdateLog,
 		remoteUpdateLog:       remoteUpdateLog,
-		rHashMap:              make(map[PaymentHash][]*PaymentDescriptor),
 		Capacity:              state.Capacity,
 		FundingWitnessScript:  multiSigScript,
 		ForceCloseSignal:      make(chan struct{}),
@@ -1410,7 +1400,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 
 	// For offered HTLC's, we'll map that to a PaymentDescriptor with the
 	// type Add, ensuring we restore the necessary fields. From the PoV of
-	// the commitment chain, this HTLC was included int he remote chain,
+	// the commitment chain, this HTLC was included in the remote chain,
 	// but not the local chain.
 	case *lnwire.UpdateAddHTLC:
 		// First, we'll map all the relevant fields in the
@@ -1619,8 +1609,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	for i := range localCommitment.incomingHTLCs {
 		htlc := localCommitment.incomingHTLCs[i]
 		lc.remoteUpdateLog.restoreHtlc(&htlc)
-
-		lc.rHashMap[htlc.RHash] = append(lc.rHashMap[htlc.RHash], &htlc)
 	}
 	for i := range localCommitment.outgoingHTLCs {
 		htlc := localCommitment.outgoingHTLCs[i]
@@ -3246,7 +3234,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 // When the remote party receiver this message one of three things may happen:
 //
 //   1. We're fully synced and no messages need to be sent.
-//   2. We didn't get the lat CommitSig message they sent, to they'll re-send
+//   2. We didn't get the last CommitSig message they sent, to they'll re-send
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
@@ -3895,6 +3883,11 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	lc.Lock()
 	defer lc.Unlock()
 
+	if htlc.ID != lc.remoteUpdateLog.htlcCounter {
+		return 0, fmt.Errorf("ID %d on HTLC add does not match expected next "+
+			"ID %d", htlc.ID, lc.remoteUpdateLog.htlcCounter)
+	}
+
 	if err := lc.validateCommitmentSanity(lc.remoteUpdateLog.logIndex,
 		lc.localUpdateLog.logIndex, true, false, true); err != nil {
 		return 0, err
@@ -3912,8 +3905,6 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 
 	lc.remoteUpdateLog.appendHtlc(pd)
 
-	lc.rHashMap[pd.RHash] = append(lc.rHashMap[pd.RHash], pd)
-
 	return pd.HtlcIndex, nil
 }
 
@@ -3922,36 +3913,34 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // creating the corresponding wire message. In the case the supplied preimage
 // is invalid, an error is returned. Additionally, the value of the settled
 // HTLC is also returned.
-func (lc *LightningChannel) SettleHTLC(preimage [32]byte) (uint64,
-	lnwire.MilliSatoshi, error) {
+func (lc *LightningChannel) SettleHTLC(preimage [32]byte, htlcIndex uint64,
+) error {
+
 	lc.Lock()
 	defer lc.Unlock()
 
-	paymentHash := sha256.Sum256(preimage[:])
-	targetHTLCs, ok := lc.rHashMap[paymentHash]
-	if !ok {
-		return 0, 0, fmt.Errorf("invalid payment hash(%v)",
-			hex.EncodeToString(paymentHash[:]))
+	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
+			lc.channelState.ShortChanID)
 	}
-	targetHTLC := targetHTLCs[0]
+
+	if htlc.RHash != sha256.Sum256(preimage[:]) {
+		return fmt.Errorf("Invalid payment preimage %x for hash %x",
+			preimage[:], htlc.RHash[:])
+	}
 
 	pd := &PaymentDescriptor{
-		Amount:      targetHTLC.Amount,
+		Amount:      htlc.Amount,
 		RPreimage:   preimage,
 		LogIndex:    lc.localUpdateLog.logIndex,
-		ParentIndex: targetHTLC.HtlcIndex,
+		ParentIndex: htlcIndex,
 		EntryType:   Settle,
 	}
 
 	lc.localUpdateLog.appendUpdate(pd)
 
-	lc.rHashMap[paymentHash][0] = nil
-	lc.rHashMap[paymentHash] = lc.rHashMap[paymentHash][1:]
-	if len(lc.rHashMap[paymentHash]) == 0 {
-		delete(lc.rHashMap, paymentHash)
-	}
-
-	return targetHTLC.HtlcIndex, targetHTLC.Amount, nil
+	return nil
 }
 
 // ReceiveHTLCSettle attempts to settle an existing outgoing HTLC indexed by an
@@ -3962,15 +3951,15 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 	lc.Lock()
 	defer lc.Unlock()
 
-	paymentHash := sha256.Sum256(preimage[:])
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return fmt.Errorf("non-existent log entry")
+		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
+			lc.channelState.ShortChanID)
 	}
 
-	if !bytes.Equal(htlc.RHash[:], paymentHash[:]) {
-		return fmt.Errorf("invalid payment hash(%v)",
-			hex.EncodeToString(paymentHash[:]))
+	if htlc.RHash != sha256.Sum256(preimage[:]) {
+		return fmt.Errorf("Invalid payment preimage %x for hash %x",
+			preimage[:], htlc.RHash[:])
 	}
 
 	pd := &PaymentDescriptor{
@@ -3990,22 +3979,20 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // entry which will remove the target log entry within the next commitment
 // update. This method is intended to be called in order to cancel in
 // _incoming_ HTLC.
-//
-// TODO(roasbeef): add value as well?
-func (lc *LightningChannel) FailHTLC(rHash [32]byte, reason []byte) (uint64, error) {
+func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte) error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	addEntries, ok := lc.rHashMap[rHash]
-	if !ok {
-		return 0, fmt.Errorf("unable to find HTLC to fail")
+	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
+			lc.channelState.ShortChanID)
 	}
-	addEntry := addEntries[0]
 
 	pd := &PaymentDescriptor{
-		Amount:      addEntry.Amount,
-		RHash:       addEntry.RHash,
-		ParentIndex: addEntry.HtlcIndex,
+		Amount:      htlc.Amount,
+		RHash:       htlc.RHash,
+		ParentIndex: htlcIndex,
 		LogIndex:    lc.localUpdateLog.logIndex,
 		EntryType:   Fail,
 		FailReason:  reason,
@@ -4013,34 +4000,29 @@ func (lc *LightningChannel) FailHTLC(rHash [32]byte, reason []byte) (uint64, err
 
 	lc.localUpdateLog.appendUpdate(pd)
 
-	lc.rHashMap[rHash][0] = nil
-	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
-	if len(lc.rHashMap[rHash]) == 0 {
-		delete(lc.rHashMap, rHash)
-	}
-
-	return addEntry.HtlcIndex, nil
+	return nil
 }
 
 // MalformedFailHTLC attempts to fail a targeted HTLC by its payment hash,
 // inserting an entry which will remove the target log entry within the next
 // commitment update. This method is intended to be called in order to cancel
 // in _incoming_ HTLC.
-func (lc *LightningChannel) MalformedFailHTLC(rHash [32]byte,
-	failCode lnwire.FailCode, shaOnionBlob [sha256.Size]byte) (uint64, error) {
+func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
+	failCode lnwire.FailCode, shaOnionBlob [sha256.Size]byte) error {
+
 	lc.Lock()
 	defer lc.Unlock()
 
-	addEntries, ok := lc.rHashMap[rHash]
-	if !ok {
-		return 0, fmt.Errorf("unable to find HTLC to fail")
+	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
+			lc.channelState.ShortChanID)
 	}
-	addEntry := addEntries[0]
 
 	pd := &PaymentDescriptor{
-		Amount:       addEntry.Amount,
-		RHash:        addEntry.RHash,
-		ParentIndex:  addEntry.HtlcIndex,
+		Amount:       htlc.Amount,
+		RHash:        htlc.RHash,
+		ParentIndex:  htlcIndex,
 		LogIndex:     lc.localUpdateLog.logIndex,
 		EntryType:    MalformedFail,
 		FailCode:     failCode,
@@ -4049,13 +4031,7 @@ func (lc *LightningChannel) MalformedFailHTLC(rHash [32]byte,
 
 	lc.localUpdateLog.appendUpdate(pd)
 
-	lc.rHashMap[rHash][0] = nil
-	lc.rHashMap[rHash] = lc.rHashMap[rHash][1:]
-	if len(lc.rHashMap[rHash]) == 0 {
-		delete(lc.rHashMap, rHash)
-	}
-
-	return addEntry.HtlcIndex, nil
+	return nil
 }
 
 // ReceiveFailHTLC attempts to cancel a targeted HTLC by its log index,
@@ -4063,15 +4039,16 @@ func (lc *LightningChannel) MalformedFailHTLC(rHash [32]byte,
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC. The value of the failed HTLC is returned
 // along with an error indicating success.
-func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64,
-	reason []byte) (lnwire.MilliSatoshi, error) {
+func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
+) error {
 
 	lc.Lock()
 	defer lc.Unlock()
 
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return 0, fmt.Errorf("unable to find HTLC to fail")
+		return fmt.Errorf("No HTLC with ID %d in channel %v", htlcIndex,
+			lc.channelState.ShortChanID)
 	}
 
 	pd := &PaymentDescriptor{
@@ -4085,7 +4062,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64,
 
 	lc.remoteUpdateLog.appendUpdate(pd)
 
-	return htlc.Amount, nil
+	return nil
 }
 
 // ChannelPoint returns the outpoint of the original funding transaction which
@@ -4273,9 +4250,9 @@ type UnilateralCloseSummary struct {
 	HtlcResolutions []OutgoingHtlcResolution
 }
 
-// OutgoingHtlcResolution houses the information necessary to sweep any outging
+// OutgoingHtlcResolution houses the information necessary to sweep any outgoing
 // HTLC's after their contract has expired. This struct will be needed in one
-// of tow cases: the local party force closes the commitment transaction or the
+// of two cases: the local party force closes the commitment transaction or the
 // remote party unilaterally closes with their version of the commitment
 // transaction.
 type OutgoingHtlcResolution struct {

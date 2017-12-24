@@ -28,6 +28,8 @@ import (
 	"github.com/roasbeef/btcd/wire"
 	"github.com/roasbeef/btcutil"
 
+	"context"
+	"github.com/NebulousLabs/go-upnp"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 )
@@ -198,10 +200,42 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 		},
 	})
 
-	// If external IP addresses have been specified, add those to the list
+	// Gather external IPs from config
+	externalIPs := cfg.ExternalIPs
+
+	if cfg.UpnpSupport {
+
+		// Connect to router
+		d, err := upnp.DiscoverCtx(context.Background())
+		if err != nil {
+			fmt.Printf("Upnp: Unable to discover router %v\n", err)
+			return nil, err
+		}
+
+		// Get external IP
+		ip, err := d.ExternalIP()
+		if err != nil {
+			fmt.Printf("Upnp: Unable to get external ip %v\n", err)
+			return nil, err
+		}
+
+		ltndLog.Infof("Your external IP is: %s", ip)
+
+		// Forward peer port
+		err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
+		if err != nil {
+			fmt.Printf("Upnp: Unable to forward pear port ip %v\n", err)
+			return nil, err
+		}
+
+		externalIPs = append(externalIPs, ip)
+
+	}
+
+	// If we have external IP addresses, add those to the list
 	// of this server's addresses.
-	selfAddrs := make([]net.Addr, 0, len(cfg.ExternalIPs))
-	for _, ip := range cfg.ExternalIPs {
+	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	for _, ip := range externalIPs {
 		var addr string
 		_, _, err = net.SplitHostPort(ip)
 		if err != nil {

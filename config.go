@@ -40,6 +40,7 @@ const (
 	defaultMaxPendingChannels = 1
 	defaultNumChanConfs       = 3
 	defaultNoEncryptWallet    = false
+	defaultUpnpSupport        = false
 	defaultTrickleDelay       = 30 * 1000
 )
 
@@ -123,6 +124,7 @@ type config struct {
 	DebugHTLC          bool `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	UpnpSupport        bool `long:"upnpsupport" description:"Toggle Upnp support for auto network discovery"`
 
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
@@ -164,6 +166,7 @@ func loadConfig() (*config, error) {
 		MaxPendingChannels:  defaultMaxPendingChannels,
 		DefaultNumChanConfs: defaultNumChanConfs,
 		NoEncryptWallet:     defaultNoEncryptWallet,
+		UpnpSupport:         defaultUpnpSupport,
 		Bitcoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,

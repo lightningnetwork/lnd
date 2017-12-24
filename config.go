@@ -47,6 +47,7 @@ const (
 	defaultRPCHost            = "localhost"
 	defaultMaxPendingChannels = 1
 	defaultNoEncryptWallet    = false
+	defaultUpnpSupport        = false
 	defaultTrickleDelay       = 30 * 1000
 	defaultMaxLogFiles        = 3
 	defaultMaxLogFileSize     = 10
@@ -195,6 +196,7 @@ type config struct {
 	UnsafeDisconnect   bool `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
+	UpnpSupport        bool `long:"upnpsupport" description:"Toggle Upnp support for auto network discovery"`
 
 	Bitcoin      *chainConfig    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *btcdConfig     `group:"btcd" namespace:"btcd"`
@@ -248,6 +250,7 @@ func loadConfig() (*config, error) {
 		LogDir:         defaultLogDir,
 		MaxLogFiles:    defaultMaxLogFiles,
 		MaxLogFileSize: defaultMaxLogFileSize,
+		UpnpSupport:    defaultUpnpSupport,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
 			BaseFee:       defaultBitcoinBaseFeeMSat,

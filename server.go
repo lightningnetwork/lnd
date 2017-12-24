@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	upnp "github.com/NebulousLabs/go-upnp"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -298,6 +300,38 @@ func newServer(listenAddrs []string, chanDB *channeldb.DB, cc *chainControl,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Gather external IPs from config
+	externalIPs := cfg.ExternalIPs
+
+	if cfg.UpnpSupport {
+
+		// Connect to router
+		d, err := upnp.DiscoverCtx(context.Background())
+		if err != nil {
+			fmt.Printf("Upnp: Unable to discover router %v\n", err)
+			return nil, err
+		}
+
+		// Get external IP
+		ip, err := d.ExternalIP()
+		if err != nil {
+			fmt.Printf("Upnp: Unable to get external ip %v\n", err)
+			return nil, err
+		}
+
+		ltndLog.Infof("Your external IP is: %s", ip)
+
+		// Forward peer port
+		err = d.Forward(uint16(cfg.PeerPort), "lnd peer port")
+		if err != nil {
+			fmt.Printf("Upnp: Unable to forward pear port ip %v\n", err)
+			return nil, err
+		}
+
+		externalIPs = append(externalIPs, ip)
+
 	}
 
 	// If external IP addresses have been specified, add those to the list

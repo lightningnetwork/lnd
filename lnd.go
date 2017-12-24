@@ -26,8 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/NebulousLabs/go-upnp"
-
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"golang.org/x/net/context"
@@ -310,29 +308,6 @@ func lndMain() error {
 		srvrLog.Infof("Proxying all network traffic via Tor "+
 			"(stream_isolation=%v)! NOTE: Ensure the backend node "+
 			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
-	}
-
-	// Connect to router
-	d, err := upnp.Discover()
-	if err != nil {
-		fmt.Printf("Unable to discover router %v\n", err)
-		return err
-	}
-
-	// Get external IP
-	ip, err := d.ExternalIP()
-	if err != nil {
-		fmt.Printf("Unable to get external ip %v\n", err)
-		return err
-	}
-
-	ltndLog.Infof("Your external IP is: %s", ip)
-
-	// Forward peer port
-	err = d.Forward(uint16(cfg.PeerPort), "lnd pear port")
-	if err != nil {
-		fmt.Printf("Unable to forward pear port ip %v\n", err)
-		return err
 	}
 
 	// Set up the core server which will listen for incoming peer

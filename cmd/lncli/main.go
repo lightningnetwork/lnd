@@ -11,12 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/macaroon.v1"
-
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/roasbeef/btcutil"
 	"github.com/urfave/cli"
+	macaroon "gopkg.in/macaroon.v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -187,7 +186,7 @@ func main() {
 		queryRoutesCommand,
 		getNetworkInfoCommand,
 		debugLevelCommand,
-		decodePayReqComamnd,
+		decodeInvoiceComamnd,
 		listChainTxnsCommand,
 		stopCommand,
 		signMessageCommand,

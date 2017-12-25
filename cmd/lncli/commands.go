@@ -1773,21 +1773,21 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
-var decodePayReqComamnd = cli.Command{
-	Name:        "decodepayreq",
-	Usage:       "Decode a payment request.",
-	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
-	ArgsUsage:   "pay_req",
+var decodeInvoiceComamnd = cli.Command{
+	Name:        "decodeinvoice",
+	Usage:       "Decode an invoice.",
+	Description: "Decode the passed invoice revealing the destination, payment hash and value of the payment request",
+	ArgsUsage:   "invoice",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "pay_req",
-			Usage: "the bech32 encoded payment request",
+			Name:  "invoice",
+			Usage: "the bech32 encoded invoice",
 		},
 	},
-	Action: actionDecorator(decodePayReq),
+	Action: actionDecorator(decodeInvoice),
 }
 
-func decodePayReq(ctx *cli.Context) error {
+func decodeInvoice(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1795,14 +1795,15 @@ func decodePayReq(ctx *cli.Context) error {
 	var payreq string
 
 	switch {
-	case ctx.IsSet("pay_req"):
-		payreq = ctx.String("pay_req")
+	case ctx.IsSet("invoice"):
+		payreq = ctx.String("invoice")
 	case ctx.Args().Present():
 		payreq = ctx.Args().First()
 	default:
-		return fmt.Errorf("pay_req argument missing")
+		return fmt.Errorf("invoice argument missing")
 	}
 
+	// TODO Rename to DecodeInvoice
 	resp, err := client.DecodePayReq(ctxb, &lnrpc.PayReqString{
 		PayReq: payreq,
 	})

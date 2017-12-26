@@ -1773,7 +1773,7 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
-var decodeInvoiceComamnd = cli.Command{
+var decodeInvoiceCommand = cli.Command{
 	Name:        "decodeinvoice",
 	Usage:       "Decode an invoice.",
 	Description: "Decode the passed invoice revealing the destination, payment hash and value of the payment request",

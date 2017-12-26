@@ -186,7 +186,7 @@ func main() {
 		queryRoutesCommand,
 		getNetworkInfoCommand,
 		debugLevelCommand,
-		decodeInvoiceComamnd,
+		decodeInvoiceCommand,
 		listChainTxnsCommand,
 		stopCommand,
 		signMessageCommand,

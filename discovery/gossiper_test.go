@@ -380,10 +380,9 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 	return a, nil
 }
 
-func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement,
-	error) {
-	var err error
+func createRemoteChannelAnnouncement(blockHeight uint32) (*lnwire.ChannelAnnouncement, error) {
 
+	var err error
 	a := &lnwire.ChannelAnnouncement{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -428,7 +427,7 @@ type testCtx struct {
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
-	broadcastedMessage chan lnwire.Message
+	broadcastedMessage chan msgWithSenders
 }
 
 func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
@@ -444,13 +443,19 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		return nil, nil, err
 	}
 
-	broadcastedMessage := make(chan lnwire.Message, 10)
+	broadcastedMessage := make(chan msgWithSenders, 10)
 	gossiper, err := New(Config{
 		Notifier: notifier,
-		Broadcast: func(_ *btcec.PublicKey, msgs ...lnwire.Message) error {
+		Broadcast: func(senders map[routing.Vertex]struct{},
+			msgs ...lnwire.Message) error {
+
 			for _, msg := range msgs {
-				broadcastedMessage <- msg
+				broadcastedMessage <- msgWithSenders{
+					msg:     msg,
+					senders: senders,
+				}
 			}
+
 			return nil
 		},
 		SendToPeer: func(target *btcec.PublicKey, msg ...lnwire.Message) error {
@@ -495,6 +500,13 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 	defer cleanup()
 
+	assertSenderExistence := func(sender *btcec.PublicKey, msg msgWithSenders) {
+		if _, ok := msg.senders[routing.NewVertex(sender)]; !ok {
+			t.Fatalf("sender=%x not present in %v",
+				sender.SerializeCompressed(), spew.Sdump(msg))
+		}
+	}
+
 	// Create node valid, signed announcement, process it with with
 	// gossiper service, check that valid announcement have been
 	// propagated farther into the lightning network, and check that we
@@ -514,7 +526,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -541,7 +554,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -568,7 +582,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	}
 
 	select {
-	case <-ctx.broadcastedMessage:
+	case msg := <-ctx.broadcastedMessage:
+		assertSenderExistence(na.NodeID, msg)
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("announcememt wasn't proceeded")
 	}
@@ -1574,7 +1589,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsgs(ca)
+	announcements.AddMsgs(networkMsg{msg: ca, peer: bitcoinKeyPub2})
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("new channel announcement not stored in batch")
 	}
@@ -1587,7 +1602,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create remote channel announcement: %v", err)
 	}
-	announcements.AddMsgs(ca2)
+	announcements.AddMsgs(networkMsg{msg: ca2, peer: bitcoinKeyPub2})
 	if len(announcements.channelAnnouncements) != 1 {
 		t.Fatal("channel announcement not replaced in batch")
 	}
@@ -1599,7 +1614,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsgs(ua)
+	announcements.AddMsgs(networkMsg{msg: ua, peer: bitcoinKeyPub2})
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("new channel update not stored in batch")
 	}
@@ -1610,7 +1625,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create update announcement: %v", err)
 	}
-	announcements.AddMsgs(ua2)
+	announcements.AddMsgs(networkMsg{msg: ua2, peer: bitcoinKeyPub2})
 	if len(announcements.channelUpdates) != 1 {
 		t.Fatal("channel update not replaced in batch")
 	}
@@ -1621,7 +1636,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na)
+	announcements.AddMsgs(networkMsg{msg: na, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 1 {
 		t.Fatal("new node announcement not stored in batch")
 	}
@@ -1631,7 +1646,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na2)
+	announcements.AddMsgs(networkMsg{msg: na2, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not stored in batch")
 	}
@@ -1642,7 +1657,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na3)
+	announcements.AddMsgs(networkMsg{msg: na3, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced in batch")
 	}
@@ -1654,7 +1669,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if err != nil {
 		t.Fatalf("can't create node announcement: %v", err)
 	}
-	announcements.AddMsgs(na4)
+	announcements.AddMsgs(networkMsg{msg: na4, peer: bitcoinKeyPub2})
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("second node announcement not replaced again in batch")
 	}
@@ -1666,27 +1681,27 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 		t.Fatal("announcement batch incorrect length")
 	}
 
-	if !reflect.DeepEqual(batch[0], ca2) {
-		t.Fatal("channel announcement not first in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[0]), spew.Sdump(ca2))
+	if !reflect.DeepEqual(batch[0].msg, ca2) {
+		t.Fatalf("channel announcement not first in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[0].msg), spew.Sdump(ca2))
 	}
 
-	if !reflect.DeepEqual(batch[1], ua2) {
-		t.Fatal("channel update not next in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[1]), spew.Sdump(ua2))
+	if !reflect.DeepEqual(batch[1].msg, ua2) {
+		t.Fatalf("channel update not next in batch: got %v, "+
+			"expected %v", spew.Sdump(batch[1].msg), spew.Sdump(ua2))
 	}
 
 	// We'll ensure that both node announcements are present. We check both
 	// indexes as due to the randomized order of map iteration they may be
 	// in either place.
-	if !reflect.DeepEqual(batch[2], na) && !reflect.DeepEqual(batch[3], na) {
+	if !reflect.DeepEqual(batch[2].msg, na) && !reflect.DeepEqual(batch[3].msg, na) {
 		t.Fatal("first node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[2],
+			"got %v, expected %v", batch[2].msg,
 			na)
 	}
-	if !reflect.DeepEqual(batch[2], na4) && !reflect.DeepEqual(batch[3], na4) {
+	if !reflect.DeepEqual(batch[2].msg, na4) && !reflect.DeepEqual(batch[3].msg, na4) {
 		t.Fatalf("second node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[3],
+			"got %v, expected %v", batch[3].msg,
 			na2)
 	}
 

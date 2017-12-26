@@ -315,10 +315,11 @@ func TestDecodeEncode(t *testing.T) {
 					FallbackAddr:    testRustyAddr,
 					RoutingInfo: []zpay32.ExtraRoutingInfo{
 						{
-							PubKey:       testRoutingInfoPubkey,
-							ShortChanID:  0x0102030405060708,
-							Fee:          20,
-							CltvExpDelta: 3,
+							PubKey:                    testRoutingInfoPubkey,
+							ShortChanID:               0x0102030405060708,
+							FeeBaseMsat:               0,
+							FeeProportionalMillionths: 20,
+							CltvExpDelta:              3,
 						},
 					},
 				}
@@ -332,7 +333,7 @@ func TestDecodeEncode(t *testing.T) {
 		},
 		{
 			// On mainnet, with fallback address 1RustyRX2oai4EYYDpQGWvEL62BBGqN9T with extra routing info to go via nodes 029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255 then 039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255
-			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqqqqqqq7qqzqfnlkwydm8rg30gjku7wmxmk06sevjp53fmvrcfegvwy7d5443jvyhxsel0hulkstws7vqv400q4j3wgpk4crg49682hr4scqvmad43cqd5m7tf",
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqj9n4evl6mr5aj9f58zp6fyjzup6ywn3x6sk8akg5v4tgn2q8g4fhx05wf6juaxu9760yp46454gpg5mtzgerlzezqcqvjnhjh8z3g2qqdhhwkj",
 			valid:          true,
 			decodedInvoice: func() *zpay32.Invoice {
 				return &zpay32.Invoice{
@@ -345,16 +346,18 @@ func TestDecodeEncode(t *testing.T) {
 					FallbackAddr:    testRustyAddr,
 					RoutingInfo: []zpay32.ExtraRoutingInfo{
 						{
-							PubKey:       testRoutingInfoPubkey,
-							ShortChanID:  0x0102030405060708,
-							Fee:          20,
-							CltvExpDelta: 3,
+							PubKey:                    testRoutingInfoPubkey,
+							ShortChanID:               0x0102030405060708,
+							FeeBaseMsat:               1,
+							FeeProportionalMillionths: 20,
+							CltvExpDelta:              3,
 						},
 						{
-							PubKey:       testRoutingInfoPubkey2,
-							ShortChanID:  0x030405060708090a,
-							Fee:          30,
-							CltvExpDelta: 4,
+							PubKey:                    testRoutingInfoPubkey2,
+							ShortChanID:               0x030405060708090a,
+							FeeBaseMsat:               2,
+							FeeProportionalMillionths: 30,
+							CltvExpDelta:              4,
 						},
 					},
 				}
@@ -541,23 +544,25 @@ func TestNewInvoice(t *testing.T) {
 					zpay32.RoutingInfo(
 						[]zpay32.ExtraRoutingInfo{
 							{
-								PubKey:       testRoutingInfoPubkey,
-								ShortChanID:  0x0102030405060708,
-								Fee:          20,
-								CltvExpDelta: 3,
+								PubKey:                    testRoutingInfoPubkey,
+								ShortChanID:               0x0102030405060708,
+								FeeBaseMsat:               1,
+								FeeProportionalMillionths: 20,
+								CltvExpDelta:              3,
 							},
 							{
-								PubKey:       testRoutingInfoPubkey2,
-								ShortChanID:  0x030405060708090a,
-								Fee:          30,
-								CltvExpDelta: 4,
+								PubKey:                    testRoutingInfoPubkey2,
+								ShortChanID:               0x030405060708090a,
+								FeeBaseMsat:               2,
+								FeeProportionalMillionths: 30,
+								CltvExpDelta:              4,
 							},
 						},
 					),
 				)
 			},
 			valid:          true,
-			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqqqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqqqqqqq7qqzqfnlkwydm8rg30gjku7wmxmk06sevjp53fmvrcfegvwy7d5443jvyhxsel0hulkstws7vqv400q4j3wgpk4crg49682hr4scqvmad43cqd5m7tf",
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpp3qjmp7lwpagxun9pygexvgpjdc4jdj85fr9yq20q82gphp2nflc7jtzrcazrra7wwgzxqc8u7754cdlpfrmccae92qgzqvzq2ps8pqqqqqqpqqqqq9qqqvpeuqafqxu92d8lr6fvg0r5gv0heeeqgcrqlnm6jhphu9y00rrhy4grqszsvpcgpy9qqqqqqgqqqqq7qqzqj9n4evl6mr5aj9f58zp6fyjzup6ywn3x6sk8akg5v4tgn2q8g4fhx05wf6juaxu9760yp46454gpg5mtzgerlzezqcqvjnhjh8z3g2qqdhhwkj",
 		},
 	}
 
@@ -645,9 +650,14 @@ func compareInvoices(expected, actual *zpay32.Invoice) error {
 				"%d, got %d", a.ShortChanID, b.ShortChanID)
 		}
 
-		if a.Fee != b.Fee {
-			return fmt.Errorf("expected routingInfo fee %d, got %d",
-				a.Fee, b.Fee)
+		if a.FeeBaseMsat != b.FeeBaseMsat {
+			return fmt.Errorf("expected routingInfo feeBaseMsat %d, got %d",
+				a.FeeBaseMsat, b.FeeBaseMsat)
+		}
+
+		if a.FeeProportionalMillionths != b.FeeProportionalMillionths {
+			return fmt.Errorf("expected routingInfo feeProportionalMillionths %d, got %d",
+				a.FeeProportionalMillionths, b.FeeProportionalMillionths)
 		}
 
 		if a.CltvExpDelta != b.CltvExpDelta {

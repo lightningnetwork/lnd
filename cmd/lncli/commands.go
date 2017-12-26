@@ -625,7 +625,7 @@ func closeChannel(ctx *cli.Context) error {
 
 	// Show command help if no arguments provieded
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "closeChannel")
+		cli.ShowCommandHelp(ctx, "closechannel")
 		return nil
 	}
 

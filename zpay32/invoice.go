@@ -152,8 +152,13 @@ type ExtraRoutingInfo struct {
 	// ShortChanID is the channel ID of the channel.
 	ShortChanID uint64
 
-	// Fee is the fee required for routing along this channel.
-	Fee uint64
+	// FeeBaseMsat is the base fee in millisatoshis required for routing
+	// along this channel.
+	FeeBaseMsat uint32
+
+	// FeeProportionalMillionths is the proportional fee in millionths of a
+	// satoshi required for routing along this channel.
+	FeeProportionalMillionths uint32
 
 	// CltvExpDelta is this channel's cltv expiry delta.
 	CltvExpDelta uint16
@@ -780,8 +785,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				}
 				info.ShortChanID = binary.BigEndian.Uint64(
 					base256Data[33:41])
-				info.Fee = binary.BigEndian.Uint64(
-					base256Data[41:49])
+				info.FeeBaseMsat = binary.BigEndian.Uint32(
+					base256Data[41:45])
+				info.FeeProportionalMillionths = binary.BigEndian.Uint32(
+					base256Data[45:49])
 				info.CltvExpDelta = binary.BigEndian.Uint16(
 					base256Data[49:51])
 				invoice.RoutingInfo = append(
@@ -899,7 +906,8 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			base256 := make([]byte, 51)
 			copy(base256[:33], r.PubKey.SerializeCompressed())
 			binary.BigEndian.PutUint64(base256[33:41], r.ShortChanID)
-			binary.BigEndian.PutUint64(base256[41:49], r.Fee)
+			binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMsat)
+			binary.BigEndian.PutUint32(base256[45:49], r.FeeProportionalMillionths)
 			binary.BigEndian.PutUint16(base256[49:51], r.CltvExpDelta)
 			routingDataBase256 = append(routingDataBase256, base256...)
 		}

@@ -83,7 +83,8 @@ type Config struct {
 	// that the daemon is connected to. If supplied, the exclude parameter
 	// indicates that the target peer should be excluded from the
 	// broadcast.
-	Broadcast func(exclude *btcec.PublicKey, msg ...lnwire.Message) error
+	Broadcast func(skips map[routing.Vertex]struct{},
+		msg ...lnwire.Message) error
 
 	// SendToPeer is a function which allows the service to send a set of
 	// messages to a particular peer identified by the target public key.
@@ -912,11 +913,15 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 			// If we have new things to announce then broadcast
 			// them to all our immediately connected peers.
-			err := d.cfg.Broadcast(nil, announcementBatch...)
-			if err != nil {
-				log.Errorf("unable to send batch "+
-					"announcements: %v", err)
-				continue
+			for _, msgChunk := range announcementBatch {
+				err := d.cfg.Broadcast(
+					msgChunk.senders, msgChunk.msg,
+				)
+				if err != nil {
+					log.Errorf("unable to send batch "+
+						"announcements: %v", err)
+					continue
+				}
 			}
 
 			// If we're able to broadcast the current batch

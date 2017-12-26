@@ -1092,6 +1092,83 @@ func (d *AuthenticatedGossiper) processFeeChanUpdate(feeUpdate *feeUpdateRequest
 	return chanUpdates, nil
 }
 
+// processRejectedEdge examines a rejected edge to see if we can eexrtact any
+// new announcements from it.  An edge will get rejected if we already added
+// the same edge without AuthProof to the graph. If the received announcement
+// contains a proof, we can add this proof to our edge.  We can end up in this
+// situatation in the case where we create a channel, but for some reason fail
+// to receive the remote peer's proof, while the remote peer is able to fully
+// assemble the proof and craft the ChannelAnnouncement.
+func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAnnouncement,
+	proof *channeldb.ChannelAuthProof) ([]networkMsg, error) {
+
+	// First, we'll fetch the state of the channel as we know if from the
+	// database.
+	chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(
+		chanAnnMsg.ShortChannelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// The edge is in the graph, and has a proof attached, then we'll just
+	// reject it as normal.
+	if chanInfo.AuthProof != nil {
+		return nil, nil
+	}
+
+	// Otherwise, this means that the edge is within the graph, but it
+	// doesn't yet have a proper proof attached.
+
+	// We'll then create then validate the new fully assembled
+	// announcement.
+	chanAnn, e1Ann, e2Ann := createChanAnnouncement(
+		proof, chanInfo, e1, e2,
+	)
+	err = ValidateChannelAnn(chanAnn)
+	if err != nil {
+		err := errors.Errorf("assembled channel announcement proof "+
+			"for shortChanID=%v isn't valid: %v",
+			chanAnnMsg.ShortChannelID, err)
+		log.Error(err)
+		return nil, err
+	}
+
+	// If everything checks out, then we'll add the fully assembled proof
+	// to the database.
+	err = d.cfg.Router.AddProof(chanAnnMsg.ShortChannelID, proof)
+	if err != nil {
+		err := errors.Errorf("unable add proof to shortChanID=%v: %v",
+			chanAnnMsg.ShortChannelID, err)
+		log.Error(err)
+		return nil, err
+	}
+
+	// As we now have a complete channel announcement for this channel,
+	// we'll construct the announcement so they can be broadcast out to all
+	// our peers.
+	announcements := make([]networkMsg, 0, 3)
+	announcements = append(announcements, networkMsg{
+		msg:  chanAnn,
+		peer: d.selfKey,
+	})
+	if e1Ann != nil {
+		announcements = append(announcements, networkMsg{
+			msg:  e1Ann,
+			peer: d.selfKey,
+		})
+	}
+	if e2Ann != nil {
+		announcements = append(announcements, networkMsg{
+			msg:  e2Ann,
+			peer: d.selfKey,
+		})
+
+	}
+
+	return announcements, nil
+}
+
 // processNetworkAnnouncement processes a new network relate authenticated
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
@@ -1105,7 +1182,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		return chanID.BlockHeight+delta > bestHeight
 	}
 
-	var announcements []lnwire.Message
+	var announcements []networkMsg
 
 	switch msg := nMsg.msg.(type) {
 
@@ -1243,84 +1320,35 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// partial node will be added to represent each node while we
 		// wait for a node announcement.
 		if err := d.cfg.Router.AddEdge(edge); err != nil {
+			// If the edge was rejected due to already being known,
+			// then it may be that case that this new message has a
+			// fresh channel proof, so we'll cechk.
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
-				// The edge will get rejected if we already
-				// added the same edge without AuthProof to the
-				// graph. If the received announcement contains
-				// a proof, we can add this proof to our edge.
-				// We can end up in this situatation in the case
-				// where we create a channel, but for some
-				// reason fail to receive the remote peer's
-				// proof, while the remote peer is able to fully
-				// assemble the proof and craft the
-				// ChannelAnnouncement.
-				// TODO(halseth): the following chunk of code
-				// should be moved into own method, indentation
-				// and readability is not exactly on point.
-				chanInfo, e1, e2, err2 := d.cfg.Router.GetChannelByID(
-					msg.ShortChannelID)
-				if err2 != nil {
-					log.Errorf("Failed fetching channel "+
-						"edge: %v", err2)
-					nMsg.err <- err2
+				// Attempt to process the rejected message to
+				// see if we get any new announcements.
+				anns, rErr := d.processRejectedEdge(msg, proof)
+				if err != nil {
+					nMsg.err <- rErr
 					return nil
 				}
 
-				// If the edge already exists in the graph, but
-				// has no proof attached, we can add that now.
-				if chanInfo.AuthProof == nil && proof != nil {
-					chanAnn, e1Ann, e2Ann :=
-						createChanAnnouncement(proof,
-							chanInfo, e1, e2)
-
-					// Validate the assembled proof.
-					err := ValidateChannelAnn(chanAnn)
-					if err != nil {
-						err := errors.Errorf("assembled"+
-							"channel announcement "+
-							"proof for shortChanID=%v"+
-							" isn't valid: %v",
-							msg.ShortChannelID, err)
-
-						log.Error(err)
-						nMsg.err <- err
-						return nil
-					}
-					err = d.cfg.Router.AddProof(
-						msg.ShortChannelID, proof)
-					if err != nil {
-						err := errors.Errorf("unable "+
-							"add proof to "+
-							"shortChanID=%v: %v",
-							msg.ShortChannelID, err)
-						log.Error(err)
-						nMsg.err <- err
-						return nil
-					}
-					announcements = append(announcements,
-						chanAnn)
-					if e1Ann != nil {
-						announcements = append(
-							announcements, e1Ann)
-					}
-					if e2Ann != nil {
-						announcements = append(
-							announcements, e2Ann)
-					}
-
+				// If while processing this rejected edge, we
+				// realized there's a set of announcements we
+				// could extract, then we'll return those
+				// directly.
+				if len(anns) != 0 {
 					nMsg.err <- nil
-					return announcements
+					return anns
 				}
 
-				// If not, this was just an outdated edge.
-				log.Debugf("Router rejected channel edge: %v",
-					err)
-
+				// Otherwise, this is just a regular rejected edge.
+				log.Debugf("Router rejected channel "+
+					"edge: %v", err)
 			} else {
-				log.Errorf("Router rejected channel edge: %v",
-					err)
+				log.Errorf("Router rejected channel "+
+					"edge: %v", err)
 			}
 
 			nMsg.err <- err

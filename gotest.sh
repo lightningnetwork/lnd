@@ -140,12 +140,8 @@ if [ ! -x "$(type -p glide)" ]; then
     go get -u github.com/Masterminds/glide
 fi
 
-# Install the dependency if vendor directory not exist or if flag have been
-# specified.
-if [ "$NEED_INSTALL" == "true" ] || [ ! -d "./vendor" ]; then
-    print "* Install dependencies"
-    glide install
-fi
+print "* Install dependencies"
+glide install
 
 # Required for the integration tests
 print "* Build source"

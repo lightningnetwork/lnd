@@ -110,7 +110,6 @@ print "====+ Start +===="
 NEED_LINT="false"
 NEED_COVERAGE="false"
 NEED_RACE="false"
-NEED_INSTALL="false"
 NEED_LOGS="false"
 
 while getopts "lrcio" flag; do
@@ -118,14 +117,12 @@ while getopts "lrcio" flag; do
             l) NEED_LINT="true" ;;
             r) NEED_RACE="true" ;;
             c) NEED_COVERAGE="true" ;;
-            i) NEED_INSTALL="true" ;;
             o) NEED_LOGS="true" ;;
             *)
                 printf '\nUsage: %s [-l] [-r] [-c] [-i] [-o], where:\n' $0
                 printf ' -l: include code lint check\n'
                 printf ' -r: run tests with race condition check\n'
                 printf ' -c: run tests with test coverage\n'
-                printf ' -i: reinstall project dependencies\n'
                 printf ' -o: generate logs for spawned lnd instances\n'
                 exit 1 ;;
         esac

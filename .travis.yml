@@ -24,6 +24,9 @@ env:
   matrix:
     - RACE=false
     - RACE=true
+cache:
+  directories:
+    - vendor
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - ./gotest.sh

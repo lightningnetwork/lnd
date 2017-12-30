@@ -470,7 +470,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 }
 
 // DisconnectPeer attempts to disconnect one peer from another identified by a
-// given pubKey. In the case that we currently ahve a pending or active channel
+// given pubKey. In the case that we currently have a pending or active channel
 // with the target peer, this action will be disallowed.
 func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	in *lnrpc.DisconnectPeerRequest) (*lnrpc.DisconnectPeerResponse, error) {
@@ -519,7 +519,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	}
 
 	// With all initial validation complete, we'll now request that the
-	// sever disconnects from the per.
+	// server disconnects from the peer.
 	if err := r.server.DisconnectPeer(peerPubKey); err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
 	}
@@ -591,7 +591,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	// TODO(roasbeef): also return channel ID?
 
-	// If the node key is set, the we'll parse the raw bytes into a pubkey
+	// If the node key is set, then we'll parse the raw bytes into a pubkey
 	// object so we can easily manipulate it. If this isn't set, then we
 	// expected the TargetPeerId to be set accordingly.
 	if len(in.NodePubkey) != 0 {
@@ -724,7 +724,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 
 	// Ensure that the initial balance of the remote party (if pushing
-	// satoshis) does not execeed the amount the local party has requested
+	// satoshis) does not exceed the amount the local party has requested
 	// for funding.
 	if remoteInitialBalance >= localFundingAmt {
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
@@ -732,7 +732,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 
 	// Based on the passed fee related paramters, we'll determine an
-	// approriate fee rate for the funding transaction.
+	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
 	)
@@ -2272,7 +2272,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	}, nil
 }
 
-// SubscribeInvoices returns a uni-directional stream (sever -> client) for
+// SubscribeInvoices returns a uni-directional stream (server -> client) for
 // notifying the client of newly added/settled invoices.
 func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {

@@ -124,101 +124,129 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 	ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error) {
 
 	// We'll merge the ignore map with our currently selected map in order
-	// to ensure we don't return any duplicate nodes.
+	// to ensure we don't return any duplicate nodes across inovocations.
 	for n := range ignore {
 		c.tried[n] = struct{}{}
 	}
 
 	// In order to bootstrap, we'll iterate all the nodes in the channel
-	// graph, accumulating nodes until either we go through all active
-	// nodes, or we reach our limit. We ensure that we meet the randomly
-	// sample constraint as we maintain an xor accumulator to ensure we
-	// randomly sample nodes independent of the iteration of the channel
-	// graph.
-	sampleAddrs := func() ([]*lnwire.NetAddress, error) {
-		var (
-			a []*lnwire.NetAddress
+	// graph and assign each one a lottery number as a sequence of bytes.
+	// To maintain the random sampling criteria, the lottery number for each
+	// node is calculated as the hash of the node's public key and our
+	// accumulator. The lowest `numAddrs` lottery numbers are kept as winners.
+	var (
+		// candidate bootstrap nodes
+		nodes []autopilot.Node
+		// corresponding lottery numbers for each node above, maintained in
+		// ascending sorted order
+		hashes [][]byte
+	)
+	err := c.chanGraph.ForEachNode(func(node autopilot.Node) error {
+		nID := autopilot.NewNodeID(node.PubKey())
 
-			// We'll create a special error so we can return early
-			// and abort the transaction once we find a match.
-			errFound = fmt.Errorf("found node")
+		// pass by nodes which we should ignore
+		if _, ok := c.tried[nID]; ok {
+			return nil
+		}
+
+		// pass by nodes with no TCP addresses, since we only bootstrap with TCP
+		hasTCPAddr := false
+		for _, nodeAddr := range node.Addrs() {
+			if _, ok := nodeAddr.(*net.TCPAddr); ok {
+				hasTCPAddr = true
+				break
+			}
+		}
+		if !hasTCPAddr {
+			return nil
+		}
+
+		// calculate a hash of this node's pubkey and our accumulator, which
+		// acts as its lottery number into our sampling
+		h := sha256.Sum256(
+			append(c.hashAccumulator[:], node.PubKey().SerializeCompressed()...),
 		)
+		// convert array to a slice
+		hash := h[:]
 
-		err := c.chanGraph.ForEachNode(func(node autopilot.Node) error {
-			nID := autopilot.NewNodeID(node.PubKey())
-			if _, ok := c.tried[nID]; ok {
-				return nil
+		// determine whether this node should be included
+		if len(nodes) == 0 {
+			// always include the first node
+			nodes = append(nodes, node)
+			hashes = append(hashes, hash[:])
+
+		} else if uint32(len(nodes)) < numAddrs ||
+			bytes.Compare(hash, hashes[len(hashes)-1]) < 0 {
+			// Either this hash is smaller than the largest hash among the
+			// current lottery winners, or we are still doing an initial fill.
+			// So we should include this node as a winner. This is done by
+			// inserting at the end and bubbling up, to maintain sorted order.
+			nodes = append(nodes, node)
+			hashes = append(hashes, hash)
+
+			// bubble up by looping backwards until in sorted order
+			for i := len(nodes) - 2; i >= 0 && bytes.Compare(hash, hashes[i]) < 0; i-- {
+				// swap up
+				nodes[i+1] = nodes[i]
+				hashes[i+1] = hashes[i]
+				nodes[i] = node
+				hashes[i] = hash
 			}
 
-			// We'll select the first node we come across who's
-			// public key is less than our current accumulator
-			// value. When comparing, we skip the first byte as
-			// it's 50/50. If it isn't less, than then we'll
-			// continue forward.
-			nodePub := node.PubKey().SerializeCompressed()[1:]
-			if bytes.Compare(c.hashAccumulator[:], nodePub) > 0 {
-				return nil
+			// enforce only `numAddrs` winners of the lottery
+			if uint32(len(nodes)) > numAddrs {
+				nodes = nodes[:numAddrs]
+				hashes = hashes[:numAddrs]
 			}
+		}
 
-			for _, nodeAddr := range node.Addrs() {
-				// If we haven't yet reached our limit, then
-				// we'll copy over the details of this node
-				// into the set of addresses to be returned.
-				tcpAddr, ok := nodeAddr.(*net.TCPAddr)
-				if !ok {
-					// If this isn't a valid TCP address,
-					// then we'll ignore it as currently
-					// we'll only attempt to connect out to
-					// TCP peers.
-					return nil
-				}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 
-				// At this point, we've found an eligible node,
-				// so we'll return early with our shibboleth
-				// error.
-				a = append(a, &lnwire.NetAddress{
+	// we now have our lottery winners, place them all into the ignore list
+	for _, node := range nodes {
+		nID := autopilot.NewNodeID(node.PubKey())
+		c.tried[nID] = struct{}{}
+	}
+
+	// Select the first address from each node, plus any more to make up for
+	// a shortage in available nodes
+	shortage := numAddrs - uint32(len(nodes))
+	var addrs []*lnwire.NetAddress
+	for _, node := range nodes {
+		foundOne := false
+		for _, nodeAddr := range node.Addrs() {
+			tcpAddr, ok := nodeAddr.(*net.TCPAddr)
+			if ok {
+				// If this isn't a valid TCP address,
+				// then we'll ignore it as currently
+				// we'll only attempt to connect out to
+				// TCP peers.
+				addrs = append(addrs, &lnwire.NetAddress{
 					IdentityKey: node.PubKey(),
 					Address:     tcpAddr,
 				})
+
+				if foundOne == false {
+					// if this is the first address we've found, do not
+					// count its contribution as filling the shortage
+					foundOne = true
+				} else {
+					shortage--
+				}
+				// Only keep selecting addresses to make up for a shortage
+				if shortage <= 0 {
+					break
+				}
 			}
-
-			c.tried[nID] = struct{}{}
-
-			return errFound
-		})
-		if err != nil && err != errFound {
-			return nil, err
 		}
-
-		return a, nil
 	}
 
-	// We'll loop and sample new addresses from the graph source until
-	// we've reached our target number of outbound connections or we hit 50
-	// attempts, which ever comes first.
-	var (
-		addrs []*lnwire.NetAddress
-		tries uint32
-	)
-	for tries < 30 && uint32(len(addrs)) < numAddrs {
-		sampleAddrs, err := sampleAddrs()
-		if err != nil {
-			return nil, err
-		}
-
-		tries++
-
-		// We'll now rotate our hash accumulator one value forwards.
-		c.hashAccumulator = sha256.Sum256(c.hashAccumulator[:])
-
-		// If this attempt didn't yield any addresses, then we'll exit
-		// early.
-		if len(sampleAddrs) == 0 {
-			continue
-		}
-
-		addrs = append(addrs, sampleAddrs...)
-	}
+	// We'll now rotate our hash accumulator one value forwards.
+	c.hashAccumulator = sha256.Sum256(c.hashAccumulator[:])
 
 	log.Tracef("Ending hash accumulator state: %x", c.hashAccumulator)
 

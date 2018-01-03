@@ -1118,7 +1118,12 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 	}
 
 	// Otherwise, this means that the edge is within the graph, but it
-	// doesn't yet have a proper proof attached.
+	// doesn't yet have a proper proof attached. If we did not receive
+	// the proof such that we now can add it, there's nothing more we
+	// can do.
+	if proof == nil {
+		return nil, nil
+	}
 
 	// We'll then create then validate the new fully assembled
 	// announcement.
@@ -1329,7 +1334,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 				// Attempt to process the rejected message to
 				// see if we get any new announcements.
 				anns, rErr := d.processRejectedEdge(msg, proof)
-				if err != nil {
+				if rErr != nil {
 					nMsg.err <- rErr
 					return nil
 				}

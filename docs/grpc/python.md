@@ -1,7 +1,7 @@
 # How to write a Python gRPC client for the Lightning Network Daemon
 
 This section enumerates what you need to do to write a client that communicates
-with lnd in Python.
+with `lnd` in Python.
 
 ### Setup and Installation
 

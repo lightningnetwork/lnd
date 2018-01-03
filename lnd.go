@@ -399,7 +399,7 @@ func lndMain() error {
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
 	if err := server.Start(); err != nil {
-		srvrLog.Errorf("unable to create to start server: %v\n", err)
+		srvrLog.Errorf("unable to start server: %v\n", err)
 		return err
 	}
 

@@ -446,7 +446,7 @@ func (f *fundingManager) Start() error {
 			&channel.FundingOutpoint)
 		if err == ErrChannelNotFound {
 			// Channel not in fundingManager's opening database,
-			// meaning it was successully announced to the network.
+			// meaning it was successfully announced to the network.
 			continue
 		} else if err != nil {
 			return err
@@ -1347,7 +1347,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 		// In case the fundingManager is stopped at some point during
 		// the remaining part of the opening process, we must wait for
-		// this process to finish (either successully or with some
+		// this process to finish (either successfully or with some
 		// error), before the fundingManager can be shut down.
 		f.wg.Add(1)
 		go func() {
@@ -1583,7 +1583,7 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// should be abstracted
 
 	// The funding transaction now being confirmed, we add this channel to
-	// the fundingManager's internal persistant state machine that we use
+	// the fundingManager's internal persistent state machine that we use
 	// to track the remaining process of the channel opening. This is useful
 	// to resume the opening process in case of restarts.
 	//

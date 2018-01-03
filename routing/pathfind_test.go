@@ -120,7 +120,7 @@ func makeTestGraph() (*channeldb.ChannelGraph, func(), error) {
 }
 
 // aliasMap is a map from a node's alias to its public key. This type is
-// provided in order to allow easily look up from the human rememberable alias
+// provided in order to allow easily look up from the human memorable alias
 // to an exact node's public key.
 type aliasMap map[string]*btcec.PublicKey
 
@@ -670,7 +670,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> songoku. This should
-	// suceed without issue, and return a single path.
+	// succeed without issue, and return a single path.
 	target := aliases["songoku"]
 	payAmt := lnwire.NewMSatFromSatoshis(10000)
 	_, err = findPath(nil, graph, sourceNode, target, ignoredVertexes,

@@ -352,7 +352,7 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 		if meta.DbVersionNumber != 1 {
 			t.Fatal("version number isn't changed after " +
-				"succesfully aplied migration")
+				"successfully applied migration")
 		}
 
 		err = d.Update(func(tx *bolt.Tx) error {

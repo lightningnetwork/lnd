@@ -948,7 +948,7 @@ func asserNumChans(t *testing.T, graph *ChannelGraph, n int) {
 func assertChanViewEqual(t *testing.T, a []wire.OutPoint, b []*wire.OutPoint) {
 	if len(a) != len(b) {
 		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: chan views dont match", line)
+		t.Fatalf("line %v: chan views don't match", line)
 	}
 
 	chanViewSet := make(map[wire.OutPoint]struct{})

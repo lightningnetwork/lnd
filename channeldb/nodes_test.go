@@ -74,7 +74,7 @@ func TestLinkNodeEncodeDecode(t *testing.T) {
 		}
 	}
 
-	// Next, we'll excercise the methods to append additionall IP
+	// Next, we'll exercise the methods to append additionall IP
 	// addresses, and also to update the last seen time.
 	if err := node1.UpdateLastSeen(time.Now()); err != nil {
 		t.Fatalf("unable to update last seen: %v", err)

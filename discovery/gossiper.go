@@ -300,7 +300,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(pub *btcec.PublicKey) error {
 // schema for the specified channels. If no channels are specified, then the
 // fee update will be applied to all outgoing channels from the source node.
 // Fee updates are done in two stages: first, the AuthenticatedGossiper ensures
-// the updated has been committed by dependant sub-systems, then it signs and
+// the updated has been committed by dependent sub-systems, then it signs and
 // broadcasts new updates to the network.
 func (d *AuthenticatedGossiper) PropagateFeeUpdate(newSchema routing.FeeSchema,
 	chanPoints ...wire.OutPoint) error {
@@ -819,7 +819,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				continue
 			}
 
-			// We'll set up any dependant, and wait until a free
+			// We'll set up any dependent, and wait until a free
 			// slot for this job opens up, this allow us to not
 			// have thousands of goroutines active.
 			validationBarrier.InitJobDependancies(announcement.msg)

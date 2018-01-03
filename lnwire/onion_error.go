@@ -532,6 +532,7 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 		f.Update = &ChannelUpdate{}
 		return f.Update.Decode(r, pver)
 	}
+
 	return nil
 }
 
@@ -1031,7 +1032,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	case Serializable:
 		if err := f.Decode(dataReader, pver); err != nil {
 			return nil, fmt.Errorf("unable to decode error "+
-				"update (%T): %v", err, failure)
+				"update (type=%T, len_bytes=%v, bytes=%x): %v",
+				failure, failureLength, failureData[:], err)
 		}
 	}
 

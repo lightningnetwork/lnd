@@ -202,7 +202,7 @@ service Lightning {
     workflow and is waiting for confirmations for the funding txn, or is in the
     process of closure, either initiated cooperatively or non-cooperatively.
     */
-    rpc PendingChannels (PendingChannelRequest) returns (PendingChannelResponse) {
+    rpc PendingChannels (PendingChannelsRequest) returns (PendingChannelsResponse) {
         option (google.api.http) = {
            get: "/v1/channels/pending"
         };
@@ -913,8 +913,8 @@ message PendingHTLC {
     uint32 stage = 6 [ json_name = "stage" ];
 }
 
-message PendingChannelRequest {}
-message PendingChannelResponse {
+message PendingChannelsRequest {}
+message PendingChannelsResponse {
     message PendingChannel {
         string remote_node_pub = 1 [ json_name = "remote_node_pub" ];
         string channel_point = 2 [ json_name = "channel_point" ];

@@ -170,7 +170,7 @@ func request_Lightning_GetInfo_0(ctx context.Context, marshaler runtime.Marshale
 }
 
 func request_Lightning_PendingChannels_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq PendingChannelRequest
+	var protoReq PendingChannelsRequest
 	var metadata runtime.ServerMetadata
 
 	msg, err := client.PendingChannels(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))

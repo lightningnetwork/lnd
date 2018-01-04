@@ -211,7 +211,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	// If we didn't force close the transaction, at this point, the channel
 	// should now be marked as being in the state of "pending close".
 	if !force {
-		pendingChansRequest := &lnrpc.PendingChannelRequest{}
+		pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 		pendingChanResp, err := node.PendingChannels(ctx, pendingChansRequest)
 		if err != nil {
 			t.Fatalf("unable to query for pending channels: %v", err)
@@ -247,7 +247,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 // node's channels that are currently in a pending state (with a broadcast, but
 // not confirmed funding transaction).
 func numOpenChannelsPending(ctxt context.Context, node *lntest.HarnessNode) (int, error) {
-	pendingChansRequest := &lnrpc.PendingChannelRequest{}
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	resp, err := node.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		return 0, err
@@ -985,11 +985,11 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 // findForceClosedChannel searches a pending channel response for a particular
 // channel, returning the force closed channel upon success.
 func findForceClosedChannel(t *harnessTest,
-	pendingChanResp *lnrpc.PendingChannelResponse,
-	op *wire.OutPoint) *lnrpc.PendingChannelResponse_ForceClosedChannel {
+	pendingChanResp *lnrpc.PendingChannelsResponse,
+	op *wire.OutPoint) *lnrpc.PendingChannelsResponse_ForceClosedChannel {
 
 	var found bool
-	var forceClose *lnrpc.PendingChannelResponse_ForceClosedChannel
+	var forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel
 	for _, forceClose = range pendingChanResp.PendingForceClosingChannels {
 		if forceClose.Channel.ChannelPoint == op.String() {
 			found = true
@@ -1004,7 +1004,7 @@ func findForceClosedChannel(t *harnessTest,
 }
 
 func assertCommitmentMaturity(t *harnessTest,
-	forceClose *lnrpc.PendingChannelResponse_ForceClosedChannel,
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	maturityHeight uint32, blocksTilMaturity int32) {
 
 	if forceClose.MaturityHeight != maturityHeight {
@@ -1022,7 +1022,7 @@ func assertCommitmentMaturity(t *harnessTest,
 // assertForceClosedChannelNumHtlcs verifies that a force closed channel has the
 // proper number of htlcs.
 func assertPendingChannelNumHtlcs(t *harnessTest,
-	forceClose *lnrpc.PendingChannelResponse_ForceClosedChannel,
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	expectedNumHtlcs int) {
 
 	if len(forceClose.PendingHtlcs) != expectedNumHtlcs {
@@ -1035,7 +1035,7 @@ func assertPendingChannelNumHtlcs(t *harnessTest,
 // assertNumForceClosedChannels checks that a pending channel response has the
 // expected number of force closed channels.
 func assertNumForceClosedChannels(t *harnessTest,
-	pendingChanResp *lnrpc.PendingChannelResponse, expectedNumChans int) {
+	pendingChanResp *lnrpc.PendingChannelsResponse, expectedNumChans int) {
 
 	if len(pendingChanResp.PendingForceClosingChannels) != expectedNumChans {
 		t.Fatalf("expected to find %d force closed channels, got %d",
@@ -1048,7 +1048,7 @@ func assertNumForceClosedChannels(t *harnessTest,
 // belonging to a force closed channel, testing for the expeced stage number,
 // blocks till maturity, and the maturity height.
 func assertPendingHtlcStageAndMaturity(t *harnessTest,
-	forceClose *lnrpc.PendingChannelResponse_ForceClosedChannel,
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	stage, maturityHeight uint32, blocksTillMaturity int32) {
 
 	for _, pendingHtlc := range forceClose.PendingHtlcs {
@@ -1213,7 +1213,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now that the channel has been force closed, it should show up in the
 	// PendingChannels RPC under the force close section.
-	pendingChansRequest := &lnrpc.PendingChannelRequest{}
+	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	pendingChanResp, err := net.Alice.PendingChannels(ctxb, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)

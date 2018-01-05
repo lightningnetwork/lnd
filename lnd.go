@@ -19,6 +19,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"sync"
@@ -133,9 +134,14 @@ func lndMain() error {
 		defer pprof.StopCPUProfile()
 	}
 
+	// Create the network-segmented directory for the channel database.
+	graphDir := filepath.Join(cfg.DataDir,
+		defaultGraphSubDirname,
+		normalizeNetwork(activeNetParams.Name))
+
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
-	chanDB, err := channeldb.Open(cfg.DataDir)
+	chanDB, err := channeldb.Open(graphDir)
 	if err != nil {
 		ltndLog.Errorf("unable to open channeldb: %v", err)
 		return err

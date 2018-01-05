@@ -27,6 +27,8 @@ import (
 const (
 	defaultConfigFilename     = "lnd.conf"
 	defaultDataDirname        = "data"
+	defaultChainSubDirname    = "chain"
+	defaultGraphSubDirname    = "graph"
 	defaultTLSCertFilename    = "tls.cert"
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
@@ -328,7 +330,10 @@ func loadConfig() (*config, error) {
 				"ltcd: %v", err)
 			return nil, err
 		}
-		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir, litecoinChain.String())
+
+		cfg.Litecoin.ChainDir = filepath.Join(cfg.DataDir,
+			defaultChainSubDirname,
+			litecoinChain.String())
 
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
@@ -388,7 +393,9 @@ func loadConfig() (*config, error) {
 			// No need to get RPC parameters.
 		}
 
-		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir, bitcoinChain.String())
+		cfg.Bitcoin.ChainDir = filepath.Join(cfg.DataDir,
+			defaultChainSubDirname,
+			bitcoinChain.String())
 
 		// Finally we'll register the bitcoin chain as our current
 		// primary chain.
@@ -431,16 +438,13 @@ func loadConfig() (*config, error) {
 	// TODO(roasbeef): when we go full multi-chain remove the additional
 	// namespacing on the target chain.
 	cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
-	cfg.DataDir = filepath.Join(cfg.DataDir, activeNetParams.Name)
-	cfg.DataDir = filepath.Join(cfg.DataDir,
-		registeredChains.primaryChain.String())
 
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
-	cfg.LogDir = filepath.Join(cfg.LogDir, activeNetParams.Name)
 	cfg.LogDir = filepath.Join(cfg.LogDir,
-		registeredChains.primaryChain.String())
+		registeredChains.PrimaryChain().String(),
+		normalizeNetwork(activeNetParams.Name))
 
 	// Ensure that the paths to the TLS key and certificate files are
 	// expanded and cleaned.
@@ -915,4 +919,14 @@ func enforceSafeAuthentication(addrs []string, macaroonsActive bool) error {
 	}
 
 	return nil
+}
+
+// normalizeNetwork returns the common name of a network type used to create
+// file paths. This allows differently versioned networks to use the same path.
+func normalizeNetwork(network string) string {
+	if strings.HasPrefix(network, "testnet") {
+		return "testnet"
+	}
+
+	return network
 }

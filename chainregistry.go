@@ -149,8 +149,17 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	switch homeChainConfig.Node {
 	case "neutrino":
 		// First we'll open the database file for neutrino, creating
-		// the database if needed.
-		dbName := filepath.Join(cfg.DataDir, "neutrino.db")
+		// the database if needed. We append the normalized network name
+		// here to match the behavior of btcwallet.
+		neutrinoDbPath := filepath.Join(homeChainConfig.ChainDir,
+			normalizeNetwork(activeNetParams.Name))
+
+		// Ensure that the neutrino db path exists.
+		if err := os.MkdirAll(neutrinoDbPath, 0700); err != nil {
+			return nil, nil, err
+		}
+
+		dbName := filepath.Join(neutrinoDbPath, "neutrino.db")
 		nodeDatabase, err := walletdb.Create("bdb", dbName)
 		if err != nil {
 			return nil, nil, err
@@ -160,7 +169,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// neutrino light client. We pass in relevant configuration
 		// parameters required.
 		config := neutrino.Config{
-			DataDir:      cfg.DataDir,
+			DataDir:      neutrinoDbPath,
 			Database:     nodeDatabase,
 			ChainParams:  *activeNetParams.Params,
 			AddPeers:     cfg.NeutrinoMode.AddPeers,

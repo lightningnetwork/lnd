@@ -17,7 +17,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-func disablePeerLogger(t *testing.T) {
+func init() {
 	peerLog = btclog.Disabled
 	srvrLog = btclog.Disabled
 	lnwallet.UseLogger(btclog.Disabled)
@@ -28,7 +28,6 @@ func disablePeerLogger(t *testing.T) {
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
-	disablePeerLogger(t)
 	t.Parallel()
 
 	notifier := &mockNotfier{
@@ -118,7 +117,6 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
-	disablePeerLogger(t)
 	t.Parallel()
 
 	notifier := &mockNotfier{
@@ -228,7 +226,6 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 // responder's behavior in the case where we must do several rounds of fee
 // negotiation before we agree on a fee.
 func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
-	disablePeerLogger(t)
 	t.Parallel()
 
 	notifier := &mockNotfier{
@@ -409,7 +406,6 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 // initiator's behavior in the case where we must do several rounds of fee
 // negotiation before we agree on a fee.
 func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
-	disablePeerLogger(t)
 	t.Parallel()
 
 	notifier := &mockNotfier{

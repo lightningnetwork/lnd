@@ -3057,18 +3057,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	// Finally, obtain Alice's channel state, she shouldn't report any
-	// channel as she just successfully brought Bob to justice by sweeping
-	// all the channel funds.
-	req := &lnrpc.ListChannelsRequest{}
-	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's channels: %v", err)
-	}
-	if len(aliceChanInfo.Channels) != 0 {
-		t.Fatalf("alice shouldn't have a channel: %v",
-			spew.Sdump(aliceChanInfo.Channels))
-	}
+	assertNumChannels(t, ctxb, net.Alice, 0)
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Alice is able
@@ -3286,18 +3275,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	// Finally, obtain Alice's channel state, she shouldn't report any
-	// channel as she just successfully brought Carol to justice by sweeping
-	// all the channel funds.
-	req := &lnrpc.ListChannelsRequest{}
-	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's channels: %v", err)
-	}
-	if len(aliceChanInfo.Channels) != 0 {
-		t.Fatalf("alice shouldn't have a channel: %v",
-			spew.Sdump(aliceChanInfo.Channels))
-	}
+	assertNumChannels(t, ctxb, net.Alice, 0)
 }
 
 // testRevokedCloseRetributionRemoteHodl tests that Alice properly responds to a
@@ -3584,17 +3562,33 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("justice tx wasn't mined")
 	}
 
-	// Finally, obtain Alice's channel state, she shouldn't report any
-	// channel as she just successfully brought Carol to justice by sweeping
-	// all the channel funds.
+	assertNumChannels(t, ctxb, net.Alice, 0)
+}
+
+// assertNumChannels polls the provided node's list channels rpc until it
+// reaches the desired number of total channels.
+func assertNumChannels(t *harnessTest, ctxb context.Context,
+	node *lntest.HarnessNode, numChannels int) {
+
+	// Poll alice for her list of channels.
 	req := &lnrpc.ListChannelsRequest{}
-	aliceChanInfo, err := net.Alice.ListChannels(ctxb, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's channels: %v", err)
+
+	var predErr error
+	pred := func() bool {
+		chanInfo, err := node.ListChannels(ctxb, req)
+		if err != nil {
+			predErr = fmt.Errorf("unable to query for alice's "+
+				"channels: %v", err)
+			return false
+		}
+
+		// Return true if the query returned the expected number of
+		// channels.
+		return len(chanInfo.Channels) == numChannels
 	}
-	if len(aliceChanInfo.Channels) != 0 {
-		t.Fatalf("alice shouldn't have a channel: %v",
-			spew.Sdump(aliceChanInfo.Channels))
+
+	if err := lntest.WaitPredicate(pred, time.Second*15); err != nil {
+		t.Fatalf("node has incorrect number of channels: %v", predErr)
 	}
 }
 

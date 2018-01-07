@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/roasbeef/btcd/btcec"
@@ -24,6 +26,19 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
 
+	if !privKey.PubKey().IsEqual(signDesc.PubKey) {
+		return nil, fmt.Errorf("incorrect key passed")
+	}
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
 		privKey)
@@ -36,9 +51,24 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+
+	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
+	// duplicate this code?
+
+	privKey := m.key
+
+	switch {
+	case signDesc.SingleTweak != nil:
+		privKey = lnwallet.TweakPrivKey(privKey,
+			signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+			signDesc.DoubleTweak)
+	}
+
 	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value,
-		signDesc.Output.PkScript, signDesc.HashType, m.key, true)
+		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
+		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +106,54 @@ func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		Spend:  make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {},
 	}, nil
+}
+
+// mockSpendNotifier extends the mockNotifier so that spend notifications can be
+// triggered and delivered to subscribers.
+type mockSpendNotifier struct {
+	*mockNotfier
+	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+}
+
+func makeMockSpendNotifier() *mockSpendNotifier {
+	return &mockSpendNotifier{
+		mockNotfier: &mockNotfier{
+			confChannel: make(chan *chainntnfs.TxConfirmation),
+		},
+		spendMap: make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
+	}
+}
+
+func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	spendChan := make(chan *chainntnfs.SpendDetail)
+	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
+	return &chainntnfs.SpendEvent{
+		Spend: spendChan,
+		Cancel: func() {
+		},
+	}, nil
+}
+
+// Spend dispatches SpendDetails to all subscribers of the outpoint. The details
+// will include the transaction and height provided by the caller.
+func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
+	txn *wire.MsgTx) {
+
+	if spendChans, ok := m.spendMap[*outpoint]; ok {
+		delete(m.spendMap, *outpoint)
+		for _, spendChan := range spendChans {
+			txnHash := txn.TxHash()
+			spendChan <- &chainntnfs.SpendDetail{
+				SpentOutPoint:     outpoint,
+				SpendingHeight:    height,
+				SpendingTx:        txn,
+				SpenderTxHash:     &txnHash,
+				SpenderInputIndex: outpoint.Index,
+			}
+		}
+	}
 }
 
 type mockChainIO struct{}

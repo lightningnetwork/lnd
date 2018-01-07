@@ -901,7 +901,7 @@ func pendingChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.PendingChannelRequest{}
+	req := &lnrpc.PendingChannelsRequest{}
 	resp, err := client.PendingChannels(ctxb, req)
 	if err != nil {
 		return err

@@ -109,7 +109,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/lnrpcPendingChannelResponse"
+              "$ref": "#/definitions/lnrpcPendingChannelsResponse"
             }
           }
         },
@@ -696,11 +696,11 @@
     }
   },
   "definitions": {
-    "PendingChannelResponseClosedChannel": {
+    "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel to be closed"
         },
         "closing_txid": {
@@ -709,11 +709,11 @@
         }
       }
     },
-    "PendingChannelResponseForceClosedChannel": {
+    "PendingChannelsResponseForceClosedChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel to be force closed"
         },
         "closing_txid": {
@@ -748,7 +748,7 @@
         }
       }
     },
-    "PendingChannelResponsePendingChannel": {
+    "PendingChannelsResponsePendingChannel": {
       "type": "object",
       "properties": {
         "remote_node_pub": {
@@ -771,11 +771,11 @@
         }
       }
     },
-    "PendingChannelResponsePendingOpenChannel": {
+    "PendingChannelsResponsePendingOpenChannel": {
       "type": "object",
       "properties": {
         "channel": {
-          "$ref": "#/definitions/PendingChannelResponsePendingChannel",
+          "$ref": "#/definitions/PendingChannelsResponsePendingChannel",
           "title": "/ The pending channel"
         },
         "confirmation_height": {
@@ -1746,7 +1746,7 @@
         }
       }
     },
-    "lnrpcPendingChannelResponse": {
+    "lnrpcPendingChannelsResponse": {
       "type": "object",
       "properties": {
         "total_limbo_balance": {
@@ -1757,21 +1757,21 @@
         "pending_open_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponsePendingOpenChannel"
+            "$ref": "#/definitions/PendingChannelsResponsePendingOpenChannel"
           },
           "title": "/ Channels pending opening"
         },
         "pending_closing_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponseClosedChannel"
+            "$ref": "#/definitions/PendingChannelsResponseClosedChannel"
           },
           "title": "/ Channels pending closing"
         },
         "pending_force_closing_channels": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/PendingChannelResponseForceClosedChannel"
+            "$ref": "#/definitions/PendingChannelsResponseForceClosedChannel"
           },
           "title": "/ Channels pending force closing"
         }

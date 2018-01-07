@@ -3,13 +3,16 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"os"
 	"reflect"
 	"runtime"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -79,7 +82,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 	}
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll,
+		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
 		privKey)
 	if err != nil {
 		return nil, err
@@ -105,7 +108,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 
 	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
-		txscript.SigHashAll, privKey, true)
+		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +124,7 @@ type mockNotfier struct {
 func (m *mockNotfier) RegisterConfirmationsNtfn(txid *chainhash.Hash, numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return nil, nil
 }
+
 func (m *mockNotfier) RegisterBlockEpochNtfn() (*chainntnfs.BlockEpochEvent, error) {
 	return nil, nil
 }
@@ -132,12 +136,58 @@ func (m *mockNotfier) Start() error {
 func (m *mockNotfier) Stop() error {
 	return nil
 }
+
 func (m *mockNotfier) RegisterSpendNtfn(outpoint *wire.OutPoint, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 		Cancel: func() {
 		},
 	}, nil
+}
+
+// mockSpendNotifier extends the mockNotifier so that spend notifications can be
+// triggered and delivered to subscribers.
+type mockSpendNotifier struct {
+	*mockNotfier
+	spendMap map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+}
+
+func makeMockSpendNotifier() *mockSpendNotifier {
+	return &mockSpendNotifier{
+		spendMap: make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
+	}
+}
+
+func (m *mockSpendNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	spendChan := make(chan *chainntnfs.SpendDetail, 1)
+	m.spendMap[*outpoint] = append(m.spendMap[*outpoint], spendChan)
+	return &chainntnfs.SpendEvent{
+		Spend: spendChan,
+		Cancel: func() {
+		},
+	}, nil
+}
+
+// Spend dispatches SpendDetails to all subscribers of the outpoint. The details
+// will include the transaction and height provided by the caller.
+func (m *mockSpendNotifier) Spend(outpoint *wire.OutPoint, height int32,
+	txn *wire.MsgTx) {
+
+	if spendChans, ok := m.spendMap[*outpoint]; ok {
+		delete(m.spendMap, *outpoint)
+		for _, spendChan := range spendChans {
+			txnHash := txn.TxHash()
+			spendChan <- &chainntnfs.SpendDetail{
+				SpentOutPoint:     outpoint,
+				SpendingHeight:    height,
+				SpendingTx:        txn,
+				SpenderTxHash:     &txnHash,
+				SpenderInputIndex: outpoint.Index,
+			}
+		}
+	}
 }
 
 // initRevocationWindows simulates a new channel being opened within the p2p
@@ -204,9 +254,36 @@ func forceStateTransition(chanA, chanB *LightningChannel) error {
 	return nil
 }
 
-// createTestChannels creates two test channels funded with 10 BTC, with 5 BTC
+// createSpendableTestChannels initializes a pair of channels using a
+// mockSpendNotifier. This allows us to test the behavior of the closeObserver,
+// which is activated when the funding transaction is spent.
+func createSpendableTestChannels(revocationWindow int) (*LightningChannel,
+	*LightningChannel, *mockSpendNotifier, func(), error) {
+
+	notifier := makeMockSpendNotifier()
+	alice, bob, cleanup, err := createTestChannelsWithNotifier(
+		revocationWindow, notifier,
+	)
+
+	return alice, bob, notifier, cleanup, err
+}
+
+// createTestChannels initializes a pair of channels using a mock notifier.
+func createTestChannels(revocationWindow int) (*LightningChannel,
+	*LightningChannel, func(), error) {
+
+	notifier := &mockNotfier{}
+
+	return createTestChannelsWithNotifier(revocationWindow, notifier)
+}
+
+// createTestChannelsWithNotifier creates two test lightning channels using the
+// provided notifier. The channel itself is funded with 10 BTC, with 5 BTC
 // allocated to each side. Within the channel, Alice is the initiator.
-func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChannel, func(), error) {
+func createTestChannelsWithNotifier(revocationWindow int,
+	notifier chainntnfs.ChainNotifier) (*LightningChannel,
+	*LightningChannel, func(), error) {
+
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
 		testWalletPrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
@@ -352,8 +429,6 @@ func createTestChannels(revocationWindow int) (*LightningChannel, *LightningChan
 
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
-
-	notifier := &mockNotfier{}
 
 	channelAlice, err := NewLightningChannel(aliceSigner, notifier,
 		estimator, aliceChannelState)
@@ -1148,6 +1223,106 @@ func TestForceCloseDustOutput(t *testing.T) {
 	commitTxHash = bobChannel.channelState.LocalCommitment.CommitTx.TxHash()
 	if !bytes.Equal(closeTxHash[:], commitTxHash[:]) {
 		t.Fatalf("bob: incorrect close transaction txid")
+	}
+}
+
+// TestBreachClose checks that the resulting ForceCloseSummary is correct when a
+// peer is ForceClosing the channel. Will check outputs both above and below
+// the dust limit.
+func TestBreachClose(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, notifier, cleanUp, err :=
+		createSpendableTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Send one HTLC from Alice to Bob, and advance the state of both
+	// channels.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlc, _ := createHTLC(0, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Construct a force close summary of Bob's channel, this includes the
+	// breach transaction that will be used to spend the funding point.
+	forceCloseSummary, err := bobChannel.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close bob's channel: %v", err)
+	}
+
+	// Send another HTLC and advance the state of both channels again. This
+	// ensures that Alice's state will be ahead of the breach transaction
+	// generated above.
+	htlc2, _ := createHTLC(1, htlcAmount)
+	if _, err := aliceChannel.AddHTLC(htlc2); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc2); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	chanPoint := aliceChannel.ChanPoint
+	breachTxn := forceCloseSummary.CloseTx
+
+	// Spend the funding point using the breach transaction.
+	notifier.Spend(chanPoint, 100, breachTxn)
+
+	// Set up a separate routine to monitor alice's channel for a response
+	// to the spend. We use a generous timeout to ensure the test doesn't
+	// stall indefinitely, but allows us to block the main routine until the
+	// close observer exits.
+	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		select {
+		case ret := <-aliceChannel.ContractBreach:
+			errChan <- nil
+			// Acknowledge a successful processing of the
+			// retribution information.
+			ret.Err <- nil
+		case <-aliceChannel.UnilateralClose:
+			errChan <- errors.New("expected breach close to " +
+				"be signaled, not unilateral")
+		case <-time.After(60 * time.Second):
+			errChan <- errors.New("breach was not signaled")
+		}
+	}()
+
+	// Wait for both the close observer to exit and our background process
+	// to exit before attempting to read from the error channel.
+	aliceChannel.WaitForClose()
+	wg.Wait()
+
+	// Now that all tasks have been shutdown, handle the result. The result
+	// should be available immediately, we allow five seconds to handle any
+	// variance in scheduling on travis.
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+
+	case <-time.After(5 * time.Second):
+		t.Fatalf("breach was not received")
 	}
 }
 

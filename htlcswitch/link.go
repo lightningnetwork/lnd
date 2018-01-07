@@ -1313,6 +1313,20 @@ func (l *channelLink) processLockedInHtlcs(
 					continue
 				}
 
+				// If this invoice has already been settled,
+				// then we'll reject it as we don't allow an
+				// invoice to be paid twice.
+				if invoice.Terms.Settled == true {
+					log.Warnf("Rejecting duplicate "+
+						"payment for hash=%x", pd.RHash[:])
+					failure := lnwire.FailUnknownPaymentHash{}
+					l.sendHTLCError(
+						pd.HtlcIndex, failure, obfuscator,
+					)
+					needUpdate = true
+					continue
+				}
+
 				// If we're not currently in debug mode, and
 				// the extended htlc doesn't meet the value
 				// requested, then we'll fail the htlc.

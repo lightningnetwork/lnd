@@ -4,16 +4,24 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btclog"
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
@@ -225,9 +233,8 @@ var (
 				0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
 				0x6b, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 			},
-			chanPoint:      breachOutPoints[0],
-			capacity:       btcutil.Amount(1e7),
-			settledBalance: btcutil.Amount(1e7),
+			chanPoint:    breachOutPoints[0],
+			breachHeight: 337,
 			// Set to breachedOutputs 0 and 1 in init()
 			breachedOutputs: []breachedOutput{{}, {}},
 		},
@@ -244,9 +251,8 @@ var (
 				0x6b, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 				0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
 			},
-			chanPoint:      breachOutPoints[1],
-			capacity:       btcutil.Amount(1e7),
-			settledBalance: btcutil.Amount(1e7),
+			chanPoint:    breachOutPoints[1],
+			breachHeight: 420420,
 			// Set to breachedOutputs 1 and 2 in init()
 			breachedOutputs: []breachedOutput{{}, {}},
 		},
@@ -254,6 +260,10 @@ var (
 )
 
 func init() {
+	channeldb.UseLogger(btclog.Disabled)
+	lnwallet.UseLogger(btclog.Disabled)
+	brarLog = btclog.Disabled
+
 	// Ensure that breached outputs are initialized before starting tests.
 	if err := initBreachedOutputs(); err != nil {
 		panic(err)
@@ -263,7 +273,6 @@ func init() {
 	// channel point.
 	for i := range retributions {
 		retInfo := &retributions[i]
-		retInfo.remoteIdentity = breachedOutputs[i].signDesc.PubKey
 		retInfo.breachedOutputs[0] = breachedOutputs[i]
 		retInfo.breachedOutputs[1] = breachedOutputs[i+1]
 
@@ -291,6 +300,8 @@ type failingRetributionStore struct {
 
 	rs RetributionStore
 
+	nextAddErr error
+
 	restart func() RetributionStore
 }
 
@@ -307,17 +318,62 @@ func newFailingRetributionStore(
 	}
 }
 
+// FailNextAdd instructs the retribution store to return the provided error. If
+// the error is nil, a generic default will be used.
+func (frs *failingRetributionStore) FailNextAdd(err error) {
+	if err == nil {
+		err = errors.New("retribution store failed")
+	}
+
+	frs.mu.Lock()
+	frs.nextAddErr = err
+	frs.mu.Unlock()
+}
+
 func (frs *failingRetributionStore) Restart() {
 	frs.mu.Lock()
 	frs.rs = frs.restart()
 	frs.mu.Unlock()
 }
 
+// Add forwards the call to the underlying retribution store, unless this Add
+// has been previously instructed to fail.
 func (frs *failingRetributionStore) Add(retInfo *retributionInfo) error {
 	frs.mu.Lock()
 	defer frs.mu.Unlock()
 
+	if frs.nextAddErr != nil {
+		err := frs.nextAddErr
+		frs.nextAddErr = nil
+		return err
+	}
+
 	return frs.rs.Add(retInfo)
+}
+
+func (frs *failingRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.IsBreached(chanPoint)
+}
+
+func (frs *failingRetributionStore) Finalize(chanPoint *wire.OutPoint,
+	finalTx *wire.MsgTx) error {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.Finalize(chanPoint, finalTx)
+}
+
+func (frs *failingRetributionStore) GetFinalizedTxn(
+	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.GetFinalizedTxn(chanPoint)
 }
 
 func (frs *failingRetributionStore) Remove(key *wire.OutPoint) error {
@@ -415,9 +471,7 @@ func copyRetInfo(retInfo *retributionInfo) *retributionInfo {
 		commitHash:      retInfo.commitHash,
 		chainHash:       retInfo.chainHash,
 		chanPoint:       retInfo.chanPoint,
-		remoteIdentity:  retInfo.remoteIdentity,
-		capacity:        retInfo.capacity,
-		settledBalance:  retInfo.settledBalance,
+		breachHeight:    retInfo.breachHeight,
 		breachedOutputs: make([]breachedOutput, nOutputs),
 	}
 
@@ -432,14 +486,16 @@ func copyRetInfo(retInfo *retributionInfo) *retributionInfo {
 // by an in-memory map. Access to the internal state is provided by a mutex.
 // TODO(cfromknecht) extend to support and test controlled failures.
 type mockRetributionStore struct {
-	mu    sync.Mutex
-	state map[wire.OutPoint]*retributionInfo
+	mu       sync.Mutex
+	state    map[wire.OutPoint]*retributionInfo
+	finalTxs map[wire.OutPoint]*wire.MsgTx
 }
 
 func newMockRetributionStore() *mockRetributionStore {
 	return &mockRetributionStore{
-		mu:    sync.Mutex{},
-		state: make(map[wire.OutPoint]*retributionInfo),
+		mu:       sync.Mutex{},
+		state:    make(map[wire.OutPoint]*retributionInfo),
+		finalTxs: make(map[wire.OutPoint]*wire.MsgTx),
 	}
 }
 
@@ -451,9 +507,38 @@ func (rs *mockRetributionStore) Add(retInfo *retributionInfo) error {
 	return nil
 }
 
+func (rs *mockRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+	rs.mu.Lock()
+	_, ok := rs.state[*chanPoint]
+	rs.mu.Unlock()
+
+	return ok, nil
+}
+
+func (rs *mockRetributionStore) Finalize(chanPoint *wire.OutPoint,
+	finalTx *wire.MsgTx) error {
+
+	rs.mu.Lock()
+	rs.finalTxs[*chanPoint] = finalTx
+	rs.mu.Unlock()
+
+	return nil
+}
+
+func (rs *mockRetributionStore) GetFinalizedTxn(
+	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
+
+	rs.mu.Lock()
+	finalTx := rs.finalTxs[*chanPoint]
+	rs.mu.Unlock()
+
+	return finalTx, nil
+}
+
 func (rs *mockRetributionStore) Remove(key *wire.OutPoint) error {
 	rs.mu.Lock()
 	delete(rs.state, *key)
+	delete(rs.finalTxs, *key)
 	rs.mu.Unlock()
 
 	return nil
@@ -515,28 +600,37 @@ func TestMockRetributionStore(t *testing.T) {
 	}
 }
 
-// TestChannelDBRetributionStore instantiates a retributionStore backed by a
-// channeldb.DB, and tests its behavior using the general RetributionStore test
-// suite.
-func TestChannelDBRetributionStore(t *testing.T) {
+func makeTestChannelDB() (*channeldb.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "channeldb")
 	if err != nil {
-		t.Fatalf("unable to initialize temp "+
-			"directory for channeldb: %v", err)
+		return nil, nil, err
 	}
-	defer os.RemoveAll(tempDirName)
 
-	// Disable logging to prevent panics bc. of global state
-	channeldb.UseLogger(btclog.Disabled)
+	cleanUp := func() {
+		os.RemoveAll(tempDirName)
+	}
 
-	// Next, create channeldb for the first time.
 	db, err := channeldb.Open(tempDirName)
+	if err != nil {
+		cleanUp()
+		return nil, nil, err
+	}
+
+	return db, cleanUp, nil
+}
+
+// TestChannelDBRetributionStore instantiates a retributionStore backed by a
+// channeldb.DB, and tests its behavior using the general RetributionStore test
+// suite.
+func TestChannelDBRetributionStore(t *testing.T) {
+	db, cleanUp, err := makeTestChannelDB()
 	if err != nil {
 		t.Fatalf("unable to open channeldb: %v", err)
 	}
 	defer db.Close()
+	defer cleanUp()
 
 	restartDb := func() RetributionStore {
 		// Close and reopen channeldb
@@ -544,7 +638,7 @@ func TestChannelDBRetributionStore(t *testing.T) {
 			t.Fatalf("unalbe to close channeldb during restart: %v",
 				err)
 		}
-		db, err = channeldb.Open(tempDirName)
+		db, err = channeldb.Open(db.Path())
 		if err != nil {
 			t.Fatalf("unable to open channeldb: %v", err)
 		}
@@ -830,4 +924,597 @@ restartCheck:
 
 		goto restartCheck
 	}
+}
+
+// TestBreachHandoffSuccess tests that a channel's close observer properly
+// delivers retribution information to the breach arbiter in response to a
+// breach close. This test verifies correctness in the event that the handoff
+// experiences no interruptions.
+func TestBreachHandoffSuccess(t *testing.T) {
+	// Create a pair of channels using a notifier that allows us to signal
+	// a spend of the funding transaction. Alice's channel will be the on
+	// observing a breach.
+	notifier := makeMockSpendNotifier()
+	alice, bob, cleanUpChans, err := createInitChannelsWithNotifier(
+		1, notifier)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUpChans()
+
+	// Instantiate a breach arbiter to handle the breach of alice's channel.
+	brar, cleanUpArb, err := createTestArbiter(t, notifier, alice.State().Db)
+	if err != nil {
+		t.Fatalf("unable to initialize test breach arbiter: %v", err)
+	}
+	defer cleanUpArb()
+
+	// Send the channel to the arbiter so that it set up the receiving end
+	// of the handoff.
+	select {
+	case brar.newContracts <- alice:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("unable to register alice with breach arbiter: %v", err)
+	}
+
+	// Send one HTLC to Bob and perform a state transition to lock it in.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlc, _ := createHTLC(0, htlcAmount)
+	if _, err := alice.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bob.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(alice, bob); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Generate the force close summary at this point in time, this will
+	// serve as the old state bob will broadcast.
+	forceCloseSummary, err := bob.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close bob's channel: %v", err)
+	}
+
+	// Now send another HTLC and perform a state transition, this ensures
+	// Alice is ahead of the state Bob will broadcast.
+	htlc2, _ := createHTLC(1, htlcAmount)
+	if _, err := alice.AddHTLC(htlc2); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(alice, bob); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	chanPoint := alice.ChanPoint
+	breachTxn := forceCloseSummary.CloseTx
+
+	// Signal a spend of the funding transaction and wait for the close
+	// observer to exit.
+	notifier.Spend(chanPoint, 100, breachTxn)
+	alice.WaitForClose()
+
+	// After exiting, the breach arbiter should have persisted the
+	// retribution information and the channel should be shown as pending
+	// force closed.
+	assertArbiterBreach(t, brar, chanPoint)
+	assertPendingClosed(t, alice)
+}
+
+// TestBreachHandoffFail tests that a channel's close observer properly
+// delivers retribution information to the breach arbiter in response to a
+// breach close. This test verifies correctness in the event that the breach
+// arbiter fails to write the information to disk, and that a subsequent attempt
+// at the handoff succeeds.
+func TestBreachHandoffFail(t *testing.T) {
+	// Create a pair of channels using a notifier that allows us to signal
+	// a spend of the funding transaction. Alice's channel will be the on
+	// observing a breach.
+	notifier := makeMockSpendNotifier()
+	alice, bob, cleanUpChans, err := createInitChannelsWithNotifier(
+		1, notifier)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUpChans()
+
+	// Instantiate a breach arbiter to handle the breach of alice's channel.
+	brar, cleanUpArb, err := createTestArbiter(t, notifier, alice.State().Db)
+	if err != nil {
+		t.Fatalf("unable to initialize test breach arbiter: %v", err)
+	}
+	defer cleanUpArb()
+
+	// Send the channel to the arbiter so that it set up the receiving end
+	// of the handoff.
+	select {
+	case brar.newContracts <- alice:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("unable to register alice with breach arbiter: %v", err)
+	}
+
+	// Send one HTLC to Bob and perform a state transition to lock it in.
+	htlcAmount := lnwire.NewMSatFromSatoshis(20000)
+	htlc, _ := createHTLC(0, htlcAmount)
+	if _, err := alice.AddHTLC(htlc); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bob.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(alice, bob); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Generate the force close summary at this point in time, this will
+	// serve as the old state bob will broadcast.
+	forceCloseSummary, err := bob.ForceClose()
+	if err != nil {
+		t.Fatalf("unable to force close bob's channel: %v", err)
+	}
+
+	// Now send another HTLC and perform a state transition, this ensures
+	// Alice is ahead of the state Bob will broadcast.
+	htlc2, _ := createHTLC(1, htlcAmount)
+	if _, err := alice.AddHTLC(htlc2); err != nil {
+		t.Fatalf("alice unable to add htlc: %v", err)
+	}
+	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
+		t.Fatalf("bob unable to recv add htlc: %v", err)
+	}
+	if err := forceStateTransition(alice, bob); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// Before alerting Alice of the breach, instruct our failing retribution
+	// store to fail the next database operation, which we expect to write
+	// the information handed off by the channel's close observer.
+	fstore := brar.cfg.Store.(*failingRetributionStore)
+	fstore.FailNextAdd(nil)
+
+	// Signal the notifier to dispatch spend notifications of the funding
+	// transaction using the transaction from bob's closing summary.
+	chanPoint := alice.ChanPoint
+	breachTxn := forceCloseSummary.CloseTx
+	notifier.Spend(chanPoint, 100, breachTxn)
+
+	// Wait for the close observer to exit, all persistent effects should be
+	// observable after this point.
+	alice.WaitForClose()
+
+	// Since the handoff failed, the breach arbiter should not show the
+	// channel as breached, and the channel should also not have been marked
+	// pending closed.
+	assertNoArbiterBreach(t, brar, chanPoint)
+	assertNotPendingClosed(t, alice)
+
+	// Instantiate a second lightning channel for alice, using the state of
+	// her last channel.
+	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
+		alicesPrivKey)
+	aliceSigner := &mockSigner{aliceKeyPriv}
+	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
+
+	alice2, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
+		estimator, alice.State())
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer alice2.Stop()
+
+	// Send this newer channel to breach arbiter, which should replace the
+	// prior.
+	select {
+	case brar.newContracts <- alice2:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("unable to register alice with breach arbiter: %v", err)
+	}
+
+	// Signal a spend of the funding transaction and wait for the close
+	// observer to exit. This time we are allowing the handoff to succeed.
+	notifier.Spend(chanPoint, 100, breachTxn)
+	alice2.WaitForClose()
+
+	// Check that the breach was properly recorded in the breach arbiter,
+	// and that the close observer marked the channel as pending closed
+	// before exiting.
+	assertArbiterBreach(t, brar, chanPoint)
+	assertPendingClosed(t, alice)
+}
+
+// assertArbiterBreach checks that the breach arbiter has persisted the breach
+// information for a particular channel.
+func assertArbiterBreach(t *testing.T, brar *breachArbiter,
+	chanPoint *wire.OutPoint) {
+
+	isBreached, err := brar.IsBreached(chanPoint)
+	if err != nil {
+		t.Fatalf("unable to determine if channel is "+
+			"breached: %v", err)
+	}
+
+	if !isBreached {
+		t.Fatalf("channel %v was never marked breached",
+			chanPoint)
+	}
+
+}
+
+// assertNoArbiterBreach checks that the breach arbiter has not persisted the
+// breach information for a particular channel.
+func assertNoArbiterBreach(t *testing.T, brar *breachArbiter,
+	chanPoint *wire.OutPoint) {
+
+	isBreached, err := brar.IsBreached(chanPoint)
+	if err != nil {
+		t.Fatalf("unable to determine if channel is "+
+			"breached: %v", err)
+	}
+
+	if isBreached {
+		t.Fatalf("channel %v was marked breached",
+			chanPoint)
+	}
+}
+
+// assertPendingClosed checks that the channel has been marked pending closed in
+// the channel database.
+func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
+	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	if err != nil {
+		t.Fatalf("unable to load pending closed channels: %v", err)
+	}
+
+	for _, chanSummary := range closedChans {
+		if chanSummary.ChanPoint == *c.ChanPoint {
+			return
+		}
+	}
+
+	t.Fatalf("channel %v was not marked pending closed",
+		c.ChanPoint)
+}
+
+// assertNotPendingClosed checks that the channel has not been marked pending
+// closed in the channel database.
+func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
+	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	if err != nil {
+		t.Fatalf("unable to load pending closed channels: %v", err)
+	}
+
+	for _, chanSummary := range closedChans {
+		if chanSummary.ChanPoint == *c.ChanPoint {
+			t.Fatalf("channel %v was marked pending closed",
+				c.ChanPoint)
+		}
+	}
+}
+
+// createTestArbiter instantiates a breach arbiter with a failing retribution
+// store, so that controlled failures can be tested.
+func createTestArbiter(t *testing.T, notifier chainntnfs.ChainNotifier,
+	db *channeldb.DB) (*breachArbiter, func(), error) {
+
+	// Create a failing retribution store, that wraps a normal one.
+	store := newFailingRetributionStore(func() RetributionStore {
+		return newRetributionStore(db)
+	})
+
+	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
+		alicesPrivKey)
+	signer := &mockSigner{key: aliceKeyPriv}
+
+	// Assemble our test arbiter.
+	ba := newBreachArbiter(&BreachConfig{
+		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
+		DB:                 db,
+		Estimator:          &lnwallet.StaticFeeEstimator{FeeRate: 50},
+		GenSweepScript:     func() ([]byte, error) { return nil, nil },
+		Notifier:           notifier,
+		Signer:             signer,
+		PublishTransaction: func(_ *wire.MsgTx) error { return nil },
+		Store:              store,
+	})
+
+	if err := ba.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	// The caller is responsible for closing the database.
+	cleanUp := func() {
+		ba.Stop()
+	}
+
+	return ba, cleanUp, nil
+}
+
+// createInitChannelsWithNotifier creates two initialized test channels funded
+// with 10 BTC, with 5 BTC allocated to each side. Within the channel, Alice is
+// the initiator.
+func createInitChannelsWithNotifier(revocationWindow int,
+	notifier chainntnfs.ChainNotifier) (*lnwallet.LightningChannel,
+	*lnwallet.LightningChannel, func(), error) {
+
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
+		alicesPrivKey)
+	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
+		bobsPrivKey)
+
+	channelCapacity := btcutil.Amount(10 * 1e8)
+	channelBal := channelCapacity / 2
+	aliceDustLimit := btcutil.Amount(200)
+	bobDustLimit := btcutil.Amount(1300)
+	csvTimeoutAlice := uint32(5)
+	csvTimeoutBob := uint32(4)
+
+	prevOut := &wire.OutPoint{
+		Hash:  chainhash.Hash(testHdSeed),
+		Index: 0,
+	}
+	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
+
+	aliceCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit:        aliceDustLimit,
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+			ChanReserve:      btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			MaxAcceptedHtlcs: uint16(rand.Int31()),
+		},
+		CsvDelay:            uint16(csvTimeoutAlice),
+		MultiSigKey:         aliceKeyPub,
+		RevocationBasePoint: aliceKeyPub,
+		PaymentBasePoint:    aliceKeyPub,
+		DelayBasePoint:      aliceKeyPub,
+		HtlcBasePoint:       aliceKeyPub,
+	}
+	bobCfg := channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit:        bobDustLimit,
+			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+			ChanReserve:      btcutil.Amount(rand.Int63()),
+			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+			MaxAcceptedHtlcs: uint16(rand.Int31()),
+		},
+		CsvDelay:            uint16(csvTimeoutBob),
+		MultiSigKey:         bobKeyPub,
+		RevocationBasePoint: bobKeyPub,
+		PaymentBasePoint:    bobKeyPub,
+		DelayBasePoint:      bobKeyPub,
+		HtlcBasePoint:       bobKeyPub,
+	}
+
+	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, testHdSeed, aliceKeyPub)
+	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
+	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
+
+	aliceRoot := lnwallet.DeriveRevocationRoot(aliceKeyPriv, testHdSeed, bobKeyPub)
+	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
+	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
+
+	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(channelBal,
+		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
+		*fundingTxIn)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	alicePath, err := ioutil.TempDir("", "alicedb")
+	dbAlice, err := channeldb.Open(alicePath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	bobPath, err := ioutil.TempDir("", "bobdb")
+	dbBob, err := channeldb.Open(bobPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
+	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	feePerKw := feePerWeight * 1000
+
+	// TODO(roasbeef): need to factor in commit fee?
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitFee:     8688,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitFee:     8688,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+
+	aliceChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            aliceCfg,
+		RemoteChanCfg:           bobCfg,
+		IdentityPub:             aliceKeyPub,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		IsInitiator:             true,
+		Capacity:                channelCapacity,
+		RemoteCurrentRevocation: bobCommitPoint,
+		RevocationProducer:      alicePreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
+		Db:                      dbAlice,
+	}
+	bobChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            bobCfg,
+		RemoteChanCfg:           aliceCfg,
+		IdentityPub:             bobKeyPub,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		IsInitiator:             false,
+		Capacity:                channelCapacity,
+		RemoteCurrentRevocation: aliceCommitPoint,
+		RevocationProducer:      bobPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
+		Db:                      dbBob,
+	}
+
+	aliceSigner := &mockSigner{aliceKeyPriv}
+	bobSigner := &mockSigner{bobKeyPriv}
+
+	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner, notifier,
+		estimator, aliceChannelState)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	channelBob, err := lnwallet.NewLightningChannel(bobSigner, notifier,
+		estimator, bobChannelState)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if err := channelAlice.State().FullSync(); err != nil {
+		return nil, nil, nil, err
+	}
+	if err := channelBob.State().FullSync(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	cleanUpFunc := func() {
+		dbBob.Close()
+		dbAlice.Close()
+		os.RemoveAll(bobPath)
+		os.RemoveAll(alicePath)
+	}
+
+	// Now that the channel are open, simulate the start of a session by
+	// having Alice and Bob extend their revocation windows to each other.
+	err = initRevocationWindows(channelAlice, channelBob, revocationWindow)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return channelAlice, channelBob, cleanUpFunc, nil
+}
+
+// initRevocationWindows simulates a new channel being opened within the p2p
+// network by populating the initial revocation windows of the passed
+// commitment state machines.
+//
+// TODO(conner) remove code duplication
+func initRevocationWindows(chanA, chanB *lnwallet.LightningChannel, windowSize int) error {
+	aliceNextRevoke, err := chanA.NextRevocationKey()
+	if err != nil {
+		return err
+	}
+	if err := chanB.InitNextRevocation(aliceNextRevoke); err != nil {
+		return err
+	}
+
+	bobNextRevoke, err := chanB.NextRevocationKey()
+	if err != nil {
+		return err
+	}
+	if err := chanA.InitNextRevocation(bobNextRevoke); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// createHTLC is a utility function for generating an HTLC with a given
+// preimage and a given amount.
+// TODO(conner) remove code duplication
+func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [32]byte) {
+	preimage := bytes.Repeat([]byte{byte(data)}, 32)
+	paymentHash := sha256.Sum256(preimage)
+
+	var returnPreimage [32]byte
+	copy(returnPreimage[:], preimage)
+
+	return &lnwire.UpdateAddHTLC{
+		ID:          uint64(data),
+		PaymentHash: paymentHash,
+		Amount:      amount,
+		Expiry:      uint32(5),
+	}, returnPreimage
+}
+
+// forceStateTransition executes the necessary interaction between the two
+// commitment state machines to transition to a new state locking in any
+// pending updates.
+// TODO(conner) remove code duplication
+func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
+	aliceSig, aliceHtlcSigs, err := chanA.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+	if err = chanB.ReceiveNewCommitment(aliceSig, aliceHtlcSigs); err != nil {
+		return err
+	}
+
+	bobRevocation, err := chanB.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	bobSig, bobHtlcSigs, err := chanB.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+
+	if _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+		return err
+	}
+	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
+		return err
+	}
+
+	aliceRevocation, err := chanA.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	if _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+//
+// TODO(bvu): Refactor when dynamic fee estimation is added.
+// TODO(conner) remove code duplication
+func calcStaticFee(numHTLCs int) btcutil.Amount {
+	const (
+		commitWeight = btcutil.Amount(724)
+		htlcWeight   = 172
+		feePerKw     = btcutil.Amount(24/4) * 1000
+	)
+	return feePerKw * (commitWeight +
+		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }

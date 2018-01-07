@@ -1257,7 +1257,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 // workflow and is waiting for confirmations for the funding txn, or is in the
 // process of closure, either initiated cooperatively or non-cooperatively.
 func (r *rpcServer) PendingChannels(ctx context.Context,
-	in *lnrpc.PendingChannelRequest) (*lnrpc.PendingChannelResponse, error) {
+	in *lnrpc.PendingChannelsRequest) (*lnrpc.PendingChannelsResponse, error) {
 
 	// Check macaroon to see if this is allowed.
 	if r.authSvc != nil {
@@ -1274,7 +1274,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 	rpcsLog.Debugf("[pendingchannels]")
 
-	resp := &lnrpc.PendingChannelResponse{}
+	resp := &lnrpc.PendingChannelsResponse{}
 
 	// First, we'll populate the response with all the channels that are
 	// soon to be opened. We can easily fetch this data from the database
@@ -1283,7 +1283,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelResponse_PendingOpenChannel,
+	resp.PendingOpenChannels = make([]*lnrpc.PendingChannelsResponse_PendingOpenChannel,
 		len(pendingOpenChannels))
 	for i, pendingChan := range pendingOpenChannels {
 		pub := pendingChan.IdentityPub.SerializeCompressed()
@@ -1302,8 +1302,8 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		targetConfHeight := pendingChan.FundingBroadcastHeight + uint32(pendingChan.NumConfsRequired)
 		blocksTillOpen := int32(targetConfHeight) - bestHeight
-		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelResponse_PendingOpenChannel{
-			Channel: &lnrpc.PendingChannelResponse_PendingChannel{
+		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
+			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub: hex.EncodeToString(pub),
 				ChannelPoint:  pendingChan.FundingOutpoint.String(),
 				Capacity:      int64(pendingChan.Capacity),
@@ -1334,7 +1334,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// needed regardless of how this channel was closed.
 		pub := pendingClose.RemotePub.SerializeCompressed()
 		chanPoint := pendingClose.ChanPoint
-		channel := &lnrpc.PendingChannelResponse_PendingChannel{
+		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub: hex.EncodeToString(pub),
 			ChannelPoint:  chanPoint.String(),
 			Capacity:      int64(pendingClose.Capacity),
@@ -1350,7 +1350,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		case channeldb.CooperativeClose:
 			resp.PendingClosingChannels = append(
 				resp.PendingClosingChannels,
-				&lnrpc.PendingChannelResponse_ClosedChannel{
+				&lnrpc.PendingChannelsResponse_ClosedChannel{
 					Channel:     channel,
 					ClosingTxid: closeTXID,
 				},
@@ -1361,7 +1361,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.
 		case channeldb.ForceClose:
-			forceClose := &lnrpc.PendingChannelResponse_ForceClosedChannel{
+			forceClose := &lnrpc.PendingChannelsResponse_ForceClosedChannel{
 				Channel:     channel,
 				ClosingTxid: closeTXID,
 			}

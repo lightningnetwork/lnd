@@ -456,7 +456,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	// links were changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if !invoice.Terms.Settled {
 		t.Fatal("carol invoice haven't been settled")
@@ -912,7 +912,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1076,7 +1076,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -1164,7 +1164,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
-		t.Fatalf("unable to get inveoice: %v", err)
+		t.Fatalf("unable to get invoice: %v", err)
 	}
 	if invoice.Terms.Settled {
 		t.Fatal("carol invoice have been settled")
@@ -2263,5 +2263,67 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	if aliceFeeRate != bobFeeRate {
 		t.Fatalf("fee rates don't match: expected %v got %v",
 			aliceFeeRate, bobFeeRate)
+	}
+}
+
+// TestChannelLinkRejectDuplicatePayment tests that if a link receives an
+// incoming HTLC for a payment we have already settled, then it rejects the
+// HTLC. We do this as we want to enforce the fact that invoices are only to be
+// used _once.
+func TestChannelLinkRejectDuplicatePayment(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network. We'll only be
+	// interacting with and asserting the state of two of the end points
+	// for this test.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+	defer n.stop()
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	// We'll start off by making a payment from Alice to Carol. We'll
+	// manually generate this request so we can control all the parameters.
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+		blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+		t.Fatalf("unable to add invoice in carol registry: %v", err)
+	}
+
+	// With the invoice now added to Carol's registry, we'll send the
+	// payment. It should succeed w/o any issues as it has been crafted
+	// properly.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err != nil {
+		t.Fatalf("unable to send payment to carol: %v", err)
+	}
+
+	// Now, if we attempt to send the payment *again* it should be rejected
+	// as it's a duplicate request.
+	_, err = n.aliceServer.htlcSwitch.SendHTLC(n.bobServer.PubKey(), htlc,
+		newMockDeobfuscator())
+	if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
+		t.Fatal("error haven't been received")
 	}
 }

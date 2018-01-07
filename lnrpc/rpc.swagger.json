@@ -1249,6 +1249,13 @@
             "type": "string"
           },
           "title": "/ A list of active chains the node is connected to"
+        },
+        "uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "/ The URIs of the current node."
         }
       }
     },

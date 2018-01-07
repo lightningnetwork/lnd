@@ -435,7 +435,7 @@ type channelUpdateID struct {
 }
 
 // msgWithSenders is a wrapper struct around a message, and the set of peers
-// that oreignally sent ius this message. Using this struct, we can ensure that
+// that originally sent is this message. Using this struct, we can ensure that
 // we don't re-send a message to the peer that sent it to us in the first
 // place.
 type msgWithSenders struct {
@@ -450,7 +450,9 @@ type msgWithSenders struct {
 // batch. Internally, announcements are stored in three maps
 // (one each for channel announcements, channel updates, and node
 // announcements). These maps keep track of unique announcements and ensure no
-// announcements are duplicated.
+// announcements are duplicated. We keep the three message types separate, such
+// that we can send channel announcements first, then channel updates, and
+// finally node announcements when it's time to broadcast them.
 type deDupedAnnouncements struct {
 	// channelAnnouncements are identified by the short channel id field.
 	channelAnnouncements map[lnwire.ShortChannelID]msgWithSenders
@@ -527,12 +529,31 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 			msg.Flags,
 		}
 
+		oldTimestamp := uint32(0)
 		mws, ok := d.channelUpdates[deDupKey]
-		if !ok {
+		if ok {
+			// If we already have seen this message, record its
+			// timestamp.
+			oldTimestamp = mws.msg.(*lnwire.ChannelUpdate).Timestamp
+		}
+
+		// If we already had this message with a strictly newer
+		// timestamp, then we'll just discard the message we got.
+		if oldTimestamp > msg.Timestamp {
+			return
+		}
+
+		// If the message we just got is newer than what we previously
+		// have seen, or this is the first time we see it, then we'll
+		// add it to our map of announcements.
+		if oldTimestamp < msg.Timestamp {
 			mws = msgWithSenders{
 				msg:     msg,
 				senders: make(map[routing.Vertex]struct{}),
 			}
+
+			// We'll mark the sender of the message in the
+			// senders map.
 			mws.senders[sender] = struct{}{}
 
 			d.channelUpdates[deDupKey] = mws
@@ -540,6 +561,10 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 			return
 		}
 
+		// Lastly, if we had seen this exact message from before, with
+		// the same timestamp, we'll add the sender to the map of
+		// senders, such that we can skip sending this message back in
+		// the next batch.
 		mws.msg = msg
 		mws.senders[sender] = struct{}{}
 		d.channelUpdates[deDupKey] = mws
@@ -550,12 +575,26 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		sender := routing.NewVertex(message.peer)
 		deDupKey := routing.NewVertex(msg.NodeID)
 
+		// We do the same for node annonuncements as we did for channel
+		// updates, as they also carry a timestamp.
+		oldTimestamp := uint32(0)
 		mws, ok := d.nodeAnnouncements[deDupKey]
-		if !ok {
+		if ok {
+			oldTimestamp = mws.msg.(*lnwire.NodeAnnouncement).Timestamp
+		}
+
+		// Discard the message if it's old.
+		if oldTimestamp > msg.Timestamp {
+			return
+		}
+
+		// Replace if it's newer.
+		if oldTimestamp < msg.Timestamp {
 			mws = msgWithSenders{
 				msg:     msg,
 				senders: make(map[routing.Vertex]struct{}),
 			}
+
 			mws.senders[sender] = struct{}{}
 
 			d.nodeAnnouncements[deDupKey] = mws
@@ -563,6 +602,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 			return
 		}
 
+		// Add to senders map if it's the same as we had.
 		mws.msg = msg
 		mws.senders[sender] = struct{}{}
 		d.nodeAnnouncements[deDupKey] = mws

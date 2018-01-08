@@ -435,7 +435,7 @@ type channelUpdateID struct {
 }
 
 // msgWithSenders is a wrapper struct around a message, and the set of peers
-// that originally sent is this message. Using this struct, we can ensure that
+// that originally sent us this message. Using this struct, we can ensure that
 // we don't re-send a message to the peer that sent it to us in the first
 // place.
 type msgWithSenders struct {

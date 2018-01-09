@@ -3905,18 +3905,27 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 			continue
 		}
 
+		// We'll only forward any new HTLC additions iff, it's "freshly
+		// locked in". Meaning that the HTLC was only *just* considered
+		// locked-in at this new state. By doing this we ensure that we
+		// don't re-forward any already processed HTLC's after a
+		// restart.
 		if htlc.EntryType == Add &&
-			remoteChainTail >= htlc.addCommitHeightRemote &&
+			remoteChainTail == htlc.addCommitHeightRemote &&
 			localChainTail >= htlc.addCommitHeightLocal {
 
 			htlc.isForwarded = true
 			htlcsToForward = append(htlcsToForward, htlc)
-		} else if htlc.EntryType != Add &&
+			continue
+		}
+
+		if htlc.EntryType != Add &&
 			remoteChainTail >= htlc.removeCommitHeightRemote &&
 			localChainTail >= htlc.removeCommitHeightLocal {
 
 			htlc.isForwarded = true
 			htlcsToForward = append(htlcsToForward, htlc)
+			continue
 		}
 	}
 

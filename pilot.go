@@ -198,6 +198,24 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		}
 
 	}()
+	go func() {
+		defer txnSubscription.Cancel()
+		defer svr.wg.Done()
+
+		for {
+			select {
+			// We won't act upon new unconfirmed transaction, as
+			// we'll only use confirmed outputs when funding.
+			// However, we will still drain this request in order
+			// to avoid goroutine leaks, and ensure we promptly
+			// read from the channel if available.
+			case <-txnSubscription.UnconfirmedTransactions():
+			case <-svr.quit:
+				return
+			}
+		}
+
+	}()
 
 	// We'll also launch a goroutine to provide the agent with
 	// notifications for when the graph topology controlled by the node

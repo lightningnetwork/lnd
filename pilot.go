@@ -198,6 +198,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		}
 
 	}()
+	svr.wg.Add(1)
 	go func() {
 		defer txnSubscription.Cancel()
 		defer svr.wg.Done()

@@ -798,13 +798,16 @@ message GetInfoResponse {
     string block_hash = 8 [json_name = "block_hash"];
 
     /// Whether the wallet's view is synced to the main chain
-    bool synced_to_chain = 9 [ json_name = "synced_to_chain" ];
+    bool synced_to_chain = 9 [json_name = "synced_to_chain"];
 
     /// Whether the current node is connected to testnet
-    bool testnet = 10 [ json_name = "testnet" ];
+    bool testnet = 10 [json_name = "testnet"];
 
     /// A list of active chains the node is connected to
-    repeated string chains = 11 [ json_name = "chains" ];
+    repeated string chains = 11 [json_name = "chains"];
+
+    /// The URIs of the current node.
+    repeated string uris = 12 [json_name = "uris"];
 }
 
 message ConfirmationUpdate {
@@ -931,9 +934,6 @@ message PendingChannelsResponse {
 
         /// The height at which this channel will be confirmed
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
-
-        /// The number of blocks until this channel is open
-        int32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
 
         /**
         The amount calculated to be paid in fees for the current set of

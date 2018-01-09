@@ -289,7 +289,6 @@ func (l *channelLink) Stop() {
 	close(l.quit)
 	l.wg.Wait()
 
-	l.cfg.BlockEpochs.Cancel()
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to
@@ -355,6 +354,7 @@ func shouldAdjustCommitFee(netFee, chanFee btcutil.Amount) bool {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.wg.Done()
+		l.cfg.BlockEpochs.Cancel()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
 
@@ -893,11 +893,26 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.CommitSig:
-		// We just received a new updates to our local commitment chain,
-		// validate this new commitment, closing the link if invalid.
+		// We just received a new updates to our local commitment
+		// chain, validate this new commitment, closing the link if
+		// invalid.
 		err := l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
 		if err != nil {
-			l.fail("unable to accept new commitment: %v", err)
+			// If we were unable to reconstruct their proposed
+			// commitment, then we'll examine the type of error. If
+			// it's an InvalidCommitSigError, then we'll send a
+			// direct error.
+			//
+			// TODO(roasbeef): force close chan
+			if _, ok := err.(*lnwallet.InvalidCommitSigError); ok {
+				l.cfg.Peer.SendMessage(&lnwire.Error{
+					ChanID: l.ChanID(),
+					Data:   []byte(err.Error()),
+				})
+			}
+
+			l.fail("ChannelPoint(%v): unable to accept new "+
+				"commitment: %v", l.channel.ChannelPoint(), err)
 			return
 		}
 

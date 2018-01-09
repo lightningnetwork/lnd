@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"math/rand"
 	"os"
 	"reflect"
@@ -904,7 +905,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	// With the proposals created, both sides should be able to properly
 	// process the other party's signature. This indicates that the
 	// transaction is well formed, and the signatures verify.
-	aliceCloseTx, err := bobChannel.CompleteCooperativeClose(
+	aliceCloseTx, _, err := bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig, bobDeliveryScript,
 		aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -912,7 +913,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	}
 	bobCloseSha := aliceCloseTx.TxHash()
 
-	bobCloseTx, err := aliceChannel.CompleteCooperativeClose(
+	bobCloseTx, _, err := aliceChannel.CompleteCooperativeClose(
 		aliceCloseSig, bobCloseSig, aliceDeliveryScript,
 		bobDeliveryScript, aliceFee)
 	if err != nil {
@@ -2019,7 +2020,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig := append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err := bobChannel.CompleteCooperativeClose(
+	closeTx, _, err := bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -2057,7 +2058,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig = append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err = bobChannel.CompleteCooperativeClose(
+	closeTx, _, err = bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -2099,7 +2100,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig = append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err = bobChannel.CompleteCooperativeClose(
+	closeTx, _, err = bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -4071,6 +4072,191 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 	_, _, err = aliceChannel.SignNextCommitment()
 	if err != ErrNoWindow {
 		t.Fatalf("expected ErrNoWindow, instead have: %v", err)
+	}
+}
+
+// TestLockedInHtlcForwardingSkipAfterRestart ensures that after a restart, a
+// state machine doesn't attempt to re-forward any HTLC's that were already
+// locked in, but in a prior state.
+func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a channel between Alice and Bob.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// We'll now add two HTLC's from Bob to Alice, then Bob will initiate a
+	// state transition.
+	var htlcAmt lnwire.MilliSatoshi = 100000
+	htlc, _ := createHTLC(0, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+	htlc2, _ := createHTLC(1, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc2); err != nil {
+		t.Fatalf("unable to add htlc2: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc2); err != nil {
+		t.Fatalf("unable to recv htlc2: %v", err)
+	}
+
+	// We'll now manually initiate a state transition between Alice and
+	// bob.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobRevocation, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Alice should detect that she doesn't need to forward any HTLC's.
+	aliceHtlcsToForward, err := aliceChannel.ReceiveRevocation(
+		bobRevocation,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceHtlcsToForward) != 0 {
+		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
+			"forward %v htlcs", len(aliceHtlcsToForward))
+	}
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRevocation, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob on the other hand, should detect that he now has 2 incoming
+	// HTLC's that he can forward along.
+	bobHtlcsToForward, err := bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bobHtlcsToForward) != 2 {
+		t.Fatalf("bob should forward 2 hltcs, instead has %v",
+			len(bobHtlcsToForward))
+	}
+
+	// We'll now restart both Alice and Bob. This emulates a reconnection
+	// between the two peers.
+	aliceChannel, err = restartChannel(aliceChannel)
+	if err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
+	}
+	bobChannel, err = restartChannel(bobChannel)
+	if err != nil {
+		t.Fatalf("unable to restart bob: %v", err)
+	}
+
+	// With both nodes restarted, Bob will now attempt to cancel one of
+	// Alice's HTLC's.
+	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"))
+	if err != nil {
+		t.Fatalf("unable to cancel HTLC: %v", err)
+	}
+	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
+	if err != nil {
+		t.Fatalf("unable to recv htlc cancel: %v", err)
+	}
+
+	// We'll now initiate another state transition, but this time Bob will
+	// lead.
+	bobSig, bobHtlcSigs, err = bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRevocation, err = aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceSig, aliceHtlcSigs, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// At this point, Bob receives the revocation from Alice, which is now
+	// his signal to examine all the HTLC's that have been locked in to
+	// process.
+	bobHtlcsToForward, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob should detect that he doesn't need to forward *any* HTLC's, as
+	// he was the one that initiated extending the commitment chain of
+	// Alice.
+	if len(bobHtlcsToForward) != 0 {
+		t.Fatalf("bob shouldn't forward any htlcs, but has: %v",
+			spew.Sdump(bobHtlcsToForward))
+	}
+}
+
+// TestInvalidCommitSigError tests that if the remote party sends us an invalid
+// commitment signature, then we'll reject it and return a special error that
+// contains information to allow the remote party to debug their issues.
+func TestInvalidCommitSigError(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a channel between Alice and Bob.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// With the channel established, we'll now send a single HTLC from
+	// Alice to Bob.
+	var htlcAmt lnwire.MilliSatoshi = 100000
+	htlc, _ := createHTLC(0, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Alice will now attempt to initiate a state transition.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign new commit: %v", err)
+	}
+
+	// Before the signature gets to Bob, we'll mutate it, such that the
+	// signature is now actually invalid.
+	aliceSig.R.Add(aliceSig.R, new(big.Int).SetInt64(1))
+
+	// Bob should reject this new state, and return the proper error.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err == nil {
+		t.Fatalf("bob accepted invalid state but shouldn't have")
+	}
+	if _, ok := err.(*InvalidCommitSigError); !ok {
+		t.Fatalf("bob sent incorrect error, expected %T, got %T",
+			&InvalidCommitSigError{}, err)
 	}
 }
 

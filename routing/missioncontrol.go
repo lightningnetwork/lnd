@@ -77,69 +77,15 @@ func newMissionControl(g *channeldb.ChannelGraph,
 	}
 }
 
-// ReportVertexFailure adds a vertex to the graph prune view after a client
-// reports a routing failure localized to the vertex. The time the vertex was
-// added is noted, as it'll be pruned from the view after a period of
-// vertexDecay.
-func (m *missionControl) ReportVertexFailure(v Vertex) {
-	log.Debugf("Reporting vertex %v failure to Mission Control", v)
+// graphPruneView is a filter of sorts that path finding routines should
+// consult during the execution. Any edges or vertexes within the view should
+// be ignored during path finding. The contents of the view reflect the current
+// state of the wider network from the PoV of mission control compiled via HTLC
+// routing attempts in the past.
+type graphPruneView struct {
+	edges map[uint64]struct{}
 
-	m.Lock()
-	m.failedVertexes[v] = time.Now()
-	m.Unlock()
-}
-
-// ReportChannelFailure adds a channel to the graph prune view. The time the
-// channel was added is noted, as it'll be pruned from the view after a period
-// of edgeDecay.
-//
-// TODO(roasbeef): also add value attempted to send and capacity of channel
-func (m *missionControl) ReportChannelFailure(e uint64) {
-	log.Debugf("Reporting edge %v failure to Mission Control", e)
-
-	m.Lock()
-	m.failedEdges[e] = time.Now()
-	m.Unlock()
-}
-
-// RequestRoute returns a route which is likely to be capable for successfully
-// routing the specified HTLC payment to the target node. Initially the first
-// set of paths returned from this method may encounter routing failure along
-// the way, however as more payments are sent, mission control will start to
-// build an up to date view of the network itself. With each payment a new area
-// will be explored, which feeds into the recommendations made for routing.
-//
-// NOTE: This function is safe for concurrent access.
-func (m *missionControl) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*Route, error) {
-
-	// First, we'll query mission control for it's current recommendation
-	// on the edges/vertexes to ignore during path finding.
-	pruneView := m.GraphPruneView()
-
-	// TODO(roasbeef): sync logic amongst dist sys
-
-	// Taking into account this prune view, we'll attempt to locate a path
-	// to our destination, respecting the recommendations from
-	// missionControl.
-	path, err := findPath(nil, m.graph, m.selfNode, payment.Target,
-		pruneView.vertexes, pruneView.edges, payment.Amount)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the next candidate path found, we'll attempt to turn this into
-	// a route by applying the time-lock and fee requirements.
-	sourceVertex := NewVertex(m.selfNode.PubKey)
-	route, err := newRoute(payment.Amount, sourceVertex, path, height,
-		finalCltvDelta)
-	if err != nil {
-		// TODO(roasbeef): return which edge/vertex didn't work
-		// out
-		return nil, err
-	}
-
-	return route, err
+	vertexes map[Vertex]struct{}
 }
 
 // GraphPruneView returns a new graphPruneView instance which is to be
@@ -147,7 +93,7 @@ func (m *missionControl) RequestRoute(payment *LightningPayment,
 // prune view, it is to be ignored as a goroutine has had issues routing
 // through it successfully. Within this method the main view of the
 // missionControl is garbage collected as entires are detected to be "stale".
-func (m *missionControl) GraphPruneView() *graphPruneView {
+func (m *missionControl) GraphPruneView() graphPruneView {
 	// First, we'll grab the current time, this value will be used to
 	// determine if an entry is stale or not.
 	now := time.Now()
@@ -190,21 +136,115 @@ func (m *missionControl) GraphPruneView() *graphPruneView {
 	log.Debugf("Mission Control returning prune view of %v edges, %v "+
 		"vertexes", len(edges), len(vertexes))
 
-	return &graphPruneView{
+	return graphPruneView{
 		edges:    edges,
 		vertexes: vertexes,
 	}
 }
 
-// graphPruneView is a filter of sorts that path finding routines should
-// consult during the execution. Any edges or vertexes within the view should
-// be ignored during path finding. The contents of the view reflect the current
-// state of the wider network from the PoV of mission control compiled via HTLC
-// routing attempts in the past.
-type graphPruneView struct {
-	edges map[uint64]struct{}
+// paymentSession is used during an HTLC routings session to prune the local
+// chain view in response to failures, and also report those failures back to
+// missionControl. The snapshot copied for this session will only ever grow,
+// and will now be pruned after a decay like the main view within mission
+// control. We do this as we want to avoid the case where we continually try a
+// bad edge or route multiple times in a session. This can lead to an infinite
+// loop if payment attempts take long enough.
+type paymentSession struct {
+	pruneViewSnapshot graphPruneView
 
-	vertexes map[Vertex]struct{}
+	mc *missionControl
+}
+
+// NewPaymentSession creates a new payment session backed by the latest prune
+// view from Mission Control.
+func (m *missionControl) NewPaymentSession() *paymentSession {
+	viewSnapshot := m.GraphPruneView()
+
+	return &paymentSession{
+		pruneViewSnapshot: viewSnapshot,
+		mc:                m,
+	}
+}
+
+// ReportVertexFailure adds a vertex to the graph prune view after a client
+// reports a routing failure localized to the vertex. The time the vertex was
+// added is noted, as it'll be pruned from the shared view after a period of
+// vertexDecay. However, the vertex will remain pruned for the *local* session.
+// This ensures we don't retry this vertex during the payment attempt.
+func (p *paymentSession) ReportVertexFailure(v Vertex) {
+	log.Debugf("Reporting vertex %v failure to Mission Control", v)
+
+	// First, we'll add the failed vertex to our local prune view snapshot.
+	p.pruneViewSnapshot.vertexes[v] = struct{}{}
+
+	// With the vertex added, we'll now report back to the global prune
+	// view, with this new piece of information so it can be utilized for
+	// new payment sessions.
+	p.mc.Lock()
+	p.mc.failedVertexes[v] = time.Now()
+	p.mc.Unlock()
+}
+
+// ReportChannelFailure adds a channel to the graph prune view. The time the
+// channel was added is noted, as it'll be pruned from the global view after a
+// period of edgeDecay. However, the edge will remain pruned for the duration
+// of the *local* session. This ensures that we don't flap by continually
+// retrying an edge after its pruning has expired.
+//
+// TODO(roasbeef): also add value attempted to send and capacity of channel
+func (p *paymentSession) ReportChannelFailure(e uint64) {
+	log.Debugf("Reporting edge %v failure to Mission Control", e)
+
+	// First, we'll add the failed edge to our local prune view snapshot.
+	p.pruneViewSnapshot.edges[e] = struct{}{}
+
+	// With the edge added, we'll now report back to the global prune view,
+	// with this new piece of information so it can be utilized for new
+	// payment sessions.
+	p.mc.Lock()
+	p.mc.failedEdges[e] = time.Now()
+	p.mc.Unlock()
+}
+
+// RequestRoute returns a route which is likely to be capable for successfully
+// routing the specified HTLC payment to the target node. Initially the first
+// set of paths returned from this method may encounter routing failure along
+// the way, however as more payments are sent, mission control will start to
+// build an up to date view of the network itself. With each payment a new area
+// will be explored, which feeds into the recommendations made for routing.
+//
+// NOTE: This function is safe for concurrent access.
+func (p *paymentSession) RequestRoute(payment *LightningPayment,
+	height uint32, finalCltvDelta uint16) (*Route, error) {
+
+	// First, we'll obtain our current prune view snapshot. This view will
+	// only ever grow during the duration of this payment session, never
+	// shrinking.
+	pruneView := p.pruneViewSnapshot
+
+	// TODO(roasbeef): sync logic amongst dist sys
+
+	// Taking into account this prune view, we'll attempt to locate a path
+	// to our destination, respecting the recommendations from
+	// missionControl.
+	path, err := findPath(nil, p.mc.graph, p.mc.selfNode, payment.Target,
+		pruneView.vertexes, pruneView.edges, payment.Amount)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the next candidate path found, we'll attempt to turn this into
+	// a route by applying the time-lock and fee requirements.
+	sourceVertex := NewVertex(p.mc.selfNode.PubKey)
+	route, err := newRoute(payment.Amount, sourceVertex, path, height,
+		finalCltvDelta)
+	if err != nil {
+		// TODO(roasbeef): return which edge/vertex didn't work
+		// out
+		return nil, err
+	}
+
+	return route, err
 }
 
 // ResetHistory resets the history of missionControl returning it to a state as

@@ -3591,6 +3591,33 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	return verifyJobs
 }
 
+// InvalidCommitSigError is a struct that implements the error interface to
+// report a failure to validation a commitment signature for a remote peer.
+// We'll use the items in this struct to generate a rich error message for the
+// remote peer when we receive an invalid signature from it. Doing so can
+// greatly aide in debugging cross implementation issues.
+type InvalidCommitSigError struct {
+	commitHeight uint64
+
+	commitSig []byte
+
+	sigHash []byte
+
+	commitTx []byte
+}
+
+// Error returns a detailed error string including the exact transaction that
+// caused an invalid commitment signature.
+func (i *InvalidCommitSigError) Error() string {
+	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
+		"invalid_sig=%x, commit_tx=%x, sig_hash=%x", i.commitHeight,
+		i.commitSig[:], i.commitTx, i.sigHash[:])
+}
+
+// A compile time flag to ensure that InvalidCommitSigError implements the
+// error interface.
+var _ error = (*InvalidCommitSigError)(nil)
+
 // ReceiveNewCommitment process a signature for a new commitment state sent by
 // the remote party. This method should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
@@ -3688,7 +3715,19 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	}
 	if !commitSig.Verify(sigHash, &verifyKey) {
 		close(cancelChan)
-		return fmt.Errorf("invalid commitment signature")
+
+		// If we fail to validate their commitment signature, we'll
+		// generate a special error to send over the protocol. We'll
+		// include the exact signature and commitment we failed to
+		// verify against in order to aide debugging.
+		var txBytes bytes.Buffer
+		localCommitTx.Serialize(&txBytes)
+		return &InvalidCommitSigError{
+			commitHeight: nextHeight,
+			commitSig:    commitSig.Serialize(),
+			sigHash:      sigHash,
+			commitTx:     txBytes.Bytes(),
+		}
 	}
 
 	// With the primary commitment transaction validated, we'll check each
@@ -3866,18 +3905,27 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) ([]*P
 			continue
 		}
 
+		// We'll only forward any new HTLC additions iff, it's "freshly
+		// locked in". Meaning that the HTLC was only *just* considered
+		// locked-in at this new state. By doing this we ensure that we
+		// don't re-forward any already processed HTLC's after a
+		// restart.
 		if htlc.EntryType == Add &&
-			remoteChainTail >= htlc.addCommitHeightRemote &&
+			remoteChainTail == htlc.addCommitHeightRemote &&
 			localChainTail >= htlc.addCommitHeightLocal {
 
 			htlc.isForwarded = true
 			htlcsToForward = append(htlcsToForward, htlc)
-		} else if htlc.EntryType != Add &&
+			continue
+		}
+
+		if htlc.EntryType != Add &&
 			remoteChainTail >= htlc.removeCommitHeightRemote &&
 			localChainTail >= htlc.removeCommitHeightLocal {
 
 			htlc.isForwarded = true
 			htlcsToForward = append(htlcsToForward, htlc)
+			continue
 		}
 	}
 
@@ -3930,8 +3978,8 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	}
 
 	// To ensure that we can actually fully accept this new HTLC, we'll
-	// calculate the current available bandwidth, and subtract the value
-	// ofthe HTLC from it.
+	// calculate the current available bandwidth, and subtract the value of
+	// the HTLC from it.
 	initialBalance, _ := lc.availableBalance()
 	availableBalance := initialBalance
 	availableBalance -= htlc.Amount
@@ -4739,13 +4787,14 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 // CompleteCooperativeClose completes the cooperative closure of the target
 // active lightning channel. A fully signed closure transaction as well as the
-// signature itself are returned.
+// signature itself are returned. Additionally, we also return our final
+// settled balance, which reflects any fees we may have paid.
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
+func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, error) {
+	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4753,7 +4802,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// If the channel is already closed, then ignore this request.
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
-		return nil, ErrChanClosing
+		return nil, 0, ErrChanClosing
 	}
 
 	// Subtract the proposed fee from the appropriate balance, taking care
@@ -4785,7 +4834,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	hashCache := txscript.NewTxSigHashes(closeTx)
 
@@ -4803,10 +4852,10 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 		txscript.StandardVerifyFlags, nil, hashCache,
 		int64(lc.channelState.Capacity))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := vm.Execute(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// As the transaction is sane, and the scripts are valid we'll mark the
@@ -4814,7 +4863,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// chain in a timely manner and possibly be re-broadcast by the wallet.
 	lc.status = channelClosed
 
-	return closeTx, nil
+	return closeTx, ourBalance, nil
 }
 
 // DeleteState deletes all state concerning the channel from the underlying

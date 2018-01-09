@@ -142,8 +142,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	}
 
 	var (
-		err     error
-		cleanUp func()
+		err        error
+		cleanUp    func()
+		rawRPCConn *chain.RPCClient
 	)
 
 	// If spv mode is active, then we'll be using a distinct set of
@@ -269,6 +270,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		}
 
 		walletConfig.ChainSource = chainRPC
+		rawRPCConn = chainRPC
 
 		// If we're not in simnet or regtest mode, then we'll attempt
 		// to use a proper fee estimator for testnet.
@@ -329,6 +331,35 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	ltndLog.Info("LightningWallet opened")
 
 	cc.wallet = wallet
+
+	// As a final check, if we're using the RPC backend, we'll ensure that
+	// the btcd node has the txindex set. Atm, this is required in order to
+	// properly perform historical confirmation+spend dispatches.
+	if !cfg.NeutrinoMode.Active {
+		// In order to check to see if we have the txindex up to date
+		// and active, we'll try to fetch the first transaction in the
+		// latest block via the index. If this doesn't succeed, then we
+		// know it isn't active (or just not yet up to date).
+		bestHash, _, err := cc.chainIO.GetBestBlock()
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to get current "+
+				"best hash: %v", err)
+		}
+		bestBlock, err := cc.chainIO.GetBlock(bestHash)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to get current "+
+				"block hash: %v", err)
+		}
+
+		firstTxHash := bestBlock.Transactions[0].TxHash()
+		_, err = rawRPCConn.GetRawTransaction(&firstTxHash)
+		if err != nil {
+			// If the node doesn't have the txindex set, then we'll
+			// halt startup, as we can't proceed in this state.
+			return nil, nil, fmt.Errorf("btcd detected to not " +
+				"have --txindex active, cannot proceed")
+		}
+	}
 
 	return cc, cleanUp, nil
 }

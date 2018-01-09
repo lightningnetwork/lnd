@@ -3591,6 +3591,33 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	return verifyJobs
 }
 
+// InvalidCommitSigError is a struct that implements the error interface to
+// report a failure to validation a commitment signature for a remote peer.
+// We'll use the items in this struct to generate a rich error message for the
+// remote peer when we receive an invalid signature from it. Doing so can
+// greatly aide in debugging cross implementation issues.
+type InvalidCommitSigError struct {
+	commitHeight uint64
+
+	commitSig []byte
+
+	sigHash []byte
+
+	commitTx []byte
+}
+
+// Error returns a detailed error string including the exact transaction that
+// caused an invalid commitment signature.
+func (i *InvalidCommitSigError) Error() string {
+	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
+		"invalid_sig=%x, commit_tx=%x, sig_hash=%x", i.commitHeight,
+		i.commitSig[:], i.commitTx, i.sigHash[:])
+}
+
+// A compile time flag to ensure that InvalidCommitSigError implements the
+// error interface.
+var _ error = (*InvalidCommitSigError)(nil)
+
 // ReceiveNewCommitment process a signature for a new commitment state sent by
 // the remote party. This method should be called in response to the
 // remote party initiating a new change, or when the remote party sends a
@@ -3688,7 +3715,19 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig *btcec.Signature,
 	}
 	if !commitSig.Verify(sigHash, &verifyKey) {
 		close(cancelChan)
-		return fmt.Errorf("invalid commitment signature")
+
+		// If we fail to validate their commitment signature, we'll
+		// generate a special error to send over the protocol. We'll
+		// include the exact signature and commitment we failed to
+		// verify against in order to aide debugging.
+		var txBytes bytes.Buffer
+		localCommitTx.Serialize(&txBytes)
+		return &InvalidCommitSigError{
+			commitHeight: nextHeight,
+			commitSig:    commitSig.Serialize(),
+			sigHash:      sigHash,
+			commitTx:     txBytes.Bytes(),
+		}
 	}
 
 	// With the primary commitment transaction validated, we'll check each

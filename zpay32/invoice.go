@@ -700,7 +700,7 @@ func parseFieldDataLength(data []byte) (uint16, error) {
 			len(data))
 	}
 
-	return uint16(data[0]<<5) | uint16(data[1]), nil
+	return uint16(data[0])<<5 | uint16(data[1]), nil
 }
 
 // parsePaymentHash converts a 256-bit payment hash (encoded in base32)

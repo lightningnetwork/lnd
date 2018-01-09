@@ -4074,4 +4074,49 @@ func TestSignCommitmentFailNotLockedIn(t *testing.T) {
 	}
 }
 
+// TestInvalidCommitSigError tests that if the remote party sends us an invalid
+// commitment signature, then we'll reject it and return a special error that
+// contains information to allow the remote party to debug their issues.
+func TestInvalidCommitSigError(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a channel between Alice and Bob.
+	aliceChannel, bobChannel, cleanUp, err := createTestChannels(1)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// With the channel established, we'll now send a single HTLC from
+	// Alice to Bob.
+	var htlcAmt lnwire.MilliSatoshi = 100000
+	htlc, _ := createHTLC(0, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Alice will now attempt to initiate a state transition.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign new commit: %v", err)
+	}
+
+	// Before the signature gets to Bob, we'll mutate it, such that the
+	// signature is now actually invalid.
+	aliceSig.R.Add(aliceSig.R, new(big.Int).SetInt64(1))
+
+	// Bob should reject this new state, and return the proper error.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err == nil {
+		t.Fatalf("bob accepted invalid state but shouldn't have")
+	}
+	if _, ok := err.(*InvalidCommitSigError); !ok {
+		t.Fatalf("bob sent incorrect error, expected %T, got %T",
+			&InvalidCommitSigError{}, err)
+	}
+}
+
 // TODO(roasbeef): testing.Quick test case for retrans!!!

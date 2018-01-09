@@ -183,7 +183,7 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 	// We'll launch a goroutine to provide the agent with notifications
 	// whenever the balance of the wallet changes.
-	svr.wg.Add(1)
+	svr.wg.Add(2)
 	go func() {
 		defer txnSubscription.Cancel()
 		defer svr.wg.Done()
@@ -199,7 +199,6 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 
 	}()
 	go func() {
-		defer txnSubscription.Cancel()
 		defer svr.wg.Done()
 
 		for {

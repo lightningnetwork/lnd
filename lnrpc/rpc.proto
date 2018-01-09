@@ -935,9 +935,6 @@ message PendingChannelsResponse {
         /// The height at which this channel will be confirmed
         uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
 
-        /// The number of blocks until this channel is open
-        int32 blocks_till_open = 3 [ json_name = "blocks_till_open" ];
-
         /**
         The amount calculated to be paid in fees for the current set of
         commitment transactions. The fee amount is persisted with the channel

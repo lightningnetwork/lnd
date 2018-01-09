@@ -783,11 +783,6 @@
           "format": "int64",
           "title": "/ The height at which this channel will be confirmed"
         },
-        "blocks_till_open": {
-          "type": "integer",
-          "format": "int32",
-          "title": "/ The number of blocks until this channel is open"
-        },
         "commit_fee": {
           "type": "string",
           "format": "int64",

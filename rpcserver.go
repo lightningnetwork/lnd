@@ -1282,11 +1282,6 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		}
 	}
 
-	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
 	rpcsLog.Debugf("[pendingchannels]")
 
 	resp := &lnrpc.PendingChannelsResponse{}
@@ -1315,8 +1310,6 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
 
-		targetConfHeight := pendingChan.FundingBroadcastHeight + uint32(pendingChan.NumConfsRequired)
-		blocksTillOpen := int32(targetConfHeight) - bestHeight
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub: hex.EncodeToString(pub),
@@ -1325,10 +1318,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				LocalBalance:  int64(localCommitment.LocalBalance.ToSatoshis()),
 				RemoteBalance: int64(localCommitment.RemoteBalance.ToSatoshis()),
 			},
-			CommitWeight:   commitWeight,
-			CommitFee:      int64(localCommitment.CommitFee),
-			FeePerKw:       int64(localCommitment.FeePerKw),
-			BlocksTillOpen: blocksTillOpen,
+			CommitWeight: commitWeight,
+			CommitFee:    int64(localCommitment.CommitFee),
+			FeePerKw:     int64(localCommitment.FeePerKw),
 			// TODO(roasbeef): need to track confirmation height
 		}
 	}

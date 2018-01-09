@@ -557,8 +557,7 @@ func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
 		return fmt.Errorf("data too short: %d", len(data))
 	}
 
-	// Timestamp: 35 bits, 7 groups.
-	t, err := base32ToUint64(data[:7])
+	t, err := parseTimestamp(data[:timestampBase32Len])
 	if err != nil {
 		return err
 	}
@@ -575,7 +574,7 @@ func parseData(invoice *Invoice, data []byte, net *chaincfg.Params) error {
 
 // parseTimestamp converts a 35-bit timestamp (encoded in base32) to uint64.
 func parseTimestamp(data []byte) (uint64, error) {
-	if len(data) != 7 {
+	if len(data) != timestampBase32Len {
 		return 0, fmt.Errorf("timestamp must be 35 bits, was %d",
 			len(data)*5)
 	}

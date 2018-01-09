@@ -904,7 +904,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	// With the proposals created, both sides should be able to properly
 	// process the other party's signature. This indicates that the
 	// transaction is well formed, and the signatures verify.
-	aliceCloseTx, err := bobChannel.CompleteCooperativeClose(
+	aliceCloseTx, _, err := bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig, bobDeliveryScript,
 		aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -912,7 +912,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	}
 	bobCloseSha := aliceCloseTx.TxHash()
 
-	bobCloseTx, err := aliceChannel.CompleteCooperativeClose(
+	bobCloseTx, _, err := aliceChannel.CompleteCooperativeClose(
 		aliceCloseSig, bobCloseSig, aliceDeliveryScript,
 		bobDeliveryScript, aliceFee)
 	if err != nil {
@@ -2019,7 +2019,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig := append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err := bobChannel.CompleteCooperativeClose(
+	closeTx, _, err := bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -2057,7 +2057,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig = append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err = bobChannel.CompleteCooperativeClose(
+	closeTx, _, err = bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {
@@ -2099,7 +2099,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	bobCloseSig = append(bobSig, byte(txscript.SigHashAll))
 
-	closeTx, err = bobChannel.CompleteCooperativeClose(
+	closeTx, _, err = bobChannel.CompleteCooperativeClose(
 		bobCloseSig, aliceCloseSig,
 		bobDeliveryScript, aliceDeliveryScript, bobFee)
 	if err != nil {

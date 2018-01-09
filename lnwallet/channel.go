@@ -3930,8 +3930,8 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) 
 	}
 
 	// To ensure that we can actually fully accept this new HTLC, we'll
-	// calculate the current available bandwidth, and subtract the value
-	// ofthe HTLC from it.
+	// calculate the current available bandwidth, and subtract the value of
+	// the HTLC from it.
 	initialBalance, _ := lc.availableBalance()
 	availableBalance := initialBalance
 	availableBalance -= htlc.Amount
@@ -4739,13 +4739,14 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 // CompleteCooperativeClose completes the cooperative closure of the target
 // active lightning channel. A fully signed closure transaction as well as the
-// signature itself are returned.
+// signature itself are returned. Additionally, we also return our final
+// settled balance, which reflects any fees we may have paid.
 //
 // NOTE: The passed local and remote sigs are expected to be fully complete
 // signatures including the proper sighash byte.
-func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
+func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, error) {
+	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4753,7 +4754,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// If the channel is already closed, then ignore this request.
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
-		return nil, ErrChanClosing
+		return nil, 0, ErrChanClosing
 	}
 
 	// Subtract the proposed fee from the appropriate balance, taking care
@@ -4785,7 +4786,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	hashCache := txscript.NewTxSigHashes(closeTx)
 
@@ -4803,10 +4804,10 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 		txscript.StandardVerifyFlags, nil, hashCache,
 		int64(lc.channelState.Capacity))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := vm.Execute(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// As the transaction is sane, and the scripts are valid we'll mark the
@@ -4814,7 +4815,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig,
 	// chain in a timely manner and possibly be re-broadcast by the wallet.
 	lc.status = channelClosed
 
-	return closeTx, nil
+	return closeTx, ourBalance, nil
 }
 
 // DeleteState deletes all state concerning the channel from the underlying

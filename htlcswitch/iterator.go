@@ -170,7 +170,7 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterat
 			return nil, lnwire.CodeInvalidOnionKey
 		default:
 			log.Errorf("unable to decode onion packet: %v", err)
-			return nil, lnwire.CodeTemporaryChannelFailure
+			return nil, lnwire.CodeInvalidOnionKey
 		}
 	}
 
@@ -190,7 +190,7 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte) (HopIterat
 			return nil, lnwire.CodeInvalidOnionKey
 		default:
 			log.Errorf("unable to process onion packet: %v", err)
-			return nil, lnwire.CodeTemporaryChannelFailure
+			return nil, lnwire.CodeInvalidOnionKey
 		}
 	}
 
@@ -216,7 +216,7 @@ func (p *OnionProcessor) ExtractErrorEncrypter(r io.Reader) (ErrorEncrypter, lnw
 			return nil, lnwire.CodeInvalidOnionKey
 		default:
 			log.Errorf("unable to decode onion packet: %v", err)
-			return nil, lnwire.CodeTemporaryChannelFailure
+			return nil, lnwire.CodeInvalidOnionKey
 		}
 	}
 
@@ -232,7 +232,7 @@ func (p *OnionProcessor) ExtractErrorEncrypter(r io.Reader) (ErrorEncrypter, lnw
 			return nil, lnwire.CodeInvalidOnionKey
 		default:
 			log.Errorf("unable to process onion packet: %v", err)
-			return nil, lnwire.CodeTemporaryChannelFailure
+			return nil, lnwire.CodeInvalidOnionKey
 		}
 	}
 

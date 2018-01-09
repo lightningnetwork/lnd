@@ -289,7 +289,6 @@ func (l *channelLink) Stop() {
 	close(l.quit)
 	l.wg.Wait()
 
-	l.cfg.BlockEpochs.Cancel()
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to
@@ -355,6 +354,7 @@ func shouldAdjustCommitFee(netFee, chanFee btcutil.Amount) bool {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.wg.Done()
+		l.cfg.BlockEpochs.Cancel()
 		log.Infof("ChannelLink(%v) has exited", l)
 	}()
 

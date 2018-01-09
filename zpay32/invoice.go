@@ -797,7 +797,13 @@ func parseMinFinalCLTVExpiry(data []byte) (*uint64, error) {
 // parseFallbackAddr converts the data (encoded in base32) into a fallback
 // on-chain address.
 func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, error) {
+	// Checks if the data is empty or contains a version without an address.
+	if len(data) < 2 {
+		return nil, fmt.Errorf("empty fallback address field")
+	}
+
 	var addr btcutil.Address
+
 	version := data[0]
 	switch version {
 	case 0:

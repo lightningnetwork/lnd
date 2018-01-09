@@ -1372,15 +1372,21 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		finalCLTVDelta = *payment.FinalCLTVDelta
 	}
 
+	// Before starting the HTLC routing attempt, we'll create a fresh
+	// payment session which will report our errors back to mission
+	// control.
+	paySession := r.missionControl.NewPaymentSession()
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
 		// We'll kick things off by requesting a new route from mission
-		// control, which will incoroporate the current best known
-		// state of the channel graph and our past HTLC routing
+		// control, which will incorporate the current best known state
+		// of the channel graph and our past HTLC routing
 		// successes/failures.
-		route, err := r.missionControl.RequestRoute(payment,
-			uint32(currentHeight), finalCLTVDelta)
+		route, err := paySession.RequestRoute(
+			payment, uint32(currentHeight), finalCLTVDelta,
+		)
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.
@@ -1546,7 +1552,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// If the channel was found, then we'll inform
 				// mission control of this failure so future
 				// attempts avoid this link temporarily.
-				r.missionControl.ReportChannelFailure(badChan)
+				paySession.ReportChannelFailure(badChan)
 				continue
 
 			// If the send fail due to a node not having the
@@ -1581,7 +1587,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// Once we've located the vertex, we'll report
 				// this failure to missionControl and restart
 				// path finding.
-				r.missionControl.ReportVertexFailure(missingNode)
+				paySession.ReportVertexFailure(missingNode)
 				continue
 
 			// If the node wasn't able to forward for which ever
@@ -1593,7 +1599,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 					continue
 				}
 
-				r.missionControl.ReportVertexFailure(missingNode)
+				paySession.ReportVertexFailure(missingNode)
 				continue
 
 			// If we get a permanent channel or node failure, then

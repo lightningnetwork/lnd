@@ -2023,62 +2023,14 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		commitChain = lc.remoteCommitChain
 	}
 
-	ourBalance := commitChain.tip().ourBalance
-	theirBalance := commitChain.tip().theirBalance
-
-	// Add the fee from the previous commitment state back to the
-	// initiator's balance, so that the fee can be recalculated and
-	// re-applied in case fee estimation parameters have changed or the
-	// number of outstanding HTLCs has changed.
-	if lc.channelState.IsInitiator {
-		ourBalance += lnwire.NewMSatFromSatoshis(commitChain.tip().fee)
-	} else if !lc.channelState.IsInitiator {
-		theirBalance += lnwire.NewMSatFromSatoshis(commitChain.tip().fee)
-	}
-
 	nextHeight := commitChain.tip().height + 1
 
 	// Run through all the HTLCs that will be covered by this transaction
 	// in order to update their commitment addition height, and to adjust
 	// the balances on the commitment transaction accordingly.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	filteredHTLCView := lc.evaluateHTLCView(htlcView, &ourBalance,
-		&theirBalance, nextHeight, remoteChain)
-
-	// Initiate feePerKw to the last committed fee for this chain as we'll
-	// need this to determine which HTLC's are dust, and also the final fee
-	// rate.
-	feePerKw := commitChain.tail().feePerKw
-
-	// Check if any fee updates have taken place since that last
-	// commitment.
-	if lc.channelState.IsInitiator {
-		switch {
-		// We've sent an update_fee message since our last commitment,
-		// and now are now creating a commitment that reflects the new
-		// fee update.
-		case remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// We've created a new commitment for the remote chain that
-		// includes a fee update, and have not received a commitment
-		// after the fee update has been ACKed.
-		case !remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	} else {
-		switch {
-		// We've received a fee update since the last local commitment,
-		// so we'll include the fee update in the current view.
-		case !remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// Earlier we received a commitment that signed an earlier fee
-		// update, and now we must ACK that update.
-		case remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	}
+	ourBalance, theirBalance, _, filteredHTLCView, feePerKw :=
+		lc.computeView(htlcView, remoteChain, true)
 
 	// Determine how many current HTLCs are over the dust limit, and should
 	// be counted for the purpose of fee calculation.
@@ -3070,6 +3022,111 @@ func (lc *LightningChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 			currentCommitSecret[:],
 		),
 	}, nil
+}
+
+// computeView takes the given htlcView, and calculates the balances,
+// filtered view (settling unsettled HTLCs), commitment weight and
+// feePerKw, after applying the HTLCs to the latest commitment. The
+// returned balanced are the balances *before* subtracting the
+// commitment fee from the initiator's balance.
+//
+// If the updateState boolean is set true, the add and remove heights
+// of the HTLCs will be set to the next commitment height.
+func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
+	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
+	*htlcView, btcutil.Amount) {
+
+	commitChain := lc.localCommitChain
+	dustLimit := lc.localChanCfg.DustLimit
+	if remoteChain {
+		commitChain = lc.remoteCommitChain
+		dustLimit = lc.remoteChanCfg.DustLimit
+	}
+
+	// Since the fetched htlc view will include all updates added
+	// after the last committed state, we start with the balances
+	// reflecting that state.
+	ourBalance := commitChain.tip().ourBalance
+	theirBalance := commitChain.tip().theirBalance
+
+	// Add the fee from the previous commitment state back to the
+	// initiator's balance, so that the fee can be recalculated and
+	// re-applied in case fee estimation parameters have changed or
+	// the number of outstanding HTLCs has changed.
+	if lc.channelState.IsInitiator {
+		ourBalance += lnwire.NewMSatFromSatoshis(
+			commitChain.tip().fee)
+	} else if !lc.channelState.IsInitiator {
+		theirBalance += lnwire.NewMSatFromSatoshis(
+			commitChain.tip().fee)
+	}
+	nextHeight := commitChain.tip().height + 1
+
+	// We evaluate the view at this stage, meaning settled and
+	// failed HTLCs will remove their corresponding added HTLCs.
+	// The resulting filtered view will only have Add entries left,
+	// making it easy to compare the channel constraints to the
+	// final commitment state.
+	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
+		&theirBalance, nextHeight, remoteChain, updateState)
+
+	// Initiate feePerKw to the last committed fee for this chain as we'll
+	// need this to determine which HTLCs are dust, and also the final fee
+	// rate.
+	feePerKw := commitChain.tip().feePerKw
+
+	// Check if any fee updates have taken place since that last
+	// commitment.
+	if lc.channelState.IsInitiator {
+		switch {
+		// We've sent an update_fee message since our last commitment,
+		// and now are now creating a commitment that reflects the new
+		// fee update.
+		case remoteChain && lc.pendingFeeUpdate != nil:
+			feePerKw = *lc.pendingFeeUpdate
+
+		// We've created a new commitment for the remote chain that
+		// includes a fee update, and have not received a commitment
+		// after the fee update has been ACKed.
+		case !remoteChain && lc.pendingAckFeeUpdate != nil:
+			feePerKw = *lc.pendingAckFeeUpdate
+		}
+	} else {
+		switch {
+		// We've received a fee update since the last local commitment,
+		// so we'll include the fee update in the current view.
+		case !remoteChain && lc.pendingFeeUpdate != nil:
+			feePerKw = *lc.pendingFeeUpdate
+
+		// Earlier we received a commitment that signed an earlier fee
+		// update, and now we must ACK that update.
+		case remoteChain && lc.pendingAckFeeUpdate != nil:
+			feePerKw = *lc.pendingAckFeeUpdate
+		}
+	}
+
+	// Now go through all HTLCs at this stage, to calculate the total
+	// weight, needed to calculate the transaction fee.
+	var totalHtlcWeight int64
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(remoteChain, !remoteChain, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
+			continue
+		}
+
+		totalHtlcWeight += HtlcWeight
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(!remoteChain, !remoteChain, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
+			continue
+		}
+
+		totalHtlcWeight += HtlcWeight
+	}
+
+	totalCommitWeight := CommitWeight + totalHtlcWeight
+	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, feePerKw
 }
 
 // validateCommitmentSanity is used to validate that on current state the commitment
@@ -4975,124 +5032,24 @@ func (lc *LightningChannel) AvailableBalance() lnwire.MilliSatoshi {
 // this method. Additionally, the total weight of the next to be created
 // commitment is returned for accounting purposes.
 func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
-	// First, we'll grab the current local balance. If we're the initiator
-	// of the channel then we paid the fees on the last commitment state,
-	// so we'll re-apply those.
-	settledBalance := lc.channelState.LocalCommitment.LocalBalance
-	if lc.channelState.IsInitiator {
-		settledBalance += lnwire.NewMSatFromSatoshis(
-			lc.localCommitChain.tip().fee,
-		)
-	}
-
-	// Next we'll grab the current set of log updates that are still active
-	// and haven't been garbage collected.
+	// We'll grab the current set of log updates that the remote has
+	// ACKed.
 	remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
 	htlcView := lc.fetchHTLCView(remoteACKedIndex,
 		lc.localUpdateLog.logIndex)
-	feePerKw := lc.channelState.LocalCommitment.FeePerKw
-	dustLimit := lc.channelState.LocalChanCfg.DustLimit
 
-	// We'll now re-compute the current weight of all the active HTLC's. We
-	// make sure to skip any HTLC's that would be dust on our version of
-	// the commitment transaction.
-	var totalHtlcWeight int64
-	for _, htlc := range lc.channelState.LocalCommitment.Htlcs {
-		if htlcIsDust(false, true, feePerKw, htlc.Amt.ToSatoshis(),
-			dustLimit) {
-			continue
-		}
+	// Then compute our current balance for that view.
+	ourBalance, _, commitWeight, _, feePerKw :=
+		lc.computeView(htlcView, false, false)
 
-		totalHtlcWeight += HtlcWeight
-	}
-
-	// Next we'll run through our set of updates and modify the
-	// settledBalance and totalHtlcWeight fields accordingly.
-	for _, entry := range htlcView.ourUpdates {
-		switch {
-
-		// For any new HTLC's added as a part of this state, we'll
-		// subtract the total balance, and tally the weight increase if
-		// it isn't dust.
-		case entry.EntryType == Add && entry.addCommitHeightLocal == 0:
-			settledBalance -= entry.Amount
-
-			if htlcIsDust(false, true, feePerKw, entry.Amount.ToSatoshis(),
-				dustLimit) {
-				continue
-
-			}
-
-			totalHtlcWeight += HtlcWeight
-
-		// For any new HTLC's we newly settled as part of this state,
-		// we'll subtract the HTLC weight and increase our balance
-		// accordingly.
-		case entry.EntryType == Settle && entry.removeCommitHeightLocal == 0:
-			totalHtlcWeight -= HtlcWeight
-
-			settledBalance += entry.Amount
-
-		// For any new fails added as a part of this state, we'll
-		// subtract the weight of the HTLC we're failing.
-		case entry.EntryType == Fail && entry.removeCommitHeightLocal == 0:
-			fallthrough
-		case entry.EntryType == MalformedFail && entry.removeCommitHeightLocal == 0:
-			totalHtlcWeight -= HtlcWeight
-		}
-	}
-	for _, entry := range htlcView.theirUpdates {
-		switch {
-		// If the remote party has an HTLC that will be included as
-		// part of this state, then we'll account for the additional
-		// weight of the HTLC.
-		case entry.EntryType == Add && entry.addCommitHeightLocal == 0:
-			if htlcIsDust(true, true, feePerKw, entry.Amount.ToSatoshis(),
-				dustLimit) {
-				continue
-
-			}
-
-			totalHtlcWeight += HtlcWeight
-
-		// If the remote party is settling one of our HTLC's for the
-		// first time as part of this state, then we'll subtract the
-		// weight of the HTLC.
-		case entry.EntryType == Settle && entry.removeCommitHeightLocal == 0:
-			totalHtlcWeight -= HtlcWeight
-
-		// For any HTLC's that they're failing as a part of the next,
-		// state, we'll subtract the weight of the HTLC and also credit
-		// ourselves back the value of the HTLC.
-		case entry.EntryType == Fail && entry.removeCommitHeightLocal == 0:
-			fallthrough
-		case entry.EntryType == MalformedFail && entry.removeCommitHeightLocal == 0:
-			totalHtlcWeight -= HtlcWeight
-
-			settledBalance += entry.Amount
-		}
-
-	}
-
-	// If we subtracted dust HTLC's, then we'll need to reset the weight of
-	// the HTLCs back to zero.
-	if totalHtlcWeight < 0 {
-		totalHtlcWeight = 0
-	}
-
-	// If we're the initiator then we need to pay fees for this state, so
-	// taking into account the number of active HTLC's we'll calculate the
-	// fee that must be paid.
-	totalCommitWeight := CommitWeight + totalHtlcWeight
+	// If we are the channel initiator, we must remember to subtract the
+	// commitment fee from our available balance.
+	commitFee := btcutil.Amount((int64(feePerKw) * commitWeight) / 1000)
 	if lc.channelState.IsInitiator {
-		additionalFee := lnwire.NewMSatFromSatoshis(
-			btcutil.Amount((int64(feePerKw) * totalCommitWeight) / 1000),
-		)
-
-		settledBalance -= additionalFee
+		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
 	}
 
-	return settledBalance, totalCommitWeight
+	return ourBalance, commitWeight
 }
 
 // StateSnapshot returns a snapshot of the current fully committed state within

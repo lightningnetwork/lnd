@@ -1096,6 +1096,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	nPendingChannels := uint32(len(pendingChannels))
 
 	idPub := r.server.identityPriv.PubKey().SerializeCompressed()
+	encodedIDPub := hex.EncodeToString(idPub)
 
 	bestHash, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 	if err != nil {
@@ -1113,9 +1114,22 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		activeChains[i] = chain.String()
 	}
 
+	// Check if external IP addresses were provided to lnd and use them
+	// to set the URIs.
+	nodeAnn, err := r.server.genNodeAnnouncement(false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current fully signed "+
+			"node announcement: %v", err)
+	}
+	addrs := nodeAnn.Addresses
+	uris := make([]string, len(addrs))
+	for i, addr := range addrs {
+		uris[i] = fmt.Sprintf("%s@%s", encodedIDPub, addr.String())
+	}
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
-		IdentityPubkey:     hex.EncodeToString(idPub),
+		IdentityPubkey:     encodedIDPub,
 		NumPendingChannels: nPendingChannels,
 		NumActiveChannels:  activeChannels,
 		NumPeers:           uint32(len(serverPeers)),
@@ -1124,6 +1138,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		SyncedToChain:      isSynced,
 		Testnet:            activeNetParams.Params == &chaincfg.TestNet3Params,
 		Chains:             activeChains,
+		Uris:               uris,
 	}, nil
 }
 

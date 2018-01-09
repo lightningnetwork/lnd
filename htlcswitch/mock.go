@@ -473,7 +473,7 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Inv
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return channeldb.Invoice{}, errors.New("can't find mock invoice")
+		return channeldb.Invoice{}, fmt.Errorf("can't find mock invoice: %x", rHash[:])
 	}
 
 	return invoice, nil
@@ -485,7 +485,7 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
 
 	invoice, ok := i.invoices[rhash]
 	if !ok {
-		return errors.New("can't find mock invoice")
+		return fmt.Errorf("can't find mock invoice: %x", rhash[:])
 	}
 
 	invoice.Terms.Settled = true
@@ -500,6 +500,7 @@ func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice) error {
 
 	rhash := fastsha256.Sum256(invoice.Terms.PaymentPreimage[:])
 	i.invoices[chainhash.Hash(rhash)] = invoice
+
 	return nil
 }
 

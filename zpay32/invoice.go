@@ -37,6 +37,10 @@ const (
 	// with zeroes.
 	pubKeyBase32Len = 53
 
+	// routingInfoLen is the number of bytes needed to encode the extra
+	// routing info of a single private route.
+	routingInfoLen = 51
+
 	// The following byte values correspond to the supported field types.
 	// The field name is the character representing that 5-bit value in the
 	// bech32 string.
@@ -858,6 +862,11 @@ func parseRoutingInfo(data []byte) ([]ExtraRoutingInfo, error) {
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(base256Data)%routingInfoLen != 0 {
+		return nil, fmt.Errorf("expected length multiple of %d bytes, got %d",
+			routingInfoLen, len(base256Data))
 	}
 
 	var routingInfo []ExtraRoutingInfo

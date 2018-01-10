@@ -374,18 +374,22 @@ func disconnectPeer(ctx *cli.Context) error {
 // TODO(roasbeef): change default number of confirmations
 var openChannelCommand = cli.Command{
 	Name:  "openchannel",
-	Usage: "Open a channel to an existing peer.",
+	Usage: "Open a channel to a node or an existing peer.",
 	Description: `
 	Attempt to open a new channel to an existing peer with the key node-key
 	optionally blocking until the channel is 'open'.
 
+	One can also connect to a node before opening a new channel to it by
+	setting its host:port via the --connect argument. For this to work,
+	the node_key must be provided, rather than the peer_id. This is optional.
+
 	The channel will be initialized with local-amt satoshis local and push-amt
-	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout) 
-	of the funding output is returned. 
+	satoshis for the remote node. Once the channel is open, a channelPoint (txid:vout)
+	of the funding output is returned.
 
 	One can manually set the fee to be used for the funding transaction via either
 	the --conf_target or --sat_per_byte arguments. This is optional.
-		
+
 	NOTE: peer_id and node_key are mutually exclusive, only one should be used, not both.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
@@ -395,8 +399,12 @@ var openChannelCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name: "node_key",
-			Usage: "the identity public key of the target peer " +
+			Usage: "the identity public key of the target node/peer " +
 				"serialized in compressed format",
+		},
+		cli.StringFlag{
+			Name:  "connect",
+			Usage: "(optional) the host:port of the target node",
 		},
 		cli.IntFlag{
 			Name:  "local_amt",
@@ -475,6 +483,7 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode node public key: %v", err)
 		}
 		req.NodePubkey = nodePubHex
+
 	case args.Present():
 		nodePubHex, err := hex.DecodeString(args.First())
 		if err != nil {
@@ -484,6 +493,29 @@ func openChannel(ctx *cli.Context) error {
 		req.NodePubkey = nodePubHex
 	default:
 		return fmt.Errorf("node id argument missing")
+	}
+
+	// As soon as we can confirm that the node's node_key was set, rather
+	// than the peer_id, we can check if the host:port was also set to
+	// connect to it before opening the channel.
+	if req.NodePubkey != nil && ctx.IsSet("connect") {
+		addr := &lnrpc.LightningAddress{
+			Pubkey: hex.EncodeToString(req.NodePubkey),
+			Host:   ctx.String("connect"),
+		}
+
+		req := &lnrpc.ConnectPeerRequest{
+			Addr: addr,
+			Perm: false,
+		}
+
+		// Check if connecting to the node was successful.
+		// We discard the peer id returned as it is not needed.
+		_, err := client.ConnectPeer(ctxb, req)
+		if err != nil &&
+			!strings.Contains(err.Error(), "already connected") {
+			return err
+		}
 	}
 
 	switch {

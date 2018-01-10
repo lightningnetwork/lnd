@@ -608,6 +608,12 @@ func genCertPair(certFile, keyFile string) error {
 		}
 	}
 
+	// Add extra IP to the slice.
+	ipAddr := net.ParseIP(cfg.TLSExtraIP)
+	if ipAddr != nil {
+		addIP(ipAddr)
+	}
+
 	// Collect the host's names into a slice.
 	host, err := os.Hostname()
 	if err != nil {

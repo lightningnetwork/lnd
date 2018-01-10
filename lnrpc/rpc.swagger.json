@@ -1975,9 +1975,6 @@
         }
       }
     },
-    "lnrpcSetAliasResponse": {
-      "type": "object"
-    },
     "lnrpcSignMessageResponse": {
       "type": "object",
       "properties": {

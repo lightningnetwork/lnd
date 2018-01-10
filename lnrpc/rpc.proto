@@ -423,11 +423,6 @@ service Lightning {
     */
     rpc SubscribeChannelGraph(GraphTopologySubscription) returns (stream GraphTopologyUpdate);
 
-    /**
-    SetAlias sets the alias for this node; e.g. "alice"
-    */
-    rpc SetAlias(SetAliasRequest) returns (SetAliasResponse);
-
     /** lncli: `debuglevel`
     DebugLevel allows a caller to programmatically set the logging verbosity of
     lnd. The logging can be targeted according to a coarse daemon-wide logging
@@ -1243,12 +1238,6 @@ message ClosedChannelUpdate {
     int64 capacity = 2;
     uint32 closed_height = 3;
     ChannelPoint chan_point = 4;
-}
-
-message SetAliasRequest {
-    string new_alias = 1;
-}
-message SetAliasResponse {
 }
 
 message Invoice {

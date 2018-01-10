@@ -3032,20 +3032,6 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	return &lnrpc.DeleteAllPaymentsResponse{}, nil
 }
 
-// SetAlias...
-func (r *rpcServer) SetAlias(ctx context.Context,
-	_ *lnrpc.SetAliasRequest) (*lnrpc.SetAliasResponse, error) {
-
-	if r.authSvc != nil {
-		if err := macaroons.ValidateMacaroon(ctx, "setalias",
-			r.authSvc); err != nil {
-			return nil, err
-		}
-	}
-
-	return nil, nil
-}
-
 // DebugLevel allows a caller to programmatically set the logging verbosity of
 // lnd. The logging can be targeted according to a coarse daemon-wide logging
 // level, or in a granular fashion to specify the logging for a target

@@ -1549,6 +1549,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 
 			errSource := fErr.ErrorSource
 
+			log.Tracef("node=%x reported failure when sending "+
+				"htlc=%x", errSource.SerializeCompressed(),
+				payment.PaymentHash[:])
+
 			switch onionErr := fErr.FailureMessage.(type) {
 			// If the end destination didn't know they payment
 			// hash, then we'll terminate immediately.
@@ -1650,13 +1654,22 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 				// error was meant to pass the HTLC along to.
 				badChan, ok := route.nextHopChannel(errSource)
 				if !ok {
-					continue
+					// If we weren't able to find the hop
+					// *after* this node, then we'll
+					// attempt to disable the previous
+					// channel.
+					badChan, ok = route.prevHopChannel(
+						errSource,
+					)
+					if !ok {
+						continue
+					}
 				}
 
 				// If the channel was found, then we'll inform
 				// mission control of this failure so future
 				// attempts avoid this link temporarily.
-				paySession.ReportChannelFailure(badChan)
+				paySession.ReportChannelFailure(badChan.ChannelID)
 				continue
 
 			// If the send fail due to a node not having the

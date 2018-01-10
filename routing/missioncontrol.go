@@ -222,6 +222,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// shrinking.
 	pruneView := p.pruneViewSnapshot
 
+	log.Debugf("Mission Control session using prune view of %v "+
+		"edges, %v vertexes", len(pruneView.edges),
+		len(pruneView.vertexes))
+
 	// TODO(roasbeef): sync logic amongst dist sys
 
 	// Taking into account this prune view, we'll attempt to locate a path

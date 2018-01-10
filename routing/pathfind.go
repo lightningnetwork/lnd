@@ -137,6 +137,11 @@ type Route struct {
 	// off to. With this map, we can easily look up the next outgoing
 	// channel or node for pruning purposes.
 	nextHopMap map[Vertex]*ChannelHop
+
+	// prevHop maps a node, to the channel that was directly before it
+	// within the route. With this map, we can easily look up the previous
+	// channel or node for pruning purposes.
+	prevHopMap map[Vertex]*ChannelHop
 }
 
 // nextHopVertex returns the next hop (by Vertex) after the target node. If the
@@ -147,11 +152,19 @@ func (r *Route) nextHopVertex(n *btcec.PublicKey) (Vertex, bool) {
 }
 
 // nextHopChannel returns the uint64 channel ID of the next hop after the
-// target node. If the target node is not foud in the route, then false is
+// target node. If the target node is not found in the route, then false is
 // returned.
-func (r *Route) nextHopChannel(n *btcec.PublicKey) (uint64, bool) {
+func (r *Route) nextHopChannel(n *btcec.PublicKey) (*ChannelHop, bool) {
 	hop, ok := r.nextHopMap[NewVertex(n)]
-	return hop.ChannelID, ok
+	return hop, ok
+}
+
+// prevHopChannel returns the uint64 channel ID of the before hop after the
+// target node. If the target node is not found in the route, then false is
+// returned.
+func (r *Route) prevHopChannel(n *btcec.PublicKey) (*ChannelHop, bool) {
+	hop, ok := r.prevHopMap[NewVertex(n)]
+	return hop, ok
 }
 
 // containsNode returns true if a node is present in the target route, and
@@ -224,6 +237,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		nodeIndex:     make(map[Vertex]struct{}),
 		chanIndex:     make(map[uint64]struct{}),
 		nextHopMap:    make(map[Vertex]*ChannelHop),
+		prevHopMap:    make(map[Vertex]*ChannelHop),
 	}
 
 	// TODO(roasbeef): need to do sanity check to ensure we don't make a
@@ -342,6 +356,13 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 		}
 
 		route.Hops[i] = nextHop
+	}
+
+	// We'll then make a second run through our route in order to set up
+	// our prev hop mapping.
+	for _, hop := range route.Hops {
+		vertex := NewVertex(hop.Channel.Node.PubKey)
+		route.prevHopMap[vertex] = hop.Channel
 	}
 
 	// The total amount required for this route will be the value the

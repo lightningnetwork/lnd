@@ -1423,8 +1423,8 @@ func TestInterfaces(t *testing.T) {
 			spvNode.Start()
 
 			cleanUp = func() {
-				spvDatabase.Close()
 				spvNode.Stop()
+				spvDatabase.Close()
 				os.RemoveAll(spvDir)
 			}
 

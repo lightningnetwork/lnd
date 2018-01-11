@@ -1436,7 +1436,9 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
 				ChanOpen: &lnrpc.ChannelOpenUpdate{
 					ChannelPoint: &lnrpc.ChannelPoint{
-						FundingTxid: fundingPoint.Hash[:],
+						FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+							FundingTxidBytes: fundingPoint.Hash[:],
+						},
 						OutputIndex: fundingPoint.Index,
 					},
 				},

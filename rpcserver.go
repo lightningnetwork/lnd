@@ -653,7 +653,15 @@ out:
 			switch update := fundingUpdate.Update.(type) {
 			case *lnrpc.OpenStatusUpdate_ChanOpen:
 				chanPoint := update.ChanOpen.ChannelPoint
-				h, _ := chainhash.NewHash(chanPoint.FundingTxid)
+				txidHash, err := getChanPointFundingTxid(chanPoint)
+				if err != nil {
+					return err
+				}
+
+				h, err := chainhash.NewHash(txidHash)
+				if err != nil {
+					return err
+				}
 				outpoint = wire.OutPoint{
 					Hash:  *h,
 					Index: chanPoint.OutputIndex,
@@ -772,14 +780,39 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		chanUpdate := openUpdate.ChanPending
 
 		return &lnrpc.ChannelPoint{
-			FundingTxid: chanUpdate.Txid,
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: chanUpdate.Txid,
+			},
 		}, nil
 	case <-r.quit:
 		return nil, nil
 	}
 }
 
-// CloseLink attempts to close an active channel identified by its channel
+// getChanPointFundingTxid returns the given channel point's funding txid in
+// raw bytes.
+func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) ([]byte, error) {
+	var txid []byte
+
+	// A channel point's funding txid can be get/set as a byte slice or a
+	// string. In the case it is a string, decode it.
+	switch chanPoint.GetFundingTxid().(type) {
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
+		txid = chanPoint.GetFundingTxidBytes()
+	case *lnrpc.ChannelPoint_FundingTxidStr:
+		s := chanPoint.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		txid = h[:]
+	}
+
+	return txid, nil
+}
+
+// CloseChannel attempts to close an active channel identified by its channel
 // point. The actions of this method can additionally be augmented to attempt
 // a force close after a timeout period in the case of an inactive peer.
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
@@ -795,7 +828,12 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := chainhash.NewHash(in.ChannelPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(in.GetChannelPoint())
+	if err != nil {
+		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
+		return err
+	}
+	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] invalid txid: %v", err)
 		return err
@@ -2870,7 +2908,9 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
 			ChanPoint: &lnrpc.ChannelPoint{
-				FundingTxid: channelUpdate.ChanPoint.Hash[:],
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: channelUpdate.ChanPoint.Hash[:],
+				},
 				OutputIndex: channelUpdate.ChanPoint.Index,
 			},
 			Capacity: int64(channelUpdate.Capacity),
@@ -2892,7 +2932,9 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			Capacity:     int64(closedChan.Capacity),
 			ClosedHeight: closedChan.ClosedHeight,
 			ChanPoint: &lnrpc.ChannelPoint{
-				FundingTxid: closedChan.ChanPoint.Hash[:],
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: closedChan.ChanPoint.Hash[:],
+				},
 				OutputIndex: closedChan.ChanPoint.Index,
 			},
 		}
@@ -3148,7 +3190,11 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := chainhash.NewHash(scope.ChanPoint.FundingTxid)
+		txidHash, err := getChanPointFundingTxid(scope.ChanPoint)
+		if err != nil {
+			return nil, err
+		}
+		txid, err := chainhash.NewHash(txidHash)
 		if err != nil {
 			return nil, err
 		}

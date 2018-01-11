@@ -165,7 +165,11 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(fundingChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -202,7 +206,11 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
-	txid, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(fundingChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	txid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to convert to chainhash: %v", err)
 	}
@@ -548,7 +556,11 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// txStr returns the string representation of the channel's
 	// funding tx.
 	txStr := func(chanPoint *lnrpc.ChannelPoint) string {
-		fundingTxID, err := chainhash.NewHash(chanPoint.FundingTxid)
+		txidHash, err := getChanPointFundingTxid(chanPoint)
+		if err != nil {
+			return ""
+		}
+		fundingTxID, err := chainhash.NewHash(txidHash)
 		if err != nil {
 			return ""
 		}
@@ -852,7 +864,9 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: pendingUpdate.Txid,
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingUpdate.Txid,
+		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 
@@ -1015,7 +1029,9 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: pendingUpdate.Txid,
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingUpdate.Txid,
+		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 
@@ -1196,7 +1212,9 @@ peersPoll:
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: pendingUpdate.Txid,
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingUpdate.Txid,
+		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, timeout)
@@ -1516,7 +1534,14 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Compute the outpoint of the channel, which we will use repeatedly to
 	// locate the pending channel information in the rpc responses.
-	txid, _ := chainhash.NewHash(chanPoint.FundingTxid[:])
+	txidHash, err := getChanPointFundingTxid(chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	txid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
 	op := wire.OutPoint{
 		Hash:  *txid,
 		Index: chanPoint.OutputIndex,
@@ -2298,7 +2323,11 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		net.Bob, chanAmt, 0)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	aliceChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2329,7 +2358,11 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPointDave := openChannelAndAssert(ctxt, t, net, dave,
 		net.Alice, chanAmt, 0)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := chainhash.NewHash(chanPointDave.FundingTxid)
+	txidHash, err = getChanPointFundingTxid(chanPointDave)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	daveChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2356,7 +2389,11 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		dave, chanAmt, 0)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
+	txidHash, err = getChanPointFundingTxid(chanPointCarol)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	carolChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2370,7 +2407,11 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, e := chainhash.NewHash(chanPoint.FundingTxid)
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
 			if e != nil {
 				t.Fatalf("unable to create sha hash: %v", e)
 			}
@@ -2500,7 +2541,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		net.Bob, chanAmt*2, 0)
 	networkChans = append(networkChans, chanPointAlice)
 
-	aliceChanTXID, err := chainhash.NewHash(chanPointAlice.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	aliceChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2525,7 +2570,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	chanPointDave := openChannelAndAssert(ctxt, t, net, dave,
 		net.Alice, chanAmt, 0)
 	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := chainhash.NewHash(chanPointDave.FundingTxid)
+	txidHash, err = getChanPointFundingTxid(chanPointDave)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	daveChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2552,7 +2601,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		dave, chanAmt, 0)
 	networkChans = append(networkChans, chanPointCarol)
 
-	carolChanTXID, err := chainhash.NewHash(chanPointCarol.FundingTxid)
+	txidHash, err = getChanPointFundingTxid(chanPointCarol)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	carolChanTXID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2567,7 +2620,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
 	for _, chanPoint := range networkChans {
 		for i, node := range nodes {
-			txid, e := chainhash.NewHash(chanPoint.FundingTxid)
+			txidHash, err := getChanPointFundingTxid(chanPoint)
+			if err != nil {
+				t.Fatalf("unable to get txid: %v", err)
+			}
+			txid, e := chainhash.NewHash(txidHash)
 			if e != nil {
 				t.Fatalf("unable to create sha hash: %v", e)
 			}
@@ -2603,7 +2660,11 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
-	fundingTxID, err := chainhash.NewHash(chanPointPrivate.FundingTxid)
+	txidHash, err = getChanPointFundingTxid(chanPointPrivate)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	fundingTxID, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -2979,7 +3040,11 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("error while waiting for channel open: %v", err)
 		}
 
-		fundingTxID, err := chainhash.NewHash(fundingChanPoint.FundingTxid)
+		txidHash, err := getChanPointFundingTxid(fundingChanPoint)
+		if err != nil {
+			t.Fatalf("unable to get txid: %v", err)
+		}
+		fundingTxID, err := chainhash.NewHash(txidHash)
 		if err != nil {
 			t.Fatalf("unable to create sha hash: %v", err)
 		}
@@ -4277,11 +4342,17 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 			t.Fatalf("close heights of channel mismatch: expected "+
 				"%v, got %v", blockHeight+1, closedChan.ClosedHeight)
 		}
-		if !bytes.Equal(closedChan.ChanPoint.FundingTxid,
-			chanPoint.FundingTxid) {
+		chanPointTxid, err := getChanPointFundingTxid(chanPoint)
+		if err != nil {
+			t.Fatalf("unable to get txid: %v", err)
+		}
+		closedChanTxid, err := getChanPointFundingTxid(closedChan.ChanPoint)
+		if err != nil {
+			t.Fatalf("unable to get txid: %v", err)
+		}
+		if !bytes.Equal(closedChanTxid, chanPointTxid) {
 			t.Fatalf("channel point hash mismatch: expected %v, "+
-				"got %v", chanPoint.FundingTxid,
-				closedChan.ChanPoint.FundingTxid)
+				"got %v", chanPointTxid, closedChanTxid)
 		}
 		if closedChan.ChanPoint.OutputIndex != chanPoint.OutputIndex {
 			t.Fatalf("output index mismatch: expected %v, got %v",
@@ -5180,7 +5251,11 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Bob's force close transaction should now be found in the mempool.
-	bobFundingTxid, err := chainhash.NewHash(bobChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(bobChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	bobFundingTxid, err := chainhash.NewHash(txidHash)
 	if err != nil {
 		t.Fatalf("unable to create sha hash: %v", err)
 	}
@@ -5393,7 +5468,11 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
-	bobFundingTxid, err := chainhash.NewHash(bobChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(bobChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	bobFundingTxid, err := chainhash.NewHash(txidHash)
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,
 		Index: bobChanPoint.OutputIndex,
@@ -6008,7 +6087,14 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
-	bobFundingTxid, err := chainhash.NewHash(bobChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(bobChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	bobFundingTxid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,
 		Index: bobChanPoint.OutputIndex,
@@ -6218,7 +6304,14 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
-	bobFundingTxid, err := chainhash.NewHash(bobChanPoint.FundingTxid)
+	txidHash, err := getChanPointFundingTxid(bobChanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	bobFundingTxid, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		t.Fatalf("unable to create sha hash: %v", err)
+	}
 	carolFundingPoint := wire.OutPoint{
 		Hash:  *bobFundingTxid,
 		Index: bobChanPoint.OutputIndex,

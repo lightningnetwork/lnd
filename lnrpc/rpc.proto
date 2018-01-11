@@ -251,7 +251,7 @@ service Lightning {
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid_bytes}/{channel_point.output_index}"
+            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
         };
     }
 

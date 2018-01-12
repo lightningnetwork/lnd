@@ -66,7 +66,7 @@ func NewValidationBarrier(numActiveReqs int,
 }
 
 // InitJobDependancies will wait for a new job slot to become open, and then
-// sets up any dependant signals/trigger for the new job
+// sets up any dependent signals/trigger for the new job
 func (v *ValidationBarrier) InitJobDependancies(job interface{}) {
 	// We'll wait for either a new slot to become open, or for the quit
 	// channel to be closed.
@@ -79,7 +79,7 @@ func (v *ValidationBarrier) InitJobDependancies(job interface{}) {
 	defer v.Unlock()
 
 	// Once a slot is open, we'll examine the message of the job, to see if
-	// there need to be any dependant barriers set up.
+	// there need to be any dependent barriers set up.
 	switch msg := job.(type) {
 
 	// If this is a channel announcement, then we'll need to set up den
@@ -93,7 +93,7 @@ func (v *ValidationBarrier) InitJobDependancies(job interface{}) {
 		// one doesn't already exist, as there may be duplicate
 		// announcements.  We'll close this signal once the
 		// ChannelAnnouncement has been validated. This will result in
-		// all the dependant jobs being unlocked so they can finish
+		// all the dependent jobs being unlocked so they can finish
 		// execution themselves.
 		if _, ok := v.chanAnnFinSignal[msg.ShortChannelID]; !ok {
 			// We'll create the channel that we close after we
@@ -149,8 +149,8 @@ func (v *ValidationBarrier) CompleteJob() {
 
 // WaitForDependants will block until any jobs that this job dependants on have
 // finished executing. This allows us a graceful way to schedule goroutines
-// based on any pending uncompleted dependant jobs. If this job doesn't have an
-// active dependant, then this function will return immediately.
+// based on any pending uncompleted dependent jobs. If this job doesn't have an
+// active dependent, then this function will return immediately.
 func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 
 	var (
@@ -201,7 +201,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) {
 	}
 }
 
-// SignalDependants will signal any jobs that are dependant on this job that
+// SignalDependants will signal any jobs that are dependent on this job that
 // they can continue execution. If the job doesn't have any dependants, then
 // this function sill exit immediately.
 func (v *ValidationBarrier) SignalDependants(job interface{}) {
@@ -212,7 +212,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}) {
 
 	// If we've just finished executing a ChannelAnnouncement, then we'll
 	// close out the signal, and remove the signal from the map of active
-	// ones. This will allow any dependant jobs to continue execution.
+	// ones. This will allow any dependent jobs to continue execution.
 	case *channeldb.ChannelEdgeInfo:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		finSignal, ok := v.chanAnnFinSignal[shortID]

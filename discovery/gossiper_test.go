@@ -1562,7 +1562,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	case msg := <-sentToPeer:
 		_, ok := msg.(*lnwire.ChannelAnnouncement)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement, intead got %T", msg)
+			t.Fatalf("expected ChannelAnnouncement, instead got %T", msg)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not send local proof to peer")

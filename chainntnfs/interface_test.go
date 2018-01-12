@@ -822,7 +822,7 @@ func testSpendBeforeNtfnRegistration(miner *rpctest.Harness,
 				ntfn.SpentOutPoint, outpoint)
 		}
 		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
-			t.Fatalf("ntfn includes wrong spender tx sha, reports %v intead of %v",
+			t.Fatalf("ntfn includes wrong spender tx sha, reports %v instead of %v",
 				ntfn.SpenderTxHash[:], spenderSha[:])
 		}
 		if ntfn.SpenderInputIndex != 0 {
@@ -896,7 +896,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 		}
 		if !bytes.Equal(ntfn.SpenderTxHash[:], spenderSha[:]) {
 			t.Fatalf("ntfn includes wrong spender tx sha, "+
-				"reports %v intead of %v",
+				"reports %v instead of %v",
 				ntfn.SpenderTxHash[:], spenderSha[:])
 		}
 		if ntfn.SpenderInputIndex != 0 {

@@ -463,7 +463,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 		lnwire.FFAnnounceChannel,
 	)
 	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
-		t.Fatalf("coin selection succeded should have insufficient funds: %v",
+		t.Fatalf("coin selection succeeded should have insufficient funds: %v",
 			err)
 	}
 

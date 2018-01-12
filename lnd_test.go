@@ -1045,7 +1045,7 @@ func assertNumForceClosedChannels(t *harnessTest,
 }
 
 // assertPendingHtlcStageAndMaturity uniformly tests all pending htlc's
-// belonging to a force closed channel, testing for the expeced stage number,
+// belonging to a force closed channel, testing for the expected stage number,
 // blocks till maturity, and the maturity height.
 func assertPendingHtlcStageAndMaturity(t *harnessTest,
 	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
@@ -2565,7 +2565,7 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 		// The invoice update should exactly match the invoice created
 		// above, but should now be settled and have SettleDate
 		if !invoiceUpdate.Settled {
-			t.Fatalf("invoice not settled but shoudl be")
+			t.Fatalf("invoice not settled but should be")
 		}
 		if invoiceUpdate.SettleDate == 0 {
 			t.Fatalf("invoice should have non zero settle date, but doesn't")

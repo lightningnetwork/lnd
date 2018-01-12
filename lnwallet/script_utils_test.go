@@ -861,7 +861,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 		Value:    int64(htlcAmt),
 	}
 
-	// TODO(roasbeef): make actually use timeout/sucess txns?
+	// TODO(roasbeef): make actually use timeout/success txns?
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as

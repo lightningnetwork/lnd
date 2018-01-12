@@ -1153,7 +1153,7 @@ func (l *channelLink) updateChannelFee(feePerKw btcutil.Amount) error {
 		feePerKw)
 
 	// We skip sending the UpdateFee message if the channel is not
-	// currently eligable to forward messages.
+	// currently eligible to forward messages.
 	if !l.EligibleToForward() {
 		log.Debugf("ChannelPoint(%v): skipping fee update for " +
 			"inactive channel")

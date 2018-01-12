@@ -61,7 +61,7 @@ type ContractTerm struct {
 	// extended.
 	PaymentPreimage [32]byte
 
-	// Value is the expected amount of milli-satoshis to be payed to an
+	// Value is the expected amount of milli-satoshis to be paid to an
 	// HTLC which can be satisfied by the above preimage.
 	Value lnwire.MilliSatoshi
 

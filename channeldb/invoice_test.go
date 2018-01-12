@@ -67,7 +67,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
-	// Add the invoice to the database, this should suceed as there aren't
+	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
 	if err := db.AddInvoice(fakeInvoice); err != nil {

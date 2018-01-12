@@ -18,6 +18,10 @@ var (
 	// ErrOutputSpent is returned by the GetUtxo method if the target output
 	// for lookup has already been spent.
 	ErrOutputSpent = errors.New("target output has been spent")
+
+	// ErrOutputNotFound signals that the desired output could not be
+	// located.
+	ErrOutputNotFound = errors.New("target output was not found")
 )
 
 // GetBestBlock returns the current height and hash of the best known block
@@ -61,10 +65,19 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, heightHint uint32) (*wire.TxOut, 
 			return nil, err
 		}
 
-		if spendReport != nil && spendReport.SpendingTx != nil {
+		// If the spend report is nil, then the output was not found in
+		// the rescan.
+		if spendReport == nil {
+			return nil, ErrOutputNotFound
+		}
+
+		// If the spending transaction is populated in the spend report,
+		// this signals that the output has already been spent.
+		if spendReport.SpendingTx != nil {
 			return nil, ErrOutputSpent
 		}
 
+		// Otherwise, the output is assumed to be in the UTXO.
 		return spendReport.Output, nil
 
 	case *chain.RPCClient:

@@ -163,6 +163,7 @@ type HarnessNode struct {
 
 	cmd     *exec.Cmd
 	pidFile string
+	logFile *os.File
 
 	// processExit is a channel that's closed once it's detected that the
 	// process this instance of HarnessNode is bound to has exited.
@@ -231,10 +232,10 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// If the logoutput flag is passed, redirect output from the nodes to
 	// log files.
 	if *logOutput {
-		logFile := fmt.Sprintf("output%d.log", hn.NodeID)
+		fileName := fmt.Sprintf("output%d.log", hn.NodeID)
 
 		// Create file if not exists, otherwise append.
-		file, err := os.OpenFile(logFile,
+		file, err := os.OpenFile(fileName,
 			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 		if err != nil {
 			return err
@@ -246,6 +247,10 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 		// Pass the node's stdout only to the file.
 		hn.cmd.Stdout = file
+
+		// Let the node keep a reference to this file, such
+		// that we can add to it if necessary.
+		hn.logFile = file
 	}
 
 	if err := hn.cmd.Start(); err != nil {
@@ -301,6 +306,19 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.wg.Add(1)
 	go hn.lightningNetworkWatcher()
 
+	return nil
+}
+
+// AddToLog adds a line of choice to the node's logfile. This is useful
+// to interleave test output with output from the node.
+func (hn *HarnessNode) AddToLog(line string) error {
+	// If this node was not set up with a log file, just return early.
+	if hn.logFile == nil {
+		return nil
+	}
+	if _, err := hn.logFile.WriteString(line); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -4847,6 +4847,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	t.Logf("Running %v integration tests", len(testsCases))
 	for _, testCase := range testsCases {
+		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
+			testCase.name)
+		if err := lndHarness.Alice.AddToLog(logLine); err != nil {
+			t.Fatalf("unable to add to log: %v", err)
+		}
+		if err := lndHarness.Bob.AddToLog(logLine); err != nil {
+			t.Fatalf("unable to add to log: %v", err)
+		}
+
 		success := t.Run(testCase.name, func(t1 *testing.T) {
 			ht := newHarnessTest(t1)
 			ht.RunTestCase(testCase, lndHarness)

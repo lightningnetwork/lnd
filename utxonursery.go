@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -1125,9 +1124,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32, finalTx *wire.MsgTx
 	// With the sweep transaction fully signed, broadcast the transaction
 	// to the network. Additionally, we can stop tracking these outputs as
 	// they've just been swept.
-	// TODO(conner): handle concrete error types returned from publication
-	err := u.cfg.PublishTransaction(finalTx)
-	if err != nil && !strings.Contains(err.Error(), "TX rejected:") {
+	if err := u.cfg.PublishTransaction(finalTx); err != nil {
 		utxnLog.Errorf("unable to broadcast sweep tx: %v, %v",
 			err, spew.Sdump(finalTx))
 		return err
@@ -1233,14 +1230,9 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
-	//
-	// TODO(conner): handle concrete error types returned from publication
-	err := u.cfg.PublishTransaction(baby.timeoutTx)
-	if err != nil &&
-		!strings.Contains(err.Error(), "TX rejected:") {
+	if err := u.cfg.PublishTransaction(baby.timeoutTx); err != nil {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
-			"%v, %v", err,
-			spew.Sdump(baby.timeoutTx))
+			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err
 	}
 

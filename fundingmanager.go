@@ -32,8 +32,6 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	defaultCsvDelay = 4
-
 	// maxFundingAmount is a soft-limit of the maximum channel size
 	// accepted within the Lightning Protocol Currently. This limit is
 	// currently defined in BOLT-0002, and serves as an initial
@@ -42,6 +40,13 @@ const (
 	//
 	// TODO(roasbeef): add command line param to modify
 	maxFundingAmount = btcutil.Amount(1 << 24)
+
+	// minRemoteDelay and maxRemoteDelay is the extremes of the CSV delay
+	// we will require the remote to use for its commitment transaction.
+	// The actual delay we will require will be somewhere between these
+	// values, depending on channel size.
+	minRemoteDelay = 144
+	maxRemoteDelay = 2016
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting about
@@ -2101,6 +2106,8 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey *btcec.Pu
 		chanFlags = 1
 	}
 
+	// We announce the channel with the default values. Some of
+	// these values can later be changed by crafting a new ChannelUpdate.
 	chanUpdateAnn := &lnwire.ChannelUpdate{
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
@@ -2252,6 +2259,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteAmt    = msg.remoteFundingAmt
 		capacity     = localAmt + remoteAmt
 		ourDustLimit = lnwallet.DefaultDustLimit()
+		minHtlc      = msg.minHtlc
 	)
 
 	fndgLog.Infof("Initiating fundingRequest(localAmt=%v, remoteAmt=%v, "+
@@ -2321,9 +2329,14 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// delay we require given the total amount of funds within the channel.
 	remoteCsvDelay := f.cfg.RequiredRemoteDelay(capacity)
 
+	// If no minimum HTLC value was specified, use the default one.
+	if minHtlc == 0 {
+		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
+	}
+
 	// Once the reservation has been created, and indexed, queue a funding
 	// request to the remote peer, kicking off the funding workflow.
-	reservation.RegisterMinHTLC(f.cfg.DefaultRoutingPolicy.MinHTLC)
+	reservation.RegisterMinHTLC(minHtlc)
 	ourContribution := reservation.OurContribution()
 
 	// Finally, we'll use the current value of the channels and our default

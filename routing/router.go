@@ -94,6 +94,18 @@ type FeeSchema struct {
 	FeeRate uint32
 }
 
+// ChannelPolicy holds the parameters that determine the policy we enforce
+// when fowarding payments on a channel. These parameters are communicated
+// to the rest of the network in ChannelUpdate messages.
+type ChannelPolicy struct {
+	// FeeSchema holds the fee configuration for a channel.
+	FeeSchema
+
+	// TimeLockDelta is the required HTLC timelock delta to be used
+	// when forwarding payments.
+	TimeLockDelta uint32
+}
+
 // Config defines the configuration for the ChannelRouter. ALL elements within
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.

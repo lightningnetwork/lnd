@@ -39,7 +39,9 @@ const (
 // the error possibly carrying along a ChannelUpdate message that includes the
 // latest policy.
 type ForwardingPolicy struct {
-	// MinHTLC is the smallest HTLC that is to be forwarded.
+	// MinHTLC is the smallest HTLC that is to be forwarded. This is
+	// set when a channel is first opened, and will be static for the
+	// lifetime of the channel.
 	MinHTLC lnwire.MilliSatoshi
 
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
@@ -604,9 +606,6 @@ out:
 				// with a "null" field in the new policy, we'll
 				// only update to the set sub policy if the new
 				// value isn't uninitialized.
-				if req.policy.MinHTLC != 0 {
-					l.cfg.FwrdingPolicy.MinHTLC = req.policy.MinHTLC
-				}
 				if req.policy.BaseFee != 0 {
 					l.cfg.FwrdingPolicy.BaseFee = req.policy.BaseFee
 				}

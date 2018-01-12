@@ -1495,6 +1495,8 @@ type openChanReq struct {
 
 	private bool
 
+	minHtlc lnwire.MilliSatoshi
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	updates chan *lnrpc.OpenStatusUpdate
@@ -1612,6 +1614,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 	localAmt btcutil.Amount, pushAmt lnwire.MilliSatoshi,
+	minHtlc lnwire.MilliSatoshi,
 	fundingFeePerByte btcutil.Amount,
 	private bool) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
@@ -1674,6 +1677,7 @@ func (s *server) OpenChannel(peerID int32, nodeKey *btcec.PublicKey,
 		fundingFeePerWeight: fundingFeePerWeight,
 		pushAmt:             pushAmt,
 		private:             private,
+		minHtlc:             minHtlc,
 		updates:             updateChan,
 		err:                 errChan,
 	}

@@ -89,8 +89,12 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	if err != nil {
 		return err
 	}
+
+	// TODO(halseth): make configurable?
+	minHtlc := lnwire.NewMSatFromSatoshis(1)
+
 	updateStream, errChan := c.server.OpenChannel(-1, target, amt, 0,
-		feePerWeight, false)
+		minHtlc, feePerWeight, false)
 
 	select {
 	case err := <-errChan:

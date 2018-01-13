@@ -44,15 +44,20 @@ RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "debug")
 NETWORK=$(set_default "$NETWORK" "simnet")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
+BACKEND="btcd"
+if [[ "$CHAIN" == "litecoin" ]]
+    BACKEND="ltcd
+fi
 
 lnd \
     --noencryptwallet \
     --logdir="/data" \
-    "--$CHAIN.rpccert"="/rpc/rpc.cert" \
     "--$CHAIN.active" \
     "--$CHAIN.$NETWORK" \
-    "--$CHAIN.rpchost"="blockchain" \
-    "--$CHAIN.rpcuser"="$RPCUSER" \
-    "--$CHAIN.rpcpass"="$RPCPASS" \
+    "--$CHAIN.node"="btcd" \
+    "--$BACKEND.rpccert"="/rpc/rpc.cert" \
+    "--$BACKEND.rpchost"="blockchain" \
+    "--$BACKEND.rpcuser"="$RPCUSER" \
+    "--$BACKEND.rpcpass"="$RPCPASS" \
     --debuglevel="$DEBUG" \
     "$@"

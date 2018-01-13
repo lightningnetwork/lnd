@@ -231,18 +231,21 @@ func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
 // channels open to, with the set of nodes that are pending new channels. This
 // ensures that the Agent doesn't attempt to open any "duplicate" channels to
 // the same node.
-func mergeNodeMaps(a map[NodeID]struct{},
-	b map[NodeID]Channel) map[NodeID]struct{} {
+func mergeNodeMaps(a map[NodeID]struct{}, b map[NodeID]struct{},
+	c map[NodeID]Channel) map[NodeID]struct{} {
 
-	c := make(map[NodeID]struct{}, len(a)+len(b))
+	res := make(map[NodeID]struct{}, len(a)+len(b)+len(c))
 	for nodeID := range a {
-		c[nodeID] = struct{}{}
+		res[nodeID] = struct{}{}
 	}
 	for nodeID := range b {
-		c[nodeID] = struct{}{}
+		res[nodeID] = struct{}{}
+	}
+	for nodeID := range c {
+		res[nodeID] = struct{}{}
 	}
 
-	return c
+	return res
 }
 
 // mergeChanState merges the Agent's set of active channels, with the set of
@@ -279,6 +282,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 
 	// TODO(roasbeef): do we in fact need to maintain order?
 	//  * use sync.Cond if so
+
+	// failedNodes lists nodes that we've previously attempted to initiate
+	// channels with, but didn't succeed.
+	failedNodes := make(map[NodeID]struct{})
 
 	// pendingOpens tracks the channels that we've requested to be
 	// initiated, but haven't yet been confirmed as being fully opened.
@@ -369,7 +376,7 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			// we avoid duplicate edges.
 			connectedNodes := a.chanState.ConnectedNodes()
 			pendingMtx.Lock()
-			nodesToSkip := mergeNodeMaps(connectedNodes, pendingOpens)
+			nodesToSkip := mergeNodeMaps(connectedNodes, failedNodes, pendingOpens)
 			pendingMtx.Unlock()
 
 			// If we reach this point, then according to our
@@ -428,6 +435,10 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 						pendingMtx.Lock()
 						nID := NewNodeID(directive.PeerKey)
 						delete(pendingOpens, nID)
+
+						// Mark this node as failed so we don't
+						// attempt it again.
+						failedNodes[nID] = struct{}{}
 						pendingMtx.Unlock()
 
 						// Trigger the autopilot controller to

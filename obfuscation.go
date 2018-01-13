@@ -13,7 +13,7 @@ import (
 // onionEncrypt obfuscates the data with compliance with BOLT#4. As we use a
 // stream cipher, calling onionEncrypt on an already encrypted piece of data
 // will decrypt it.
-func onionEncrypt(sharedSecret [sha256.Size]byte, data []byte) []byte {
+func onionEncrypt(sharedSecret *Hash256, data []byte) []byte {
 
 	p := make([]byte, len(data))
 
@@ -27,7 +27,7 @@ func onionEncrypt(sharedSecret [sha256.Size]byte, data []byte) []byte {
 // OnionErrorEncrypter is a struct that's used to implement onion error
 // encryption as defined within BOLT0004.
 type OnionErrorEncrypter struct {
-	sharedSecret [sha256.Size]byte
+	sharedSecret Hash256
 }
 
 // NewOnionErrorEncrypter creates new instance of the onion encryper backed by
@@ -59,14 +59,14 @@ func NewOnionErrorEncrypter(router *Router,
 // failure and its origin.
 func (o *OnionErrorEncrypter) EncryptError(initial bool, data []byte) []byte {
 	if initial {
-		umKey := generateKey("um", o.sharedSecret)
+		umKey := generateKey("um", &o.sharedSecret)
 		hash := hmac.New(sha256.New, umKey[:])
 		hash.Write(data)
 		h := hash.Sum(nil)
 		data = append(h, data...)
 	}
 
-	return onionEncrypt(o.sharedSecret, data)
+	return onionEncrypt(&o.sharedSecret, data)
 }
 
 // Encode writes the encrypter's shared secret to the provided io.Writer.
@@ -180,7 +180,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 	var (
 		sender      *btcec.PublicKey
 		msg         []byte
-		dummySecret [sha256.Size]byte
+		dummySecret Hash256
 	)
 	copy(dummySecret[:], bytes.Repeat([]byte{1}, 32))
 
@@ -188,7 +188,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 	// away an timing information pertaining to the position in the route
 	// that the error emanated from.
 	for i := 0; i < NumMaxHops; i++ {
-		var sharedSecret [sha256.Size]byte
+		var sharedSecret Hash256
 
 		// If we've already found the sender, then we'll use our dummy
 		// secret to continue decryption attempts to fill out the rest
@@ -202,7 +202,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 
 		// With the shared secret, we'll now strip off a layer of
 		// encryption from the encrypted error payload.
-		encryptedData = onionEncrypt(sharedSecret, encryptedData)
+		encryptedData = onionEncrypt(&sharedSecret, encryptedData)
 
 		// Next, we'll need to separate the data, from the MAC itself
 		// so we can reconstruct and verify it.
@@ -211,7 +211,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 
 		// With the data split, we'll now re-generate the MAC using its
 		// specified key.
-		umKey := generateKey("um", sharedSecret)
+		umKey := generateKey("um", &sharedSecret)
 		h := hmac.New(sha256.New, umKey[:])
 		h.Write(data)
 

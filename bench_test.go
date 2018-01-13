@@ -60,8 +60,8 @@ func BenchmarkProcessPacket(b *testing.B) {
 		b.Fatalf("unable to create test route: %v", err)
 	}
 	b.ReportAllocs()
-	path[0].d.Start("0")
-	defer shutdown("0", path[0].d)
+	path[0].log.Start()
+	defer shutdown("0", path[0].log)
 	b.StartTimer()
 
 	var (
@@ -74,8 +74,8 @@ func BenchmarkProcessPacket(b *testing.B) {
 		}
 
 		b.StopTimer()
-		shutdown("0", path[0].d)
-		path[0].d.Start("0")
+		shutdown("0", path[0].log)
+		path[0].log.Start()
 		b.StartTimer()
 	}
 

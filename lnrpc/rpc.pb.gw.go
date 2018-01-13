@@ -1529,7 +1529,7 @@ var (
 
 	pattern_Lightning_FeeReport_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "fees"}, ""))
 
-	pattern_Lightning_UpdateChannelPolicy_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "fees"}, ""))
+	pattern_Lightning_UpdateChannelPolicy_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"v1", "chanpolicy"}, ""))
 )
 
 var (

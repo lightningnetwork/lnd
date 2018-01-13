@@ -178,6 +178,33 @@
         ]
       }
     },
+    "/v1/chanpolicy": {
+      "post": {
+        "summary": "* lncli: `updatechanpolicy`\nUpdateChannelPolicy allows the caller to update the fee schedule and\nchannel policies for all channels globally, or a particular channel.",
+        "operationId": "UpdateChannelPolicy",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPolicyUpdateResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcPolicyUpdateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/createwallet": {
       "post": {
         "summary": "* lncli: `create`\nCreateWallet is used at lnd startup to set the encryption password for\nthe wallet database.",
@@ -217,31 +244,6 @@
             }
           }
         },
-        "tags": [
-          "Lightning"
-        ]
-      },
-      "post": {
-        "summary": "* lncli: `updatechanpolicy`\nUpdateChannelPolicy allows the caller to update the fee schedule and\nchannel policies for all channels globally, or a particular channel.",
-        "operationId": "UpdateChannelPolicy",
-        "responses": {
-          "200": {
-            "description": "",
-            "schema": {
-              "$ref": "#/definitions/lnrpcPolicyUpdateResponse"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/lnrpcPolicyUpdateRequest"
-            }
-          }
-        ],
         "tags": [
           "Lightning"
         ]

@@ -184,7 +184,7 @@ type addCounterPartySigsMsg struct {
 	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 	theirFundingInputScripts []*InputScript
 
-	// This should be 1/2 of the signatures needed to succesfully spend our
+	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
 	theirCommitmentSig []byte
 
@@ -210,7 +210,7 @@ type addSingleFunderSigsMsg struct {
 	fundingOutpoint *wire.OutPoint
 
 	// theirCommitmentSig are the 1/2 of the signatures needed to
-	// succesfully spend our version of the commitment transaction.
+	// successfully spend our version of the commitment transaction.
 	theirCommitmentSig []byte
 
 	// This channel is used to return the completed channel after the wallet

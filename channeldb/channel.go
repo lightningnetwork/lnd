@@ -265,7 +265,7 @@ type ChannelCommitment struct {
 	Htlcs []HTLC
 
 	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk thru
+	//  * lets just walk through
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel

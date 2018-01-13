@@ -160,7 +160,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 
 // determineFeePerByte will determine the fee in sat/byte that should be paid
 // given an estimator, a confirmation target, and a manual value for sat/byte.
-// A value is chosen based on the two free paramters as one, or both of them
+// A value is chosen based on the two free parameters as one, or both of them
 // can be zero.
 func determineFeePerByte(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 	satPerByte int64) (btcutil.Amount, error) {
@@ -209,7 +209,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -245,7 +245,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 		}
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for this transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -609,7 +609,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		nodePubKeyBytes = nodePubKey.SerializeCompressed()
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// approriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -731,7 +731,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 			"initial state must be below the local funding amount")
 	}
 
-	// Based on the passed fee related paramters, we'll determine an
+	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for the funding transaction.
 	feePerByte, err := determineFeePerByte(
 		r.server.cc.feeEstimator, in.TargetConf, in.SatPerByte,
@@ -903,7 +903,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				}
 			})
 	} else {
-		// Based on the passed fee related paramters, we'll determine
+		// Based on the passed fee related parameters, we'll determine
 		// an approriate fee rate for the cooperative closure
 		// transaction.
 		feePerByte, err := determineFeePerByte(

@@ -298,7 +298,7 @@ Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
 unnecessary line noise. Coupled with the commenting scheme specified above,
 proper spacing allows readers to quickly scan code, extracting semantics quickly.
-Functions should _not_ just be layed out as a bare contiguous block of code. 
+Functions should _not_ just be laid out as a bare contiguous block of code. 
 
 **WRONG**   
 ```go

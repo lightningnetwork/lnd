@@ -36,7 +36,7 @@ type ChainNotifier interface {
 		heightHint uint32) (*ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
-	// outpoint is succesfully spent within a confirmed transaction. The
+	// outpoint is successfully spent within a confirmed transaction. The
 	// returned SpendEvent will receive a send on the 'Spend' transaction
 	// once a transaction spending the input is detected on the blockchain.
 	// The heightHint parameter is provided as a convenience to light

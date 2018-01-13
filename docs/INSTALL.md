@@ -164,7 +164,7 @@ To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
 in `--bitcoin.simnet` for `simnet` mode if needed), and also your own `btcd`
 node if available:
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --neutrino.active --neutrino.connect=faucet.lightning.community
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 #### Running lnd using the btcd backend
@@ -174,7 +174,22 @@ Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
 [tutorial](http://dev.lightning.community/tutorial), you may skip this step.
 ```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.rpcuser=kek --bitcoin.rpcpass=kek --externalip=X.X.X.X
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
+```
+
+#### Running lnd using the bitcoind backend
+
+In order to run `lnd` with a `bitcoind` back-end, the `bitcoind` instance must
+be configured with `--txindex` just like `btcd` above. In addition, you'll need
+ to configure the `bitcoind` instance with `--zmqpubrawblock` and `--zmqpubrawtx`
+(the latter is optional but allows you to see unconfirmed transactions in your
+wallet). They must be combined in the same ZMQ socket address. Then, run this
+command after `bitcoind` has finished syncing on testnet. Otherwise, replace
+`--bitcoin.testnet` with `--bitcoin.regtest`. Please note that the `rpcuser`
+and `rpcpass` parameters can typically be determined by `lnd` for a `bitcoind`
+instance running under the same user, including when using cookie auth.
+```
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=kek bitcoind.rpcpass=kek --externalip=X.X.X.X
 ```
 
 #### Network Reachability 
@@ -196,7 +211,7 @@ at the command line, you can create an `lnd.conf`.
 **On Linux, located at:**
 `~/.lnd/lnd.conf`
 
-Here's a sample `lnd.conf` to get you started:
+Here's a sample `lnd.conf` for `btcd` to get you started:
 ```
 [Application Options]
 debuglevel=trace
@@ -210,7 +225,9 @@ bitcoin.active=1
 Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. `lnd` also supports Litecoin testnet4 (but not both BTC and LTC
 at the same time), so when working with Litecoin be sure to set to parameters
-for Litecoin accordingly.
+for Litecoin accordingly. For node configuration, the sections are called
+`[Btcd]`, `[Bitcoind]`, `[Neutrino]`, and `[Ltcd]` depending on which chain
+and node type you're using.
 
 # Accurate as of:
 - _roasbeef/btcd commit:_ `f8c02aff4e7a807ba0c1349e2db03695d8e790e8` 

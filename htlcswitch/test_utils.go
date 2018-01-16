@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lightning-onion"
@@ -53,8 +56,35 @@ var (
 		"3135609736119018462340006816851118", 10)
 )
 
-// mockGetChanUpdateMessage helper function which returns topology update of
-// the channel
+var idSeqNum uint64
+
+func genIDs() (lnwire.ChannelID, lnwire.ChannelID, lnwire.ShortChannelID,
+	lnwire.ShortChannelID) {
+
+	id := atomic.AddUint64(&idSeqNum, 2)
+
+	var scratch [8]byte
+
+	binary.BigEndian.PutUint64(scratch[:], id)
+	hash1, _ := chainhash.NewHash(bytes.Repeat(scratch[:], 4))
+
+	binary.BigEndian.PutUint64(scratch[:], id+1)
+	hash2, _ := chainhash.NewHash(bytes.Repeat(scratch[:], 4))
+
+	chanPoint1 := wire.NewOutPoint(hash1, uint32(id))
+	chanPoint2 := wire.NewOutPoint(hash2, uint32(id+1))
+
+	chanID1 := lnwire.NewChanIDFromOutPoint(chanPoint1)
+	chanID2 := lnwire.NewChanIDFromOutPoint(chanPoint2)
+
+	aliceChanID := lnwire.NewShortChanIDFromInt(id)
+	bobChanID := lnwire.NewShortChanIDFromInt(id + 1)
+
+	return chanID1, chanID2, aliceChanID, bobChanID
+}
+
+// mockGetChanUpdateMessage helper function which returns topology update
+// of the channel
 func mockGetChanUpdateMessage() (*lnwire.ChannelUpdate, error) {
 	return &lnwire.ChannelUpdate{
 		Signature: wireSig,
@@ -293,6 +323,8 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 
 	cleanUpFunc := func() {
+		dbAlice.Close()
+		dbBob.Close()
 		os.RemoveAll(bobPath)
 		os.RemoveAll(alicePath)
 	}
@@ -339,7 +371,21 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	restore := func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 		error) {
 		aliceStoredChannels, err := dbAlice.FetchOpenChannels(aliceKeyPub)
-		if err != nil {
+		switch err {
+		case nil:
+		case bolt.ErrDatabaseNotOpen:
+			dbAlice, err = channeldb.Open(dbAlice.Path())
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to reopen alice "+
+					"db: %v", err)
+			}
+
+			aliceStoredChannels, err = dbAlice.FetchOpenChannels(aliceKeyPub)
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to fetch alice "+
+					"channel: %v", err)
+			}
+		default:
 			return nil, nil, errors.Errorf("unable to fetch alice channel: "+
 				"%v", err)
 		}
@@ -364,7 +410,21 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		}
 
 		bobStoredChannels, err := dbBob.FetchOpenChannels(bobKeyPub)
-		if err != nil {
+		switch err {
+		case nil:
+		case bolt.ErrDatabaseNotOpen:
+			dbBob, err = channeldb.Open(dbBob.Path())
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to reopen bob "+
+					"db: %v", err)
+			}
+
+			bobStoredChannels, err = dbBob.FetchOpenChannels(bobKeyPub)
+			if err != nil {
+				return nil, nil, errors.Errorf("unable to fetch bob "+
+					"channel: %v", err)
+			}
+		default:
 			return nil, nil, errors.Errorf("unable to fetch bob channel: "+
 				"%v", err)
 		}
@@ -689,8 +749,7 @@ type clusterChannels struct {
 func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 	*clusterChannels, func(), func() (*clusterChannels, error), error) {
 
-	firstChanID := lnwire.NewShortChanIDFromInt(4)
-	secondChanID := lnwire.NewShortChanIDFromInt(5)
+	_, _, firstChanID, secondChanID := genIDs()
 
 	// Create lightning channels between Alice<->Bob and Bob<->Carol
 	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err :=
@@ -759,14 +818,29 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *threeHopNetwork {
 
+	aliceDb := aliceChannel.State().Db
+	bobDb := firstBobChannel.State().Db
+	carolDb := carolChannel.State().Db
+
 	// Create three peers/servers.
-	aliceServer := newMockServer(t, "alice")
-	bobServer := newMockServer(t, "bob")
-	carolServer := newMockServer(t, "carol")
+	aliceServer, err := newMockServer(t, "alice", aliceDb)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+	bobServer, err := newMockServer(t, "bob", bobDb)
+	if err != nil {
+		t.Fatalf("unable to create bob server: %v", err)
+	}
+	carolServer, err := newMockServer(t, "carol", carolDb)
+	if err != nil {
+		t.Fatalf("unable to create carol server: %v", err)
+	}
 
 	// Create mock decoder instead of sphinx one in order to mock the route
 	// which htlc should follow.
-	decoder := &mockIteratorDecoder{}
+	aliceDecoder := newMockIteratorDecoder()
+	bobDecoder := newMockIteratorDecoder()
+	carolDecoder := newMockIteratorDecoder()
 
 	feeEstimator := &mockFeeEstimator{
 		byteFeeIn: make(chan lnwallet.SatPerVByte),
@@ -783,7 +857,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: 6,
 	}
-	obfuscator := newMockObfuscator()
+	obfuscator := NewMockObfuscator()
 
 	aliceEpochChan := make(chan *chainntnfs.BlockEpoch)
 	aliceEpoch := &chainntnfs.BlockEpochEvent{
@@ -794,12 +868,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	aliceTicker := time.NewTicker(50 * time.Millisecond)
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy:     globalPolicy,
-			Peer:              bobServer,
-			Switch:            aliceServer.htlcSwitch,
-			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
-				lnwire.FailCode) {
+			FwrdingPolicy:      globalPolicy,
+			Peer:               bobServer,
+			Circuits:           aliceServer.htlcSwitch.CircuitModifier(),
+			ForwardPackets:     aliceServer.htlcSwitch.ForwardPackets,
+			DecodeHopIterator:  aliceDecoder.DecodeHopIterator,
+			DecodeHopIterators: aliceDecoder.DecodeHopIterators,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
@@ -810,10 +886,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents: &contractcourt.ChainEventSubscription{},
-			SyncStates:  true,
-			BatchTicker: &mockTicker{aliceTicker.C},
-			BatchSize:   10,
+			ChainEvents:    &contractcourt.ChainEventSubscription{},
+			SyncStates:     true,
+			BatchTicker:    &mockTicker{aliceTicker.C},
+			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
+			BatchSize:      10,
 		},
 		aliceChannel,
 		startingHeight,
@@ -840,12 +917,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	firstBobTicker := time.NewTicker(50 * time.Millisecond)
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy:     globalPolicy,
-			Peer:              aliceServer,
-			Switch:            bobServer.htlcSwitch,
-			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
-				lnwire.FailCode) {
+			FwrdingPolicy:      globalPolicy,
+			Peer:               aliceServer,
+			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
+			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
+			DecodeHopIterator:  bobDecoder.DecodeHopIterator,
+			DecodeHopIterators: bobDecoder.DecodeHopIterators,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
@@ -856,10 +935,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents: &contractcourt.ChainEventSubscription{},
-			SyncStates:  true,
-			BatchTicker: &mockTicker{firstBobTicker.C},
-			BatchSize:   10,
+			ChainEvents:    &contractcourt.ChainEventSubscription{},
+			SyncStates:     true,
+			BatchTicker:    &mockTicker{firstBobTicker.C},
+			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
+			BatchSize:      10,
 		},
 		firstBobChannel,
 		startingHeight,
@@ -886,12 +966,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobTicker := time.NewTicker(50 * time.Millisecond)
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy:     globalPolicy,
-			Peer:              carolServer,
-			Switch:            bobServer.htlcSwitch,
-			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
-				lnwire.FailCode) {
+			FwrdingPolicy:      globalPolicy,
+			Peer:               carolServer,
+			Circuits:           bobServer.htlcSwitch.CircuitModifier(),
+			ForwardPackets:     bobServer.htlcSwitch.ForwardPackets,
+			DecodeHopIterator:  bobDecoder.DecodeHopIterator,
+			DecodeHopIterators: bobDecoder.DecodeHopIterators,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
@@ -902,10 +984,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents: &contractcourt.ChainEventSubscription{},
-			SyncStates:  true,
-			BatchTicker: &mockTicker{secondBobTicker.C},
-			BatchSize:   10,
+			ChainEvents:    &contractcourt.ChainEventSubscription{},
+			SyncStates:     true,
+			BatchTicker:    &mockTicker{secondBobTicker.C},
+			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
+			BatchSize:      10,
 		},
 		secondBobChannel,
 		startingHeight,
@@ -932,12 +1015,14 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	carolTicker := time.NewTicker(50 * time.Millisecond)
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
-			FwrdingPolicy:     globalPolicy,
-			Peer:              bobServer,
-			Switch:            carolServer.htlcSwitch,
-			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (ErrorEncrypter,
-				lnwire.FailCode) {
+			FwrdingPolicy:      globalPolicy,
+			Peer:               bobServer,
+			Circuits:           carolServer.htlcSwitch.CircuitModifier(),
+			ForwardPackets:     carolServer.htlcSwitch.ForwardPackets,
+			DecodeHopIterator:  carolDecoder.DecodeHopIterator,
+			DecodeHopIterators: carolDecoder.DecodeHopIterators,
+			DecodeOnionObfuscator: func(*sphinx.OnionPacket) (
+				ErrorEncrypter, lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
@@ -948,10 +1033,11 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents: &contractcourt.ChainEventSubscription{},
-			SyncStates:  true,
-			BatchTicker: &mockTicker{carolTicker.C},
-			BatchSize:   10,
+			ChainEvents:    &contractcourt.ChainEventSubscription{},
+			SyncStates:     true,
+			BatchTicker:    &mockTicker{carolTicker.C},
+			FwdPkgGCTicker: &mockTicker{time.NewTicker(5 * time.Second).C},
+			BatchSize:      10,
 		},
 		carolChannel,
 		startingHeight,

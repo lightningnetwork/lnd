@@ -4948,7 +4948,8 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 
 	// Next we'll grab the current set of log updates that are still active
 	// and haven't been garbage collected.
-	htlcView := lc.fetchHTLCView(lc.remoteUpdateLog.logIndex,
+	remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
+	htlcView := lc.fetchHTLCView(remoteACKedIndex,
 		lc.localUpdateLog.logIndex)
 	feePerKw := lc.channelState.LocalCommitment.FeePerKw
 	dustLimit := lc.channelState.LocalChanCfg.DustLimit

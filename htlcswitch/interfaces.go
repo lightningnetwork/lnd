@@ -47,7 +47,7 @@ type ChannelLink interface {
 	//
 	// NOTE: This function MUST be non-blocking (or block as little as
 	// possible).
-	HandleSwitchPacket(*htlcPacket)
+	HandleSwitchPacket(*htlcPacket) error
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
